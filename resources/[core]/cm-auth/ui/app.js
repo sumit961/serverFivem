@@ -30,6 +30,14 @@ window.addEventListener('message', function(event) {
         showLogin();
     }
     
+    // FIX: Add handler to hide the auth container completely
+    if (data.action === 'closeAuth') {
+        console.log('[CM-AUTH-UI] ACTION = CLOSEAUTH');
+        if (app) {
+            app.style.display = 'none';
+        }
+    }
+    
     if (data.action === 'error') {
         console.log('[CM-AUTH-UI] ACTION = ERROR, msg:', data.message);
         showError(data.message, 'error');

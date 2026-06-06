@@ -98,11 +98,12 @@ function createCharacter() {
         return;
     }
     
-    fetch(`https://${GetParentResourceName()}/createCharacter`, {
+    // CHANGED: Changed endpoint to match the Lua NUICallback ('selectSlot')
+    fetch(`https://${GetParentResourceName()}/selectSlot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            slot: selectedSlot,
+            slot: selectedSlot, // Ensure the selected slot is passed down
             firstName: firstName,
             lastName: lastName,
             dob: dob,

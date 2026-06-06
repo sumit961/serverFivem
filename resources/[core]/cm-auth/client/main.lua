@@ -32,7 +32,11 @@ RegisterNetEvent('cm-auth:client:loginResult', function(success, data)
     print('[CM-AUTH-CLIENT] loginResult success=' .. tostring(success) .. ' data=' .. tostring(data))
     if success then
         display = false
-        SetNuiFocus(false, false)
+        SetNuiFocus(false, false) -- Remove auth focus safely
+        
+        -- FIX: Tell cm-auth UI to hide its wrapper layout
+        SendNUIMessage({action = 'closeAuth'})
+        
         print('[CM-AUTH-CLIENT] Triggering cm-characters:client:openSelector')
         TriggerEvent('cm-characters:client:openSelector', data)
     else
