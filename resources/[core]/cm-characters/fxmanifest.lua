@@ -2,26 +2,41 @@ fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
 
-description 'CM-Characters: Creation, Selection, Appearance'
+author 'cm-dev'
+description 'CM Characters - Character slot & appearance system'
 version '1.0.0'
 
-dependencies {'cm-core'}
-
-server_scripts {
-    'server/main.lua',
-    'server/creation.lua',
-    'server/slots.lua',
+shared_scripts {
+    '@cm-core/shared/config.lua', -- If you have shared config
 }
 
 client_scripts {
-    'client/main.lua',
-    'client/selector.lua',
-    'client/creator.lua',
+    'client/main.lua',       -- Slot selector (existing)
+    'client/creator.lua',    -- Character creation form
+    'client/appearance.lua', -- Appearance editor
+    'client/apply.lua',      -- Apply saved appearance
 }
 
-ui_page 'ui/index.html'
+server_scripts {
+    '@oxmysql/lib/MySQL.lua', -- or your MySQL wrapper
+    'server/main.lua',       -- Character getters (existing)
+    'server/creation.lua',   -- Character creation (existing)
+    'server/slots.lua',      -- Slot management (existing)
+    'server/appearance.lua',   -- Save appearance
+}
+
+ui_page 'ui/appearance/index.html'
+
 files {
-    'ui/index.html',
-    'ui/style.css',
-    'ui/app.js',
+    'ui/appearance/index.html',
+    'ui/appearance/style.css',
+    'ui/appearance/app.js',
+    'ui/appearance/translation.js',
+    'ui/slots/**/*',  -- Your existing slot UI files
+}
+
+-- Dependencies
+dependencies {
+    'cm-core',      -- Your core resource
+    'cm-auth',      -- Auth system
 }
