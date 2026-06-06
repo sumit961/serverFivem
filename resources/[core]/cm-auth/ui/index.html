@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CM Auth</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app" style="display: none;">
+        <div class="auth-container">
+            <div class="logo">GRAND RP</div>
+            
+            <!-- LOGIN FORM -->
+            <div id="login-form">
+                <h2>Login</h2>
+                <input type="text" id="login-user" placeholder="Username" autocomplete="off">
+                <input type="password" id="login-pass" placeholder="Password" autocomplete="off">
+                <button onclick="login()">Login</button>
+                <p class="switch" onclick="showRegister()">No account? Register</p>
+            </div>
+            
+            <!-- REGISTER FORM -->
+            <div id="register-form" style="display: none;">
+                <h2>Register</h2>
+                <input type="text" id="reg-user" placeholder="Username" autocomplete="off">
+                <input type="email" id="reg-email" placeholder="Email" autocomplete="off">
+                <input type="password" id="reg-pass" placeholder="Password" autocomplete="off">
+                <button onclick="register()">Register</button>
+                <p class="switch" onclick="showLogin()">Have account? Login</p>
+            </div>
+            
+            <div id="error-msg"></div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

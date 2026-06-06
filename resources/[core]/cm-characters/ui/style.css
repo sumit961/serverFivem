@@ -1,0 +1,119 @@
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+body { background: transparent; }
+
+#app {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex; align-items: center; justify-content: center;
+}
+
+h1 {
+    text-align: center; color: #fff; font-size: 32px;
+    margin-bottom: 30px; text-transform: uppercase; letter-spacing: 3px;
+}
+
+/* Slots */
+.slots-container {
+    display: flex; gap: 20px; justify-content: center;
+}
+
+.slot {
+    width: 280px; height: 380px;
+    background: rgba(30, 30, 30, 0.9);
+    border: 2px solid #333; border-radius: 12px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    cursor: pointer; transition: 0.3s;
+}
+
+.slot:hover {
+    border-color: #1a73e8;
+    transform: translateY(-5px);
+    box-shadow: 0 10px 30px rgba(26, 115, 232, 0.3);
+}
+
+.slot-empty {
+    color: #666; font-size: 18px; font-weight: 600;
+}
+
+.slot-info {
+    color: #fff; text-align: center; padding: 20px;
+}
+
+.slot-info .name {
+    font-size: 22px; font-weight: 700; color: #1a73e8;
+    margin-bottom: 10px;
+}
+
+.slot-info .detail {
+    color: #aaa; font-size: 14px; margin: 5px 0;
+}
+
+.slot .delete-btn {
+    margin-top: 15px; padding: 8px 16px;
+    background: #ea4335; border: none; border-radius: 6px;
+    color: #fff; cursor: pointer; font-size: 13px;
+}
+
+/* Creator */
+#creator-screen {
+    width: 400px; background: rgba(18, 18, 18, 0.95);
+    border: 1px solid #333; border-radius: 12px;
+    padding: 40px;
+}
+
+#creator-screen input, #creator-screen select {
+    width: 100%; padding: 12px 16px; margin-bottom: 12px;
+    background: #1e1e1e; border: 1px solid #333; border-radius: 8px;
+    color: #fff; font-size: 14px; outline: none;
+}
+
+#creator-screen input:focus, #creator-screen select:focus {
+    border-color: #1a73e8;
+}
+
+#creator-screen button {
+    width: 100%; padding: 14px; margin-top: 10px;
+    background: #1a73e8; border: none; border-radius: 8px;
+    color: #fff; font-size: 16px; font-weight: 600;
+    cursor: pointer; transition: 0.2s;
+}
+
+#creator-screen button:hover { background: #4285f4; }
+
+#creator-screen button.back {
+    background: transparent; border: 1px solid #333;
+}
+
+#creator-screen button.back:hover { border-color: #666; }
+
+#error-msg, #creator-error {
+    margin-top: 12px; padding: 10px; border-radius: 6px;
+    font-size: 13px; display: none;
+}
+
+#error-msg.show, #creator-error.show {
+    display: block; background: rgba(234, 67, 53, 0.2);
+    color: #ea4335;
+}
+
+.unique-id {
+    font-size: 24px;
+    font-weight: 800;
+    color: #fbbc04;
+    margin-bottom: 8px;
+    letter-spacing: 2px;
+}
+
+.permanent-tag {
+    margin-top: 10px;
+    padding: 4px 12px;
+    background: rgba(251, 188, 4, 0.2);
+    border: 1px solid #fbbc04;
+    border-radius: 4px;
+    color: #fbbc04;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}

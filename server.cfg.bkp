@@ -1,0 +1,49 @@
+# FXServer Network
+endpoint_add_tcp "0.0.0.0:30120"
+endpoint_add_udp "0.0.0.0:30120"
+
+# Server Info
+sv_hostname "Grand RP by Sumit_Yadav"
+sets sv_projectName "Grand RP Custom"
+sets sv_projectDesc "CM-Core Framework - Built by Sumit_Yadav"
+sets tags "rp, custom, cm-core"
+sets locale "en-US"
+sv_maxclients 48
+
+# Game Build (Bottom Dollar Bounties)
+sv_enforceGameBuild 3258
+
+# License Key (yours)
+sv_licenseKey "pytlmnwwzgdbs14503yc2f62nupy3m2m"
+
+# Steam API (optional, leave as "none" if not using Steam auth)
+set steam_webApiKey "none"
+
+# MySQL Database - UPDATE PASSWORD IF YOU SET ONE
+set mysql_connection_string "mysql://root@localhost/grandrp?charset=utf8mb4"
+set cm_environment "development"
+
+# System Chat
+set resources_useSystemChat true
+
+# Admin Setup (your FiveM ID is already admin)
+add_ace group.admin command allow
+add_ace group.admin command.quit deny
+add_principal identifier.fivem:1494046 group.admin
+
+# REQUIRED CFX Resources
+ensure mapmanager
+ensure chat
+ensure spawnmanager
+ensure sessionmanager
+ensure basic-gamemode
+ensure hardcap
+
+# DATABASE DRIVER (upload oxmysql to [standalone]/ first)
+ensure oxmysql
+
+# CM-CORE FRAMEWORK
+ensure cm-bcrypt
+ensure oxmysql
+ensure cm-core
+ensure cm-auth

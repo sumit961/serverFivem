@@ -1,0 +1,54 @@
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+body { background: transparent; overflow: hidden; }
+
+#app {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.9);
+    display: flex; align-items: center; justify-content: center;
+}
+
+.auth-container {
+    width: 380px; background: rgba(18, 18, 18, 0.98);
+    border: 1px solid #333; border-radius: 16px;
+    padding: 40px; color: #fff;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.9);
+}
+
+.logo {
+    text-align: center; font-size: 28px; font-weight: 800;
+    letter-spacing: 4px; margin-bottom: 30px;
+    background: linear-gradient(90deg, #1a73e8, #4285f4);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+
+h2 { margin-bottom: 20px; font-weight: 600; text-align: center; }
+
+input {
+    width: 100%; padding: 14px 16px; margin-bottom: 14px;
+    background: #1e1e1e; border: 1px solid #333; border-radius: 10px;
+    color: #fff; font-size: 15px; outline: none; transition: 0.2s;
+}
+input:focus { border-color: #1a73e8; background: #252525; }
+
+button {
+    width: 100%; padding: 16px; margin-top: 6px;
+    background: #1a73e8; border: none; border-radius: 10px;
+    color: #fff; font-size: 16px; font-weight: 700;
+    cursor: pointer; transition: 0.2s; text-transform: uppercase; letter-spacing: 1px;
+}
+button:hover { background: #4285f4; transform: translateY(-1px); }
+button:active { transform: translateY(0); }
+
+.switch {
+    text-align: center; margin-top: 18px; color: #888;
+    font-size: 14px; cursor: pointer; transition: 0.2s;
+}
+.switch:hover { color: #1a73e8; }
+
+#error-msg {
+    margin-top: 14px; padding: 12px; border-radius: 8px;
+    font-size: 14px; display: none; text-align: center; font-weight: 500;
+}
+#error-msg.show { display: block; }
+#error-msg.error { background: rgba(234, 67, 53, 0.15); color: #ea4335; border: 1px solid rgba(234, 67, 53, 0.3); }
+#error-msg.success { background: rgba(52, 168, 83, 0.15); color: #34a853; border: 1px solid rgba(52, 168, 83, 0.3); }

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CM-Core Bridge</title>
+    <style>body { margin: 0; background: transparent; overflow: hidden; }</style>
+</head>
+<body>
+    <script>
+        window.addEventListener('message', function(event) {
+            const data = event.data;
+            if (data.action === 'stateUpdate') {
+                console.log('[CM-Core] State update:', data.namespace, data.key, data.value);
+            }
+        });
+        
+        fetch(`https://${GetParentResourceName()}/getState`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+    </script>
+</body>
+</html>
