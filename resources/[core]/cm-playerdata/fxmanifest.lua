@@ -2,7 +2,7 @@ fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
 
-description 'CM Player Data - Cash, Bank, Position, Character Cache'
+description 'CM Player Data - Health, Death, Position, Cash, Bank'
 author 'CM Framework'
 version '1.0.0'
 
