@@ -1,100 +1,110 @@
--- Updated main.lua - connects slots to creator to appearance
+-- cm-characters/client/main.lua
 
 local display = false
 local currentAccountId = nil
 
--- Open character selector (called by cm-auth after login)
+print('[CM-CHARACTERS] main.lua loaded!')
+
 RegisterNetEvent('cm-characters:client:openSelector', function(accountId)
-    currentAccountId = accountId
+    local accId = tostring(accountId)
+    print('[CM-CHARACTERS] openSelector received! accountId=' .. accId)
+    
+    currentAccountId = accId
     display = true
     SetNuiFocus(true, true)
-
-    -- Request slots from server
-    TriggerServerEvent('cm-characters:server:getSlots', accountId)
+    
+    SendNUIMessage({
+        action = 'showApp'
+    })
+    
+    TriggerServerEvent('cm-characters:server:getSlots', accId)
 end)
 
--- Show slots UI
 RegisterNetEvent('cm-characters:client:showSlots', function(slots, accountId)
+    print('[CM-CHARACTERS] showSlots received!')
+    
     SendNUIMessage({
         action = 'showSlots',
         slots = slots,
         accountId = accountId
     })
+    print('[CM-CHARACTERS] Sent slots to UI')
 end)
 
--- Create result - NOW goes to appearance instead of spawn
-RegisterNetEvent('cm-characters:client:createResult', function(success, data)
-    if success then
-        -- Character created, now open appearance editor
-        -- The creator.lua will handle hiding its UI and triggering this
-        TriggerEvent('cm-characters:client:openAppearance', {
-            charId = data.charId,
-            slot = data.slot,
-            gender = data.gender,
-            isNew = true
-        })
-    else
-        SendNUIMessage({action = 'error', message = data})
-    end
-end)
-
--- Character selected, close UI and spawn (for existing characters)
 RegisterNetEvent('cm-characters:client:spawn', function(charData)
+    print('[CM-CHARACTERS] >>> SPAWN EVENT RECEIVED <<<')
+    
     display = false
+    
+    -- FIX: Cleanup any existing camera from appearance editor
+    TriggerEvent('cm-characters:client:cleanupAppearance')
+    
+    -- Hide UI
+    SendNUIMessage({action = 'hideAll'})
     SetNuiFocus(false, false)
 
-    -- Spawn player
     local spawn = charData.last_position or {x = -1037.0, y = -2737.0, z = 13.8, heading = 0.0}
 
     DoScreenFadeOut(500)
     Wait(500)
 
     local ped = PlayerPedId()
+    
+    -- FIX: Ensure player is unfrozen before teleport
+    FreezeEntityPosition(ped, false)
+    SetEntityCollision(ped, true, true)
+    
+    -- Teleport to spawn
     SetEntityCoords(ped, spawn.x, spawn.y, spawn.z)
     SetEntityHeading(ped, spawn.heading or 0.0)
-    FreezeEntityPosition(ped, false)
+    
+    -- Reset camera
+    RenderScriptCams(false, false, 0, true, true)
+    SetCamActive(GetRenderingCam(), false)
+    
+    -- Wait for coords to set
+    Wait(100)
 
-    -- Apply saved appearance if exists
     if charData.appearance then
+        print('[CM-CHARACTERS] Applying appearance...')
         TriggerEvent('cm-characters:client:applyAppearance', charData.appearance)
     else
+        print('[CM-CHARACTERS] No appearance, using default')
         SetPedDefaultComponentVariation(ped)
     end
 
+    Wait(500)
     DoScreenFadeIn(500)
-
-    -- Set local state
+    
+    -- Final unfreeze
+    FreezeEntityPosition(ped, false)
+    SetEntityCollision(ped, true, true)
+    
     LocalPlayer.state:set('isLoggedIn', true, true)
+    
+    print('[CM-CHARACTERS] >>> SPAWN COMPLETE <<<')
 end)
 
--- Error handler
 RegisterNetEvent('cm-characters:client:error', function(msg)
+    print('[CM-CHARACTERS] error: ' .. tostring(msg))
     SendNUIMessage({action = 'error', message = msg})
 end)
 
--- Deleted handler
 RegisterNetEvent('cm-characters:client:deleted', function(charId)
-    -- Refresh slots
     if currentAccountId then
         TriggerServerEvent('cm-characters:server:getSlots', currentAccountId)
     end
 end)
 
--- NUI Callbacks
 RegisterNUICallback('selectSlot', function(data, cb)
+    print('[CM-CHARACTERS] selectSlot callback: ' .. json.encode(data))
     if data.charId then
-        -- Select existing character -> spawn directly
+        print('[CM-CHARACTERS] Selecting character: ' .. tostring(data.charId))
         TriggerServerEvent('cm-characters:server:selectCharacter', data.charId)
     else
-        -- Empty slot -> open character creator form
+        print('[CM-CHARACTERS] Opening creator for slot: ' .. tostring(data.slot))
         TriggerEvent('cm-characters:client:openCreator', data.slot, currentAccountId)
     end
-    cb('ok')
-end)
-
-RegisterNUICallback('deleteCharacter', function(data, cb)
-    -- NO DELETE - characters are permanent
-    -- This callback exists for compatibility but does nothing
     cb('ok')
 end)
 

@@ -1,5 +1,4 @@
 -- cm-auth/client/main.lua
--- FULL DEBUG + FORCE OPEN FIX
 
 local DEBUG = true
 
@@ -25,27 +24,23 @@ RegisterNetEvent('cm-auth:client:openLogin', function()
     display = true
     SetNuiFocus(true, true)
     SendNUIMessage({action = 'open', type = 'login'})
-    print('[CM-AUTH-CLIENT] NUI message sent to UI')
 end)
 
 RegisterNetEvent('cm-auth:client:loginResult', function(success, data)
-    print('[CM-AUTH-CLIENT] loginResult success=' .. tostring(success) .. ' data=' .. tostring(data))
+    print('[CM-AUTH-CLIENT] loginResult success=' .. tostring(success))
     if success then
         display = false
-        SetNuiFocus(false, false) -- Remove auth focus safely
-        
-        -- FIX: Tell cm-auth UI to hide its wrapper layout
+        SetNuiFocus(false, false)
+        -- Hide auth UI
         SendNUIMessage({action = 'closeAuth'})
-        
-        print('[CM-AUTH-CLIENT] Triggering cm-characters:client:openSelector')
-        TriggerEvent('cm-characters:client:openSelector', data)
+        print('[CM-AUTH-CLIENT] Auth UI hidden, waiting for character selector...')
     else
         SendNUIMessage({action = 'error', message = data})
     end
 end)
 
 RegisterNetEvent('cm-auth:client:registerResult', function(success, msg)
-    print('[CM-AUTH-CLIENT] registerResult success=' .. tostring(success) .. ' msg=' .. tostring(msg))
+    print('[CM-AUTH-CLIENT] registerResult success=' .. tostring(success))
     SendNUIMessage({action = 'registerResult', success = success, message = msg})
 end)
 
@@ -55,16 +50,12 @@ end)
 
 RegisterNUICallback('login', function(data, cb)
     print('[CM-AUTH-CLIENT] NUI login callback!')
-    print('[CM-AUTH-CLIENT] data.username=' .. tostring(data.username))
     TriggerServerEvent('cm-auth:server:login', data)
     cb('ok')
 end)
 
 RegisterNUICallback('register', function(data, cb)
     print('[CM-AUTH-CLIENT] NUI register callback!')
-    print('[CM-AUTH-CLIENT] data.username=' .. tostring(data.username))
-    print('[CM-AUTH-CLIENT] data.email=' .. tostring(data.email))
-    print('[CM-AUTH-CLIENT] data.password length=' .. tostring(data.password and #data.password or 0))
     TriggerServerEvent('cm-auth:server:register', data)
     cb('ok')
 end)
@@ -77,46 +68,28 @@ RegisterNUICallback('close', function(data, cb)
 end)
 
 -- ============================================
--- AUTO OPEN - MULTIPLE METHODS
+-- AUTO OPEN
 -- ============================================
 
--- Method 1: playerSpawned
 AddEventHandler('playerSpawned', function()
-    print('[CM-AUTH-CLIENT] >>> playerSpawned EVENT FIRED <<<')
+    print('[CM-AUTH-CLIENT] playerSpawned')
     Wait(1000)
-    print('[CM-AUTH-CLIENT] isLoggedIn state=' .. tostring(LocalPlayer.state.isLoggedIn))
     if not LocalPlayer.state.isLoggedIn then
-        print('[CM-AUTH-CLIENT] Opening login from playerSpawned')
         TriggerEvent('cm-auth:client:openLogin')
     end
 end)
 
--- Method 2: Resource start (backup)
 AddEventHandler('onClientResourceStart', function(resourceName)
-    print('[CM-AUTH-CLIENT] Resource start: ' .. tostring(resourceName))
     if resourceName == 'cm-auth' then
-        print('[CM-AUTH-CLIENT] cm-auth started, waiting 3 seconds...')
         Wait(3000)
-        print('[CM-AUTH-CLIENT] isLoggedIn=' .. tostring(LocalPlayer.state.isLoggedIn))
         if not LocalPlayer.state.isLoggedIn then
-            print('[CM-AUTH-CLIENT] FORCE OPENING LOGIN UI')
             TriggerEvent('cm-auth:client:openLogin')
         end
     end
 end)
 
--- Method 3: Command (manual)
 RegisterCommand('loginui', function()
-    print('[CM-AUTH-CLIENT] Manual /loginui command')
     TriggerEvent('cm-auth:client:openLogin')
 end)
-
--- Method 4: Keybind (F1)
-RegisterCommand('openlogin', function()
-    print('[CM-AUTH-CLIENT] F1 pressed, opening login')
-    TriggerEvent('cm-auth:client:openLogin')
-end)
-RegisterKeyMapping('openlogin', 'Open Login UI', 'keyboard', 'F1')
 
 print('[CM-AUTH-CLIENT] === SCRIPT LOADED ===')
-print('[CM-AUTH-CLIENT] Try pressing F1 or type /loginui')

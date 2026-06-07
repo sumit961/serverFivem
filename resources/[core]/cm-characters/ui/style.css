@@ -117,3 +117,30 @@ h1 {
     text-transform: uppercase;
     letter-spacing: 1px;
 }
+
+
+.char-face-preview {
+    width: 100%;
+    height: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 8px;
+    margin-bottom: 12px;
+    border: 1px solid rgba(26, 115, 232, 0.3);
+}
+
+.face-icon {
+    font-size: 64px;
+    color: rgba(26, 115, 232, 0.6);
+}
+
+.slot:hover .char-face-preview {
+    border-color: #1a73e8;
+    background: rgba(26, 115, 232, 0.1);
+}
+
+.slot:hover .face-icon {
+    color: #1a73e8;
+}

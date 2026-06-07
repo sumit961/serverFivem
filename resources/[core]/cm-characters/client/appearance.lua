@@ -448,7 +448,7 @@ local function DeleteAppearanceCam()
 end
 
 -- Open appearance editor
-RegisterNetEvent('cm-characters:client:openAppearance', function(charData)
+AddEventHandler('cm-characters:client:openAppearance', function(charData)
     currentCharData = charData
     isInAppearance = true
 

@@ -3,13 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Character Selection</title>
+    <title>CM Characters</title>
     <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Titillium+Web:ital,wght@0,200;0,300;0,400;0,600;0,700;0,900;1,200;1,300;1,400;1,600;1,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="appearance/style.css">
 </head>
 <body>
+    <!-- SLOTS & CREATOR -->
     <div id="app" style="display: none;">
-        
-        <!-- Character Slots -->
         <div id="slots-screen">
             <h1>Select Character</h1>
             <div class="slots-container">
@@ -25,7 +27,6 @@
             <div id="error-msg"></div>
         </div>
 
-        <!-- Character Creator -->
         <div id="creator-screen" style="display: none;">
             <h1>Create Character</h1>
             <input type="text" id="first-name" placeholder="First Name" maxlength="20">
@@ -39,8 +40,52 @@
             <button class="back" onclick="showSlots()">Back</button>
             <div id="creator-error"></div>
         </div>
-
     </div>
+
+    <!-- APPEARANCE EDITOR -->
+    <div id="appearance-ui" style="display: none;">
+        <div class="background">
+            <div class="categories"></div>
+            <div class="header">
+                <p id="headerName">CREATE YOUR CHARACTER</p>
+                <p id="headerCategory">SELECT CATEGORY</p>
+            </div>
+            <div class="panel"></div>
+            <div class="settings">
+                <div class="height">
+                    <p class="height-title" id="height-text">CAMERA HEIGHT</p>
+                    <div class="height-radius">
+                        <input type="range" value="0.0" step="0.1" min="-1.0" max="1.0" id="height-input" class="input-option-radius" oninput="changeHeight()">
+                    </div>
+                </div>
+                <div class="rotate">
+                    <p class="rotate-title" id="rotate-text">CAMERA ROTATE</p>
+                    <div class="rotate-radius">
+                        <input type="range" min="0" max="360" id="rotate-input" class="input-option-radius" oninput="changeRotate()">
+                    </div>
+                </div>
+                <div class="distance">
+                    <p class="distance-title" id="distance-text">CAMERA DISTANCE</p>
+                    <div class="distance-radius">
+                        <input type="range" min="30" max="100" id="distance-input" class="input-option-radius" oninput="changeDistance()">
+                    </div>
+                </div>
+                <div class="actions">
+                    <div class="accept-skin" onclick="saveAppearance()">
+                        <i class="fa-solid fa-check accept-icon"></i>
+                        <p id="save">SAVE & SPAWN</p>
+                    </div>
+                    <div class="hands-up" onclick="handsUp()">
+                        <i class="fa-solid fa-hands-holding-circle"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="app.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="appearance/translation.js"></script>
+    <script src="appearance/app.js"></script>
 </body>
 </html>

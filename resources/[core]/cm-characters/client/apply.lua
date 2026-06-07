@@ -1,5 +1,6 @@
 -- Apply saved appearance to ped
-RegisterNetEvent('cm-characters:client:applyAppearance', function(appearanceData)
+RegisterNetEvent('cm-characters:client:applyAppearance')
+AddEventHandler('cm-characters:client:applyAppearance', function(appearanceData)
     if not appearanceData or type(appearanceData) ~= 'table' then return end
 
     -- Ensure model is loaded

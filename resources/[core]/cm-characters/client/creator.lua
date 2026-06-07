@@ -1,48 +1,34 @@
+-- cm-characters/client/creator.lua
+
 local display = false
 local currentSlot = nil
 local currentAccountId = nil
+local isCreating = false
 
--- Open character creator form (called after selecting empty slot)
-RegisterNetEvent('cm-characters:client:openCreator', function(slot, accountId)
+AddEventHandler('cm-characters:client:openCreator', function(slot, accountId)
     currentSlot = slot
     currentAccountId = accountId
     display = true
+    isCreating = false
     SetNuiFocus(true, true)
 
     SendNUIMessage({
         action = 'showCreator',
         slot = slot
     })
+    print('[CM-CHARACTERS] Creator opened for slot ' .. tostring(slot))
 end)
 
--- NUI Callback: Submit character creation form
-RegisterNUICallback('submitCreator', function(data, cb)
-    -- Validate and send to server
-    TriggerServerEvent('cm-characters:server:create', currentAccountId, currentSlot, {
-        firstName = data.firstName,
-        lastName = data.lastName,
-        dob = data.dob,
-        gender = data.gender
-    })
-    cb({success = true})
-end)
-
--- NUI Callback: Close creator
-RegisterNUICallback('closeCreator', function(data, cb)
-    display = false
-    SetNuiFocus(false, false)
-    -- Go back to slots
-    TriggerServerEvent('cm-characters:server:getSlots', currentAccountId)
-    cb('ok')
-end)
-
--- Creation result - if success, go to appearance
 RegisterNetEvent('cm-characters:client:createResult', function(success, data)
+    print('[CM-CHARACTERS] createResult: success=' .. tostring(success) .. ' data=' .. tostring(data))
+    isCreating = false
+    
     if success then
-        -- Hide creator UI, open appearance editor
         SendNUIMessage({action = 'hideCreator'})
-
-        -- Trigger appearance editor with new char data
+        display = false
+        SetNuiFocus(false, false)
+        
+        print('[CM-CHARACTERS] Opening appearance for charId=' .. tostring(data.charId))
         TriggerEvent('cm-characters:client:openAppearance', {
             charId = data.charId,
             slot = currentSlot,
@@ -50,10 +36,37 @@ RegisterNetEvent('cm-characters:client:createResult', function(success, data)
             isNew = true
         })
     else
-        -- Show error in creator UI
+        -- Show error in creator form
         SendNUIMessage({
-            action = 'creatorError',
-            message = data
+            action = 'error',
+            message = tostring(data)
         })
+        print('[CM-CHARACTERS] Creation failed: ' .. tostring(data))
     end
+end)
+
+RegisterNUICallback('createCharacter', function(data, cb)
+    if isCreating then
+        cb('ok')
+        return
+    end
+    
+    isCreating = true
+    print('[CM-CHARACTERS] createCharacter: ' .. json.encode(data))
+    
+    TriggerServerEvent('cm-characters:server:create', currentAccountId, currentSlot, {
+        firstName = data.firstName,
+        lastName = data.lastName,
+        dob = data.dob,
+        gender = data.gender
+    })
+    
+    cb('ok')
+end)
+
+RegisterNUICallback('closeCreator', function(data, cb)
+    display = false
+    SetNuiFocus(false, false)
+    TriggerServerEvent('cm-characters:server:getSlots', currentAccountId)
+    cb('ok')
 end)

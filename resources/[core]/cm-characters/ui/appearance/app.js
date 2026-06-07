@@ -14,7 +14,10 @@ window.addEventListener('message', function(event) {
     const item = event.data;
 
     if (item.action === "openAppearance") {
-        document.body.style.display = 'block';
+        // FIX: Show appearance container, hide slots
+        document.getElementById('appearance-ui').style.display = 'block';
+        document.getElementById('app').style.display = 'none';
+        
         $('.categories').empty();
         $('.panel').empty();
 
@@ -34,36 +37,33 @@ window.addEventListener('message', function(event) {
         handsUpKey = item.handsUpKey;
         charId = item.charId;
 
-        // Show hands up button
         if (item.enableHandsUpButton) {
             $('.hands-up').show();
         } else {
             $('.hands-up').hide();
         }
 
-        // Build category buttons
         if (item.categories) {
             if (item.categories['parents']) {
-                $('.categories').append(`<div class="parents categoryBtn" data-type="parents"><i class="fa-solid fa-people-roof"></i></div>`);
+                $('.categories').append(`<<div class="parents categoryBtn" data-type="parents"><i class="fa-solid fa-people-roof"></i></div>`);
             }
             if (item.categories['face']) {
-                $('.categories').append(`<div class="face categoryBtn" data-type="face"><i class="fa-solid fa-face-smile"></i></div>`);
+                $('.categories').append(`<<div class="face categoryBtn" data-type="face"><i class="fa-solid fa-face-smile"></i></div>`);
             }
             if (item.categories['clothes']) {
-                $('.categories').append(`<div class="clothes categoryBtn" data-type="clothes"><i class="fa-solid fa-shirt"></i></div>`);
+                $('.categories').append(`<<div class="clothes categoryBtn" data-type="clothes"><i class="fa-solid fa-shirt"></i></div>`);
             }
             if (item.categories['clothesets']) {
-                $('.categories').append(`<div class="clothesets categoryBtn" data-type="clothesets"><i class="fa-solid fa-user-tie"></i></div>`);
+                $('.categories').append(`<<div class="clothesets categoryBtn" data-type="clothesets"><i class="fa-solid fa-user-tie"></i></div>`);
             }
             if (item.categories['hairs']) {
-                $('.categories').append(`<div class="hairs categoryBtn" data-type="hairs"><i class="fa-solid fa-scissors"></i></div>`);
+                $('.categories').append(`<<div class="hairs categoryBtn" data-type="hairs"><i class="fa-solid fa-scissors"></i></div>`);
             }
             if (item.categories['makeup']) {
-                $('.categories').append(`<div class="makeup categoryBtn" data-type="makeup"><i class="fa-solid fa-wand-magic-sparkles"></i></div>`);
+                $('.categories').append(`<<div class="makeup categoryBtn" data-type="makeup"><i class="fa-solid fa-wand-magic-sparkles"></i></div>`);
             }
         }
 
-        // Init current values
         for (const [key, value] of Object.entries(item.data || {})) {
             currentValue[key] = {
                 value: value.value,
@@ -73,7 +73,6 @@ window.addEventListener('message', function(event) {
             };
         }
 
-        // Apply excluded values
         for (const [k, v] of Object.entries(currentValue)) {
             if (disabledValues[k]) {
                 for (const [_k, _v] of Object.entries(disabledValues[k])) {
@@ -719,3 +718,13 @@ $(document).on("keydown", function(event) {
     else if (event.keyCode === 39) direction = "right";
     else if (event.key === handsUpKey) handsUp();
 });
+
+function saveAppearance() {
+    fetch(`https://${GetParentResourceName()}/appearanceSave`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ charId })
+    });
+    // FIX: Hide appearance container instead of body
+    document.getElementById('appearance-ui').style.display = 'none';
+}

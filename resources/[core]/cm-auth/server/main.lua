@@ -64,7 +64,7 @@ local function GetAccountBySocialClub(socialClubId)
 end
 
 -- ============================================
--- REGISTER (only 1 account per social club)
+-- REGISTER
 -- ============================================
 
 RegisterNetEvent('cm-auth:server:register', function(data)
@@ -75,7 +75,6 @@ RegisterNetEvent('cm-auth:server:register', function(data)
     local socialClubId = GetSocialClubId(src)
     dprint('Social Club:', socialClubId)
     
-    -- Check if social club already has account
     local existing = GetAccountBySocialClub(socialClubId)
     if existing then
         dprint('Social club already has account:', existing.username)
@@ -98,7 +97,6 @@ RegisterNetEvent('cm-auth:server:register', function(data)
         return
     end
     
-    -- Check username unique
     local exists = exports['cm-core']:Scalar('SELECT COUNT(*) FROM accounts WHERE username = ?', {data.username})
     if exists and exists > 0 then
         TriggerClientEvent('cm-auth:client:registerResult', src, false, 'Username taken')
@@ -110,7 +108,7 @@ RegisterNetEvent('cm-auth:server:register', function(data)
     local ip = GetPlayerEndpoint(src) or 'unknown'
     
     local ok2, result = pcall(function()
-        return exports['cm-core']:Insert([[
+        return exports['cm-core']:Query([[
             INSERT INTO accounts (id, social_club_id, username, password_hash, email, hwid_hash, ip_address)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         ]], {id, socialClubId, data.username, HashPassword(data.password), data.email, hwid, ip})
@@ -142,11 +140,9 @@ RegisterNetEvent('cm-auth:server:login', function(data)
     
     data.username = exports['cm-core']:Sanitize(data.username or "")
     
-    -- Find account by username OR social club (auto-login if account exists)
     local account = exports['cm-core']:Query('SELECT * FROM accounts WHERE username = ?', {data.username})
     
     if not account or #account == 0 then
-        -- Check if social club has account (maybe they forgot username)
         local socialAccount = GetAccountBySocialClub(socialClubId)
         if socialAccount then
             dprint('Found account by social club:', socialAccount.username)
@@ -159,17 +155,15 @@ RegisterNetEvent('cm-auth:server:login', function(data)
     
     account = account[1]
     
-    -- If logging in with different username than social club account, block it
     if account.social_club_id and account.social_club_id ~= socialClubId then
         dprint('Account belongs to different social club')
         TriggerClientEvent('cm-auth:client:loginResult', src, false, 'This account is linked to another PC')
         return
     end
     
-    -- Verify password (skip if auto-login by social club)
     if data.username ~= '' and data.password and #data.password > 0 then
         if not VerifyPassword(data.password, account.password_hash) then
-            exports['cm-core']:Insert('INSERT INTO login_attempts (username, ip_address, hwid_hash, success) VALUES (?, ?, ?, ?)', {
+            exports['cm-core']:Query('INSERT INTO login_attempts (username, ip_address, hwid_hash, success) VALUES (?, ?, ?, ?)', {
                 data.username, GetPlayerEndpoint(src) or 'unknown', GetPlayerToken(src, 0) or 'unknown', false
             })
             TriggerClientEvent('cm-auth:client:loginResult', src, false, 'Invalid password')
@@ -177,7 +171,6 @@ RegisterNetEvent('cm-auth:server:login', function(data)
         end
     end
     
-    -- Check ban
     if account.banned then
         if account.ban_expires == nil or account.ban_expires > os.date('%Y-%m-%d %H:%M:%S') then
             TriggerClientEvent('cm-auth:client:loginResult', src, false, 'Banned: ' .. (account.ban_reason or 'No reason'))
@@ -185,11 +178,10 @@ RegisterNetEvent('cm-auth:server:login', function(data)
         end
     end
     
-    -- Update last login and social club (if not set)
     exports['cm-core']:Query('UPDATE accounts SET last_login = NOW(), social_club_id = ? WHERE id = ?', 
         {socialClubId, account.id})
     
-    exports['cm-core']:Insert('INSERT INTO login_attempts (username, ip_address, hwid_hash, success) VALUES (?, ?, ?, ?)', {
+    exports['cm-core']:Query('INSERT INTO login_attempts (username, ip_address, hwid_hash, success) VALUES (?, ?, ?, ?)', {
         account.username, GetPlayerEndpoint(src) or 'unknown', GetPlayerToken(src, 0) or 'unknown', true
     })
     
@@ -197,6 +189,23 @@ RegisterNetEvent('cm-auth:server:login', function(data)
         category = 'auth', player_src = src, account_id = account.id
     })
     
+    -- ============================================
+    -- OPEN CHARACTER SELECTOR
+    -- ============================================
+    local accountIdStr = tostring(account.id)
+    print('[CM-AUTH] Login success, accountId=' .. accountIdStr)
+    
+    -- Set state bags
+    Player(src).state:set('accountId', accountIdStr, true)
+    Player(src).state:set('isLoggedIn', true, true)
+    
+    -- Hide auth UI first
     TriggerClientEvent('cm-auth:client:loginResult', src, true, account.id)
+    
+    -- Wait a tiny bit for auth UI to close, then open character selector
+    Wait(100)
+    print('[CM-AUTH] Opening character selector for accountId=' .. accountIdStr)
+    TriggerClientEvent('cm-characters:client:openSelector', src, accountIdStr)
+    
     dprint('========== LOGIN END ==========')
 end)

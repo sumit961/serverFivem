@@ -1,97 +1,96 @@
--- Updated creation.lua - returns gender for appearance editor
+-- cm-characters/server/creation.lua
 
 RegisterNetEvent('cm-characters:server:create', function(accountId, charSlot, data)
     local src = source
 
+    print('[CM-CHARACTERS] server:create called')
+    print('[CM-CHARACTERS] accountId=' .. tostring(accountId) .. ' slot=' .. tostring(charSlot))
+    print('[CM-CHARACTERS] data=' .. json.encode(data))
+
     -- Validate
-    local ok, err = exports['cm-core']:Validate('name', data.firstName)
-    if not ok then
-        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Invalid first name: ' .. err)
+    if not data.firstName or data.firstName == '' then
+        print('[CM-CHARACTERS] ERROR: Empty firstName')
+        TriggerClientEvent('cm-characters:client:createResult', src, false, 'First name required')
         return
     end
 
-    ok, err = exports['cm-core']:Validate('name', data.lastName)
-    if not ok then
-        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Invalid last name: ' .. err)
-        return
-    end
-
-    ok, err = exports['cm-core']:Validate('slot', charSlot)
-    if not ok then
-        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Invalid slot')
+    if not data.lastName or data.lastName == '' then
+        print('[CM-CHARACTERS] ERROR: Empty lastName')
+        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Last name required')
         return
     end
 
     -- Check slot not taken
     local existing = exports['cm-core']:Query(
         'SELECT id FROM characters WHERE account_id = ? AND slot = ?',
-        {accountId, charSlot}
+        {tostring(accountId), tonumber(charSlot)}
     )
     if existing and #existing > 0 then
+        print('[CM-CHARACTERS] ERROR: Slot already used')
         TriggerClientEvent('cm-characters:client:createResult', src, false, 'Character slot already used')
         return
     end
 
-    -- Check max characters (3 per account)
+    -- Check max characters (2 per account)
     local count = exports['cm-core']:Scalar(
         'SELECT COUNT(*) FROM characters WHERE account_id = ?',
-        {accountId}
+        {tostring(accountId)}
     )
-    if count and count >= 3 then
-        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Maximum 3 characters reached')
+    if count and count >= 2 then
+        print('[CM-CHARACTERS] ERROR: Max 2 characters reached')
+        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Maximum 2 characters reached')
         return
     end
 
-    -- Check name not taken (globally unique)
+    -- Check name not taken
     local nameTaken = exports['cm-core']:Query(
         'SELECT id FROM characters WHERE first_name = ? AND last_name = ?',
         {data.firstName, data.lastName}
     )
     if nameTaken and #nameTaken > 0 then
-        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Name already taken by another player')
+        print('[CM-CHARACTERS] ERROR: Name taken')
+        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Name already taken')
         return
     end
 
-    -- Create character
-    local spawn = exports['cm-core']:GetConfig('Spawn', 'defaultPosition') or {x = -1037.0, y = -2737.0, z = 13.8, heading = 0.0}
+    local spawn = {x = -1037.0, y = -2737.0, z = 13.8, heading = 0.0}
 
-    local ok2, result = pcall(function()
-        return exports['cm-core']:Insert([[
+    local newCharId = tostring(os.time()) .. '_' .. math.random(1000, 9999)
+    print('[CM-CHARACTERS] Generated charId: ' .. newCharId)
+
+    -- Insert character
+    local ok, err = pcall(function()
+        exports['cm-core']:Query([[
             INSERT INTO characters 
-            (account_id, slot, first_name, last_name, dob, gender, appearance_json, last_position, cash, bank)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, account_id, slot, first_name, last_name, dob, gender, appearance_json, last_position, cash, bank)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ]], {
-            accountId, charSlot,
-            data.firstName, data.lastName,
-            data.dob or nil, data.gender or 'male',
-            json.encode({}), -- Empty appearance initially
+            newCharId,
+            tostring(accountId),
+            tonumber(charSlot),
+            data.firstName,
+            data.lastName,
+            data.dob or nil,
+            data.gender or 'male',
+            '{}',
             json.encode(spawn),
-            exports['cm-core']:GetConfig('Economy', 'startingCash') or 500,
-            exports['cm-core']:GetConfig('Economy', 'startingBank') or 2000
+            500,
+            2000
         })
+        return true
     end)
 
-    if not ok2 then
-        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Database error: ' .. tostring(result))
+    if not ok then
+        print('[CM-CHARACTERS] ERROR creating character: ' .. tostring(err))
+        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Database error: ' .. tostring(err))
         return
     end
 
-    local newCharId = result
+    print('[CM-CHARACTERS] Character created successfully: ' .. newCharId)
 
-    exports['cm-core']:Log('cm-characters', 'info', 'Character created', {
-        category = 'character',
-        player_src = src,
-        player_char_id = newCharId,
-        account_id = accountId,
-        name = data.firstName .. ' ' .. data.lastName,
-        slot = charSlot,
-        gender = data.gender
-    })
-
-    -- Return success with gender for appearance editor
     TriggerClientEvent('cm-characters:client:createResult', src, true, {
         charId = newCharId,
         gender = data.gender,
-        message = 'Character #' .. newCharId .. ' created'
+        message = 'Character created'
     })
 end)
