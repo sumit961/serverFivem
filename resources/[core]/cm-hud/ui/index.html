@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CM HUD</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="hud-container">
+        <!-- TOP RIGHT: Server info, ID, players, money -->
+        <div id="hud-top-right" class="hud-module"></div>
+
+        <!-- BOTTOM LEFT: Minimap + Health/Armor + Location -->
+        <div id="hud-bottom-left" class="hud-module"></div>
+
+        <!-- BOTTOM RIGHT: Time, Date, Key icons -->
+        <div id="hud-bottom-right" class="hud-module"></div>
+
+        <!-- CENTER: Vehicle info (future) -->
+        <div id="hud-vehicle" class="hud-module hidden"></div>
+
+        <!-- CENTER: Death screen -->
+        <div id="hud-death" class="hud-module hidden"></div>
+
+        <!-- CENTER: Notifications (future) -->
+        <div id="hud-notify" class="hud-module"></div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -65,8 +65,7 @@ local function LoadPlayerData(src)
     state.isDead       = PlayerData[src].isDead
     state.playerDataLoaded = true
 
-    Debug('LOADED src=' .. src .. ' HP=' .. PlayerData[src].health .. ' Dead=' .. tostring(PlayerData[src].isDead) ..
-          ' $' .. PlayerData[src].cash .. '/$' .. PlayerData[src].bank .. ' Pos=' .. tostring(r.last_position))
+    Debug('LOADED src=' .. src .. ' HP=' .. PlayerData[src].health .. ' Dead=' .. tostring(PlayerData[src].isDead))
 
     TriggerEvent('cm-playerdata:server:loaded', src, PlayerData[src])
     TriggerClientEvent('cm-playerdata:client:loaded', src, PlayerData[src])
@@ -111,9 +110,6 @@ local function SavePlayerData(src, reason)
     return true
 end
 
--- ============================================================
--- SAVE POSITION ONLY (lightweight, frequent)
--- ============================================================
 local function SavePositionOnly(src)
     local data = PlayerData[src]
     if not data or not data.loaded or not data.lastPosition then return false end
@@ -124,23 +120,14 @@ local function SavePositionOnly(src)
             {json.encode(data.lastPosition), data.charId}
         )
     end)
-
-    if ok then
-        Debug('POS-SAVED src=' .. src .. ' pos=' .. json.encode(data.lastPosition))
-        return true
-    else
-        Debug('POS-SAVE FAIL src=' .. src .. ' | ' .. tostring(err))
-        return false
-    end
+    return ok
 end
 
 -- ============================================================
--- EVENTS
+-- SECURE SERVER SYNC EVENTS
 -- ============================================================
 AddEventHandler('cm-core:characterLoaded', function(src, charId)
-    SetTimeout(500, function()
-        LoadPlayerData(src)
-    end)
+    SetTimeout(500, function() LoadPlayerData(src) end)
 end)
 
 AddEventHandler('playerDropped', function()
@@ -148,75 +135,45 @@ AddEventHandler('playerDropped', function()
     SavePlayerData(src, 'drop')
 end)
 
--- Client sends position every 30s
 RegisterNetEvent('cm-playerdata:server:updatePosition', function(coords)
     local src = source
     if not coords or not PlayerData[src] then return end
     PlayerData[src].lastPosition = coords
-    -- Don't print every update to avoid log spam
 end)
 
--- Client reports health/armor every 30s (if alive)
-RegisterNetEvent('cm-playerdata:server:updateHealth', function(health, armor)
+-- Secure Sync: Client reports engine vitals to server memory
+RegisterNetEvent('cm-playerdata:server:syncVitals', function(clientHealth, clientArmor)
     local src = source
     local data = PlayerData[src]
     if not data or data.isDead then return end
-    if type(health) == 'number' and health > 100 then
-        data.health = health
-        data.armor = armor or 0
-        Player(src).state.health = data.health
-        Player(src).state.armor = data.armor
-    end
+
+    -- Server-side bounds protection validation filtering
+    data.health = math.clamp(clientHealth or 200, 0, 200)
+    data.armor  = math.clamp(clientArmor or 0, 0, 100)
+
+    local state = Player(src).state
+    state.health = data.health
+    state.armor  = data.armor
 end)
 
--- Client reports death
+-- Client reports engine-level death vector detection
 RegisterNetEvent('cm-playerdata:server:playerDied', function(killerSrc, weaponHash)
     local src = source
-    
-    if not src or src <= 0 then
-        Debug('DEATH FAIL: Invalid source')
-        return
-    end
-    
     local data = PlayerData[src]
-    
-    if not data then
-        Debug('Death reported but data not loaded for src=' .. tostring(src) .. '. Attempting load...')
-        local loaded = LoadPlayerData(src)
-        if not loaded then
-            Debug('DEATH FAIL: Cannot load data for src=' .. tostring(src))
-            return
-        end
-        data = PlayerData[src]
-    end
-    
-    if not data then
-        Debug('DEATH FAIL: Still no data after load for src=' .. tostring(src))
-        return
-    end
-    
-    if data.isDead then
-        Debug('Already dead, ignoring duplicate death for src=' .. tostring(src))
-        return
-    end
+    if not data or data.isDead then return end
 
     data.isDead = true
     data.health = 0
     data.armor = 0
     data.deathCount = data.deathCount + 1
 
-    Player(src).state.isDead = true
-    Player(src).state.health = 0
-    Player(src).state.armor = 0
+    local state = Player(src).state
+    state.isDead = true
+    state.health = 0
+    state.armor = 0
 
     SavePlayerData(src, 'death')
 
-    exports['cm-core']:Log('cm-playerdata', 'WARN', 'Player died', {
-        src = src, charId = data.charId, killer = killerSrc,
-        weapon = weaponHash, totalDeaths = data.deathCount
-    })
-
-    TriggerEvent('cm-playerdata:server:playerDied', src, killerSrc, weaponHash)
     TriggerClientEvent('cm-playerdata:client:playerDied', src, killerSrc, weaponHash)
 
     SetTimeout(Config.RespawnTime, function()
@@ -224,31 +181,16 @@ RegisterNetEvent('cm-playerdata:server:playerDied', function(killerSrc, weaponHa
             TriggerClientEvent('cm-playerdata:client:canRespawn', src)
         end
     end)
-
-    Debug('DEAD src=' .. src .. ' deaths=' .. data.deathCount)
 end)
 
--- Client requests respawn
 RegisterNetEvent('cm-playerdata:server:requestRespawn', function()
     local src = source
-    Debug('Respawn requested by src=' .. tostring(src))
-    
-    if not PlayerData[src] then
-        Debug('RESPAWN FAIL: No data for src=' .. tostring(src))
-        return
-    end
-    
-    if not PlayerData[src].isDead then
-        Debug('RESPAWN FAIL: Player not dead src=' .. tostring(src))
-        return
-    end
-    
-    local success = exports['cm-playerdata']:Respawn(src)
-    Debug('Respawn result for src=' .. tostring(src) .. ': ' .. tostring(success))
+    if not PlayerData[src] or not PlayerData[src].isDead then return end
+    exports['cm-playerdata']:Respawn(src)
 end)
 
 -- ============================================================
--- EXPORTS: CASH / BANK
+-- FRAMEWORK BUSINESS EXPORTS: FINANCES
 -- ============================================================
 exports('GetCash', function(src)
     return PlayerData[src] and PlayerData[src].cash or 0
@@ -259,262 +201,78 @@ exports('GetBank', function(src)
 end)
 
 exports('AddCash', function(src, amount)
-    if not amount or amount <= 0 then return false end
-    local data = PlayerData[src]
-    if not data then return false end
-    data.cash = data.cash + amount
-    Player(src).state.cash = data.cash
-    TriggerClientEvent('cm-playerdata:client:update', src, 'cash', data.cash)
-    Debug('AddCash $' .. amount .. ' -> $' .. data.cash .. ' src=' .. src)
+    if not amount or amount <= 0 or not PlayerData[src] then return false end
+    PlayerData[src].cash = PlayerData[src].cash + amount
+    Player(src).state.cash = PlayerData[src].cash
+    TriggerClientEvent('cm-playerdata:client:update', src, 'cash', PlayerData[src].cash)
     return true
 end)
 
 exports('RemoveCash', function(src, amount)
-    if not amount or amount <= 0 then return false end
-    local data = PlayerData[src]
-    if not data or data.cash < amount then return false end
-    data.cash = data.cash - amount
-    Player(src).state.cash = data.cash
-    TriggerClientEvent('cm-playerdata:client:update', src, 'cash', data.cash)
-    Debug('RemoveCash $' .. amount .. ' -> $' .. data.cash .. ' src=' .. src)
-    return true
-end)
-
-exports('AddBank', function(src, amount)
-    if not amount or amount <= 0 then return false end
-    local data = PlayerData[src]
-    if not data then return false end
-    data.bank = data.bank + amount
-    Player(src).state.bank = data.bank
-    TriggerClientEvent('cm-playerdata:client:update', src, 'bank', data.bank)
-    Debug('AddBank $' .. amount .. ' -> $' .. data.bank .. ' src=' .. src)
-    return true
-end)
-
-exports('RemoveBank', function(src, amount)
-    if not amount or amount <= 0 then return false end
-    local data = PlayerData[src]
-    if not data or data.bank < amount then return false end
-    data.bank = data.bank - amount
-    Player(src).state.bank = data.bank
-    TriggerClientEvent('cm-playerdata:client:update', src, 'bank', data.bank)
-    Debug('RemoveBank $' .. amount .. ' -> $' .. data.bank .. ' src=' .. src)
+    if not amount or amount <= 0 or not PlayerData[src] or PlayerData[src].cash < amount then return false end
+    PlayerData[src].cash = PlayerData[src].cash - amount
+    Player(src).state.cash = PlayerData[src].cash
+    TriggerClientEvent('cm-playerdata:client:update', src, 'cash', PlayerData[src].cash)
     return true
 end)
 
 -- ============================================================
--- EXPORTS: HEALTH / DEATH
+-- FRAMEWORK BUSINESS EXPORTS: RECOVERY & RESPAWN
 -- ============================================================
-exports('GetHealth', function(src)
-    local data = PlayerData[src]
-    if not data then return nil end
-    return {health = data.health, armor = data.armor, isDead = data.isDead}
-end)
-
-exports('IsDead', function(src)
-    return PlayerData[src] and PlayerData[src].isDead or false
-end)
-
-exports('SetHealth', function(src, health, armor)
-    local data = PlayerData[src]
-    if not data then return false end
-    data.health = health or 200
-    data.armor = armor or 0
-    Player(src).state.health = data.health
-    Player(src).state.armor = data.armor
-    TriggerClientEvent('cm-playerdata:client:setHealth', src, data.health, data.armor)
-    SavePlayerData(src, 'set-health')
-    return true
-end)
-
-exports('Heal', function(src, amount)
-    local data = PlayerData[src]
-    if not data or data.isDead then return false end
-    data.health = math.min(200, data.health + amount)
-    Player(src).state.health = data.health
-    TriggerClientEvent('cm-playerdata:client:setHealth', src, data.health, data.armor)
-    return true
-end)
-
-exports('Damage', function(src, amount)
-    local data = PlayerData[src]
-    if not data or data.isDead then return false end
-    data.health = math.max(0, data.health - amount)
-    Player(src).state.health = data.health
-    TriggerClientEvent('cm-playerdata:client:setHealth', src, data.health, data.armor)
-    if data.health <= 0 then
-        data.isDead = true
-        data.health = 0
-        data.armor = 0
-        data.deathCount = data.deathCount + 1
-        Player(src).state.isDead = true
-        SavePlayerData(src, 'death-zero')
-        TriggerClientEvent('cm-playerdata:client:playerDied', src, nil, nil)
-    end
-    return true
-end)
-
-exports('Revive', function(src)
-    local data = PlayerData[src]
-    if not data or not data.isDead then return false end
-    data.isDead = false
-    data.health = 200
-    data.armor = 0
-    Player(src).state.isDead = false
-    Player(src).state.health = 200
-    Player(src).state.armor = 0
-    SavePlayerData(src, 'revive')
-    TriggerClientEvent('cm-playerdata:client:revive', src, 'system')
-    return true
-end)
-
 exports('Respawn', function(src, spawnCoords, cost)
     local data = PlayerData[src]
-    if not data then 
-        Debug('RESPAWN FAIL: No data for src=' .. tostring(src))
-        return false 
-    end
+    if not data then return false end
 
     spawnCoords = spawnCoords or Config.HospitalSpawn
     cost = cost or Config.RespawnCost
 
-    if cost > 0 then
-        if data.bank >= cost then
-            data.bank = data.bank - cost
-            Player(src).state.bank = data.bank
-            TriggerClientEvent('cm-playerdata:client:update', src, 'bank', data.bank)
-        else
-            data.cash = data.cash - cost
-            Player(src).state.cash = data.cash
-            TriggerClientEvent('cm-playerdata:client:update', src, 'cash', data.cash)
-        end
+    if data.bank >= cost then
+        data.bank = data.bank - cost
+    else
+        data.cash = math.max(0, data.cash - cost)
     end
 
     data.isDead = false
     data.health = 200
     data.armor = 0
-    Player(src).state.isDead = false
-    Player(src).state.health = 200
-    Player(src).state.armor = 0
+
+    local state = Player(src).state
+    state.isDead = false; state.health = 200; state.armor = 0
+    state.bank = data.bank; state.cash = data.cash
 
     SavePlayerData(src, 'respawn')
-
     TriggerClientEvent('cm-playerdata:client:respawn', src, spawnCoords)
-    TriggerEvent('cm-playerdata:server:playerRespawned', src, spawnCoords)
-
-    Debug('RESPAWNED src=' .. src .. ' cost=$' .. cost)
-    return true
-end)
-
-exports('GetDeathCount', function(src)
-    return PlayerData[src] and PlayerData[src].deathCount or 0
-end)
-
--- ============================================================
--- EXPORTS: POSITION
--- ============================================================
-exports('GetLastPosition', function(src)
-    return PlayerData[src] and PlayerData[src].lastPosition or nil
-end)
-
-exports('SetLastPosition', function(src, coords)
-    local data = PlayerData[src]
-    if not data then return false end
-    data.lastPosition = coords
     return true
 end)
 
 -- ============================================================
--- EXPORTS: UTILS
+-- EXPORTS: FRAMEWORK UTILITIES
 -- ============================================================
 exports('IsLoaded', function(src)
-    return PlayerData[src] and PlayerData[src].loaded == true
+    return PlayerData[src] and PlayerData[src].loaded == true or false
 end)
 
-exports('Save', function(src)
-    return SavePlayerData(src, 'manual')
-end)
+-- Helper utility mapping logic bounds safely
+function math.clamp(val, lower, upper)
+    if lower > upper then lower, upper = upper, lower end
+    return math.max(lower, math.min(upper, val))
+end
 
--- ============================================================
--- AUTO-SAVE: FULL DATA (every 3 min)
--- ============================================================
+-- Loops
 CreateThread(function()
-    Wait(20000)
     while true do
         Wait(Config.FullSaveInterval)
-        local count = 0
         for src, data in pairs(PlayerData) do
-            if data.loaded then
-                SavePlayerData(src, 'auto')
-                count = count + 1
-            end
+            if data.loaded then SavePlayerData(src, 'auto') end
         end
-        if count > 0 then Debug('Auto-saved ' .. count .. ' players (full)') end
     end
 end)
 
--- ============================================================
--- AUTO-SAVE: POSITION ONLY (every 10 sec)
--- ============================================================
 CreateThread(function()
-    Wait(10000)
     while true do
         Wait(Config.PosSaveInterval)
         for src, data in pairs(PlayerData) do
-            if data.loaded and data.lastPosition then
-                SavePositionOnly(src)
-            end
+            if data.loaded and data.lastPosition then SavePositionOnly(src) end
         end
     end
 end)
-
--- ============================================================
--- ADMIN COMMANDS
--- ============================================================
-RegisterCommand('saveallplayers', function(source, args, raw)
-    local adminSrc = source
-    local count = 0
-    for src, data in pairs(PlayerData) do
-        if data.loaded then
-            SavePlayerData(src, 'admin-cmd')
-            count = count + 1
-        end
-    end
-    Debug('Admin (' .. tostring(adminSrc) .. ') saved ' .. count .. ' players')
-    if adminSrc > 0 then
-        TriggerClientEvent('chat:addMessage', adminSrc, {
-            color = {0, 255, 0},
-            args = {'[CM-PLAYERDATA]', 'Saved ' .. count .. ' players to database.'}
-        })
-    end
-end, true)
-
--- TEMP: Check saved position
-RegisterCommand('checkmyloc', function(source)
-    local src = source
-    local charId = Player(src).state.charId
-    if not charId then 
-        TriggerClientEvent('chat:addMessage', src, {
-            color = {255, 0, 0},
-            args = {'[CM-PLAYERDATA]', 'Not logged in!'}
-        })
-        return 
-    end
-    
-    local row = exports['cm-core']:Query('SELECT last_position FROM characters WHERE id = ?', {charId})
-    if row and #row > 0 then
-        local pos = row[1].last_position or 'NOT SET'
-        print('[CM-PLAYERDATA] Saved position for src=' .. src .. ': ' .. tostring(pos))
-        TriggerClientEvent('chat:addMessage', src, {
-            color = {255, 255, 0},
-            args = {'[CM-PLAYERDATA]', 'DB Position: ' .. tostring(pos)}
-        })
-    else
-        TriggerClientEvent('chat:addMessage', src, {
-            color = {255, 0, 0},
-            args = {'[CM-PLAYERDATA]', 'No position found in DB!'}
-        })
-    end
-end, false)
-
-Debug('Server initialized | v1.0.0')

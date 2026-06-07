@@ -1,0 +1,364 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: transparent;
+    overflow: hidden;
+    color: white;
+}
+
+/* ========== BASE MODULE SYSTEM ========== */
+.hud-module {
+    position: fixed;
+    pointer-events: none;
+    z-index: 100;
+}
+
+.hidden { display: none !important; }
+
+/* ========== TOP RIGHT: SERVER INFO ========== */
+#hud-top-right {
+    top: 15px;
+    right: 15px;
+    text-align: right;
+}
+
+.server-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.6);
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.1);
+    margin-bottom: 6px;
+}
+
+.server-name {
+    font-weight: bold;
+    color: #fff;
+    font-size: 14px;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+}
+
+.level-tag {
+    background: #ffcc00;
+    color: #000;
+    font-weight: 900;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.id-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.6);
+    padding: 4px 12px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.1);
+    margin-bottom: 6px;
+}
+
+.id-text {
+    font-size: 13px;
+    color: #fff;
+    font-weight: 600;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+}
+
+.id-text span {
+    color: #ffcc00;
+}
+
+.players-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0, 0, 0, 0.6);
+    padding: 4px 12px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.1);
+    font-size: 13px;
+    color: #fff;
+}
+
+.players-count .icon {
+    color: #ffcc00;
+}
+
+.money-block {
+    margin-top: 10px;
+    text-align: right;
+}
+
+.money-cash {
+    font-size: 26px;
+    font-weight: 900;
+    color: #fff;
+    text-shadow: 0 2px 6px rgba(0,0,0,0.9);
+    letter-spacing: 1px;
+}
+
+.money-bank {
+    font-size: 14px;
+    color: #aaa;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    margin-top: 2px;
+}
+
+/* ========== BOTTOM LEFT: MINIMAP + HEALTH + LOCATION ========== */
+#hud-bottom-left {
+    bottom: 15px;
+    left: 15px;
+}
+
+.minimap-container {
+    position: relative;
+    width: 200px;
+    height: 140px;
+}
+
+/* GTA minimap renders here - we just reserve space */
+.minimap-slot {
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Compass N indicator */
+.compass-n {
+    position: absolute;
+    top: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-weight: 900;
+    font-size: 14px;
+    color: #fff;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+    z-index: 10;
+}
+
+/* Health & Armor bars under minimap */
+.bars-container {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-top: 4px;
+    width: 200px;
+}
+
+.bar-track {
+    width: 100%;
+    height: 6px;
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+.bar-fill.health {
+    background: linear-gradient(90deg, #4CAF50, #2E7D32);
+}
+
+.bar-fill.health.low {
+    background: linear-gradient(90deg, #f44336, #c62828);
+}
+
+.bar-fill.health.critical {
+    background: linear-gradient(90deg, #ff0000, #8b0000);
+    animation: pulse-red 1s infinite;
+}
+
+@keyframes pulse-red {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+.bar-fill.armor {
+    background: linear-gradient(90deg, #2196F3, #1565C0);
+}
+
+/* Location text */
+.location-box {
+    margin-top: 6px;
+    padding-left: 4px;
+}
+
+.location-area {
+    font-size: 15px;
+    font-weight: 700;
+    color: #ffcc00;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+}
+
+.location-street {
+    font-size: 13px;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    margin-top: 1px;
+}
+
+.location-divider {
+    display: inline-block;
+    width: 2px;
+    height: 14px;
+    background: #fff;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
+/* ========== BOTTOM RIGHT: TIME + KEYS ========== */
+#hud-bottom-right {
+    bottom: 15px;
+    right: 15px;
+    text-align: right;
+}
+
+.time-block {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.time-icon {
+    font-size: 14px;
+    color: #fff;
+}
+
+.time-text {
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+}
+
+.date-text {
+    font-size: 13px;
+    color: #aaa;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    margin-top: 2px;
+}
+
+/* Key icons vertical */
+.keys-column {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    margin-top: 10px;
+}
+
+.key-icon {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+
+.key-icon.active {
+    background: rgba(255, 204, 0, 0.3);
+    border-color: #ffcc00;
+}
+
+/* ========== DEATH SCREEN ========== */
+#hud-death {
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 1000;
+}
+
+.death-content {
+    text-align: center;
+}
+
+.death-skull {
+    font-size: 100px;
+    margin-bottom: 20px;
+    animation: skull-pulse 2s infinite;
+}
+
+@keyframes skull-pulse {
+    0%, 100% { transform: scale(1); opacity: 0.7; }
+    50% { transform: scale(1.1); opacity: 1; }
+}
+
+.death-title {
+    font-size: 42px;
+    font-weight: 900;
+    color: #e74c3c;
+    text-transform: uppercase;
+    letter-spacing: 6px;
+    text-shadow: 0 0 30px rgba(231, 76, 60, 0.5);
+    margin-bottom: 20px;
+}
+
+.death-subtitle {
+    font-size: 18px;
+    color: #fff;
+    opacity: 0.8;
+    margin-bottom: 30px;
+}
+
+.death-key {
+    display: inline-block;
+    background: #fff;
+    color: #000;
+    padding: 8px 24px;
+    border-radius: 6px;
+    font-weight: 900;
+    font-size: 16px;
+    animation: blink 1.5s infinite;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* ========== NOTIFICATIONS ========== */
+#hud-notify {
+    top: 100px;
+    right: 15px;
+    width: 300px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.notify-item {
+    background: rgba(0, 0, 0, 0.75);
+    border-left: 3px solid #ffcc00;
+    padding: 10px 14px;
+    border-radius: 0 6px 6px 0;
+    font-size: 13px;
+    color: #fff;
+    animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
