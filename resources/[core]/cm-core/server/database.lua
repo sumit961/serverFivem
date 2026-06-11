@@ -68,6 +68,29 @@ local migrations = {
     [10] = [[
         ALTER TABLE accounts ADD UNIQUE IF NOT EXISTS unique_social_slot (social_club_id, account_slot);
     ]],
+    [11] = [[CREATE TABLE IF NOT EXISTS money_ledger (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        character_id VARCHAR(50) NULL,
+        target_character_id VARCHAR(50) NULL,
+        account_type VARCHAR(20) NOT NULL,
+        action VARCHAR(30) NOT NULL,
+        amount INT NOT NULL,
+        balance_after INT DEFAULT 0,
+        reason VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_character_id (character_id),
+        INDEX idx_created_at (created_at),
+        INDEX idx_action (action)
+    );]],
+    [12] = [[
+        ALTER TABLE characters ADD COLUMN IF NOT EXISTS job VARCHAR(50) DEFAULT 'unemployed';
+    ]],
+    [13] = [[
+        ALTER TABLE characters ADD COLUMN IF NOT EXISTS job_grade INT DEFAULT 0;
+    ]],
+    [14] = [[
+        ALTER TABLE characters ADD COLUMN IF NOT EXISTS metadata JSON NULL;
+    ]],
     }
 
 function SeedRanks()
@@ -91,8 +114,9 @@ local function RunMigrations()
     local currentVersion = MySQL.scalar.await('SELECT MAX(version) FROM schema_migrations') or 0
     migrationVersion = currentVersion
     
-    for version, query in pairs(migrations) do
-        if version > currentVersion then
+    for version = currentVersion + 1, #migrations do
+        local query = migrations[version]
+        if query then
             local ok, err = pcall(function()
                 MySQL.query.await(query)
                 MySQL.query.await('INSERT INTO schema_migrations (version) VALUES (?)', {version})
@@ -117,8 +141,48 @@ CreateThread(function()
     RunMigrations()
 end)
 
-exports('Query', function(query, params)
+local function NormalizeQueryArgs(a, b, c)
+    -- Supports every common CFX export call shape:
+    -- exports['cm-core'].Query(sql, params)
+    -- exports['cm-core']:Query(sql, params)
+    -- exports['cm-core'][name](sql, params)
+    -- accidental packed args table: { sql, params }
+
+    if type(a) == 'string' then
+        return a, b or {}
+    end
+
+    if type(a) == 'table' then
+        -- Colon-style call where the export object/self is argument 1
+        if type(b) == 'string' then
+            return b, c or {}
+        end
+
+        -- Packed arguments table: { sql, params }
+        if type(a[1]) == 'string' then
+            return a[1], a[2] or {}
+        end
+
+        -- Named table form, useful for future safety
+        if type(a.sql) == 'string' then
+            return a.sql, a.params or b or {}
+        end
+
+        if type(a.query) == 'string' then
+            return a.query, a.params or b or {}
+        end
+    end
+
+    return a, b or {}
+end
+
+exports('Query', function(a, b, c)
     if not dbReady then print("[CM-CORE] DB not ready"); return nil end
+    local query, params = NormalizeQueryArgs(a, b, c)
+    if type(query) ~= 'string' then
+        print(('[CM-CORE] Query expected string, got %s'):format(type(query)))
+        return nil
+    end
     local start = GetGameTimer()
     local result = MySQL.query.await(query, params)
     local elapsed = GetGameTimer() - start
@@ -128,18 +192,49 @@ exports('Query', function(query, params)
     return result
 end)
 
-exports('Scalar', function(query, params)
+exports('Scalar', function(a, b, c)
     if not dbReady then return nil end
+    local query, params = NormalizeQueryArgs(a, b, c)
+    if type(query) ~= 'string' then
+        print(('[CM-CORE] Scalar expected string, got %s'):format(type(query)))
+        return nil
+    end
     return MySQL.scalar.await(query, params)
 end)
 
-exports('Insert', function(query, params)
+exports('Single', function(a, b, c)
     if not dbReady then return nil end
+    local query, params = NormalizeQueryArgs(a, b, c)
+    if type(query) ~= 'string' then
+        print(('[CM-CORE] Single expected string, got %s'):format(type(query)))
+        return nil
+    end
+    return MySQL.single.await(query, params)
+end)
+
+exports('Update', function(a, b, c)
+    if not dbReady then return nil end
+    local query, params = NormalizeQueryArgs(a, b, c)
+    if type(query) ~= 'string' then
+        print(('[CM-CORE] Update expected string, got %s'):format(type(query)))
+        return nil
+    end
+    return MySQL.update.await(query, params)
+end)
+
+exports('Insert', function(a, b, c)
+    if not dbReady then return nil end
+    local query, params = NormalizeQueryArgs(a, b, c)
+    if type(query) ~= 'string' then
+        print(('[CM-CORE] Insert expected string, got %s'):format(type(query)))
+        return nil
+    end
     return MySQL.insert.await(query, params)
 end)
 
-exports('Transaction', function(queries)
+exports('Transaction', function(a, b)
     if not dbReady then return false end
+    local queries = type(a) == 'table' and type(b) == 'table' and b or a
     return MySQL.transaction.await(queries)
 end)
 

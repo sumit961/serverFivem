@@ -5,9 +5,10 @@ lua54 'yes'
 description 'CM-Auth: Login & Register with Full Debug'
 version '1.1.0'
 
-dependencies {'cm-core'}
+dependencies {'oxmysql', 'cm-core'}
 
 server_scripts {
+    '@oxmysql/lib/MySQL.lua',
     'server/main.lua',
 }
 

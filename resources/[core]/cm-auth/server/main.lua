@@ -1,30 +1,119 @@
 -- cm-auth/server/main.lua
--- 1 account per social club, 2 character slots
+-- Stable auth using direct oxmysql calls. Keeps old working flow and avoids cm-core DB export argument issues.
 
-local DEBUG = true
+local DEBUG = false
+local LOGIN_COOLDOWN = 1500
+local REGISTER_COOLDOWN = 3000
+local lastLogin = {}
+local lastRegister = {}
 
 local function dprint(...)
     if DEBUG then
         local args = {...}
         local msg = '[CM-AUTH-DEBUG] '
-        for i = 1, #args do
-            msg = msg .. tostring(args[i]) .. ' '
-        end
+        for i = 1, #args do msg = msg .. tostring(args[i]) .. ' ' end
         print(msg)
     end
 end
 
--- ============================================
--- PASSWORD HASHING
--- ============================================
+local function sendLogin(src, success, message)
+    TriggerClientEvent('cm-auth:client:loginResult', src, success, message)
+end
 
-local function HashPassword(password)
-    dprint('HashPassword called')
-    local ok, hash = pcall(function()
-        return exports.ox_lib:hashPassword(password)
+local function sendRegister(src, success, message)
+    TriggerClientEvent('cm-auth:client:registerResult', src, success, message)
+end
+
+local function safeLog(resource, level, message, metadata)
+    metadata = metadata or {}
+    metadata.category = metadata.category or 'auth'
+    local ok = pcall(function()
+        if exports['cm-core'] and exports['cm-core'].Log then
+            exports['cm-core'].Log(resource or 'cm-auth', level or 'info', message or '', metadata)
+        else
+            print(('[CM-AUTH] %s: %s'):format(level or 'info', message or ''))
+        end
     end)
-    if ok and hash then return hash end
-    dprint('ox_lib failed, using fallback')
+    if not ok then
+        print(('[CM-AUTH] %s: %s'):format(level or 'info', message or ''))
+    end
+end
+
+local function dbQuery(sql, params)
+    if type(sql) ~= 'string' then
+        print(('[CM-AUTH] dbQuery expected SQL string, got %s'):format(type(sql)))
+        return nil
+    end
+    local ok, result = pcall(function()
+        return MySQL.query.await(sql, params or {})
+    end)
+    if not ok then
+        print('[CM-AUTH] DB query failed: ' .. tostring(result))
+        print('[CM-AUTH] SQL: ' .. sql)
+        return nil
+    end
+    return result
+end
+
+local function dbSingle(sql, params)
+    if type(sql) ~= 'string' then
+        print(('[CM-AUTH] dbSingle expected SQL string, got %s'):format(type(sql)))
+        return nil
+    end
+    local ok, result = pcall(function()
+        return MySQL.single.await(sql, params or {})
+    end)
+    if not ok then
+        print('[CM-AUTH] DB single failed: ' .. tostring(result))
+        print('[CM-AUTH] SQL: ' .. sql)
+        return nil
+    end
+    return result
+end
+
+local function dbScalar(sql, params)
+    if type(sql) ~= 'string' then
+        print(('[CM-AUTH] dbScalar expected SQL string, got %s'):format(type(sql)))
+        return nil
+    end
+    local ok, result = pcall(function()
+        return MySQL.scalar.await(sql, params or {})
+    end)
+    if not ok then
+        print('[CM-AUTH] DB scalar failed: ' .. tostring(result))
+        print('[CM-AUTH] SQL: ' .. sql)
+        return nil
+    end
+    return result
+end
+
+local function sanitize(value)
+    if type(value) ~= 'string' then return '' end
+    value = value:gsub('%z', ''):gsub('^%s+', ''):gsub('%s+$', '')
+    return value
+end
+
+local function validateUsername(username)
+    username = sanitize(username):lower()
+    if #username < 3 then return false, 'Username must be at least 3 characters.' end
+    if #username > 24 then return false, 'Username must be maximum 24 characters.' end
+    if not username:match('^[a-z0-9_%.%-]+$') then
+        return false, 'Username can only use letters, numbers, _, -, and .'
+    end
+    return true, username
+end
+
+local function validateEmail(email)
+    email = sanitize(email):lower()
+    if email == '' then return false, 'Email is required.' end
+    if #email > 100 then return false, 'Email is too long.' end
+    if not email:match('^[%w%._%+%-]+@[%w%-%.]+%.[%a][%a]+$') then
+        return false, 'Enter a valid email.'
+    end
+    return true, email
+end
+
+local function LegacyTempHash(password)
     local h = 5381
     for i = 1, #password do
         h = ((h * 33) + string.byte(password, i)) % 2147483647
@@ -32,180 +121,214 @@ local function HashPassword(password)
     return 'TEMP_' .. tostring(h)
 end
 
-local function VerifyPassword(password, hash)
-    if string.sub(hash, 1, 5) == 'TEMP_' then
-        return HashPassword(password) == hash
-    end
-    local ok, result = pcall(function()
-        return exports.ox_lib:verifyPassword(password, hash)
-    end)
-    if ok then return result end
-    return false
+local function HashPassword(password)
+    if type(password) ~= 'string' then return nil end
+    -- Stable dev hash. Later we can migrate to bcrypt after the full flow is stable.
+    return LegacyTempHash(password)
 end
 
--- Get social club ID (license identifier)
+local function VerifyPassword(password, storedHash)
+    if type(password) ~= 'string' or type(storedHash) ~= 'string' then return false end
+    return HashPassword(password) == storedHash
+end
+
 local function GetSocialClubId(src)
-    local identifiers = GetPlayerIdentifiers(src)
-    for _, id in ipairs(identifiers) do
-        if string.find(id, 'license:') then
-            return id
-        end
+    for _, id in ipairs(GetPlayerIdentifiers(src)) do
+        if id:find('license:', 1, true) then return id end
     end
-    return identifiers[1] or 'unknown_' .. src
+    local identifiers = GetPlayerIdentifiers(src)
+    return identifiers[1] or ('unknown_' .. tostring(src))
 end
 
--- Check if social club already has an account
 local function GetAccountBySocialClub(socialClubId)
-    local result = exports['cm-core']:Query(
-        'SELECT * FROM accounts WHERE social_club_id = ? LIMIT 1',
-        {socialClubId}
-    )
-    return result and result[1] or nil
+    return dbSingle('SELECT * FROM accounts WHERE social_club_id = ? LIMIT 1', { socialClubId })
 end
 
--- ============================================
--- REGISTER
--- ============================================
+local function GetAccountByUsername(username)
+    return dbSingle('SELECT * FROM accounts WHERE LOWER(username) = LOWER(?) LIMIT 1', { username })
+end
+
+local function recordLoginAttempt(username, src, success)
+    dbQuery('INSERT INTO login_attempts (username, ip_address, hwid_hash, success) VALUES (?, ?, ?, ?)', {
+        username or 'unknown',
+        GetPlayerEndpoint(src) or 'unknown',
+        GetPlayerToken(src, 0) or 'unknown',
+        success and 1 or 0
+    })
+end
 
 RegisterNetEvent('cm-auth:server:register', function(data)
     local src = source
-    dprint('========== REGISTER START ==========')
-    dprint('Source:', src)
-    
-    local socialClubId = GetSocialClubId(src)
-    dprint('Social Club:', socialClubId)
-    
-    local existing = GetAccountBySocialClub(socialClubId)
-    if existing then
-        dprint('Social club already has account:', existing.username)
-        TriggerClientEvent('cm-auth:client:registerResult', src, false, 
-            'You already have an account: ' .. existing.username .. '. Please login instead.')
+    local now = GetGameTimer()
+    if lastRegister[src] and now - lastRegister[src] < REGISTER_COOLDOWN then
+        sendRegister(src, false, 'Please wait before trying again.')
         return
     end
-    
-    data.username = exports['cm-core']:Sanitize(data.username or "")
-    data.email = exports['cm-core']:Sanitize(data.email or "")
-    
-    local ok, err = exports['cm-core']:Validate('username', data.username)
-    if not ok then
-        TriggerClientEvent('cm-auth:client:registerResult', src, false, err)
-        return
-    end
-    
-    if not data.password or #data.password < 6 then
-        TriggerClientEvent('cm-auth:client:registerResult', src, false, 'Password too short')
-        return
-    end
-    
-    local exists = exports['cm-core']:Scalar('SELECT COUNT(*) FROM accounts WHERE username = ?', {data.username})
-    if exists and exists > 0 then
-        TriggerClientEvent('cm-auth:client:registerResult', src, false, 'Username taken')
-        return
-    end
-    
-    local id = tostring(os.time()) .. '_' .. math.random(1000, 9999)
-    local hwid = GetPlayerToken(src, 0) or 'unknown'
-    local ip = GetPlayerEndpoint(src) or 'unknown'
-    
-    local ok2, result = pcall(function()
-        return exports['cm-core']:Query([[
-            INSERT INTO accounts (id, social_club_id, username, password_hash, email, hwid_hash, ip_address)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ]], {id, socialClubId, data.username, HashPassword(data.password), data.email, hwid, ip})
-    end)
-    
-    if not ok2 then
-        TriggerClientEvent('cm-auth:client:registerResult', src, false, 'Database error: ' .. tostring(result))
-        return
-    end
-    
-    exports['cm-core']:Log('cm-auth', 'info', 'Account registered', {
-        category = 'auth', player_src = src, username = data.username, social_club = socialClubId
-    })
-    
-    TriggerClientEvent('cm-auth:client:registerResult', src, true, 'Account created')
-    dprint('========== REGISTER END ==========')
-end)
+    lastRegister[src] = now
 
--- ============================================
--- LOGIN
--- ============================================
+    local ok, err = pcall(function()
+        data = type(data) == 'table' and data or {}
+        local socialClubId = GetSocialClubId(src)
+
+        local validUsername, usernameOrError = validateUsername(data.username)
+        if not validUsername then sendRegister(src, false, usernameOrError) return end
+        local username = usernameOrError
+
+        local validEmail, emailOrError = validateEmail(data.email)
+        if not validEmail then sendRegister(src, false, emailOrError) return end
+        local email = emailOrError
+
+        local password = data.password
+        if type(password) ~= 'string' or #password < 6 then
+            sendRegister(src, false, 'Password must be at least 6 characters.')
+            return
+        end
+        if #password > 72 then
+            sendRegister(src, false, 'Password is too long.')
+            return
+        end
+
+        local existingBySocial = GetAccountBySocialClub(socialClubId)
+        if existingBySocial then
+            sendRegister(src, false, 'You already have an account: ' .. tostring(existingBySocial.username) .. '. Please login instead.')
+            return
+        end
+
+        local usernameCount = dbScalar('SELECT COUNT(*) FROM accounts WHERE LOWER(username) = LOWER(?)', { username }) or 0
+        if tonumber(usernameCount) > 0 then
+            sendRegister(src, false, 'Username taken')
+            return
+        end
+
+        local accountId = tostring(os.time()) .. '_' .. math.random(1000, 9999)
+        local hwid = GetPlayerToken(src, 0) or 'unknown'
+        local ip = GetPlayerEndpoint(src) or 'unknown'
+        local passwordHash = HashPassword(password)
+
+        local result = dbQuery([[
+            INSERT INTO accounts (id, social_club_id, account_slot, username, password_hash, email, hwid_hash, ip_address)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ]], { accountId, socialClubId, 1, username, passwordHash, email, hwid, ip })
+
+        if result == nil then
+            sendRegister(src, false, 'Database error. Check server console.')
+            safeLog('cm-auth', 'error', 'Account insert returned nil', { player_src = src, username = username })
+            return
+        end
+
+        safeLog('cm-auth', 'info', 'Account registered', {
+            player_src = src, username = username, social_club = socialClubId
+        })
+
+        sendRegister(src, true, 'Account created')
+    end)
+
+    if not ok then
+        print('[CM-AUTH] Register error: ' .. tostring(err))
+        sendRegister(src, false, 'Register failed. Check server console.')
+    end
+end)
 
 RegisterNetEvent('cm-auth:server:login', function(data)
     local src = source
-    dprint('========== LOGIN START ==========')
-    
-    local socialClubId = GetSocialClubId(src)
-    dprint('Social Club:', socialClubId)
-    
-    data.username = exports['cm-core']:Sanitize(data.username or "")
-    
-    local account = exports['cm-core']:Query('SELECT * FROM accounts WHERE username = ?', {data.username})
-    
-    if not account or #account == 0 then
-        local socialAccount = GetAccountBySocialClub(socialClubId)
-        if socialAccount then
-            dprint('Found account by social club:', socialAccount.username)
-            account = {socialAccount}
-        else
-            TriggerClientEvent('cm-auth:client:loginResult', src, false, 'Invalid credentials')
-            return
-        end
-    end
-    
-    account = account[1]
-    
-    if account.social_club_id and account.social_club_id ~= socialClubId then
-        dprint('Account belongs to different social club')
-        TriggerClientEvent('cm-auth:client:loginResult', src, false, 'This account is linked to another PC')
+    local now = GetGameTimer()
+    if lastLogin[src] and now - lastLogin[src] < LOGIN_COOLDOWN then
+        sendLogin(src, false, 'Please wait before trying again.')
         return
     end
-    
-    if data.username ~= '' and data.password and #data.password > 0 then
-        if not VerifyPassword(data.password, account.password_hash) then
-            exports['cm-core']:Query('INSERT INTO login_attempts (username, ip_address, hwid_hash, success) VALUES (?, ?, ?, ?)', {
-                data.username, GetPlayerEndpoint(src) or 'unknown', GetPlayerToken(src, 0) or 'unknown', false
-            })
-            TriggerClientEvent('cm-auth:client:loginResult', src, false, 'Invalid password')
+    lastLogin[src] = now
+
+    local ok, err = pcall(function()
+        data = type(data) == 'table' and data or {}
+        local socialClubId = GetSocialClubId(src)
+
+        local username = sanitize(data.username or ''):lower()
+        local password = data.password or ''
+
+        local account = nil
+        if username ~= '' then
+            account = GetAccountByUsername(username)
+        end
+
+        if not account then
+            account = GetAccountBySocialClub(socialClubId)
+        end
+
+        if not account then
+            recordLoginAttempt(username, src, false)
+            sendLogin(src, false, 'Invalid credentials')
             return
         end
-    end
-    
-    if account.banned then
-        if account.ban_expires == nil or account.ban_expires > os.date('%Y-%m-%d %H:%M:%S') then
-            TriggerClientEvent('cm-auth:client:loginResult', src, false, 'Banned: ' .. (account.ban_reason or 'No reason'))
+
+        if account.social_club_id and account.social_club_id ~= '' and account.social_club_id ~= socialClubId then
+            recordLoginAttempt(username, src, false)
+            sendLogin(src, false, 'This account is linked to another PC')
             return
         end
+
+        if password ~= '' and not VerifyPassword(password, tostring(account.password_hash or '')) then
+            recordLoginAttempt(account.username or username, src, false)
+            sendLogin(src, false, 'Invalid password')
+            return
+        end
+
+        if account.banned == true or account.banned == 1 then
+            sendLogin(src, false, 'Banned: ' .. tostring(account.ban_reason or 'No reason'))
+            return
+        end
+
+        dbQuery('UPDATE accounts SET last_login = NOW(), social_club_id = ?, hwid_hash = ?, ip_address = ? WHERE id = ?', {
+            socialClubId,
+            GetPlayerToken(src, 0) or 'unknown',
+            GetPlayerEndpoint(src) or 'unknown',
+            account.id
+        })
+
+        recordLoginAttempt(account.username, src, true)
+
+        safeLog('cm-auth', 'info', 'Login success', {
+            player_src = src, account_id = account.id, username = account.username
+        })
+
+        local accountIdStr = tostring(account.id)
+        print('[CM-AUTH] Login success, accountId=' .. accountIdStr)
+
+        Player(src).state:set('accountId', accountIdStr, true)
+        Player(src).state:set('isLoggedIn', true, true)
+        Player(src).state:set('authLoggedIn', true, true)
+
+        sendLogin(src, true, accountIdStr)
+        Wait(100)
+        TriggerClientEvent('cm-characters:client:openSelector', src, accountIdStr)
+    end)
+
+    if not ok then
+        print('[CM-AUTH] Login error: ' .. tostring(err))
+        sendLogin(src, false, 'Login failed. Check server console.')
     end
-    
-    exports['cm-core']:Query('UPDATE accounts SET last_login = NOW(), social_club_id = ? WHERE id = ?', 
-        {socialClubId, account.id})
-    
-    exports['cm-core']:Query('INSERT INTO login_attempts (username, ip_address, hwid_hash, success) VALUES (?, ?, ?, ?)', {
-        account.username, GetPlayerEndpoint(src) or 'unknown', GetPlayerToken(src, 0) or 'unknown', true
-    })
-    
-    exports['cm-core']:Log('cm-auth', 'info', 'Login success', {
-        category = 'auth', player_src = src, account_id = account.id
-    })
-    
-    -- ============================================
-    -- OPEN CHARACTER SELECTOR
-    -- ============================================
-    local accountIdStr = tostring(account.id)
-    print('[CM-AUTH] Login success, accountId=' .. accountIdStr)
-    
-    -- Set state bags
-    Player(src).state:set('accountId', accountIdStr, true)
-    Player(src).state:set('isLoggedIn', true, true)
-    
-    -- Hide auth UI first
-    TriggerClientEvent('cm-auth:client:loginResult', src, true, account.id)
-    
-    -- Wait a tiny bit for auth UI to close, then open character selector
-    Wait(100)
-    print('[CM-AUTH] Opening character selector for accountId=' .. accountIdStr)
-    TriggerClientEvent('cm-characters:client:openSelector', src, accountIdStr)
-    
-    dprint('========== LOGIN END ==========')
+end)
+
+RegisterNetEvent('cm-auth:server:requestOpen', function()
+    local src = source
+    if Player(src).state.isLoggedIn or Player(src).state.accountId then return end
+    TriggerClientEvent('cm-auth:client:openLogin', src)
+end)
+
+RegisterNetEvent('cm-auth:server:logout', function()
+    local src = source
+    Player(src).state:set('accountId', nil, true)
+    Player(src).state:set('isLoggedIn', false, true)
+    Player(src).state:set('authLoggedIn', false, true)
+    TriggerClientEvent('cm-auth:client:openLogin', src)
+end)
+
+AddEventHandler('playerDropped', function()
+    local src = source
+    lastLogin[src] = nil
+    lastRegister[src] = nil
+end)
+
+CreateThread(function()
+    Wait(1000)
+    print('[CM-AUTH] Stable patched v3 loaded')
 end)

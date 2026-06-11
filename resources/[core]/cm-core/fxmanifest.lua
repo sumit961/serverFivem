@@ -17,6 +17,10 @@ server_scripts {
     '@oxmysql/lib/MySQL.lua',
     'server/config-loader.lua',
     'server/database.lua',
+    'server/player.lua',
+    'server/callbacks.lua',
+    'server/security.lua',
+    'server/money-ledger.lua',
     'server/state-registry.lua',
     'server/economy.lua',
     'server/logger.lua',
@@ -31,6 +35,7 @@ server_scripts {
 
 client_scripts {
     'client/state-bridge.lua',
+    'client/callbacks.lua',
     'client/main.lua',
 }
 

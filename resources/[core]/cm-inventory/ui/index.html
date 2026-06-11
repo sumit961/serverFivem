@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CM Inventory v2</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div id="inventory" class="hidden">
+        <div class="background"></div>
+        <header class="topbar">
+            <div class="weight-card">
+                <span>BACKPACK WEIGHT</span>
+                <div class="weight-line">
+                    <div class="gauge"><div id="weight-fill"></div></div>
+                    <strong id="weight-current">0.0</strong><small>/</small><span id="weight-max">82 KG</span>
+                </div>
+            </div>
+            <div class="hint">CLICK ON AN OBJECT<br>INFORMATION AND INTERACTION</div>
+            <button class="pill disabled">🎨 WEAPON CAMOUFLAGE <b>NEW</b></button>
+            <button class="pill disabled">🛠 CREATING ITEMS</button>
+            <button id="close-btn" class="close">✕</button>
+        </header>
+
+        <main class="inventory-layout">
+            <aside class="fast-column">
+                <div class="vertical-title">FAST ACCESS</div>
+                <div id="quick-slots" class="fast-slots"></div>
+            </aside>
+
+            <section class="bag-column">
+                <div class="section">
+                    <h3>POCKETS</h3>
+                    <div id="pocket-slots" class="slot-row"></div>
+                </div>
+                <div class="section backpack-section">
+                    <h3 id="backpack-title">BACKPACK <span id="bag-level-label">NO BAG</span></h3>
+                    <div id="backpack-slots" class="slot-grid"></div>
+                </div>
+            </section>
+
+            <section class="character-column">
+                <div class="prime-badge">♛<br><span>PRIME<br>ACCOUNT</span></div>
+                <div class="character-wrap">
+                    <div class="body-outline"></div>
+                    <div id="gear-slots" class="gear-grid"></div>
+                </div>
+            </section>
+        </main>
+
+        <div id="context-menu" class="context hidden"></div>
+        <div id="tooltip" class="tooltip hidden"></div>
+        <div id="split-modal" class="modal hidden">
+            <div class="modal-card">
+                <h3>Divide Stack</h3>
+                <p id="split-label">Choose amount</p>
+                <input id="split-amount" type="number" min="1" value="1" />
+                <div class="modal-actions">
+                    <button id="split-confirm">Divide</button>
+                    <button id="split-cancel">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="give-modal" class="modal hidden">
+            <div class="modal-card">
+                <h3>Give Item</h3>
+                <p id="give-label">Choose amount to give to nearest player</p>
+                <input id="give-amount" type="number" min="1" value="1" />
+                <div class="modal-actions">
+                    <button id="give-confirm">Give</button>
+                    <button id="give-cancel">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="drop-modal" class="modal hidden">
+            <div class="modal-card">
+                <h3>Drop Item</h3>
+                <p id="drop-label">Choose amount to drop</p>
+                <input id="drop-amount" type="number" min="1" value="1" />
+                <div class="modal-actions">
+                    <button id="drop-confirm">Drop</button>
+                    <button id="drop-cancel">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="use-progress" class="progress-overlay hidden">
+            <div class="progress-card">
+                <div id="progress-label">Using item...</div>
+                <div class="progress-bar"><div id="progress-fill"></div></div>
+            </div>
+        </div>
+        <div id="toast" class="toast hidden"></div>
+        <footer class="bottom-hint">DRAG THE ITEM TO ANOTHER SLOT • RIGHT CLICK FOR DETAILS AND ACTIONS • ESC TO CLOSE</footer>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
