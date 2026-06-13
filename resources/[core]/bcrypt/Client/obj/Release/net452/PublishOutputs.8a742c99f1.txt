@@ -1,0 +1,2 @@
+C:\Users\xumit\Desktop\FIVEM\txData\FiveMBasicServerCFXDefault_23CBE7.base\resources\[core]\bcrypt\Client\bin\Release\net452\publish\bcrypt.Client.net.dll
+C:\Users\xumit\Desktop\FIVEM\txData\FiveMBasicServerCFXDefault_23CBE7.base\resources\[core]\bcrypt\Client\bin\Release\net452\publish\CitizenFX.Core.Client.dll

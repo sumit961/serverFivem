@@ -513,3 +513,26 @@ CreateThread(function()
         end
     end
 end)
+
+RegisterCommand('cash', function(src, args)
+    if src <= 0 then
+        print('[CM-PLAYERDATA] Use in F8: cash 5000')
+        return
+    end
+
+    local amount = tonumber(args[1]) or 5000
+    local ok = exports['cm-playerdata']:AddCash(src, amount, 'dev_cash_command')
+
+    if ok then
+        print(('[CM-PLAYERDATA] Added $%s cash to player %s'):format(amount, src))
+        TriggerClientEvent('ox_lib:notify', src, {
+            type = 'success',
+            description = ('Added $%s cash'):format(amount)
+        })
+    else
+        TriggerClientEvent('ox_lib:notify', src, {
+            type = 'error',
+            description = 'Cash add failed. PlayerData not loaded.'
+        })
+    end
+end, false)

@@ -55,8 +55,17 @@ RegisterNetEvent('cm-characters:server:create', function(accountId, charSlot, da
 
     local spawn = {x = -1037.0, y = -2737.0, z = 13.8, heading = 0.0}
 
-    local newCharId = tostring(os.time()) .. '_' .. math.random(1000, 9999)
-    print('[CM-CHARACTERS] Generated charId: ' .. newCharId)
+    -- Fixed RP character ID.
+    -- This is NOT the FiveM source/server ID. It is the permanent DB ID used everywhere.
+    -- First created character = 0, next = 1, next = 2...
+    local newCharId, idErr = CMAllocateCharacterId()
+    if not newCharId then
+        print('[CM-CHARACTERS] ERROR allocating fixed character ID: ' .. tostring(idErr))
+        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Could not allocate character ID')
+        return
+    end
+
+    print('[CM-CHARACTERS] Allocated fixed charId: ' .. tostring(newCharId))
 
     -- Insert character
     local ok, err = pcall(function()

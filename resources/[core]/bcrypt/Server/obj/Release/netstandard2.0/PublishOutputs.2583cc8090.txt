@@ -1,0 +1,4 @@
+O:\johndoe\All Servers\maindev\ServerData\resources\bcrypt\Server\bin\Release\netstandard2.0\publish\bcrypt.Server.net.dll
+O:\johndoe\All Servers\maindev\ServerData\resources\bcrypt\Server\bin\Release\netstandard2.0\publish\bcrypt.Server.deps.json
+O:\johndoe\All Servers\maindev\ServerData\resources\bcrypt\Server\bin\Release\netstandard2.0\publish\bcrypt.Server.net.pdb
+O:\johndoe\All Servers\maindev\ServerData\resources\bcrypt\Server\bin\Release\netstandard2.0\publish\CitizenFX.Core.Server.dll

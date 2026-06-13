@@ -1,0 +1,2 @@
+A:\temp\fivem-bcrypt-async\Client\bin\Release\net452\publish\bcrypt.Client.net.dll
+A:\temp\fivem-bcrypt-async\Client\bin\Release\net452\publish\CitizenFX.Core.Client.dll

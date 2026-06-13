@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CM Parking</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main id="parking" class="hidden">
+    <div class="parking-bg"></div>
+    <header class="parking-header">
+      <div class="brand">
+        <h1>CM PARKING <span id="lot-title">LEGION PARKING</span></h1>
+        <p>Vehicle parking, call-out and storage system</p>
+      </div>
+      <div class="stats">
+        <div><b id="stat-owned">0</b><span>Owned</span></div>
+        <div><b id="stat-parked">0</b><span>Parked</span></div>
+        <div><b id="stat-out">0</b><span>Out</span></div>
+      </div>
+      <button id="close" class="close">✕</button>
+    </header>
+
+    <section class="parking-content">
+      <button id="prev-page" class="arrow left" aria-label="Previous"></button>
+
+      <div class="parking-frame">
+        <div class="frame-top">
+          <div>
+            <strong>SELECT VEHICLE</strong>
+            <small id="page-label">PAGE 1 / 1</small>
+          </div>
+          <button id="refresh" class="mini-btn">REFRESH</button>
+        </div>
+
+        <div class="vehicle-grid">
+          <div id="list-left" class="vehicle-list"></div>
+          <div id="list-right" class="vehicle-list"></div>
+        </div>
+      </div>
+
+      <button id="next-page" class="arrow right" aria-label="Next"></button>
+    </section>
+
+    <aside class="action-panel">
+      <h2 id="selected-name">NO VEHICLE SELECTED</h2>
+      <div id="selected-status" class="selected-status">Choose a vehicle from the parking list.</div>
+      <div class="selected-meta">
+        <div><span>ID</span><b id="selected-id">-</b></div>
+        <div><span>TRUNK</span><b id="selected-trunk">-</b></div>
+        <div><span>FUEL</span><b id="selected-fuel">-</b></div>
+      </div>
+      <button id="selected-action" class="main-action disabled">SELECT VEHICLE</button>
+      <button id="park-current" class="main-action park">PARK CURRENT VEHICLE</button>
+      <p class="hint">Press ESC to close • F8: parkmenu, park, parklist, unpark id, callvehicle id</p>
+    </aside>
+
+    <div id="toast" class="toast hidden"></div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

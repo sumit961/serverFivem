@@ -1,5 +1,5 @@
 -- cm-auth/server/main.lua
--- Stable auth using direct oxmysql calls. Keeps old working flow and avoids cm-core DB export argument issues.
+-- Modern email/password auth with bcrypt support and legacy TEMP_ migration.
 
 local DEBUG = false
 local LOGIN_COOLDOWN = 1500
@@ -7,13 +7,14 @@ local REGISTER_COOLDOWN = 3000
 local lastLogin = {}
 local lastRegister = {}
 
+local BCRYPT_RESOURCES = { 'bcrypt', 'fivem-bcrypt', 'cm-bcrypt' }
+
 local function dprint(...)
-    if DEBUG then
-        local args = {...}
-        local msg = '[CM-AUTH-DEBUG] '
-        for i = 1, #args do msg = msg .. tostring(args[i]) .. ' ' end
-        print(msg)
-    end
+    if not DEBUG then return end
+    local args = { ... }
+    local msg = '[CM-AUTH-DEBUG] '
+    for i = 1, #args do msg = msg .. tostring(args[i]) .. ' ' end
+    print(msg)
 end
 
 local function sendLogin(src, success, message)
@@ -93,26 +94,61 @@ local function sanitize(value)
     return value
 end
 
-local function validateUsername(username)
-    username = sanitize(username):lower()
-    if #username < 3 then return false, 'Username must be at least 3 characters.' end
-    if #username > 24 then return false, 'Username must be maximum 24 characters.' end
-    if not username:match('^[a-z0-9_%.%-]+$') then
-        return false, 'Username can only use letters, numbers, _, -, and .'
-    end
-    return true, username
-end
-
 local function validateEmail(email)
     email = sanitize(email):lower()
     if email == '' then return false, 'Email is required.' end
     if #email > 100 then return false, 'Email is too long.' end
     if not email:match('^[%w%._%+%-]+@[%w%-%.]+%.[%a][%a]+$') then
-        return false, 'Enter a valid email.'
+        return false, 'Enter a valid email address.'
     end
     return true, email
 end
 
+local function makeUsernameFromEmail(email)
+    local base = tostring(email or ''):match('^([^@]+)') or 'player'
+    base = base:lower():gsub('[^a-z0-9_%.%-]', '')
+    if #base < 3 then base = 'player' end
+    if #base > 18 then base = base:sub(1, 18) end
+
+    local candidate = base
+    local index = 1
+    while true do
+        local count = tonumber(dbScalar('SELECT COUNT(*) FROM accounts WHERE LOWER(username) = LOWER(?)', { candidate }) or 0) or 0
+        if count <= 0 then return candidate end
+        candidate = ('%s%s'):format(base:sub(1, 18), tostring(index))
+        if #candidate > 24 then candidate = candidate:sub(1, 24) end
+        index = index + 1
+    end
+end
+
+local function getBcryptResource()
+    for _, resourceName in ipairs(BCRYPT_RESOURCES) do
+        if GetResourceState(resourceName) == 'started' then
+            return resourceName
+        end
+    end
+    return nil
+end
+
+local function callBcrypt(exportNames, ...)
+    local resourceName = getBcryptResource()
+    if not resourceName then
+        return false, 'bcrypt resource is not started. Ensure bcrypt before cm-auth.'
+    end
+
+    for _, exportName in ipairs(exportNames) do
+        local ok, result = pcall(function(...)
+            return exports[resourceName][exportName](...)
+        end, ...)
+        if ok and result ~= nil then
+            return true, result
+        end
+    end
+
+    return false, ('bcrypt export not found on %s'):format(resourceName)
+end
+
+-- Legacy support only for migrating old TEMP_ accounts after bcrypt is installed.
 local function LegacyTempHash(password)
     local h = 5381
     for i = 1, #password do
@@ -122,14 +158,33 @@ local function LegacyTempHash(password)
 end
 
 local function HashPassword(password)
-    if type(password) ~= 'string' then return nil end
-    -- Stable dev hash. Later we can migrate to bcrypt after the full flow is stable.
-    return LegacyTempHash(password)
+    if type(password) ~= 'string' then return nil, 'Invalid password.' end
+    local ok, result = callBcrypt({ 'hash_sync', 'HashPassword', 'hash' }, password)
+    if not ok then return nil, result end
+    if type(result) ~= 'string' or result == '' then return nil, 'bcrypt returned invalid hash.' end
+    return result
 end
 
 local function VerifyPassword(password, storedHash)
-    if type(password) ~= 'string' or type(storedHash) ~= 'string' then return false end
-    return HashPassword(password) == storedHash
+    if type(password) ~= 'string' or type(storedHash) ~= 'string' or storedHash == '' then
+        return false, 'Invalid credentials.'
+    end
+
+    if storedHash:sub(1, 5) == 'TEMP_' then
+        local resourceName = getBcryptResource()
+        if not resourceName then
+            return false, 'Password security service is not running.'
+        end
+        if LegacyTempHash(password) == storedHash then
+            return true, 'legacy'
+        end
+        return false, 'Wrong password. Try again.'
+    end
+
+    local ok, result = callBcrypt({ 'check_sync', 'verify_sync', 'compare_sync', 'VerifyPassword', 'check', 'compare' }, password, storedHash)
+    if not ok then return false, result end
+    if result == true or result == 1 then return true, 'bcrypt' end
+    return false, 'Wrong password. Try again.'
 end
 
 local function GetSocialClubId(src)
@@ -144,13 +199,13 @@ local function GetAccountBySocialClub(socialClubId)
     return dbSingle('SELECT * FROM accounts WHERE social_club_id = ? LIMIT 1', { socialClubId })
 end
 
-local function GetAccountByUsername(username)
-    return dbSingle('SELECT * FROM accounts WHERE LOWER(username) = LOWER(?) LIMIT 1', { username })
+local function GetAccountByEmail(email)
+    return dbSingle('SELECT * FROM accounts WHERE LOWER(email) = LOWER(?) LIMIT 1', { email })
 end
 
-local function recordLoginAttempt(username, src, success)
+local function recordLoginAttempt(identifier, src, success)
     dbQuery('INSERT INTO login_attempts (username, ip_address, hwid_hash, success) VALUES (?, ?, ?, ?)', {
-        username or 'unknown',
+        identifier or 'unknown',
         GetPlayerEndpoint(src) or 'unknown',
         GetPlayerToken(src, 0) or 'unknown',
         success and 1 or 0
@@ -170,15 +225,12 @@ RegisterNetEvent('cm-auth:server:register', function(data)
         data = type(data) == 'table' and data or {}
         local socialClubId = GetSocialClubId(src)
 
-        local validUsername, usernameOrError = validateUsername(data.username)
-        if not validUsername then sendRegister(src, false, usernameOrError) return end
-        local username = usernameOrError
-
         local validEmail, emailOrError = validateEmail(data.email)
         if not validEmail then sendRegister(src, false, emailOrError) return end
         local email = emailOrError
 
         local password = data.password
+        local confirmPassword = data.confirmPassword or data.password2 or data.confirm_password
         if type(password) ~= 'string' or #password < 6 then
             sendRegister(src, false, 'Password must be at least 6 characters.')
             return
@@ -187,23 +239,32 @@ RegisterNetEvent('cm-auth:server:register', function(data)
             sendRegister(src, false, 'Password is too long.')
             return
         end
-
-        local existingBySocial = GetAccountBySocialClub(socialClubId)
-        if existingBySocial then
-            sendRegister(src, false, 'You already have an account: ' .. tostring(existingBySocial.username) .. '. Please login instead.')
+        if password ~= confirmPassword then
+            sendRegister(src, false, 'Passwords do not match.')
             return
         end
 
-        local usernameCount = dbScalar('SELECT COUNT(*) FROM accounts WHERE LOWER(username) = LOWER(?)', { username }) or 0
-        if tonumber(usernameCount) > 0 then
-            sendRegister(src, false, 'Username taken')
+        local existingBySocial = GetAccountBySocialClub(socialClubId)
+        if existingBySocial then
+            sendRegister(src, false, 'You already have an account. Please login instead.')
+            return
+        end
+
+        local emailCount = tonumber(dbScalar('SELECT COUNT(*) FROM accounts WHERE LOWER(email) = LOWER(?)', { email }) or 0) or 0
+        if emailCount > 0 then
+            sendRegister(src, false, 'Email already registered.')
             return
         end
 
         local accountId = tostring(os.time()) .. '_' .. math.random(1000, 9999)
+        local username = makeUsernameFromEmail(email)
         local hwid = GetPlayerToken(src, 0) or 'unknown'
         local ip = GetPlayerEndpoint(src) or 'unknown'
-        local passwordHash = HashPassword(password)
+        local passwordHash, hashErr = HashPassword(password)
+        if not passwordHash then
+            sendRegister(src, false, hashErr or 'Password security service error.')
+            return
+        end
 
         local result = dbQuery([[
             INSERT INTO accounts (id, social_club_id, account_slot, username, password_hash, email, hwid_hash, ip_address)
@@ -212,15 +273,15 @@ RegisterNetEvent('cm-auth:server:register', function(data)
 
         if result == nil then
             sendRegister(src, false, 'Database error. Check server console.')
-            safeLog('cm-auth', 'error', 'Account insert returned nil', { player_src = src, username = username })
+            safeLog('cm-auth', 'error', 'Account insert returned nil', { player_src = src, email = email })
             return
         end
 
         safeLog('cm-auth', 'info', 'Account registered', {
-            player_src = src, username = username, social_club = socialClubId
+            player_src = src, email = email, username = username, social_club = socialClubId
         })
 
-        sendRegister(src, true, 'Account created')
+        sendRegister(src, true, 'Account created. You can login now.')
     end)
 
     if not ok then
@@ -242,39 +303,48 @@ RegisterNetEvent('cm-auth:server:login', function(data)
         data = type(data) == 'table' and data or {}
         local socialClubId = GetSocialClubId(src)
 
-        local username = sanitize(data.username or ''):lower()
-        local password = data.password or ''
+        local validEmail, emailOrError = validateEmail(data.email)
+        if not validEmail then sendLogin(src, false, emailOrError) return end
+        local email = emailOrError
 
-        local account = nil
-        if username ~= '' then
-            account = GetAccountByUsername(username)
+        local password = data.password
+        if type(password) ~= 'string' or password == '' then
+            sendLogin(src, false, 'Password is required.')
+            return
         end
 
+        local account = GetAccountByEmail(email)
         if not account then
-            account = GetAccountBySocialClub(socialClubId)
-        end
-
-        if not account then
-            recordLoginAttempt(username, src, false)
-            sendLogin(src, false, 'Invalid credentials')
+            recordLoginAttempt(email, src, false)
+            sendLogin(src, false, 'Email or password is incorrect.')
             return
         end
 
         if account.social_club_id and account.social_club_id ~= '' and account.social_club_id ~= socialClubId then
-            recordLoginAttempt(username, src, false)
-            sendLogin(src, false, 'This account is linked to another PC')
+            recordLoginAttempt(email, src, false)
+            sendLogin(src, false, 'This account is linked to another PC.')
             return
         end
 
-        if password ~= '' and not VerifyPassword(password, tostring(account.password_hash or '')) then
-            recordLoginAttempt(account.username or username, src, false)
-            sendLogin(src, false, 'Invalid password')
+        local verified, modeOrMessage = VerifyPassword(password, tostring(account.password_hash or ''))
+        if not verified then
+            recordLoginAttempt(email, src, false)
+            sendLogin(src, false, modeOrMessage or 'Wrong password. Try again.')
             return
         end
 
         if account.banned == true or account.banned == 1 then
             sendLogin(src, false, 'Banned: ' .. tostring(account.ban_reason or 'No reason'))
             return
+        end
+
+        -- If the old TEMP_ hash was used, migrate this account to bcrypt after successful login.
+        if modeOrMessage == 'legacy' then
+            local newHash = HashPassword(password)
+            if newHash then
+                dbQuery('UPDATE accounts SET password_hash = ? WHERE id = ?', { newHash, account.id })
+                dprint('Migrated legacy password hash for account', account.id)
+            end
         end
 
         dbQuery('UPDATE accounts SET last_login = NOW(), social_club_id = ?, hwid_hash = ?, ip_address = ? WHERE id = ?', {
@@ -284,16 +354,17 @@ RegisterNetEvent('cm-auth:server:login', function(data)
             account.id
         })
 
-        recordLoginAttempt(account.username, src, true)
+        recordLoginAttempt(email, src, true)
 
         safeLog('cm-auth', 'info', 'Login success', {
-            player_src = src, account_id = account.id, username = account.username
+            player_src = src, account_id = account.id, email = email
         })
 
         local accountIdStr = tostring(account.id)
         print('[CM-AUTH] Login success, accountId=' .. accountIdStr)
 
         Player(src).state:set('accountId', accountIdStr, true)
+        Player(src).state:set('accountEmail', email, true)
         Player(src).state:set('isLoggedIn', true, true)
         Player(src).state:set('authLoggedIn', true, true)
 
@@ -317,6 +388,7 @@ end)
 RegisterNetEvent('cm-auth:server:logout', function()
     local src = source
     Player(src).state:set('accountId', nil, true)
+    Player(src).state:set('accountEmail', nil, true)
     Player(src).state:set('isLoggedIn', false, true)
     Player(src).state:set('authLoggedIn', false, true)
     TriggerClientEvent('cm-auth:client:openLogin', src)
@@ -330,5 +402,10 @@ end)
 
 CreateThread(function()
     Wait(1000)
-    print('[CM-AUTH] Stable patched v3 loaded')
+    local bcryptResource = getBcryptResource()
+    if bcryptResource then
+        print(('[CM-AUTH] Modern bcrypt auth loaded | bcrypt resource: %s'):format(bcryptResource))
+    else
+        print('[CM-AUTH] Modern bcrypt auth loaded | WARNING: no bcrypt resource started. Register/login will fail until bcrypt is ensured before cm-auth.')
+    end
 end)

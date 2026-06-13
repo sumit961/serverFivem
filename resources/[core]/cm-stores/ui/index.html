@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CM 24/7 Store</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div id="app" class="hidden">
+        <div class="store-shell">
+            <aside class="left-banner">
+                <div class="logo-card">
+                    <div class="logo-top">EVERYDAY</div>
+                    <div class="logo-main">24/7</div>
+                    <div class="logo-bottom">SERVICE</div>
+                </div>
+                <div class="welcome">
+                    <div class="bubble">●</div>
+                    <div>
+                        <div class="welcome-small">Welcome</div>
+                        <div id="storeName" class="welcome-name">24/7 Store</div>
+                    </div>
+                </div>
+            </aside>
+
+            <main class="main-area">
+                <div class="topbar">
+                    <div>
+                        <div id="title" class="title">24/7 Service</div>
+                        <div id="subtitle" class="subtitle">Everyday essentials</div>
+                    </div>
+                    <div class="balance"><span id="balance">$0</span><small>Your balance</small></div>
+                    <button id="closeBtn" class="close">×</button>
+                </div>
+
+                <div id="notice" class="notice hidden"></div>
+                <div id="grid" class="items-grid"></div>
+            </main>
+
+            <aside class="clerk-panel">
+                <div class="info-dot">i</div>
+                <div class="clerk-art"></div>
+            </aside>
+        </div>
+    </div>
+
+    <div id="modal" class="modal hidden">
+        <div class="modal-card">
+            <h2 id="modalTitle">Buy Item</h2>
+            <p id="modalDesc">Choose quantity</p>
+            <div class="qty-row">
+                <button id="minus">-</button>
+                <input id="qty" type="number" min="1" value="1" />
+                <button id="plus">+</button>
+            </div>
+            <div class="summary">
+                <div>Total price: <b id="totalPrice">$0</b></div>
+                <div>Total weight: <b id="totalWeight">0 kg</b></div>
+            </div>
+            <div class="modal-actions">
+                <button id="cancelBuy" class="ghost">Cancel</button>
+                <button id="confirmBuy">Buy</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

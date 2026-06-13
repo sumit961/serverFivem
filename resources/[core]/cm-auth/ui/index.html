@@ -7,31 +7,77 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="app" style="display: none;">
-        <div class="auth-container">
-            <div class="logo">GRAND RP</div>
-            
-            <!-- LOGIN FORM -->
-            <div id="login-form">
-                <h2>Login</h2>
-                <input type="text" id="login-user" placeholder="Username" autocomplete="off">
-                <input type="password" id="login-pass" placeholder="Password" autocomplete="off">
-                <button onclick="login()">Login</button>
-                <p class="switch" onclick="showRegister()">No account? Register</p>
-            </div>
-            
-            <!-- REGISTER FORM -->
-            <div id="register-form" style="display: none;">
-                <h2>Register</h2>
-                <input type="text" id="reg-user" placeholder="Username" autocomplete="off">
-                <input type="email" id="reg-email" placeholder="Email" autocomplete="off">
-                <input type="password" id="reg-pass" placeholder="Password" autocomplete="off">
-                <button onclick="register()">Register</button>
-                <p class="switch" onclick="showLogin()">Have account? Login</p>
-            </div>
-            
-            <div id="error-msg"></div>
-        </div>
+    <div id="app" class="hidden">
+        <div class="scene-glow scene-glow-one"></div>
+        <div class="scene-glow scene-glow-two"></div>
+
+        <main class="auth-shell">
+            <section class="brand-panel">
+                <div class="badge">CM ROLEPLAY</div>
+                <h1>Welcome back</h1>
+                <p>Sign in with your email to continue your city life.</p>
+                <div class="feature-row">
+                    <span>Secure bcrypt auth</span>
+                    <span>Saved email</span>
+                    <span>Clean UI</span>
+                </div>
+            </section>
+
+            <section class="auth-card">
+                <div class="card-top">
+                    <div>
+                        <p class="eyebrow" id="form-eyebrow">Authorization</p>
+                        <h2 id="form-title">Login</h2>
+                    </div>
+                    <div class="status-dot"></div>
+                </div>
+
+                <form id="login-form" class="form active">
+                    <label>Email</label>
+                    <div class="input-wrap">
+                        <input type="email" id="login-email" placeholder="name@example.com" autocomplete="email">
+                    </div>
+
+                    <label>Password</label>
+                    <div class="input-wrap password-wrap">
+                        <input type="password" id="login-pass" placeholder="Enter password" autocomplete="current-password">
+                        <button type="button" class="eye-btn" data-toggle="login-pass">👁</button>
+                    </div>
+
+                    <label class="remember-row">
+                        <input type="checkbox" id="remember-email">
+                        <span>Remember email</span>
+                    </label>
+
+                    <button type="submit" class="primary-btn" id="login-btn">Log in</button>
+                    <p class="switch-text">Not registered yet? <button type="button" onclick="showRegister()">Create account</button></p>
+                </form>
+
+                <form id="register-form" class="form">
+                    <label>Email</label>
+                    <div class="input-wrap">
+                        <input type="email" id="reg-email" placeholder="name@example.com" autocomplete="email">
+                    </div>
+
+                    <label>Password</label>
+                    <div class="input-wrap password-wrap">
+                        <input type="password" id="reg-pass" placeholder="Minimum 6 characters" autocomplete="new-password">
+                        <button type="button" class="eye-btn" data-toggle="reg-pass">👁</button>
+                    </div>
+
+                    <label>Retype password</label>
+                    <div class="input-wrap password-wrap">
+                        <input type="password" id="reg-pass2" placeholder="Confirm password" autocomplete="new-password">
+                        <button type="button" class="eye-btn" data-toggle="reg-pass2">👁</button>
+                    </div>
+
+                    <button type="submit" class="primary-btn" id="register-btn">Register</button>
+                    <p class="switch-text">Already registered? <button type="button" onclick="showLogin()">Log in</button></p>
+                </form>
+            </section>
+        </main>
+
+        <div id="toast" class="toast"></div>
     </div>
     <script src="app.js"></script>
 </body>

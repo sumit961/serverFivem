@@ -26,10 +26,23 @@ local function decode(value)
 end
 
 local function normalizeExportArgs(a, b, c, d, e, f)
-    -- Supports exports['res'].Func(src, ...) and exports['res']:Func(src, ...)
+    -- Supports exports['res'].Func(src, ...) and exports['res']:Func(src, ...).
+    -- Also protects against some wrapper calls that accidentally pass
+    -- itemName first and src second, e.g. ('water', 1, 2).
     if type(a) == 'table' and b ~= nil then
         return b, c, d, e, f
     end
+
+    if type(a) ~= 'number' and type(b) == 'number' then
+        -- itemName, src, amount, metadata, reason -> src, itemName, amount, metadata, reason
+        return b, a, c, d, e
+    end
+
+    if type(a) ~= 'number' and type(c) == 'number' then
+        -- itemName, amount, src, metadata, reason -> src, itemName, amount, metadata, reason
+        return c, a, b, d, e
+    end
+
     return a, b, c, d, e
 end
 
@@ -107,6 +120,7 @@ local function getIdentifier(src, prefix)
 end
 
 local function getOwnerId(src)
+    src = tonumber(src)
     if not src or src <= 0 then return nil end
 
     local pState = Player(src).state
@@ -126,18 +140,29 @@ local function getOwnerId(src)
         if player.Data and player.Data.character_id then return tostring(player.Data.character_id) end
     end
 
-    ok, player = pcall(function()
-        if GetResourceState('cm-characters') == 'started' and exports['cm-characters'].GetCharacter then
-            return exports['cm-characters'].GetCharacter(src)
-        end
+    -- Do NOT call cm-characters export here. Some older cm-characters exports
+    -- are colon-style only and can throw when called by another resource.
+    -- Instead, resolve from player/account state or database.
+    local accountId
+    pcall(function()
+        local st = Player(src).state
+        accountId = st.accountId or st.account_id or st.cmAccountId
     end)
-    if ok and type(player) == 'table' then
-        if player.id then return tostring(player.id) end
-        if player.character_id then return tostring(player.character_id) end
-        if player.citizenid then return tostring(player.citizenid) end
+
+    if accountId and MySQL then
+        local okDb, dbCharId = pcall(function()
+            return MySQL.scalar.await([[
+                SELECT id FROM characters
+                WHERE account_id = ?
+                ORDER BY last_played DESC, updated_at DESC, created_at DESC
+                LIMIT 1
+            ]], { tostring(accountId) })
+        end)
+        if okDb and dbCharId then return tostring(dbCharId) end
     end
 
-    -- Fallback for early testing before character framework sets state
+    -- Last fallback for dev/testing. This keeps inventory working even if
+    -- character state is missing, but real servers should ensure charId is set.
     return getIdentifier(src, 'license') or ('src_' .. tostring(src))
 end
 
@@ -1811,5 +1836,5 @@ CreateThread(function()
     ensureTables()
     cleanupDrops()
     sendDrops(-1)
-    print('[CM-INVENTORY] Started v3.9-baglockfix v3.5-flowfix')
+    print('[CM-INVENTORY] Started v4.0-exportfix')
 end)

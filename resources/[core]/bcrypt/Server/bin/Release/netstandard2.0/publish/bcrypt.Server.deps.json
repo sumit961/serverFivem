@@ -1,0 +1,42 @@
+{
+  "runtimeTarget": {
+    "name": ".NETStandard,Version=v2.0/",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETStandard,Version=v2.0": {},
+    ".NETStandard,Version=v2.0/": {
+      "bcrypt.Server/1.0.0": {
+        "dependencies": {
+          "CitizenFX.Core.Server": "1.0.26803"
+        },
+        "runtime": {
+          "bcrypt.Server.dll": {}
+        }
+      },
+      "CitizenFX.Core.Server/1.0.26803": {
+        "runtime": {
+          "lib/netstandard20/CitizenFX.Core.Server.dll": {
+            "assemblyVersion": "0.0.0.0",
+            "fileVersion": "0.0.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "bcrypt.Server/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "CitizenFX.Core.Server/1.0.26803": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-T/5/W+oAXwW+amvNNno9QzNdTV5LnSaZ8Gx1kHmW5nIobFyLcPyqAVHJphbtVeHlj+9WBRLMN31ne4fNXS+Zdw==",
+      "path": "citizenfx.core.server/1.0.26803",
+      "hashPath": "citizenfx.core.server.1.0.26803.nupkg.sha512"
+    }
+  }
+}

@@ -1,0 +1,30 @@
+O:\johndoe\All Servers\maindev\ServerData\resources\bcrypt\Client\bin\Release\net452\bcrypt.Client.net.dll
+O:\johndoe\All Servers\maindev\ServerData\resources\bcrypt\Client\bin\Release\net452\CitizenFX.Core.Client.dll
+O:\johndoe\All Servers\maindev\ServerData\resources\bcrypt\Client\obj\Release\net452\bcrypt.Client.csproj.AssemblyReference.cache
+O:\johndoe\All Servers\maindev\ServerData\resources\bcrypt\Client\obj\Release\net452\bcrypt.Client.GeneratedMSBuildEditorConfig.editorconfig
+O:\johndoe\All Servers\maindev\ServerData\resources\bcrypt\Client\obj\Release\net452\bcrypt.Client.AssemblyInfoInputs.cache
+O:\johndoe\All Servers\maindev\ServerData\resources\bcrypt\Client\obj\Release\net452\bcrypt.Client.AssemblyInfo.cs
+O:\johndoe\All Servers\maindev\ServerData\resources\bcrypt\Client\obj\Release\net452\bcrypt.Client.csproj.CoreCompileInputs.cache
+O:\johndoe\All Servers\maindev\ServerData\resources\bcrypt\Client\obj\Release\net452\bcrypt.Client.sourcelink.json
+O:\johndoe\All Servers\maindev\ServerData\resources\bcrypt\Client\obj\Release\net452\bcrypt.C.5320A9BE.Up2Date
+O:\johndoe\All Servers\maindev\ServerData\resources\bcrypt\Client\obj\Release\net452\bcrypt.Client.net.dll
+A:\temp\fivem-bcrypt-async\Client\bin\Release\net452\bcrypt.Client.net.dll
+A:\temp\fivem-bcrypt-async\Client\bin\Release\net452\CitizenFX.Core.Client.dll
+A:\temp\fivem-bcrypt-async\Client\obj\Release\net452\bcrypt.Client.csproj.AssemblyReference.cache
+A:\temp\fivem-bcrypt-async\Client\obj\Release\net452\bcrypt.Client.GeneratedMSBuildEditorConfig.editorconfig
+A:\temp\fivem-bcrypt-async\Client\obj\Release\net452\bcrypt.Client.AssemblyInfoInputs.cache
+A:\temp\fivem-bcrypt-async\Client\obj\Release\net452\bcrypt.Client.AssemblyInfo.cs
+A:\temp\fivem-bcrypt-async\Client\obj\Release\net452\bcrypt.Client.csproj.CoreCompileInputs.cache
+A:\temp\fivem-bcrypt-async\Client\obj\Release\net452\bcrypt.Client.sourcelink.json
+A:\temp\fivem-bcrypt-async\Client\obj\Release\net452\bcrypt.C.5320A9BE.Up2Date
+A:\temp\fivem-bcrypt-async\Client\obj\Release\net452\bcrypt.Client.net.dll
+C:\Users\xumit\Desktop\FIVEM\txData\FiveMBasicServerCFXDefault_23CBE7.base\resources\[core]\bcrypt\Client\bin\Release\net452\bcrypt.Client.net.dll
+C:\Users\xumit\Desktop\FIVEM\txData\FiveMBasicServerCFXDefault_23CBE7.base\resources\[core]\bcrypt\Client\bin\Release\net452\CitizenFX.Core.Client.dll
+C:\Users\xumit\Desktop\FIVEM\txData\FiveMBasicServerCFXDefault_23CBE7.base\resources\[core]\bcrypt\Client\obj\Release\net452\bcrypt.Client.csproj.AssemblyReference.cache
+C:\Users\xumit\Desktop\FIVEM\txData\FiveMBasicServerCFXDefault_23CBE7.base\resources\[core]\bcrypt\Client\obj\Release\net452\bcrypt.Client.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\xumit\Desktop\FIVEM\txData\FiveMBasicServerCFXDefault_23CBE7.base\resources\[core]\bcrypt\Client\obj\Release\net452\bcrypt.Client.AssemblyInfoInputs.cache
+C:\Users\xumit\Desktop\FIVEM\txData\FiveMBasicServerCFXDefault_23CBE7.base\resources\[core]\bcrypt\Client\obj\Release\net452\bcrypt.Client.AssemblyInfo.cs
+C:\Users\xumit\Desktop\FIVEM\txData\FiveMBasicServerCFXDefault_23CBE7.base\resources\[core]\bcrypt\Client\obj\Release\net452\bcrypt.Client.csproj.CoreCompileInputs.cache
+C:\Users\xumit\Desktop\FIVEM\txData\FiveMBasicServerCFXDefault_23CBE7.base\resources\[core]\bcrypt\Client\obj\Release\net452\bcrypt.Client.sourcelink.json
+C:\Users\xumit\Desktop\FIVEM\txData\FiveMBasicServerCFXDefault_23CBE7.base\resources\[core]\bcrypt\Client\obj\Release\net452\bcrypt.C.5320A9BE.Up2Date
+C:\Users\xumit\Desktop\FIVEM\txData\FiveMBasicServerCFXDefault_23CBE7.base\resources\[core]\bcrypt\Client\obj\Release\net452\bcrypt.Client.net.dll

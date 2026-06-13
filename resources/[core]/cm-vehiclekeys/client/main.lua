@@ -1,0 +1,5 @@
+RegisterNetEvent('cm-vehiclekeys:client:notify', function(msg)
+    BeginTextCommandThefeedPost('STRING')
+    AddTextComponentSubstringPlayerName(msg or '')
+    EndTextCommandThefeedPostTicker(false, false)
+end)

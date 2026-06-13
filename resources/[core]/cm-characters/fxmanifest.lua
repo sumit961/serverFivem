@@ -19,6 +19,7 @@ client_scripts {
 
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
+    'server/id-generator.lua',
     'server/main.lua',
     'server/creation.lua',
     'server/slots.lua',

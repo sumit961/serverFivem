@@ -193,13 +193,24 @@ RegisterNetEvent('cm-inventory:client:setEquipment', function(payload)
     end
 end)
 
+
+local function tryOpenVehicleTrunkBeforeInventory()
+    if GetResourceState('cm-vehicles') ~= 'started' then return false end
+    local ok, opened = pcall(function()
+        return exports['cm-vehicles']:TryOpenNearbyTrunkInventory()
+    end)
+    return ok and opened == true
+end
+
 RegisterCommand('inventory', function()
     if isOpen then closeInventory() return end
+    if tryOpenVehicleTrunkBeforeInventory() then return end
     TriggerServerEvent('cm-inventory:server:openInventory')
 end, false)
 
 RegisterCommand('inv', function()
     if isOpen then closeInventory() return end
+    if tryOpenVehicleTrunkBeforeInventory() then return end
     TriggerServerEvent('cm-inventory:server:openInventory')
 end, false)
 

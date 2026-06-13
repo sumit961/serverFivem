@@ -1,203 +1,197 @@
 // cm-auth/ui/app.js
 
-console.log('[CM-AUTH-UI] === SCRIPT STARTING ===');
-
 const app = document.getElementById('app');
 const loginForm = document.getElementById('login-form');
 const registerForm = document.getElementById('register-form');
-const errorMsg = document.getElementById('error-msg');
+const formTitle = document.getElementById('form-title');
+const formEyebrow = document.getElementById('form-eyebrow');
+const toast = document.getElementById('toast');
 
-console.log('[CM-AUTH-UI] app found:', !!app);
-console.log('[CM-AUTH-UI] loginForm found:', !!loginForm);
-console.log('[CM-AUTH-UI] registerForm found:', !!registerForm);
-console.log('[CM-AUTH-UI] errorMsg found:', !!errorMsg);
+const loginEmail = document.getElementById('login-email');
+const loginPass = document.getElementById('login-pass');
+const rememberEmail = document.getElementById('remember-email');
+const regEmail = document.getElementById('reg-email');
+const regPass = document.getElementById('reg-pass');
+const regPass2 = document.getElementById('reg-pass2');
+const loginBtn = document.getElementById('login-btn');
+const registerBtn = document.getElementById('register-btn');
 
-// Listen for messages from client Lua
-window.addEventListener('message', function(event) {
-    console.log('[CM-AUTH-UI] >>> MESSAGE RECEIVED <<<');
-    console.log('[CM-AUTH-UI] event.data:', JSON.stringify(event.data));
-    
-    const data = event.data;
-    
+let toastTimer = null;
+
+function resourceUrl(path) {
+    return `https://${GetParentResourceName()}/${path}`;
+}
+
+function showToast(message, type = 'error') {
+    if (!toast) return;
+    clearTimeout(toastTimer);
+    toast.textContent = message || 'Something went wrong.';
+    toast.className = `toast show ${type}`;
+    toastTimer = setTimeout(() => {
+        toast.className = 'toast';
+    }, 4200);
+}
+
+function setLoading(button, loading, text) {
+    if (!button) return;
+    if (loading) {
+        button.dataset.originalText = button.textContent;
+        button.textContent = text || 'Please wait...';
+        button.disabled = true;
+    } else {
+        button.textContent = button.dataset.originalText || button.textContent;
+        button.disabled = false;
+    }
+}
+
+function loadRememberedEmail() {
+    const remembered = localStorage.getItem('cm_auth_email') || '';
+    if (remembered && loginEmail) {
+        loginEmail.value = remembered;
+        if (rememberEmail) rememberEmail.checked = true;
+    }
+}
+
+function saveRememberedEmail(email) {
+    if (rememberEmail && rememberEmail.checked) {
+        localStorage.setItem('cm_auth_email', email);
+    } else {
+        localStorage.removeItem('cm_auth_email');
+    }
+}
+
+function showLogin() {
+    loginForm.classList.add('active');
+    registerForm.classList.remove('active');
+    formTitle.textContent = 'Login';
+    formEyebrow.textContent = 'Authorization';
+    setLoading(registerBtn, false);
+    setTimeout(() => loginEmail?.focus(), 50);
+}
+
+function showRegister() {
+    registerForm.classList.add('active');
+    loginForm.classList.remove('active');
+    formTitle.textContent = 'Register';
+    formEyebrow.textContent = 'Create account';
+    setLoading(loginBtn, false);
+    if (loginEmail?.value && regEmail) regEmail.value = loginEmail.value.trim();
+    setTimeout(() => regEmail?.focus(), 50);
+}
+
+function openAuth() {
+    app.classList.remove('hidden');
+    loadRememberedEmail();
+    showLogin();
+}
+
+function closeAuth() {
+    app.classList.add('hidden');
+    setLoading(loginBtn, false);
+    setLoading(registerBtn, false);
+}
+
+async function post(path, payload) {
+    const response = await fetch(resourceUrl(path), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+        body: JSON.stringify(payload || {})
+    });
+    return response.text();
+}
+
+function login(event) {
+    if (event) event.preventDefault();
+
+    const email = loginEmail.value.trim().toLowerCase();
+    const password = loginPass.value;
+
+    if (!email || !password) {
+        showToast('Enter your email and password.', 'error');
+        return;
+    }
+
+    saveRememberedEmail(email);
+    setLoading(loginBtn, true, 'Logging in...');
+    post('login', { email, password })
+        .catch(() => {
+            setLoading(loginBtn, false);
+            showToast('Connection error. Try again.', 'error');
+        });
+}
+
+function register(event) {
+    if (event) event.preventDefault();
+
+    const email = regEmail.value.trim().toLowerCase();
+    const password = regPass.value;
+    const confirmPassword = regPass2.value;
+
+    if (!email || !password || !confirmPassword) {
+        showToast('Fill in all register fields.', 'error');
+        return;
+    }
+
+    if (password.length < 6) {
+        showToast('Password must be at least 6 characters.', 'error');
+        return;
+    }
+
+    if (password !== confirmPassword) {
+        showToast('Passwords do not match.', 'error');
+        return;
+    }
+
+    setLoading(registerBtn, true, 'Creating...');
+    post('register', { email, password, confirmPassword })
+        .catch(() => {
+            setLoading(registerBtn, false);
+            showToast('Connection error. Try again.', 'error');
+        });
+}
+
+window.addEventListener('message', (event) => {
+    const data = event.data || {};
+
     if (data.action === 'open') {
-        console.log('[CM-AUTH-UI] ACTION = OPEN');
-        if (app) {
-            app.style.display = 'flex';
-            console.log('[CM-AUTH-UI] app display set to flex');
-        } else {
-            console.error('[CM-AUTH-UI] ERROR: app element not found!');
-        }
-        showLogin();
+        openAuth();
     }
-    
-    // FIX: Add handler to hide the auth container completely
+
     if (data.action === 'closeAuth') {
-        console.log('[CM-AUTH-UI] ACTION = CLOSEAUTH');
-        if (app) {
-            app.style.display = 'none';
-        }
+        closeAuth();
     }
-    
+
     if (data.action === 'error') {
-        console.log('[CM-AUTH-UI] ACTION = ERROR, msg:', data.message);
-        showError(data.message, 'error');
+        setLoading(loginBtn, false);
+        showToast(data.message || 'Wrong password. Try again.', 'error');
     }
-    
+
     if (data.action === 'registerResult') {
-        console.log('[CM-AUTH-UI] ACTION = REGISTERRESULT, success:', data.success);
-        showError(data.message, data.success ? 'success' : 'error');
+        setLoading(registerBtn, false);
+        showToast(data.message || (data.success ? 'Account created.' : 'Register failed.'), data.success ? 'success' : 'error');
         if (data.success) {
-            console.log('[CM-AUTH-UI] Register success, switching to login in 2s');
-            setTimeout(showLogin, 2000);
+            if (regEmail?.value && loginEmail) loginEmail.value = regEmail.value.trim().toLowerCase();
+            regPass.value = '';
+            regPass2.value = '';
+            setTimeout(showLogin, 900);
         }
     }
 });
 
-function showLogin() {
-    console.log('[CM-AUTH-UI] showLogin() called');
-    if (loginForm) loginForm.style.display = 'block';
-    if (registerForm) registerForm.style.display = 'none';
-    if (errorMsg) errorMsg.style.display = 'none';
-    console.log('[CM-AUTH-UI] Login visible, register hidden');
-}
-
-function showRegister() {
-    console.log('[CM-AUTH-UI] showRegister() called');
-    if (loginForm) loginForm.style.display = 'none';
-    if (registerForm) registerForm.style.display = 'block';
-    if (errorMsg) errorMsg.style.display = 'none';
-    console.log('[CM-AUTH-UI] Register visible, login hidden');
-}
-
-function showError(msg, type) {
-    console.log('[CM-AUTH-UI] showError:', msg, type);
-    if (!errorMsg) {
-        console.error('[CM-AUTH-UI] ERROR: errorMsg element missing!');
-        return;
-    }
-    errorMsg.textContent = msg;
-    errorMsg.className = 'show ' + (type || 'error');
-}
-
-// ============================================
-// LOGIN
-// ============================================
-
-function login() {
-    console.log('[CM-AUTH-UI] >>> LOGIN BUTTON CLICKED <<<');
-    
-    const usernameInput = document.getElementById('login-user');
-    const passwordInput = document.getElementById('login-pass');
-    
-    console.log('[CM-AUTH-UI] usernameInput found:', !!usernameInput);
-    console.log('[CM-AUTH-UI] passwordInput found:', !!passwordInput);
-    
-    const username = usernameInput ? usernameInput.value.trim() : '';
-    const password = passwordInput ? passwordInput.value : '';
-    
-    console.log('[CM-AUTH-UI] username:', username);
-    console.log('[CM-AUTH-UI] password entered:', !!password);
-    console.log('[CM-AUTH-UI] password length:', password.length);
-    
-    if (!username || !password) {
-        console.log('[CM-AUTH-UI] VALIDATION FAILED: empty fields');
-        showError('Please fill in all fields');
-        return;
-    }
-    
-    const resourceName = GetParentResourceName();
-    console.log('[CM-AUTH-UI] Resource name:', resourceName);
-    
-    const url = 'https://' + resourceName + '/login';
-    console.log('[CM-AUTH-UI] Fetch URL:', url);
-    
-    const body = JSON.stringify({ username: username, password: password });
-    console.log('[CM-AUTH-UI] Request body:', body);
-    
-    fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: body
-    })
-    .then(function(response) {
-        console.log('[CM-AUTH-UI] Fetch response status:', response.status);
-        return response.text();
-    })
-    .then(function(text) {
-        console.log('[CM-AUTH-UI] Fetch response body:', text);
-    })
-    .catch(function(error) {
-        console.error('[CM-AUTH-UI] FETCH ERROR:', error.message);
-        showError('Connection error: ' + error.message);
+document.querySelectorAll('.eye-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+        const targetId = button.getAttribute('data-toggle');
+        const input = document.getElementById(targetId);
+        if (!input) return;
+        input.type = input.type === 'password' ? 'text' : 'password';
+        button.textContent = input.type === 'password' ? '👁' : '🙈';
     });
-    
-    console.log('[CM-AUTH-UI] Fetch request sent');
-}
+});
 
-// ============================================
-// REGISTER
-// ============================================
+loginForm.addEventListener('submit', login);
+registerForm.addEventListener('submit', register);
 
-function register() {
-    console.log('[CM-AUTH-UI] >>> REGISTER BUTTON CLICKED <<<');
-    
-    const usernameInput = document.getElementById('reg-user');
-    const emailInput = document.getElementById('reg-email');
-    const passwordInput = document.getElementById('reg-pass');
-    
-    const username = usernameInput ? usernameInput.value.trim() : '';
-    const email = emailInput ? emailInput.value.trim() : '';
-    const password = passwordInput ? passwordInput.value : '';
-    
-    console.log('[CM-AUTH-UI] username:', username);
-    console.log('[CM-AUTH-UI] email:', email);
-    console.log('[CM-AUTH-UI] password entered:', !!password);
-    console.log('[CM-AUTH-UI] password length:', password.length);
-    
-    if (!username || !email || !password) {
-        console.log('[CM-AUTH-UI] VALIDATION FAILED: empty fields');
-        showError('Please fill in all fields');
-        return;
-    }
-    
-    if (password.length < 6) {
-        console.log('[CM-AUTH-UI] VALIDATION FAILED: password too short');
-        showError('Password must be at least 6 characters');
-        return;
-    }
-    
-    const resourceName = GetParentResourceName();
-    const url = 'https://' + resourceName + '/register';
-    console.log('[CM-AUTH-UI] Fetch URL:', url);
-    
-    const body = JSON.stringify({ username: username, email: email, password: password });
-    console.log('[CM-AUTH-UI] Request body:', body);
-    
-    fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: body
-    })
-    .then(function(response) {
-        console.log('[CM-AUTH-UI] Fetch response status:', response.status);
-        return response.text();
-    })
-    .then(function(text) {
-        console.log('[CM-AUTH-UI] Fetch response body:', text);
-    })
-    .catch(function(error) {
-        console.error('[CM-AUTH-UI] FETCH ERROR:', error.message);
-        showError('Connection error: ' + error.message);
-    });
-    
-    console.log('[CM-AUTH-UI] Fetch request sent');
-}
-
-// Expose to window for HTML onclick
 window.showLogin = showLogin;
 window.showRegister = showRegister;
-window.login = login;
-window.register = register;
 
-console.log('[CM-AUTH-UI] === SCRIPT READY ===');
-console.log('[CM-AUTH-UI] Waiting for "open" message from client...');
+loadRememberedEmail();

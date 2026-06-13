@@ -1,0 +1,4 @@
+A:\temp\fivem-bcrypt-async\Server\bin\Release\netstandard2.0\publish\bcrypt.Server.net.dll
+A:\temp\fivem-bcrypt-async\Server\bin\Release\netstandard2.0\publish\bcrypt.Server.deps.json
+A:\temp\fivem-bcrypt-async\Server\bin\Release\netstandard2.0\publish\bcrypt.Server.net.pdb
+A:\temp\fivem-bcrypt-async\Server\bin\Release\netstandard2.0\publish\CitizenFX.Core.Server.dll

@@ -41,6 +41,7 @@ RegisterNetEvent('cm-characters:server:selectCharacter', function(charId)
     local src = source
     print('[CM-CHARACTERS] selectCharacter: ' .. tostring(charId))
 
+    charId = tostring(charId)
     local char = exports['cm-core']:Query('SELECT * FROM characters WHERE id = ?', {charId})
     if not char or #char == 0 then
         TriggerClientEvent('cm-characters:client:error', src, 'Character not found')
@@ -50,15 +51,17 @@ RegisterNetEvent('cm-characters:server:selectCharacter', function(charId)
     char = char[1]
 
     -- ONLY set identity state. Everything else is handled by downstream resources.
-    Player(src).state:set('charId', charId, true)
+    local fixedCharId = tostring(char.id)
+    Player(src).state:set('charId', fixedCharId, true)
+    Player(src).state:set('characterId', fixedCharId, true)
     Player(src).state:set('isLoggedIn', true, true)
 
     -- This one event triggers cm-playerdata (load cash/health) and cm-spawn (tutorial/position/appearance)
-    TriggerEvent('cm-core:characterLoaded', src, charId)
+    TriggerEvent('cm-core:characterLoaded', src, fixedCharId)
 
     exports['cm-core']:Log('cm-characters', 'info', 'Character selected', {
         player_src = src,
-        player_char_id = charId,
+        player_char_id = fixedCharId,
         name = (char.first_name or '') .. ' ' .. (char.last_name or '')
     })
 end)

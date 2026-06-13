@@ -2,10 +2,13 @@ fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
 
-description 'CM-Auth: Login & Register with Full Debug'
-version '1.1.0'
+description 'CM-Auth: Modern email login/register with bcrypt support'
+version '2.0.0-modern-bcrypt'
 
-dependencies {'oxmysql', 'cm-core'}
+dependencies {
+    'oxmysql',
+    'cm-core'
+}
 
 server_scripts {
     '@oxmysql/lib/MySQL.lua',

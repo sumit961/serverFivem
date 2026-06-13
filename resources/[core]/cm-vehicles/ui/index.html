@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="style.css" />
+  <title>CM Vehicles</title>
+</head>
+<body>
+  <div id="toast" class="toast hidden"></div>
+
+  <section id="vehicleMenu" class="radial-wrap hidden">
+    <div class="radial-bg"></div>
+
+    <div class="center-card">
+      <p class="eyebrow">Transport</p>
+      <h1 id="vehicleTitle">Vehicle</h1>
+      <p id="vehiclePlate" class="muted">Plate hidden</p>
+      <div class="status-row">
+        <span id="vehAccess">No key</span>
+        <span id="vehLock">Unknown</span>
+        <span id="vehTrunk">0 slots</span>
+      </div>
+      <p id="vehContext" class="context">Look at a vehicle and press G</p>
+      <button class="close-btn" data-close>×</button>
+    </div>
+
+    <div id="radialActions" class="radial-actions"></div>
+
+    <div id="featuresPanel" class="side-card hidden">
+      <h2>Transportation Features</h2>
+      <p class="small">Quick controls. L locks/unlocks outside or inside. Left CTRL starts/stops the engine from driver seat.</p>
+      <div class="feature-grid">
+        <button data-action="lock" class="feature-btn">Lock / Unlock</button>
+        <button data-action="engine" class="feature-btn">Start / Stop</button>
+      </div>
+      <label>Give temporary key</label>
+      <div class="row">
+        <input id="targetId" type="number" placeholder="Player server ID" />
+        <button data-action="key" class="feature-btn">Give</button>
+      </div>
+    </div>
+
+    <div id="infoPanel" class="side-card info-card hidden">
+      <h2>Information</h2>
+      <div class="info-grid">
+        <div><span>Access</span><b id="infoAccess">No</b></div>
+        <div><span>Fuel</span><b id="vehFuel">100%</b></div>
+        <div><span>Trunk</span><b id="infoTrunk">0 slots</b></div>
+        <div><span>Body</span><b id="vehBody">100%</b></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="trunkInventory" class="hidden">
+    <div class="background"></div>
+    <header class="topbar">
+      <div class="weight-card">
+        <span>BACKPACK WEIGHT</span>
+        <div class="weight-line">
+          <div class="gauge"><div id="weight-fill"></div></div>
+          <strong id="weight-current">0.0</strong><small>/</small><span id="weight-max">82 KG</span>
+        </div>
+      </div>
+      <div class="hint">DRAG ITEMS BETWEEN PLAYER INVENTORY AND VEHICLE TRUNK</div>
+      <div class="trunk-title-card">
+        <span>VEHICLE TRUNK</span>
+        <strong id="trunkTitle">Vehicle</strong>
+        <small id="trunkMeta">Level 0 · 0 slots</small>
+      </div>
+      <button id="trunkClose" class="close">✕</button>
+    </header>
+
+    <main class="trunk-layout-modern">
+      <section class="player-inventory-side">
+        <aside class="fast-column">
+          <div class="vertical-title">FAST ACCESS</div>
+          <div id="quickSlots" class="fast-slots"></div>
+        </aside>
+        <div class="bag-column">
+          <div class="section">
+            <h3>POCKETS</h3>
+            <div id="pocketSlots" class="slot-row"></div>
+          </div>
+          <div class="section backpack-section">
+            <h3 id="backpack-title">BACKPACK <span id="bagLevelLabel">NO BAG</span></h3>
+            <div id="backpackSlots" class="slot-grid"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="vehicle-trunk-side">
+        <div class="section trunk-section">
+          <h3>VEHICLE INVENTORY <span id="trunkCount">0/0</span></h3>
+          <div id="vehicleSlots" class="trunk-slot-grid"></div>
+        </div>
+      </section>
+    </main>
+
+    <div id="tooltip" class="tooltip hidden"></div>
+    <div id="amountModal" class="modal hidden">
+      <div class="modal-card">
+        <h3 id="amountTitle">Move Item</h3>
+        <p id="amountLabel">Choose amount</p>
+        <input id="amountInput" type="number" min="1" value="1" />
+        <div class="modal-actions">
+          <button id="amountConfirm">Move</button>
+          <button id="amountCancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <footer class="bottom-hint">DRAG ITEM PLAYER → TRUNK OR TRUNK → PLAYER • ESC/I TO CLOSE UI ONLY • CLOSE TRUNK FROM G MENU</footer>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

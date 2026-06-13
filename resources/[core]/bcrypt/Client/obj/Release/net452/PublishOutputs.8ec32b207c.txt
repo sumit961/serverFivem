@@ -1,0 +1,2 @@
+O:\johndoe\All Servers\maindev\ServerData\resources\bcrypt\Client\bin\Release\net452\publish\bcrypt.Client.net.dll
+O:\johndoe\All Servers\maindev\ServerData\resources\bcrypt\Client\bin\Release\net452\publish\CitizenFX.Core.Client.dll
