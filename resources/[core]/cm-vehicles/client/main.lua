@@ -346,9 +346,13 @@ RegisterNetEvent('cm-vehicles:client:spawnPurchasedVehicle', function(data)
     local plate = normalizePlate(data.plate)
     EngineState[plate] = true
     SetVehicleNeedsToBeHotwired(veh, false)
-    -- v1.6 native-drive: do not force engine/gears/speed; GTA handles it normally.
     TaskWarpPedIntoVehicle(ped, veh, -1)
     SetGameplayCamRelativeHeading(0.0)
+    if not Config.Rules or Config.Rules.DefaultSpawnEngineOn ~= false then
+        SetVehicleUndriveable(veh, false)
+        SetVehicleHandbrake(veh, false)
+        SetVehicleEngineOn(veh, true, true, false)
+    end
 
     local netId = NetworkGetNetworkIdFromEntity(veh)
     SetNetworkIdExistsOnAllMachines(netId, true)

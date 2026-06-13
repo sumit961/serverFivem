@@ -190,7 +190,11 @@ local function spawnParkedVehicle(data)
     SetVehicleFuelLevel(veh, tonumber(data.fuel) or 100.0)
     applyLock(veh, data.is_locked == true or data.is_locked == 1)
     SetVehicleNeedsToBeHotwired(veh, false)
-    -- v1.6 native-drive: do not force engine/gears/speed after parking retrieve.
+    if not Config.Rules or Config.Rules.StartEngineOnRetrieve ~= false then
+        SetVehicleUndriveable(veh, false)
+        SetVehicleHandbrake(veh, false)
+        SetVehicleEngineOn(veh, true, true, false)
+    end
 
     local netId = NetworkGetNetworkIdFromEntity(veh)
     SetNetworkIdExistsOnAllMachines(netId, true)
