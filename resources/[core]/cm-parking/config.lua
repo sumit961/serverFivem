@@ -20,7 +20,7 @@ CMParking.Config = {
         WarpIntoVehicleOnRetrieve = false,
         DeleteVehicleWhenParked = true,
         UnlockOnRetrieve = true,
-        StartEngineOnRetrieve = true
+        StartEngineOnRetrieve = false
     },
 
     ParkingLots = {

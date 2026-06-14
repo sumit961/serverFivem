@@ -1,7 +1,7 @@
 # CM Vehicle Pack v1
 
 Resources:
-- cm-vehicles: ownership, engine, locks, G menu, trunk inventory
+- cm-vehicles: ownership, locks, G menu, trunk inventory
 - cm-vehiclekeys: temporary shared vehicle keys until logout
 - cm-vehiclestore: dealership NPC and buy UI
 
@@ -25,7 +25,6 @@ ensure cm-vehiclestore
 
 - `G` near vehicle: vehicle menu
 - `L`: lock/unlock
-- `Left CTRL`: start/stop engine when in driver seat
 
 ## Test commands
 

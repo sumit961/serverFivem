@@ -6,7 +6,7 @@ CMVehicles.Config = {
     Controls = {
         menuKey = 'G',
         lockKey = 'L',
-        engineKey = nil -- v1.6 native-drive: no engine keybind while testing normal GTA driving
+        engineKey = nil -- disabled: this resource never controls driving/engine
     },
 
     Interaction = {
@@ -38,8 +38,8 @@ CMVehicles.Config = {
     },
 
     Rules = {
-        -- Normal GTA driving mode. The script never forces gears/speed/undriveable.
+        -- Pure native driving mode. The script never controls engine/gears/speed/handbrake/undriveable.
         StrictEngineRequired = false,
-        DefaultSpawnEngineOn = true, -- kept for compatibility only; client does not force engine state
+        DefaultSpawnEngineOn = false
     }
 }

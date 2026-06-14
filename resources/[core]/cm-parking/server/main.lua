@@ -92,6 +92,8 @@ local function ensureTables()
     ]])
     ensureColumn('cm_owned_vehicles', 'parking_id', 'VARCHAR(64) NULL')
     ensureColumn('cm_owned_vehicles', 'parked_at', 'TIMESTAMP NULL')
+    ensureColumn('cm_owned_vehicles', 'tank_health', 'FLOAT NOT NULL DEFAULT 1000')
+    ensureColumn('cm_owned_vehicles', 'dirt_level', 'FLOAT NOT NULL DEFAULT 0')
 
     MySQL.query.await([[
         CREATE TABLE IF NOT EXISTS cm_parking_audit (
@@ -254,6 +256,8 @@ RegisterNetEvent('cm-parking:server:parkVehicle', function(data)
     local fuel = math.floor(tonumber(data.fuel) or row.fuel or 100)
     local engineHealth = tonumber(data.engineHealth) or row.engine_health or 1000.0
     local bodyHealth = tonumber(data.bodyHealth) or row.body_health or 1000.0
+    local tankHealth = tonumber(data.tankHealth) or row.tank_health or 1000.0
+    local dirtLevel = tonumber(data.dirtLevel) or row.dirt_level or 0.0
     local locked = Config.Rules.LockVehicleWhenParked == true and 1 or (row.is_locked and 1 or 0)
 
     MySQL.update.await([[UPDATE cm_owned_vehicles SET
@@ -264,13 +268,15 @@ RegisterNetEvent('cm-parking:server:parkVehicle', function(data)
         fuel = ?,
         engine_health = ?,
         body_health = ?,
+        tank_health = ?,
+        dirt_level = ?,
         is_locked = ?,
         parked_at = CURRENT_TIMESTAMP
         WHERE id = ? AND owner_character_id = ?]], {
-        lot.id, encode(pos), fuel, engineHealth, bodyHealth, locked, row.id, tostring(charId)
+        lot.id, encode(pos), fuel, engineHealth, bodyHealth, tankHealth, dirtLevel, locked, row.id, tostring(charId)
     })
 
-    audit(charId, row.id, row.plate, lot.id, 'park_vehicle', { fuel = fuel, engineHealth = engineHealth, bodyHealth = bodyHealth })
+    audit(charId, row.id, row.plate, lot.id, 'park_vehicle', { fuel = fuel, engineHealth = engineHealth, bodyHealth = bodyHealth, tankHealth = tankHealth, dirtLevel = dirtLevel })
     TriggerClientEvent('cm-parking:client:deleteVehicle', src, netId)
     notify(src, ('Parked %s at %s.'):format(row.label or row.model, lot.label), 'success')
 
@@ -312,34 +318,23 @@ RegisterNetEvent('cm-parking:server:retrieveVehicle', function(data)
 
     local spawn = lot.spawn or lot.coords
     local unlockOnRetrieve = Config.Rules and Config.Rules.UnlockOnRetrieve == true
-    local finalLocked = unlockOnRetrieve and false or row.is_locked
-    local spawnData = {
-        id = row.id,
-        owner_character_id = tostring(charId),
-        model = row.model,
-        label = row.label,
-        plate = row.plate,
-        trunk_level = row.trunk_level,
-        fuel = tonumber(row.fuel) or 100,
-        engineHealth = tonumber(row.engine_health) or 1000.0,
-        bodyHealth = tonumber(row.body_health) or 1000.0,
-        is_locked = finalLocked,
-        engineOn = Config.Rules and Config.Rules.StartEngineOnRetrieve == true,
-        spawnCoords = { x = spawn.x, y = spawn.y, z = spawn.z },
-        heading = spawn.w or 0.0,
-        message = (wasStored and ('Retrieved %s from parking.') or ('Called %s to parking.')):format(row.label or row.model)
-    }
 
-    MySQL.update.await([[UPDATE cm_owned_vehicles SET
-        is_stored = 0,
-        parking_id = NULL,
-        garage = NULL,
-        parked_at = NULL,
-        is_locked = ?
-        WHERE id = ? AND owner_character_id = ?]], { finalLocked and 1 or 0, row.id, tostring(charId) })
+    local okSpawn, spawnErr, meta = false, 'cm-vehicles is not started.', nil
+    if GetResourceState('cm-vehicles') == 'started' then
+        okSpawn, spawnErr, meta = exports['cm-vehicles']:SpawnVehicleFromParking(src, row.id, lot.id, { x = spawn.x, y = spawn.y, z = spawn.z, w = spawn.w or 0.0 }, {
+            unlockOnRetrieve = unlockOnRetrieve,
+            engineOn = true,
+            warp = false
+        })
+    end
 
-    audit(charId, row.id, row.plate, lot.id, wasStored and 'retrieve_vehicle' or 'call_out_vehicle', {})
-    TriggerClientEvent('cm-parking:client:spawnParkedVehicle', src, spawnData)
+    if not okSpawn then
+        notify(src, tostring(spawnErr or 'Could not retrieve vehicle.'), 'error')
+        finish()
+        return
+    end
+
+    audit(charId, row.id, row.plate, lot.id, wasStored and 'retrieve_vehicle' or 'call_out_vehicle', meta or {})
     notify(src, (wasStored and ('Retrieved %s.') or ('Called %s.')):format(row.label or row.model), 'success')
 
     local payload = buildUiPayload(src, lot.id)

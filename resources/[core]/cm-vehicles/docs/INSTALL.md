@@ -25,7 +25,6 @@ ensure cm-vehiclestore
 
 - `G` near vehicle: vehicle menu
 - `L`: lock/unlock
-- `Left CTRL`: start/stop engine when in driver seat
 
 ## Test commands
 

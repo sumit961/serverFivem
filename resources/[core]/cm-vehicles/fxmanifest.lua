@@ -1,27 +1,35 @@
 fx_version 'cerulean'
 game 'gta5'
+lua54 'yes'
 
-author 'CM Framework'
-description 'CM owned vehicle system: engine, locks, menu, trunk inventory'
-version '1.2.0'
+author 'CM Framework / refactored for ClockMate'
+description 'CM owned vehicle system: OneSync server spawning, keys, locks, menu, trunk, persistence'
+version '2.0.0-onesync-modular'
 
 ui_page 'ui/index.html'
 
 shared_scripts {
-    'config.lua'
-}
-
-client_scripts {
-    'client/main.lua'
-}
-
-client_exports {
-    'TryOpenNearbyTrunkInventory'
+    'shared/config.lua',
+    'shared/utils.lua'
 }
 
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
-    'server/main.lua'
+    'server/main.lua',
+    'server/spawn.lua',
+    'server/keys.lua',
+    'server/trunk.lua'
+}
+
+client_scripts {
+    'client/main.lua',
+    'client/spawn.lua',
+    'client/interaction.lua',
+    'client/menu.lua'
+}
+
+client_exports {
+    'TryOpenNearbyTrunkInventory'
 }
 
 files {

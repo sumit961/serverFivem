@@ -101,8 +101,7 @@ function actionDisabled(key) {
   if (key === 'enterTrunk') return inVehicle || locked || trunkSlots <= 0;
   if (key === 'repair' || key === 'refuel' || key === 'charge' || key === 'getOutTrunk') return inVehicle;
   if (key === 'passengers') return !inVehicle;
-  if (key === 'engine') return !hasAccess() || !isDriver;
-  if (key === 'lock' || key === 'key') return !hasAccess();
+  if (key === 'lock' || key === 'key' || key === 'engine' || key === 'windows' || key === 'doors' || key === 'hood' || key === 'neons') return !hasAccess();
   return false;
 }
 
@@ -144,7 +143,7 @@ function runAction(action) {
   const target = $('targetId')?.value;
   post('vehicleAction', { action, plate: vehicle?.plate, target });
   if (action === 'trunk') { showToast('Trunk toggled. If open, press I near the trunk.'); return; }
-  if (['lock','engine','key'].includes(action)) { showToast('Request sent.'); return; }
+  if (['lock','key','engine','windows','doors','hood','neons'].includes(action)) { showToast('Request sent.'); return; }
   closeAll();
 }
 

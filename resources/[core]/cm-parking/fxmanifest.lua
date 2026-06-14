@@ -29,3 +29,6 @@ files {
     'ui/style.css',
     'ui/app.js'
 }
+
+
+dependency 'cm-vehicles'

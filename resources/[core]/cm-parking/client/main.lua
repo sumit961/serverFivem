@@ -139,16 +139,15 @@ local function sendParkCurrent()
         fuel = GetVehicleFuelLevel(veh),
         engineHealth = GetVehicleEngineHealth(veh),
         bodyHealth = GetVehicleBodyHealth(veh),
+        tankHealth = GetVehiclePetrolTankHealth(veh),
+        dirtLevel = GetVehicleDirtLevel(veh),
         position = { x = coords.x, y = coords.y, z = coords.z, w = GetEntityHeading(veh) }
     })
 end
 
 
 local function normalizeVehicleDrive(vehicle, resetSpeed)
-    -- v1.5 normal-drive: parking does not touch gears, speed, handbrake, or handling.
-    -- Kept only for compatibility with older code paths.
-    if not vehicle or vehicle == 0 then return end
-    SetVehicleNeedsToBeHotwired(vehicle, false)
+    -- v1.7 no-drive-control: parking never touches driving state.
 end
 
 
@@ -166,43 +165,9 @@ local function applyLock(vehicle, locked)
 end
 
 local function spawnParkedVehicle(data)
-    data = type(data) == 'table' and data or {}
-    deleteLocalVehicleIfExists(data.plate)
-    local hash = loadModel(data.model or 'sultan')
-    if not hash then notify('Vehicle model could not load: ' .. tostring(data.model)) return end
-
-    local coords = data.spawnCoords or {}
-    local heading = data.heading or coords.w or 0.0
-    local veh = CreateVehicle(hash, coords.x or coords[1], coords.y or coords[2], coords.z or coords[3], heading, true, false)
-    if not veh or veh == 0 then notify('Vehicle spawn failed.') return end
-
-    SetVehicleNumberPlateText(veh, '        ')
-    pcall(function() Entity(veh).state:set('cmPlate', data.plate, true) end)
-    pcall(function() Entity(veh).state:set('cmVehicleId', data.id, true) end)
-    SetVehicleOnGroundProperly(veh)
-    SetEntityAsMissionEntity(veh, true, true)
-    SetVehicleHasBeenOwnedByPlayer(veh, true)
-    -- v1.6 native-drive testing: spawn healthy so damaged saved values do not cause smoke/broken driving.
-    SetVehicleEngineHealth(veh, 1000.0)
-    SetVehicleBodyHealth(veh, 1000.0)
-    SetVehiclePetrolTankHealth(veh, 1000.0)
-    SetVehicleFixed(veh)
-    SetVehicleFuelLevel(veh, tonumber(data.fuel) or 100.0)
-    applyLock(veh, data.is_locked == true or data.is_locked == 1)
-    SetVehicleNeedsToBeHotwired(veh, false)
-    -- v1.6 native-drive: do not force engine/gears/speed after parking retrieve.
-
-    local netId = NetworkGetNetworkIdFromEntity(veh)
-    SetNetworkIdExistsOnAllMachines(netId, true)
-    TriggerServerEvent('cm-vehicles:server:registerNetVehicle', data.plate, netId)
-
-    if Config.Rules and Config.Rules.WarpIntoVehicleOnRetrieve then
-        TaskWarpPedIntoVehicle(PlayerPedId(), veh, -1)
-        SetGameplayCamRelativeHeading(0.0)
-    end
-
-    notify(data.message or ('Retrieved %s.'):format(data.label or data.model or 'vehicle'))
-    SetModelAsNoLongerNeeded(hash)
+    -- Backward compatibility only. Parking no longer creates vehicles client-side.
+    -- Retrieve now calls exports['cm-vehicles']:SpawnVehicleFromParking(...) on the server.
+    notify((data and data.message) or 'Vehicle retrieval requested.')
 end
 
 RegisterNetEvent('cm-parking:client:open', function(payload)
