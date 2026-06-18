@@ -5,11 +5,47 @@ local currentSlot = nil
 local currentAccountId = nil
 local isCreating = false
 
+local function setCharacterFlowState(active)
+    LocalPlayer.state:set('isInCharacterSelector', active == true, true)
+    LocalPlayer.state:set('skipPositionSave', active == true, true)
+    LocalPlayer.state:set('characterFullySpawned', active ~= true, true)
+end
+
+local function setHudVisible(visible)
+    DisplayRadar(visible == true)
+    LocalPlayer.state:set('cmHudHidden', visible ~= true, true)
+    TriggerEvent('cm-hud:client:setVisible', visible == true)
+    TriggerEvent('cm-hud:client:toggle', visible == true)
+    TriggerEvent('cm-hud:client:hide', visible ~= true)
+    if GetResourceState('cm-hud') == 'started' then
+        pcall(function() exports['cm-hud']:SetVisible(visible == true) end)
+        pcall(function() exports['cm-hud']:ToggleHud(visible == true) end)
+        pcall(function() exports['cm-hud']:HideHud(visible ~= true) end)
+    end
+end
+
+local function preloadFreemodeModels()
+    CreateThread(function()
+        local models = { `mp_m_freemode_01`, `mp_f_freemode_01` }
+        for _, model in ipairs(models) do
+            RequestModel(model)
+            local timeout = GetGameTimer() + 5000
+            while not HasModelLoaded(model) and GetGameTimer() < timeout do
+                RequestModel(model)
+                Wait(0)
+            end
+        end
+    end)
+end
+
 AddEventHandler('cm-characters:client:openCreator', function(slot, accountId)
     currentSlot = slot
     currentAccountId = accountId
     display = true
     isCreating = false
+    setCharacterFlowState(true)
+    setHudVisible(false)
+    preloadFreemodeModels()
     SetNuiFocus(true, true)
 
     SendNUIMessage({
@@ -28,6 +64,7 @@ RegisterNetEvent('cm-characters:client:createResult', function(success, data)
         display = false
         SetNuiFocus(false, false)
         
+        SendNUIMessage({ action = 'creationLoading', show = true, message = 'Preparing character creator...' })
         print('[CM-CHARACTERS] Opening appearance for charId=' .. tostring(data.charId))
         TriggerEvent('cm-characters:client:openAppearance', {
             charId = data.charId,
@@ -66,7 +103,9 @@ end)
 
 RegisterNUICallback('closeCreator', function(data, cb)
     display = false
-    SetNuiFocus(false, false)
+    -- Returning from creator goes back to selector, so keep NUI focus.
+    SetNuiFocus(true, true)
+    SendNUIMessage({ action = 'showApp' })
     TriggerServerEvent('cm-characters:server:getSlots', currentAccountId)
     cb('ok')
 end)

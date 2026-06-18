@@ -3,41 +3,45 @@
 SpawnPoints = {
     {
         key = 'last',
-        label = 'LAST COORD',
+        label = 'LAST LOCATION',
         coords = nil,
-        description = 'By clicking here, you can spawn again at the place you last exited.',
+        description = 'Continue from the place you last exited.',
         alwaysUnlocked = true,
         icon = 'fa-location-dot',
-        color = 'orange'
+        color = 'orange',
+        image = 'assets/last.svg'
     },
     {
         key = 'hotel',
         label = 'HOTEL',
         coords = vector4(324.0, -212.0, 54.0, 0.0),
-        description = 'By clicking here, you can spawn in the town hotel.',
+        description = 'Start safely from the city hotel.',
         alwaysUnlocked = true,
         icon = 'fa-hotel',
-        color = 'green'
+        color = 'green',
+        image = 'assets/hotel.svg'
     },
     {
         key = 'family',
         label = 'FAMILY',
         coords = vector4(0, 0, 0, 0),
-        description = 'By clicking here, you can spawn in the family house.',
+        description = 'Family house spawn point for future housing/family systems.',
         locked = true,
         lockedReason = 'Coming soon',
         icon = 'fa-house-chimney',
-        color = 'blue'
+        color = 'blue',
+        image = 'assets/family.svg'
     },
     {
         key = 'gang',
         label = 'GANG',
         coords = vector4(0, 0, 0, 0),
-        description = 'By clicking here, you can spawn in the gang territory.',
+        description = 'Gang territory spawn point for future gang systems.',
         locked = true,
         lockedReason = 'Coming soon',
         icon = 'fa-skull',
-        color = 'purple'
+        color = 'purple',
+        image = 'assets/gang.svg'
     }
 }
 
@@ -50,9 +54,7 @@ end
 
 exports('GetSpawnByKey', GetSpawnByKey)
 
--- DEPRECATED: Kept for backward compatibility only
--- Use BuildSpawnList in main.lua instead
 exports('GetAvailableSpawns', function(src, charData)
-    print('[CM-SPAWN] WARNING: GetAvailableSpawns export called — this is deprecated, use BuildSpawnList in main.lua')
+    print('[CM-SPAWN] WARNING: GetAvailableSpawns export called — use BuildSpawnList in main.lua')
     return {}, true
 end)

@@ -313,3 +313,45 @@ RegisterCommand('cmsafe', function()
     FreezeEntityPosition(entity, false)
     notify('Teleported to safe test point.', 'success')
 end, false)
+
+RegisterCommand('getcampos', function()
+    local ped = PlayerPedId()
+
+    local pedCoords = GetEntityCoords(ped)
+    local pedHeading = GetEntityHeading(ped)
+
+    local camCoord = GetGameplayCamCoord()
+    local camRot = GetGameplayCamRot(2)
+    local camFov = GetGameplayCamFov()
+
+    print('==============================')
+    print('PLAYER POSITION')
+    print(string.format(
+        'vector4(%.4f, %.4f, %.4f, %.4f)',
+        pedCoords.x,
+        pedCoords.y,
+        pedCoords.z,
+        pedHeading
+    ))
+
+    print('CAMERA POSITION')
+    print(string.format(
+        'vector3(%.4f, %.4f, %.4f)',
+        camCoord.x,
+        camCoord.y,
+        camCoord.z
+    ))
+
+    print('CAMERA ROTATION')
+    print(string.format(
+        'vector3(%.4f, %.4f, %.4f)',
+        camRot.x,
+        camRot.y,
+        camRot.z
+    ))
+
+    print('CAMERA FOV')
+    print(camFov)
+
+    print('==============================')
+end)

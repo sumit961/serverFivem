@@ -16,7 +16,7 @@ window.addEventListener('message', function(event) {
     if (item.action === "openAppearance") {
         // FIX: Show appearance container, hide slots
         document.getElementById('appearance-ui').style.display = 'block';
-        document.getElementById('app').style.display = 'none';
+        document.getElementById('app').classList.add('hidden');
         
         $('.categories').empty();
         $('.panel').empty();
@@ -45,24 +45,29 @@ window.addEventListener('message', function(event) {
 
         if (item.categories) {
             if (item.categories['parents']) {
-                $('.categories').append(`<<div class="parents categoryBtn" data-type="parents"><i class="fa-solid fa-people-roof"></i></div>`);
+                $('.categories').append(`<div class="parents categoryBtn" data-type="parents">DNA</div>`);
             }
             if (item.categories['face']) {
-                $('.categories').append(`<<div class="face categoryBtn" data-type="face"><i class="fa-solid fa-face-smile"></i></div>`);
+                $('.categories').append(`<div class="face categoryBtn" data-type="face">FACE</div>`);
             }
             if (item.categories['clothes']) {
-                $('.categories').append(`<<div class="clothes categoryBtn" data-type="clothes"><i class="fa-solid fa-shirt"></i></div>`);
+                $('.categories').append(`<div class="clothes categoryBtn" data-type="clothes">FIT</div>`);
             }
             if (item.categories['clothesets']) {
-                $('.categories').append(`<<div class="clothesets categoryBtn" data-type="clothesets"><i class="fa-solid fa-user-tie"></i></div>`);
+                $('.categories').append(`<div class="clothesets categoryBtn" data-type="clothesets">SET</div>`);
             }
             if (item.categories['hairs']) {
-                $('.categories').append(`<<div class="hairs categoryBtn" data-type="hairs"><i class="fa-solid fa-scissors"></i></div>`);
+                $('.categories').append(`<div class="hairs categoryBtn" data-type="hairs">HAIR</div>`);
             }
             if (item.categories['makeup']) {
-                $('.categories').append(`<<div class="makeup categoryBtn" data-type="makeup"><i class="fa-solid fa-wand-magic-sparkles"></i></div>`);
+                $('.categories').append(`<div class="makeup categoryBtn" data-type="makeup">MAKE</div>`);
             }
         }
+
+        setTimeout(() => {
+            const firstCategory = document.querySelector('.categoryBtn');
+            if (firstCategory) firstCategory.click();
+        }, 80);
 
         for (const [key, value] of Object.entries(item.data || {})) {
             // ClockMate starter clothing limit:
@@ -109,6 +114,8 @@ window.addEventListener('message', function(event) {
 
 // Category click handler
 $(document).on('click', '.categoryBtn', function(e) {
+    $('.categoryBtn').removeClass('active');
+    $(this).addClass('active');
     $('.panel').empty();
     const type = $(this).data("type");
     $('#headerCategory').html(translate.category[type] || type.toUpperCase());
@@ -144,10 +151,10 @@ $(document).on('click', '.categoryBtn', function(e) {
 function buildParentsPanel() {
     let values = '';
 
-    if (items['parents']?.sex) {
+    if (items['parents'] && items['parents'].sex) {
         values += createRangeBlock(translate.title_sex, translate.sub_sex, 'sex');
     }
-    if (items['parents']?.parents) {
+    if (items['parents'] && items['parents'].parents) {
         values += `
             <div class="item-block">
                 <p class="item-title">${translate.title_parents}</p>
@@ -157,28 +164,28 @@ function buildParentsPanel() {
                             <div class="parent-photo" id="mom-photo" style="background: linear-gradient(135deg, #ff6b6b, #ee5a24);"></div>
                             <p class="item-subname">${translate.sub_mom}</p>
                             <div class="item-suboptions">
-                                <div class="item-suboptions-values left-arrow" onclick="previous('mom')"><i class="fa-solid fa-caret-left"></i></div>
+                                <div class="item-suboptions-values left-arrow" onclick="previous('mom')">‹</div>
                                 <div class="item-suboptions-values"><p class="item-label" id="mom-label">${translate.parentsNames.mom[currentValue['mom'].value] || 'Unknown'}</p></div>
-                                <div class="item-suboptions-values right-arrow" onclick="next('mom')"><i class="fa-solid fa-caret-right"></i></div>
+                                <div class="item-suboptions-values right-arrow" onclick="next('mom')">›</div>
                             </div>
                         </div>
                         <div class="item-option">
                             <div class="parent-photo" id="dad-photo" style="background: linear-gradient(135deg, #4834d4, #686de0);"></div>
                             <p class="item-subname">${translate.sub_dad}</p>
                             <div class="item-suboptions">
-                                <div class="item-suboptions-values left-arrow" onclick="previous('dad')"><i class="fa-solid fa-caret-left"></i></div>
+                                <div class="item-suboptions-values left-arrow" onclick="previous('dad')">‹</div>
                                 <div class="item-suboptions-values"><p class="item-label" id="dad-label">${translate.parentsNames.dad[currentValue['dad'].value] || 'Unknown'}</p></div>
-                                <div class="item-suboptions-values right-arrow" onclick="next('dad')"><i class="fa-solid fa-caret-right"></i></div>
+                                <div class="item-suboptions-values right-arrow" onclick="next('dad')">›</div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>`;
     }
-    if (items['parents']?.face_md_weight) {
+    if (items['parents'] && items['parents'].face_md_weight) {
         values += createRangeBlock(translate.title_resemblance, translate.sub_face_md_weight, 'face_md_weight');
     }
-    if (items['parents']?.skin_md_weight) {
+    if (items['parents'] && items['parents'].skin_md_weight) {
         values += createRangeBlock(translate.title_skin_md_weight, translate.sub_skin_md_weight, 'skin_md_weight');
     }
 
@@ -189,16 +196,16 @@ function buildParentsPanel() {
 function buildFacePanel() {
     let values = '';
 
-    if (items['face']?.neck_thickness) {
+    if (items['face'] && items['face'].neck_thickness) {
         values += createRangeBlock(translate.title_neck_thickness, translate.sub_neck_thickness, 'neck_thickness');
     }
-    if (items['face']?.age) {
+    if (items['face'] && items['face'].age) {
         values += createDoubleRangeBlock(translate.title_ageing, translate.sub_age_1, 'age_1', translate.sub_age_2, 'age_2');
     }
-    if (items['face']?.eyebrows) {
+    if (items['face'] && items['face'].eyebrows) {
         values += createDoubleRangeBlock(translate.title_eyebrow, translate.sub_eyebrows_5, 'eyebrows_5', translate.sub_eyebrows_6, 'eyebrows_6');
     }
-    if (items['face']?.nose) {
+    if (items['face'] && items['face'].nose) {
         values += `
             <div class="item-block">
                 <p class="item-title">${translate.title_nose}</p>
@@ -218,7 +225,7 @@ function buildFacePanel() {
                 </div>
             </div>`;
     }
-    if (items['face']?.cheeks) {
+    if (items['face'] && items['face'].cheeks) {
         values += `
             <div class="item-block">
                 <p class="item-title">${translate.title_cheekbones}</p>
@@ -233,13 +240,13 @@ function buildFacePanel() {
                 </div>
             </div>`;
     }
-    if (items['face']?.lip_thickness) {
+    if (items['face'] && items['face'].lip_thickness) {
         values += createRangeBlock(translate.title_lips, translate.sub_lip_thickness, 'lip_thickness');
     }
-    if (items['face']?.jaw) {
+    if (items['face'] && items['face'].jaw) {
         values += createDoubleRangeBlock(translate.title_jaw, translate.sub_jaw_1, 'jaw_1', translate.sub_jaw_2, 'jaw_2');
     }
-    if (items['face']?.chin) {
+    if (items['face'] && items['face'].chin) {
         values += `
             <div class="item-block">
                 <p class="item-title">${translate.title_chin}</p>
@@ -255,39 +262,39 @@ function buildFacePanel() {
                 </div>
             </div>`;
     }
-    if (items['face']?.eye_color) {
+    if (items['face'] && items['face'].eye_color) {
         values += `
             <div class="item-block">
                 <p class="item-title">${translate.title_eye_color}</p>
                 <div class="item-bar">
                     <p class="item-subname">${translate.sub_eye_color}</p>
                     <div class="color-selector-bar">
-                        <div class="item-sub-color-selector" style="background: #d2d6d3;" onclick="changeColor('eye_color', 0)"><i class="fa-solid fa-check"></i></div>
-                        <div class="item-sub-color-selector" style="background: #5c6e36;" onclick="changeColor('eye_color', 45)"><i class="fa-solid fa-check"></i></div>
-                        <div class="item-sub-color-selector" style="background: #1f400f;" onclick="changeColor('eye_color', 2)"><i class="fa-solid fa-check"></i></div>
-                        <div class="item-sub-color-selector" style="background: #8fcbeb;" onclick="changeColor('eye_color', 3)"><i class="fa-solid fa-check"></i></div>
-                        <div class="item-sub-color-selector" style="background: #2e6b94;" onclick="changeColor('eye_color', 4)"><i class="fa-solid fa-check"></i></div>
-                        <div class="item-sub-color-selector" style="background: #27c07d;" onclick="changeColor('eye_color', 6)"><i class="fa-solid fa-check"></i></div>
-                        <div class="item-sub-color-selector" style="background: #947647;" onclick="changeColor('eye_color', 31)"><i class="fa-solid fa-check"></i></div>
-                        <div class="item-sub-color-selector" style="background: #593b0a;" onclick="changeColor('eye_color', 30)"><i class="fa-solid fa-check"></i></div>
-                        <div class="item-sub-color-selector" style="background: #2e2316;" onclick="changeColor('eye_color', 24)"><i class="fa-solid fa-check"></i></div>
-                        <div class="item-sub-color-selector" style="background: #9b9b9b;" onclick="changeColor('eye_color', 9)"><i class="fa-solid fa-check"></i></div>
-                        <div class="item-sub-color-selector" style="background: #5f5f5f;" onclick="changeColor('eye_color', 10)"><i class="fa-solid fa-check"></i></div>
-                        <div class="item-sub-color-selector" style="background: #0e0e0e;" onclick="changeColor('eye_color', 12)"><i class="fa-solid fa-check"></i></div>
+                        <div class="item-sub-color-selector" style="background: #d2d6d3;" onclick="changeColor('eye_color', 0)">✓</div>
+                        <div class="item-sub-color-selector" style="background: #5c6e36;" onclick="changeColor('eye_color', 45)">✓</div>
+                        <div class="item-sub-color-selector" style="background: #1f400f;" onclick="changeColor('eye_color', 2)">✓</div>
+                        <div class="item-sub-color-selector" style="background: #8fcbeb;" onclick="changeColor('eye_color', 3)">✓</div>
+                        <div class="item-sub-color-selector" style="background: #2e6b94;" onclick="changeColor('eye_color', 4)">✓</div>
+                        <div class="item-sub-color-selector" style="background: #27c07d;" onclick="changeColor('eye_color', 6)">✓</div>
+                        <div class="item-sub-color-selector" style="background: #947647;" onclick="changeColor('eye_color', 31)">✓</div>
+                        <div class="item-sub-color-selector" style="background: #593b0a;" onclick="changeColor('eye_color', 30)">✓</div>
+                        <div class="item-sub-color-selector" style="background: #2e2316;" onclick="changeColor('eye_color', 24)">✓</div>
+                        <div class="item-sub-color-selector" style="background: #9b9b9b;" onclick="changeColor('eye_color', 9)">✓</div>
+                        <div class="item-sub-color-selector" style="background: #5f5f5f;" onclick="changeColor('eye_color', 10)">✓</div>
+                        <div class="item-sub-color-selector" style="background: #0e0e0e;" onclick="changeColor('eye_color', 12)">✓</div>
                     </div>
                 </div>
             </div>`;
     }
-    if (items['face']?.blemishes) {
+    if (items['face'] && items['face'].blemishes) {
         values += createDoubleRangeBlock(translate.title_blemishes, translate.sub_blemishes_1, 'blemishes_1', translate.sub_blemishes_2, 'blemishes_2');
     }
-    if (items['face']?.complexion) {
+    if (items['face'] && items['face'].complexion) {
         values += createDoubleRangeBlock(translate.title_complexion, translate.sub_complexion_1, 'complexion_1', translate.sub_complexion_2, 'complexion_2');
     }
-    if (items['face']?.sun) {
+    if (items['face'] && items['face'].sun) {
         values += createDoubleRangeBlock(translate.title_sun, translate.sub_sun_1, 'sun_1', translate.sub_sun_2, 'sun_2');
     }
-    if (items['face']?.moles) {
+    if (items['face'] && items['face'].moles) {
         values += createDoubleRangeBlock(translate.title_moles, translate.sub_moles_1, 'moles_1', translate.sub_moles_2, 'moles_2');
     }
 
@@ -324,7 +331,7 @@ function buildClothesPanel() {
     };
 
     for (const item of clothItems) {
-        if (items['clothes']?.[item]) {
+        if (items['clothes'] && items['clothes'][item]) {
             const key1 = item + '_1';
             const key2 = item + '_2';
             values += `
@@ -353,9 +360,9 @@ function buildClotheSetsPanel() {
                     <div class="item-option">
                         <p class="item-subname">${translate.sub_clotheset}</p>
                         <div class="item-suboptions">
-                            <div class="item-suboptions-values left-arrow" onclick="previousClotheSets()"><i class="fa-solid fa-caret-left"></i></div>
-                            <div class="item-suboptions-values"><p class="item-label" id="clotheset-label">${clotheSets[currentValue['clotheset']?.value]?.name || 'NONE'}</p></div>
-                            <div class="item-suboptions-values right-arrow" onclick="nextClotheSets()"><i class="fa-solid fa-caret-right"></i></div>
+                            <div class="item-suboptions-values left-arrow" onclick="previousClotheSets()">‹</div>
+                            <div class="item-suboptions-values"><p class="item-label" id="clotheset-label">${(currentValue['clotheset'] && clotheSets[currentValue['clotheset'].value]) ? clotheSets[currentValue['clotheset'].value].name : 'NONE'}</p></div>
+                            <div class="item-suboptions-values right-arrow" onclick="nextClotheSets()">›</div>
                         </div>
                     </div>
                 </div>
@@ -367,7 +374,7 @@ function buildClotheSetsPanel() {
 function buildHairPanel() {
     let values = '';
 
-    if (items['hairs']?.hair) {
+    if (items['hairs'] && items['hairs'].hair) {
         values += `
             <div class="item-block">
                 <p class="item-title">${translate.title_hair}</p>
@@ -386,7 +393,7 @@ function buildHairPanel() {
                 </div>
             </div>`;
     }
-    if (items['hairs']?.beard) {
+    if (items['hairs'] && items['hairs'].beard) {
         values += `
             <div class="item-block">
                 <p class="item-title">${translate.title_beard}</p>
@@ -402,7 +409,7 @@ function buildHairPanel() {
                 </div>
             </div>`;
     }
-    if (items['hairs']?.eyebrow) {
+    if (items['hairs'] && items['hairs'].eyebrow) {
         values += `
             <div class="item-block">
                 <p class="item-title">${translate.title_eyebrow}</p>
@@ -418,7 +425,7 @@ function buildHairPanel() {
                 </div>
             </div>`;
     }
-    if (items['hairs']?.chesthair) {
+    if (items['hairs'] && items['hairs'].chesthair) {
         values += `
             <div class="item-block">
                 <p class="item-title">${translate.title_chesthair}</p>
@@ -442,7 +449,7 @@ function buildHairPanel() {
 function buildMakeupPanel() {
     let values = '';
 
-    if (items['makeup']?.makeup) {
+    if (items['makeup'] && items['makeup'].makeup) {
         values += `
             <div class="item-block">
                 <p class="item-title">${translate.title_makeup}</p>
@@ -458,7 +465,7 @@ function buildMakeupPanel() {
                 </div>
             </div>`;
     }
-    if (items['makeup']?.blush) {
+    if (items['makeup'] && items['makeup'].blush) {
         values += `
             <div class="item-block">
                 <p class="item-title">${translate.title_blush}</p>
@@ -474,7 +481,7 @@ function buildMakeupPanel() {
                 </div>
             </div>`;
     }
-    if (items['makeup']?.lipstick) {
+    if (items['makeup'] && items['makeup'].lipstick) {
         values += `
             <div class="item-block">
                 <p class="item-title">${translate.title_lipstick}</p>
@@ -505,7 +512,7 @@ function createRangeInput(subname, item) {
                 <p class="item-value" id="${item}-value">${cv.value}</p>
             </div>
             <div class="item-suboptions">
-                <input type="range" min="${cv.min}" max="${cv.max}" value="${cv.value}" data-excluded="${cv.excluded?.join(',') || ''}" class="input-value-radius" id="${item}-range" oninput="changeRange('${item}')">
+                <input type="range" min="${cv.min}" max="${cv.max}" value="${cv.value}" data-excluded="${cv.excluded ? cv.excluded.join(',') : ''}" class="input-value-radius" id="${item}-range" oninput="changeRange('${item}')">
             </div>
         </div>`;
 }
@@ -544,7 +551,7 @@ function buildHairColors(item) {
         [8, '#8b6444'], [10, '#c4ab75'], [21, '#c21111'], [27, '#696969'], [28, '#a8a8a8'], [34, '#ff0178'],
         [35, '#fc9aff'], [37, '#185579'], [38, '#11288f'], [39, '#269b60'], [43, '#32ad13'], [46, '#eec614']
     ];
-    return colors.map(c => `<div class="item-sub-color-selector" style="background: ${c[1]};" onclick="changeColor('${item}', ${c[0]})"><i class="fa-solid fa-check"></i></div>`).join('');
+    return colors.map(c => `<div class="item-sub-color-selector" style="background: ${c[1]};" onclick="changeColor('${item}', ${c[0]})">✓</div>`).join('');
 }
 
 // Helper: Build makeup colors
@@ -553,7 +560,7 @@ function buildMakeupColors(item) {
         [17, '#e775a4'], [18, '#de3e81'], [24, '#cf0813'], [0, '#992532'], [20, '#712739'], [56, '#180e0e'],
         [45, '#ffdd26'], [47, '#f78a27'], [37, '#25c2d2'], [34, '#1d4ea7'], [40, '#1b9c32'], [32, '#6d1a9d']
     ];
-    return colors.map(c => `<div class="item-sub-color-selector" style="background: ${c[1]};" onclick="changeColor('${item}', ${c[0]})"><i class="fa-solid fa-check"></i></div>`).join('');
+    return colors.map(c => `<div class="item-sub-color-selector" style="background: ${c[1]};" onclick="changeColor('${item}', ${c[0]})">✓</div>`).join('');
 }
 
 // Helper: Build blush colors
@@ -561,7 +568,7 @@ function buildBlushColors(item) {
     const colors = [
         [18, '#de3e81'], [20, '#712739'], [21, '#4f1f2a'], [7, '#a4645d'], [13, '#a84c33'], [24, '#cf0813']
     ];
-    return colors.map(c => `<div class="item-sub-color-selector" style="background: ${c[1]};" onclick="changeColor('${item}', ${c[0]})"><i class="fa-solid fa-check"></i></div>`).join('');
+    return colors.map(c => `<div class="item-sub-color-selector" style="background: ${c[1]};" onclick="changeColor('${item}', ${c[0]})">✓</div>`).join('');
 }
 
 // Helper: Build lipstick colors
@@ -569,7 +576,7 @@ function buildLipstickColors(item) {
     const colors = [
         [54, '#880302'], [53, '#ff0505'], [51, '#d1593c'], [34, '#eb4b93'], [38, '#023974'], [39, '#3fa16a']
     ];
-    return colors.map(c => `<div class="item-sub-color-selector" style="background: ${c[1]};" onclick="changeColor('${item}', ${c[0]})"><i class="fa-solid fa-check"></i></div>`).join('');
+    return colors.map(c => `<div class="item-sub-color-selector" style="background: ${c[1]};" onclick="changeColor('${item}', ${c[0]})">✓</div>`).join('');
 }
 
 // Navigation functions
@@ -716,7 +723,7 @@ function saveAppearance() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ charId })
     });
-    document.body.style.display = 'none';
+    document.getElementById('appearance-ui').style.display = 'none';
 }
 
 // Keyboard handling

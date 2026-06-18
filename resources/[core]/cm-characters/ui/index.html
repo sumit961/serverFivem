@@ -1,82 +1,253 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CM Characters</title>
-    <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Titillium+Web:ital,wght@0,200;0,300;0,400;0,600;0,700;0,900;1,200;1,300;1,400;1,600;1,700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="appearance/style.css">
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="appearance/style.css" />
 </head>
 <body>
-    <!-- SLOTS & CREATOR -->
-    <div id="app" style="display: none;">
-        <div id="slots-screen">
-            <h1>Select Character</h1>
-            <div class="slots-container">
-                <div class="slot" data-slot="1" onclick="selectSlot(1)">
-                    <div class="slot-empty">Empty Slot</div>
-                    <div class="slot-info" style="display: none;"></div>
-                </div>
-                <div class="slot" data-slot="2" onclick="selectSlot(2)">
-                    <div class="slot-empty">Empty Slot</div>
-                    <div class="slot-info" style="display: none;"></div>
-                </div>
-            </div>
-            <div id="error-msg"></div>
-        </div>
+    <audio id="character-bgm" loop>
+        <source src="audio/character-theme.wav" type="audio/wav" />
+    </audio>
 
-        <div id="creator-screen" style="display: none;">
-            <h1>Create Character</h1>
-            <input type="text" id="first-name" placeholder="First Name" maxlength="20">
-            <input type="text" id="last-name" placeholder="Last Name" maxlength="20">
-            <input type="date" id="dob" placeholder="Date of Birth">
-            <select id="gender">
-                <option value="male">Male</option>
-                <option value="female">Female</option>
-            </select>
-            <button onclick="createCharacter()">Create</button>
-            <button class="back" onclick="showSlots()">Back</button>
-            <div id="creator-error"></div>
+    <div id="app" class="hidden">
+        <main id="slots-screen" class="selector-page">
+            <header class="top-ribbon">
+                <div class="ribbon-line"></div>
+                <div class="ribbon-meta">CM ROLEPLAY</div>
+                <div class="ribbon-logo">CM</div>
+                <div class="ribbon-meta">CHARACTER ACCESS</div>
+                <div class="ribbon-line"></div>
+            </header>
+
+            <section class="selector-headline">
+                <div class="headline-ghost">CHARACTERS</div>
+                <p class="eyebrow">Choose your story</p>
+                <h1>Select Character</h1>
+                <p id="character-count" class="subtitle">Loading available characters...</p>
+            </section>
+
+            <section class="selector-layout">
+                <div class="character-list" id="character-list"></div>
+
+                <div class="stage-window" id="stage-window" aria-hidden="true"></div>
+
+                <aside class="details-panel" id="details-panel">
+                    <p class="details-kicker">Character Details</p>
+                    <h2 id="details-name">Select a character</h2>
+                    <p id="details-id" class="details-id">Pick one of your saved characters to view stats.</p>
+
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <span>Cash</span>
+                            <strong id="details-cash">$0</strong>
+                        </div>
+                        <div class="stat-card">
+                            <span>Bank</span>
+                            <strong id="details-bank">$0</strong>
+                        </div>
+                        <div class="stat-card">
+                            <span>Level</span>
+                            <strong id="details-level">1</strong>
+                        </div>
+                        <div class="stat-card">
+                            <span>Rank</span>
+                            <strong id="details-rank">Civilian</strong>
+                        </div>
+                    </div>
+
+                    <div class="detail-lines">
+                        <div><span>Gender</span><strong id="details-gender">N/A</strong></div>
+                        <div><span>Playtime</span><strong id="details-playtime">0h</strong></div>
+                        <div><span>Created</span><strong id="details-created">N/A</strong></div>
+                    </div>
+
+                    <button class="primary-btn" id="play-btn" disabled>Enter City</button>
+                    <p class="small-note">Selecting a card focuses the preview ped and shows these details.</p>
+                </aside>
+            </section>
+
+            <button class="music-toggle" id="music-toggle" type="button">Music: Off</button>
+            <div id="error-msg" class="toast"></div>
+        </main>
+
+
+
+        <section id="editor-screen" class="scene-editor hidden">
+            <button class="editor-free-preview" id="editor-free-preview" type="button">Hide editor / preview</button>
+            <div class="editor-card" id="editor-card">
+                <div class="editor-head">
+                    <div>
+                        <p class="eyebrow">Selector Scene Editor</p>
+                        <h1>Scene Setup</h1>
+                        <p class="subtitle">Small side panel. Use Hide Editor to see the full character preview.</p>
+                    </div>
+                    <button class="editor-close" id="editor-close" type="button">×</button>
+                </div>
+
+                <div class="editor-grid">
+                    <section class="editor-section">
+                        <h3>Quick Capture</h3>
+                        <button class="secondary-btn editor-action" data-action="setPlayerFromCurrent">Use my current position as character finish</button>
+                        <button class="secondary-btn editor-action" data-action="setWalkStartFromCurrent">Use my current position as walk start</button>
+                        <button class="secondary-btn editor-action" data-action="setStreamFromCurrent">Use my current position as stream location</button>
+                        <button class="secondary-btn editor-action" data-action="setCamFromView">Use current camera view</button>
+                    </section>
+
+                    <section class="editor-section">
+                        <h3>Camera</h3>
+                        <label>FOV <strong id="editor-fov-value">34</strong></label>
+                        <input type="range" min="15" max="75" step="1" id="editor-fov" />
+                        <div class="nudge-row" data-target="camera">
+                            <button data-axis="x" data-delta="-0.25">X-</button><button data-axis="x" data-delta="0.25">X+</button>
+                            <button data-axis="y" data-delta="-0.25">Y-</button><button data-axis="y" data-delta="0.25">Y+</button>
+                            <button data-axis="z" data-delta="-0.15">Z-</button><button data-axis="z" data-delta="0.15">Z+</button>
+                        </div>
+                    </section>
+
+                    <section class="editor-section">
+                        <h3>Character Finish</h3>
+                        <div class="nudge-row" data-target="walkFinish">
+                            <button data-axis="x" data-delta="-0.25">X-</button><button data-axis="x" data-delta="0.25">X+</button>
+                            <button data-axis="y" data-delta="-0.25">Y-</button><button data-axis="y" data-delta="0.25">Y+</button>
+                            <button data-axis="z" data-delta="-0.10">Z-</button><button data-axis="z" data-delta="0.10">Z+</button>
+                            <button data-axis="w" data-delta="-5">H-</button><button data-axis="w" data-delta="5">H+</button>
+                        </div>
+                    </section>
+
+                    <section class="editor-section">
+                        <h3>Walk Start</h3>
+                        <div class="nudge-row" data-target="walkStart">
+                            <button data-axis="x" data-delta="-0.25">X-</button><button data-axis="x" data-delta="0.25">X+</button>
+                            <button data-axis="y" data-delta="-0.25">Y-</button><button data-axis="y" data-delta="0.25">Y+</button>
+                            <button data-axis="z" data-delta="-0.10">Z-</button><button data-axis="z" data-delta="0.10">Z+</button>
+                            <button data-axis="w" data-delta="-5">H-</button><button data-axis="w" data-delta="5">H+</button>
+                        </div>
+                    </section>
+
+                    <section class="editor-section">
+                        <h3>World</h3>
+                        <label>Weather</label>
+                        <select id="editor-weather">
+                            <option>EXTRASUNNY</option><option>CLEAR</option><option>CLOUDS</option><option>OVERCAST</option>
+                            <option>RAIN</option><option>THUNDER</option><option>FOGGY</option><option>SMOG</option><option>SNOWLIGHT</option>
+                        </select>
+                        <label>Hour</label>
+                        <input type="range" min="0" max="23" step="1" id="editor-hour" />
+                        <label>Minute</label>
+                        <input type="range" min="0" max="59" step="1" id="editor-minute" />
+                        <p class="editor-current" id="editor-time-value">12:00</p>
+                    </section>
+
+                    <section class="editor-section">
+                        <h3>Animation</h3>
+                        <label>Preset</label>
+                        <select id="editor-anim-preset">
+                            <option value="idle">Street idle</option>
+                            <option value="lean">Lean</option>
+                            <option value="armscrossed">Arms crossed</option>
+                            <option value="guard">Guard idle</option>
+                        </select>
+                        <button class="secondary-btn editor-action" data-action="applyAnimPreset">Apply animation preset</button>
+                    </section>
+                </div>
+
+                <pre id="editor-json" class="editor-json">Loading...</pre>
+
+                <div class="editor-actions">
+                    <button class="secondary-btn editor-action" data-action="showPlayerPreview">Show My Character</button>
+                    <button class="secondary-btn editor-action" data-action="freeCamera">Free Camera Mode</button>
+                    <button class="secondary-btn editor-action" data-action="preview">Preview Selected Slot</button>
+                    <button class="secondary-btn editor-action" data-action="resetDraft">Reset draft</button>
+                    <button class="primary-btn" id="editor-save" type="button">Save Scene</button>
+                </div>
+
+                <div id="editor-toast" class="toast inline-toast"></div>
+            </div>
+        </section>
+
+        <section id="creator-screen" class="creator-modal hidden">
+            <div class="creator-card">
+                <p class="eyebrow">New identity</p>
+                <h1>Create Character</h1>
+                <p class="subtitle">Create a basic identity first. You will customize body, hair, and starter clothes next.</p>
+
+                <label>First name</label>
+                <input type="text" id="first-name" placeholder="First Name" maxlength="20" />
+
+                <label>Last name</label>
+                <input type="text" id="last-name" placeholder="Last Name" maxlength="20" />
+
+                <label>Date of birth</label>
+                <input type="date" id="dob" />
+
+                <label>Gender</label>
+                <select id="gender">
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                </select>
+
+                <button class="primary-btn" onclick="createCharacter()">Create & Customize</button>
+                <button class="secondary-btn" onclick="showSlots()">Back</button>
+                <div id="creator-error" class="toast inline-toast"></div>
+            </div>
+        </section>
+    </div>
+
+    <div id="creation-loading" class="creation-loading hidden">
+        <div class="loading-brand">
+            <span>CM ROLEPLAY</span>
+            <strong>Loading Character</strong>
+        </div>
+        <div class="loading-bottom">
+            <div class="loading-copy">
+                <span id="creation-loading-text">Preparing character preview...</span>
+                <strong id="creation-loading-percent">0%</strong>
+            </div>
+            <div class="loading-track">
+                <div id="creation-loading-bar" class="loading-bar"></div>
+            </div>
         </div>
     </div>
 
-    <!-- APPEARANCE EDITOR -->
     <div id="appearance-ui" style="display: none;">
+        <button class="appearance-music-toggle" id="appearance-music-toggle" type="button">Music: On</button>
         <div class="background">
             <div class="categories"></div>
             <div class="header">
                 <p id="headerName">CREATE YOUR CHARACTER</p>
                 <p id="headerCategory">SELECT CATEGORY</p>
+                <p class="appearance-subtitle">Simple setup: body, face, hair, and starter clothes only.</p>
             </div>
             <div class="panel"></div>
             <div class="settings">
                 <div class="height">
                     <p class="height-title" id="height-text">CAMERA HEIGHT</p>
                     <div class="height-radius">
-                        <input type="range" value="0.0" step="0.1" min="-1.0" max="1.0" id="height-input" class="input-option-radius" oninput="changeHeight()">
+                        <input type="range" value="0.0" step="0.1" min="-1.0" max="1.0" id="height-input" class="input-option-radius" oninput="changeHeight()" />
                     </div>
                 </div>
                 <div class="rotate">
                     <p class="rotate-title" id="rotate-text">CAMERA ROTATE</p>
                     <div class="rotate-radius">
-                        <input type="range" min="0" max="360" id="rotate-input" class="input-option-radius" oninput="changeRotate()">
+                        <input type="range" min="0" max="360" id="rotate-input" class="input-option-radius" oninput="changeRotate()" />
                     </div>
                 </div>
                 <div class="distance">
                     <p class="distance-title" id="distance-text">CAMERA DISTANCE</p>
                     <div class="distance-radius">
-                        <input type="range" min="30" max="100" id="distance-input" class="input-option-radius" oninput="changeDistance()">
+                        <input type="range" min="30" max="100" id="distance-input" class="input-option-radius" oninput="changeDistance()" />
                     </div>
                 </div>
                 <div class="actions">
                     <div class="accept-skin" onclick="saveAppearance()">
-                        <i class="fa-solid fa-check accept-icon"></i>
+                        <span class="accept-icon">✓</span>
                         <p id="save">SAVE & SPAWN</p>
                     </div>
                     <div class="hands-up" onclick="handsUp()">
-                        <i class="fa-solid fa-hands-holding-circle"></i>
+                        <span>Hands</span>
                     </div>
                 </div>
             </div>

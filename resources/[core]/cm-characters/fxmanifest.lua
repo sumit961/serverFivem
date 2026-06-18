@@ -3,11 +3,12 @@ game 'gta5'
 lua54 'yes'
 
 author 'cm-dev'
-description 'CM Characters - Character slot & appearance system'
-version '1.0.0'
+description 'CM Characters - freemode dummy selector preview with creator-style camera and inventory clothing'
+version '1.4.3-creation-preload-hud-hide'
 
 shared_scripts {
     '@cm-core/shared/config.lua',
+    'config.lua',
 }
 
 client_scripts {
@@ -33,6 +34,9 @@ files {
     'ui/index.html',
     'ui/style.css',
     'ui/app.js',
+    'ui/assets/*.svg',
+    'ui/audio/character-theme.wav',
+    'data/selector_scene.json',
     'ui/appearance/style.css',
     'ui/appearance/app.js',
     'ui/appearance/translation.js',

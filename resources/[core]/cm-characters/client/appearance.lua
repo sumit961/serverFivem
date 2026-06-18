@@ -17,7 +17,7 @@ local AppearanceConfig = {
         ['hairs'] = {z = 0.65, fov = 30.0},
         ['clothes'] = {z = -0.1, fov = 100.0},
         ['clothesets'] = {z = -0.1, fov = 100.0},
-        ['makeup'] = {z = 0.65, fov = 30.0},
+        ['makeup'] = {z = 0.65, fov = 30.0}, -- disabled in CM simplified creator
     },
     animDict = "anim@heists@heist_corona@team_idles@male_a",
     animName = "idle",
@@ -34,20 +34,20 @@ local EnabledCategories = {
     ['hairs'] = true,
     ['clothes'] = true, -- first creation only: choose starter shirt/pants/shoes
     ['clothesets'] = false, -- no outfit packs
-    ['makeup'] = true,
+    ['makeup'] = false, -- disabled: no makeup category in character creation
 }
 
 -- Available items per category
 local AvailableItems = {
     ['parents'] = {sex = true, parents = true, face_md_weight = true, skin_md_weight = true},
     ['face'] = {
-        neck_thickness = true, age = true, eyebrows = true, nose = true,
+        neck_thickness = false, age = false, eyebrows = true, nose = true,
         cheeks = true, lip_thickness = true, jaw = true, chin = true,
-        eye_color = true, blemishes = true, complexion = true, sun = true, moles = true
+        eye_color = true, blemishes = false, complexion = false, sun = false, moles = false
     },
     ['clothes'] = {torso = true, pants = true, shoes = true},
-    ['hairs'] = {hair = true, beard = true, eyebrow = true, chesthair = true},
-    ['makeup'] = {makeup = true, lipstick = true, blush = true}
+    ['hairs'] = {hair = true, beard = true, eyebrow = true, chesthair = false},
+    ['makeup'] = {makeup = false, lipstick = false, blush = false}
 }
 
 -- Default no-clothes/underwear base for first creation.
@@ -459,14 +459,69 @@ local function DeleteAppearanceCam()
     DoScreenFadeIn(500)
 end
 
+
+local function setCreationHudVisible(visible)
+    DisplayRadar(visible == true)
+    LocalPlayer.state:set('cmHudHidden', visible ~= true, true)
+    TriggerEvent('cm-hud:client:setVisible', visible == true)
+    TriggerEvent('cm-hud:client:toggle', visible == true)
+    TriggerEvent('cm-hud:client:hide', visible ~= true)
+    if GetResourceState('cm-hud') == 'started' then
+        pcall(function() exports['cm-hud']:SetVisible(visible == true) end)
+        pcall(function() exports['cm-hud']:ToggleHud(visible == true) end)
+        pcall(function() exports['cm-hud']:HideHud(visible ~= true) end)
+    end
+end
+
+local function setCreationState(active)
+    LocalPlayer.state:set('isInCharacterSelector', active == true, true)
+    LocalPlayer.state:set('isInCharacterCreation', active == true, true)
+    LocalPlayer.state:set('skipPositionSave', active == true, true)
+    LocalPlayer.state:set('characterFullySpawned', active ~= true, true)
+end
+
+local function sendCreationLoading(show, message)
+    SendNUIMessage({
+        action = 'creationLoading',
+        show = show == true,
+        message = message or 'Preparing character creator...'
+    })
+end
+
+local function requestModelBlocking(model, label)
+    sendCreationLoading(true, label or 'Loading character model...')
+    RequestModel(model)
+    local timeout = GetGameTimer() + 10000
+    while not HasModelLoaded(model) and GetGameTimer() < timeout do
+        RequestModel(model)
+        Wait(0)
+    end
+    return HasModelLoaded(model)
+end
+
+local function loadCreatorCollision(coords)
+    sendCreationLoading(true, 'Loading creator room...')
+    RequestCollisionAtCoord(coords.x, coords.y, coords.z)
+    NewLoadSceneStart(coords.x, coords.y, coords.z, coords.x, coords.y, coords.z, 45.0, 0)
+    local timeout = GetGameTimer() + 5000
+    while not HasCollisionLoadedAroundEntity(PlayerPedId()) and GetGameTimer() < timeout do
+        RequestCollisionAtCoord(coords.x, coords.y, coords.z)
+        Wait(0)
+    end
+    NewLoadSceneStop()
+end
+
 -- Open appearance editor
 AddEventHandler('cm-characters:client:openAppearance', function(charData)
     currentCharData = charData
     isInAppearance = true
+    setCreationState(true)
+    setCreationHudVisible(false)
+    sendCreationLoading(true, 'Preparing character creator...')
 
-    -- Fade out and teleport
-    DoScreenFadeOut(500)
-    Wait(1000)
+    -- Fade out and prepare the creator scene behind a small loading overlay.
+    DoScreenFadeOut(250)
+    Wait(250)
 
     local ped = PlayerPedId()
     lastCoords = {
@@ -476,7 +531,8 @@ AddEventHandler('cm-characters:client:openAppearance', function(charData)
         w = GetEntityHeading(ped)
     }
 
-    SetEntityCoords(ped, AppearanceConfig.creatingCoords.x, AppearanceConfig.creatingCoords.y, AppearanceConfig.creatingCoords.z)
+    loadCreatorCollision(AppearanceConfig.creatingCoords)
+    SetEntityCoordsNoOffset(ped, AppearanceConfig.creatingCoords.x, AppearanceConfig.creatingCoords.y, AppearanceConfig.creatingCoords.z, false, false, false)
     SetEntityHeading(ped, AppearanceConfig.creatingCoords.w)
     FreezeEntityPosition(ped, true)
 
@@ -485,13 +541,17 @@ AddEventHandler('cm-characters:client:openAppearance', function(charData)
     if charData.gender == 'female' then sex = 1 end
 
     local model = sex == 0 and GetHashKey('mp_m_freemode_01') or GetHashKey('mp_f_freemode_01')
-    RequestModel(model)
-    while not HasModelLoaded(model) do
-        RequestModel(model)
-        Wait(0)
+    local modelLoaded = requestModelBlocking(model, 'Loading freemode character...')
+    if not modelLoaded then
+        print('[CM-CHARACTERS] WARNING: freemode model load timed out, continuing anyway')
     end
     SetPlayerModel(PlayerId(), model)
-    SetPedComponentVariation(PlayerPedId(), 0, 0, 0, 2)
+    ped = PlayerPedId()
+    SetEntityCoordsNoOffset(ped, AppearanceConfig.creatingCoords.x, AppearanceConfig.creatingCoords.y, AppearanceConfig.creatingCoords.z, false, false, false)
+    SetEntityHeading(ped, AppearanceConfig.creatingCoords.w)
+    FreezeEntityPosition(ped, true)
+    SetEntityVisible(ped, false, false)
+    SetPedComponentVariation(ped, 0, 0, 0, 2)
 
     -- Init skin data
     InitSkinData()
@@ -503,8 +563,9 @@ AddEventHandler('cm-characters:client:openAppearance', function(charData)
         tempSkinTable[k] = v
     end
     ApplySkin(tempSkinTable)
+    SetEntityVisible(PlayerPedId(), true, false)
 
-    DoScreenFadeIn(500)
+    DoScreenFadeIn(350)
 
     -- Create camera
     CreateAppearanceCam()
@@ -529,6 +590,7 @@ AddEventHandler('cm-characters:client:openAppearance', function(charData)
     })
 
     SetNuiFocus(true, true)
+    sendCreationLoading(false)
 end)
 
 -- NUI Callbacks for appearance
@@ -539,6 +601,7 @@ RegisterNUICallback('appearanceChange', function(data, cb)
         if data.type == 'sex' then
             local sex = tonumber(data.new)
             local model = sex == 0 and GetHashKey('mp_m_freemode_01') or GetHashKey('mp_f_freemode_01')
+            sendCreationLoading(true, 'Changing character model...')
             RequestModel(model)
             while not HasModelLoaded(model) do
                 RequestModel(model)
@@ -546,6 +609,7 @@ RegisterNUICallback('appearanceChange', function(data, cb)
             end
             SetPlayerModel(PlayerId(), model)
             SetPedComponentVariation(PlayerPedId(), 0, 0, 0, 2)
+            sendCreationLoading(false)
             tempSkinTable['sex'] = sex
             -- Reapply default clothes for new gender
             local mySex = sex == 0 and 'm' or 'f'
@@ -655,6 +719,7 @@ end)
 RegisterNUICallback('appearanceSave', function(data, cb)
     isInAppearance = false
     SetNuiFocus(false, false)
+    SendNUIMessage({ action = 'hideAll' })
 
     -- Hide the transition while the server saves naked/base JSON and inventory re-equips
     -- starter clothes. This prevents the brief default-body blink after pressing Create.
@@ -676,6 +741,8 @@ RegisterNUICallback('appearanceSave', function(data, cb)
     SetEntityHeading(ped, AppearanceConfig.afterSpawnCoords.w)
 
     -- Notify core that character is fully ready
+    setCreationState(false)
+    setCreationHudVisible(true)
     TriggerEvent('cm-characters:client:characterReady', currentCharData.charId)
 
     -- Safety: if the starter-equipment event fails for any reason, do not leave the screen black.
@@ -692,6 +759,10 @@ end)
 RegisterNUICallback('appearanceClose', function(data, cb)
     isInAppearance = false
     SetNuiFocus(false, false)
+    SendNUIMessage({ action = 'hideAll' })
+    sendCreationLoading(false)
+    setCreationState(false)
+    setCreationHudVisible(true)
     DeleteAppearanceCam()
     cb('ok')
 end)

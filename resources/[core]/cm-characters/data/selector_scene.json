@@ -1,0 +1,13 @@
+{
+  "sceneId": "fixed-night-preview",
+  "stream": { "x": 927.4528, "y": 11.8477, "z": 113.5550, "w": 296.7522 },
+  "walkStart": { "x": 927.4528, "y": 11.8477, "z": 113.5550, "w": 296.7522 },
+  "walkFinish": { "x": 927.4528, "y": 11.8477, "z": 113.5550, "w": 296.7522 },
+  "camera": { "x": 931.2687, "y": 14.1728, "z": 114.5444, "w": 296.7522 },
+  "camrotation": { "x": -3.8893, "y": 0.0, "z": 116.2193 },
+  "fov": 50.0,
+  "weather": "CLEAR",
+  "time": { "hours": 23, "minutes": 0, "seconds": 0 },
+  "idleDict": "anim@heists@heist_corona@team_idles@male_a",
+  "idleAnim": "idle"
+}

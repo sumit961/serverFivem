@@ -1,5 +1,13 @@
 -- cm-characters/server/creation.lua
 
+CreateThread(function()
+    Wait(1000)
+    pcall(function()
+        exports['cm-core']:Query('ALTER TABLE characters ADD COLUMN IF NOT EXISTS has_spawned TINYINT(1) NOT NULL DEFAULT 0')
+    end)
+end)
+
+
 RegisterNetEvent('cm-characters:server:create', function(accountId, charSlot, data)
     local src = source
 
@@ -31,14 +39,16 @@ RegisterNetEvent('cm-characters:server:create', function(accountId, charSlot, da
         return
     end
 
-    -- Check max characters (2 per account)
+    local maxCharacters = tonumber(Config and Config.MaxCharacters) or 2
+
+    -- Check max characters
     local count = exports['cm-core']:Scalar(
         'SELECT COUNT(*) FROM characters WHERE account_id = ?',
         {tostring(accountId)}
     )
-    if count and count >= 2 then
-        print('[CM-CHARACTERS] ERROR: Max 2 characters reached')
-        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Maximum 2 characters reached')
+    if count and count >= maxCharacters then
+        print('[CM-CHARACTERS] ERROR: Max ' .. tostring(maxCharacters) .. ' characters reached')
+        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Maximum ' .. tostring(maxCharacters) .. ' characters reached')
         return
     end
 
@@ -71,8 +81,8 @@ RegisterNetEvent('cm-characters:server:create', function(accountId, charSlot, da
     local ok, err = pcall(function()
         exports['cm-core']:Query([[
             INSERT INTO characters 
-            (id, account_id, slot, first_name, last_name, dob, gender, appearance_json, last_position, cash, bank)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, account_id, slot, first_name, last_name, dob, gender, appearance_json, last_position, cash, bank, has_spawned)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ]], {
             newCharId,
             tostring(accountId),
@@ -84,7 +94,8 @@ RegisterNetEvent('cm-characters:server:create', function(accountId, charSlot, da
             '{}',
             json.encode(spawn),
             500,
-            2000
+            2000,
+            0
         })
         return true
     end)
