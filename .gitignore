@@ -1,0 +1,7 @@
+# Ignore FiveM server cache
+cache/
+txData/cache/
+
+# Optional: Ignore logs and local configurations
+*.log
+server.log

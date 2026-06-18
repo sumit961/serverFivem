@@ -65,10 +65,17 @@ window.addEventListener('message', function(event) {
         }
 
         for (const [key, value] of Object.entries(item.data || {})) {
+            // ClockMate starter clothing limit:
+            // hard-limit T-Shirt, Torso, Pants and Shoes sliders to max 2.
+            let hardMax = value.max;
+            if (['tshirt_1', 'torso_1', 'pants_1', 'shoes_1'].includes(key)) {
+                hardMax = 2;
+            }
+
             currentValue[key] = {
-                value: value.value,
+                value: Math.min(Number(value.value) || 0, hardMax),
                 min: value.min,
-                max: value.max,
+                max: hardMax,
                 excluded: []
             };
         }

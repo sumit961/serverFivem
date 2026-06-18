@@ -54,8 +54,20 @@ const equipmentSlots = new Set(Object.keys(equipmentLabels));
 function bestEquipmentSlot(item) {
   const cat = String(item?.category || item?.type || '').toLowerCase();
   const name = String(item?.item_name || item?.name || '').toLowerCase();
-  const equipSlot = String(item?.equipmentSlot || item?.equipSlot || '').toLowerCase();
+  const metaCat = String(item?.metadata?.categoryType || item?.metadata?.category || '').toLowerCase();
+  const equipSlot = String(item?.equipmentSlot || item?.equipSlot || item?.metadata?.equipmentSlot || '').toLowerCase();
   if (equipmentSlots.has(equipSlot)) return equipSlot;
+
+  if (name.startsWith('clothing_')) {
+    const clothingCat = metaCat || name.replace('clothing_', '');
+    const clothingMap = {
+      tshirt: 'shirt', torso: 'outerwear', pants: 'pants', shoes: 'shoes',
+      chains: 'accessory', bags: 'bag', hat: 'headwear', glasses: 'glasses',
+      earrings: 'earrings', watches: 'watch'
+    };
+    return clothingMap[clothingCat] || null;
+  }
+
   if (name === 'armor' || name === 'body_armor' || name === 'bodyarmor' || name.includes('armor')) return 'bodyarmor';
   if (name.startsWith('weapon_')) return 'weapon';
   if (name.startsWith('ammo_') || name.includes('ammo')) return 'ammo';
@@ -82,7 +94,18 @@ function post(path, body) {
 }
 
 function imgSrc(item) {
-  const icon = item?.image || item?.icon || 'placeholder.png';
+  const meta = item?.metadata || {};
+  const icon = meta.image || meta.icon || item?.image || item?.icon || 'placeholder.png';
+
+  if (typeof icon === 'string' && (
+    icon.startsWith('nui://') ||
+    icon.startsWith('https://') ||
+    icon.startsWith('http://') ||
+    icon.startsWith('data:')
+  )) {
+    return icon;
+  }
+
   return `images/${icon}`;
 }
 

@@ -105,15 +105,178 @@ local WeaponMap = {
     weapon_carbinerifle = `WEAPON_CARBINERIFLE`
 }
 
+
+local ClothingSlotMap = {
+    shirt = { type = 'component', index = 8 },
+    outerwear = { type = 'component', index = 11 },
+    pants = { type = 'component', index = 4 },
+    shoes = { type = 'component', index = 6 },
+    accessory = { type = 'component', index = 7 },
+    bag = { type = 'component', index = 5 },
+    headwear = { type = 'prop', index = 0 },
+    glasses = { type = 'prop', index = 1 },
+    earrings = { type = 'prop', index = 2 },
+    watch = { type = 'prop', index = 6 }
+}
+
+local ClothingCategoryBySlot = {
+    shirt = 'tshirt', outerwear = 'torso', pants = 'pants', shoes = 'shoes',
+    accessory = 'chains', bag = 'bags', headwear = 'hat', glasses = 'glasses',
+    earrings = 'earrings', watch = 'watches'
+}
+
+local ClothingEmptyDefaults = {
+    male = {
+        shirt = { type = 'component', index = 8, drawable = 15, texture = 0 },
+        outerwear = { type = 'component', index = 11, drawable = 15, texture = 0, arms = 15, armsTexture = 0, undershirt = 15, undershirtTexture = 0 },
+        pants = { type = 'component', index = 4, drawable = 21, texture = 0 },
+        shoes = { type = 'component', index = 6, drawable = 34, texture = 0 },
+        accessory = { type = 'component', index = 7, drawable = 0, texture = 0 },
+        bag = { type = 'component', index = 5, drawable = 0, texture = 0 },
+        headwear = { type = 'prop', index = 0, drawable = -1, texture = 0 },
+        glasses = { type = 'prop', index = 1, drawable = -1, texture = 0 },
+        earrings = { type = 'prop', index = 2, drawable = -1, texture = 0 },
+        watch = { type = 'prop', index = 6, drawable = -1, texture = 0 }
+    },
+    female = {
+        shirt = { type = 'component', index = 8, drawable = 14, texture = 0 },
+        outerwear = { type = 'component', index = 11, drawable = 15, texture = 0, arms = 15, armsTexture = 0, undershirt = 14, undershirtTexture = 0 },
+        pants = { type = 'component', index = 4, drawable = 15, texture = 0 },
+        shoes = { type = 'component', index = 6, drawable = 35, texture = 0 },
+        accessory = { type = 'component', index = 7, drawable = 0, texture = 0 },
+        bag = { type = 'component', index = 5, drawable = 0, texture = 0 },
+        headwear = { type = 'prop', index = 0, drawable = -1, texture = 0 },
+        glasses = { type = 'prop', index = 1, drawable = -1, texture = 0 },
+        earrings = { type = 'prop', index = 2, drawable = -1, texture = 0 },
+        watch = { type = 'prop', index = 6, drawable = -1, texture = 0 }
+    }
+}
+
+local function getPedGender(ped)
+    local model = GetEntityModel(ped or PlayerPedId())
+    return model == `mp_f_freemode_01` and 'female' or 'male'
+end
+
+local function resolveTorsoFitForItem(ped, metadata, drawable, texture)
+    metadata = type(metadata) == 'table' and metadata or {}
+    local fallback = {
+        arms = metadata.arms,
+        armsTexture = metadata.armsTexture or metadata.arms_2,
+        undershirt = metadata.undershirt or metadata.tshirt_1,
+        undershirtTexture = metadata.undershirtTexture or metadata.tshirt_2,
+    }
+
+    if GetResourceState('cm-items') == 'started' then
+        local ok, fit = pcall(function()
+            return exports['cm-items']:ResolveTorsoFit(metadata.gender or getPedGender(ped), drawable, texture, fallback)
+        end)
+        if ok and type(fit) == 'table' then return fit end
+        ok, fit = pcall(function()
+            return exports['cm-items'].ResolveTorsoFit(metadata.gender or getPedGender(ped), drawable, texture, fallback)
+        end)
+        if ok and type(fit) == 'table' then return fit end
+    end
+
+    return fallback
+end
+
+local function clearClothingSlot(slot)
+    local ped = PlayerPedId()
+    local isFemale = IsPedModel(ped, `mp_f_freemode_01`)
+    local defaults = isFemale and ClothingEmptyDefaults.female or ClothingEmptyDefaults.male
+    local def = defaults[slot]
+    if not def then return false end
+
+    if def.type == 'prop' then
+        if def.drawable < 0 then ClearPedProp(ped, def.index)
+        else SetPedPropIndex(ped, def.index, def.drawable, def.texture or 0, true) end
+    else
+        -- Removing outerwear must also restore safe arms + undershirt. Otherwise freemode
+        -- peds can become invisible when a jacket/t-shirt combination is broken apart.
+        if slot == 'outerwear' then
+            SetPedComponentVariation(ped, 3, def.arms or 15, def.armsTexture or 0, 0)
+            SetPedComponentVariation(ped, 8, def.undershirt or def.drawable or 15, def.undershirtTexture or 0, 0)
+        end
+        SetPedComponentVariation(ped, def.index, def.drawable, def.texture or 0, 0)
+    end
+
+    TriggerEvent('nvCloth:client:equipClothingItem', ClothingCategoryBySlot[slot], def.drawable, def.texture or 0)
+    return true
+end
+
+local function equipClothingFromInventorySlot(slot, item)
+    if not item or not item.metadata then return false end
+    local def = ClothingSlotMap[slot]
+    if not def then return false end
+
+    local metadata = item.metadata or {}
+    local drawable = tonumber(metadata.drawableId or metadata.drawable)
+    local texture = tonumber(metadata.textureId or metadata.texture or 0) or 0
+    if drawable == nil then return false end
+
+    local ped = PlayerPedId()
+    if def.type == 'prop' then
+        if drawable < 0 then ClearPedProp(ped, def.index)
+        else SetPedPropIndex(ped, def.index, drawable, texture, true) end
+    else
+        -- Torso items carry matching arms and undershirt to stop clipping through jackets.
+        if slot == 'outerwear' then
+            local fit = resolveTorsoFitForItem(ped, metadata, drawable, texture)
+            local undershirt = tonumber(fit.undershirt)
+            local undershirtTexture = tonumber(fit.undershirtTexture) or 0
+            local arms = tonumber(fit.arms)
+            local armsTexture = tonumber(fit.armsTexture) or 0
+
+            -- Undershirt before torso, arms after torso is the most stable order for freemode tops.
+            if undershirt then SetPedComponentVariation(ped, 8, undershirt, undershirtTexture, 0) end
+            SetPedComponentVariation(ped, def.index, drawable, texture, 0)
+            if arms then SetPedComponentVariation(ped, 3, arms, armsTexture, 0) end
+        else
+            SetPedComponentVariation(ped, def.index, drawable, texture, 0)
+        end
+    end
+
+    -- Also notify nvCloth so its clothing state/preview bridge stays in sync.
+    local category = metadata.categoryType or metadata.category or ClothingCategoryBySlot[slot]
+    TriggerEvent('nvCloth:client:equipClothingItem', category, drawable, texture)
+    return true
+end
+
 local function notifyLocal(message)
     BeginTextCommandThefeedPost('STRING')
     AddTextComponentSubstringPlayerName(message or '')
     EndTextCommandThefeedPostTicker(false, false)
 end
 
-local function applyEquipmentSlot(slot, item)
+local function applyEquipmentSlot(slot, item, silent)
     equipmentState[slot] = item
     local ped = PlayerPedId()
+
+    if ClothingSlotMap[slot] then
+        if item and tostring(item.item_name or ''):find('clothing_', 1, true) == 1 then
+            if equipClothingFromInventorySlot(slot, item) then
+                -- If a shirt/undershirt is changed while outerwear is equipped, apply outerwear again
+                -- because outerwear metadata contains the clipping-safe arms + undershirt pairing.
+                if slot == 'shirt' and equipmentState.outerwear then
+                    equipClothingFromInventorySlot('outerwear', equipmentState.outerwear)
+                end
+                if not silent then notifyLocal(('Equipped %s'):format(item.label or item.item_name)) end
+            end
+        elseif not item then
+            clearClothingSlot(slot)
+
+            -- Removing outerwear should reveal the shirt slot if one exists.
+            -- Removing shirt should restore the outerwear undershirt instead of leaving an invisible body.
+            if slot == 'outerwear' and equipmentState.shirt then
+                equipClothingFromInventorySlot('shirt', equipmentState.shirt)
+            elseif slot == 'shirt' and equipmentState.outerwear then
+                equipClothingFromInventorySlot('outerwear', equipmentState.outerwear)
+            end
+
+            if not silent then notifyLocal('Clothing removed.') end
+        end
+        return
+    end
 
     if slot == 'weapon' then
         if equippedWeaponHash then
@@ -125,23 +288,28 @@ local function applyEquipmentSlot(slot, item)
             GiveWeaponToPed(ped, equippedWeaponHash, 250, false, true)
             SetPedAmmo(ped, equippedWeaponHash, 250)
             SetCurrentPedWeapon(ped, equippedWeaponHash, true)
-            notifyLocal(('Equipped %s'):format(item.label or item.item_name))
+            if not silent then notifyLocal(('Equipped %s'):format(item.label or item.item_name)) end
         end
     elseif slot == 'bodyarmor' then
         if item then
             local durability = tonumber(item.durability or (item.metadata and item.metadata.durability) or 100) or 100
             SetPedArmour(ped, math.max(0, math.min(100, math.floor(durability))))
-            notifyLocal(('Equipped %s'):format(item.label or item.item_name))
+            if not silent then notifyLocal(('Equipped %s'):format(item.label or item.item_name)) end
         else
             SetPedArmour(ped, 0)
         end
     elseif slot == 'bag' then
-        if item then
+        if item and not silent then
             notifyLocal(('Equipped %s'):format(item.label or item.item_name))
         end
     end
 end
 
+
+
+RegisterNetEvent('cm-inventory:client:equipClothingFromItem', function(slot, item)
+    applyEquipmentSlot(tostring(slot or ''), item)
+end)
 
 RegisterNetEvent('cm-inventory:client:addWeaponAmmo', function(weaponName, amount)
     local ped = PlayerPedId()
@@ -187,9 +355,51 @@ RegisterNetEvent('cm-inventory:client:equipmentSlot', function(slot, item)
 end)
 
 RegisterNetEvent('cm-inventory:client:setEquipment', function(payload)
-    equipmentState = type(payload) == 'table' and payload or {}
-    for slot, item in pairs(equipmentState) do
-        applyEquipmentSlot(slot, item)
+    payload = type(payload) == 'table' and payload or {}
+    equipmentState = payload
+
+    -- Apply in a fixed order. Shirt first, outerwear last for top-body slots so jacket
+    -- metadata can restore the correct arms + undershirt and prevent invisible/clipping body.
+    local order = {
+        'mask', 'glasses', 'headwear', 'earrings',
+        'shirt', 'outerwear', 'bodyarmor', 'bag',
+        'accessory', 'weapon', 'ammo', 'watch', 'pants', 'shoes'
+    }
+    for _, slot in ipairs(order) do
+        if payload[slot] ~= nil then
+            applyEquipmentSlot(slot, payload[slot], true)
+        end
+    end
+end)
+
+local function requestEquipmentRefreshBurst()
+    -- Any spawn/appearance script can reset freemode components back to the saved base/naked JSON.
+    -- Requesting equipment several times lets inventory clothing always win after character creation,
+    -- normal spawn, model reloads, or cm-spawn applying appearance slightly late.
+    CreateThread(function()
+        local waits = { 0, 250, 750, 1500, 3000, 5000 }
+        for _, ms in ipairs(waits) do
+            if ms > 0 then Wait(ms) end
+            TriggerServerEvent('cm-inventory:server:requestEquipment')
+        end
+    end)
+end
+
+RegisterNetEvent('cm-inventory:client:requestEquipmentRefresh', function()
+    requestEquipmentRefreshBurst()
+end)
+
+RegisterNetEvent('cm-inventory:client:forceWearEquippedClothing', function()
+    requestEquipmentRefreshBurst()
+end)
+
+AddEventHandler('playerSpawned', function()
+    requestEquipmentRefreshBurst()
+end)
+
+AddEventHandler('onClientResourceStart', function(resourceName)
+    if resourceName == GetCurrentResourceName() then
+        requestEquipmentRefreshBurst()
     end
 end)
 

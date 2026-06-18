@@ -182,4 +182,160 @@ CMItems.Items = {
         ammoType = 'AMMO_PISTOL',
         description = '9mm pistol ammunition.'
     }
+,
+
+    -- Clothing items created by nvCloth buy-to-inventory. Masks/gloves/arms intentionally excluded.
+    clothing_tshirt = {
+        label = 'T-Shirt',
+        image = 'clothing.png',
+        weight = 250,
+        stack = false,
+        unique = true,
+        usable = true,
+        close = true,
+        category = 'clothing',
+        equipmentSlot = 'shirt',
+        metadataRequired = { 'drawableId', 'textureId', 'categoryType' },
+        description = 'Wearable clothing item.'
+    },
+
+    clothing_torso = {
+        label = 'Torso',
+        image = 'clothing.png',
+        weight = 250,
+        stack = false,
+        unique = true,
+        usable = true,
+        close = true,
+        category = 'clothing',
+        equipmentSlot = 'outerwear',
+        metadataRequired = { 'drawableId', 'textureId', 'categoryType' },
+        description = 'Wearable clothing item.'
+    },
+
+    clothing_pants = {
+        label = 'Pants',
+        image = 'clothing.png',
+        weight = 250,
+        stack = false,
+        unique = true,
+        usable = true,
+        close = true,
+        category = 'clothing',
+        equipmentSlot = 'pants',
+        metadataRequired = { 'drawableId', 'textureId', 'categoryType' },
+        description = 'Wearable clothing item.'
+    },
+
+    clothing_legs = {
+        label = 'Pants',
+        image = 'clothing.png',
+        weight = 250,
+        stack = false,
+        unique = true,
+        usable = true,
+        close = true,
+        category = 'clothing',
+        equipmentSlot = 'pants',
+        metadataRequired = { 'drawableId', 'textureId', 'categoryType' },
+        description = 'Wearable clothing item.'
+    },
+
+    clothing_shoes = {
+        label = 'Shoes',
+        image = 'clothing.png',
+        weight = 250,
+        stack = false,
+        unique = true,
+        usable = true,
+        close = true,
+        category = 'clothing',
+        equipmentSlot = 'shoes',
+        metadataRequired = { 'drawableId', 'textureId', 'categoryType' },
+        description = 'Wearable clothing item.'
+    },
+
+    clothing_chains = {
+        label = 'Chain',
+        image = 'clothing.png',
+        weight = 250,
+        stack = false,
+        unique = true,
+        usable = true,
+        close = true,
+        category = 'clothing',
+        equipmentSlot = 'accessory',
+        metadataRequired = { 'drawableId', 'textureId', 'categoryType' },
+        description = 'Wearable clothing item.'
+    },
+
+    clothing_bags = {
+        label = 'Bag',
+        image = 'clothing.png',
+        weight = 250,
+        stack = false,
+        unique = true,
+        usable = true,
+        close = true,
+        category = 'clothing',
+        equipmentSlot = 'bag',
+        metadataRequired = { 'drawableId', 'textureId', 'categoryType' },
+        description = 'Wearable clothing item.'
+    },
+
+    clothing_hat = {
+        label = 'Hat',
+        image = 'clothing.png',
+        weight = 250,
+        stack = false,
+        unique = true,
+        usable = true,
+        close = true,
+        category = 'clothing',
+        equipmentSlot = 'headwear',
+        metadataRequired = { 'drawableId', 'textureId', 'categoryType' },
+        description = 'Wearable clothing item.'
+    },
+
+    clothing_glasses = {
+        label = 'Glasses',
+        image = 'clothing.png',
+        weight = 250,
+        stack = false,
+        unique = true,
+        usable = true,
+        close = true,
+        category = 'clothing',
+        equipmentSlot = 'glasses',
+        metadataRequired = { 'drawableId', 'textureId', 'categoryType' },
+        description = 'Wearable clothing item.'
+    },
+
+    clothing_earrings = {
+        label = 'Earrings',
+        image = 'clothing.png',
+        weight = 250,
+        stack = false,
+        unique = true,
+        usable = true,
+        close = true,
+        category = 'clothing',
+        equipmentSlot = 'earrings',
+        metadataRequired = { 'drawableId', 'textureId', 'categoryType' },
+        description = 'Wearable clothing item.'
+    },
+
+    clothing_watches = {
+        label = 'Watch',
+        image = 'clothing.png',
+        weight = 250,
+        stack = false,
+        unique = true,
+        usable = true,
+        close = true,
+        category = 'clothing',
+        equipmentSlot = 'watch',
+        metadataRequired = { 'drawableId', 'textureId', 'categoryType' },
+        description = 'Wearable clothing item.'
+    }
 }

@@ -1,8 +1,12 @@
-// cm-auth/ui/app.js
-
 const app = document.getElementById('app');
 const loginForm = document.getElementById('login-form');
 const registerForm = document.getElementById('register-form');
+const formsWrap = document.getElementById('forms-wrap');
+const trustedPanel = document.getElementById('trusted-panel');
+const trustedName = document.getElementById('trusted-name');
+const trustedEmail = document.getElementById('trusted-email');
+const trustedLoginBtn = document.getElementById('trusted-login-btn');
+const switchAccountBtn = document.getElementById('switch-account-btn');
 const formTitle = document.getElementById('form-title');
 const formEyebrow = document.getElementById('form-eyebrow');
 const toast = document.getElementById('toast');
@@ -34,14 +38,16 @@ function showToast(message, type = 'error') {
 
 function setLoading(button, loading, text) {
     if (!button) return;
+
     if (loading) {
-        button.dataset.originalText = button.textContent;
+        button.dataset.originalText = button.dataset.originalText || button.textContent;
         button.textContent = text || 'Please wait...';
         button.disabled = true;
-    } else {
-        button.textContent = button.dataset.originalText || button.textContent;
-        button.disabled = false;
+        return;
     }
+
+    button.textContent = button.dataset.originalText || button.textContent;
+    button.disabled = false;
 }
 
 function loadRememberedEmail() {
@@ -60,35 +66,67 @@ function saveRememberedEmail(email) {
     }
 }
 
+function showForms() {
+    trustedPanel.classList.add('hidden');
+    formsWrap.classList.remove('hidden');
+}
+
 function showLogin() {
+    showForms();
     loginForm.classList.add('active');
     registerForm.classList.remove('active');
     formTitle.textContent = 'Login';
     formEyebrow.textContent = 'Authorization';
+    setLoading(loginBtn, false);
     setLoading(registerBtn, false);
-    setTimeout(() => loginEmail?.focus(), 50);
+    setLoading(trustedLoginBtn, false);
+    window.setTimeout(() => loginEmail?.focus(), 50);
 }
 
 function showRegister() {
+    showForms();
     registerForm.classList.add('active');
     loginForm.classList.remove('active');
     formTitle.textContent = 'Register';
     formEyebrow.textContent = 'Create account';
     setLoading(loginBtn, false);
+    setLoading(registerBtn, false);
+    setLoading(trustedLoginBtn, false);
     if (loginEmail?.value && regEmail) regEmail.value = loginEmail.value.trim();
-    setTimeout(() => regEmail?.focus(), 50);
+    window.setTimeout(() => regEmail?.focus(), 50);
 }
 
-function openAuth() {
+function showTrusted(profile = {}) {
+    app.classList.remove('hidden');
+    formsWrap.classList.add('hidden');
+    trustedPanel.classList.remove('hidden');
+    formTitle.textContent = 'Login as';
+    formEyebrow.textContent = 'Trusted device';
+    trustedName.textContent = `Login as ${profile.username || 'Player'}`;
+    trustedEmail.textContent = profile.email || '';
+    setLoading(loginBtn, false);
+    setLoading(registerBtn, false);
+    setLoading(trustedLoginBtn, false);
+}
+
+function openAuth(type = 'login', profile = {}) {
     app.classList.remove('hidden');
     loadRememberedEmail();
-    showLogin();
+
+    if (type === 'trusted') {
+        showTrusted(profile);
+    } else if (type === 'register') {
+        showRegister();
+    } else {
+        showLogin();
+    }
 }
 
 function closeAuth() {
     app.classList.add('hidden');
     setLoading(loginBtn, false);
     setLoading(registerBtn, false);
+    setLoading(trustedLoginBtn, false);
 }
 
 async function post(path, payload) {
@@ -113,11 +151,26 @@ function login(event) {
 
     saveRememberedEmail(email);
     setLoading(loginBtn, true, 'Logging in...');
-    post('login', { email, password })
-        .catch(() => {
-            setLoading(loginBtn, false);
-            showToast('Connection error. Try again.', 'error');
-        });
+    post('login', { email, password }).catch(() => {
+        setLoading(loginBtn, false);
+        showToast('Connection error. Try again.', 'error');
+    });
+}
+
+function trustedLogin() {
+    setLoading(trustedLoginBtn, true, 'Logging in...');
+    post('tokenLogin', {}).catch(() => {
+        setLoading(trustedLoginBtn, false);
+        showToast('Saved login failed. Try again.', 'error');
+    });
+}
+
+function forgetToken() {
+    setLoading(trustedLoginBtn, false);
+    post('forgetToken', {}).finally(() => {
+        showLogin();
+        showToast('Saved login removed. Login with email and password.', 'success');
+    });
 }
 
 function register(event) {
@@ -143,18 +196,17 @@ function register(event) {
     }
 
     setLoading(registerBtn, true, 'Creating...');
-    post('register', { email, password, confirmPassword })
-        .catch(() => {
-            setLoading(registerBtn, false);
-            showToast('Connection error. Try again.', 'error');
-        });
+    post('register', { email, password, confirmPassword }).catch(() => {
+        setLoading(registerBtn, false);
+        showToast('Connection error. Try again.', 'error');
+    });
 }
 
 window.addEventListener('message', (event) => {
     const data = event.data || {};
 
     if (data.action === 'open') {
-        openAuth();
+        openAuth(data.type || 'login', data.profile || {});
     }
 
     if (data.action === 'closeAuth') {
@@ -163,7 +215,11 @@ window.addEventListener('message', (event) => {
 
     if (data.action === 'error') {
         setLoading(loginBtn, false);
+        setLoading(trustedLoginBtn, false);
         showToast(data.message || 'Wrong password. Try again.', 'error');
+        if (trustedPanel && !trustedPanel.classList.contains('hidden')) {
+            showLogin();
+        }
     }
 
     if (data.action === 'registerResult') {
@@ -173,7 +229,7 @@ window.addEventListener('message', (event) => {
             if (regEmail?.value && loginEmail) loginEmail.value = regEmail.value.trim().toLowerCase();
             regPass.value = '';
             regPass2.value = '';
-            setTimeout(showLogin, 900);
+            window.setTimeout(showLogin, 900);
         }
     }
 });
@@ -183,15 +239,22 @@ document.querySelectorAll('.eye-btn').forEach((button) => {
         const targetId = button.getAttribute('data-toggle');
         const input = document.getElementById(targetId);
         if (!input) return;
-        input.type = input.type === 'password' ? 'text' : 'password';
-        button.textContent = input.type === 'password' ? '👁' : '🙈';
+        const nextType = input.type === 'password' ? 'text' : 'password';
+        input.type = nextType;
+        button.textContent = nextType === 'password' ? 'SHOW' : 'HIDE';
     });
 });
 
 loginForm.addEventListener('submit', login);
 registerForm.addEventListener('submit', register);
+trustedLoginBtn.addEventListener('click', trustedLogin);
+switchAccountBtn.addEventListener('click', forgetToken);
 
 window.showLogin = showLogin;
 window.showRegister = showRegister;
 
 loadRememberedEmail();
+
+window.addEventListener('DOMContentLoaded', () => {
+    post('uiReady', {}).catch(() => {});
+});

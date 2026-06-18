@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900">
+<defs><linearGradient id="bg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#252930"/><stop offset="1" stop-color="#121417"/></linearGradient></defs>
+<rect width="1600" height="900" fill="url(#bg)"/>
+<rect y="620" width="1600" height="280" fill="#171a1f"/>
+<g stroke="#2f343b" stroke-width="22" fill="none" opacity="0.92">
+  <path d="M140 620 L620 160 L1090 620"/>
+  <path d="M520 620 L820 260 L1095 620" stroke-width="18"/>
+  <path d="M955 620 L1230 280 L1450 620" stroke-width="18"/>
+</g>
+<g fill="#20242a"><rect x="90" y="230" width="90" height="390"/><rect x="1280" y="200" width="85" height="420"/><rect x="1380" y="120" width="70" height="500"/></g>
+<g fill="#535860" opacity="0.28">
+  <rect x="116" y="260" width="16" height="16"/><rect x="143" y="260" width="16" height="16"/><rect x="116" y="292" width="16" height="16"/>
+  <rect x="1310" y="225" width="16" height="16"/><rect x="1338" y="225" width="16" height="16"/><rect x="1310" y="255" width="16" height="16"/>
+</g>
+<g fill="#1d2025"><ellipse cx="360" cy="690" rx="120" ry="24"/><ellipse cx="1020" cy="690" rx="110" ry="22"/><ellipse cx="1320" cy="700" rx="100" ry="20"/></g>
+<g fill="#2b2f35"><rect x="230" y="662" width="250" height="18" rx="9"/><rect x="895" y="664" width="255" height="18" rx="9"/><rect x="1225" y="673" width="200" height="16" rx="8"/></g>
+<text x="800" y="120" text-anchor="middle" font-size="42" fill="#6b7179" opacity="0.25" font-family="Arial">ALGONQUIN BRIDGE</text>
+</svg>

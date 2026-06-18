@@ -32,8 +32,8 @@ local EnabledCategories = {
     ['parents'] = true,
     ['face'] = true,
     ['hairs'] = true,
-    ['clothes'] = true,
-    ['clothesets'] = true,
+    ['clothes'] = true, -- first creation only: choose starter shirt/pants/shoes
+    ['clothesets'] = false, -- no outfit packs
     ['makeup'] = true,
 }
 
@@ -45,62 +45,60 @@ local AvailableItems = {
         cheeks = true, lip_thickness = true, jaw = true, chin = true,
         eye_color = true, blemishes = true, complexion = true, sun = true, moles = true
     },
-    ['clothes'] = {
-        tshirt = true, torso = true, decals = true, arms = true, pants = true,
-        shoes = true, mask = true, bproof = true, chain = true, helmet = true,
-        glasses = true, watches = true, bracelets = true, bags = true, ears = true
-    },
+    ['clothes'] = {torso = true, pants = true, shoes = true},
     ['hairs'] = {hair = true, beard = true, eyebrow = true, chesthair = true},
     ['makeup'] = {makeup = true, lipstick = true, blush = true}
 }
 
--- Default clothes for first creation
+-- Default no-clothes/underwear base for first creation.
+-- Players choose only starter shirt, pants, and shoes individually.
 local FirstCreationClothes = {
     ['m'] = {
-        tshirt_1 = 15, tshirt_2 = 0,
-        torso_1 = 15, torso_2 = 0,
-        arms = 15, arms_2 = 0,
-        pants_1 = 14, pants_2 = 1,
-        shoes_1 = 34, shoes_2 = 0,
-        helmet_1 = -1, helmet_2 = 0,
-        chain_1 = 0, chain_2 = 0,
+        tshirt_1 = 15, tshirt_2 = 0, torso_1 = 15, torso_2 = 0, arms = 15, arms_2 = 0,
+        pants_1 = 14, pants_2 = 1, shoes_1 = 34, shoes_2 = 0,
+        helmet_1 = -1, helmet_2 = 0, chain_1 = 0, chain_2 = 0, glasses_1 = -1, glasses_2 = 0,
     },
     ['f'] = {
-        tshirt_1 = 15, tshirt_2 = 0,
-        torso_1 = 15, torso_2 = 0,
-        arms = 15, arms_2 = 0,
-        pants_1 = 15, pants_2 = 0,
-        shoes_1 = 35, shoes_2 = 0,
-        helmet_1 = -1, helmet_2 = 0,
-        chain_1 = 0, chain_2 = 0,
-        glasses_1 = 5, glasses_2 = 0,
+        tshirt_1 = 15, tshirt_2 = 0, torso_1 = 15, torso_2 = 0, arms = 15, arms_2 = 0,
+        pants_1 = 15, pants_2 = 0, shoes_1 = 35, shoes_2 = 0,
+        helmet_1 = -1, helmet_2 = 0, chain_1 = 0, chain_2 = 0, glasses_1 = -1, glasses_2 = 0,
     }
 }
 
--- Clothing sets
-local ClotheSets = {
-    [0] = {
-        ['name'] = "FORMAL",
-        ['m'] = {tshirt_1 = 4, tshirt_2 = 0, torso_1 = 10, torso_2 = 0, arms = 1, arms_2 = 0,
-                  pants_1 = 10, pants_2 = 0, shoes_1 = 10, shoes_2 = 0, helmet_1 = -1, helmet_2 = 0, chain_1 = 0, chain_2 = 0},
-        ['f'] = {tshirt_1 = 41, tshirt_2 = 2, torso_1 = 6, torso_2 = 4, arms = 2, arms_2 = 0,
-                  pants_1 = 6, pants_2 = 0, shoes_1 = 29, shoes_2 = 0, helmet_1 = -1, helmet_2 = 0, chain_1 = 0, chain_2 = 0},
+-- Only two starter choices for each visible clothing category in character creation.
+-- These are NOT outfit packs and are saved as starting appearance only.
+local StarterClothingChoices = {
+    ['m'] = {
+        torso = {
+            [0] = {torso_1 = 15, torso_2 = 0, tshirt_1 = 15, tshirt_2 = 0, arms = 15, arms_2 = 0},
+            [1] = {torso_1 = 5,  torso_2 = 0, tshirt_1 = 15, tshirt_2 = 0, arms = 5,  arms_2 = 0},
+        },
+        pants = {
+            [0] = {pants_1 = 14, pants_2 = 1},
+            [1] = {pants_1 = 1,  pants_2 = 0},
+        },
+        shoes = {
+            [0] = {shoes_1 = 34, shoes_2 = 0},
+            [1] = {shoes_1 = 7,  shoes_2 = 0},
+        }
     },
-    [1] = {
-        ['name'] = "CASUAL 1",
-        ['m'] = {tshirt_1 = 15, tshirt_2 = 0, torso_1 = 80, torso_2 = 0, arms = 11, arms_2 = 0,
-                  pants_1 = 1, pants_2 = 1, shoes_1 = 7, shoes_2 = 0, helmet_1 = -1, helmet_2 = 0, chain_1 = 0, chain_2 = 0},
-        ['f'] = {tshirt_1 = 14, tshirt_2 = 0, torso_1 = 30, torso_2 = 0, arms = 2, arms_2 = 0,
-                  pants_1 = 0, pants_2 = 1, shoes_1 = 27, shoes_2 = 0, helmet_1 = -1, helmet_2 = 0, chain_1 = 0, chain_2 = 0},
-    },
-    [2] = {
-        ['name'] = "CASUAL 2",
-        ['m'] = {tshirt_1 = 15, tshirt_2 = 0, torso_1 = 193, torso_2 = 14, arms = 11, arms_2 = 0,
-                  pants_1 = 105, pants_2 = 0, shoes_1 = 57, shoes_2 = 10, helmet_1 = 96, helmet_2 = 0, chain_1 = 51, chain_2 = 0},
-        ['f'] = {tshirt_1 = 14, tshirt_2 = 0, torso_1 = 195, torso_2 = 0, arms = 15, arms_2 = 0,
-                  pants_1 = 64, pants_2 = 1, shoes_1 = 60, shoes_2 = 10, helmet_1 = 0, helmet_2 = 0, chain_1 = 0, chain_2 = 0},
-    },
+    ['f'] = {
+        torso = {
+            [0] = {torso_1 = 15, torso_2 = 0, tshirt_1 = 15, tshirt_2 = 0, arms = 15, arms_2 = 0},
+            [1] = {torso_1 = 6,  torso_2 = 0, tshirt_1 = 14, tshirt_2 = 0, arms = 6,  arms_2 = 0},
+        },
+        pants = {
+            [0] = {pants_1 = 15, pants_2 = 0},
+            [1] = {pants_1 = 0,  pants_2 = 0},
+        },
+        shoes = {
+            [0] = {shoes_1 = 35, shoes_2 = 0},
+            [1] = {shoes_1 = 3,  shoes_2 = 0},
+        }
+    }
 }
+
+local ClotheSets = {}
 
 -- Skin data structure (ESX style adapted)
 local SkinData = {}
@@ -110,6 +108,20 @@ local lastCoords = nil
 local gender = 'male'
 local playerHasSkin = false
 local handsup = false
+
+local function CopyTable(tbl)
+    local copy = {}
+    if type(tbl) == 'table' then
+        for k, v in pairs(tbl) do copy[k] = v end
+    end
+    return copy
+end
+
+-- Keeps the appearance editor/save cache in sync when another file applies a saved skin.
+RegisterNetEvent('cm-characters:client:updateAppearanceCache', function(appearanceData)
+    if type(appearanceData) ~= 'table' then return end
+    tempSkinTable = CopyTable(appearanceData)
+end)
 
 -- Initialize default skin values
 local function InitSkinData()
@@ -173,17 +185,17 @@ local function GetMaxVals()
         bodyb_3 = GetPedHeadOverlayNum(12)-1, bodyb_4 = 10,
         ears_1 = GetNumberOfPedPropDrawableVariations(ped, 2) - 1,
         ears_2 = GetNumberOfPedPropTextureVariations(ped, 2, tempSkinTable['ears_1']) - 1,
-        tshirt_1 = GetNumberOfPedDrawableVariations(ped, 8) - 1,
-        tshirt_2 = GetNumberOfPedTextureVariations(ped, 8, tempSkinTable['tshirt_1']) - 1,
-        torso_1 = GetNumberOfPedDrawableVariations(ped, 11) - 1,
-        torso_2 = GetNumberOfPedTextureVariations(ped, 11, tempSkinTable['torso_1']) - 1,
+        tshirt_1 = 0,
+        tshirt_2 = 0,
+        torso_1 = 1,
+        torso_2 = 0,
         decals_1 = GetNumberOfPedDrawableVariations(ped, 10) - 1,
         decals_2 = GetNumberOfPedTextureVariations(ped, 10, tempSkinTable['decals_1']) - 1,
         arms = GetNumberOfPedDrawableVariations(ped, 3) - 1, arms_2 = 10,
-        pants_1 = GetNumberOfPedDrawableVariations(ped, 4) - 1,
-        pants_2 = GetNumberOfPedTextureVariations(ped, 4, tempSkinTable['pants_1']) - 1,
-        shoes_1 = GetNumberOfPedDrawableVariations(ped, 6) - 1,
-        shoes_2 = GetNumberOfPedTextureVariations(ped, 6, tempSkinTable['shoes_1']) - 1,
+        pants_1 = 1,
+        pants_2 = 0,
+        shoes_1 = 1,
+        shoes_2 = 0,
         mask_1 = GetNumberOfPedDrawableVariations(ped, 1) - 1,
         mask_2 = GetNumberOfPedTextureVariations(ped, 1, tempSkinTable['mask_1']) - 1,
         bproof_1 = GetNumberOfPedDrawableVariations(ped, 9) - 1,
@@ -522,13 +534,7 @@ end)
 -- NUI Callbacks for appearance
 RegisterNUICallback('appearanceChange', function(data, cb)
     if data.type == 'clotheset' then
-        local mySex = IsPedModel(PlayerPedId(), GetHashKey('mp_m_freemode_01')) and 'm' or 'f'
-        if ClotheSets[tonumber(data.new)] then
-            for k, v in pairs(ClotheSets[tonumber(data.new)][mySex]) do
-                tempSkinTable[k] = v
-            end
-            UpdateValue(tempSkinTable)
-        end
+        -- Outfit packs disabled. Clothing is selected individually below.
     else
         if data.type == 'sex' then
             local sex = tonumber(data.new)
@@ -546,6 +552,17 @@ RegisterNUICallback('appearanceChange', function(data, cb)
             for k, v in pairs(FirstCreationClothes[mySex]) do
                 tempSkinTable[k] = v
             end
+        elseif data.type == 'torso_1' or data.type == 'pants_1' or data.type == 'shoes_1' then
+            local mySex = IsPedModel(PlayerPedId(), GetHashKey('mp_m_freemode_01')) and 'm' or 'f'
+            local category = data.type == 'torso_1' and 'torso' or (data.type == 'pants_1' and 'pants' or 'shoes')
+            local choice = tonumber(data.new) or 0
+            local selected = StarterClothingChoices[mySex] and StarterClothingChoices[mySex][category] and StarterClothingChoices[mySex][category][choice]
+            if selected then
+                for k, v in pairs(selected) do tempSkinTable[k] = v end
+            end
+        elseif data.type == 'torso_2' or data.type == 'pants_2' or data.type == 'shoes_2' or data.type == 'tshirt_1' or data.type == 'tshirt_2' then
+            -- Starter clothing textures are locked to 0 and tshirt is controlled by shirt choice.
+            tempSkinTable[data.type] = 0
         else
             tempSkinTable[data.type] = tonumber(data.new)
         end
@@ -639,7 +656,15 @@ RegisterNUICallback('appearanceSave', function(data, cb)
     isInAppearance = false
     SetNuiFocus(false, false)
 
-    -- Save appearance to server
+    -- Hide the transition while the server saves naked/base JSON and inventory re-equips
+    -- starter clothes. This prevents the brief default-body blink after pressing Create.
+    if not IsScreenFadedOut() and not IsScreenFadingOut() then
+        DoScreenFadeOut(150)
+        Wait(180)
+    end
+
+    -- Save appearance to server. The server turns clothes into inventory items and strips
+    -- clothes from appearance_json.
     TriggerServerEvent('cm-characters:server:saveAppearance', currentCharData.charId, tempSkinTable)
 
     -- Cleanup camera
@@ -653,6 +678,13 @@ RegisterNUICallback('appearanceSave', function(data, cb)
     -- Notify core that character is fully ready
     TriggerEvent('cm-characters:client:characterReady', currentCharData.charId)
 
+    -- Safety: if the starter-equipment event fails for any reason, do not leave the screen black.
+    SetTimeout(6000, function()
+        if IsScreenFadedOut() or IsScreenFadingOut() then
+            DoScreenFadeIn(350)
+        end
+    end)
+
     cb('ok')
 end)
 
@@ -663,3 +695,49 @@ RegisterNUICallback('appearanceClose', function(data, cb)
     DeleteAppearanceCam()
     cb('ok')
 end)
+
+
+-- Capture current ped components after inventory clothing changes and save them.
+local function CaptureCurrentAppearance()
+    local ped = PlayerPedId()
+
+    -- Copy first so we do not accidentally mutate and send stale/default face data.
+    local data = CopyTable(tempSkinTable)
+
+    data['tshirt_1'] = GetPedDrawableVariation(ped, 8)
+    data['tshirt_2'] = GetPedTextureVariation(ped, 8)
+    data['torso_1'] = GetPedDrawableVariation(ped, 11)
+    data['torso_2'] = GetPedTextureVariation(ped, 11)
+    data['arms'] = GetPedDrawableVariation(ped, 3)
+    data['arms_2'] = GetPedTextureVariation(ped, 3)
+    data['pants_1'] = GetPedDrawableVariation(ped, 4)
+    data['pants_2'] = GetPedTextureVariation(ped, 4)
+    data['shoes_1'] = GetPedDrawableVariation(ped, 6)
+    data['shoes_2'] = GetPedTextureVariation(ped, 6)
+    data['chain_1'] = GetPedDrawableVariation(ped, 7)
+    data['chain_2'] = GetPedTextureVariation(ped, 7)
+    data['bags_1'] = GetPedDrawableVariation(ped, 5)
+    data['bags_2'] = GetPedTextureVariation(ped, 5)
+    data['helmet_1'] = GetPedPropIndex(ped, 0)
+    data['helmet_2'] = GetPedPropTextureIndex(ped, 0)
+    data['glasses_1'] = GetPedPropIndex(ped, 1)
+    data['glasses_2'] = GetPedPropTextureIndex(ped, 1)
+    data['ears_1'] = GetPedPropIndex(ped, 2)
+    data['ears_2'] = GetPedPropTextureIndex(ped, 2)
+    data['watches_1'] = GetPedPropIndex(ped, 6)
+    data['watches_2'] = GetPedPropTextureIndex(ped, 6)
+
+    tempSkinTable = data
+    return data
+end
+
+RegisterNetEvent('cm-characters:client:captureCurrentAppearance', function()
+    CaptureCurrentAppearance()
+end)
+
+RegisterNetEvent('cm-characters:client:requestCurrentAppearanceSave', function()
+    local data = CaptureCurrentAppearance()
+    TriggerServerEvent('cm-characters:server:saveCurrentAppearance', data)
+end)
+
+exports('CaptureCurrentAppearance', CaptureCurrentAppearance)

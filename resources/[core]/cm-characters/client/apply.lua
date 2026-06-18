@@ -94,4 +94,47 @@ AddEventHandler('cm-characters:client:applyAppearance', function(appearanceData)
 
     if skin['bracelets_1'] == -1 then ClearPedProp(ped, 7)
     else SetPedPropIndex(ped, 7, skin['bracelets_1'], skin['bracelets_2'], 2) end
+
+    TriggerEvent('cm-characters:client:updateAppearanceCache', appearanceData)
+
+    -- Appearance JSON is now only the body/base layer. Inventory clothing must always
+    -- overlay it after any appearance/spawn script runs.
+    TriggerEvent('cm-inventory:client:forceWearEquippedClothing')
+end)
+
+
+-- Re-equip starter clothing after first character creation.
+-- Server saves the base appearance naked, then inventory clothing overlays the outfit.
+RegisterNetEvent('cm-characters:client:equipStarterClothingSlots', function(equipment)
+    equipment = type(equipment) == 'table' and equipment or {}
+
+    CreateThread(function()
+        local function applyStarter()
+            if equipment.pants then
+                TriggerEvent('cm-inventory:client:equipmentSlot', 'pants', equipment.pants)
+            end
+            if equipment.shoes then
+                TriggerEvent('cm-inventory:client:equipmentSlot', 'shoes', equipment.shoes)
+            end
+            -- Top last: torso metadata contains arms + undershirt, so applying it last prevents clipping/invisible body.
+            if equipment.outerwear then
+                TriggerEvent('cm-inventory:client:equipmentSlot', 'outerwear', equipment.outerwear)
+            end
+        end
+
+        -- Apply immediately, then again after spawn/appearance scripts have finished.
+        -- This removes the default-body blink and wins against cm-spawn applying the naked JSON base.
+        applyStarter()
+        Wait(250); applyStarter()
+        Wait(500); applyStarter()
+        Wait(900); applyStarter()
+        Wait(1200); applyStarter()
+
+        if IsScreenFadedOut() or IsScreenFadingOut() then
+            DoScreenFadeIn(350)
+        end
+
+        -- Save current appearance is safe now because the server strips clothing before DB write.
+        TriggerEvent('cm-characters:client:requestCurrentAppearanceSave')
+    end)
 end)

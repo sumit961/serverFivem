@@ -36,6 +36,144 @@ local function result(success, removeAmount, message)
     }
 end
 
+
+local CLOTHING_CATEGORIES = {
+    tshirt   = { type = 'component', index = 8,  label = 'T-Shirt' },
+    torso    = { type = 'component', index = 11, label = 'Torso' },
+    pants    = { type = 'component', index = 4,  label = 'Pants' },
+    legs     = { type = 'component', index = 4,  label = 'Pants' },
+    shoes    = { type = 'component', index = 6,  label = 'Shoes' },
+    chains   = { type = 'component', index = 7,  label = 'Chain' },
+    bags     = { type = 'component', index = 5,  label = 'Bag' },
+    hat      = { type = 'prop',      index = 0,  label = 'Hat' },
+    glasses  = { type = 'prop',      index = 1,  label = 'Glasses' },
+    earrings = { type = 'prop',      index = 2,  label = 'Earrings' },
+    watches  = { type = 'prop',      index = 6,  label = 'Watch' },
+}
+
+local ClothingSwapRequests = {}
+local ClothingReqCounter = 0
+
+local function notify(src, msg, typ)
+    TriggerClientEvent('cm-hud:client:notify', src, tostring(msg or ''), typ or 'info')
+end
+
+local function isClothingItem(itemName)
+    return tostring(itemName or ''):find('clothing_', 1, true) == 1
+end
+
+local function clothingCategoryFromItem(itemName, metadata)
+    local category = tostring((metadata and (metadata.categoryType or metadata.category)) or ''):lower()
+    if category == '' then
+        category = tostring(itemName or ''):lower():gsub('^clothing_', '')
+    end
+    return category
+end
+
+local function buildTakenOffMetadata(itemName, category, oldData)
+    local def = CLOTHING_CATEGORIES[category]
+    if not def then return nil end
+    oldData = type(oldData) == 'table' and oldData or {}
+
+    return {
+        categoryType = category,
+        componentType = def.type,
+        componentIndex = def.index,
+        drawableId = tonumber(oldData.drawableId or oldData.drawable) or 0,
+        textureId = tonumber(oldData.textureId or oldData.texture) or 0,
+        arms = tonumber(oldData.arms),
+        armsTexture = tonumber(oldData.armsTexture) or 0,
+        undershirt = tonumber(oldData.undershirt),
+        undershirtTexture = tonumber(oldData.undershirtTexture) or 0,
+        label = ('Old %s'):format(def.label),
+        description = ('Clothing taken off: %s'):format(def.label),
+        itemType = 'clothing',
+        rarity = 'normal',
+        swappedAt = os.date('!%Y-%m-%dT%H:%M:%SZ')
+    }
+end
+
+local function startClothingSwap(src, itemName, item)
+    local metadata = type(item) == 'table' and type(item.metadata) == 'table' and item.metadata or {}
+    local category = clothingCategoryFromItem(itemName, metadata)
+    local def = CLOTHING_CATEGORIES[category]
+
+    if not def then
+        return result(false, 0, 'This clothing category is not supported.')
+    end
+
+    local drawable = tonumber(metadata.drawableId or metadata.drawable)
+    local texture = tonumber(metadata.textureId or metadata.texture or 0)
+    if drawable == nil then
+        return result(false, 0, 'This clothing item has no drawable metadata.')
+    end
+
+    ClothingReqCounter = ClothingReqCounter + 1
+    local requestId = ('%s:%s:%s'):format(src, GetGameTimer(), ClothingReqCounter)
+
+    metadata.categoryType = category
+    metadata.componentType = def.type
+    metadata.componentIndex = def.index
+    metadata.drawableId = drawable
+    metadata.textureId = texture or 0
+
+    ClothingSwapRequests[requestId] = {
+        src = src,
+        itemName = itemName,
+        metadata = metadata,
+        created = GetGameTimer()
+    }
+
+    TriggerClientEvent('cm-itemactions:client:swapClothing', src, requestId, itemName, metadata)
+    return result(true, 0, 'Changing clothing...')
+end
+
+RegisterNetEvent('cm-itemactions:server:clothingSwapComplete', function(requestId, payload)
+    local src = source
+    requestId = tostring(requestId or '')
+    local pending = ClothingSwapRequests[requestId]
+    if not pending or tonumber(pending.src) ~= tonumber(src) then return end
+    ClothingSwapRequests[requestId] = nil
+
+    payload = type(payload) == 'table' and payload or {}
+    if payload.success ~= true then
+        notify(src, payload.message or 'Could not change clothing.', 'error')
+        return
+    end
+
+    local category = clothingCategoryFromItem(pending.itemName, pending.metadata)
+    local removed = exports['cm-inventory']:RemoveItem(src, pending.itemName, 1, pending.metadata, 'clothing_swap_remove_new')
+    if removed ~= true then
+        notify(src, 'Could not remove clothing item from inventory.', 'error')
+        return
+    end
+
+    local oldMeta = buildTakenOffMetadata(pending.itemName, category, payload.old)
+    if oldMeta then
+        exports['cm-inventory']:AddItem(src, 'clothing_' .. category, 1, oldMeta, 'clothing_swap_return_old')
+    end
+
+    if GetResourceState('cm-characters') == 'started' then
+        exports['cm-characters']:SaveAppearance(src)
+    end
+
+    notify(src, 'Clothing equipped. Previous clothing returned to inventory.', 'success')
+end)
+
+
+
+CreateThread(function()
+    while true do
+        Wait(60000)
+        local now = GetGameTimer()
+        for requestId, data in pairs(ClothingSwapRequests) do
+            if now - (data.created or now) > 120000 then
+                ClothingSwapRequests[requestId] = nil
+            end
+        end
+    end
+end)
+
 exports('UseItem', function(a, b, c, d)
     -- Normalize all common FiveM export call shapes.
     -- Expected/recommended: UseItem(itemName, src, item)
@@ -82,6 +220,10 @@ exports('UseItem', function(a, b, c, d)
     if itemName == '' or itemName == 'nil' then
         print(('[CM-ITEMACTIONS] UseItem invalid itemName. src=%s'):format(tostring(src)))
         return result(false, 0, 'Invalid item.')
+    end
+
+    if isClothingItem(itemName) then
+        return startClothingSwap(src, itemName, item or {})
     end
 
     if itemName == 'weapon_pistol' then
@@ -152,6 +294,13 @@ local function registerAll()
         registerUsable(itemName)
     end
 end
+
+RegisterNetEvent('cm-itemactions:server:saveAppearance', function()
+    local src = source
+    if GetResourceState('cm-characters') == 'started' then
+        exports['cm-characters']:SaveAppearance(src)
+    end
+end)
 
 AddEventHandler('onResourceStart', function(resourceName)
     if resourceName == 'cm-inventory' or resourceName == ResourceName then

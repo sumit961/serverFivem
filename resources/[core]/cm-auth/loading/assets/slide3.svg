@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900">
+<defs><linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#1b1e22"/><stop offset="1" stop-color="#0d0f12"/></linearGradient></defs>
+<rect width="1600" height="900" fill="url(#bg)"/>
+<g fill="#24282d"><rect x="0" y="110" width="280" height="510"/><rect x="1200" y="90" width="180" height="530"/><rect x="1375" y="160" width="135" height="460"/><rect x="300" y="250" width="210" height="280"/><rect x="520" y="220" width="160" height="300"/><rect x="920" y="280" width="210" height="250"/></g>
+<g fill="#575d66" opacity="0.24"><rect x="58" y="160" width="24" height="24"/><rect x="97" y="160" width="24" height="24"/><rect x="58" y="200" width="24" height="24"/><rect x="97" y="200" width="24" height="24"/>
+<rect x="1240" y="135" width="18" height="18"/><rect x="1272" y="135" width="18" height="18"/><rect x="1240" y="166" width="18" height="18"/></g>
+<rect x="0" y="560" width="1600" height="340" fill="#14171a"/>
+<path d="M0 620 Q260 600 530 650 T1110 640 T1600 650" fill="none" stroke="#2c3137" stroke-width="8" opacity="0.4"/>
+<g transform="translate(1020,410)"><ellipse cx="0" cy="280" rx="155" ry="30" fill="#1a1d22"/><rect x="-28" y="80" width="56" height="220" rx="18" fill="#202329"/><path d="M0 0c95 48 133 126 102 196-20 45-61 75-102 85-39-45-60-97-52-150C-42 85 -26 35 0 0Z" fill="#292d33"/><path d="M0 28c-72 22-120 76-135 141-12 54 10 109 60 146 7-35 32-82 75-121C35 150 28 87 0 28Z" fill="#292d33"/></g>
+<g fill="#25292e"><path d="M720 320h190v250H720z"/><path d="M760 360h110v30H760z" fill="#30353c"/></g>
+<text x="815" y="390" text-anchor="middle" font-size="72" fill="#5a5f67" opacity="0.16" transform="rotate(-90 815,390)">CROSSWALK</text>
+</svg>

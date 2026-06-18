@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="./logo.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cloth Shop</title>
+    <script type="module" crossorigin src="./assets/index-DA2pD5h3.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-XFUAoGjo.css?v=nv2">
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js').catch(function() {})
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      document.addEventListener('DOMContentLoaded', function() {
+        function autoConfirm() {
+          var prompt = document.querySelector('.save-prompt');
+          if (prompt) {
+            var no = prompt.querySelector('.save-prompt-btn.no');
+            if (no) { no.click(); return; }
+          }
+          var input = document.querySelector('.name-input');
+          var save = document.querySelector('.save-button');
+          if (input) {
+            if (!input.value || input.value.trim() === '') { 
+              input.value = 'Tenue'; 
+              input.setAttribute('value', 'Tenue');
+            }
+            try { input.dispatchEvent(new InputEvent('input', { bubbles: true })); } catch(e) { input.dispatchEvent(new Event('input', { bubbles: true })); }
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            input.dispatchEvent(new Event('blur', { bubbles: true }));
+          }
+          if (save) {
+            save.removeAttribute('disabled');
+            save.click();
+          }
+        }
+        
+        function ensureNameBeforeBuy() {
+          var input = document.querySelector('.name-input');
+          if (input && (!input.value || input.value.trim() === '')) {
+            input.value = 'Tenue';
+            input.setAttribute('value', 'Tenue');
+            try { input.dispatchEvent(new InputEvent('input', { bubbles: true })); } catch(e) { input.dispatchEvent(new Event('input', { bubbles: true })); }
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        }
+        
+        document.addEventListener('click', function(e) {
+          if (e.target.closest('.cart-button')) {
+            ensureNameBeforeBuy();
+          }
+        }, true);
+        
+        var observer = new MutationObserver(function() { autoConfirm(); });
+        observer.observe(document.body, { childList: true, subtree: true });
+        ['click','mousedown','mouseup','keyup'].forEach(function(e){ document.addEventListener(e,function(){ setTimeout(autoConfirm,0); },true); });
+        autoConfirm();
+      });
+    </script>
+  </body>
+</html>

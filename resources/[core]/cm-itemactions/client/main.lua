@@ -37,3 +37,146 @@ RegisterNetEvent('cm-itemactions:client:showIdCard', function(item)
     -- Placeholder. Later this should show the ID card to nearby players.
     print(('[CM-ITEMACTIONS] ID card metadata: %s'):format(json.encode(item and item.metadata or {})))
 end)
+
+
+local CLOTHING_CATEGORIES = {
+    tshirt   = { type = 'component', index = 8 },
+    torso    = { type = 'component', index = 11 },
+    pants    = { type = 'component', index = 4 },
+    legs     = { type = 'component', index = 4 },
+    shoes    = { type = 'component', index = 6 },
+    chains   = { type = 'component', index = 7 },
+    bags     = { type = 'component', index = 5 },
+    hat      = { type = 'prop',      index = 0 },
+    glasses  = { type = 'prop',      index = 1 },
+    earrings = { type = 'prop',      index = 2 },
+    watches  = { type = 'prop',      index = 6 },
+}
+
+local function notify(msg, typ)
+    TriggerEvent('cm-hud:client:notify', tostring(msg or ''), typ or 'info')
+end
+
+local function getCategory(itemName, metadata)
+    local category = tostring((metadata and (metadata.categoryType or metadata.category)) or ''):lower()
+    if category == '' then
+        category = tostring(itemName or ''):lower():gsub('^clothing_', '')
+    end
+    return category
+end
+
+local function readCurrentClothing(ped, def)
+    if def.type == 'prop' then
+        return {
+            drawableId = GetPedPropIndex(ped, def.index),
+            textureId = GetPedPropTextureIndex(ped, def.index)
+        }
+    end
+
+    local data = {
+        drawableId = GetPedDrawableVariation(ped, def.index),
+        textureId = GetPedTextureVariation(ped, def.index)
+    }
+
+    if def.index == 11 then
+        data.arms = GetPedDrawableVariation(ped, 3)
+        data.armsTexture = GetPedTextureVariation(ped, 3)
+        data.undershirt = GetPedDrawableVariation(ped, 8)
+        data.undershirtTexture = GetPedTextureVariation(ped, 8)
+    end
+
+    return data
+end
+
+local function equipClothing(ped, def, drawable, texture)
+    drawable = tonumber(drawable)
+    texture = tonumber(texture) or 0
+    if drawable == nil then return false end
+
+    if def.type == 'prop' then
+        if drawable < 0 then
+            ClearPedProp(ped, def.index)
+        else
+            SetPedPropIndex(ped, def.index, drawable, texture, true)
+        end
+    else
+        SetPedComponentVariation(ped, def.index, drawable, texture, 0)
+    end
+
+    return true
+end
+
+
+local function applyTorso(metadata)
+    metadata = type(metadata) == 'table' and metadata or {}
+    local ped = PlayerPedId()
+
+    local torso = tonumber(metadata.drawableId or metadata.drawable)
+    local torsoTexture = tonumber(metadata.textureId or metadata.texture) or 0
+    if not torso then
+        TriggerEvent('cm-hud:client:notify', 'Invalid shirt metadata.', 'error')
+        return false
+    end
+
+    local arms = tonumber(metadata.arms)
+    local armsTexture = tonumber(metadata.armsTexture) or 0
+    local undershirt = tonumber(metadata.undershirt)
+    local undershirtTexture = tonumber(metadata.undershirtTexture) or 0
+
+    if arms then
+        SetPedComponentVariation(ped, 3, arms, armsTexture, 0)
+    end
+
+    if undershirt then
+        SetPedComponentVariation(ped, 8, undershirt, undershirtTexture, 0)
+    end
+
+    SetPedComponentVariation(ped, 11, torso, torsoTexture, 0)
+    TriggerEvent('nvCloth:client:equipClothingItem', 'torso', torso, torsoTexture)
+    return true
+end
+
+RegisterNetEvent('cm-itemactions:client:equipTorso', function(metadata)
+    applyTorso(metadata)
+end)
+
+RegisterNetEvent('cm-itemactions:client:swapClothing', function(requestId, itemName, metadata)
+    metadata = type(metadata) == 'table' and metadata or {}
+    local category = getCategory(itemName, metadata)
+    local def = CLOTHING_CATEGORIES[category]
+
+    if not def then
+        TriggerServerEvent('cm-itemactions:server:clothingSwapComplete', requestId, {
+            success = false,
+            message = 'Unsupported clothing category.'
+        })
+        return
+    end
+
+    local ped = PlayerPedId()
+    local old = readCurrentClothing(ped, def)
+    local ok
+
+    if category == 'torso' then
+        ok = applyTorso(metadata)
+    else
+        ok = equipClothing(ped, def, metadata.drawableId or metadata.drawable, metadata.textureId or metadata.texture)
+    end
+
+    if not ok then
+        TriggerServerEvent('cm-itemactions:server:clothingSwapComplete', requestId, {
+            success = false,
+            message = 'Invalid clothing metadata.'
+        })
+        return
+    end
+
+    if category ~= 'torso' then
+        TriggerEvent('nvCloth:client:equipClothingItem', category, metadata.drawableId or metadata.drawable, metadata.textureId or metadata.texture)
+    end
+    notify('Clothing equipped.', 'success')
+    TriggerServerEvent('cm-itemactions:server:clothingSwapComplete', requestId, {
+        success = true,
+        old = old
+    })
+end)

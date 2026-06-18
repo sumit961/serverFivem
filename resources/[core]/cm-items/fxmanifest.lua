@@ -10,6 +10,7 @@ shared_scripts {
     'config.lua',
     'shared/categories.lua',
     'shared/items.lua',
+    'shared/clothing.lua',
     'shared/virtual.lua',
     'shared/api.lua'
 }
@@ -27,5 +28,11 @@ files {
     'ui/images/*.webp',
     'ui/images/*.jpg',
     'ui/images/*.jpeg',
-    'ui/images/*.svg'
+    'ui/images/*.svg',
+    'ui/images/clothing/*.png',
+    'ui/images/clothing/*.webp',
+    'ui/images/clothing/*.jpg',
+    'ui/images/clothing/*.jpeg',
+    'shared/besttorso_male.json',
+    'shared/besttorso_female.json'
 }

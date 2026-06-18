@@ -40,3 +40,34 @@ end))
 exports('GetWeight', exportSafe(function(name, amount)
     return CMItems.GetWeight(name, amount)
 end))
+
+
+exports('ResolveTorsoFit', exportSafe(function(gender, torsoDrawable, torsoTexture, fallback)
+    return CMItems.ResolveTorsoFit(gender, torsoDrawable, torsoTexture, fallback)
+end))
+
+exports('GetBestTorsoFit', exportSafe(function(gender, torsoDrawable, torsoTexture)
+    return CMItems.GetBestTorsoFit(gender, torsoDrawable, torsoTexture)
+end))
+
+--========================================================
+-- Clothing catalog client sync
+--========================================================
+
+RegisterNetEvent('cm-items:client:setClothingCatalog', function(catalog)
+    CMItems.SetClothingCatalog(catalog or { male = {}, female = {} })
+    print('[CM-ITEMS] Clothing catalog synced to client')
+end)
+
+CreateThread(function()
+    Wait(2000)
+    TriggerServerEvent('cm-items:server:requestCatalogSync')
+end)
+
+exports('GetClothingCatalogEntry', exportSafe(function(gender, componentType, componentIndex, drawableId, textureId)
+    return CMItems.GetClothingCatalogEntry(gender, componentType, componentIndex, drawableId, textureId)
+end))
+
+exports('GetClothingCatalog', exportSafe(function()
+    return CMItems.Clothing.Catalog or { male = {}, female = {} }
+end))

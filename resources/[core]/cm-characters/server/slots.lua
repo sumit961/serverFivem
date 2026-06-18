@@ -59,6 +59,12 @@ RegisterNetEvent('cm-characters:server:selectCharacter', function(charId)
     -- This one event triggers cm-playerdata (load cash/health) and cm-spawn (tutorial/position/appearance)
     TriggerEvent('cm-core:characterLoaded', src, fixedCharId)
 
+    -- appearance_json is only the base/body layer. Equipped clothes live in cm-inventory,
+    -- so after any spawn/appearance load, force inventory equipment to overlay again.
+    TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src)
+    SetTimeout(1000, function() TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src) end)
+    SetTimeout(3000, function() TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src) end)
+
     exports['cm-core']:Log('cm-characters', 'info', 'Character selected', {
         player_src = src,
         player_char_id = fixedCharId,

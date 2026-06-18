@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CM Clothing Admin</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app" class="hidden">
+    <div class="panel">
+      <header>
+        <div>
+          <h1>Clothing Admin</h1>
+          <p>Wear or preview clothing, then save it to the catalog.</p>
+        </div>
+        <button id="closeBtn" class="ghost">Close</button>
+      </header>
+
+      <main>
+        <section class="card capture">
+          <div class="row between">
+            <h2>Current Clothing</h2>
+            <button id="captureBtn">Capture Current</button>
+          </div>
+          <div class="grid two">
+            <label>Type
+              <select id="captureType">
+                <option value="torso">Top / Torso</option>
+                <option value="tshirt">T-Shirt / Undershirt</option>
+                <option value="pants">Pants</option>
+                <option value="shoes">Shoes</option>
+                <option value="hat">Hat</option>
+                <option value="glasses">Glasses</option>
+                <option value="chains">Chain</option>
+                <option value="bags">Bag</option>
+                <option value="watches">Watch</option>
+                <option value="earrings">Earrings</option>
+              </select>
+            </label>
+            <label>Texture save mode
+              <select id="textureMode">
+                <option value="current">Current texture only</option>
+                <option value="all">All textures for drawable</option>
+              </select>
+            </label>
+          </div>
+          <div id="currentInfo" class="info">No clothing captured yet.</div>
+        </section>
+
+        <section class="card form">
+          <h2>Catalog Details</h2>
+          <div class="grid two">
+            <label>Name
+              <input id="labelInput" placeholder="Black Tech Hoodie" />
+            </label>
+            <label>Price
+              <input id="priceInput" type="number" min="0" value="0" />
+            </label>
+            <label>Category
+              <input id="categoryInput" list="categoryList" placeholder="hoodies" />
+              <datalist id="categoryList"></datalist>
+            </label>
+            <label>Shop
+              <input id="shopInput" list="shopList" placeholder="city" />
+              <datalist id="shopList"></datalist>
+            </label>
+            <label>Sleeve / Fit Preset
+              <select id="sleeveInput">
+                <option value="">None / Auto BestTorso</option>
+                <option value="full">Full sleeve (arms 6)</option>
+                <option value="half">Half sleeve (arms 5)</option>
+                <option value="custom">Custom current fit</option>
+              </select>
+            </label>
+            <label>Enabled
+              <select id="enabledInput">
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </label>
+            <label>Image filename or URL
+              <input id="imageInput" placeholder="male_11_245.png or nui://..." />
+            </label>
+            <label>Job lock (optional)
+              <input id="jobInput" placeholder="police" />
+            </label>
+            <label>Gang lock (optional)
+              <input id="gangInput" placeholder="ballas" />
+            </label>
+            <label>Notes
+              <input id="notesInput" placeholder="Any internal note" />
+            </label>
+          </div>
+
+          <div class="fitBox">
+            <h3>Fit values</h3>
+            <div class="grid four">
+              <label>Arms
+                <input id="armsInput" type="number" />
+              </label>
+              <label>Arms texture
+                <input id="armsTextureInput" type="number" />
+              </label>
+              <label>Undershirt
+                <input id="undershirtInput" type="number" />
+              </label>
+              <label>Undershirt texture
+                <input id="undershirtTextureInput" type="number" />
+              </label>
+            </div>
+            <button id="captureFitBtn" class="secondary">Capture Current Fit</button>
+          </div>
+
+          <div class="actions">
+            <button id="previewBtn" class="secondary">Preview Apply</button>
+            <button id="saveBtn">Save to Catalog</button>
+            <button id="deleteCurrentBtn" class="danger">Delete This Entry</button>
+          </div>
+        </section>
+
+        <section class="card list">
+          <div class="row between">
+            <h2>Catalog Cache</h2>
+            <div class="row">
+              <input id="searchInput" placeholder="Search name/drawable/shop" />
+              <button id="reloadBtn" class="secondary">Reload</button>
+            </div>
+          </div>
+          <div id="catalogList" class="catalogList"></div>
+        </section>
+      </main>
+
+      <footer id="status">Ready.</footer>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -25,25 +25,30 @@ local function decode(value)
     return {}
 end
 
-local function normalizeExportArgs(a, b, c, d, e, f)
-    -- Supports exports['res'].Func(src, ...) and exports['res']:Func(src, ...).
-    -- Also protects against some wrapper calls that accidentally pass
-    -- itemName first and src second, e.g. ('water', 1, 2).
-    if type(a) == 'table' and b ~= nil then
-        return b, c, d, e, f
+local function normalizeExportArgs(...)
+    -- Supports both export call styles:
+    --   exports['cm-inventory'].AddItem(src, item, amount, metadata, reason, slot)
+    --   exports['cm-inventory']:AddItem(src, item, amount, metadata, reason, slot)
+    -- The colon style passes a hidden `self` as arg #1. The old normalizer only accepted
+    -- six parameters, so the preferred equipment slot (`outerwear`, `pants`, `shoes`)
+    -- was dropped and starter clothes fell into normal inventory instead of being worn.
+    local args = { ... }
+
+    if type(args[1]) == 'table' and args[2] ~= nil then
+        table.remove(args, 1)
     end
 
-    if type(a) ~= 'number' and type(b) == 'number' then
-        -- itemName, src, amount, metadata, reason -> src, itemName, amount, metadata, reason
-        return b, a, c, d, e
+    if type(args[1]) ~= 'number' and type(args[2]) == 'number' then
+        -- itemName, src, amount, metadata, reason, slot -> src, itemName, amount, metadata, reason, slot
+        return args[2], args[1], args[3], args[4], args[5], args[6]
     end
 
-    if type(a) ~= 'number' and type(c) == 'number' then
-        -- itemName, amount, src, metadata, reason -> src, itemName, amount, metadata, reason
-        return c, a, b, d, e
+    if type(args[1]) ~= 'number' and type(args[3]) == 'number' then
+        -- itemName, amount, src, metadata, reason, slot -> src, itemName, amount, metadata, reason, slot
+        return args[3], args[1], args[2], args[4], args[5], args[6]
     end
 
-    return a, b, c, d, e
+    return args[1], args[2], args[3], args[4], args[5], args[6]
 end
 
 local function ensureTables()
@@ -289,6 +294,16 @@ local function canPlaceInSlot(itemName, slot)
     end
 
     -- Extra compatibility aliases.
+    if itemName:find('clothing_', 1, true) == 1 then
+        local suffix = itemName:gsub('^clothing_', '')
+        local clothingSlots = {
+            tshirt = 'shirt', torso = 'outerwear', pants = 'pants', legs = 'pants', shoes = 'shoes',
+            chains = 'accessory', bags = 'bag', hat = 'headwear', glasses = 'glasses',
+            earrings = 'earrings', watches = 'watch'
+        }
+        if clothingSlots[suffix] == slot then return true end
+    end
+
     if slot == 'bodyarmor' and (itemName == 'armor' or itemName == 'body_armor' or itemName == 'bodyarmor' or itemName:find('armor', 1, true)) then
         return true
     end
@@ -334,8 +349,8 @@ local function rowToItem(row)
         type = def.type or def.category or 'misc',
         itemType = rarity,
         rarity = rarity,
-        image = def.image or def.icon or 'placeholder.png',
-        icon = def.image or def.icon or 'placeholder.png',
+        image = metadata.image or metadata.icon or def.image or def.icon or 'placeholder.png',
+        icon = metadata.icon or metadata.image or def.image or def.icon or 'placeholder.png',
         quantity = tonumber(row.quantity) or 1,
         weight = tonumber(def.weight) or 0,
         stack = def.stack ~= false and def.unique ~= true,
@@ -434,6 +449,8 @@ end
 
 local function rowCanActAsBag(row)
     if not row then return false end
+    local name = tostring(row.item_name or ''):lower()
+    if name:find('clothing_', 1, true) == 1 then return false end
     if getBagLevelFromItem(row) > 0 then return true end
     local ok = false
     pcall(function()
@@ -729,6 +746,34 @@ local function syncAllEquipment(src)
     TriggerClientEvent('cm-inventory:client:setEquipment', src, payload)
 end
 
+local CLOTHING_SLOT_BY_CATEGORY = {
+    tshirt = 'shirt', torso = 'outerwear', pants = 'pants', legs = 'pants', shoes = 'shoes',
+    chains = 'accessory', bags = 'bag', hat = 'headwear', glasses = 'glasses',
+    earrings = 'earrings', watches = 'watch'
+}
+
+local function isClothingItemName(itemName)
+    itemName = tostring(itemName or ''):lower()
+    return itemName:find('clothing_', 1, true) == 1
+end
+
+local function getClothingCategory(itemName, metadata)
+    metadata = type(metadata) == 'table' and metadata or {}
+    local category = tostring(metadata.categoryType or metadata.category or ''):lower()
+    if category == '' then category = tostring(itemName or ''):lower():gsub('^clothing_', '') end
+    return category
+end
+
+local function getClothingEquipSlot(itemName, metadata)
+    return CLOTHING_SLOT_BY_CATEGORY[getClothingCategory(itemName, metadata)]
+end
+
+local function saveAppearance(src)
+    if GetResourceState('cm-characters') == 'started' then
+        pcall(function() exports['cm-characters']:SaveAppearance(src) end)
+    end
+end
+
 local function MoveItemInternal(src, fromSlot, toSlot)
     local ownerType, ownerId = getOwner(src)
     if not ownerId then return false, 'No character owner found.' end
@@ -753,6 +798,11 @@ local function MoveItemInternal(src, fromSlot, toSlot)
         audit(ownerId, 'move', source.item_name, source.quantity, fromSlot, toSlot, 'move', {})
         syncEquipmentSlot(src, fromSlot)
         syncEquipmentSlot(src, toSlot)
+        if (isEquipmentSlot(toSlot) or isEquipmentSlot(fromSlot)) and isClothingItemName(source.item_name) then
+            -- syncEquipmentSlot already applied/cleared the visual clothing on the client.
+            -- Save once after the DB move, not once per client-side apply event.
+            saveAppearance(src)
+        end
         return true
     end
 
@@ -763,6 +813,9 @@ local function MoveItemInternal(src, fromSlot, toSlot)
         audit(ownerId, 'merge', source.item_name, source.quantity, fromSlot, toSlot, 'move_merge', {})
         syncEquipmentSlot(src, fromSlot)
         syncEquipmentSlot(src, toSlot)
+        if isEquipmentSlot(fromSlot) and isClothingItemName(source.item_name) then
+            saveAppearance(src)
+        end
         return true
     end
 
@@ -776,6 +829,10 @@ local function MoveItemInternal(src, fromSlot, toSlot)
     audit(ownerId, 'swap', source.item_name, source.quantity, fromSlot, toSlot, 'move_swap', {})
     syncEquipmentSlot(src, fromSlot)
     syncEquipmentSlot(src, toSlot)
+    if (isEquipmentSlot(toSlot) and isClothingItemName(source.item_name))
+        or (isEquipmentSlot(fromSlot) and isClothingItemName(dest.item_name)) then
+        saveAppearance(src)
+    end
     return true
 end
 
@@ -927,6 +984,7 @@ local function isArmorItemName(itemName)
     return itemName == 'armor' or itemName == 'body_armor' or itemName == 'bodyarmor' or itemName:find('armor', 1, true) ~= nil
 end
 
+
 local function findFirstAmmoStack(ownerType, ownerId, ammoName, includeAmmoSlot)
     ammoName = tostring(ammoName or ''):lower()
     if ammoName == '' then return nil end
@@ -1050,6 +1108,24 @@ local function UseItemInternal(src, slot)
     local item = rowToItem(row)
     local itemName = tostring(item.item_name or ''):lower()
     local ammoSlot = (Config.Ammo and Config.Ammo.slot) or 'ammo'
+
+    -- USE clothing = move it to the matching clothing/equipment slot. Dragging to that slot uses the same visual equip logic.
+    if isClothingItemName(itemName) then
+        local targetSlot = getClothingEquipSlot(itemName, item.metadata)
+        if not targetSlot then return false, 'This clothing category has no inventory slot.' end
+
+        if slot ~= targetSlot then
+            local moved, moveErr = MoveItemInternal(src, slot, targetSlot)
+            if not moved then return false, moveErr or 'Could not equip clothing.' end
+        else
+            TriggerClientEvent('cm-inventory:client:equipClothingFromItem', src, targetSlot, item)
+            saveAppearance(src)
+        end
+
+        notify(src, ('Equipped %s.'):format(item.label or itemName), 'success')
+        audit(ownerId, 'use_clothing', itemName, 1, slot, targetSlot, 'equip_clothing_slot', item.metadata)
+        return true
+    end
 
     -- USE bag = equip to bag slot and unlock backpack slots/weight capacity.
     if isBagItemName(itemName) then
@@ -1409,8 +1485,8 @@ local function dropToPayload(row)
         item_name = row.item_name,
         name = row.item_name,
         label = def.label or row.item_name,
-        image = def.image or def.icon or 'placeholder.png',
-        icon = def.image or def.icon or 'placeholder.png',
+        image = metadata.image or metadata.icon or def.image or def.icon or 'placeholder.png',
+        icon = metadata.icon or metadata.image or def.image or def.icon or 'placeholder.png',
         quantity = tonumber(row.quantity) or 1,
         weight = tonumber(def.weight) or 0,
         category = def.category or def.type or 'misc',
@@ -1749,42 +1825,59 @@ RegisterCommand('refreshgear', function(src)
     notify(src, 'Equipment refreshed.', 'success')
 end, false)
 
-exports('AddItem', function(a, b, c, d, e, f)
-    local src, itemName, amount, metadata, reason, slot = normalizeExportArgs(a, b, c, d, e, f)
-    return AddItemInternal(src, itemName, amount, metadata, reason, slot)
+exports('AddItem', function(...)
+    local src, itemName, amount, metadata, reason, slot = normalizeExportArgs(...)
+    local ok, placedSlotOrReason = AddItemInternal(src, itemName, amount, metadata, reason, slot)
+
+    -- If another resource adds directly into an equipment slot, immediately apply it
+    -- and refresh the UI. This is used by starter character clothes.
+    if ok and src and tonumber(src) and tonumber(src) > 0 then
+        local placedSlot = tostring(placedSlotOrReason or '')
+        if isEquipmentSlot(placedSlot) then
+            syncEquipmentSlot(tonumber(src), placedSlot)
+        end
+        sendInventory(tonumber(src))
+    end
+
+    return ok, placedSlotOrReason
 end)
 
-exports('RemoveItem', function(a, b, c, d, e)
-    local src, itemName, amount, metadata, reason = normalizeExportArgs(a, b, c, d, e)
+exports('RemoveItem', function(...)
+    local src, itemName, amount, metadata, reason = normalizeExportArgs(...)
     return RemoveItemInternal(src, itemName, amount, metadata, reason)
 end)
 
-exports('HasItem', function(a, b, c)
-    local src, itemName, amount = normalizeExportArgs(a, b, c)
+exports('MoveItem', function(...)
+    local src, fromSlot, toSlot = normalizeExportArgs(...)
+    return MoveItemInternal(src, tostring(fromSlot or ''), tostring(toSlot or ''))
+end)
+
+exports('HasItem', function(...)
+    local src, itemName, amount = normalizeExportArgs(...)
     return HasItemInternal(src, itemName, amount)
 end)
 
-exports('CanCarryItem', function(a, b, c)
-    local src, itemName, amount = normalizeExportArgs(a, b, c)
+exports('CanCarryItem', function(...)
+    local src, itemName, amount = normalizeExportArgs(...)
     local ownerType, ownerId = getOwner(src)
     if not ownerId then return false, 'No character owner found.' end
     return canCarry(ownerType, ownerId, itemName, amount)
 end)
 
-exports('GetInventory', function(a)
-    local src = normalizeExportArgs(a)
+exports('GetInventory', function(...)
+    local src = normalizeExportArgs(...)
     return buildInventoryPayload(src)
 end)
 
 
-exports('GiveItemToNearby', function(a, b, c)
-    local src, slot, amount = normalizeExportArgs(a, b, c)
+exports('GiveItemToNearby', function(...)
+    local src, slot, amount = normalizeExportArgs(...)
     return GiveItemInternal(src, tostring(slot or ''), tonumber(amount) or 1)
 end)
 
-exports('CreateUseableItem', function(a, b, c)
+exports('CreateUseableItem', function(...)
     -- Same-resource/local function support only. Cross-resource Lua callbacks are unreliable in FiveM exports.
-    local itemName, cb = normalizeExportArgs(a, b, c)
+    local itemName, cb = normalizeExportArgs(...)
 
     if type(itemName) == 'string' and type(cb) == 'function' then
         UseableItems[itemName:lower()] = cb
@@ -1796,16 +1889,16 @@ exports('CreateUseableItem', function(a, b, c)
     return false
 end)
 
-exports('ReloadWeapon', function(a)
-    local src = normalizeExportArgs(a)
+exports('ReloadWeapon', function(...)
+    local src = normalizeExportArgs(...)
     return ReloadWeaponInternal(src)
 end)
 
-exports('RegisterUseableItem', function(a, b, c, d)
+exports('RegisterUseableItem', function(...)
     -- Recommended cross-resource registration:
     -- exports['cm-inventory'].RegisterUseableItem('bandage', 'cm-itemactions', 'UseItem')
     -- exports['cm-inventory']:RegisterUseableItem('bandage', 'cm-itemactions', 'UseItem')
-    local itemName, resourceName, exportName = normalizeExportArgs(a, b, c, d)
+    local itemName, resourceName, exportName = normalizeExportArgs(...)
 
     if type(itemName) ~= 'string' or itemName == '' then
         print('[CM-INVENTORY] RegisterUseableItem failed: invalid itemName')
