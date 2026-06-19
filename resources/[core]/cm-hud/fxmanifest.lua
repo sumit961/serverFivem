@@ -2,9 +2,9 @@ fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
 
-description 'CM HUD - Minimap, Health, Armor, Location, Server Info, Time'
+description 'CM HUD - Native Minimap, Vehicle Speedometer, Health, Armor, Location, Server Info, Time'
 author 'CM Framework'
-version '2.0.0'
+version '2.1.0'
 
 client_scripts {
     'client/main.lua'

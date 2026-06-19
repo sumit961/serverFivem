@@ -108,48 +108,37 @@ body {
     margin-top: 2px;
 }
 
-/* ========== BOTTOM LEFT: MINIMAP + HEALTH + LOCATION ========== */
+/* ========== BOTTOM LEFT: NATIVE MINIMAP + HEALTH + LOCATION ========== */
 #hud-bottom-left {
-    bottom: 15px;
-    left: 15px;
+    /* Keep custom health/address OUTSIDE the native GTA minimap.
+       Native radar sits at the bottom-left, so this block is placed above it. */
+    bottom: 205px;
+    left: 40px;
+    width: 230px;
 }
 
-.minimap-container {
-    position: relative;
-    width: 200px;
-    height: 140px;
+/*
+   GTA's real minimap is native, not HTML.
+   This HUD no longer draws a fake hardcoded minimap box.
+   These elements only align the bars/location with the native radar area.
+*/
+.minimap-helper {
+    /* No fake minimap space: GTA renders the real map natively. */
+    display: none;
 }
 
-/* GTA minimap renders here - we just reserve space */
-.minimap-slot {
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 8px;
-    position: relative;
-    overflow: hidden;
-}
+.compass-n { display: none; }
 
-/* Compass N indicator */
-.compass-n {
-    position: absolute;
-    top: 4px;
-    left: 50%;
-    transform: translateX(-50%);
-    font-weight: 900;
-    font-size: 14px;
-    color: #fff;
-    text-shadow: 0 1px 3px rgba(0,0,0,0.9);
-    z-index: 10;
-}
-
-/* Health & Armor bars under minimap */
+/* Health & Armor bars under native minimap */
 .bars-container {
     display: flex;
     flex-direction: column;
-    gap: 3px;
-    margin-top: 4px;
-    width: 200px;
+    gap: 4px;
+    margin-top: 6px;
+    width: 220px;
+    background: rgba(0,0,0,0.22);
+    padding: 4px;
+    border-radius: 5px;
 }
 
 .bar-track {
@@ -190,19 +179,22 @@ body {
 
 /* Location text */
 .location-box {
-    margin-top: 6px;
-    padding-left: 4px;
+    margin-top: 0;
+    padding: 5px 7px;
+    background: rgba(0,0,0,0.35);
+    border-radius: 5px;
+    width: 220px;
 }
 
 .location-area {
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 700;
     color: #ffcc00;
     text-shadow: 0 1px 3px rgba(0,0,0,0.9);
 }
 
 .location-street {
-    font-size: 13px;
+    font-size: 12px;
     color: #fff;
     text-shadow: 0 1px 2px rgba(0,0,0,0.8);
     margin-top: 1px;
@@ -278,6 +270,200 @@ body {
 .key-icon.active {
     background: rgba(255, 204, 0, 0.3);
     border-color: #ffcc00;
+}
+
+
+/* ========== VEHICLE SPEEDOMETER ========== */
+#hud-vehicle {
+    right: 34px;
+    bottom: 92px;
+    z-index: 120;
+}
+
+.speedo-wrap {
+    position: relative;
+    width: 220px;
+    height: 220px;
+    filter: drop-shadow(0 5px 8px rgba(0,0,0,0.75));
+}
+
+.speedo-svg {
+    position: absolute;
+    inset: 0;
+    overflow: visible;
+}
+
+.speedo-outer-bg,
+.speedo-outer-fill,
+.speedo-inner-bg,
+.speedo-left-bg,
+.speedo-left-fill,
+.speedo-right-bg,
+.speedo-right-fill {
+    fill: none;
+    stroke-linecap: butt;
+    transform-origin: 110px 110px;
+}
+
+/* Main RPM ring */
+.speedo-outer-bg {
+    stroke: rgba(255,255,255,0.25);
+    stroke-width: 12;
+    stroke-dasharray: 377;
+    stroke-dashoffset: 94;
+    transform: rotate(140deg);
+}
+
+.speedo-outer-fill {
+    stroke: #ffdf1b;
+    stroke-width: 12;
+    stroke-dasharray: 377;
+    stroke-dashoffset: 377;
+    transform: rotate(140deg);
+    transition: stroke-dashoffset 0.12s linear;
+}
+
+.speedo-inner-bg {
+    stroke: rgba(255,255,255,0.22);
+    stroke-width: 5;
+    stroke-dasharray: 292;
+    stroke-dashoffset: 72;
+    transform: rotate(140deg);
+}
+
+/* Left small engine/health arc */
+.speedo-left-bg {
+    stroke: rgba(255,255,255,0.22);
+    stroke-width: 10;
+    stroke-dasharray: 126 402;
+    stroke-dashoffset: 0;
+    transform: rotate(160deg);
+}
+
+.speedo-left-fill {
+    stroke: #ffffff;
+    stroke-width: 10;
+    stroke-dasharray: 126 402;
+    stroke-dashoffset: 126;
+    transform: rotate(160deg);
+    transition: stroke-dashoffset 0.2s ease;
+}
+
+/* Right fuel arc */
+.speedo-right-bg {
+    stroke: rgba(255,255,255,0.22);
+    stroke-width: 10;
+    stroke-dasharray: 126 402;
+    stroke-dashoffset: 0;
+    transform: rotate(20deg);
+}
+
+.speedo-right-fill {
+    stroke: #ffdf1b;
+    stroke-width: 10;
+    stroke-dasharray: 126 402;
+    stroke-dashoffset: 126;
+    transform: rotate(20deg);
+    transition: stroke-dashoffset 0.2s ease;
+}
+
+.speedo-center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding-top: 6px;
+}
+
+.speedo-number {
+    font-size: 48px;
+    line-height: 46px;
+    font-weight: 950;
+    letter-spacing: 2px;
+    color: #fff;
+    text-shadow:
+        2px 2px 0 rgba(0,0,0,0.9),
+        0 0 8px rgba(0,0,0,0.95);
+}
+
+.speedo-number::first-letter {
+    color: rgba(255,255,255,0.48);
+}
+
+.speedo-unit {
+    margin-top: 2px;
+    font-size: 14px;
+    color: rgba(255,255,255,0.65);
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+.speedo-percent {
+    position: absolute;
+    left: 36px;
+    top: 48px;
+    transform: rotate(-70deg);
+    font-size: 13px;
+    font-weight: 950;
+    color: #fff;
+    text-shadow: 0 2px 3px rgba(0,0,0,0.95);
+}
+
+.speedo-gear {
+    position: absolute;
+    left: 50%;
+    bottom: 42px;
+    transform: translateX(-50%);
+    min-width: 26px;
+    height: 24px;
+    padding: 2px 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 12px;
+    background: rgba(0,0,0,0.38);
+    font-size: 13px;
+    font-weight: 900;
+    color: #fff;
+}
+
+.speedo-icons {
+    position: absolute;
+    left: 25px;
+    right: 25px;
+    bottom: 17px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.speedo-icon {
+    min-width: 25px;
+    height: 25px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 17px;
+    line-height: 1;
+    color: rgba(255,255,255,0.55);
+    text-shadow: 0 2px 4px rgba(0,0,0,1);
+}
+
+.speedo-icon.active {
+    color: #ffdf1b;
+}
+
+.speedo-icon.warn {
+    color: #ffdf1b;
+    animation: speedo-warning 1s infinite;
+}
+
+@keyframes speedo-warning {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
 }
 
 /* ========== DEATH SCREEN ========== */
@@ -361,4 +547,618 @@ body {
 @keyframes slideIn {
     from { transform: translateX(100%); opacity: 0; }
     to { transform: translateX(0); opacity: 1; }
+}
+
+/* ==========================================================
+   GRAND RP STYLE OVERRIDES - TOP RIGHT / SPEEDO / LOCATION
+   ========================================================== */
+
+/* Hide old/removed HUD pieces safely if old markup is cached */
+.minimap-helper, .compass-n, .bars-container, .location-divider,
+.server-badge, .id-badge, .players-count, .money-block,
+.time-block, .date-text, .keys-column,
+.speedo-wrap { display: none !important; }
+
+/* ========== TOP RIGHT UPDATES ========== */
+#hud-top-right {
+    top: 25px;
+    right: 25px;
+    text-align: right;
+}
+
+.server-header-container {
+    display: flex;
+    justify-content: flex-end;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+.server-info-col {
+    text-align: right;
+    margin-top: 5px;
+}
+
+.server-brand {
+    font-size: 26px;
+    font-weight: 900;
+    font-style: italic;
+    color: #fff;
+    text-shadow: 2px 2px 0px rgba(0,0,0,0.8);
+    letter-spacing: 0.5px;
+}
+
+.server-stats {
+    font-size: 13px;
+    font-weight: 800;
+    color: #ffcc00;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.9);
+    margin-top: 2px;
+}
+
+.stat-id { color: #fff; margin-right: 8px; }
+
+.level-ribbon {
+    background: #ffdf1b;
+    color: #000;
+    width: 45px;
+    height: 60px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: 10px;
+    font-weight: 900;
+    font-size: 22px;
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 80%, 0 100%);
+}
+
+.money-block-new {
+    text-align: right;
+    margin-bottom: 30px;
+}
+
+.money-cash-new {
+    font-size: 32px;
+    font-weight: 900;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.9);
+}
+
+.money-bank-new {
+    font-size: 16px;
+    font-weight: 700;
+    color: #ccc;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.9);
+}
+
+.voice-radio-keys {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+}
+
+.vr-key {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+}
+
+/* ========== LOCATION (RIGHT OF NATIVE MINIMAP) ========== */
+#hud-bottom-left {
+    left: 330px;
+    bottom: 25px;
+    width: auto;
+}
+
+.location-box {
+    margin-top: 0;
+    padding: 8px 14px;
+    background: rgba(0,0,0,0.7);
+    border-radius: 4px;
+    border-left: 4px solid #ffdf1b;
+    min-width: 200px;
+    width: auto;
+    box-shadow: 2px 2px 8px rgba(0,0,0,0.5);
+}
+
+.location-area {
+    font-size: 15px;
+    font-weight: 900;
+    color: #ffdf1b;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.9);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.location-street {
+    font-size: 13px;
+    color: #fff;
+    font-weight: 700;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+    margin-top: 2px;
+}
+
+/* ========== BOTTOM RIGHT / SPEEDOMETER UPDATES ========== */
+#hud-vehicle {
+    right: 30px;
+    bottom: 50px;
+    z-index: 120;
+}
+
+.speedo-wrap-new {
+    position: relative;
+    width: 250px;
+    height: 250px;
+    margin-bottom: 10px;
+    filter: drop-shadow(0 5px 8px rgba(0,0,0,0.75));
+}
+
+.speedo-svg {
+    position: absolute;
+    inset: 0;
+    overflow: visible;
+}
+
+.speedo-outer-bg-new {
+    fill: none; stroke: rgba(0,0,0,0.4);
+    stroke-width: 14; stroke-linecap: butt;
+    stroke-dasharray: 408; stroke-dashoffset: 100;
+    transform-origin: 110px 110px; transform: rotate(140deg);
+}
+
+.speedo-outer-fill-new {
+    fill: none; stroke: #ffdf1b;
+    stroke-width: 14; stroke-linecap: butt;
+    stroke-dasharray: 408; stroke-dashoffset: 408;
+    transform-origin: 110px 110px; transform: rotate(140deg);
+    transition: stroke-dashoffset 0.1s linear;
+}
+
+.speedo-inner-bg-new {
+    fill: none; stroke: rgba(255,255,255,0.1);
+    stroke-width: 3; stroke-dasharray: 314; stroke-dashoffset: 60;
+    transform-origin: 110px 110px; transform: rotate(140deg);
+}
+
+.speedo-inner-fill-new {
+    fill: none; stroke: #fff;
+    stroke-width: 3; stroke-dasharray: 314; stroke-dashoffset: 314;
+    transform-origin: 110px 110px; transform: rotate(140deg);
+    transition: stroke-dashoffset 0.2s ease;
+}
+
+.speedo-center-text {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.speed-val {
+    font-size: 64px;
+    font-weight: 900;
+    line-height: 50px;
+    text-shadow: 2px 2px 5px rgba(0,0,0,0.9);
+}
+
+.speed-unit {
+    font-size: 14px;
+    color: rgba(255,255,255,0.5);
+    font-weight: 700;
+    margin-top: 5px;
+}
+
+.speedo-100-mark {
+    position: absolute;
+    left: 34px;
+    top: 70px;
+    transform: rotate(-70deg);
+    font-size: 14px;
+    font-weight: 900;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.9);
+}
+
+.speedo-engine-icon {
+    position: absolute;
+    left: 48px;
+    bottom: 74px;
+    font-size: 18px;
+    filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.9));
+}
+
+.key-circle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 5px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.6);
+    border: 1px solid rgba(255,255,255,0.3);
+    font-size: 10px;
+    font-weight: bold;
+    color: #fff;
+}
+
+.vehicle-controls-row, .bottom-status-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 15px;
+    margin-top: 5px;
+    color: rgba(255,255,255,0.8);
+    font-size: 13px;
+    font-weight: bold;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+}
+
+.v-control {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+#hud-bottom-right {
+    bottom: 25px;
+    right: 45px;
+    text-align: right;
+}
+
+.status-time-box, .status-date-box {
+    white-space: nowrap;
+}
+
+
+/* ========== IMPORTED SPEEDOMETER STYLE ========== */
+#hud-vehicle {
+    right: 20px;
+    bottom: 70px;
+    width: 420px;
+    height: 260px;
+    z-index: 120;
+}
+
+.cm-speedometer-style-only,
+.cm-speedometer-style-only .lite-hud,
+.cm-speedometer-style-only .right-side {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.cm-speedometer-style-only .right-side {
+    width: 420px;
+    height: 260px;
+}
+
+.cm-speedometer-style-only .speedometer {
+    position: absolute;
+    display: flex;
+    right: 0px;
+    bottom: 0px;
+    transform: scale(1);
+    transform-origin: bottom right;
+    filter: drop-shadow(0 5px 8px rgba(0,0,0,0.75));
+}
+
+.cm-speedometer-style-only .speedometer .speedometerSVG {
+    position: absolute;
+    bottom: 0px;
+    right: 0px;
+}
+
+.cm-speedometer-style-only .speedometer .rpmSVG {
+    position: absolute;
+    bottom: 36px;
+    right: 25.5px;
+}
+
+.cm-speedometer-style-only .speedometer .speeds {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    margin-right: 60px;
+    margin-bottom: 78px;
+    z-index: 2;
+}
+
+.cm-speedometer-style-only .speedometer .speeds .speed {
+    width: 80px;
+    height: 30px;
+    font-size: 40px;
+    line-height: 90%;
+    font-weight: 900;
+    color: #FFFFFF;
+    text-align: center;
+    margin: 0;
+    text-shadow: 2px 2px 5px rgba(0,0,0,0.9);
+}
+
+.cm-speedometer-style-only .speedometer .speeds .speedUnit {
+    text-align: center;
+    font-size: 12px;
+    line-height: 90%;
+    font-weight: 700;
+    color: #FFFFFF;
+    letter-spacing: 0.415em;
+    margin: 10px 0 0;
+    text-shadow: 1px 1px 3px rgba(0,0,0,0.9);
+}
+
+.cm-speedometer-style-only .speedometer .fuels {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    margin-right: 68px;
+    margin-top: -30px;
+    z-index: 2;
+}
+
+.cm-speedometer-style-only .speedometer .fuels .fuel {
+    width: 80px;
+    font-size: 24.5px;
+    line-height: 90%;
+    font-weight: 900;
+    color: #FFFFFF;
+    margin: 0;
+    text-shadow: 2px 2px 5px rgba(0,0,0,0.9);
+}
+
+/* keep date/time below the imported speedometer */
+#hud-bottom-right {
+    bottom: 32px;
+    right: 42px;
+    z-index: 121;
+}
+
+
+/* ========== FINAL LOCATION FIX: RIGHT OF NATIVE MINIMAP, NO BLACK BOX ========== */
+#hud-bottom-left {
+    left: 310px !important;
+    bottom: 76px !important;
+    width: auto !important;
+    z-index: 135;
+}
+
+.location-box,
+.location-no-bg {
+    background: transparent !important;
+    box-shadow: none !important;
+    border: 0 !important;
+    border-left: 4px solid #ffdf1b !important;
+    border-radius: 0 !important;
+    padding: 0 0 0 10px !important;
+    min-width: 180px !important;
+    width: auto !important;
+}
+
+.location-area {
+    color: #ffdf1b !important;
+    font-size: 15px !important;
+    font-weight: 900 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+    text-shadow: 2px 2px 3px rgba(0,0,0,0.95) !important;
+}
+
+.location-street {
+    color: #fff !important;
+    font-size: 13px !important;
+    font-weight: 800 !important;
+    text-shadow: 2px 2px 3px rgba(0,0,0,0.95) !important;
+    margin-top: 2px !important;
+}
+
+/* ========== LEFT MIDDLE QUICK ACTION BUTTONS ========== */
+#hud-left-keys {
+    left: 22px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 250;
+    pointer-events: none;
+}
+
+#hud-left-keys.mouse-open {
+    pointer-events: auto;
+}
+
+.left-key-guide {
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+}
+
+.left-key-item {
+    pointer-events: inherit;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: auto;
+    height: 34px;
+    background: transparent;
+    border: 0;
+    color: #fff;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    text-shadow: 1px 1px 3px rgba(0,0,0,0.95);
+    opacity: 0.9;
+    cursor: default;
+    padding: 0;
+}
+
+#hud-left-keys.mouse-open .left-key-item {
+    cursor: pointer;
+}
+
+.left-key-item:hover {
+    opacity: 1;
+    transform: translateX(3px);
+}
+
+.left-key-icon {
+    width: 22px;
+    display: inline-flex;
+    justify-content: center;
+    font-size: 21px;
+    font-weight: 900;
+    color: #fff;
+    filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.95));
+}
+
+.left-key-circle {
+    min-width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.45);
+    background: rgba(0,0,0,0.28);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 900;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
+
+.left-key-label {
+    display: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: rgba(0,0,0,0.55);
+    font-size: 12px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+#hud-left-keys.mouse-open .left-key-label,
+.left-key-item:hover .left-key-label {
+    display: inline-block;
+}
+
+/* ========== PRODUCTION UPDATE: HUD VISIBILITY ========== */
+body.hud-hidden #hud-container {
+    display: none !important;
+}
+
+/* ========== VEHICLE INDICATORS ========== */
+#hud-vehicle .vehicle-indicators {
+    position: absolute;
+    right: 10px;
+    bottom: -8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+    font-weight: 800;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.9);
+}
+
+#hud-vehicle .veh-indicator {
+    min-width: 26px;
+    height: 24px;
+    padding: 0 7px;
+    border-radius: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(255,255,255,0.18);
+    color: rgba(255,255,255,0.45);
+    font-size: 11px;
+    line-height: 1;
+}
+
+#hud-vehicle .veh-indicator.active {
+    color: #3DF71F;
+    border-color: rgba(61,247,31,0.55);
+    box-shadow: 0 0 10px rgba(61,247,31,0.25);
+}
+
+#hud-vehicle .veh-indicator.warning {
+    color: #ff3333;
+    border-color: rgba(255,51,51,0.8);
+    animation: seatbelt-warning 0.65s infinite alternate;
+}
+
+@keyframes seatbelt-warning {
+    from { opacity: 0.45; transform: scale(0.96); }
+    to { opacity: 1; transform: scale(1.05); }
+}
+
+/* ========== NOTIFICATIONS ========== */
+#hud-notify {
+    position: absolute;
+    top: 100px;
+    right: 25px;
+    width: 320px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 999;
+}
+
+.notify-item {
+    background: rgba(0, 0, 0, 0.85);
+    border-left: 4px solid #2196F3;
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+    animation: notify-slide-in 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+    transition: all 0.3s ease;
+    padding: 0;
+}
+
+.notify-item.hide {
+    opacity: 0;
+    transform: translateX(120%);
+}
+
+.notify-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+}
+
+.notify-icon {
+    font-size: 18px;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+}
+
+.notify-text {
+    font-size: 14px;
+    color: #fff;
+    font-weight: 600;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    word-break: break-word;
+}
+
+.notify-progress-track {
+    width: 100%;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.notify-progress-fill {
+    height: 100%;
+    width: 100%;
+    animation: notify-shrink 5s linear forwards;
+}
+
+@keyframes notify-slide-in {
+    from { transform: translateX(120%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes notify-shrink {
+    from { width: 100%; }
+    to { width: 0%; }
 }

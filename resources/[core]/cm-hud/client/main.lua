@@ -9,12 +9,134 @@ local currentStreet = 'Unknown'
 local isDead = false
 local deathTimer = 0
 local canRespawn = false
+local hudMouseOpen = false
+
+local wasInVehicle = false
+local lastVehiclePayload = nil
+
+-- ============================================================
+-- NUI FOCUS SAFETY
+-- HUD must never take keyboard/mouse focus. If focus stays enabled,
+-- the player can feel frozen/stuck and movement keys will not work.
+-- ============================================================
+local function clearHudNuiFocus()
+    hudMouseOpen = false
+    SetNuiFocus(false, false)
+    SetNuiFocusKeepInput(false)
+    SendNUIMessage({ action = 'setMouseOpen', open = false })
+end
+
+RegisterCommand('hudfix', function()
+    clearHudNuiFocus()
+    SendNUIMessage({ action = 'hideDeath' })
+    print('[CM-HUD] NUI focus cleared')
+end, false)
+
+
+-- ============================================================
+-- LEFT QUICK ACTION MOUSE TOGGLE
+-- Press ` / ~ to unlock the mouse for the left-side HUD buttons.
+-- Press again, press ESC/backspace, or click the ~ button to lock mouse again.
+-- ============================================================
+local function setHudMouse(open)
+    hudMouseOpen = open == true
+    SetNuiFocus(hudMouseOpen, hudMouseOpen)
+    SetNuiFocusKeepInput(false)
+    SendNUIMessage({ action = 'setMouseOpen', open = hudMouseOpen })
+end
+
+RegisterCommand('hudmouse', function()
+    setHudMouse(not hudMouseOpen)
+end, false)
+
+RegisterKeyMapping('hudmouse', 'Toggle HUD mouse', 'keyboard', 'GRAVE')
+RegisterKeyMapping('hudmouse', 'Toggle HUD mouse alternate', 'keyboard', 'OEM_3')
+
+RegisterNUICallback('closeHudMouse', function(data, cb)
+    setHudMouse(false)
+    cb('ok')
+end)
+
+RegisterNUICallback('hudQuickAction', function(data, cb)
+    local action = data and data.action or ''
+
+    if action == 'close' then
+        setHudMouse(false)
+    elseif action == 'menu' then
+        ExecuteCommand('menu')
+        setHudMouse(false)
+    elseif action == 'phone' then
+        ExecuteCommand('phone')
+        setHudMouse(false)
+    elseif action == 'inventory' then
+        ExecuteCommand('inventory')
+        setHudMouse(false)
+    elseif action == 'lock' then
+        ExecuteCommand('lock')
+        setHudMouse(false)
+    elseif action == 'emote' then
+        ExecuteCommand('emote')
+        setHudMouse(false)
+    end
+
+    cb('ok')
+end)
+
+CreateThread(function()
+    while true do
+        Wait(0)
+
+        -- Vehicle name
+        HideHudComponentThisFrame(6)
+
+        -- Area name
+        HideHudComponentThisFrame(7)
+
+        -- Vehicle class
+        HideHudComponentThisFrame(8)
+
+        -- Street name
+        HideHudComponentThisFrame(9)
+    end
+end)
+
+CreateThread(function()
+    while true do
+        Wait(0)
+        if hudMouseOpen then
+            -- ESC / Backspace closes HUD mouse so player never gets stuck in focus.
+            if IsControlJustReleased(0, 322) or IsControlJustReleased(0, 177) then
+                setHudMouse(false)
+            end
+        else
+            Wait(250)
+        end
+    end
+end)
+
+
+-- ============================================================
+-- NATIVE GTA MINIMAP / RADAR
+-- ============================================================
+local function setupNativeMinimap()
+    -- Use GTA's real radar/minimap. The old HTML minimap placeholder was removed
+    -- because NUI cannot render the actual GTA map inside a div.
+    SetRadarBigmapEnabled(false, false)
+    SetRadarZoom(1100)
+end
+
+local function isHudEnabled()
+    return LocalPlayer and LocalPlayer.state and LocalPlayer.state.isLoggedIn
+end
 
 -- ============================================================
 -- INIT
 -- ============================================================
 RegisterNetEvent('cm-playerdata:client:loaded', function(data)
     Wait(500)
+    clearHudNuiFocus()
+    setupNativeMinimap()
+    DisplayRadar(true)
 
     currentHealth = data.health or 200
     currentArmor = data.armor or 0
@@ -49,11 +171,7 @@ RegisterNetEvent('cm-playerdata:client:setHealth', function(health, armor)
     currentHealth = health
     currentArmor = armor
 
-    SendNUIMessage({
-        action = 'updateHealth',
-        health = health,
-        armor = armor
-    })
+    -- UI now uses GTA native health/armor under the minimap, so no custom health NUI update is needed.
 end)
 
 -- ============================================================
@@ -121,11 +239,7 @@ RegisterNetEvent('cm-playerdata:client:respawn', function(spawn)
     currentHealth = 200
     currentArmor = 0
 
-    SendNUIMessage({
-        action = 'updateHealth',
-        health = 200,
-        armor = 0
-    })
+    -- UI now uses GTA native health/armor under the minimap.
 end)
 
 RegisterNetEvent('cm-playerdata:client:revive', function(reviver)
@@ -139,6 +253,7 @@ end)
 -- NUI CALLBACK: Respawn button pressed
 -- ============================================================
 RegisterNUICallback('respawn', function(data, cb)
+    clearHudNuiFocus()
     if canRespawn and isDead then
         TriggerServerEvent('cm-playerdata:server:requestRespawn')
     end
@@ -164,11 +279,7 @@ CreateThread(function()
                 currentHealth = health
                 currentArmor = armor
 
-                SendNUIMessage({
-                    action = 'updateHealth',
-                    health = health,
-                    armor = armor
-                })
+                -- Custom health/armor NUI update removed; GTA native bars are used.
             end
 
             -- Auto-detect death if health drops to 0
@@ -258,20 +369,78 @@ CreateThread(function()
 end)
 
 -- ============================================================
--- VEHICLE HUD (future hook)
+-- VEHICLE SPEEDOMETER
 -- ============================================================
+local function sendVehicleHidden()
+    if wasInVehicle then
+        wasInVehicle = false
+        lastVehiclePayload = nil
+        SendNUIMessage({ action = 'hideVehicle' })
+    end
+end
+
 CreateThread(function()
     while true do
-        Wait(500)
+        Wait(100)
 
-        if LocalPlayer.state.isLoggedIn then
+        if isHudEnabled() then
             local ped = PlayerPedId()
             local veh = GetVehiclePedIsIn(ped, false)
 
             if veh ~= 0 then
-                -- Future: send speed, fuel, gear to UI
-                -- SendNUIMessage({ action = 'updateVehicle', speed = ..., fuel = ... })
+                wasInVehicle = true
+
+                local speed = math.floor(GetEntitySpeed(veh) * 3.6 + 0.5) -- KM/H
+                local rpm = math.floor((GetVehicleCurrentRpm(veh) or 0.0) * 100)
+                local gear = GetVehicleCurrentGear(veh)
+                local fuel = math.floor(GetVehicleFuelLevel(veh) + 0.5)
+                local engine = math.floor(math.max(0.0, GetVehicleEngineHealth(veh)) / 10.0 + 0.5)
+                local locked = GetVehicleDoorLockStatus(veh) >= 2
+
+                if gear == 0 then
+                    gear = speed > 1 and 'R' or 'N'
+                end
+
+                local payload = {
+                    action = 'updateVehicle',
+                    visible = true,
+                    speed = speed,
+                    unit = 'KM/H',
+                    rpm = rpm,
+                    gear = tostring(gear),
+                    fuel = math.max(0, math.min(100, fuel)),
+                    engine = math.max(0, math.min(100, engine)),
+                    locked = locked
+                }
+
+                local encoded = json.encode(payload)
+                if encoded ~= lastVehiclePayload then
+                    lastVehiclePayload = encoded
+                    SendNUIMessage(payload)
+                end
+            else
+                sendVehicleHidden()
             end
+        else
+            DisplayRadar(false)
+            sendVehicleHidden()
+            Wait(500)
+        end
+    end
+end)
+
+-- Keep the real GTA minimap enabled when the player is logged in.
+CreateThread(function()
+    setupNativeMinimap()
+
+    while true do
+        Wait(1000)
+
+        if isHudEnabled() then
+            DisplayRadar(true)
+            SetRadarBigmapEnabled(false, false)
+        else
+            DisplayRadar(false)
         end
     end
 end)
@@ -293,6 +462,8 @@ end)
 AddEventHandler('onResourceStart', function(res)
     if res == GetCurrentResourceName() then
         Wait(1000)
+        clearHudNuiFocus()
+        setupNativeMinimap()
         if LocalPlayer.state.isLoggedIn then
             local serverId = GetPlayerServerId(PlayerId())
             SendNUIMessage({
@@ -311,5 +482,12 @@ AddEventHandler('onResourceStart', function(res)
                 }
             })
         end
+    end
+end)
+AddEventHandler('onResourceStop', function(res)
+    if res == GetCurrentResourceName() then
+        SetNuiFocus(false, false)
+        SetNuiFocusKeepInput(false)
+        DisplayRadar(true)
     end
 end)
