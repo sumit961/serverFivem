@@ -82,7 +82,18 @@ let state = {
     mouseOpen: false,
     
     // Notifications queue
-    notifications: []
+    notifications: [],
+
+    // Chat
+    chat: {
+        open: false,
+        activeChannel: 'rp',
+        channels: [
+            { id: 'rp', label: 'RP' },
+            { id: 'nonrp', label: 'NON-RP' }
+        ],
+        messages: []
+    }
 };
 
 let deathInterval = null;
@@ -275,6 +286,209 @@ function updateAll() {
     Object.keys(HUD_MODULES).forEach(name => updateModule(name));
 }
 
+
+
+// ========== CHAT ==========
+const MAX_CHAT_MESSAGES = 20;
+const CHAT_FADE_AFTER_MS = 15000;
+let chatEls = { root: null, messages: null, input: null, tabs: null, inputWrap: null, ready: false };
+let chatHistory = [];
+let chatHistoryIndex = -1;
+let chatMsgSeq = 0;
+let suppressChatOpenKey = false;
+
+function cacheChatEls() {
+    if (chatEls.ready) return;
+    chatEls.root = document.getElementById('hud-chat');
+    chatEls.messages = document.getElementById('chat-messages');
+    chatEls.input = document.getElementById('chat-input');
+    chatEls.tabs = document.getElementById('chat-tabs');
+    chatEls.inputWrap = document.querySelector('.chat-input-wrap');
+    chatEls.ready = true;
+}
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, (char) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+    }[char]));
+}
+
+function sanitizeChatText(value) {
+    return String(value ?? '')
+        .replace(/[\r\n\t]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 180);
+}
+
+function renderChatTabs() {
+    cacheChatEls();
+    if (!chatEls.tabs) return;
+    chatEls.tabs.innerHTML = state.chat.channels.map(ch => `
+        <button class="chat-tab ${state.chat.activeChannel === ch.id ? 'active' : ''}" data-channel="${escapeHtml(ch.id)}">
+            ${escapeHtml(ch.label || ch.id.toUpperCase())}
+        </button>
+    `).join('');
+
+    chatEls.tabs.querySelectorAll('.chat-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const channel = btn.getAttribute('data-channel');
+            state.chat.activeChannel = channel;
+            renderChatTabs();
+            if (chatEls.input) chatEls.input.focus();
+        });
+    });
+}
+
+function addChatMessage(message) {
+    cacheChatEls();
+    const msg = {
+        uid: ++chatMsgSeq,
+        channel: message.channel || 'rp',
+        channelLabel: message.channelLabel || (message.channel || 'rp').toUpperCase(),
+        author: message.author || 'Unknown',
+        id: message.id || 0,
+        text: sanitizeChatText(message.text || ''),
+        type: message.type || 'normal',
+        time: message.time || '',
+        faded: false
+    };
+
+    state.chat.messages.push(msg);
+    while (state.chat.messages.length > MAX_CHAT_MESSAGES) state.chat.messages.shift();
+    renderChatMessages();
+
+    setTimeout(() => {
+        const found = state.chat.messages.find(item => item.uid === msg.uid);
+        if (found) {
+            found.faded = true;
+            renderChatMessages(false);
+        }
+    }, CHAT_FADE_AFTER_MS);
+}
+
+function renderChatMessages(scrollToBottom = true) {
+    cacheChatEls();
+    if (!chatEls.messages) return;
+    chatEls.messages.innerHTML = state.chat.messages.map(msg => `
+        <div class="chat-message chat-${escapeHtml(msg.channel)} ${msg.faded && !state.chat.open ? 'fade-out' : ''}">
+            <span class="chat-channel">[${escapeHtml(msg.channelLabel)}]</span>
+            <span class="chat-author">${escapeHtml(msg.author)} (${escapeHtml(msg.id)}) said :</span>
+            <span class="chat-text"> ${escapeHtml(msg.text)}</span>
+        </div>
+    `).join('');
+    if (scrollToBottom) chatEls.messages.scrollTop = chatEls.messages.scrollHeight;
+}
+
+function setChatOpen(open) {
+    cacheChatEls();
+    state.chat.open = !!open;
+    if (!chatEls.root) return;
+
+    // Keep #chat-messages visible when closed. Only hide input and tabs.
+    chatEls.root.classList.remove('hidden');
+    chatEls.root.classList.toggle('chat-open', state.chat.open);
+    chatEls.root.classList.toggle('chat-closed', !state.chat.open);
+
+    if (chatEls.tabs) chatEls.tabs.classList.toggle('hidden', !state.chat.open);
+    if (chatEls.inputWrap) chatEls.inputWrap.classList.toggle('hidden', !state.chat.open);
+
+    if (state.chat.open) {
+        renderChatTabs();
+        renderChatMessages();
+        chatHistoryIndex = chatHistory.length;
+        suppressChatOpenKey = true;
+        if (chatEls.input) chatEls.input.value = '';
+        // Delay focus slightly so the T key used to open chat cannot leak into the input.
+        setTimeout(() => {
+            if (chatEls.input && state.chat.open) {
+                chatEls.input.value = '';
+                chatEls.input.focus();
+            }
+            setTimeout(() => { suppressChatOpenKey = false; }, 120);
+        }, 80);
+    } else if (chatEls.input) {
+        chatEls.input.value = '';
+        chatEls.input.blur();
+        renderChatMessages(false);
+    }
+}
+
+function closeChat() {
+    fetch(`https://${GetParentResourceName()}/chatClose`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify({})
+    });
+}
+
+function sendChatInput() {
+    cacheChatEls();
+    const text = sanitizeChatText(chatEls.input?.value || '');
+    if (!text) {
+        closeChat();
+        return;
+    }
+
+    chatHistory.push(text);
+    if (chatHistory.length > 30) chatHistory.shift();
+    chatHistoryIndex = chatHistory.length;
+
+    fetch(`https://${GetParentResourceName()}/chatSend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+        body: JSON.stringify({ channel: state.chat.activeChannel, text })
+    });
+    if (chatEls.input) chatEls.input.value = '';
+    setChatOpen(false);
+}
+
+function setupChatUi() {
+    cacheChatEls();
+    if (!chatEls.input) return;
+    renderChatTabs();
+    setChatOpen(false);
+
+    document.addEventListener('mousedown', (e) => {
+        // When chat is open, clicking anywhere outside the chat panel closes only the input box.
+        // Chat history remains visible.
+        if (state.chat.open && chatEls.root && !chatEls.root.contains(e.target)) {
+            e.preventDefault();
+            closeChat();
+        }
+    }, true);
+
+    chatEls.input.addEventListener('keydown', (e) => {
+        // Prevent the T key used to open chat from being typed into the input.
+        if (suppressChatOpenKey && (e.key || '').toLowerCase() === 't') {
+            e.preventDefault();
+            e.stopPropagation();
+            if (chatEls.input) chatEls.input.value = '';
+            return;
+        }
+
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            sendChatInput();
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            closeChat();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (chatHistory.length > 0) {
+                chatHistoryIndex = Math.max(0, chatHistoryIndex - 1);
+                chatEls.input.value = chatHistory[chatHistoryIndex] || '';
+                setTimeout(() => chatEls.input.setSelectionRange(chatEls.input.value.length, chatEls.input.value.length), 0);
+            }
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (chatHistory.length > 0) {
+                chatHistoryIndex = Math.min(chatHistory.length, chatHistoryIndex + 1);
+                chatEls.input.value = chatHistory[chatHistoryIndex] || '';
+                setTimeout(() => chatEls.input.setSelectionRange(chatEls.input.value.length, chatEls.input.value.length), 0);
+            }
+        }
+    });
+}
+
 // ========== MESSAGE HANDLER ==========
 window.addEventListener('message', function(event) {
     const data = event.data;
@@ -364,6 +578,24 @@ window.addEventListener('message', function(event) {
 
         case 'setHudVisible':
             document.body.classList.toggle('hud-hidden', data.visible === false);
+            break;
+
+        case 'setChatOpen':
+            setChatOpen(data.open);
+            break;
+
+        case 'setChatChannels':
+            if (Array.isArray(data.channels)) {
+                state.chat.channels = data.channels;
+                if (!state.chat.channels.find(ch => ch.id === state.chat.activeChannel) && state.chat.channels[0]) {
+                    state.chat.activeChannel = state.chat.channels[0].id;
+                }
+                renderChatTabs();
+            }
+            break;
+
+        case 'addChatMessage':
+            addChatMessage(data.message || data);
             break;
             
         case 'keyState':
@@ -457,9 +689,24 @@ setInterval(() => {
 
 // ========== INIT ==========
 updateAll();
+setupChatUi();
 // Close HUD mouse from inside NUI when Escape/Backspace is pressed.
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' || e.key === 'Backspace') {
+    const key = e.key || '';
+
+    // When HUD mouse is open, pressing ` / ~ again closes it from inside NUI focus.
+    // FiveM keymapping cannot always receive the second key press while NUI owns focus.
+    if (state.mouseOpen && (key === '`' || key === '~')) {
+        e.preventDefault();
+        fetch(`https://${GetParentResourceName()}/closeHudMouse`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+            body: JSON.stringify({})
+        });
+        return;
+    }
+
+    if (key === 'Escape' || key === 'Backspace') {
         fetch(`https://${GetParentResourceName()}/closeHudMouse`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json; charset=UTF-8' },

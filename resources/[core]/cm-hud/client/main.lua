@@ -10,6 +10,13 @@ local isDead = false
 local deathTimer = 0
 local canRespawn = false
 local hudMouseOpen = false
+local hudVisible = true
+local chatOpen = false
+local setChatOpen
+local seatbeltOn = false
+local cruiseOn = false
+local cruiseSpeed = 0.0
+local isDeathThreadRunning = false
 
 local wasInVehicle = false
 local lastVehiclePayload = nil
@@ -21,9 +28,11 @@ local lastVehiclePayload = nil
 -- ============================================================
 local function clearHudNuiFocus()
     hudMouseOpen = false
+    chatOpen = false
     SetNuiFocus(false, false)
     SetNuiFocusKeepInput(false)
     SendNUIMessage({ action = 'setMouseOpen', open = false })
+    SendNUIMessage({ action = 'setChatOpen', open = false })
 end
 
 RegisterCommand('hudfix', function()
@@ -32,6 +41,110 @@ RegisterCommand('hudfix', function()
     print('[CM-HUD] NUI focus cleared')
 end, false)
 
+local function setHudVisible(visible)
+    hudVisible = visible == true
+    DisplayRadar(hudVisible and LocalPlayer and LocalPlayer.state and LocalPlayer.state.isLoggedIn)
+    SendNUIMessage({ action = 'setHudVisible', visible = hudVisible })
+    if not hudVisible then
+        SendNUIMessage({ action = 'hideVehicle' })
+        setChatOpen(false)
+    end
+end
+
+RegisterCommand('togglehud', function()
+    setHudVisible(not hudVisible)
+end, false)
+
+RegisterKeyMapping('togglehud', 'Toggle all HUD', 'keyboard', 'F7')
+
+
+
+-- ============================================================
+-- CUSTOM CHAT
+-- Press T to open. Enter sends. Empty Enter / ESC closes.
+-- Default GTA/FiveM chat text is disabled, this NUI chat is used instead.
+-- ============================================================
+function setChatOpen(open)
+    chatOpen = open == true
+
+    if chatOpen then
+        hudMouseOpen = false
+        SetNuiFocus(true, true)
+        SetNuiFocusKeepInput(false)
+        SendNUIMessage({ action = 'setMouseOpen', open = false })
+    else
+        SetNuiFocus(false, false)
+        SetNuiFocusKeepInput(false)
+    end
+
+    SendNUIMessage({ action = 'setChatOpen', open = chatOpen })
+end
+
+RegisterCommand('cmchat', function()
+    if not hudVisible then return end
+    setChatOpen(true)
+end, false)
+RegisterKeyMapping('cmchat', 'Open RP chat', 'keyboard', 'T')
+
+RegisterNUICallback('chatClose', function(data, cb)
+    setChatOpen(false)
+    cb('ok')
+end)
+
+RegisterNUICallback('chatSend', function(data, cb)
+    local channel = data and data.channel or 'rp'
+    local msg = data and data.text or ''
+    msg = tostring(msg or ''):gsub('[\r\n\t]+', ' '):gsub('^%s+', ''):gsub('%s+$', ''):sub(1, 180)
+
+    if msg:gsub('%s+', '') ~= '' then
+        if msg:sub(1, 1) == '/' then
+            -- Route slash messages to FiveM/GTA command handler. Example: /me waves
+            ExecuteCommand(msg:sub(2))
+            setChatOpen(false)
+        else
+            TriggerServerEvent('cm-hud:server:sendChatMessage', channel, msg)
+            -- Close the input box after sending. Chat history remains visible.
+            setChatOpen(false)
+        end
+    else
+        setChatOpen(false)
+    end
+
+    cb('ok')
+end)
+
+RegisterNetEvent('cm-hud:client:addChatMessage', function(message)
+    SendNUIMessage({ action = 'addChatMessage', message = message })
+end)
+
+RegisterNetEvent('cm-hud:client:setChatChannels', function(channels)
+    SendNUIMessage({ action = 'setChatChannels', channels = channels })
+end)
+
+CreateThread(function()
+    Wait(1000)
+    if SetTextChatEnabled then SetTextChatEnabled(false) end
+    TriggerServerEvent('cm-hud:server:requestChatChannels')
+
+    while true do
+        Wait(0)
+        -- Hide default GTA/FiveM location, street and vehicle name popups.
+        HideHudComponentThisFrame(6)
+        HideHudComponentThisFrame(7)
+        HideHudComponentThisFrame(8)
+        HideHudComponentThisFrame(9)
+
+        if chatOpen then
+            DisableAllControlActions(0)
+            EnableControlAction(0, 1, true)   -- Look left/right
+            EnableControlAction(0, 2, true)   -- Look up/down
+            EnableControlAction(0, 200, true) -- ESC pause menu
+            if IsControlJustReleased(0, 322) or IsControlJustReleased(0, 177) then
+                setChatOpen(false)
+            end
+        end
+    end
+end)
 
 -- ============================================================
 -- LEFT QUICK ACTION MOUSE TOGGLE
@@ -40,6 +153,10 @@ end, false)
 -- ============================================================
 local function setHudMouse(open)
     hudMouseOpen = open == true
+    if hudMouseOpen then
+        chatOpen = false
+        SendNUIMessage({ action = 'setChatOpen', open = false })
+    end
     SetNuiFocus(hudMouseOpen, hudMouseOpen)
     SetNuiFocusKeepInput(false)
     SendNUIMessage({ action = 'setMouseOpen', open = hudMouseOpen })
@@ -85,24 +202,6 @@ end)
 CreateThread(function()
     while true do
         Wait(0)
-
-        -- Vehicle name
-        HideHudComponentThisFrame(6)
-
-        -- Area name
-        HideHudComponentThisFrame(7)
-
-        -- Vehicle class
-        HideHudComponentThisFrame(8)
-
-        -- Street name
-        HideHudComponentThisFrame(9)
-    end
-end)
-
-CreateThread(function()
-    while true do
-        Wait(0)
         if hudMouseOpen then
             -- ESC / Backspace closes HUD mouse so player never gets stuck in focus.
             if IsControlJustReleased(0, 322) or IsControlJustReleased(0, 177) then
@@ -136,6 +235,8 @@ RegisterNetEvent('cm-playerdata:client:loaded', function(data)
     Wait(500)
     clearHudNuiFocus()
     setupNativeMinimap()
+    if SetTextChatEnabled then SetTextChatEnabled(false) end
+    TriggerServerEvent('cm-hud:server:requestChatChannels')
     DisplayRadar(true)
 
     currentHealth = data.health or 200
@@ -204,23 +305,27 @@ RegisterNetEvent('cm-playerdata:client:playerDied', function(killerSrc, weaponHa
         time = deathTimer
     })
 
-    -- Local countdown until server says we can respawn
-    CreateThread(function()
-        while isDead and deathTimer > 0 do
-            Wait(1000)
-            deathTimer = deathTimer - 1
+    -- Local countdown until server says we can respawn. Guard prevents stacked threads.
+    if not isDeathThreadRunning then
+        isDeathThreadRunning = true
+        CreateThread(function()
+            while isDead and deathTimer > 0 do
+                Wait(1000)
+                deathTimer = deathTimer - 1
 
-            SendNUIMessage({
-                action = 'updateDeathTime',
-                time = deathTimer
-            })
-        end
+                SendNUIMessage({
+                    action = 'updateDeathTime',
+                    time = deathTimer
+                })
+            end
 
-        if isDead then
-            canRespawn = true
-            SendNUIMessage({ action = 'showRespawn' })
-        end
-    end)
+            if isDead then
+                canRespawn = true
+                SendNUIMessage({ action = 'showRespawn' })
+            end
+            isDeathThreadRunning = false
+        end)
+    end
 end)
 
 RegisterNetEvent('cm-playerdata:client:canRespawn', function()
@@ -369,12 +474,38 @@ CreateThread(function()
 end)
 
 -- ============================================================
+-- VEHICLE INDICATORS
+-- ============================================================
+RegisterCommand('seatbelt', function()
+    local ped = PlayerPedId()
+    if IsPedInAnyVehicle(ped, false) then
+        seatbeltOn = not seatbeltOn
+        TriggerEvent('cm-hud:client:notify', seatbeltOn and 'Seatbelt fastened' or 'Seatbelt removed', seatbeltOn and 'success' or 'warning')
+    end
+end, false)
+RegisterKeyMapping('seatbelt', 'Toggle seatbelt', 'keyboard', 'B')
+
+RegisterCommand('cruise', function()
+    local ped = PlayerPedId()
+    local veh = GetVehiclePedIsIn(ped, false)
+    if veh ~= 0 and GetPedInVehicleSeat(veh, -1) == ped then
+        cruiseOn = not cruiseOn
+        cruiseSpeed = GetEntitySpeed(veh)
+        TriggerEvent('cm-hud:client:notify', cruiseOn and 'Cruise control enabled' or 'Cruise control disabled', cruiseOn and 'success' or 'info')
+    end
+end, false)
+RegisterKeyMapping('cruise', 'Toggle cruise control', 'keyboard', 'Y')
+
+-- ============================================================
 -- VEHICLE SPEEDOMETER
 -- ============================================================
 local function sendVehicleHidden()
     if wasInVehicle then
         wasInVehicle = false
         lastVehiclePayload = nil
+        seatbeltOn = false
+        cruiseOn = false
+        cruiseSpeed = 0.0
         SendNUIMessage({ action = 'hideVehicle' })
     end
 end
@@ -383,7 +514,7 @@ CreateThread(function()
     while true do
         Wait(100)
 
-        if isHudEnabled() then
+        if isHudEnabled() and hudVisible then
             local ped = PlayerPedId()
             local veh = GetVehiclePedIsIn(ped, false)
 
@@ -396,6 +527,10 @@ CreateThread(function()
                 local fuel = math.floor(GetVehicleFuelLevel(veh) + 0.5)
                 local engine = math.floor(math.max(0.0, GetVehicleEngineHealth(veh)) / 10.0 + 0.5)
                 local locked = GetVehicleDoorLockStatus(veh) >= 2
+
+                if cruiseOn and GetPedInVehicleSeat(veh, -1) == ped and cruiseSpeed > 1.0 then
+                    SetVehicleForwardSpeed(veh, cruiseSpeed)
+                end
 
                 if gear == 0 then
                     gear = speed > 1 and 'R' or 'N'
@@ -410,7 +545,9 @@ CreateThread(function()
                     gear = tostring(gear),
                     fuel = math.max(0, math.min(100, fuel)),
                     engine = math.max(0, math.min(100, engine)),
-                    locked = locked
+                    locked = locked,
+                    seatbelt = seatbeltOn,
+                    cruise = cruiseOn
                 }
 
                 local encoded = json.encode(payload)
@@ -429,31 +566,24 @@ CreateThread(function()
     end
 end)
 
--- Keep the real GTA minimap enabled when the player is logged in.
-CreateThread(function()
-    setupNativeMinimap()
-
-    while true do
-        Wait(1000)
-
-        if isHudEnabled() then
-            DisplayRadar(true)
-            SetRadarBigmapEnabled(false, false)
-        else
-            DisplayRadar(false)
-        end
-    end
-end)
 
 -- ============================================================
 -- NOTIFICATION BRIDGE
 -- ============================================================
-RegisterNetEvent('cm-hud:client:notify', function(text, type)
+local function Notify(text, notifyType)
     SendNUIMessage({
         action = 'notify',
-        text = text,
-        type = type or 'info'
+        text = tostring(text or ''),
+        type = notifyType or 'info'
     })
+end
+
+exports('Notify', Notify)
+RegisterNetEvent('cm-hud:client:notify', function(text, type)
+    Notify(text, type)
+end)
+RegisterNetEvent('cm-hud:notify', function(text, type)
+    Notify(text, type)
 end)
 
 -- ============================================================
