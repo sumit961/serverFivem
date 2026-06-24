@@ -176,6 +176,7 @@ end)
 
 AddEventHandler('playerDropped', function()
     LastChatAt[source] = nil
+    ActiveHudCharacters[source] = nil
 end)
 
 -- Optional server-side event for other scripts.

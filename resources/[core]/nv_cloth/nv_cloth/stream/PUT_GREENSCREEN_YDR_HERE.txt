@@ -1,5 +1,0 @@
-Put your custom prop file here:
-
-prop_ld_greenscreen_01.ydr
-
-Then restart nv_cloth and test in-game with /cmtestprop.

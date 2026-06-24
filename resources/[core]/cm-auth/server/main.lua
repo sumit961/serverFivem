@@ -830,7 +830,8 @@ end)
 
 RegisterNetEvent('cm-auth:server:previewToken', function(token)
     local src = source
-    if Player(src).state.isLoggedIn or Player(src).state.accountId then return end
+    local guardOk, alreadyIn = pcall(function() return Player(src).state.isLoggedIn or Player(src).state.accountId end)
+    if guardOk and alreadyIn then return end
 
     local ok, accountOrErr = pcall(function()
         local account, reason = validateTokenForPlayer(src, token)

@@ -35,7 +35,7 @@ function setProgress(value, label) {
 }
 
 function renderSlides() {
-    const slides = (window.loadingConfig && Array.isArray(loadingConfig.slides) ? loadingConfig.slides : []).filter(Boolean);
+    const slides = (window.loadingConfig && Array.isArray(window.loadingConfig.slides) ? window.loadingConfig.slides : []).filter(Boolean);
     slideStack.innerHTML = '';
 
     slides.forEach((path, index) => {
@@ -75,9 +75,9 @@ function startSlideShow() {
 }
 
 function rotateTip() {
-    if (!window.loadingConfig || !Array.isArray(loadingConfig.tips) || loadingConfig.tips.length === 0) return;
-    tipIndex = (tipIndex + 1) % loadingConfig.tips.length;
-    tipText.textContent = loadingConfig.tips[tipIndex];
+    if (!window.loadingConfig || !Array.isArray(window.loadingConfig.tips) || window.loadingConfig.tips.length === 0) return;
+    tipIndex = (tipIndex + 1) % window.loadingConfig.tips.length;
+    tipText.textContent = window.loadingConfig.tips[tipIndex];
 }
 
 function postToResource(path, payload) {

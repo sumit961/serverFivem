@@ -16,14 +16,6 @@ local function DeepCopy(orig)
 end
 
 local function LoadConfig()
-    -- Add this line here:
-    SetConvar("cm_env", GetConvar("cm_environment", "production"))
-    
-    configCache = DeepCopy(CM.Config)
-    -- ... rest unchanged
-end
-
-local function LoadConfig()
     configCache = DeepCopy(CM.Config)
     for resource, callback in pairs(configListeners) do
         local ok, err = pcall(callback, configCache)

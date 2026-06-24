@@ -17,15 +17,16 @@ const creationLoadingText = document.getElementById('creation-loading-text');
 const creationLoadingPercent = document.getElementById('creation-loading-percent');
 const creationLoadingBar = document.getElementById('creation-loading-bar');
 let loadingTimer = null;
+let finishingTimer = null;
+let finishingTimeout = null;
 let loadingPercentValue = 0;
 let loaderHoldingSelector = false;
 let spawnFlowActive = false;
 
 function forceHideCharacterLoader() {
-    if (loadingTimer) {
-        clearInterval(loadingTimer);
-        loadingTimer = null;
-    }
+    if (loadingTimer) { clearInterval(loadingTimer); loadingTimer = null; }
+    if (finishingTimer) { clearInterval(finishingTimer); finishingTimer = null; }
+    if (finishingTimeout) { clearTimeout(finishingTimeout); finishingTimeout = null; }
     loadingPercentValue = 0;
     if (creationLoadingPercent) creationLoadingPercent.textContent = '0%';
     if (creationLoadingBar) creationLoadingBar.style.width = '0%';
@@ -112,27 +113,28 @@ function setCreationLoading(show, message, targetPercent) {
         }, 110);
     } else {
         clearLoadingTimer();
+        if (finishingTimer) { clearInterval(finishingTimer); finishingTimer = null; }
+        if (finishingTimeout) { clearTimeout(finishingTimeout); finishingTimeout = null; }
         creationLoading.classList.remove('hidden');
         creationLoading.classList.add('finishing');
         creationLoading.style.display = 'flex';
 
         // Always visually complete to 100 first, then close smoothly.
-        const finishTimer = setInterval(() => {
+        finishingTimer = setInterval(() => {
             if (loadingPercentValue < 100) {
                 setPercent(Math.min(100, loadingPercentValue + Math.max(2, Math.floor((100 - loadingPercentValue) / 4))));
                 return;
             }
 
-            clearInterval(finishTimer);
-            setTimeout(() => {
+            clearInterval(finishingTimer);
+            finishingTimer = null;
+            finishingTimeout = setTimeout(() => {
+                finishingTimeout = null;
                 creationLoading.classList.add('hidden');
                 creationLoading.classList.remove('finishing');
                 creationLoading.style.display = '';
                 setPercent(0);
 
-                // Important: only reveal the selector after the full-screen loader has
-                // visually completed to 100%. This prevents the character UI from
-                // breaking/showing through while loading is still active.
                 if (loaderHoldingSelector) {
                     loaderHoldingSelector = false;
                     forceSelectorVisible();
