@@ -21,7 +21,8 @@ CMPlayerData.Config = {
         DamageThreshold = 101,
         MaxHealth = 200,
         MaxArmor = 100,
-        InjuredHealth = 140
+        InjuredHealth = 140, -- kept for compatibility only; no walkstyle/effect is applied
+        MaxPassiveHealDelta = 5
     },
     Defaults = {
         cash = 0,

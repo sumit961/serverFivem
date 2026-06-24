@@ -63,7 +63,13 @@ end
 
 RegisterNetEvent('cm-characters:server:getSlots', function(accountId)
     local src = source
-    accountId = tostring(accountId or '')
+    -- Always use the server-authoritative account ID to prevent spoofing.
+    local stateAccountId = tostring(Player(src).state.accountId or '')
+    if stateAccountId ~= '' then
+        accountId = stateAccountId
+    else
+        accountId = tostring(accountId or '')
+    end
 
     print('[CM-CHARACTERS] getSlots called for accountId="' .. accountId .. '"')
 

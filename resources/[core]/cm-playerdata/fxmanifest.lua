@@ -2,9 +2,9 @@ fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
 
-description 'CM Player Data - Stable v1.1: vitals, needs, death, position, money bridge'
+description 'CM Player Data - Stable v1.3-safe: vitals, death, position, money bridge'
 author 'CM Framework'
-version '1.1.0'
+version '1.3.0'
 
 shared_scripts {
     'config.lua'

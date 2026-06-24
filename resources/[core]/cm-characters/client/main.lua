@@ -254,11 +254,6 @@ local CreationPreviewScene = {
     time = { hours = 23, minutes = 0, seconds = 0 }
 }
 
-local function headingForwardVector(heading)
-    local rad = math.rad(tonumber(heading) or 0.0)
-    return vector3(-math.sin(rad), math.cos(rad), 0.0)
-end
-
 function buildCreationStyleSceneConfig()
     local ped = CreationPreviewScene.ped
     local cam = CreationPreviewScene.camera
@@ -817,7 +812,6 @@ local function buildDynamicStage(scene)
             time = cfg.time or (scene and scene.time) or { hours = 12, minutes = 0, seconds = 0 }
         },
         camera = vector4(cfg.camera.x, cfg.camera.y, cfg.camera.z, cfg.camera.w),
-        camrotation = nil,
         fov = cfg.fov or 34.0,
         camrotation = cfg.camrotation,
         walkStart = vector4(cfg.walkStart.x, cfg.walkStart.y, startZ, cfg.walkStart.w or faceCameraHeading),

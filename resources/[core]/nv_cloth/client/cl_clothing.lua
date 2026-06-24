@@ -325,10 +325,27 @@ RegisterNUICallback("sendSelectedArticle", function(data, cb)
     return
   end
 
-  -- Appliquer immediately for store preview
+  local isAdminPreview = NvCloth_IsAdminShop and NvCloth_IsAdminShop()
+  if isAdminPreview and ResetClothingAdminPlayerToBase then
+    -- Admin preview normally shows a clean single item on a base model.
+    -- Arms/Fit is different: changing arms should not clear the current torso/pants/shoes preview.
+    -- This lets admin tune sleeve/body fit from the right-panel helper without the rest resetting.
+    if category ~= 'arms' then
+      ResetClothingAdminPlayerToBase()
+    elseif type(data.adminTorsoTarget) == 'table' then
+      local torso = data.adminTorsoTarget
+      local torsoDrawable = tonumber(torso.drawable or torso.drawableId or torso.component or torso.componentId)
+      local torsoTexture = tonumber(torso.texture or torso.textureId or 0) or 0
+      if torsoDrawable ~= nil then
+        applyItem(ped, 'torso', torsoDrawable, torsoTexture)
+      end
+    end
+  end
+
+  -- Apply immediately for preview.
   applyItem(ped, category, drawable, texture)
 
-  -- Nombre de textures disponibles pour ce drawable
+  -- Number of textures available for this drawable.
   local count
   if cat.type == "component" then
     count = GetNumberOfPedTextureVariations(ped, cat.index, drawable)
@@ -458,6 +475,13 @@ local function buildBuyMetadata(item)
     -- Your clothing pack rule: full sleeve = arms 6, half sleeve = arms 5.
     -- This tag helps cm-items keep using the same fit in inventory/spawn.
     metadata.sleeveStyle = normalizeSleeveStyle(item.sleeveStyle or item.sleeve or item.sleeveType) or sleeveStyleFromArms(metadata.arms)
+  end
+
+  if category == 'bags' then
+    local level = tonumber(item.bagLevel or item.bag_level or item.level)
+    if level then
+      metadata.bagLevel = math.max(1, math.min(4, math.floor(level)))
+    end
   end
 
   return metadata

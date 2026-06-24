@@ -196,6 +196,13 @@ RegisterNetEvent('cm-characters:server:saveAppearance', function(charId, appeara
     
     local charFull = char[1]
 
+    -- Verify this character belongs to the requesting player's account.
+    local playerAccountId = tostring(Player(src).state.accountId or '')
+    if playerAccountId ~= '' and tostring(charFull.account_id) ~= playerAccountId then
+        TriggerClientEvent('cm-characters:client:error', src, 'Character does not belong to your account')
+        return
+    end
+
     -- IMPORTANT:
     -- cm-inventory resolves owner from Player(src).state.charId.
     -- During first character creation this state may not exist yet, so set it BEFORE AddItem.

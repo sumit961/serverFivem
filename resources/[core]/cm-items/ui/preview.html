@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CM Items Preview</title>
+  <link rel="stylesheet" href="preview.css" />
+</head>
+<body>
+  <main id="app" class="hidden">
+    <header>
+      <div>
+        <h1>CM Items Preview</h1>
+        <p>All registered server items and saved clothing catalog images.</p>
+      </div>
+      <div class="actions">
+        <input id="search" type="text" placeholder="Search item, category, drawable..." />
+        <select id="mode">
+          <option value="all">All</option>
+          <option value="items">Items</option>
+          <option value="catalog">Clothing Catalog</option>
+        </select>
+        <button id="refresh">Refresh</button>
+        <button id="close">Close ESC</button>
+      </div>
+    </header>
+    <section class="stats" id="stats"></section>
+    <section class="grid" id="grid"></section>
+  </main>
+  <script src="preview.js"></script>
+</body>
+</html>

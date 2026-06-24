@@ -95,15 +95,28 @@ function post(path, body) {
 
 function imgSrc(item) {
   const meta = item?.metadata || {};
-  const icon = meta.image || meta.icon || item?.image || item?.icon || 'placeholder.png';
+  let icon = meta.image || meta.icon || item?.image || item?.icon || 'placeholder.png';
 
-  if (typeof icon === 'string' && (
-    icon.startsWith('nui://') ||
-    icon.startsWith('https://') ||
-    icon.startsWith('http://') ||
-    icon.startsWith('data:')
-  )) {
-    return icon;
+  if (typeof icon === 'string') {
+    icon = icon.trim();
+
+    // FiveM NUI is more reliable with cfx-nui HTTPS URLs, especially across resources.
+    const nuiMatch = icon.match(/^nui:\/\/([^\/]+)\/(.+)$/i);
+    if (nuiMatch) {
+      return `https://cfx-nui-${nuiMatch[1]}/${nuiMatch[2]}`;
+    }
+
+    if (icon.startsWith('https://') || icon.startsWith('http://') || icon.startsWith('data:')) {
+      return icon;
+    }
+
+    // Catalog clothing images (e.g. "custom/shared_bags_5_86_19.png") live in cm-items, not cm-inventory.
+    if (icon.startsWith('custom/')) {
+      return `https://cfx-nui-cm-items/ui/images/clothing/${icon}`;
+    }
+    if (icon.startsWith('clothing/')) {
+      return `https://cfx-nui-cm-items/ui/images/${icon}`;
+    }
   }
 
   return `images/${icon}`;
@@ -144,11 +157,25 @@ function metadataRows(item) {
   const durability = itemDurability(item);
   if (durability !== null) rows.push(['Durability', `${durability}%`]);
   if (meta.serial) rows.push(['Serial', meta.serial]);
-  if (meta.bagLevel) rows.push(['Bag Level', meta.bagLevel]);
+  if (meta.bagLevel) rows.push(['Bag Level', `Level ${meta.bagLevel}`]);
+  // Clothing-specific fields shown in a friendly order
+  if (meta.categoryType) rows.push(['Category', String(meta.categoryType).toUpperCase()]);
+  if (meta.gender) rows.push(['Gender', String(meta.gender).charAt(0).toUpperCase() + String(meta.gender).slice(1)]);
+  if (meta.drawableId !== undefined && meta.drawableId !== null) rows.push(['Style ID', meta.drawableId]);
+  if (meta.textureId !== undefined && meta.textureId !== null) rows.push(['Color ID', meta.textureId]);
+  if (meta.purchasedAt) rows.push(['Purchased', String(meta.purchasedAt).replace('T', ' ').replace('Z', '')]);
   if (meta.createdAt) rows.push(['Created', String(meta.createdAt).replace('T', ' ').replace('Z', '')]);
   if (meta.owner || meta.registeredTo) rows.push(['Owner', meta.owner || meta.registeredTo]);
+  // Skip internal/redundant keys and object values
+  const skip = new Set([
+    'durability','serial','bagLevel','bag_level','level',
+    'categoryType','gender','drawableId','textureId','purchasedAt','createdAt','owner','registeredTo',
+    'rarity','itemType','label','description','image','icon',
+    'equipped','inventoryOnly','preferredContainer','preferredStorage','inventoryTarget','slotGroup',
+    'componentType','componentIndex','arms','armsTexture','undershirt','undershirtTexture','sleeveStyle',
+  ]);
   Object.entries(meta).forEach(([k, v]) => {
-    if (['durability','serial','bagLevel','createdAt','owner','registeredTo','rarity','itemType','label','description'].includes(k)) return;
+    if (skip.has(k)) return;
     if (typeof v === 'object') return;
     rows.push([k, String(v)]);
   });
@@ -280,6 +307,18 @@ function makeItem(item) {
   img.onerror = () => { img.style.display = 'none'; };
   el.appendChild(img);
 
+  const info = document.createElement('div');
+  info.className = 'item-info';
+  const label = document.createElement('div');
+  label.className = 'item-name';
+  label.textContent = item.label || item.item_name || 'ITEM';
+  const weight = document.createElement('div');
+  weight.className = 'item-weight';
+  weight.textContent = `${kg((item.weight || 0) * (item.quantity || 1))} KG`;
+  info.appendChild(label);
+  info.appendChild(weight);
+  el.appendChild(info);
+
   const durability = itemDurability(item);
   if (durability !== null) {
     const dur = document.createElement('div');
@@ -348,13 +387,19 @@ document.addEventListener('mouseup', (e) => {
 
 function showTooltip(item, x, y) {
   const totalWeight = kg((item.weight || 0) * (item.quantity || 1));
-  const rows = metadataRows(item).slice(0, 5).map(([k, v]) => `<div><b>${k}</b><span>${v}</span></div>`).join('');
+  const rows = metadataRows(item).map(([k, v]) => `<div><b>${k}</b><span>${v}</span></div>`).join('');
+  const src = imgSrc(item);
   tooltipEl.innerHTML = `
-    <strong>${item.label || item.item_name}</strong>
-    <p>${item.description || 'No description.'}</p>
+    <div class="tooltip-header">
+      <img class="tooltip-img" src="${src}" alt="" onerror="this.style.display='none'" />
+      <div class="tooltip-title">
+        <strong>${item.label || item.item_name}</strong>
+        <p>${item.description || 'No description.'}</p>
+      </div>
+    </div>
     <div class="tooltip-meta">
-      <div><b>Type</b><span>${rarityOf(item).toUpperCase()}</span></div>
       <div><b>Weight</b><span>${totalWeight} KG</span></div>
+      <div><b>Rarity</b><span>${rarityOf(item).toUpperCase()}</span></div>
       ${rows}
     </div>`;
   tooltipEl.classList.remove('hidden');

@@ -3,8 +3,8 @@ game 'gta5'
 lua54 'yes'
 
 author 'CM Development'
-description 'CM Inventory v3.8 - player polish, metadata, durability, bag levels'
-version '3.8.0'
+description 'CM Inventory v3.9 - fullscreen inventory UI polish'
+version '3.9.0'
 
 dependencies {
     'oxmysql',

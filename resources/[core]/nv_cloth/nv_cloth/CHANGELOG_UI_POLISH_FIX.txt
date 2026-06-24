@@ -1,0 +1,10 @@
+CM UI polish fix
+
+- Widened right panel and improved selector/button shape/alignment.
+- Reduced heavy black panel feel with lighter glassmorphism backgrounds.
+- Store UI resets to the first category/item every time it opens.
+- Headwear now uses a wider head camera instead of tight face zoom.
+- Removed 1 second camera busy lock so category camera changes work on first click.
+- Added admin Arms/Fit helper in the right panel.
+- Hid Arms/Fit from the left category list; it is now opened from the right admin helper.
+- Changing arms in admin no longer resets the rest of the preview outfit.

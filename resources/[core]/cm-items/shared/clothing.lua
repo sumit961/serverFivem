@@ -249,23 +249,29 @@ function CMItems.ResolveTorsoFit(gender, torsoDrawable, torsoTexture, fallback)
 end
 
 CMItems.Clothing.Categories = {
-    tshirt   = { type = 'component', index = 8,  label = 'T-Shirt', itemName = 'clothing_tshirt', equipmentSlot = 'shirt' },
-    torso    = { type = 'component', index = 11, label = 'Top',     itemName = 'clothing_torso',  equipmentSlot = 'outerwear' },
-    pants    = { type = 'component', index = 4,  label = 'Pants',   itemName = 'clothing_pants',  equipmentSlot = 'pants' },
-    legs     = { type = 'component', index = 4,  label = 'Pants',   itemName = 'clothing_legs',   equipmentSlot = 'pants' },
-    shoes    = { type = 'component', index = 6,  label = 'Shoes',   itemName = 'clothing_shoes',  equipmentSlot = 'shoes' },
-    chains   = { type = 'component', index = 7,  label = 'Chain',   itemName = 'clothing_chains', equipmentSlot = 'accessory' },
-    bags     = { type = 'component', index = 5,  label = 'Bag',     itemName = 'clothing_bags',   equipmentSlot = 'bag' },
-    hat      = { type = 'prop',      index = 0,  label = 'Hat',     itemName = 'clothing_hat',    equipmentSlot = 'headwear' },
-    glasses  = { type = 'prop',      index = 1,  label = 'Glasses', itemName = 'clothing_glasses',equipmentSlot = 'glasses' },
-    earrings = { type = 'prop',      index = 2,  label = 'Earrings',itemName = 'clothing_earrings',equipmentSlot = 'earrings' },
-    watches  = { type = 'prop',      index = 6,  label = 'Watch',   itemName = 'clothing_watches',equipmentSlot = 'watch' },
+    mask     = { type = 'component', index = 1,  label = 'Mask',        itemName = 'clothing_mask',     equipmentSlot = 'mask' },
+    arms     = { type = 'component', index = 3,  label = 'Arms/Gloves', itemName = 'clothing_arms',     equipmentSlot = 'arms' },
+    pants    = { type = 'component', index = 4,  label = 'Pants',       itemName = 'clothing_pants',    equipmentSlot = 'pants' },
+    bags     = { type = 'component', index = 5,  label = 'Bag',         itemName = 'clothing_bags',     equipmentSlot = 'bag' },
+    shoes    = { type = 'component', index = 6,  label = 'Shoes',       itemName = 'clothing_shoes',    equipmentSlot = 'shoes' },
+    chains   = { type = 'component', index = 7,  label = 'Chain',       itemName = 'clothing_chains',   equipmentSlot = 'accessory' },
+    tshirt   = { type = 'component', index = 8,  label = 'T-Shirt',     itemName = 'clothing_tshirt',   equipmentSlot = 'shirt' },
+    decals   = { type = 'component', index = 10, label = 'Decals',      itemName = 'clothing_decals',   equipmentSlot = 'decals' },
+    torso    = { type = 'component', index = 11, label = 'Top',         itemName = 'clothing_torso',    equipmentSlot = 'outerwear' },
+    hat      = { type = 'prop',      index = 0,  label = 'Hat',         itemName = 'clothing_hat',      equipmentSlot = 'headwear' },
+    glasses  = { type = 'prop',      index = 1,  label = 'Glasses',     itemName = 'clothing_glasses',  equipmentSlot = 'glasses' },
+    earrings = { type = 'prop',      index = 2,  label = 'Earrings',    itemName = 'clothing_earrings', equipmentSlot = 'earrings' },
+    watches  = { type = 'prop',      index = 6,  label = 'Watch',       itemName = 'clothing_watches',  equipmentSlot = 'watch' },
+    bracelet = { type = 'prop',      index = 7,  label = 'Bracelet',    itemName = 'clothing_bracelet', equipmentSlot = 'bracelet' },
 }
 
 CMItems.Clothing.Aliases = {
     shirt = 'tshirt', undershirt = 'tshirt', top = 'torso', jacket = 'torso', outerwear = 'torso',
-    trouser = 'pants', trousers = 'pants', pant = 'pants', chain = 'chains', accessory = 'chains',
-    bag = 'bags', backpack = 'bags', headwear = 'hat', watch = 'watches', earring = 'earrings'
+    trouser = 'pants', trousers = 'pants', pant = 'pants', legs = 'pants', leg = 'pants',
+    glove = 'arms', gloves = 'arms', hand = 'arms', hands = 'arms',
+    chain = 'chains', accessory = 'chains', accessories = 'chains',
+    bag = 'bags', backpack = 'bags', headwear = 'hat', cap = 'hat',
+    watch = 'watches', earring = 'earrings', bracelets = 'bracelet'
 }
 
 local function copyTable(value)
@@ -363,6 +369,13 @@ function CMItems.BuildClothingMetadata(categoryOrRaw, raw, opts)
     )
 
     local image = incoming.image or incoming.icon or CMItems.GetClothingImage(gender, def.type, def.index, drawable)
+    if type(image) == 'string' and image ~= '' and not image:find('^nui://') and not image:find('^https?://') then
+        if image:find('^clothing/') then
+            image = ('nui://cm-items/ui/images/%s'):format(image)
+        else
+            image = ('nui://cm-items/ui/images/clothing/%s'):format(image)
+        end
+    end
     local label = incoming.label or raw.label or raw.name or opts.label or ('%s %s/%s'):format(def.label, drawable, texture)
 
     local metadata = {
@@ -380,6 +393,23 @@ function CMItems.BuildClothingMetadata(categoryOrRaw, raw, opts)
         rarity = incoming.rarity or opts.rarity or 'normal',
         equipmentSlot = def.equipmentSlot,
     }
+
+    if category == 'bags' then
+        local bagLevel = tonumber(
+            incoming.bagLevel or incoming.bag_level or incoming.level or
+            raw.bagLevel or raw.bag_level or raw.level or
+            opts.bagLevel or opts.bag_level or opts.level
+        )
+        if bagLevel ~= nil then
+            bagLevel = math.max(1, math.min(4, math.floor(bagLevel)))
+            -- Keep bag metadata minimal for cm-inventory: only bagLevel is required.
+            -- Slot count and carry weight should come from the inventory BagLevels config.
+            metadata.bagLevel = bagLevel
+            if not incoming.description and not opts.description then
+                metadata.description = ('Level %s bag. Unlocks backpack slots.'):format(bagLevel)
+            end
+        end
+    end
 
     if category == 'torso' then
         local fit = CMItems.ResolveTorsoFit(gender, drawable, texture, {
@@ -405,6 +435,18 @@ function CMItems.BuildClothingMetadata(categoryOrRaw, raw, opts)
         if metadata[k] == nil and type(v) ~= 'function' then
             metadata[k] = v
         end
+    end
+
+    if category == 'bags' then
+        -- Do not leak catalog/admin helper values into inventory tooltip metadata.
+        metadata.level = nil
+        metadata.bag_level = nil
+        metadata.backpackSlots = nil
+        metadata.backpack_slots = nil
+        metadata.maxWeight = nil
+        metadata.max_weight = nil
+        metadata.slots = nil
+        metadata.weight = nil
     end
 
     metadata.itemName = opts.itemName or incoming.itemName or raw.itemName or def.itemName
@@ -483,6 +525,12 @@ function CMItems.GetClothingCatalogEntry(gender, componentTypeOrIndex, component
         base = byDrawable['default']
     elseif byDrawable.label or byDrawable.price or byDrawable.arms or byDrawable.enabled ~= nil then
         base = byDrawable
+    end
+
+    -- textureId < 0 means "any texture" (the default/all-textures catalog entry).
+    -- Those entries are stored under byDrawable.default, so return it directly.
+    if texture < 0 then
+        return base
     end
 
     local textureEntry = nil
@@ -573,6 +621,33 @@ function CMItems.BuildClothingMetadata(categoryOrRaw, raw, opts)
             metadata.image = ('nui://cm-items/ui/images/clothing/%s'):format(tostring(catalog.image))
         end
         metadata.icon = metadata.image
+    end
+
+    if metadata.categoryType == 'bags' then
+        local catalogLevel = tonumber(catalog.bagLevel or catalog.bag_level or catalog.level)
+        local incomingLevel = tonumber(metadata.bagLevel or metadata.bag_level or metadata.level)
+        local finalLevel = catalogLevel or incomingLevel
+        if finalLevel ~= nil then
+            finalLevel = math.max(1, math.min(4, math.floor(finalLevel)))
+            metadata.bagLevel = finalLevel
+            if catalog.description and tostring(catalog.description) ~= '' then
+                metadata.description = catalog.description
+            else
+                metadata.description = ('Level %s bag. Unlocks backpack slots.'):format(finalLevel)
+            end
+        end
+        metadata.bag_level = nil
+        metadata.level = nil
+        metadata.backpackSlots = nil
+        metadata.backpack_slots = nil
+        metadata.maxWeight = nil
+        metadata.max_weight = nil
+        metadata.slots = nil
+        metadata.weight = nil
+        if CMItems.Config and CMItems.Config.Debug then
+            print(('[CM-ITEMS] BuildClothingMetadata bag drawable=%s texture=%s image=%s bagLevel=%s'):format(
+                tostring(metadata.drawableId), tostring(metadata.textureId), tostring(metadata.image), tostring(metadata.bagLevel)))
+        end
     end
 
     if metadata.categoryType == 'torso' then

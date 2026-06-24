@@ -260,40 +260,37 @@ local function ApplySkin(skin)
     SetPedHeadOverlay(ped, 1, skin['beard_1'], (skin['beard_2'] / 10) + 0.0)
     SetPedHeadOverlayColor(ped, 1, 1, skin['beard_3'], skin['beard_4'])
     SetPedHeadOverlay(ped, 5, skin['blush_1'], (skin['blush_2'] / 10) + 0.0)
-    SetPedHeadOverlayColor(ped, 5, 2, skin['blush_3'])
+    SetPedHeadOverlayColor(ped, 5, 2, skin['blush_3'], skin['blush_3'])
     SetPedHeadOverlay(ped, 6, skin['complexion_1'], (skin['complexion_2'] / 10) + 0.0)
     SetPedHeadOverlay(ped, 7, skin['sun_1'], (skin['sun_2'] / 10) + 0.0)
     SetPedHeadOverlay(ped, 9, skin['moles_1'], (skin['moles_2'] / 10) + 0.0)
     SetPedHeadOverlay(ped, 10, skin['chest_1'], (skin['chest_2'] / 10) + 0.0)
-    SetPedHeadOverlayColor(ped, 10, 1, skin['chest_3'])
+    SetPedHeadOverlayColor(ped, 10, 1, skin['chest_3'], skin['chest_3'])
 
-    -- Props
-    if skin['ears_1'] == -1 then ClearPedProp(ped, 2)
-    else SetPedPropIndex(ped, 2, skin['ears_1'], skin['ears_2'], 2) end
+    -- Props (nil-safe)
+    local _ears      = tonumber(skin['ears_1'])
+    local _helmet    = tonumber(skin['helmet_1'])
+    local _glasses   = tonumber(skin['glasses_1'])
+    local _watches   = tonumber(skin['watches_1'])
+    local _bracelets = tonumber(skin['bracelets_1'])
+
+    if _ears      == nil or _ears      < 0 then ClearPedProp(ped, 2) else SetPedPropIndex(ped, 2, _ears,      skin['ears_2']      or 0, true) end
+    if _helmet    == nil or _helmet    < 0 then ClearPedProp(ped, 0) else SetPedPropIndex(ped, 0, _helmet,    skin['helmet_2']    or 0, true) end
+    if _glasses   == nil or _glasses   < 0 then ClearPedProp(ped, 1) else SetPedPropIndex(ped, 1, _glasses,   skin['glasses_2']   or 0, true) end
+    if _watches   == nil or _watches   < 0 then ClearPedProp(ped, 6) else SetPedPropIndex(ped, 6, _watches,   skin['watches_2']   or 0, true) end
+    if _bracelets == nil or _bracelets < 0 then ClearPedProp(ped, 7) else SetPedPropIndex(ped, 7, _bracelets, skin['bracelets_2'] or 0, true) end
 
     -- Components
-    SetPedComponentVariation(ped, 8, skin['tshirt_1'], skin['tshirt_2'], 2)
-    SetPedComponentVariation(ped, 11, skin['torso_1'], skin['torso_2'], 2)
-    SetPedComponentVariation(ped, 3, skin['arms'], skin['arms_2'], 2)
-    SetPedComponentVariation(ped, 10, skin['decals_1'], skin['decals_2'], 2)
-    SetPedComponentVariation(ped, 4, skin['pants_1'], skin['pants_2'], 2)
-    SetPedComponentVariation(ped, 6, skin['shoes_1'], skin['shoes_2'], 2)
-    SetPedComponentVariation(ped, 1, skin['mask_1'], skin['mask_2'], 2)
-    SetPedComponentVariation(ped, 9, skin['bproof_1'], skin['bproof_2'], 2)
-    SetPedComponentVariation(ped, 7, skin['chain_1'], skin['chain_2'], 2)
-    SetPedComponentVariation(ped, 5, skin['bags_1'], skin['bags_2'], 2)
-
-    if skin['helmet_1'] == -1 then ClearPedProp(ped, 0)
-    else SetPedPropIndex(ped, 0, skin['helmet_1'], skin['helmet_2'], 2) end
-
-    if skin['glasses_1'] == -1 then ClearPedProp(ped, 1)
-    else SetPedPropIndex(ped, 1, skin['glasses_1'], skin['glasses_2'], 2) end
-
-    if skin['watches_1'] == -1 then ClearPedProp(ped, 6)
-    else SetPedPropIndex(ped, 6, skin['watches_1'], skin['watches_2'], 2) end
-
-    if skin['bracelets_1'] == -1 then ClearPedProp(ped, 7)
-    else SetPedPropIndex(ped, 7, skin['bracelets_1'], skin['bracelets_2'], 2) end
+    SetPedComponentVariation(ped, 8,  skin['tshirt_1'] or 15, skin['tshirt_2'] or 0, 2)
+    SetPedComponentVariation(ped, 11, skin['torso_1']  or 15, skin['torso_2']  or 0, 2)
+    SetPedComponentVariation(ped, 3,  skin['arms']     or 15, skin['arms_2']   or 0, 2)
+    SetPedComponentVariation(ped, 10, skin['decals_1'] or 0,  skin['decals_2'] or 0, 2)
+    SetPedComponentVariation(ped, 4,  skin['pants_1']  or 14, skin['pants_2']  or 0, 2)
+    SetPedComponentVariation(ped, 6,  skin['shoes_1']  or 34, skin['shoes_2']  or 0, 2)
+    SetPedComponentVariation(ped, 1,  skin['mask_1']   or 0,  skin['mask_2']   or 0, 2)
+    SetPedComponentVariation(ped, 9,  skin['bproof_1'] or 0,  skin['bproof_2'] or 0, 2)
+    SetPedComponentVariation(ped, 7,  skin['chain_1']  or 0,  skin['chain_2']  or 0, 2)
+    SetPedComponentVariation(ped, 5,  skin['bags_1']   or 0,  skin['bags_2']   or 0, 2)
 end
 
 -- Update single value

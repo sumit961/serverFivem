@@ -1,110 +1,116 @@
 -- Apply saved appearance to ped
+
+local function safeN(val, fallback)
+    return tonumber(val) or tonumber(fallback) or 0
+end
+
 RegisterNetEvent('cm-characters:client:applyAppearance')
 AddEventHandler('cm-characters:client:applyAppearance', function(appearanceData)
     if not appearanceData or type(appearanceData) ~= 'table' then return end
 
-    -- Ensure model is loaded
-    local sex = appearanceData.sex or 0
+    local sex = safeN(appearanceData.sex, 0)
     local model = sex == 0 and GetHashKey('mp_m_freemode_01') or GetHashKey('mp_f_freemode_01')
 
     RequestModel(model)
+    local timeout = GetGameTimer() + 5000
     while not HasModelLoaded(model) do
+        if GetGameTimer() > timeout then break end
         RequestModel(model)
         Wait(0)
     end
     SetPlayerModel(PlayerId(), model)
+    SetModelAsNoLongerNeeded(model)
     SetPedComponentVariation(PlayerPedId(), 0, 0, 0, 2)
 
-    -- Apply all skin data (same as ApplySkin in appearance.lua)
     local ped = PlayerPedId()
     local skin = appearanceData
 
+    local function n(key, fallback)
+        return safeN(skin[key], fallback or 0)
+    end
+
     -- Head blend
-    local face_weight = (skin['face_md_weight'] / 100) + 0.0
-    local skin_weight = (skin['skin_md_weight'] / 100) + 0.0
-    SetPedHeadBlendData(ped, skin['mom'], skin['dad'], 0, skin['mom'], skin['dad'], 0, face_weight, skin_weight, 0.0, false)
+    local face_weight = n('face_md_weight', 50) / 100.0
+    local skin_weight = n('skin_md_weight', 50) / 100.0
+    SetPedHeadBlendData(ped, n('mom', 21), n('dad', 0), 0, n('mom', 21), n('dad', 0), 0, face_weight, skin_weight, 0.0, false)
 
     -- Face features
-    SetPedFaceFeature(ped, 0, (skin['nose_1'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 1, (skin['nose_2'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 2, (skin['nose_3'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 3, (skin['nose_4'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 4, (skin['nose_5'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 5, (skin['nose_6'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 8, (skin['cheeks_1'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 9, (skin['cheeks_2'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 10, (skin['cheeks_3'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 12, (skin['lip_thickness'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 13, (skin['jaw_1'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 14, (skin['jaw_2'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 15, (skin['chin_1'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 16, (skin['chin_2'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 17, (skin['chin_3'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 18, (skin['chin_4'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 19, (skin['neck_thickness'] / 10) + 0.0)
+    SetPedFaceFeature(ped, 0,  n('nose_1')        / 10.0)
+    SetPedFaceFeature(ped, 1,  n('nose_2')        / 10.0)
+    SetPedFaceFeature(ped, 2,  n('nose_3')        / 10.0)
+    SetPedFaceFeature(ped, 3,  n('nose_4')        / 10.0)
+    SetPedFaceFeature(ped, 4,  n('nose_5')        / 10.0)
+    SetPedFaceFeature(ped, 5,  n('nose_6')        / 10.0)
+    SetPedFaceFeature(ped, 8,  n('cheeks_1')      / 10.0)
+    SetPedFaceFeature(ped, 9,  n('cheeks_2')      / 10.0)
+    SetPedFaceFeature(ped, 10, n('cheeks_3')      / 10.0)
+    SetPedFaceFeature(ped, 12, n('lip_thickness')  / 10.0)
+    SetPedFaceFeature(ped, 13, n('jaw_1')          / 10.0)
+    SetPedFaceFeature(ped, 14, n('jaw_2')          / 10.0)
+    SetPedFaceFeature(ped, 15, n('chin_1')         / 10.0)
+    SetPedFaceFeature(ped, 16, n('chin_2')         / 10.0)
+    SetPedFaceFeature(ped, 17, n('chin_3')         / 10.0)
+    SetPedFaceFeature(ped, 18, n('chin_4')         / 10.0)
+    SetPedFaceFeature(ped, 19, n('neck_thickness') / 10.0)
+    SetPedFaceFeature(ped, 6,  n('eyebrows_5')    / 10.0)
+    SetPedFaceFeature(ped, 7,  n('eyebrows_6')    / 10.0)
 
-    -- Overlays
-    SetPedHeadOverlay(ped, 3, skin['age_1'], (skin['age_2'] / 10) + 0.0)
-    SetPedHeadOverlay(ped, 0, skin['blemishes_1'], (skin['blemishes_2'] / 10) + 0.0)
-    SetPedEyeColor(ped, skin['eye_color'])
-    SetPedHeadOverlay(ped, 2, skin['eyebrows_1'], (skin['eyebrows_2'] / 10) + 0.0)
-    SetPedHeadOverlayColor(ped, 2, 1, skin['eyebrows_3'], skin['eyebrows_4'])
-    SetPedFaceFeature(ped, 6, (skin['eyebrows_5'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 7, (skin['eyebrows_6'] / 10) + 0.0)
-    SetPedHeadOverlay(ped, 4, skin['makeup_1'], (skin['makeup_2'] / 10) + 0.0)
-    SetPedHeadOverlayColor(ped, 4, 2, skin['makeup_3'], skin['makeup_4'])
-    SetPedHeadOverlay(ped, 8, skin['lipstick_1'], (skin['lipstick_2'] / 10) + 0.0)
-    SetPedHeadOverlayColor(ped, 8, 1, skin['lipstick_3'], skin['lipstick_4'])
-    SetPedComponentVariation(ped, 2, skin['hair_1'], skin['hair_2'], 2)
-    SetPedHairColor(ped, skin['hair_color_1'], skin['hair_color_2'])
-    SetPedHeadOverlay(ped, 1, skin['beard_1'], (skin['beard_2'] / 10) + 0.0)
-    SetPedHeadOverlayColor(ped, 1, 1, skin['beard_3'], skin['beard_4'])
-    SetPedHeadOverlay(ped, 5, skin['blush_1'], (skin['blush_2'] / 10) + 0.0)
-    SetPedHeadOverlayColor(ped, 5, 2, skin['blush_3'])
-    SetPedHeadOverlay(ped, 6, skin['complexion_1'], (skin['complexion_2'] / 10) + 0.0)
-    SetPedHeadOverlay(ped, 7, skin['sun_1'], (skin['sun_2'] / 10) + 0.0)
-    SetPedHeadOverlay(ped, 9, skin['moles_1'], (skin['moles_2'] / 10) + 0.0)
-    SetPedHeadOverlay(ped, 10, skin['chest_1'], (skin['chest_2'] / 10) + 0.0)
-    SetPedHeadOverlayColor(ped, 10, 1, skin['chest_3'])
+    -- Head overlays
+    SetPedHeadOverlay(ped, 0,  n('blemishes_1'),  n('blemishes_2')  / 10.0)
+    SetPedHeadOverlay(ped, 1,  n('beard_1'),      n('beard_2')      / 10.0)
+    SetPedHeadOverlayColor(ped, 1, 1, n('beard_3'), n('beard_4'))
+    SetPedHeadOverlay(ped, 2,  n('eyebrows_1'),   n('eyebrows_2')   / 10.0)
+    SetPedHeadOverlayColor(ped, 2, 1, n('eyebrows_3'), n('eyebrows_4'))
+    SetPedHeadOverlay(ped, 3,  n('age_1'),        n('age_2')        / 10.0)
+    SetPedHeadOverlay(ped, 4,  n('makeup_1'),     n('makeup_2')     / 10.0)
+    SetPedHeadOverlayColor(ped, 4, 2, n('makeup_3'), n('makeup_4'))
+    SetPedHeadOverlay(ped, 5,  n('blush_1'),      n('blush_2')      / 10.0)
+    SetPedHeadOverlayColor(ped, 5, 2, n('blush_3'), n('blush_3'))
+    SetPedHeadOverlay(ped, 6,  n('complexion_1'), n('complexion_2') / 10.0)
+    SetPedHeadOverlay(ped, 7,  n('sun_1'),        n('sun_2')        / 10.0)
+    SetPedHeadOverlay(ped, 8,  n('lipstick_1'),   n('lipstick_2')   / 10.0)
+    SetPedHeadOverlayColor(ped, 8, 1, n('lipstick_3'), n('lipstick_4'))
+    SetPedHeadOverlay(ped, 9,  n('moles_1'),      n('moles_2')      / 10.0)
+    SetPedHeadOverlay(ped, 10, n('chest_1'),      n('chest_2')      / 10.0)
+    SetPedHeadOverlayColor(ped, 10, 1, n('chest_3'), n('chest_3'))
 
-    -- Props
-    if skin['ears_1'] == -1 then ClearPedProp(ped, 2)
-    else SetPedPropIndex(ped, 2, skin['ears_1'], skin['ears_2'], 2) end
+    SetPedEyeColor(ped, n('eye_color'))
+
+    -- Hair
+    SetPedComponentVariation(ped, 2, n('hair_1'), n('hair_2'), 2)
+    SetPedHairColor(ped, n('hair_color_1'), n('hair_color_2'))
+
+    -- Props (nil-safe: treat nil the same as -1)
+    local ears      = tonumber(skin['ears_1'])
+    local helmet    = tonumber(skin['helmet_1'])
+    local glasses   = tonumber(skin['glasses_1'])
+    local watches   = tonumber(skin['watches_1'])
+    local bracelets = tonumber(skin['bracelets_1'])
+
+    if ears      == nil or ears      < 0 then ClearPedProp(ped, 2) else SetPedPropIndex(ped, 2, ears,      n('ears_2'),      true) end
+    if helmet    == nil or helmet    < 0 then ClearPedProp(ped, 0) else SetPedPropIndex(ped, 0, helmet,    n('helmet_2'),    true) end
+    if glasses   == nil or glasses   < 0 then ClearPedProp(ped, 1) else SetPedPropIndex(ped, 1, glasses,   n('glasses_2'),   true) end
+    if watches   == nil or watches   < 0 then ClearPedProp(ped, 6) else SetPedPropIndex(ped, 6, watches,   n('watches_2'),   true) end
+    if bracelets == nil or bracelets < 0 then ClearPedProp(ped, 7) else SetPedPropIndex(ped, 7, bracelets, n('bracelets_2'), true) end
 
     -- Components
-    SetPedComponentVariation(ped, 8, skin['tshirt_1'], skin['tshirt_2'], 2)
-    SetPedComponentVariation(ped, 11, skin['torso_1'], skin['torso_2'], 2)
-    SetPedComponentVariation(ped, 3, skin['arms'], skin['arms_2'], 2)
-    SetPedComponentVariation(ped, 10, skin['decals_1'], skin['decals_2'], 2)
-    SetPedComponentVariation(ped, 4, skin['pants_1'], skin['pants_2'], 2)
-    SetPedComponentVariation(ped, 6, skin['shoes_1'], skin['shoes_2'], 2)
-    SetPedComponentVariation(ped, 1, skin['mask_1'], skin['mask_2'], 2)
-    SetPedComponentVariation(ped, 9, skin['bproof_1'], skin['bproof_2'], 2)
-    SetPedComponentVariation(ped, 7, skin['chain_1'], skin['chain_2'], 2)
-    SetPedComponentVariation(ped, 5, skin['bags_1'], skin['bags_2'], 2)
-
-    if skin['helmet_1'] == -1 then ClearPedProp(ped, 0)
-    else SetPedPropIndex(ped, 0, skin['helmet_1'], skin['helmet_2'], 2) end
-
-    if skin['glasses_1'] == -1 then ClearPedProp(ped, 1)
-    else SetPedPropIndex(ped, 1, skin['glasses_1'], skin['glasses_2'], 2) end
-
-    if skin['watches_1'] == -1 then ClearPedProp(ped, 6)
-    else SetPedPropIndex(ped, 6, skin['watches_1'], skin['watches_2'], 2) end
-
-    if skin['bracelets_1'] == -1 then ClearPedProp(ped, 7)
-    else SetPedPropIndex(ped, 7, skin['bracelets_1'], skin['bracelets_2'], 2) end
+    SetPedComponentVariation(ped, 8,  n('tshirt_1'), n('tshirt_2'), 2)
+    SetPedComponentVariation(ped, 11, n('torso_1'),  n('torso_2'),  2)
+    SetPedComponentVariation(ped, 3,  n('arms'),     n('arms_2'),   2)
+    SetPedComponentVariation(ped, 10, n('decals_1'), n('decals_2'), 2)
+    SetPedComponentVariation(ped, 4,  n('pants_1'),  n('pants_2'),  2)
+    SetPedComponentVariation(ped, 6,  n('shoes_1'),  n('shoes_2'),  2)
+    SetPedComponentVariation(ped, 1,  n('mask_1'),   n('mask_2'),   2)
+    SetPedComponentVariation(ped, 9,  n('bproof_1'), n('bproof_2'), 2)
+    SetPedComponentVariation(ped, 7,  n('chain_1'),  n('chain_2'),  2)
+    SetPedComponentVariation(ped, 5,  n('bags_1'),   n('bags_2'),   2)
 
     TriggerEvent('cm-characters:client:updateAppearanceCache', appearanceData)
-
-    -- Appearance JSON is now only the body/base layer. Inventory clothing must always
-    -- overlay it after any appearance/spawn script runs.
     TriggerEvent('cm-inventory:client:forceWearEquippedClothing')
 end)
 
 
 -- Re-equip starter clothing after first character creation.
--- Server saves the base appearance naked, then inventory clothing overlays the outfit.
 RegisterNetEvent('cm-characters:client:equipStarterClothingSlots', function(equipment)
     equipment = type(equipment) == 'table' and equipment or {}
 
@@ -116,14 +122,13 @@ RegisterNetEvent('cm-characters:client:equipStarterClothingSlots', function(equi
             if equipment.shoes then
                 TriggerEvent('cm-inventory:client:equipmentSlot', 'shoes', equipment.shoes)
             end
-            -- Top last: torso metadata contains arms + undershirt, so applying it last prevents clipping/invisible body.
+            -- Top last: torso metadata contains arms + undershirt, applying it last prevents clipping.
             if equipment.outerwear then
                 TriggerEvent('cm-inventory:client:equipmentSlot', 'outerwear', equipment.outerwear)
             end
         end
 
         -- Apply immediately, then again after spawn/appearance scripts have finished.
-        -- This removes the default-body blink and wins against cm-spawn applying the naked JSON base.
         applyStarter()
         Wait(250); applyStarter()
         Wait(500); applyStarter()
@@ -134,7 +139,6 @@ RegisterNetEvent('cm-characters:client:equipStarterClothingSlots', function(equi
             DoScreenFadeIn(350)
         end
 
-        -- Save current appearance is safe now because the server strips clothing before DB write.
         TriggerEvent('cm-characters:client:requestCurrentAppearanceSave')
     end)
 end)

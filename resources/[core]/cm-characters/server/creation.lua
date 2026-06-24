@@ -11,6 +11,10 @@ end)
 RegisterNetEvent('cm-characters:server:create', function(accountId, charSlot, data)
     local src = source
 
+    -- Always use server-authoritative account ID to prevent spoofing.
+    local stateAccountId = tostring(Player(src).state.accountId or '')
+    if stateAccountId ~= '' then accountId = stateAccountId end
+
     print('[CM-CHARACTERS] server:create called')
     print('[CM-CHARACTERS] accountId=' .. tostring(accountId) .. ' slot=' .. tostring(charSlot))
     print('[CM-CHARACTERS] data=' .. json.encode(data))

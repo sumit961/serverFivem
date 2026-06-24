@@ -35,14 +35,15 @@ end, false)
 
 -- Auto-open on first spawn (fallback if cm-auth doesn't trigger it)
 -- Remove this if cm-auth handles it properly
-AddEventHandler('playerSpawned', function()
-    local src = source
+AddEventHandler('playerSpawned', function(src)
+    src = tonumber(src) or source
     -- Wait a bit for cm-auth to do its thing first
     SetTimeout(3000, function()
+        if not src or src <= 0 then return end
         local accountId = Player(src).state.accountId
         local isLoggedIn = Player(src).state.isLoggedIn
         local charId = Player(src).state.charId
-        
+
         -- Only open if logged in but no character selected yet
         if accountId and isLoggedIn and not charId then
             TriggerClientEvent('cm-characters:client:openSelector', src, accountId)

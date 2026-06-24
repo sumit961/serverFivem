@@ -1,5 +1,5 @@
 -- cm-playerdata/client/main.lua
--- Stable v1.2-lite upgrade. No hunger/thirst/stress.
+-- Stable v1.3-safe upgrade. No hunger/thirst/stress. No injured walkstyle effects.
 
 local Config = CMPlayerData.Config
 local PlayerData = {}
@@ -8,25 +8,12 @@ local canRespawn = false
 local isSpawning = false
 local lastHealth = 200
 local lastArmor = 0
-local injuredWalkstyle = false
 local lastVitalsSync = 0
 local lastPositionSync = 0
 
 local function Debug(msg)
     if Config.Debug then
         print('[CM-PLAYERDATA-CLIENT] ' .. tostring(msg))
-    end
-end
-
-local function ApplyInjuredWalkstyle(ped, enabled)
-    if enabled and not injuredWalkstyle then
-        RequestAnimSet('move_m@injured')
-        while not HasAnimSetLoaded('move_m@injured') do Wait(1) end
-        SetPedMovementClipset(ped, 'move_m@injured', 1.0)
-        injuredWalkstyle = true
-    elseif not enabled and injuredWalkstyle then
-        ResetPedMovementClipset(ped, 0.0)
-        injuredWalkstyle = false
     end
 end
 
@@ -58,7 +45,6 @@ end
 function ExitDeathState()
     isDead = false
     canRespawn = false
-    ApplyInjuredWalkstyle(PlayerPedId(), false)
 end
 
 local function ApplyLoadedData(data)
@@ -160,12 +146,6 @@ CreateThread(function()
                 end
             elseif currentHealth > lastHealth then
                 lastHealth = currentHealth
-            end
-
-            if currentHealth < Config.Vitals.InjuredHealth then
-                ApplyInjuredWalkstyle(ped, true)
-            else
-                ApplyInjuredWalkstyle(ped, false)
             end
 
             local now = GetGameTimer()

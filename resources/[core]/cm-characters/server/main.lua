@@ -146,10 +146,6 @@ local function canEditSelectorScene(src)
 
     if IsPlayerAceAllowed(src, 'command.charselectedit') or IsPlayerAceAllowed(src, 'characters.selector.edit') then return true end
 
-    -- Current development mode: if no permission system is configured yet, allow logged-in players.
-    local state = Player(src).state
-    if state and state.isLoggedIn == true then return true end
-
     return false
 end
 

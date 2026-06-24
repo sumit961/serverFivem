@@ -31,9 +31,11 @@ const HUD_MODULES = {
 
 // ========== STATE ==========
 let state = {
+    hudVisible: false,
     // Server / Identity
     serverName: 'CM-RP',
-    serverId: 0,
+    serverId: '',
+    characterName: 'Unknown',
     level: 1,
     onlinePlayers: 0,
     
@@ -110,7 +112,7 @@ function renderTopRight() {
             <div class="server-info-col">
                 <div class="server-brand">${state.serverName}</div>
                 <div class="server-stats">
-                    <span class="stat-id">ID: ${state.serverId}</span>
+                    <span class="stat-id">ID: ${state.serverId || '-'}</span>
                     <span class="stat-players">👤 ${state.onlinePlayers}</span>
                 </div>
             </div>
@@ -497,6 +499,8 @@ window.addEventListener('message', function(event) {
     switch(data.action) {
         case 'init':
             Object.assign(state, data.state || {});
+            state.hudVisible = true;
+            document.body.classList.remove('hud-hidden');
             updateAll();
             break;
             
@@ -506,8 +510,16 @@ window.addEventListener('message', function(event) {
             break;
             
         case 'updateMoney':
-            state.cash = data.cash;
-            state.bank = data.bank;
+            state.cash = Number(data.cash ?? state.cash) || 0;
+            state.bank = Number(data.bank ?? state.bank) || 0;
+            updateModule('topRight');
+            break;
+
+        case 'updateCharacterHud':
+            if (data.id !== undefined && String(data.id) !== '') state.serverId = data.id;
+            if (data.name !== undefined && String(data.name) !== '') state.characterName = data.name;
+            state.cash = Number(data.cash ?? state.cash) || 0;
+            state.bank = Number(data.bank ?? state.bank) || 0;
             updateModule('topRight');
             break;
             
@@ -529,7 +541,7 @@ window.addEventListener('message', function(event) {
             break;
             
         case 'updateId':
-            state.serverId = data.id;
+            if (data.id !== undefined && String(data.id) !== '') state.serverId = data.id;
             updateModule('topRight');
             break;
             
@@ -577,7 +589,9 @@ window.addEventListener('message', function(event) {
             break;
 
         case 'setHudVisible':
-            document.body.classList.toggle('hud-hidden', data.visible === false);
+            state.hudVisible = data.visible !== false;
+            document.body.classList.toggle('hud-hidden', !state.hudVisible);
+            if (!state.hudVisible) setChatOpen(false);
             break;
 
         case 'setChatOpen':
@@ -638,32 +652,27 @@ const MAX_NOTIFICATIONS = 5;
 
 function addNotification(text, type = 'info') {
     const container = document.getElementById('hud-notify');
-    if (!container) return;
+    if (!container || !state.hudVisible) return;
 
     if (container.children.length >= MAX_NOTIFICATIONS) {
         container.removeChild(container.firstChild);
     }
 
     const themes = {
-        success: { icon: '✅', color: '#3DF71F' },
-        error: { icon: '❌', color: '#ff3333' },
-        warning: { icon: '⚠️', color: '#ffdf1b' },
-        info: { icon: 'ℹ️', color: '#2196F3' }
+        success: { label: 'NOTIFICATION', color: '#f5d600' },
+        error: { label: 'ERROR', color: '#ff3333' },
+        warning: { label: 'WARNING', color: '#ffdf1b' },
+        info: { label: 'NOTIFICATION', color: '#f5d600' }
     };
     const safeType = themes[type] ? type : 'info';
     const theme = themes[safeType];
 
     const item = document.createElement('div');
     item.className = `notify-item ${safeType}`;
-    item.style.borderLeftColor = theme.color;
     item.innerHTML = `
-        <div class="notify-content">
-            <span class="notify-icon">${theme.icon}</span>
-            <span class="notify-text"></span>
-        </div>
-        <div class="notify-progress-track">
-            <div class="notify-progress-fill" style="background: ${theme.color};"></div>
-        </div>
+        <div class="notify-title" style="color:${theme.color}">${theme.label}</div>
+        <div class="notify-progress-track"><div class="notify-progress-fill"></div></div>
+        <div class="notify-text"></div>
     `;
     item.querySelector('.notify-text').textContent = text || '';
 
@@ -673,8 +682,8 @@ function addNotification(text, type = 'info') {
         item.classList.add('hide');
         setTimeout(() => {
             if (container.contains(item)) item.remove();
-        }, 300);
-    }, 5000);
+        }, 250);
+    }, 4200);
 }
 
 // ========== CLOCK UPDATE ==========
@@ -706,7 +715,8 @@ document.addEventListener('keydown', (e) => {
         return;
     }
 
-    if (key === 'Escape' || key === 'Backspace') {
+    if (state.mouseOpen && (key === 'Escape' || key === 'Backspace')) {
+        e.preventDefault();
         fetch(`https://${GetParentResourceName()}/closeHudMouse`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json; charset=UTF-8' },

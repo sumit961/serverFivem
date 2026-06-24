@@ -33,6 +33,10 @@ CMItems.Categories = {
         label = 'Documents',
         description = 'IDs, licenses, certificates, receipts'
     },
+    clothing = {
+        label = 'Clothing',
+        description = 'Wearable clothing and accessories'
+    },
     misc = {
         label = 'Miscellaneous',
         description = 'General items'

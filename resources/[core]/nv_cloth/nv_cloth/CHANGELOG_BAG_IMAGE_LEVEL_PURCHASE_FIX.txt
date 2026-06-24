@@ -1,0 +1,15 @@
+BAG IMAGE + LEVEL PURCHASE FIX
+
+Files changed:
+- client/cl_clothing.lua
+- server/sv_cloth.lua
+
+Fixes:
+1. Purchase metadata now carries catalog image/icon/description from the client.
+2. Server now preserves the exact captured image path when creating inventory metadata.
+3. Bag metadata now always saves bagLevel into the bought inventory item.
+4. Captured relative paths like custom/shared_bags_5_86_19.png are converted to nui://cm-items/ui/images/clothing/custom/shared_bags_5_86_19.png before inventory save.
+5. Icon-capture catalog save no longer silently defaults missing bags to Level 1.
+
+Expected log after buying bag:
+[nv_cloth] AddItem success src=... item=clothing_bags image=nui://cm-items/ui/images/clothing/custom/shared_bags_5_86_19.png bagLevel=4

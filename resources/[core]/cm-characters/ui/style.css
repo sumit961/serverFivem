@@ -1,24 +1,35 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Oswald:wght@500;600;700&display=swap');
 
-* {
+*, *::before, *::after {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    outline: none;
     font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
-html,
-body {
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: rgba(255,255,255,0.06); border-radius: 999px; }
+::-webkit-scrollbar-thumb { background: rgba(155,132,255,0.7); border-radius: 999px; }
+
+html, body {
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: transparent;
+    background: transparent !important;
     color: #f3f0e8;
 }
 
-.hidden {
-    display: none !important;
+/* ── Transparency: the live GTA camera is the background ── */
+html, body, #app, #slots-screen, .selector-page, .selector-layout, .stage-window {
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
+    box-shadow: none !important;
+    filter: none !important;
 }
+
+.hidden { display: none !important; }
 
 #app {
     position: fixed;
@@ -26,33 +37,32 @@ body {
     z-index: 9999;
     overflow: hidden;
     background: transparent;
+    pointer-events: none !important;
 }
 
-.scene-bg,
-.scene-shade,
-.page-noise {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-}
-
-.scene-bg,
-.scene-shade,
-.page-noise {
-    /* The selector must not draw a full-screen background.
-       The live GTA camera scene is the background now. */
+/* Hide decorative pseudo-elements that would cover the GTA camera */
+body::before, body::after,
+#app::before, #app::after,
+#slots-screen::before, #slots-screen::after,
+.selector-page::before, .selector-page::after,
+.selector-layout::before, .selector-layout::after,
+.stage-window::before, .stage-window::after,
+.scene-bg, .scene-shade, .page-noise,
+.headline-ghost, .stage-frame {
     display: none !important;
-    background: none !important;
+    content: none !important;
     opacity: 0 !important;
+    background: none !important;
 }
 
+/* ── Layout ── */
 .selector-page {
     position: relative;
     z-index: 2;
-    width: min(1320px, 96vw);
+    width: 100vw;
     height: 100vh;
-    margin: 0 auto;
-    padding: 34px 0 32px;
+    margin: 0;
+    padding: 24px 48px 28px;
     background: transparent !important;
 }
 
@@ -87,19 +97,8 @@ body {
 .selector-headline {
     text-align: center;
     position: relative;
-    margin-top: 26px;
-}
-
-.headline-ghost {
-    position: absolute;
-    inset: -4px 0 auto 0;
-    font-family: Oswald, sans-serif;
-    font-size: clamp(76px, 11vw, 156px);
-    line-height: 0.9;
-    letter-spacing: -0.04em;
-    text-transform: uppercase;
-    color: rgba(255,255,255,0.055);
-    pointer-events: none;
+    margin-top: 18px;
+    pointer-events: none !important;
 }
 
 .eyebrow {
@@ -112,9 +111,7 @@ body {
     color: rgba(255,255,255,0.62);
 }
 
-h1,
-h2,
-h3 {
+h1, h2, h3 {
     font-family: Oswald, Inter, sans-serif;
     text-transform: uppercase;
 }
@@ -137,26 +134,34 @@ h3 {
 }
 
 .selector-layout {
-    margin-top: 40px;
+    width: 100%;
+    height: calc(100vh - 210px);
+    margin-top: 28px;
     display: grid;
-    grid-template-columns: 330px minmax(420px, 1fr) 390px;
-    gap: 24px;
-    align-items: stretch;
+    grid-template-columns: 340px 1fr 390px;
+    gap: 34px;
+    align-items: center;
+    background: transparent !important;
 }
 
 .character-list {
+    width: 340px;
     display: grid;
     grid-template-columns: 1fr;
     gap: 14px;
+    align-self: center;
+    justify-self: start;
 }
 
+/* ── Character Cards ── */
 .character-card,
 .details-panel,
 .creator-card {
-    border: 1px solid rgba(255,255,255,0.12);
-    background: rgba(18, 19, 24, 0.46);
-    backdrop-filter: blur(10px);
-    box-shadow: 0 24px 80px rgba(0,0,0,0.20);
+    background: rgba(18, 19, 24, 0.52) !important;
+    border: 1px solid rgba(255,255,255,0.16) !important;
+    box-shadow: 0 18px 60px rgba(0,0,0,0.22) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
 }
 
 .character-card {
@@ -185,12 +190,12 @@ h3 {
 .character-card:hover,
 .character-card.active {
     transform: translateY(-4px);
-    border-color: rgba(155, 132, 255, 0.7);
-    background: rgba(28, 28, 36, 0.78);
+    border-color: rgba(155, 132, 255, 0.7) !important;
+    background: rgba(28, 28, 36, 0.68) !important;
 }
 
 .character-card.active {
-    box-shadow: 0 24px 90px rgba(111, 88, 214, 0.28);
+    box-shadow: 0 24px 90px rgba(111, 88, 214, 0.28) !important;
 }
 
 .card-topline {
@@ -206,9 +211,7 @@ h3 {
     font-weight: 900;
 }
 
-.card-topline strong {
-    color: #a991ff;
-}
+.card-topline strong { color: #a991ff; }
 
 .avatar-badge,
 .create-plus {
@@ -274,66 +277,32 @@ h3 {
 }
 
 .create-card {
-    border-style: dashed;
+    border-style: dashed !important;
     opacity: 0.92;
 }
 
-
+/* ── Stage window (GTA ped shows here — keep fully transparent) ── */
 .stage-window {
-    min-height: 500px;
-    border-radius: 32px;
-    position: relative;
-    overflow: visible;
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-    pointer-events: none;
+    display: block !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    min-height: 100% !important;
+    border: 0 !important;
+    outline: 0 !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    pointer-events: none !important;
 }
 
-.stage-window::before,
-.stage-window::after {
-    display: none;
-}
+.stage-window, .stage-window * { pointer-events: none !important; }
 
-.stage-frame {
-    position: absolute;
-    left: 50%;
-    bottom: 18px;
-    width: min(390px, 90%);
-    transform: translateX(-50%);
-    padding: 16px 18px;
-    border-radius: 20px;
-    border: 1px solid rgba(255,255,255,0.10);
-    background: rgba(9,10,13,0.38);
-    backdrop-filter: blur(8px);
-    text-align: center;
-}
-
-.stage-frame span {
-    display: block;
-    text-transform: uppercase;
-    letter-spacing: 0.16em;
-    font-size: 10px;
-    font-weight: 900;
-    color: rgba(255,255,255,0.62);
-}
-
-.stage-frame strong {
-    display: block;
-    margin-top: 6px;
-    font-family: Oswald, Inter, sans-serif;
-    text-transform: uppercase;
-    font-size: 28px;
-    line-height: 1;
-}
-
-.stage-frame p {
-    margin-top: 7px;
-    color: rgba(255,255,255,0.72);
-    font-size: 12px;
-}
-
+/* ── Details Panel ── */
 .details-panel {
+    width: 390px;
+    align-self: center;
+    justify-self: end;
     border-radius: 30px;
     padding: 30px;
 }
@@ -409,6 +378,7 @@ h3 {
     color: rgba(255,255,255,0.88);
 }
 
+/* ── Buttons ── */
 .primary-btn,
 .secondary-btn {
     width: 100%;
@@ -420,19 +390,12 @@ h3 {
     text-transform: uppercase;
     letter-spacing: 0.1em;
     font-weight: 900;
+    font-size: 13px;
     transition: transform 0.16s ease, opacity 0.16s ease;
 }
 
-.primary-btn:hover,
-.secondary-btn:hover {
-    transform: translateY(-1px);
-}
-
-.primary-btn:disabled {
-    opacity: 0.48;
-    cursor: default;
-    transform: none;
-}
+.primary-btn:hover, .secondary-btn:hover { transform: translateY(-1px); }
+.primary-btn:disabled { opacity: 0.48; cursor: default; transform: none; }
 
 .primary-btn {
     color: #fff;
@@ -453,10 +416,27 @@ h3 {
     color: rgba(255,255,255,0.52);
 }
 
+/* ── Allow pointer events on interactive elements only ── */
+.top-ribbon,
+.selector-headline,
+.character-list,
+.character-card,
+.details-panel,
+.creator-modal,
+.creator-card,
+.music-toggle,
+.toast,
+button,
+input,
+select {
+    pointer-events: auto !important;
+}
+
+/* ── Music toggle ── */
 .music-toggle {
     position: absolute;
-    right: 0;
-    bottom: 30px;
+    right: 48px;
+    bottom: 28px;
     z-index: 5;
     min-width: 128px;
     min-height: 42px;
@@ -468,9 +448,10 @@ h3 {
     text-transform: uppercase;
     letter-spacing: 0.1em;
     cursor: pointer;
-    backdrop-filter: blur(10px);
+    backdrop-filter: none !important;
 }
 
+/* ── Creator Modal ── */
 .creator-modal {
     position: relative;
     z-index: 6;
@@ -508,7 +489,6 @@ h3 {
     border: 1px solid rgba(255,255,255,0.12);
     border-radius: 14px;
     padding: 0 14px;
-    outline: 0;
     background: rgba(255,255,255,0.1);
     color: #fff;
     font-size: 14px;
@@ -520,10 +500,9 @@ h3 {
     box-shadow: 0 0 0 4px rgba(155,132,255,0.15);
 }
 
-.creator-card option {
-    color: #111;
-}
+.creator-card option { color: #111; }
 
+/* ── Toast notifications ── */
 .toast {
     position: fixed;
     left: 50%;
@@ -541,6 +520,7 @@ h3 {
     pointer-events: none;
     transition: 0.22s ease;
     z-index: 100;
+    backdrop-filter: none !important;
 }
 
 .toast.show {
@@ -549,10 +529,12 @@ h3 {
 }
 
 .inline-toast {
-    position: static;
-    transform: none;
-    min-width: 0;
-    margin-top: 14px;
+    position: static !important;
+    transform: none !important;
+    min-width: 0 !important;
+    margin-top: 10px;
+    font-size: 11px;
+    padding: 10px 12px !important;
     display: none;
 }
 
@@ -562,312 +544,7 @@ h3 {
     transform: none;
 }
 
-@media (max-width: 980px) {
-    .top-ribbon {
-        grid-template-columns: 1fr;
-        justify-items: center;
-    }
-
-    .ribbon-line {
-        width: 100%;
-    }
-
-    .selector-layout {
-        grid-template-columns: 1fr;
-        margin-top: 32px;
-    }
-
-    .character-list {
-        grid-template-columns: 1fr;
-    }
-
-    .stage-window {
-        min-height: 360px;
-    }
-
-    .music-toggle {
-        right: 20px;
-    }
-}
-
-
-/* v1.2.1: hard transparency fix. Nothing outside the panels should cover the GTA world. */
-html,
-body,
-#app,
-.selector-page,
-.stage-window {
-    background: transparent !important;
-}
-
-#app::before,
-#app::after,
-.selector-page::before,
-.selector-page::after,
-.stage-window::before,
-.stage-window::after {
-    display: none !important;
-    content: none !important;
-}
-
-.stage-window,
-.stage-window * {
-    pointer-events: none;
-}
-
-.character-card,
-.details-panel,
-.creator-card,
-.music-toggle,
-.toast,
-.primary-btn,
-.secondary-btn,
-button,
-input,
-select {
-    pointer-events: auto;
-}
-
-.stage-frame {
-    background: rgba(9,10,13,0.18) !important;
-    backdrop-filter: none !important;
-}
-
-
-/* v1.2.2 ABSOLUTE TRANSPARENT SELECTOR
-   Do not draw any full-screen selector background. GTA world/camera must be visible behind NUI. */
-html,
-body,
-#app,
-#slots-screen,
-.selector-page,
-.selector-layout,
-.stage-window {
-    background: rgba(0, 0, 0, 0) !important;
-    background-color: rgba(0, 0, 0, 0) !important;
-    background-image: none !important;
-    box-shadow: none !important;
-}
-
-body::before,
-body::after,
-#app::before,
-#app::after,
-#slots-screen::before,
-#slots-screen::after,
-.selector-page::before,
-.selector-page::after,
-.selector-layout::before,
-.selector-layout::after,
-.stage-window::before,
-.stage-window::after,
-.scene-bg,
-.scene-shade,
-.page-noise,
-.stage-frame,
-.headline-ghost {
-    display: none !important;
-    content: none !important;
-    opacity: 0 !important;
-    background: none !important;
-}
-
-#app,
-#slots-screen,
-.selector-page,
-.selector-layout,
-.stage-window {
-    pointer-events: none !important;
-}
-
-.top-ribbon,
-.selector-headline,
-.character-list,
-.character-card,
-.details-panel,
-.creator-modal,
-.creator-card,
-.music-toggle,
-.toast,
-.primary-btn,
-.secondary-btn,
-button,
-input,
-select {
-    pointer-events: auto !important;
-}
-
-.stage-window {
-    min-height: 560px !important;
-    border: 0 !important;
-    outline: 0 !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-}
-
-.character-card,
-.details-panel,
-.creator-card {
-    background: rgba(18, 19, 24, 0.30) !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    box-shadow: 0 14px 42px rgba(0,0,0,0.16) !important;
-}
-
-.character-card:hover,
-.character-card.active {
-    background: rgba(28, 28, 36, 0.52) !important;
-}
-
-.music-toggle,
-.toast {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-}
-
-/* v1.2.3 BLACK SCREEN FIX:
-   The selector NUI must not cover the game camera. Only cards/panels draw. */
-html,
-body {
-    background: transparent !important;
-    background-color: transparent !important;
-    background-image: none !important;
-}
-
-body,
-#app,
-#slots-screen,
-.selector-page,
-.selector-layout,
-.stage-window {
-    background: transparent !important;
-    background-color: transparent !important;
-    background-image: none !important;
-    box-shadow: none !important;
-    filter: none !important;
-}
-
-#app {
-    pointer-events: none !important;
-}
-
-.top-ribbon,
-.selector-headline,
-.character-list,
-.details-panel,
-.music-toggle,
-.toast,
-.creator-modal,
-.creator-card,
-button,
-input,
-select {
-    pointer-events: auto !important;
-}
-
-.stage-window,
-.stage-window *,
-.selector-layout::before,
-.selector-layout::after,
-.selector-page::before,
-.selector-page::after,
-#app::before,
-#app::after,
-body::before,
-body::after,
-.headline-ghost,
-.stage-frame {
-    display: none !important;
-    content: none !important;
-    opacity: 0 !important;
-    background: none !important;
-    background-image: none !important;
-    box-shadow: none !important;
-}
-
-.character-card,
-.details-panel,
-.creator-card {
-    background: rgba(18, 19, 24, 0.22) !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-}
-
-.character-card.active,
-.character-card:hover {
-    background: rgba(28, 28, 36, 0.42) !important;
-}
-
-/* v1.2.4: Real-world preview layout. Cards stay on far left, details stay on far right,
-   and the entire center of the screen is reserved for the GTA ped/camera. */
-.selector-page {
-    width: 100vw !important;
-    max-width: none !important;
-    margin: 0 !important;
-    padding: 24px 48px 28px !important;
-}
-
-.selector-headline {
-    margin-top: 18px !important;
-    pointer-events: none !important;
-}
-
-.selector-layout {
-    width: 100% !important;
-    height: calc(100vh - 210px) !important;
-    margin-top: 28px !important;
-    display: grid !important;
-    grid-template-columns: 340px 1fr 390px !important;
-    gap: 34px !important;
-    align-items: center !important;
-}
-
-.character-list {
-    width: 340px !important;
-    align-self: center !important;
-    justify-self: start !important;
-}
-
-.details-panel {
-    width: 390px !important;
-    align-self: center !important;
-    justify-self: end !important;
-}
-
-.character-card,
-.details-panel,
-.creator-card {
-    background: rgba(18, 19, 24, 0.52) !important;
-    border-color: rgba(255,255,255,0.16) !important;
-    box-shadow: 0 18px 60px rgba(0,0,0,0.22) !important;
-}
-
-.character-card:hover,
-.character-card.active {
-    background: rgba(28, 28, 36, 0.68) !important;
-}
-
-.stage-window {
-    display: block !important;
-    visibility: hidden !important;
-    opacity: 0 !important;
-    min-height: 100% !important;
-}
-
-.music-toggle {
-    right: 48px !important;
-    bottom: 28px !important;
-}
-
-@media (max-width: 1200px) {
-    .selector-page { padding-left: 28px !important; padding-right: 28px !important; }
-    .selector-layout { grid-template-columns: 300px 1fr 340px !important; gap: 22px !important; }
-    .character-list { width: 300px !important; }
-    .details-panel { width: 340px !important; }
-}
-
-/* v1.3.3 side-panel selector scene editor
-   IMPORTANT: no full-screen background/backdrop. The editor must not hide the GTA camera/ped. */
+/* ── Scene Editor ── */
 .scene-editor {
     position: fixed;
     inset: 0;
@@ -891,13 +568,8 @@ body::after,
     padding: 18px;
     border-radius: 22px;
     border: 1px solid rgba(255,255,255,0.14);
-    background: rgba(12, 13, 18, 0.72) !important;
+    background: rgba(12, 13, 18, 0.82) !important;
     box-shadow: 0 18px 70px rgba(0,0,0,0.34);
-    backdrop-filter: blur(10px);
-}
-
-.editor-card.editor-compact {
-    width: 300px;
 }
 
 .editor-head {
@@ -908,11 +580,7 @@ body::after,
     margin-bottom: 14px;
 }
 
-.editor-head h1 {
-    margin-top: 6px;
-    font-size: 30px;
-    line-height: 1;
-}
+.editor-head h1 { margin-top: 6px; font-size: 30px; line-height: 1; }
 
 .editor-head .subtitle {
     font-size: 11px;
@@ -932,24 +600,16 @@ body::after,
     font-weight: 900;
 }
 
-.editor-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 10px;
-}
+.editor-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
 
 .editor-section {
-    min-height: auto;
     padding: 12px;
     border-radius: 16px;
     border: 1px solid rgba(255,255,255,0.10);
     background: rgba(255,255,255,0.055);
 }
 
-.editor-section h3 {
-    margin-bottom: 9px;
-    font-size: 16px;
-}
+.editor-section h3 { margin-bottom: 9px; font-size: 16px; }
 
 .editor-section label {
     display: block;
@@ -963,9 +623,7 @@ body::after,
 }
 
 .editor-section input[type="range"],
-.editor-section select {
-    width: 100%;
-}
+.editor-section select { width: 100%; }
 
 .editor-section select {
     height: 38px;
@@ -995,15 +653,8 @@ body::after,
     cursor: pointer;
 }
 
-.editor-current {
-    margin-top: 7px;
-    color: rgba(255,255,255,0.8);
-    font-weight: 900;
-}
-
-.editor-json {
-    display: none !important;
-}
+.editor-current { margin-top: 7px; color: rgba(255,255,255,0.8); font-weight: 900; }
+.editor-json { display: none !important; }
 
 .editor-actions {
     display: grid;
@@ -1021,15 +672,6 @@ body::after,
     font-size: 10px;
 }
 
-.inline-toast {
-    position: static !important;
-    transform: none !important;
-    min-width: 0 !important;
-    margin-top: 10px;
-    font-size: 11px;
-    padding: 10px 12px !important;
-}
-
 .editor-free-preview {
     position: fixed;
     left: 22px;
@@ -1040,7 +682,7 @@ body::after,
     padding: 0 14px;
     border-radius: 999px;
     border: 1px solid rgba(255,255,255,0.15);
-    background: rgba(12, 13, 18, 0.72);
+    background: rgba(12, 13, 18, 0.82);
     color: #fff;
     font-size: 11px;
     font-weight: 900;
@@ -1049,88 +691,9 @@ body::after,
     cursor: pointer;
 }
 
-.editor-card.is-hidden-for-preview {
-    opacity: 0;
-    pointer-events: none;
-}
+.editor-card.is-hidden-for-preview { opacity: 0; pointer-events: none; }
 
-@media (max-width: 980px) {
-    .editor-card {
-        left: 14px;
-        width: 360px;
-        max-height: calc(100vh - 86px);
-    }
-}
-
-
-.creation-loading {
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(0, 0, 0, 0.42);
-    backdrop-filter: blur(6px);
-}
-
-.creation-loading.hidden {
-    display: none !important;
-}
-
-.creation-loading-card {
-    min-width: 320px;
-    padding: 28px 30px;
-    border-radius: 18px;
-    border: 1px solid rgba(255,255,255,0.12);
-    background: rgba(14, 15, 20, 0.88);
-    color: #fff;
-    text-align: center;
-    box-shadow: 0 22px 70px rgba(0,0,0,0.44);
-}
-
-.creation-loading-card h2 {
-    margin-top: 16px;
-    font-family: Oswald, Inter, sans-serif;
-    text-transform: uppercase;
-    letter-spacing: -0.02em;
-}
-
-.creation-loading-card p {
-    margin-top: 8px;
-    color: rgba(255,255,255,0.72);
-    font-size: 13px;
-}
-
-.creation-spinner {
-    width: 36px;
-    height: 36px;
-    margin: 0 auto;
-    border-radius: 50%;
-    border: 3px solid rgba(255,255,255,0.15);
-    border-top-color: #9b84ff;
-    animation: creation-spin 0.85s linear infinite;
-}
-
-@keyframes creation-spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-}
-
-/* First-load / spawn transition cover: prevents default ped blink on slow clients. */
-.creation-loading {
-    z-index: 2147483000 !important;
-    background:
-        radial-gradient(circle at 50% 35%, rgba(155,132,255,0.18), transparent 34%),
-        linear-gradient(135deg, rgba(7,8,13,0.98), rgba(13,12,20,0.96)) !important;
-    backdrop-filter: blur(12px) !important;
-}
-.creation-loading-card {
-    transform: translateY(-2vh);
-}
-
-
-/* v1.5.0 full-screen percentage loader */
+/* ── Full-screen loading overlay ── */
 .creation-loading {
     position: fixed !important;
     inset: 0 !important;
@@ -1142,8 +705,10 @@ body::after,
     backdrop-filter: blur(10px) !important;
     color: #fff;
 }
+
 .creation-loading.hidden { display: none !important; }
 .creation-loading-card, .creation-spinner { display: none !important; }
+
 .loading-brand {
     position: absolute;
     left: 54px;
@@ -1152,44 +717,48 @@ body::after,
     gap: 8px;
     text-transform: uppercase;
 }
+
 .loading-brand span {
     font-size: 12px;
     font-weight: 900;
     letter-spacing: 0.24em;
     color: rgba(255,255,255,0.55);
 }
+
 .loading-brand strong {
     font-family: Oswald, Inter, sans-serif;
     font-size: clamp(34px, 5vw, 72px);
     line-height: 0.92;
     letter-spacing: -0.04em;
 }
+
 .loading-bottom {
     position: absolute;
     left: 54px;
     right: 54px;
     bottom: 44px;
 }
+
 .loading-copy {
     display: flex;
     justify-content: space-between;
-    align-items: end;
+    align-items: flex-end;
     gap: 18px;
     margin-bottom: 12px;
     text-transform: uppercase;
     font-weight: 900;
     letter-spacing: 0.12em;
 }
-.loading-copy span {
-    color: rgba(255,255,255,0.72);
-    font-size: 12px;
-}
+
+.loading-copy span { color: rgba(255,255,255,0.72); font-size: 12px; }
+
 .loading-copy strong {
     font-family: Oswald, Inter, sans-serif;
     font-size: 34px;
     letter-spacing: -0.02em;
     color: #a991ff;
 }
+
 .loading-track {
     width: 100%;
     height: 4px;
@@ -1198,10 +767,29 @@ body::after,
     background: rgba(255,255,255,0.12);
     box-shadow: 0 0 0 1px rgba(255,255,255,0.06);
 }
+
 .loading-bar {
     width: 0%;
     height: 100%;
     border-radius: 999px;
     background: linear-gradient(90deg, #7c5cff, #e0d6ff);
     transition: width 0.18s ease;
+}
+
+/* ── Responsive ── */
+@media (max-width: 1200px) {
+    .selector-page { padding-left: 28px !important; padding-right: 28px !important; }
+    .selector-layout { grid-template-columns: 300px 1fr 340px !important; gap: 22px !important; }
+    .character-list { width: 300px !important; }
+    .details-panel { width: 340px !important; }
+}
+
+@media (max-width: 980px) {
+    .top-ribbon { grid-template-columns: 1fr; justify-items: center; }
+    .ribbon-line { width: 100%; }
+    .selector-layout { grid-template-columns: 1fr !important; margin-top: 32px !important; }
+    .character-list { width: 100% !important; grid-template-columns: 1fr; }
+    .stage-window { min-height: 360px; }
+    .music-toggle { right: 20px !important; }
+    .editor-card { left: 14px; width: 360px; max-height: calc(100vh - 86px); }
 }

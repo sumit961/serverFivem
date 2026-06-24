@@ -1,21 +1,22 @@
-# CM PlayerData Stable v1.1
+# CM PlayerData Stable v1.3-safe
 
-This is a safe upgrade for your current working `cm-playerdata`.
+Safe upgrade for `cm-playerdata` using oxmysql, Lua 5.4, state bags, dirty-save pattern, and CM Framework events.
 
-## What it adds
+## What this version fixes
 
-- Keeps your old health/death/respawn/position flow.
-- Uses `oxmysql` directly, so it avoids cm-core database export call-style bugs.
-- Adds safer exports for money and needs.
-- Adds metadata support.
-- Adds playerdata_audit table.
-- Adds schema check for missing columns.
-- Adds better rate limiting for client sync events.
-- Adds revive/export support for future EMS/police/admin systems.
+- Removes injured/limping walkstyle effects completely.
+- Saves dirty player data on `onResourceStop` before restart/stop.
+- Cleans `LastEventUse` rate-limit entries on `playerDropped`.
+- Adds server sanity checks for `playerDied` so fake death events are rejected when server health is still safe.
+- Adds safer vitals sync: client damage is accepted, but large client-side healing jumps are rejected.
+- Keeps money changes audited through `playerdata_audit`.
+- Adds `GetDeathCount(src)` export.
+- Gates `/cash` with ACE permission `cm-playerdata.cash`.
+- Audits cash fallback removal during hospital respawn.
 
 ## Install
 
-1. Backup current folder:
+1. Backup your old folder:
 
 ```text
 resources/[core]/cm-playerdata
@@ -36,33 +37,40 @@ ensure cm-spawn
 ensure cm-hud
 ```
 
-4. Restart:
+4. Add permission for the dev cash command only for admins:
+
+```cfg
+add_ace group.admin cm-playerdata.cash allow
+```
+
+5. Restart:
 
 ```cfg
 restart cm-playerdata
 ```
 
-## New exports
+## Exports
 
 ```lua
 exports['cm-playerdata']:GetPlayerData(src)
+exports['cm-playerdata']:IsLoaded(src)
+exports['cm-playerdata']:GetCash(src)
+exports['cm-playerdata']:GetBank(src)
 exports['cm-playerdata']:GetMoney(src, 'cash')
+exports['cm-playerdata']:SetMoney(src, 'bank', 1000, 'reason')
 exports['cm-playerdata']:AddMoney(src, 'cash', 100, 'reason')
 exports['cm-playerdata']:RemoveMoney(src, 'bank', 500, 'reason')
-
-
+exports['cm-playerdata']:SetMetadata(src, key, value)
+exports['cm-playerdata']:GetMetadata(src, key)
+exports['cm-playerdata']:IsDead(src)
+exports['cm-playerdata']:GetDeathCount(src)
+exports['cm-playerdata']:SetDead(src, true, 'reason')
 exports['cm-playerdata']:Revive(src)
 exports['cm-playerdata']:Respawn(src)
-exports['cm-playerdata']:IsDead(src)
+exports['cm-playerdata']:Load(src)
+exports['cm-playerdata']:Save(src)
 ```
 
-## For inventory later
+## Notes
 
-When we build `cm-items` + `cm-inventory`, food/water items will call:
-
-```lua
-```
-
-## Lite version note
-
-This package does not include hunger, thirst, or stress. Keep those as a separate optional `cm-status` resource later if you want survival-style gameplay.
+This package does not include hunger, thirst, stress, or health-based walking effects. Keep those in a separate optional resource if you want them later.

@@ -48,6 +48,20 @@ local function normalizeExportArgs(...)
         return args[3], args[1], args[2], args[4], args[5], args[6]
     end
 
+    -- Compatibility guard for old/bad callers:
+    -- AddItem(src, item, amount, nil, metadata)
+    -- or AddItem(src, item, amount, metadata, metadata, reason).
+    -- Metadata must always end up in arg #4, otherwise bags are saved as plain/default bags.
+    if args[4] == nil and type(args[5]) == 'table' then
+        args[4] = args[5]
+        args[5] = 'metadata_arg5_compat'
+    elseif type(args[4]) == 'table' and type(args[5]) == 'table' then
+        -- cm-items intentionally duplicates metadata into arg #5 for compatibility.
+        -- Keep arg #4 as metadata and move reason to arg #6 when present.
+        args[5] = type(args[6]) == 'string' and args[6] or 'metadata_arg4_arg5_compat'
+        args[6] = args[7]
+    end
+
     return args[1], args[2], args[3], args[4], args[5], args[6]
 end
 
@@ -359,7 +373,7 @@ local function rowToItem(row)
         durability = durability,
         metadata = metadata,
         equipmentSlot = def.equipmentSlot or def.equipSlot,
-        bagLevel = metadata.bagLevel or def.bagLevel
+        bagLevel = tonumber(metadata.bagLevel or metadata.bag_level or metadata.level or metadata.backpackLevel or metadata.backpack_level or def.bagLevel or def.bag_level or def.level) or 0
     }
 end
 
@@ -387,11 +401,15 @@ local function getBagLevelFromItem(row)
     if not row then return 0 end
     local metadata = decode(row.metadata)
     local def = getItemDef(row.item_name) or {}
-    local level = tonumber(metadata.bagLevel or def.bagLevel)
+    local level = tonumber(
+        metadata.bagLevel or metadata.bag_level or metadata.level or
+        metadata.backpackLevel or metadata.backpack_level or
+        def.bagLevel or def.bag_level or def.level
+    )
     if level then return math.max(0, math.min(4, math.floor(level))) end
 
     local name = tostring(row.item_name or ''):lower()
-    local fromName = name:match('bag_level(%d)') or name:match('backpack_level(%d)')
+    local fromName = name:match('bag_level(%d)') or name:match('backpack_level(%d)') or name:match('bag(%d)')
     if fromName then return math.max(0, math.min(4, tonumber(fromName) or 0)) end
     return 0
 end
@@ -404,8 +422,8 @@ local function getBagInfo(ownerType, ownerId)
     return {
         level = level,
         label = cfg.label or ('Bag Level ' .. tostring(level)),
-        backpackSlots = tonumber(cfg.backpackSlots) or 0,
-        maxWeight = tonumber(cfg.maxWeight) or (Config.Weight and Config.Weight.max) or 25000
+        backpackSlots = tonumber(cfg.backpackSlots or cfg.slots) or 0,
+        maxWeight = tonumber(cfg.maxWeight or cfg.weight) or (Config.Weight and Config.Weight.max) or 25000
     }
 end
 
@@ -442,15 +460,19 @@ local function getBagConfigByLevel(level)
     return {
         level = level,
         label = cfg.label or ('Bag Level ' .. tostring(level)),
-        backpackSlots = tonumber(cfg.backpackSlots) or 0,
-        maxWeight = tonumber(cfg.maxWeight) or (Config.Weight and Config.Weight.max) or 25000
+        backpackSlots = tonumber(cfg.backpackSlots or cfg.slots) or 0,
+        maxWeight = tonumber(cfg.maxWeight or cfg.weight) or (Config.Weight and Config.Weight.max) or 25000
     }
 end
 
 local function rowCanActAsBag(row)
     if not row then return false end
     local name = tostring(row.item_name or ''):lower()
-    if name:find('clothing_', 1, true) == 1 then return false end
+    -- clothing_bags carries bagLevel in its metadata and acts as a real bag.
+    -- All other clothing_* items are not bags.
+    if name:find('clothing_', 1, true) == 1 then
+        return name == 'clothing_bags' and getBagLevelFromItem(row) > 0
+    end
     if getBagLevelFromItem(row) > 0 then return true end
     local ok = false
     pcall(function()
@@ -622,8 +644,14 @@ local function decorateNewItemMetadata(itemName, metadata, def, hadCustomMetadat
     if lowerName == 'armor' or lowerName == 'body_armor' or lowerName == 'bodyarmor' or lowerName:find('armor', 1, true) ~= nil then
         metadata.durability = metadata.durability or 100
     end
-    if def.bagLevel and metadata.bagLevel == nil then
-        metadata.bagLevel = tonumber(def.bagLevel) or 0
+    if metadata.bagLevel == nil then
+        local defLevel = tonumber(def.bagLevel or def.bag_level or def.level)
+        if defLevel then metadata.bagLevel = math.max(1, math.min(4, math.floor(defLevel))) end
+    end
+    if metadata.bagLevel ~= nil then
+        metadata.bagLevel = math.max(1, math.min(4, math.floor(tonumber(metadata.bagLevel) or 1)))
+        metadata.bag_level = nil
+        metadata.level = nil
     end
 
     return metadata
@@ -642,6 +670,11 @@ local function AddItemInternal(src, itemName, amount, metadata, reason, preferre
     local def = getItemDef(itemName)
     if not def then return false, 'Unknown item.' end
     metadata = decorateNewItemMetadata(itemName, metadata, def, hadCustomMetadata)
+    if itemName == 'clothing_bags' then
+        print(('[CM-INVENTORY] AddItem clothing_bags amount=%s metadata=%s bagLevel=%s image=%s'):format(
+            tostring(amount), tostring(json.encode(metadata or {})), tostring((metadata or {}).bagLevel), tostring((metadata or {}).image or (metadata or {}).icon)
+        ))
+    end
 
     local ownerType, ownerId = getOwner(src)
     if not ownerId then return false, 'No character owner found.' end
@@ -1109,6 +1142,22 @@ local function UseItemInternal(src, slot)
     local itemName = tostring(item.item_name or ''):lower()
     local ammoSlot = (Config.Ammo and Config.Ammo.slot) or 'ammo'
 
+    -- USE bag first. `clothing_bags` is both clothing and a real backpack, so bag capacity
+    -- must be resolved before the generic clothing branch catches it.
+    if isBagItemName(itemName) then
+        if slot ~= 'bag' then
+            local moved, moveErr = MoveItemInternal(src, slot, 'bag')
+            if not moved then return false, moveErr or 'Could not equip bag.' end
+        else
+            syncEquipmentSlot(src, 'bag')
+            saveAppearance(src)
+        end
+        local bag = getBagInfo(ownerType, ownerId)
+        notify(src, ('%s equipped. Backpack slots: %s / %s'):format(bag.label, bag.backpackSlots, Config.Slots.backpack.count), 'success')
+        audit(ownerId, 'use_bag', itemName, 1, slot, 'bag', 'equip_bag', item.metadata)
+        return true
+    end
+
     -- USE clothing = move it to the matching clothing/equipment slot. Dragging to that slot uses the same visual equip logic.
     if isClothingItemName(itemName) then
         local targetSlot = getClothingEquipSlot(itemName, item.metadata)
@@ -1124,19 +1173,6 @@ local function UseItemInternal(src, slot)
 
         notify(src, ('Equipped %s.'):format(item.label or itemName), 'success')
         audit(ownerId, 'use_clothing', itemName, 1, slot, targetSlot, 'equip_clothing_slot', item.metadata)
-        return true
-    end
-
-    -- USE bag = equip to bag slot and unlock backpack slots/weight capacity.
-    if isBagItemName(itemName) then
-        if slot ~= 'bag' then
-            local moved, moveErr = MoveItemInternal(src, slot, 'bag')
-            if not moved then return false, moveErr or 'Could not equip bag.' end
-        end
-        syncEquipmentSlot(src, 'bag')
-        local bag = getBagInfo(ownerType, ownerId)
-        notify(src, ('%s equipped. Backpack slots: %s / %s'):format(bag.label, bag.backpackSlots, Config.Slots.backpack.count), 'success')
-        audit(ownerId, 'use_bag', itemName, 1, slot, 'bag', 'equip_bag', item.metadata)
         return true
     end
 
@@ -1480,6 +1516,7 @@ end
 
 local function dropToPayload(row)
     local def = getItemDef(row.item_name) or { label = row.item_name, image = 'placeholder.png', weight = 0, category = 'misc' }
+    local metadata = decode(row.metadata)
     return {
         id = tonumber(row.id),
         item_name = row.item_name,
@@ -1490,7 +1527,7 @@ local function dropToPayload(row)
         quantity = tonumber(row.quantity) or 1,
         weight = tonumber(def.weight) or 0,
         category = def.category or def.type or 'misc',
-        metadata = decode(row.metadata),
+        metadata = metadata,
         coords = { x = tonumber(row.x), y = tonumber(row.y), z = tonumber(row.z) }
     }
 end
@@ -1794,6 +1831,40 @@ RegisterCommand('invgive', function(src, args)
     end
 end, true)
 
+
+
+RegisterCommand('givebag', function(src, args)
+    if src <= 0 then print('[CM-INVENTORY] Use invgivebag from server console.') return end
+    local level = math.max(1, math.min(4, math.floor(tonumber(args[1]) or 1)))
+    local itemName = tostring(args[2] or 'clothing_bags'):lower()
+    local metadata = { bagLevel = level, categoryType = 'bags', itemType = 'clothing', label = ('Level %s Bag'):format(level) }
+    local ok, reason = AddItemInternal(src, itemName, 1, metadata, 'command_givebag')
+    if ok then
+        print(('[CM-INVENTORY] /givebag added %s with bagLevel=%s to player %s'):format(itemName, level, src))
+        notify(src, ('Added Level %s bag'):format(level), 'success')
+        sendInventory(src)
+    else
+        print(('[CM-INVENTORY] /givebag failed player=%s item=%s level=%s reason=%s'):format(src, itemName, level, tostring(reason)))
+        notify(src, 'Failed: ' .. tostring(reason), 'error')
+    end
+end, false)
+
+RegisterCommand('invgivebag', function(src, args)
+    if src ~= 0 then return end
+    local target = tonumber(args[1])
+    local level = math.max(1, math.min(4, math.floor(tonumber(args[2]) or 1)))
+    local itemName = tostring(args[3] or 'clothing_bags'):lower()
+    if not target then print('Usage: invgivebag <serverId> <bagLevel 1-4> [itemName]') return end
+    local metadata = { bagLevel = level, categoryType = 'bags', itemType = 'clothing', label = ('Level %s Bag'):format(level) }
+    local ok, reason = AddItemInternal(target, itemName, 1, metadata, 'console_invgivebag')
+    if ok then
+        print(('[CM-INVENTORY] invgivebag gave %s level=%s to %s'):format(itemName, level, target))
+        notify(target, ('Added Level %s bag'):format(level), 'success')
+        sendInventory(target)
+    else
+        print(('[CM-INVENTORY] invgivebag failed: %s'):format(tostring(reason)))
+    end
+end, true)
 
 RegisterCommand('invgivetest', function(src, args)
     if src ~= 0 then return end

@@ -4,7 +4,12 @@ local function normalizeName(name)
     if type(name) ~= 'string' then return nil end
     name = name:lower():gsub('%s+', '_')
     name = name:gsub('[^a-z0-9_%-%.]', '')
-    return name ~= '' and name or nil
+    if name == '' then return nil end
+    local aliases = CMItems.ItemAliases or {
+        clothing_legs = 'clothing_pants',
+        legs = 'pants',
+    }
+    return aliases[name] or name
 end
 
 local function copyTable(value)
@@ -158,18 +163,89 @@ function CMItems.RequiresMetadata(name)
     return #item.metadataRequired > 0, item.metadataRequired
 end
 
-function CMItems.ValidateMetadata(name, metadata)
-    local required, fields = CMItems.RequiresMetadata(name)
-    if not required then return true end
-    if type(metadata) ~= 'table' then return false, ('Missing metadata for %s'):format(name) end
+local function validateSchemaValue(field, rule, value)
+    if rule == 'number' then
+        return tonumber(value) ~= nil, ('Metadata field %s must be a number'):format(field)
+    elseif rule == 'number_optional' then
+        return value == nil or value == '' or tonumber(value) ~= nil, ('Metadata field %s must be a number'):format(field)
+    elseif rule == 'string' then
+        return type(value) == 'string' and value ~= '', ('Metadata field %s must be a string'):format(field)
+    elseif rule == 'boolean' then
+        return type(value) == 'boolean', ('Metadata field %s must be true/false'):format(field)
+    elseif rule == 'gender' then
+        if value == nil or value == '' then return true end
+        local v = tostring(value):lower()
+        return v == 'male' or v == 'female' or v == 'm' or v == 'f' or v == 'mp_m_freemode_01' or v == 'mp_f_freemode_01', ('Metadata field %s must be male/female'):format(field)
+    end
+    return true
+end
 
-    for _, field in ipairs(fields) do
-        if metadata[field] == nil or metadata[field] == '' then
-            return false, ('Missing metadata field: %s'):format(field)
+function CMItems.ValidateMetadata(name, metadata)
+    local item = CMItems.GetItem(name, true)
+    if not item then return false, ('Unknown item: %s'):format(tostring(name)) end
+
+    local required, fields = CMItems.RequiresMetadata(name)
+    if required and type(metadata) ~= 'table' then return false, ('Missing metadata for %s'):format(name) end
+
+    if required then
+        for _, field in ipairs(fields) do
+            if metadata[field] == nil or metadata[field] == '' then
+                return false, ('Missing metadata field: %s'):format(field)
+            end
+        end
+    end
+
+    if type(item.metadataSchema) == 'table' and type(metadata) == 'table' then
+        for field, rule in pairs(item.metadataSchema) do
+            local ok, err = validateSchemaValue(field, rule, metadata[field])
+            if not ok then return false, err end
+        end
+    end
+
+    if item.category == 'clothing' and type(metadata) == 'table' then
+        local categoryType = metadata.categoryType or metadata.category
+        if categoryType and CMItems.GetClothingCategoryDefinition and not CMItems.GetClothingCategoryDefinition(categoryType) then
+            return false, ('Invalid clothing categoryType: %s'):format(tostring(categoryType))
         end
     end
 
     return true
+end
+
+function CMItems.GetCategoryWorldModel(category)
+    category = tostring(category or 'default'):lower()
+    local models = CMItems.Config and CMItems.Config.WorldModels or {}
+    return models[category] or models.default or 'prop_cs_cardbox_01'
+end
+
+function CMItems.GetItemWorldModel(name, metadata)
+    local item = CMItems.GetPhysicalItem(name)
+    if not item then return CMItems.GetCategoryWorldModel('default') end
+    if type(metadata) == 'table' and type(metadata.worldModel) == 'string' and metadata.worldModel ~= '' then
+        return metadata.worldModel
+    end
+    if type(item.worldModel) == 'string' and item.worldModel ~= '' then
+        return item.worldModel
+    end
+    return CMItems.GetCategoryWorldModel(item.category)
+end
+
+function CMItems.ValidateDefinitions()
+    local errors = {}
+    local categories = CMItems.Config and CMItems.Config.Categories or {}
+    for name, data in pairs(CMItems.Items or {}) do
+        local item = applyDefaults(name, data, false)
+        if not item.label or item.label == '' then errors[#errors + 1] = ('%s missing label'):format(name) end
+        if not item.image or item.image == '' then errors[#errors + 1] = ('%s missing image'):format(name) end
+        if tonumber(item.weight) == nil or tonumber(item.weight) < 0 then errors[#errors + 1] = ('%s invalid weight'):format(name) end
+        if item.unique == true and item.stack == true then errors[#errors + 1] = ('%s cannot be unique and stackable'):format(name) end
+        if item.category and categories[item.category] ~= true then errors[#errors + 1] = ('%s invalid category %s'):format(name, tostring(item.category)) end
+        if item.category == 'clothing' and CMItems.ValidateMetadata then
+            -- Clothing items must have schema-ready required fields for safe inventory storage.
+            if type(item.metadataRequired) ~= 'table' or #item.metadataRequired == 0 then errors[#errors + 1] = ('%s missing clothing metadataRequired'):format(name) end
+        end
+    end
+    return #errors == 0, errors
 end
 
 function CMItems.RegisterItem(name, data)

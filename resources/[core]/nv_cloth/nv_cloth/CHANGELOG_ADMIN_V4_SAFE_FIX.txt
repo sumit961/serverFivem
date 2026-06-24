@@ -1,0 +1,14 @@
+nv_cloth Admin V4 Safe Fix
+
+Fixed from previous broken package:
+- Restored fxmanifest fx_version to cerulean so the resource can start.
+- Kept resource version as 2.1.0-cm-admin-v4-ui-backdrop.
+
+Added/kept features:
+- Admin UI full-height left/right panels.
+- Backdrop color selector: green, blue, magenta, white, black.
+- Chroma key uses selected backdrop color.
+- Shirt category no longer preserves outerwear in admin preview.
+- Best-effort cm_hud hide/show while clothing UI is open.
+- Reduced capture timecycle/light/shadow blob effect.
+- Save current/missing/all texture controls remain.

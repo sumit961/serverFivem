@@ -1,5 +1,5 @@
 -- cm-playerdata/server/main.lua
--- Stable v1.2-lite upgrade for your existing CM framework. No hunger/thirst/stress.
+-- Stable v1.3-safe upgrade for your existing CM framework. No hunger/thirst/stress.
 -- Uses oxmysql directly to avoid cm-core export call-style issues.
 
 local Config = CMPlayerData.Config
@@ -37,6 +37,28 @@ local function RateLimit(src, key, ms)
     end
     LastEventUse[id] = now
     return true
+end
+
+local function ClearRateLimits(src)
+    local prefix = tostring(src) .. ':'
+    for key in pairs(LastEventUse) do
+        if key:sub(1, #prefix) == prefix then
+            LastEventUse[key] = nil
+        end
+    end
+end
+
+local function HasAce(src, ace)
+    if src <= 0 then return true end
+    return IsPlayerAceAllowed(src, ace) == true
+end
+
+local function GetServerPedHealth(src)
+    local ped = GetPlayerPed(src)
+    if not ped or ped == 0 then return nil end
+    local health = GetEntityHealth(ped)
+    if not health or health <= 0 then return nil end
+    return health
 end
 
 local function EncodeJson(value)
@@ -166,7 +188,8 @@ local function LoadPlayerData(src)
         metadata = DecodeJson(row.metadata) or {},
 
         loaded = true,
-        dirty = false
+        dirty = false,
+        lastVitalsSync = GetGameTimer()
     }
 
     Debug(('Loaded src=%s char=%s HP=%s dead=%s'):format(
@@ -232,13 +255,16 @@ end
 
 local function ClearPlayerData(src)
     PlayerData[src] = nil
-    local state = Player(src).state
-    state:set('cash', nil, true)
-    state:set('bank', nil, true)
-    state:set('health', nil, true)
-    state:set('armor', nil, true)
-    state:set('isDead', nil, true)
-    state:set('playerDataLoaded', nil, true)
+    pcall(function()
+        local state = Player(src).state
+        state:set('cash', nil, true)
+        state:set('bank', nil, true)
+        state:set('health', nil, true)
+        state:set('armor', nil, true)
+        state:set('isDead', nil, true)
+        state:set('playerDataLoaded', nil, true)
+    end)
+    ClearRateLimits(src)
 end
 
 local function SetMoney(src, account, value, reason)
@@ -297,7 +323,17 @@ AddEventHandler('onResourceStart', function(resourceName)
     if resourceName ~= GetCurrentResourceName() then return end
     Wait(500)
     EnsureSchema()
-    Log('info', 'CM PlayerData v1.2-lite started')
+    Log('info', 'CM PlayerData v1.3-safe started')
+end)
+
+AddEventHandler('onResourceStop', function(resourceName)
+    if resourceName ~= GetCurrentResourceName() then return end
+
+    for src, data in pairs(PlayerData) do
+        if data and data.loaded then
+            SavePlayerData(src, 'resource_stop')
+        end
+    end
 end)
 
 AddEventHandler('cm-core:characterLoaded', function(src)
@@ -338,20 +374,51 @@ RegisterNetEvent('cm-playerdata:server:syncVitals', function(clientHealth, clien
     local src = source
     if not RateLimit(src, 'vitals', 1000) then return end
     local data = PlayerData[src]
-    if not data or data.isDead then return end
+    if not data or not data.loaded or data.isDead then return end
 
-    data.health = Clamp(clientHealth or Config.Vitals.MaxHealth, 0, Config.Vitals.MaxHealth)
-    data.armor = Clamp(clientArmor or 0, 0, Config.Vitals.MaxArmor)
-    data.dirty = true
+    local previousHealth = tonumber(data.health) or Config.Vitals.MaxHealth
+    local serverHealth = GetServerPedHealth(src)
+    local nextHealth = Clamp(clientHealth or previousHealth, 0, Config.Vitals.MaxHealth)
+    local nextArmor = Clamp(clientArmor or 0, 0, Config.Vitals.MaxArmor)
 
-    SetState(src, 'health', data.health)
-    SetState(src, 'armor', data.armor)
+    -- The client may report damage quickly, but never trust a huge healing jump from the client.
+    -- Healing/revive should come from server exports so jobs/admin/hospital scripts stay authoritative.
+    local maxPassiveHeal = Config.Vitals.MaxPassiveHealDelta or 5
+    if nextHealth > previousHealth + maxPassiveHeal then
+        nextHealth = previousHealth
+    end
+
+    -- Prefer server-observed ped health when available and lower than the client value.
+    if serverHealth and serverHealth < nextHealth then
+        nextHealth = Clamp(serverHealth, 0, Config.Vitals.MaxHealth)
+    end
+
+    if nextHealth ~= data.health or nextArmor ~= data.armor then
+        data.health = nextHealth
+        data.armor = nextArmor
+        data.dirty = true
+        data.lastVitalsSync = GetGameTimer()
+
+        SetState(src, 'health', data.health)
+        SetState(src, 'armor', data.armor)
+    end
 end)
 
 RegisterNetEvent('cm-playerdata:server:playerDied', function(killerSrc, weaponHash)
     local src = source
+    if not RateLimit(src, 'death', 1000) then return end
+
     local data = PlayerData[src]
-    if not data or data.isDead then return end
+    if not data or not data.loaded or data.isDead then return end
+
+    local serverHealth = GetServerPedHealth(src)
+    local reportedHealth = tonumber(data.health) or Config.Vitals.MaxHealth
+
+    -- Server-side sanity check. This is not a full anticheat, but blocks easy fake death events.
+    if serverHealth and serverHealth > Config.Vitals.DamageThreshold and reportedHealth > Config.Vitals.DamageThreshold then
+        Log('warn', 'Rejected suspicious death event', { src = src, serverHealth = serverHealth, storedHealth = reportedHealth })
+        return
+    end
 
     SetDead(src, true, 'death')
     TriggerClientEvent('cm-playerdata:client:playerDied', src, killerSrc, weaponHash)
@@ -439,6 +506,10 @@ exports('IsDead', function(src)
     return PlayerData[src] and PlayerData[src].isDead or false
 end)
 
+exports('GetDeathCount', function(src)
+    return PlayerData[src] and PlayerData[src].deathCount or 0
+end)
+
 exports('SetDead', SetDead)
 
 exports('Revive', function(src)
@@ -471,8 +542,10 @@ exports('Respawn', function(src, spawnCoords, cost)
             if data.bank > 0 then RemoveMoney(src, 'bank', data.bank, 'hospital_respawn') end
             if remaining > 0 then
                 data.cash = math.max(0, data.cash - remaining)
+                data.dirty = true
                 SetState(src, 'cash', data.cash)
                 PushUpdate(src, 'cash', data.cash)
+                Audit(src, 'remove_cash', { amount = remaining, reason = 'hospital_respawn' })
             end
         end
     end
@@ -517,6 +590,14 @@ end)
 RegisterCommand('cash', function(src, args)
     if src <= 0 then
         print('[CM-PLAYERDATA] Use in F8: cash 5000')
+        return
+    end
+
+    if not HasAce(src, 'cm-playerdata.cash') then
+        TriggerClientEvent('ox_lib:notify', src, {
+            type = 'error',
+            description = 'You do not have permission to use this command.'
+        })
         return
     end
 

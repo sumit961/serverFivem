@@ -1311,3 +1311,86 @@ body.hud-hidden #hud-container {
     font-weight: 900;
     pointer-events: none;
 }
+
+/* ==========================================================
+   CM-HUD FIX PACK: login visibility + lower-center notification
+   ========================================================== */
+body.hud-hidden #hud-container {
+    display: none !important;
+}
+
+#hud-notify {
+    position: fixed !important;
+    left: 50% !important;
+    right: auto !important;
+    top: auto !important;
+    bottom: 18% !important;
+    width: 460px !important;
+    transform: translateX(-50%) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 10px !important;
+    pointer-events: none !important;
+    z-index: 9999 !important;
+}
+
+.notify-item {
+    width: 100% !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    color: #fff !important;
+    text-align: left !important;
+    font-family: Arial, Helvetica, sans-serif !important;
+    animation: notify-pop-in 0.18s ease-out !important;
+    transition: opacity 0.25s ease, transform 0.25s ease !important;
+    text-shadow: 0 2px 5px rgba(0,0,0,0.85) !important;
+}
+
+.notify-title {
+    font-size: 32px !important;
+    line-height: 1 !important;
+    font-weight: 900 !important;
+    letter-spacing: -1px !important;
+    margin-bottom: 9px !important;
+    text-transform: uppercase !important;
+}
+
+.notify-progress-track {
+    width: 100% !important;
+    height: 4px !important;
+    background: rgba(255,255,255,0.45) !important;
+    overflow: hidden !important;
+    border-radius: 3px !important;
+    margin-bottom: 12px !important;
+}
+
+.notify-progress-fill {
+    height: 100% !important;
+    width: 100% !important;
+    background: #ffffff !important;
+    animation: notify-shrink 4.2s linear forwards !important;
+    box-shadow: 0 0 6px rgba(255,255,255,0.65) !important;
+}
+
+.notify-text {
+    display: block !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    color: #fff !important;
+    padding-left: 26px !important;
+    word-break: break-word !important;
+}
+
+.notify-item.hide {
+    opacity: 0 !important;
+    transform: translateY(12px) !important;
+}
+
+@keyframes notify-pop-in {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+}

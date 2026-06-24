@@ -16,8 +16,14 @@ shared_scripts {
 }
 
 server_scripts {
-    'server/main.lua'
+    '@oxmysql/lib/MySQL.lua',
+    'server/main.lua',
+    'server/image_upload.lua'
 }
+
+dependency 'oxmysql'
+
+ui_page 'ui/preview.html'
 
 client_scripts {
     'client/main.lua'
@@ -33,6 +39,13 @@ files {
     'ui/images/clothing/*.webp',
     'ui/images/clothing/*.jpg',
     'ui/images/clothing/*.jpeg',
+    'ui/images/clothing/custom/*.png',
+    'ui/images/clothing/custom/*.webp',
+    'ui/images/clothing/custom/*.jpg',
+    'ui/images/clothing/custom/*.jpeg',
+    'ui/preview.html',
+    'ui/preview.css',
+    'ui/preview.js',
     'shared/besttorso_male.json',
     'shared/besttorso_female.json'
 }

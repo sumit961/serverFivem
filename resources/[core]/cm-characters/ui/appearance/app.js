@@ -733,12 +733,3 @@ $(document).on("keydown", function(event) {
     else if (event.key === handsUpKey) handsUp();
 });
 
-function saveAppearance() {
-    fetch(`https://${GetParentResourceName()}/appearanceSave`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ charId })
-    });
-    // FIX: Hide appearance container instead of body
-    document.getElementById('appearance-ui').style.display = 'none';
-}

@@ -10,7 +10,12 @@ local isDead = false
 local deathTimer = 0
 local canRespawn = false
 local hudMouseOpen = false
-local hudVisible = true
+local hudVisible = false
+local characterId = nil
+local characterName = 'Unknown'
+local characterHints = {}
+local loggedIn = false
+local uiHiddenByExternal = false
 local chatOpen = false
 local setChatOpen
 local seatbeltOn = false
@@ -41,13 +46,18 @@ RegisterCommand('hudfix', function()
     print('[CM-HUD] NUI focus cleared')
 end, false)
 
-local function setHudVisible(visible)
-    hudVisible = visible == true
-    DisplayRadar(hudVisible and LocalPlayer and LocalPlayer.state and LocalPlayer.state.isLoggedIn)
+local function isPlayerLoggedIn()
+    return loggedIn or (LocalPlayer and LocalPlayer.state and LocalPlayer.state.isLoggedIn == true)
+end
+
+local function setHudVisible(visible, external)
+    if external ~= nil then uiHiddenByExternal = external == true end
+    hudVisible = (visible == true) and isPlayerLoggedIn() and not uiHiddenByExternal
+    DisplayRadar(hudVisible)
     SendNUIMessage({ action = 'setHudVisible', visible = hudVisible })
     if not hudVisible then
         SendNUIMessage({ action = 'hideVehicle' })
-        setChatOpen(false)
+        if setChatOpen then setChatOpen(false) end
     end
 end
 
@@ -146,6 +156,28 @@ CreateThread(function()
     end
 end)
 
+
+-- Auto-hide HUD when another NUI takes focus (inventory, store, phone, menus).
+-- Chat and HUD mouse are excluded because they belong to this resource.
+CreateThread(function()
+    local lastExternalFocus = false
+    while true do
+        Wait(250)
+        if isPlayerLoggedIn() then
+            local focused = false
+            if IsNuiFocused then focused = IsNuiFocused() == true end
+            local externalFocus = focused and not chatOpen and not hudMouseOpen
+            if externalFocus ~= lastExternalFocus then
+                lastExternalFocus = externalFocus
+                uiHiddenByExternal = externalFocus
+                setHudVisible(not externalFocus)
+            end
+        elseif hudVisible then
+            setHudVisible(false)
+        end
+    end
+end)
+
 -- ============================================================
 -- LEFT QUICK ACTION MOUSE TOGGLE
 -- Press ` / ~ to unlock the mouse for the left-side HUD buttons.
@@ -225,26 +257,114 @@ local function setupNativeMinimap()
 end
 
 local function isHudEnabled()
-    return LocalPlayer and LocalPlayer.state and LocalPlayer.state.isLoggedIn
+    return hudVisible and isPlayerLoggedIn()
+end
+
+
+local function cleanLocalCharacterId(value)
+    value = tostring(value or ''):gsub('^%s+', ''):gsub('%s+$', '')
+    if value == '' then return nil end
+    return value
+end
+
+local function extractLocalCharacterId(value)
+    if type(value) == 'table' then
+        local found = value.id or value.characterId or value.charId or value.charid or value.char_id or value.citizenid
+        if found then return cleanLocalCharacterId(found) end
+        if type(value.character) == 'table' then
+            return extractLocalCharacterId(value.character)
+        end
+        return nil
+    end
+    return cleanLocalCharacterId(value)
+end
+
+local function captureStateCharacterHints()
+    if not LocalPlayer or not LocalPlayer.state then return end
+    local state = LocalPlayer.state
+    characterId = characterId
+        or extractLocalCharacterId(state.characterId)
+        or extractLocalCharacterId(state.charId)
+        or extractLocalCharacterId(state.charid)
+        or extractLocalCharacterId(state.char_id)
+        or extractLocalCharacterId(state.citizenid)
+        or extractLocalCharacterId(state.currentCharacterId)
+
+    characterHints.id = characterHints.id or characterId
+    characterHints.characterId = characterHints.characterId or characterId
+    characterHints.account_id = characterHints.account_id or state.account_id or state.accountId or state.account or state.accountid
+    characterHints.slot = characterHints.slot or state.slot or state.charSlot or state.character_slot
+end
+
+local function syncCharacterHudFromData(data)
+    data = data or {}
+    local newId = extractLocalCharacterId(data)
+    if newId then characterId = newId end
+
+    local first = data.first_name or data.firstname
+    local last = data.last_name or data.lastname
+    local full = ((first or '') .. ' ' .. (last or '')):gsub('^%s+', ''):gsub('%s+$', '')
+    if full ~= '' then characterName = full elseif data.name then characterName = tostring(data.name) end
+
+    characterHints = characterHints or {}
+    characterHints.id = characterId
+    characterHints.characterId = characterId
+    characterHints.account_id = data.account_id or data.accountId or data.account or data.accountid or characterHints.account_id
+    characterHints.slot = data.slot or data.charSlot or data.character_slot or characterHints.slot
+
+    captureStateCharacterHints()
+    TriggerServerEvent('cm-hud:server:requestCharacterHud', characterId, characterHints)
+    if characterId then TriggerServerEvent('cm-hud:server:setCharacter', characterId) end
+end
+
+for _, eventName in ipairs({
+    'cm-characters:client:characterLoaded',
+    'cm-characters:client:characterSelected',
+    'cm-characters:client:selectedCharacter',
+    'cm-spawn:client:characterLoaded',
+    'cm-spawn:characterLoaded',
+    'cm-core:client:characterLoaded'
+}) do
+    RegisterNetEvent(eventName, function(data, extra)
+        if type(data) == 'table' then
+            syncCharacterHudFromData(data)
+        else
+            syncCharacterHudFromData({ id = data, characterId = data, slot = extra })
+        end
+    end)
 end
 
 -- ============================================================
 -- INIT
 -- ============================================================
 RegisterNetEvent('cm-playerdata:client:loaded', function(data)
+    loggedIn = true
+    data = data or {}
+    characterId = data.id or data.characterId or data.citizenid or data.charid or data.char_id
+    characterName = ((data.first_name or data.firstname or '') .. ' ' .. (data.last_name or data.lastname or '')):gsub('^%s+', ''):gsub('%s+$', '')
+    if characterName == '' then characterName = data.name or 'Unknown' end
+    characterHints = {
+        id = characterId,
+        characterId = characterId,
+        account_id = data.account_id or data.accountId or data.account or data.accountid,
+        slot = data.slot or data.charSlot or data.character_slot,
+        first_name = data.first_name or data.firstname,
+        last_name = data.last_name or data.lastname
+    }
     Wait(500)
     clearHudNuiFocus()
     setupNativeMinimap()
     if SetTextChatEnabled then SetTextChatEnabled(false) end
     TriggerServerEvent('cm-hud:server:requestChatChannels')
-    DisplayRadar(true)
+    uiHiddenByExternal = false
+    setHudVisible(true)
 
     currentHealth = data.health or 200
     currentArmor = data.armor or 0
     currentCash = data.cash or 0
     currentBank = data.bank or 0
 
-    local serverId = GetPlayerServerId(PlayerId())
+    local serverId = characterId or ''
 
     SendNUIMessage({
         action = 'init',
@@ -262,7 +382,10 @@ RegisterNetEvent('cm-playerdata:client:loaded', function(data)
         }
     })
 
-    print('[CM-HUD] Initialized | ID:' .. serverId)
+    captureStateCharacterHints()
+    TriggerServerEvent('cm-hud:server:requestCharacterHud', characterId, characterHints)
+    if characterId then TriggerServerEvent('cm-hud:server:setCharacter', characterId) end
+    print('[CM-HUD] Initialized | ID:' .. tostring(serverId))
 end)
 
 -- ============================================================
@@ -280,9 +403,9 @@ end)
 -- ============================================================
 RegisterNetEvent('cm-playerdata:client:update', function(key, value)
     if key == 'cash' then
-        currentCash = value
+        currentCash = tonumber(value) or currentCash
     elseif key == 'bank' then
-        currentBank = value
+        currentBank = tonumber(value) or currentBank
     end
 
     SendNUIMessage({
@@ -290,6 +413,53 @@ RegisterNetEvent('cm-playerdata:client:update', function(key, value)
         cash = currentCash,
         bank = currentBank
     })
+end)
+
+
+RegisterNetEvent('cm-hud:client:updateCharacterHud', function(payload)
+    payload = payload or {}
+    if payload.id ~= nil and tostring(payload.id) ~= '' then characterId = tostring(payload.id) end
+    if payload.name ~= nil and tostring(payload.name) ~= '' then characterName = tostring(payload.name) end
+    if payload.cash ~= nil then currentCash = tonumber(payload.cash) or currentCash end
+    if payload.bank ~= nil then currentBank = tonumber(payload.bank) or currentBank end
+
+    SendNUIMessage({
+        action = 'updateCharacterHud',
+        id = characterId or '',
+        name = characterName,
+        cash = currentCash,
+        bank = currentBank
+    })
+end)
+
+RegisterNetEvent('cm-hud:client:setHudVisible', function(visible)
+    uiHiddenByExternal = visible == false
+    setHudVisible(visible == true)
+end)
+
+RegisterNetEvent('cm-hud:client:hideForUi', function()
+    uiHiddenByExternal = true
+    setHudVisible(false)
+end)
+
+RegisterNetEvent('cm-hud:client:showAfterUi', function()
+    uiHiddenByExternal = false
+    setHudVisible(true)
+end)
+
+exports('SetHudVisible', function(visible)
+    uiHiddenByExternal = visible == false
+    setHudVisible(visible == true)
+end)
+
+RegisterNetEvent('cm-playerdata:client:unloaded', function()
+    loggedIn = false
+    characterId = nil
+    characterName = 'Unknown'
+    characterHints = {}
+    uiHiddenByExternal = false
+    clearHudNuiFocus()
+    setHudVisible(false)
 end)
 
 -- ============================================================
@@ -372,7 +542,7 @@ CreateThread(function()
     while true do
         Wait(200)
 
-        if LocalPlayer.state.isLoggedIn then
+        if isPlayerLoggedIn() then
             local ped = PlayerPedId()
             local health = GetEntityHealth(ped)
             local armor = GetPedArmour(ped)
@@ -403,7 +573,7 @@ CreateThread(function()
     while true do
         Wait(1000)
 
-        if LocalPlayer.state.isLoggedIn then
+        if isPlayerLoggedIn() then
             local ped = PlayerPedId()
             local coords = GetEntityCoords(ped)
 
@@ -432,7 +602,7 @@ CreateThread(function()
     while true do
         Wait(5000)
 
-        if LocalPlayer.state.isLoggedIn then
+        if isPlayerLoggedIn() then
             local count = #GetActivePlayers()
 
             SendNUIMessage({
@@ -450,7 +620,7 @@ CreateThread(function()
     while true do
         Wait(100)
 
-        if LocalPlayer.state.isLoggedIn then
+        if isPlayerLoggedIn() then
             local keys = {
                 { key = 'N',   pad = 0, button = 249 }, -- Push-to-talk / Voice
                 { key = 'M',   pad = 0, button = 244 }, -- Interaction menu
@@ -514,7 +684,7 @@ CreateThread(function()
     while true do
         Wait(100)
 
-        if isHudEnabled() and hudVisible then
+        if isHudEnabled() then
             local ped = PlayerPedId()
             local veh = GetVehiclePedIsIn(ped, false)
 
@@ -571,6 +741,7 @@ end)
 -- NOTIFICATION BRIDGE
 -- ============================================================
 local function Notify(text, notifyType)
+    if not isPlayerLoggedIn() then return end
     SendNUIMessage({
         action = 'notify',
         text = tostring(text or ''),
@@ -591,11 +762,13 @@ end)
 -- ============================================================
 AddEventHandler('onResourceStart', function(res)
     if res == GetCurrentResourceName() then
-        Wait(1000)
+        Wait(500)
+        setHudVisible(false)
+        Wait(500)
         clearHudNuiFocus()
         setupNativeMinimap()
-        if LocalPlayer.state.isLoggedIn then
-            local serverId = GetPlayerServerId(PlayerId())
+        if isPlayerLoggedIn() then
+            local serverId = characterId or ''
             SendNUIMessage({
                 action = 'init',
                 state = {

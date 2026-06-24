@@ -5,13 +5,28 @@ end
 local function normalizeExportArgs(...)
     local args = { ... }
 
-    -- FiveM Lua exports can be called as either:
-    -- exports['cm-items'].IsInventoryItem('water')
-    -- exports['cm-items']:IsInventoryItem('water')
-    -- In some runtimes, colon-style passes the exports table as arg #1.
-    -- This removes that extra table so the real first argument is always the item name.
-    if type(args[1]) == 'table' then
-        table.remove(args, 1)
+    -- FiveM Lua exports can be called as either dot or colon style.
+    -- Older code removed ANY table passed as arg #1, but that breaks exports
+    -- that intentionally receive a table, for example SaveClothingCatalogEntry(entry).
+    -- Only strip arg #1 when it looks like the exports self-table, not a real payload.
+    if type(args[1]) == 'table' and #args > 1 then
+        local first = args[1]
+        local looksLikeClothingEntry = first.gender ~= nil
+            or first.componentIndex ~= nil
+            or first.component_index ~= nil
+            or first.drawableId ~= nil
+            or first.drawable_id ~= nil
+            or first.category ~= nil
+            or first.shop ~= nil
+
+        local looksLikeMetadataOpts = first.label ~= nil
+            or first.purchasedAt ~= nil
+            or first.createdBy ~= nil
+            or first.updatedBy ~= nil
+
+        if not looksLikeClothingEntry and not looksLikeMetadataOpts then
+            table.remove(args, 1)
+        end
     end
 
     return args
@@ -35,13 +50,21 @@ end
 
 CreateThread(function()
     Wait(500)
+    local okDefs, defErrors = true, {}
+    if CMItems.ValidateDefinitions then
+        okDefs, defErrors = CMItems.ValidateDefinitions()
+    end
+    if okDefs ~= true and type(defErrors) == 'table' then
+        for _, err in ipairs(defErrors) do log(('Definition warning: %s'):format(err)) end
+    end
+
     local physicalCount = 0
     local virtualCount = 0
 
     for _ in pairs(CMItems.Items or {}) do physicalCount = physicalCount + 1 end
     for _ in pairs(CMItems.VirtualItems or {}) do virtualCount = virtualCount + 1 end
 
-    log(('Started v1.1-export-fix | physical items: %s | virtual items: %s'):format(physicalCount, virtualCount))
+    log(('Started v1.2-cleanup-preview | physical items: %s | virtual items: %s'):format(physicalCount, virtualCount))
 end)
 
 exports('GetItem', exportSafe(function(name, includeVirtual)
@@ -94,6 +117,18 @@ end))
 
 exports('ValidateMetadata', exportSafe(function(name, metadata)
     return CMItems.ValidateMetadata(name, metadata)
+end))
+
+exports('ValidateDefinitions', exportSafe(function()
+    return CMItems.ValidateDefinitions()
+end))
+
+exports('GetItemWorldModel', exportSafe(function(name, metadata)
+    return CMItems.GetItemWorldModel(name, metadata)
+end))
+
+exports('GetCategoryWorldModel', exportSafe(function(category)
+    return CMItems.GetCategoryWorldModel(category)
 end))
 
 
@@ -193,6 +228,9 @@ local function ensureClothingCatalogTable()
             arms_texture INT NOT NULL DEFAULT 0,
             undershirt INT NULL,
             undershirt_texture INT NOT NULL DEFAULT 0,
+            bag_level INT NULL,
+            backpack_slots INT NULL,
+            max_weight INT NULL,
             image VARCHAR(255) NULL,
             enabled TINYINT(1) NOT NULL DEFAULT 1,
             job VARCHAR(80) NULL,
@@ -209,36 +247,78 @@ local function ensureClothingCatalogTable()
             INDEX idx_component (gender, component_index, drawable_id)
         )
     ]])
+
+    -- Safe migrations for older installs.
+    pcall(function() MySQL.query.await('ALTER TABLE clothing_catalog ADD COLUMN IF NOT EXISTS bag_level INT NULL') end)
+    pcall(function() MySQL.query.await('ALTER TABLE clothing_catalog ADD COLUMN IF NOT EXISTS backpack_slots INT NULL') end)
+    pcall(function() MySQL.query.await('ALTER TABLE clothing_catalog ADD COLUMN IF NOT EXISTS max_weight INT NULL') end)
     return true
 end
 
+local CATEGORY_TO_COMPONENT = {
+    torso = { componentType = 'component', componentIndex = 11 },
+    outerwear = { componentType = 'component', componentIndex = 11, category = 'torso' },
+    tshirt = { componentType = 'component', componentIndex = 8 },
+    shirt = { componentType = 'component', componentIndex = 8, category = 'tshirt' },
+    pants = { componentType = 'component', componentIndex = 4 },
+    legs = { componentType = 'component', componentIndex = 4, category = 'pants' },
+    shoes = { componentType = 'component', componentIndex = 6 },
+    chains = { componentType = 'component', componentIndex = 7 },
+    bags = { componentType = 'component', componentIndex = 5 },
+    hat = { componentType = 'prop', componentIndex = 0 },
+    glasses = { componentType = 'prop', componentIndex = 1 },
+    earrings = { componentType = 'prop', componentIndex = 2 },
+    watches = { componentType = 'prop', componentIndex = 6 },
+}
+
+local COMPONENT_TO_CATEGORY = {
+    component = { [11] = 'torso', [8] = 'tshirt', [4] = 'pants', [6] = 'shoes', [7] = 'chains', [5] = 'bags' },
+    prop = { [0] = 'hat', [1] = 'glasses', [2] = 'earrings', [6] = 'watches' },
+}
+
 local function normaliseCatalogRow(row)
     if type(row) ~= 'table' then return nil end
+
     local gender = CMItems.NormalizeClothingGender(row.gender)
     local componentType = tostring(row.component_type or row.componentType or 'component'):lower()
     local componentIndex = tonumber(row.component_index or row.componentIndex)
-    local drawableId = tonumber(row.drawable_id or row.drawableId)
-    local textureId = tonumber(row.texture_id or row.textureId)
-    if not componentIndex or not drawableId then return nil end
+    local drawableId = tonumber(row.drawable_id or row.drawableId or row.drawable)
+    local textureId = tonumber(row.texture_id or row.textureId or row.texture)
     if textureId == nil then textureId = -1 end
+    if not componentIndex or not drawableId then return nil end
 
-    return {
+    local category = row.category
+    if not category or category == '' then
+        if componentType == 'prop' then
+            local propMap = { [0] = 'hat', [1] = 'glasses', [2] = 'earrings', [6] = 'watches', [7] = 'bracelet' }
+            category = propMap[componentIndex]
+        else
+            local compMap = { [1] = 'mask', [3] = 'arms', [4] = 'pants', [5] = 'bags', [6] = 'shoes', [7] = 'chains', [8] = 'tshirt', [10] = 'decals', [11] = 'torso' }
+            category = compMap[componentIndex]
+        end
+    end
+    category = CMItems.NormalizeClothingCategory(category) or category
+
+    local entry = {
         id = tonumber(row.id),
         gender = gender,
         componentType = componentType,
         componentIndex = componentIndex,
         drawableId = drawableId,
         textureId = textureId,
-        label = row.label,
+        label = row.label or row.name or (('%s %s'):format(tostring(category or 'clothing'), drawableId)),
         description = row.description,
         price = tonumber(row.price) or 0,
-        category = row.category,
-        shop = row.shop,
+        category = category,
+        shop = row.shop or 'clothes',
         sleeveStyle = row.sleeve_style or row.sleeveStyle,
         arms = row.arms ~= nil and tonumber(row.arms) or nil,
         armsTexture = tonumber(row.arms_texture or row.armsTexture) or 0,
         undershirt = row.undershirt ~= nil and tonumber(row.undershirt) or nil,
         undershirtTexture = tonumber(row.undershirt_texture or row.undershirtTexture) or 0,
+        bagLevel = row.bag_level ~= nil and tonumber(row.bag_level) or tonumber(row.bagLevel or row.level),
+        backpackSlots = row.backpack_slots ~= nil and tonumber(row.backpack_slots) or tonumber(row.backpackSlots or row.slots),
+        maxWeight = row.max_weight ~= nil and tonumber(row.max_weight) or tonumber(row.maxWeight or row.weight),
         image = row.image,
         enabled = catalogBool(row.enabled, true),
         job = row.job,
@@ -247,6 +327,17 @@ local function normaliseCatalogRow(row)
         createdBy = row.createdBy or row.created_by,
         updatedBy = row.updatedBy or row.updated_by,
     }
+
+    if entry.category == 'bags' then
+        local level = tonumber(entry.bagLevel)
+        if level ~= nil then
+            level = math.max(1, math.min(4, math.floor(level)))
+            entry.bagLevel = level
+            entry.description = entry.description or ('Level %s bag. Unlocks backpack slots.'):format(level)
+        end
+    end
+
+    return entry
 end
 
 local function insertCatalogEntry(catalog, entry)
@@ -276,6 +367,9 @@ local function insertCatalogEntry(catalog, entry)
         armsTexture = entry.armsTexture,
         undershirt = entry.undershirt,
         undershirtTexture = entry.undershirtTexture,
+        bagLevel = entry.bagLevel,
+        backpackSlots = entry.backpackSlots,
+        maxWeight = entry.maxWeight,
         image = entry.image,
         enabled = entry.enabled ~= false,
         job = entry.job,
@@ -330,11 +424,16 @@ function CMItems.SaveClothingCatalogEntry(entry)
     entry = normaliseCatalogRow(entry)
     if not entry then return false, 'invalid_catalog_entry' end
 
+    if CMItems.Config and CMItems.Config.Debug then
+        print(('[CM-ITEMS] SaveCatalog category=%s gender=%s drawable=%s texture=%s image=%s bagLevel=%s enabled=%s'):format(
+            tostring(entry.category), tostring(entry.gender), tostring(entry.drawableId), tostring(entry.textureId), tostring(entry.image), tostring(entry.bagLevel), tostring(entry.enabled)))
+    end
+
     MySQL.query.await([[
         INSERT INTO clothing_catalog
         (gender, component_type, component_index, drawable_id, texture_id, label, description, price, category, shop,
-         sleeve_style, arms, arms_texture, undershirt, undershirt_texture, image, enabled, job, gang, notes, created_by, updated_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         sleeve_style, arms, arms_texture, undershirt, undershirt_texture, bag_level, backpack_slots, max_weight, image, enabled, job, gang, notes, created_by, updated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
             label = VALUES(label),
             description = VALUES(description),
@@ -346,6 +445,9 @@ function CMItems.SaveClothingCatalogEntry(entry)
             arms_texture = VALUES(arms_texture),
             undershirt = VALUES(undershirt),
             undershirt_texture = VALUES(undershirt_texture),
+            bag_level = VALUES(bag_level),
+            backpack_slots = VALUES(backpack_slots),
+            max_weight = VALUES(max_weight),
             image = VALUES(image),
             enabled = VALUES(enabled),
             job = VALUES(job),
@@ -368,6 +470,9 @@ function CMItems.SaveClothingCatalogEntry(entry)
         entry.armsTexture or 0,
         entry.undershirt,
         entry.undershirtTexture or 0,
+        entry.bagLevel,
+        entry.backpackSlots,
+        entry.maxWeight,
         entry.image,
         entry.enabled ~= false and 1 or 0,
         entry.job,
@@ -453,6 +558,9 @@ function CMItems.GetClothingCatalogRows(filters)
                 armsTexture = tonumber(row.armsTexture) or 0,
                 undershirt = row.undershirt,
                 undershirtTexture = tonumber(row.undershirtTexture) or 0,
+                bagLevel = row.bagLevel,
+                backpackSlots = row.backpackSlots,
+                maxWeight = row.maxWeight,
                 image = row.image,
                 enabled = row.enabled ~= false,
                 job = row.job,
@@ -508,3 +616,142 @@ end))
 exports('DeleteClothingCatalogEntry', exportSafe(function(gender, componentType, componentIndex, drawableId, textureId)
     return CMItems.DeleteClothingCatalogEntry(gender, componentType, componentIndex, drawableId, textureId)
 end))
+
+--========================================================
+-- Admin preview: give selected item to inventory for testing
+-- All users can use this while admin system is not implemented yet.
+--========================================================
+local function tryInventoryExport(resourceName, exportName, src, itemName, amount, metadata)
+    if GetResourceState(resourceName) ~= 'started' then return false, 'resource_not_started' end
+
+    -- IMPORTANT:
+    -- cm-inventory AddItem signature is:
+    --   AddItem(source, itemName, amount, metadata, reason, slot)
+    -- The older fallback calls below used to pass metadata as the 5th argument
+    -- (reason), so the item was created as a plain/default bag even though
+    -- cm-items had correctly built bagLevel/image metadata.
+    local meta = metadata or {}
+    local ok, result, extra = pcall(function()
+        -- Send metadata in BOTH arg #4 and arg #5.
+        -- Some older cm-inventory builds accidentally read metadata from the 5th argument,
+        -- while the current build reads it from the 4th argument. Duplicating it makes
+        -- clothadmin preview-give safe during mixed resource updates and prevents plain bags.
+        return exports[resourceName][exportName](src, itemName, amount, meta, meta, 'cm-items_preview_give')
+    end)
+    if ok and result ~= false and result ~= nil then
+        if itemName == 'clothing_bags' then
+            print(('[CM-ITEMS] inventory export success resource=%s export=%s bagLevel=%s image=%s'):format(
+                tostring(resourceName), tostring(exportName), tostring((metadata or {}).bagLevel), tostring((metadata or {}).image or (metadata or {}).icon)
+            ))
+        end
+        return true
+    end
+
+    if itemName == 'clothing_bags' then
+        print(('[CM-ITEMS] inventory export failed resource=%s export=%s err=%s extra=%s'):format(
+            tostring(resourceName), tostring(exportName), tostring(result), tostring(extra)
+        ))
+    end
+
+    return false, result or 'export_failed'
+end
+
+local function addPreviewItemToInventory(src, itemName, amount, metadata)
+    amount = tonumber(amount) or 1
+    if amount < 1 then amount = 1 end
+    if amount > 50 then amount = 50 end
+
+    local item = CMItems.GetPhysicalItem(itemName)
+    if not item then return false, 'unknown_item' end
+    if item.inventory == false or item.virtual == true then return false, 'not_inventory_item' end
+
+    local valid, err = CMItems.ValidateMetadata(itemName, metadata or {})
+    if not valid then return false, err or 'invalid_metadata' end
+
+    local attempts = {
+        { 'cm-inventory', 'AddItem' },
+        { 'cm-inventory', 'addItem' },
+        { 'cm-inventory', 'AddPlayerItem' },
+        { 'cm_inventory', 'AddItem' },
+        { 'ox_inventory', 'AddItem' },
+    }
+
+    for _, attempt in ipairs(attempts) do
+        local ok = tryInventoryExport(attempt[1], attempt[2], src, itemName, amount, metadata or {})
+        if ok then return true end
+    end
+
+    return false, 'No compatible inventory export found. Add AddItem(source, item, amount, metadata) export in cm-inventory.'
+end
+
+
+local function getCategoryFromPreviewRow(row)
+    local category = row.categoryType or row.clothingCategory or row.category
+    if CMItems.GetClothingCategoryDefinition(category) then return category end
+
+    local ctype = tostring(row.componentType or 'component'):lower()
+    local idx = tonumber(row.componentIndex)
+    if ctype == 'prop' then
+        local propMap = { [0] = 'hat', [1] = 'glasses', [2] = 'earrings', [6] = 'watches', [7] = 'bracelet' }
+        return propMap[idx]
+    end
+
+    local compMap = { [1] = 'mask', [3] = 'arms', [4] = 'pants', [5] = 'bags', [6] = 'shoes', [7] = 'chains', [8] = 'tshirt', [10] = 'decals', [11] = 'torso' }
+    return compMap[idx]
+end
+
+RegisterNetEvent('cm-items:server:previewGiveItem', function(requestId, row)
+    local src = source
+    row = type(row) == 'table' and row or {}
+    local itemName = row.name
+    local metadata = row.metadata
+
+    if row.kind == 'catalog' then
+        local clothingCategory = getCategoryFromPreviewRow(row)
+        itemName = CMItems.GetClothingItemName(clothingCategory)
+
+        local level = tonumber(row.bagLevel or row.bag_level or row.level)
+        if clothingCategory == 'bags' and level ~= nil then
+            level = math.max(1, math.min(4, math.floor(level)))
+        end
+
+        metadata = CMItems.BuildClothingMetadata(clothingCategory, {
+            gender = row.gender,
+            componentType = row.componentType,
+            componentIndex = row.componentIndex,
+            drawableId = row.drawableId,
+            textureId = tonumber(row.textureId) and tonumber(row.textureId) >= 0 and tonumber(row.textureId) or 0,
+            label = row.label,
+            description = (clothingCategory == 'bags' and level ~= nil) and (('Level %s bag. Unlocks backpack slots.'):format(level)) or row.description,
+            image = row.image,
+            icon = row.image,
+            price = row.price,
+            shop = row.shop,
+            arms = row.arms,
+            armsTexture = row.armsTexture,
+            undershirt = row.undershirt,
+            undershirtTexture = row.undershirtTexture,
+            sleeveStyle = row.sleeveStyle,
+            bagLevel = level or row.bagLevel,
+        }, { createdBy = ('preview:%s'):format(src) })
+
+        if type(metadata) == 'table' and clothingCategory == 'bags' then
+            if not metadata.bagLevel and level then metadata.bagLevel = level end
+            if metadata.bagLevel then metadata.description = ('Level %s bag. Unlocks backpack slots.'):format(metadata.bagLevel) end
+            if row.image and row.image ~= '' then
+                local img = tostring(row.image)
+                if not img:find('^nui://') and not img:find('^https?://') then
+                    if img:find('^clothing/') then img = ('nui://cm-items/ui/images/%s'):format(img)
+                    else img = ('nui://cm-items/ui/images/clothing/%s'):format(img) end
+                end
+                metadata.image = img
+                metadata.icon = img
+            end
+            print(('[CM-ITEMS] previewGive bag item=%s drawable=%s texture=%s image=%s bagLevel=%s'):format(
+                tostring(itemName), tostring(metadata.drawableId), tostring(metadata.textureId), tostring(metadata.image), tostring(metadata.bagLevel)))
+        end
+    end
+
+    local ok, err = addPreviewItemToInventory(src, itemName, 1, metadata or {})
+    TriggerClientEvent('cm-items:client:previewGiveResult', src, requestId, ok == true, err, itemName)
+end)
