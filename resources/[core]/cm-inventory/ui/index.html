@@ -17,9 +17,8 @@
                     <strong id="weight-current">0.0</strong><small>/</small><span id="weight-max">82 KG</span>
                 </div>
             </div>
-            <div class="hint">CLICK ON AN OBJECT<br>INFORMATION AND INTERACTION</div>
-            <button class="pill disabled">🎨 WEAPON CAMOUFLAGE <b>NEW</b></button>
-            <button class="pill disabled">🛠 CREATING ITEMS</button>
+            <div class="hint">DRAG ITEMS • RIGHT CLICK ACTIONS<br>HOVER FOR QUICK DETAILS</div>
+            <div class="glass-chip">CM INVENTORY</div>
             <button id="close-btn" class="close">✕</button>
         </header>
 
@@ -40,10 +39,11 @@
                 </div>
             </section>
 
-            <section class="character-column">
-                <div class="prime-badge">♛<br><span>PRIME<br>ACCOUNT</span></div>
+            <section class="character-column equipment-column">
+                <div class="section-title-row">
+                    <h3>EQUIPMENT <span>WEAR / DRAG HERE</span></h3>
+                </div>
                 <div class="character-wrap">
-                    <div class="body-outline"></div>
                     <div id="gear-slots" class="gear-grid"></div>
                 </div>
             </section>
@@ -51,6 +51,7 @@
 
         <div id="context-menu" class="context hidden"></div>
         <div id="tooltip" class="tooltip hidden"></div>
+        <div id="give-drop-zone" class="give-drop-zone hidden">DROP HERE TO GIVE TO NEAREST PLAYER</div>
         <div id="split-modal" class="modal hidden">
             <div class="modal-card">
                 <h3>Divide Stack</h3>
@@ -94,7 +95,7 @@
             </div>
         </div>
         <div id="toast" class="toast hidden"></div>
-        <footer class="bottom-hint">DRAG THE ITEM TO ANOTHER SLOT • RIGHT CLICK FOR DETAILS AND ACTIONS • ESC TO CLOSE</footer>
+        <footer class="bottom-hint">DRAG ITEM TO SLOT • DRAG TO BOTTOM TO GIVE • RIGHT CLICK FOR ACTIONS • ESC TO CLOSE</footer>
     </div>
     <script src="app.js"></script>
 </body>

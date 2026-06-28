@@ -764,6 +764,52 @@ RegisterNetEvent('nvCloth:server:saveInventoryIcon', function(data)
     return
   end
 
+  --========================================================
+  -- ARMOR / GUNS BRANCH (model b, cm-items owns the image)
+  -- Vest captures are NOT clothing items. We DON'T save a file here and we DON'T
+  -- write a clothing_catalog row. Instead we hand the raw base64 PNG + vest data
+  -- to the gun admin form. cm-items saves the PNG when the admin creates the item.
+  --========================================================
+  local category = tostring(data.category or ''):lower()
+  local shopKey = tostring(data.shop or ''):lower()
+  if category == 'armor' or shopKey == 'guns' then
+    if GetResourceState('cm-gunstore') ~= 'started' then
+      TriggerClientEvent('nvCloth:client:inventoryIconSaveFailed', src, 'cm-gunstore_not_started')
+      notify(src, 'cm-gunstore is not started; cannot deliver vest image.', 'error')
+      return
+    end
+
+    -- Re-encode the decoded bytes to a base64 data URL to forward to the gun store.
+    local dataUrl = data.dataUrl or data.imageBase64
+    if type(dataUrl) == 'string' and dataUrl ~= '' and not dataUrl:find('^data:image') then
+      dataUrl = 'data:image/png;base64,' .. dataUrl
+    end
+
+    local vestPayload = {
+      imageData = dataUrl, -- base64 PNG; cm-items saves it on item create
+      gender = tostring(data.gender or 'both'),
+      componentId = tonumber(data.componentIndex or data.componentId) or 9,
+      drawableId = tonumber(data.drawableId or data.drawable),
+      textureId = tonumber(data.textureId or data.texture or 0) or 0,
+      armorValue = tonumber(data.armorValue or data.armor_value) or 0, -- gun admin sets real value
+      label = data.label,
+      price = data.price,
+      destination = data.destination,
+    }
+    print(('[nv_cloth] vest captured for gun store drawable=%s texture=%s (image forwarded as base64)'):format(
+      tostring(vestPayload.drawableId), tostring(vestPayload.textureId)))
+
+    local delivered = pcall(function()
+      return exports['cm-gunstore']:ReceiveArmorImage(src, vestPayload)
+    end)
+    if not delivered then
+      TriggerEvent('cm-gunstore:server:armorImageReady', src, vestPayload)
+    end
+    notify(src, 'Vest captured. Open the gun admin form to set name/price/armor and create the item.', 'success')
+    TriggerClientEvent('nvCloth:client:inventoryIconSaved', src, { armor = true })
+    return
+  end
+
   local folder = (Config.IconCapture and Config.IconCapture.folder) or 'ui/images/clothing/custom'
   folder = tostring(folder):gsub('^/', ''):gsub('/$', '')
   local savePath = ('%s/%s'):format(folder, fileName)

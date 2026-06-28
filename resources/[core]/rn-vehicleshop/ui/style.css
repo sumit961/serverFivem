@@ -1,0 +1,1197 @@
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@1,500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@600&display=swap');
+
+body{
+	color: white;
+	user-select: none;
+	overflow: hidden;
+	margin: 0;
+}
+
+/* Vehicles Info */
+
+#title-container{
+	display: none;
+	font-family: "Barlow Condensed", sans-serif;
+	width: 97%;
+	height: 30%;
+	position: absolute;
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: -1;
+}
+#title-vehicleinfo{
+	padding: 50px 50px 50px 68px;
+	text-transform: uppercase;
+}
+#title-vehiclename{
+	font-family: 'Barlow Condensed', sans-serif;
+
+
+	text-shadow: 3px 3px 6px rgba(0,0,0,0.69);
+	font-size: 4.0rem;
+}
+#title-vehiclecategory{
+	font-size: 2.0rem;
+	color: #0066ff;
+	margin-top: -15px;
+}
+#title-stock,#title-price{
+	font-size: 2.5rem;
+}
+.btn-text{
+	font-family: 'Barlow Condensed', sans-serif;
+	font-size: 2.0rem;
+}
+.test-btn{
+	margin-bottom: 10%;
+}
+.btn{
+	font: inherit;
+	border-radius: 5px;
+	height: 12vh;
+	width: 19vw;
+	border: 0;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	font-size: 2.2vh;
+	color: #fff;
+	cursor: pointer;
+}
+.btn-success{
+	color: #fff;
+	background-color: #42885f8c;
+	border-color: #42885f8a;
+	box-shadow: 0px 0px 30px rgba(36, 207, 64, 0.678);
+	transition: 0.2s;
+}
+.btn-success:hover{
+	color: #fff;
+	background-color: #166145e1;
+	box-shadow: 0px 0px 30px rgba(36, 207, 64, 0.678);
+	border-color: #166145e1;
+}
+.btn-warn{
+	width: 182px;
+	color: #fff;
+	background-color: #a17f2bbb;
+	border-color: #a17f2bbb;
+	box-shadow: 0px 0px 30px rgba(207, 181, 36, 0.678);
+	transition: 0.2s;
+}
+.btn-warn:hover{
+	color: #fff;
+	background-color: #795f1f;
+	box-shadow: 0px 0px 30px rgba(207, 181, 36, 0.493);
+	border-color: #795f1f;
+}
+.btn-danger{
+	color: #fff;
+	background-color: #942f26b7;
+	box-shadow: 0px 0px 30px rgba(207, 36, 36, 0.678);
+	border-color: #942f26b7;
+}
+.btn-danger:hover{
+	color: #fff;
+	background-color: #772821d8;
+	box-shadow: 0px 0px 30px rgba(207, 36, 36, 0.678);
+	border-color: #772821d8;
+}
+/* Vehicles Menu */
+
+#vehicle-container{
+	display: none;
+	text-transform: uppercase;
+	font-family: 'Barlow Condensed', sans-serif;
+	position: absolute;
+	bottom: 2%;
+	width: 100%;
+	text-align: center;
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: -1;
+}
+#vehicle-carousel{
+	width:90%;
+	margin:0px auto;
+}
+#vehicle-warp,#vehicle-class-warp{
+	display: flex;
+	justify-content: center;
+	text-align: center;
+}
+.slick-slide{
+	margin:10px;
+}
+#vehicle-container .slick-dots li button:before {
+	font-size:20px;
+	color:white;
+}
+.category {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	background-color: rgba(10, 10, 10, 0.781);
+	line-height: 100px;
+	font-size: 1.5rem;
+	border-radius: 3px;
+	border-bottom: 3px solid #929292;
+	transition: 0.4s;
+} 
+.category:hover {
+	border-bottom: 3px solid #c9c9c9;
+}
+.category5,.vehicle-class5 {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	background-color: rgba(10, 10, 10, 0.781);
+	line-height: 100px;
+	width: 326px;
+	font-size: 1.5rem;
+	border-radius: 3px;
+	border-bottom: 3px solid #929292;
+	transition: 0.4s;
+}
+.category5:not(:first-of-type),.vehicle-class5:not(:first-of-type) {
+	margin-left: 20px;
+}
+.vehicle-class5:last-of-type{
+	margin-right: 20px;
+}
+.vehicle-class5:first-of-type{
+	margin-left: 20px;
+}
+.category5:hover,.vehicle-class5:hover {
+	border-bottom: 3px solid #c9c9c9;
+	
+}
+.category-price{
+	line-height: 0;
+	font-size: 1.15rem;
+	color: rgb(255, 255, 255);
+	transform: translate(-6px,-88px);
+	text-align: right;
+}
+.slick-dots li button {
+	display: none;
+}
+
+/* Vehicle Statistics */
+#statistics-warp{
+	position: absolute;
+	right: 5%;
+	top: 8%;
+	width: 320px;
+	height: 0px;
+}
+#statistics-container{
+	display: none;
+	font-family: "Barlow Condensed", sans-serif;
+	background-color: rgba(10, 10, 10, 0.781);
+	border-radius: 4px;
+	height: 250px;
+	font-size: 1.2rem;
+	z-index: -1;
+}
+.vehicle-stat{
+	margin-left: 15px;
+	height: auto;
+	margin-top: 17px;
+}
+.stat-name{
+	margin-left: 1px;
+	font-size: 1.3rem;
+}
+.stat-progress{
+	width: 80%;
+	height: 8px;
+	background-color: #43577a3d;
+}
+.prog-line{
+	width: 70%;
+	height: 8px;
+	background-color: #c7c7c7;
+}
+.stat-progress-container{
+	display: flex;
+	align-items: center;
+}
+.prog-num{
+	margin-left: 9px;
+	font-size: 1.1rem;
+}
+
+@media (max-width: 1280px) {
+	#statistics-container{
+		width: 300px;
+		height: 200px;
+	}
+}
+
+/* Vehicle Class Category */
+
+#vehicle-class-container{
+	display: none;
+	text-transform: uppercase;
+	font-family: 'Barlow Condensed', sans-serif;
+	position: absolute;
+	bottom: 2%;
+	width: 100%;
+	text-align: center;
+	left: 50%;
+	transform: translateX(-50%);
+}
+#vehicle-class-carousel{
+	width:90%;
+	margin:0px auto;
+}
+#vehicle-class-container .slick-dots li button:before {
+	font-size:20px;
+	color:white;
+}
+.vehicle-class,.vehicle-class5{
+	line-height: 120px;
+	font-size: 1.6rem;
+	border-radius: 3px;
+	background-color: rgba(0, 0, 0, 0.678);
+	border-bottom: 4px solid #949494;
+	transition: 0.4s;
+}
+.vehicle-class:hover,.vehicle-class5:hover {
+	border-bottom: 3px solid #bdbdbd;
+	
+}
+
+/* Vehicle Class Title */
+
+#vehicle-class-title-container{
+	display: none;
+	font-family: "Barlow Condensed", sans-serif;
+	width: 97%;
+	height: 30%;
+	position: absolute;
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: -1;
+}
+#vehicle-class-title-vehicleinfo{
+	padding: 50px 50px 50px 68px;
+	text-transform: uppercase;
+}
+#vehicle-class-title-vehiclename{
+	font-family: 'Barlow Condensed', sans-serif;
+	text-shadow: 3px 3px 6px rgba(0,0,0,0.69);
+	font-size: 4.0rem;
+}
+
+#vehicle-class-title-vehiclecategory{
+	font-size: 2.0rem;
+	color: #979797;
+	margin-top: -15px;
+}
+
+#colors-container{
+	width: 320px;
+	height: 25px;
+	border-radius: 4px;
+	font-size: 2.5rem;
+	display: flex;
+	align-content: flex-start;
+	justify-content: flex-start;
+	flex-wrap: wrap;
+}
+
+#colors-button{
+	display: none;
+	font-family: "Barlow Condensed", sans-serif;
+	margin-top: 10px;
+	width: 320px;
+	line-height: 50px;
+	border-radius: 4px;
+	font-size: 1.5rem;
+	background-color: rgba(10, 10, 10, 0.781);
+	text-align: center;
+	transition: background-color 0.2s ease,top 0.4s linear;
+	z-index: -1;
+}
+
+#colors-button:hover{
+	background-color: #1e2531;
+}
+
+#colors-title{
+	font-size: 2.0rem;
+	text-align: center;
+	border-bottom: 2px solid #bdbdbd;
+}
+
+.color {
+	position: relative;
+	height: 120%;
+	width: 10.0%;
+	background-color: black;
+	margin: 3px;
+	border: 1px solid black;
+}
+
+.daily-icon{
+	color: white;
+	font-size: 1.8rem;
+	text-align: right;
+}
+
+#rn {
+	margin: 0;
+}
+
+/* .color:not(:first-of-type){
+	margin-left: 5px;
+} */
+#slider-container{
+	display: block;
+	font-family: 'Barlow Condensed', sans-serif;
+	font-size: 1.2rem;
+	position: absolute;
+	transform: translateX(-50%);
+	left: 50%;
+	font-size: 2.0rem;
+}
+
+.range {
+	-webkit-appearance: none;
+	-moz-appearance: none;
+	width: 500px;
+}
+#slider{
+	transform: rotate(180deg);
+}
+
+input[type=range]::-webkit-slider-runnable-track {
+	-webkit-appearance: none;
+	background: rgba(10, 10, 10, 0.781);
+	height: 2px;
+}
+input[type=range]:focus {
+	outline: none;
+}
+input[type=range]::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	border: 1px solid;
+	border-radius: 50%;
+	height: 25px;
+	width: 25px;
+	max-width: 80px;
+	position: relative;
+	bottom: 11px;
+	background-color: rgba(10, 10, 10, 0.781);
+	cursor: -webkit-grab;
+
+	-webkit-transition: border 1000ms ease;
+	transition: border 1000ms ease;
+}
+.range.blue::-webkit-slider-thumb {
+	border-color: #c7c7c7;
+}
+
+.range.ltpurple::-webkit-slider-thumb {
+	border-color: #c7c7c7;
+}
+#hide-button{
+	display: none;
+	font-family: "Barlow Condensed", sans-serif;
+	width: 320px;
+	margin-top: 2px;
+	
+	line-height: 50px;
+	border-radius: 4px;
+	font-size: 1.5rem;
+	background-color: rgba(10, 10, 10, 0.781);
+	text-align: center;
+	transition: background-color 0.2s ease,margin-top 0.4s linear;
+	z-index: -1;
+}
+#hide-button:hover{
+	background-color: rgba(10, 10, 10, 0.918);   
+}
+.color-icon{
+	display: none;
+	position: absolute;
+	bottom: 1%;
+	right: 2%;
+	font-size: 1.0rem;
+}
+#buy-vehicle,#test-drive-container{
+	position: absolute;
+	transform: translate(-50%,-50%);
+	font-family: "Barlow Condensed", sans-serif;
+	top: -600px;
+	left: 50%;
+	width: 540px;
+	height: 330px;
+	background-color: rgba(10, 10, 10, 0.781);
+	transition: top 0.5s;
+	z-index: 1;
+}
+#title-buy-container{
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	
+	width: 97%;
+	margin: 0 auto;
+}
+#buy-details,#test-details{
+	width: 97%;
+	margin: 10px auto;
+	font-size: 1.3rem;
+	display: flex;
+
+	justify-content: space-evenly;
+}
+#buy-offer,#test-offer{
+	margin: 5px;
+	font-size: 1.7rem;
+}
+#buy-date{
+	margin: 5px;
+	font-size: 1.1rem;
+	color: grey;
+}
+.detail,.test-detail{
+	margin-top: 10px;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+	background-color: rgba(10, 10, 10, 0.781);
+	width: 120px;
+	height: 120px;
+	border-radius: 2px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.detail-info{
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	text-align: center;
+	width: 120px;
+	display: block;
+	overflow: hidden
+}
+#buy-down,#test-down{
+	text-align: center;
+	
+	width: 65%;
+	margin: 21px auto;
+}
+#buy-text,#test-text{
+	font-size: 1.4rem;
+}
+#buy-buttons,#test-buttons{
+	display: flex;
+	position: absolute;
+	transform: translateX(-50%);
+	left: 50%;
+	top: 79%;
+}
+
+.buy-button,.test-button{
+	font: inherit;
+	border-radius: 2px;
+	width: 120px;
+	height: 45px;
+	border: 0;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	font-size: 1.5rem;
+	color: #fff;
+	cursor: pointer;
+	background-color: rgb(16, 17, 19);
+}
+
+#buy,#test-accept{
+	margin-left: 0.5px;
+	background-color: rgb(16, 17, 19);
+}
+#buy:hover,#test-accept:hover{
+	border-bottom: 2px solid #363f4d;
+	
+}
+#back,#test-back{
+	margin-right: 10px;
+	background-color: rgb(16, 17, 19);
+}
+#back:hover,#test-back:hover{
+	border-bottom: 2px solid #363f4d;
+}
+#main{
+	display: none;
+	width: 100vw;
+	height: 100vh;
+	background-color: black;
+	opacity: 0.5;
+	z-index: 1;
+}
+#buy-notify{
+	display: none;
+	font-family: "Barlow Condensed", sans-serif;
+	font-size: 3.0rem;
+	color: #ffffff;
+	margin: 40px;
+}
+#drawmarker-container{
+	font-family: "Barlow Condensed", sans-serif;
+	position: absolute;
+	left: -260px;
+	top: 50%;
+	font-size: 1.5rem;
+	color: white;
+	padding: 10px;
+	background: #5395ff;
+	border-radius: 8px;
+	transition: left 0.3s ease;
+}
+#test-drive-timer{
+	display: none;
+	font-family: "Barlow Condensed", sans-serif;
+	position: absolute;
+	bottom: 12%;
+	right: 1%;
+	font-size: 4.0rem;
+}
+#timer{
+	color: white;
+	font-weight: bold;
+}
+
+.title-extra {
+  margin-top: 6px;
+  font-size: 1.1rem;
+  color: rgba(255,255,255,0.82);
+  letter-spacing: .02em;
+}
+.category.server-only, .category5.server-only {
+  opacity: .72;
+  border-bottom-color: #9aa0aa !important;
+}
+.disabled-buy {
+  opacity: .55 !important;
+  cursor: not-allowed !important;
+  filter: grayscale(0.5);
+}
+.empty-shop {
+  width: 720px;
+  max-width: 80vw;
+  margin: 30px auto;
+  padding: 24px;
+  text-align: center;
+  color: #fff;
+  background: rgba(0,0,0,.72);
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 16px;
+  font-size: 1.4rem;
+}
+#admin-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: radial-gradient(circle at top left, rgba(245,197,66,.14), transparent 38%), rgba(5,7,12,.94);
+  color: #fff;
+  font-family: Arial, Helvetica, sans-serif;
+}
+.admin-shell {
+  width: min(1180px, 94vw);
+  height: min(780px, 90vh);
+  margin: 5vh auto;
+  background: rgba(17, 20, 29, .92);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 22px;
+  box-shadow: 0 25px 80px rgba(0,0,0,.55);
+  overflow: hidden;
+}
+.admin-head {
+  height: 96px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 28px;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+  background: rgba(255,255,255,.04);
+}
+.admin-head h1 { margin: 0; font-size: 2.1rem; letter-spacing: .04em; }
+.admin-head p { margin: 8px 0 0; color: rgba(255,255,255,.7); font-size: .95rem; }
+.admin-head button, .admin-actions button {
+  border: 0;
+  border-radius: 12px;
+  padding: 12px 18px;
+  background: #f5c542;
+  color: #141414;
+  font-weight: 800;
+  cursor: pointer;
+}
+.admin-body { display: grid; grid-template-columns: 420px 1fr; height: calc(100% - 96px); }
+.admin-left { padding: 20px; border-right: 1px solid rgba(255,255,255,.1); overflow: hidden; display: flex; flex-direction: column; gap: 12px; }
+.admin-left input, .admin-left select, .admin-form input {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(255,255,255,.08);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 12px;
+  padding: 12px 14px;
+  outline: 0;
+}
+.admin-left select { min-height: 150px; }
+.admin-left option { background: #161a24; color: #fff; }
+#admin-list { overflow: auto; padding-right: 4px; }
+.admin-car {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  margin-bottom: 8px;
+  border-radius: 14px;
+  background: rgba(255,255,255,.06);
+  border-left: 4px solid #6f7785;
+  cursor: pointer;
+}
+.admin-car:hover { background: rgba(255,255,255,.1); }
+.admin-car span { display: block; color: rgba(255,255,255,.62); font-size: .82rem; margin-top: 3px; }
+.admin-car em { white-space: nowrap; font-style: normal; color: rgba(255,255,255,.75); font-size: .82rem; }
+.admin-car.store { border-left-color: #4ade80; }
+.admin-car.server { border-left-color: #60a5fa; }
+.admin-car.disabled { border-left-color: #f87171; opacity: .75; }
+.admin-car.notset { border-left-color: #a3a3a3; opacity: .68; }
+.admin-form { padding: 28px; overflow: auto; }
+.admin-form label { display: block; color: rgba(255,255,255,.76); font-weight: 700; margin-bottom: 16px; }
+.admin-form label input { margin-top: 8px; font-weight: 500; }
+.admin-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.admin-status-line { margin-bottom: 18px; padding: 12px 14px; background: rgba(245,197,66,.12); border: 1px solid rgba(245,197,66,.22); border-radius: 12px; }
+.admin-checks { margin: 14px 0 22px; padding: 16px; border: 1px solid rgba(255,255,255,.1); border-radius: 14px; background: rgba(255,255,255,.04); }
+.admin-checks label { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
+.admin-checks input { width: auto; margin: 0; }
+.admin-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+#admin-disable { background: #f87171; color: #fff; }
+#admin-refresh { background: #334155; color: #fff; }
+.admin-help { margin-top: 20px; color: rgba(255,255,255,.65); line-height: 1.6; }
+#admin-toast {
+  display: none;
+  position: fixed;
+  right: 38px;
+  bottom: 38px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: rgba(0,0,0,.82);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.14);
+}
+
+/* ===== Vehicle image capture additions ===== */
+.admin-car-thumb {
+  width: 64px;
+  height: 40px;
+  flex: 0 0 auto;
+  object-fit: contain;
+  border-radius: 8px;
+  background: rgba(0,0,0,.25);
+}
+.admin-car-thumb.noimg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: .68rem;
+  color: rgba(255,255,255,.45);
+  border: 1px dashed rgba(255,255,255,.18);
+}
+.admin-car-meta { flex: 1 1 auto; min-width: 0; }
+.admin-car-meta b { display: block; }
+
+#admin-capture { background: linear-gradient(135deg, #3b82f6, #2563eb) !important; }
+#admin-capture:disabled { opacity: .6; cursor: default; }
+
+.admin-image-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 6px 0 18px;
+}
+.admin-image-label { color: rgba(255,255,255,.72); font-weight: 700; }
+#admin-image-preview {
+  max-width: 220px;
+  max-height: 130px;
+  object-fit: contain;
+  border-radius: 12px;
+  background: rgba(0,0,0,.28);
+  padding: 6px;
+}
+
+/* Hide every NUI element while screenshot-basic captures the car. */
+body.capture-hidden > *:not(#__never__) { visibility: hidden !important; }
+
+/* ===== Dealer interaction prompt ===== */
+#interaction-prompt{
+  display:none; position:fixed; left:50%; bottom:16%; transform:translateX(-50%);
+  align-items:center; gap:14px; padding:12px 18px; border-radius:14px;
+  background:rgba(15,18,24,.82);
+  border:1px solid rgba(255,255,255,.12); box-shadow:0 10px 40px rgba(0,0,0,.45);
+  font-family:'Inter',system-ui,sans-serif; color:#fff; z-index:9000;
+}
+#interaction-prompt{ display:none; }
+#interaction-prompt.show{ display:flex; }
+#interaction-prompt .ip-key{
+  display:flex; align-items:center; justify-content:center;
+  min-width:42px; height:42px; padding:0 10px; border-radius:10px;
+  background:linear-gradient(135deg,#3b82f6,#2563eb);
+  font-weight:800; font-size:1.1rem; box-shadow:0 4px 14px rgba(37,99,235,.5);
+}
+#interaction-prompt .ip-clerk{ font-size:.74rem; letter-spacing:.12em; text-transform:uppercase; color:#7dd3fc; font-weight:700; }
+#interaction-prompt .ip-title{ font-size:1.02rem; font-weight:700; margin-top:1px; }
+#interaction-prompt .ip-sub{ font-size:.82rem; color:rgba(255,255,255,.62); margin-top:2px; }
+
+/* ===== Dealer RP dialog ===== */
+#dealer-dialog{
+  display:none; position:fixed; inset:0; z-index:9100;
+  align-items:flex-end; justify-content:center;
+  background:linear-gradient(to top, rgba(0,0,0,.5), rgba(0,0,0,0) 40%);
+  font-family:'Inter',system-ui,sans-serif;
+}
+#dealer-dialog.show{ display:flex; }
+#dealer-dialog .dd-card{
+  width:min(560px,92vw); margin-bottom:9vh; padding:26px 28px 24px;
+  border-radius:20px; background:rgba(17,20,27,.92);
+  border:1px solid rgba(255,255,255,.12); box-shadow:0 24px 70px rgba(0,0,0,.6); color:#fff;
+}
+#dealer-dialog .dd-clerk{ font-size:.76rem; letter-spacing:.14em; text-transform:uppercase; color:#7dd3fc; font-weight:800; }
+#dealer-dialog .dd-title{ font-size:1.35rem; font-weight:800; margin:6px 0 10px; }
+#dealer-dialog .dd-line{ font-size:.98rem; line-height:1.5; color:rgba(255,255,255,.78); margin-bottom:20px; }
+#dealer-dialog .dd-actions{ display:flex; gap:12px; }
+#dealer-dialog .dd-actions button{
+  flex:1; padding:14px 16px; border:none; border-radius:13px; cursor:pointer;
+  font-weight:700; font-size:.96rem; color:#fff;
+  background:linear-gradient(135deg,#3b82f6,#2563eb); transition:transform .08s ease,filter .15s ease;
+}
+#dealer-dialog .dd-actions button:hover{ filter:brightness(1.08); }
+#dealer-dialog .dd-actions button:active{ transform:translateY(1px); }
+#dealer-dialog .dd-actions .dd-secondary{
+  background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.14);
+}
+
+/* ===== Store vehicle image cards ===== */
+.category, .category5 {
+  position: relative;
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  line-height: normal !important;
+  min-height: 118px;
+  padding: 8px 10px 10px;
+  box-sizing: border-box;
+}
+.category span, .category5 span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.category-price {
+  transform: none !important;
+  line-height: 1.1 !important;
+  text-align: center !important;
+  font-size: 1.0rem;
+  color: rgba(255,255,255,.88);
+}
+.vehicle-card-img {
+  width: 92%;
+  height: 58px;
+  object-fit: contain;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(0,0,0,.18);
+  font-size: .75rem;
+  color: rgba(255,255,255,.42);
+}
+.vehicle-card-img.no-img {
+  border: 1px dashed rgba(255,255,255,.16);
+}
+
+/* ===== Vehicle admin extended settings ===== */
+.admin-form select {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(255,255,255,.08);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 12px;
+  padding: 12px 14px;
+  outline: 0;
+  margin-top: 8px;
+}
+.admin-form select option { background: #161a24; color: #fff; }
+.admin-test-drive-settings .admin-row label { margin-bottom: 0; }
+
+
+/* Crop preview modal */
+#crop-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  pointer-events: auto;
+  background: rgba(0, 0, 0, 0.82);
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+#crop-modal.show { display: flex !important; }
+.crop-shell {
+  width: min(92vw, 1280px);
+  height: min(90vh, 920px);
+  background: rgba(20, 20, 24, 0.98);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 18px;
+  box-shadow: 0 20px 80px rgba(0,0,0,0.45);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.crop-head {
+  padding: 18px 22px 12px;
+  color: #fff;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.crop-head h2 { margin: 0 0 6px; font-size: 28px; }
+.crop-head p { margin: 0; color: rgba(255,255,255,0.75); font-size: 14px; }
+.crop-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  overflow: auto;
+}
+#crop-image-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  max-height: 100%;
+  line-height: 0;
+  background:
+    linear-gradient(45deg, #2c2c2c 25%, transparent 25%),
+    linear-gradient(-45deg, #2c2c2c 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #2c2c2c 75%),
+    linear-gradient(-45deg, transparent 75%, #2c2c2c 75%);
+  background-size: 24px 24px;
+  background-position: 0 0, 0 12px, 12px -12px, -12px 0px;
+  border-radius: 14px;
+  overflow: hidden;
+}
+#crop-preview-image {
+  display: block;
+  max-width: min(1100px, 86vw);
+  max-height: min(620px, 62vh);
+  width: auto;
+  height: auto;
+}
+#crop-box {
+  position: absolute;
+  border: 2px dashed #54ff8f;
+  box-shadow: 0 0 0 200vmax rgba(0, 0, 0, 0.42);
+  cursor: move;
+  min-width: 36px;
+  min-height: 36px;
+}
+#crop-box .crop-label {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  color: #54ff8f;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  pointer-events: none;
+}
+#crop-resize-handle {
+  position: absolute;
+  right: -9px;
+  bottom: -9px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #54ff8f;
+  border: 2px solid #0d3018;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.35);
+  cursor: nwse-resize;
+}
+.crop-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 14px 18px 18px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+.crop-actions button {
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(255,255,255,0.14);
+}
+.crop-actions button.primary { background: #1f8b48; }
+.crop-actions button.danger-lite { background: rgba(211, 73, 73, 0.75); }
+.crop-actions button:disabled { opacity: 0.6; }
+body.capture-hidden #crop-modal { display: none !important; }
+
+body.crop-review-open #admin-panel {
+  display: none !important;
+  pointer-events: none !important;
+}
+body.crop-review-open #crop-modal {
+  display: flex !important;
+  z-index: 2147483000 !important;
+  pointer-events: auto !important;
+}
+body.crop-review-open #crop-modal * {
+  pointer-events: auto;
+}
+
+
+/* ===== Production UI polish pass ===== */
+:root{
+  --vs-panel: rgba(13, 18, 28, .56);
+  --vs-panel-strong: rgba(13, 18, 28, .72);
+  --vs-border: rgba(255,255,255,.14);
+  --vs-text: rgba(255,255,255,.92);
+  --vs-muted: rgba(255,255,255,.62);
+  --vs-accent: #60a5fa;
+  --vs-gold: #f5c542;
+}
+#main { background: transparent !important; pointer-events: none; }
+#esc-hint{
+  position:fixed; right:28px; bottom:28px; z-index:8000;
+  padding:10px 14px; border-radius:12px;
+  background:rgba(13,18,28,.48); border:1px solid var(--vs-border);
+  color:rgba(255,255,255,.78); font:700 13px/1.1 Arial, sans-serif; display:none;
+}
+body.store-active #esc-hint, body.admin-active #esc-hint{ display:block; }
+
+/* Store glass layout - keeps center clear for vehicle preview */
+#title-container,
+#vehicle-container,
+#statistics-container,
+#vehicle-class-title-container,
+#vehicle-class-container,
+#btn-container,
+#hide-button,
+#buy-vehicle,
+#test-drive-container{
+  background: var(--vs-panel) !important;
+  border: 1px solid var(--vs-border) !important;
+  box-shadow: 0 18px 55px rgba(0,0,0,.22) !important;
+}
+#vehicle-container{ left:24px !important; width:430px !important; max-height:72vh; overflow:hidden; border-radius:20px !important; }
+#title-container{ left:24px !important; top:8% !important; border-radius:20px !important; }
+#statistics-container{ right:24px !important; border-radius:18px !important; }
+#vehicle-class-container{ left:50% !important; transform:translateX(-50%); bottom:48px !important; top:auto !important; width:min(1040px,82vw) !important; border-radius:20px !important; }
+#vehicle-class-title-container{ left:50% !important; transform:translateX(-50%); top:44px !important; border-radius:18px !important; }
+.category, .category5, .vehicle-class, .vehicle-class5{
+  background: rgba(255,255,255,.075) !important;
+  border: 1px solid rgba(255,255,255,.11) !important;
+  border-radius: 16px !important;
+  color: var(--vs-text) !important;
+}
+.category:hover, .category5:hover, .vehicle-class:hover, .vehicle-class5:hover{
+  background: rgba(96,165,250,.20) !important;
+  border-color: rgba(96,165,250,.42) !important;
+}
+#buy-btn, #back-btn, #test-btn, .buy-button, .test-button, #hide-button{
+  border-radius:14px !important; border:1px solid rgba(255,255,255,.14) !important;
+  box-shadow:none !important; text-transform:none !important; letter-spacing:.02em;
+}
+#buy-btn, #buy, #test-accept{ background:linear-gradient(135deg,#22c55e,#16a34a) !important; }
+#test-btn{ background:linear-gradient(135deg,#3b82f6,#2563eb) !important; }
+#back-btn, #back, #test-back{ background:rgba(255,255,255,.10) !important; }
+#buy-vehicle, #test-drive-container{ border-radius:22px !important; }
+#drawmarker-container{ display:none !important; }
+#interaction-prompt.show{ display:flex !important; }
+.empty-shop{ background:rgba(13,18,28,.58) !important; }
+#buy-notify{ display:none !important; }
+
+/* Admin: left catalog, transparent middle, right settings panel */
+#admin-panel{
+  background: transparent !important;
+  color:#fff; z-index:10000 !important;
+}
+.admin-shell{
+  width:100vw !important; height:100vh !important; margin:0 !important;
+  background:transparent !important; border:0 !important; box-shadow:none !important; border-radius:0 !important;
+  overflow:hidden !important;
+}
+.admin-head{
+  position:absolute; left:380px; right:420px; top:18px; height:66px !important;
+  background:rgba(13,18,28,.35) !important; border:1px solid rgba(255,255,255,.10) !important;
+  border-radius:18px; padding:0 18px !important; z-index:2;
+}
+.admin-head h1{ font-size:1.45rem !important; }
+.admin-head p{ font-size:.78rem !important; margin-top:4px !important; }
+.admin-body{
+  display:grid !important; grid-template-columns:360px 1fr 390px !important; gap:18px !important;
+  height:100vh !important; padding:102px 18px 18px !important; box-sizing:border-box;
+}
+.admin-left,
+.admin-form{
+  background:rgba(13,18,28,.48) !important;
+  border:1px solid rgba(255,255,255,.12) !important;
+  border-radius:22px !important;
+  box-shadow:0 22px 60px rgba(0,0,0,.25) !important;
+}
+.admin-left{ grid-column:1; border-right:1px solid rgba(255,255,255,.12) !important; }
+.admin-form{ grid-column:3; padding:20px !important; }
+.admin-left input, .admin-left select, .admin-form input, .admin-form select{
+  background:rgba(255,255,255,.075) !important; border-color:rgba(255,255,255,.14) !important;
+  border-radius:14px !important;
+}
+.admin-left option, .admin-form select option{ background:#121827 !important; }
+.admin-car{ background:rgba(255,255,255,.065) !important; border-radius:16px !important; }
+.admin-car:hover{ background:rgba(96,165,250,.18) !important; }
+.admin-status-line, .admin-checks{ background:rgba(255,255,255,.065) !important; border-color:rgba(255,255,255,.12) !important; }
+.admin-actions button, .admin-head button{ border-radius:14px !important; }
+#admin-save{ background:linear-gradient(135deg,#22c55e,#16a34a) !important; color:#fff !important; }
+#admin-refresh{ background:rgba(255,255,255,.10) !important; }
+#admin-disable{ background:linear-gradient(135deg,#ef4444,#b91c1c) !important; }
+#admin-toast{ background:rgba(13,18,28,.82) !important; }
+.admin-help{ color:rgba(255,255,255,.65) !important; }
+#admin-image-preview{ background:rgba(255,255,255,.08) !important; }
+
+/* Crop modal must always own focus */
+#crop-modal{ z-index:2147483000 !important; background:rgba(2,6,12,.78) !important; }
+.crop-shell{ background:rgba(13,18,28,.94) !important; }
+body.crop-review-open #admin-panel{ display:none !important; pointer-events:none !important; }
+body.capture-hidden > *{ visibility:hidden !important; }
+body.capture-hidden #crop-modal{ display:none !important; }
+
+
+/* ===== FINAL FIX PASS: remove black slabs and keep preview clear ===== */
+html, body { background: transparent !important; }
+#main { background: transparent !important; opacity: 1 !important; pointer-events: none !important; }
+#dealer-dialog { background: transparent !important; }
+#dealer-dialog .dd-card,
+#interaction-prompt {
+  background: rgba(13,18,28,.58) !important;
+  border: 1px solid rgba(255,255,255,.16) !important;
+  box-shadow: 0 18px 55px rgba(0,0,0,.24) !important;
+}
+#interaction-prompt { bottom: 9% !important; }
+
+body.store-active #title-container,
+body.store-active #vehicle-class-title-container {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  height: auto !important;
+  width: auto !important;
+  max-width: 420px !important;
+  left: 34px !important;
+  top: 34px !important;
+  transform: none !important;
+  z-index: 40 !important;
+}
+#title-vehicleinfo,
+#vehicle-class-title-vehicleinfo { padding: 0 !important; }
+#title-vehiclename,
+#vehicle-class-title-vehiclename { font-size: 3.0rem !important; line-height: .95 !important; }
+#title-vehiclecategory,
+#vehicle-class-title-vehiclecategory { font-size: 1.35rem !important; margin-top: 4px !important; }
+#title-stock, #title-price { font-size: 1.15rem !important; }
+
+body.store-active #vehicle-class-container,
+body.store-active #vehicle-container {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  width: min(880px, 70vw) !important;
+  left: 50% !important;
+  bottom: 32px !important;
+  top: auto !important;
+  transform: translateX(-50%) !important;
+  z-index: 60 !important;
+  overflow: visible !important;
+}
+#vehicle-class-warp,
+#vehicle-warp {
+  display: flex !important;
+  justify-content: center !important;
+  gap: 14px !important;
+  padding: 12px !important;
+  border-radius: 20px !important;
+  background: rgba(13,18,28,.34) !important;
+  border: 1px solid rgba(255,255,255,.12) !important;
+  box-shadow: 0 18px 55px rgba(0,0,0,.18) !important;
+}
+.vehicle-class,.vehicle-class5,.category,.category5 {
+  min-height: 90px !important;
+  line-height: normal !important;
+  background: rgba(255,255,255,.075) !important;
+  border: 1px solid rgba(255,255,255,.14) !important;
+  border-bottom: 1px solid rgba(255,255,255,.14) !important;
+  box-shadow: none !important;
+}
+.vehicle-class,.vehicle-class5 { width: 230px !important; }
+.category,.category5 { width: 190px !important; }
+.vehicle-card-img { background: rgba(255,255,255,.06) !important; }
+
+#statistics-warp { right: 22px !important; top: 74px !important; width: 300px !important; z-index: 50 !important; }
+#statistics-container {
+  background: rgba(13,18,28,.42) !important;
+  border: 1px solid rgba(255,255,255,.13) !important;
+  box-shadow: 0 18px 55px rgba(0,0,0,.18) !important;
+}
+#btn-warp { position: fixed !important; right: 24px !important; bottom: 36px !important; z-index: 80 !important; }
+#btn-container { background: transparent !important; border: 0 !important; box-shadow: none !important; }
+#hide-button { background: rgba(13,18,28,.42) !important; }
+#buy-vehicle,#test-drive-container {
+  background: rgba(13,18,28,.74) !important;
+  border: 1px solid rgba(255,255,255,.14) !important;
+  box-shadow: 0 20px 70px rgba(0,0,0,.28) !important;
+}
+
+/* Admin cleanup: no full black page, no horizontal scrollbar, clear middle preview */
+#admin-panel { background: transparent !important; overflow: hidden !important; }
+.admin-head {
+  left: 390px !important; right: 410px !important; top: 18px !important;
+  background: rgba(13,18,28,.36) !important;
+}
+.admin-body { grid-template-columns: 360px minmax(280px,1fr) 360px !important; padding: 102px 18px 18px !important; overflow: hidden !important; }
+.admin-left, .admin-form {
+  background: rgba(13,18,28,.42) !important;
+  overflow-x: hidden !important;
+}
+.admin-form { max-height: calc(100vh - 120px) !important; overflow-y: auto !important; }
+.admin-left { max-height: calc(100vh - 120px) !important; }
+.admin-form * { box-sizing: border-box !important; }
+#admin-list { overflow-x: hidden !important; }
+.admin-car { min-width: 0 !important; }
+.admin-car em { max-width: 92px !important; overflow: hidden !important; text-overflow: ellipsis !important; }
+#admin-source-select { display: none !important; }
+.admin-help { display: none !important; }
+#admin-image-preview { max-width: 170px !important; max-height: 95px !important; }
+
+/* UI hard reset used by Lua forceClose */
+body:not(.store-active):not(.admin-active):not(.crop-review-open) #vehicle-container,
+body:not(.store-active):not(.admin-active):not(.crop-review-open) #vehicle-class-container,
+body:not(.store-active):not(.admin-active):not(.crop-review-open) #title-container,
+body:not(.store-active):not(.admin-active):not(.crop-review-open) #vehicle-class-title-container,
+body:not(.store-active):not(.admin-active):not(.crop-review-open) #statistics-container,
+body:not(.store-active):not(.admin-active):not(.crop-review-open) #admin-panel {
+  display: none !important;
+}

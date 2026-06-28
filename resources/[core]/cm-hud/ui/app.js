@@ -82,6 +82,7 @@ let state = {
     },
 
     mouseOpen: false,
+    externalHidden: false,
     
     // Notifications queue
     notifications: [],
@@ -499,8 +500,9 @@ window.addEventListener('message', function(event) {
     switch(data.action) {
         case 'init':
             Object.assign(state, data.state || {});
-            state.hudVisible = true;
-            document.body.classList.remove('hud-hidden');
+            // Do not let a late init/update make the HUD visible while another UI is open.
+            state.hudVisible = !state.externalHidden && ((data.state && data.state.hudVisible !== undefined) ? data.state.hudVisible !== false : state.hudVisible !== false);
+            document.body.classList.toggle('hud-hidden', !state.hudVisible || state.externalHidden);
             updateAll();
             break;
             
@@ -589,9 +591,10 @@ window.addEventListener('message', function(event) {
             break;
 
         case 'setHudVisible':
-            state.hudVisible = data.visible !== false;
-            document.body.classList.toggle('hud-hidden', !state.hudVisible);
-            if (!state.hudVisible) setChatOpen(false);
+            state.externalHidden = data.externalHidden === true;
+            state.hudVisible = !state.externalHidden && data.visible !== false;
+            document.body.classList.toggle('hud-hidden', !state.hudVisible || state.externalHidden);
+            if (!state.hudVisible || state.externalHidden) setChatOpen(false);
             break;
 
         case 'setChatOpen':

@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 560" fill="none">
+  <defs>
+    <linearGradient id="bodyStroke" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#bfeff8" stop-opacity="0.85"/>
+      <stop offset="0.5" stop-color="#8fd6e6" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#5fb8cc" stop-opacity="0.30"/>
+    </linearGradient>
+    <radialGradient id="bodyGlow" cx="0.5" cy="0.4" r="0.65">
+      <stop offset="0" stop-color="#45ecff" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#45ecff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- soft glow behind figure -->
+  <ellipse cx="110" cy="250" rx="120" ry="240" fill="url(#bodyGlow)"/>
+
+  <g stroke="url(#bodyStroke)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- head -->
+    <circle cx="110" cy="52" r="30"/>
+    <!-- neck -->
+    <path d="M96 80 L96 98 M124 80 L124 98"/>
+    <!-- shoulders + torso -->
+    <path d="M96 98
+             C70 104 52 116 46 140
+             L40 200
+             M124 98
+             C150 104 168 116 174 140
+             L180 200"/>
+    <!-- torso sides down to waist -->
+    <path d="M64 130
+             C58 200 60 250 70 300
+             L78 360
+             M156 130
+             C162 200 160 250 150 300
+             L142 360"/>
+    <!-- chest/torso connecting line (collar) -->
+    <path d="M96 100 C104 112 116 112 124 100"/>
+    <!-- arms -->
+    <path d="M46 140 C40 190 38 240 42 286 L52 330"/>
+    <path d="M174 140 C180 190 182 240 178 286 L168 330"/>
+    <!-- hands -->
+    <path d="M44 286 C40 300 44 316 52 330 C58 320 56 304 52 290"/>
+    <path d="M176 286 C180 300 176 316 168 330 C162 320 164 304 168 290"/>
+    <!-- hips -->
+    <path d="M78 360 C92 372 128 372 142 360"/>
+    <!-- legs -->
+    <path d="M86 360 C82 420 80 480 84 540 L100 540 C104 470 106 410 110 372"/>
+    <path d="M134 360 C138 420 140 480 136 540 L120 540 C116 470 114 410 110 372"/>
+  </g>
+</svg>

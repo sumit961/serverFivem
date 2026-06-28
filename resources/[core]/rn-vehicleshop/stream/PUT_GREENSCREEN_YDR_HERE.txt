@@ -1,0 +1,3 @@
+prop_ld_greenscreen_01.ydr is the green-screen prop used for admin vehicle image
+capture (the same prop the clothing store uses). It must stay in this stream/ folder.
+If you remove it, capture falls back to a flat green rectangle.

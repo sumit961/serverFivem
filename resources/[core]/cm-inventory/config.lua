@@ -1,7 +1,7 @@
 CMInventory = CMInventory or {}
 
 CMInventory.Config = {
-    Debug = true,
+    Debug = false,
     OpenKey = 'I',
 
     OwnerType = 'character',
@@ -98,6 +98,16 @@ CMInventory.Config = {
         vehicle_key = true,
         house_key = true,
         business_key = true
+    },
+
+    -- Dynamic items created at runtime by other resources (e.g. cm-gunstore
+    -- armor vests / weapons named armor_xxx, weapon_xxx). cm-items does not know
+    -- these, so we resolve them by name prefix to a sensible default def.
+    -- Metadata stored on the actual item (label, image, weight) overrides these.
+    DynamicItemPatterns = {
+        { prefix = 'armor_',  def = { label = 'Armor Vest', category = 'armor',  equipmentSlot = 'bodyarmor', itemType = 'rare',   rarity = 'rare',   weight = 2500, stack = false, usable = true, image = 'armor.png',         description = 'Wearable armor vest.' } },
+        { prefix = 'weapon_', def = { label = 'Weapon',     category = 'weapon', equipmentSlot = 'weapon',    itemType = 'unique', rarity = 'unique', weight = 1500, stack = false, usable = true, image = 'weapon_pistol.png', description = 'A firearm.' } },
+        { prefix = 'ammo_',   def = { label = 'Ammo',       category = 'ammo',   equipmentSlot = 'ammo',      itemType = 'normal', rarity = 'normal', weight = 15,   stack = true,  usable = true, image = 'ammo_9mm.png',     description = 'Ammunition.' } },
     },
 
     EquipmentRules = {

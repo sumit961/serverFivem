@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/slick-carousel/1.5.8/slick.min.css"/>
+  <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/slick-carousel/1.5.8/slick-theme.min.css"/>
+  <link rel="stylesheet" href="style.css">
+
+  <script src="https://kit.fontawesome.com/6b037c9e5a.js" crossorigin="anonymous"></script>
+  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/slick-carousel/1.5.9/slick.min.js"></script>
+  <script src="main.js" defer></script>
+  
+</head>
+  <body>
+    <!-- On-screen interaction prompt shown near the dealer -->
+    <div id="interaction-prompt">
+      <div class="ip-key"><span id="interaction-key">E</span></div>
+      <div class="ip-text">
+        <div class="ip-clerk" id="interaction-clerk">Dealer</div>
+        <div class="ip-title" id="interaction-title">Talk to Dealer</div>
+        <div class="ip-sub" id="interaction-subtitle">Browse and buy vehicles</div>
+      </div>
+    </div>
+
+    <!-- RP talk dialog (shown after pressing E, before the catalog) -->
+    <div id="dealer-dialog">
+      <div class="dd-card">
+        <div class="dd-clerk" id="dealer-dialog-clerk">Dealer</div>
+        <div class="dd-title" id="dealer-dialog-title">How can I help you today?</div>
+        <div class="dd-line" id="dealer-dialog-line"></div>
+        <div class="dd-actions">
+          <button id="dealer-dialog-store">Show me the catalog</button>
+          <button id="dealer-dialog-close" class="dd-secondary">Maybe later</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="title-container">
+      <div id="title-vehicleinfo">
+          <div id="title-vehiclename">Select Vehicle</div>
+          <div id="title-vehiclecategory">Sports</div>
+          <div id="title-stock" class="title-extra">Status: Select a vehicle</div>
+          <div id="title-price" class="title-extra">Price: -</div>
+          <div style="margin-top: 10px;">
+          </div>
+          <div id="color-warp">
+            <div id="colors-container">
+        </div>
+
+
+      </div>
+      </div>
+  </div>
+  <div id="vehicle-container">
+      <div id="vehicle-carousel">
+
+      </div>
+      <div id="vehicle-warp">
+          
+      </div>
+  </div>
+  <div id="statistics-warp">
+      <div id="statistics-container">
+          <div id="vehicle-stat-container">
+              <div class="vehicle-stat engine">
+                  <div class="stat-name">Max Speed (KM/H):</div>
+                  <div class="stat-progress-container">
+                      <div class="stat-progress">
+                          <div class="prog-line speed-line"></div>
+                      </div>
+                      <span class="prog-num num-speed">0.0</span>
+                  </div>
+              </div>
+              <div class="vehicle-stat brakes">
+                  <div class="stat-name">Acceleration:</div>
+                  <div class="stat-progress-container">
+                      <div class="stat-progress">
+                          <div class="prog-line acceleration-line"></div>
+                      </div>
+                      <span class="prog-num num-acceleration">0.0</span>
+                  </div>
+              </div>
+              <div class="vehicle-stat transition">
+                  <div class="stat-name">Braking:</div>
+                  <div class="stat-progress-container">
+                      <div class="stat-progress">
+                          <div class="prog-line braking-line"></div>
+                      </div>
+                      <span class="prog-num num-braking">0.0</span>
+                  </div>
+              </div>
+              <div class="vehicle-stat blalba">
+                  <div class="stat-name">Traction:</div>
+                  <div class="stat-progress-container">
+                      <div class="stat-progress">
+                          <div class="prog-line traction-line"></div>
+                      </div>
+                      <span class="prog-num num-traction">0.0</span>
+                  </div>
+              </div>
+          </div>
+      </div>
+      <div id="btn-warp">
+          <div id="hide-button">Preview</div>
+          <div id="btn-container" style="display: none;">
+            <a id="buy-btn" class="btn btn-success" style="margin-top: 50px; width: 320px;">
+                <span class='btn-text'>Buy Vehicle</span>
+            </a>
+            <div style="display: flex;">
+                <a id="back-btn" class="btn btn-danger" style="margin-top: 10px; width: 182px; margin-right: 5px;">
+                    <span class='btn-text back'>Back</span>
+                </a>
+                <a id="test-btn" class="btn btn-warn" style="margin-top: 10px; margin-left: 5px;">
+                    <span class='btn-text'>Test Drive</span>
+                </a>
+            </div>
+        </div>
+      </div>
+  </div>
+
+  <div id="vehicle-class-title-container">
+      <div id="vehicle-class-title-vehicleinfo">
+          <div id="vehicle-class-title-vehiclename">Vehicle Showroom</div>
+          <div id="vehicle-class-title-vehiclecategory">Choose a vehicle category.</div>
+      </div>
+  </div>
+  <div id="vehicle-class-container">
+      <div id="vehicle-class-carousel">
+      </div>
+      <div id="vehicle-class-warp">
+      </div>
+  </div>
+  <div id="buy-vehicle">
+      <div id="title-buy-container">
+          <div id="buy-offer">Payment Details</div>
+      </div>
+      <div id="buy-details">
+          <div class="detail">
+              <div class="detail-icon"><i class="fas fa-user-alt"></i></div>
+              <div class="detail-info" id="detail-name">Frank Smith</div>
+          </div>
+          <div class="detail">
+              <div class="detail-icon"><i class="fas fa-money-check-alt"></i></div>
+              <div class="detail-info" id="detail-price">500,000$</div>
+          </div>
+          <div class="detail">
+              <div class="detail-icon"><i class="fas fa-car-alt"></i></div>
+              <div class="detail-info" id="detail-vehicle">Adder</div>
+          </div>
+          <div class="detail">
+              <div class="detail-icon"><i class="fas fa-fill-drip"></i></div>
+              <div class="detail-info" id="detail-color">White</div>
+          </div>
+      </div>
+      <div id="buy-down">
+          <div id="buy-text">Are you sure you want to buy this vehicle?</div>
+          <div id="buy-buttons">
+              <div class="buy-button" id="back">Cancel</div>
+              <div class="buy-button" id="buy">Buy Vehicle</div>
+          </div>
+      </div>
+  </div>
+  <div id="main"></div>
+  <div id="esc-hint">ESC Back / Close</div>
+  <div id="buy-notify">
+      <span>Vehicle purchased successfully.</span>
+      <div style="font-size: 2.0rem; color: grey;">Your vehicle has been added to your owned vehicles.</div>
+  </div>
+  <div id="drawmarker-container">
+      <span>[E]</span> Open Catalog
+  </div>
+  <div id="test-drive-container">
+      <div id="title-buy-container">
+          <div id="buy-offer">Test Drive Ayrıntıları</div>
+      </div>
+      <div id="test-details">
+          <div class="test-detail">
+              <div class="detail-icon"><i class="fas fa-car-alt"></i></div>
+              <div class="detail-info" id="test-vehicle">Adder</div>
+          </div>
+          <div class="test-detail">
+              <div class="detail-icon"><i class="fas fa-money-check-alt"></i></div>
+              <div class="detail-info" id="test-price">1000$</div>
+          </div>
+          <div class="test-detail">
+              <div class="detail-icon"><i class="fas fa-clock"></i></div>
+              <div class="detail-info" id="test-time">2:00</div>
+          </div>
+      </div>
+      <div id="test-down">
+          <div id="test-text" style="white-space: nowrap;">Are you sure you want to start the test drive?</div>
+          <div id="test-buttons">
+              <div class="test-button" id="test-back">Back</div>
+              <div class="test-button" id="test-accept">Start</div>
+          </div>
+      </div>
+  </div>
+  <div id="test-drive-timer">
+      <span id="timer"></span>
+  </div>
+
+  <div id="admin-panel" style="display:none;">
+    <div class="admin-shell">
+      <div class="admin-head">
+        <div>
+          <h1>Vehicle Admin</h1>
+          <p>Only cars saved here will be used by the server. Store = buyable. Server only = event/task. Hidden = not shown.</p>
+        </div>
+        <button id="admin-close">Close</button>
+      </div>
+      <div class="admin-body">
+        <aside class="admin-left">
+          <input id="admin-search" placeholder="Search model, name, category..." />
+          <select id="admin-source-select" size="10"></select>
+          <div id="admin-list"></div>
+        </aside>
+        <main class="admin-form">
+          <div class="admin-status-line">Current state: <b id="admin-current-status">Not set</b></div>
+          <label>Model spawn name<input id="admin-model" placeholder="sultan" /></label>
+          <label>Display name<input id="admin-label" placeholder="Karin Sultan" /></label>
+          <label>Category<input id="admin-category" placeholder="Sedan" /></label>
+          <div class="admin-row">
+            <label>Price<input id="admin-price" type="number" min="0" step="1" /></label>
+            <label>Trunk level<input id="admin-trunk" type="number" min="0" max="6" step="1" /></label>
+          </div>
+          <label>Catalog status
+            <select id="admin-status-mode">
+              <option value="hidden">Hidden / disabled</option>
+              <option value="server">Server only / event-task vehicle</option>
+              <option value="store">Store buyable</option>
+            </select>
+          </label>
+          <div class="admin-checks admin-test-drive-settings">
+            <label><input id="admin-test-enabled" type="checkbox" checked /> Test drive enabled</label>
+            <div class="admin-row">
+              <label>Test duration seconds<input id="admin-test-duration" type="number" min="10" max="600" step="1" value="60" /></label>
+              <label>Test drive cost<input id="admin-test-cost" type="number" min="0" step="1" value="50" /></label>
+            </div>
+          </div>
+          <div class="admin-actions">
+            <button id="admin-save">Save / Enable</button>
+            <button id="admin-capture">Recapture Image</button>
+            <button id="admin-disable">Disable / Hide</button>
+            <button id="admin-refresh">Refresh</button>
+          </div>
+          <div class="admin-image-row">
+            <div class="admin-image-label">Current image:</div>
+            <img id="admin-image-preview" alt="No image yet" style="display:none;" />
+          </div>
+          <div class="admin-help">
+            <b>Use:</b> Hidden disables the car. Server only is for event/task cars. Store buyable appears in the dealership with buy button.<br>
+            <b>Image is required to enable:</b> when you enable a car and press <b>Save / Enable</b>, it is photographed in the airport 3D green-screen studio and saved as transparent PNG. Use <b>Recapture Image</b> to update the photo later.
+          </div>
+        </main>
+      </div>
+    </div>
+    <div id="admin-toast"></div>
+  </div>
+
+
+  <div id="crop-modal" style="display:none;">
+    <div class="crop-shell">
+      <div class="crop-head">
+        <div>
+          <h2>Review Vehicle Image</h2>
+          <p>Preview the PNG before saving. Drag the crop box to move it, and drag the corner handle to resize it.</p>
+        </div>
+      </div>
+      <div class="crop-stage">
+        <div id="crop-image-wrap">
+          <img id="crop-preview-image" alt="Vehicle image preview" />
+          <div id="crop-box">
+            <div class="crop-label">Crop</div>
+            <div id="crop-resize-handle"></div>
+          </div>
+        </div>
+      </div>
+      <div class="crop-actions">
+        <button id="crop-auto">Auto Crop</button>
+        <button id="crop-full">Use Full</button>
+        <button id="crop-recapture" class="danger-lite">Recapture</button>
+        <button id="crop-cancel" class="danger-lite">Cancel</button>
+        <button id="crop-save" class="primary">Save Image</button>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

@@ -1,3 +1,10 @@
+
+// FiveM CEF transparency safety: force page background transparent in-game.
+document.documentElement.style.background = 'rgba(0,0,0,0)';
+document.body.style.background = 'rgba(0,0,0,0)';
+document.documentElement.style.backgroundColor = 'rgba(0,0,0,0)';
+document.body.style.backgroundColor = 'rgba(0,0,0,0)';
+
 const root = document.getElementById('inventory');
 const quickEl = document.getElementById('quick-slots');
 const pocketEl = document.getElementById('pocket-slots');
@@ -18,6 +25,7 @@ const progressOverlay = document.getElementById('use-progress');
 const progressFill = document.getElementById('progress-fill');
 const progressLabel = document.getElementById('progress-label');
 const toastEl = document.getElementById('toast');
+const giveDropZone = document.getElementById('give-drop-zone');
 
 let state = {
   open: false,
@@ -26,6 +34,7 @@ let state = {
   weight: { current: 0, max: 82000 },
   dragged: null,
   contextItem: null,
+  contextOpen: false,
   splitSource: null,
   splitTarget: null,
   giveSource: null,
@@ -39,10 +48,27 @@ const equipmentLabels = {
   weapon: 'Weapon', ammo: 'Ammo', watch: 'Watch', pants: 'Pants', shoes: 'Shoes'
 };
 
-const equipmentIcons = {
-  mask: '🎭', glasses: '👓', headwear: '👒', earrings: '💎', outerwear: '🧥',
-  shirt: '👕', bodyarmor: '🛡', bag: '🎒', accessory: '🎀', weapon: '🔫', ammo: '➤', watch: '⌚', pants: '👖', shoes: '👟'
-};
+function equipmentIconSvg(slot) {
+  const common = 'viewBox="0 0 24 24" aria-hidden="true" class="equip-svg"';
+  const stroke = 'fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"';
+  const icons = {
+    mask: `<svg ${common}><path ${stroke} d="M5 9c1.9-2 4.2-3 7-3s5.1 1 7 3v5.2c0 2.3-1.8 4.2-4 4.2-1.3 0-2.3-.5-3-1.4-0.7.9-1.7 1.4-3 1.4-2.2 0-4-1.9-4-4.2V9z"/><path ${stroke} d="M8.2 11.2h2M13.8 11.2h2M10 15h4"/></svg>`,
+    glasses: `<svg ${common}><circle ${stroke} cx="8" cy="13" r="3.3"/><circle ${stroke} cx="16" cy="13" r="3.3"/><path ${stroke} d="M11.3 13h1.4M4.7 12.3 3 11M19.3 12.3 21 11"/></svg>`,
+    headwear: `<svg ${common}><path ${stroke} d="M5 12c.7-4 3-6 7-6s6.3 2 7 6"/><path ${stroke} d="M4 13h16M7 13v4h10v-4"/></svg>`,
+    earrings: `<svg ${common}><path ${stroke} d="M12 5v5"/><circle ${stroke} cx="12" cy="13" r="2.2"/><path ${stroke} d="M12 15.2v3.8"/><circle ${stroke} cx="12" cy="20" r="1"/></svg>`,
+    outerwear: `<svg ${common}><path ${stroke} d="M8 4 5 7v13h5v-8h4v8h5V7l-3-3"/><path ${stroke} d="M9 4c.5 1.7 1.5 2.6 3 2.6S14.5 5.7 15 4"/></svg>`,
+    shirt: `<svg ${common}><path ${stroke} d="M9 4 5 6.5 3.5 11 7 12.5V20h10v-7.5L20.5 11 19 6.5 15 4"/><path ${stroke} d="M9 4c.8 1.2 1.8 1.8 3 1.8S14.2 5.2 15 4"/></svg>`,
+    bodyarmor: `<svg ${common}><path ${stroke} d="M12 3 5.5 6v5.3c0 4.1 2.6 7.3 6.5 9.7 3.9-2.4 6.5-5.6 6.5-9.7V6L12 3z"/><path ${stroke} d="M9 10h6M9 14h6"/></svg>`,
+    bag: `<svg ${common}><path ${stroke} d="M7 9V7a5 5 0 0 1 10 0v2"/><rect ${stroke} x="5" y="8" width="14" height="12" rx="3"/><path ${stroke} d="M9 12v4M15 12v4"/></svg>`,
+    accessory: `<svg ${common}><path ${stroke} d="M7 5c3 4 7 4 10 0"/><path ${stroke} d="M8 5c0 5 1.3 9.2 4 14 2.7-4.8 4-9 4-14"/><circle ${stroke} cx="12" cy="15" r="1.4"/></svg>`,
+    weapon: `<svg ${common}><path ${stroke} d="M4 12h10l3-3h3v4h-4l-2 2H9l-1 4H5l1-4H4z"/></svg>`,
+    ammo: `<svg ${common}><path ${stroke} d="M10 4h4l1 3v12a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2V7l1-3z"/><path ${stroke} d="M9 8h6"/></svg>`,
+    watch: `<svg ${common}><path ${stroke} d="M9 3h6l-1 4H10L9 3zM10 17h4l1 4H9l1-4z"/><circle ${stroke} cx="12" cy="12" r="4.5"/><path ${stroke} d="M12 10v2.5l1.7 1"/></svg>`,
+    pants: `<svg ${common}><path ${stroke} d="M8 4h8l-1 16h-4l-1-9-1 9H5L8 4z"/><path ${stroke} d="M10 4v7"/></svg>`,
+    shoes: `<svg ${common}><path ${stroke} d="M5 15c2.8 1.2 5.7 1.2 9 0l2 2h3c.7 0 1 .4 1 1v1H4v-2.5c0-.8.4-1.3 1-1.5z"/></svg>`
+  };
+  return icons[slot] || `<svg ${common}><path ${stroke} d="M12 4 20 12 12 20 4 12z"/></svg>`;
+}
 
 
 const equipmentByCategory = {
@@ -130,6 +156,17 @@ function kg(grams) {
   return ((Number(grams) || 0) / 1000).toFixed(1);
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, (char) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#039;', '"': '&quot;'
+  }[char]));
+}
+
+function compactValue(value, fallback = '') {
+  const text = String(value ?? fallback).trim();
+  return text || fallback;
+}
+
 function rarityOf(item) {
   const r = String(item?.rarity || item?.itemType || item?.metadata?.rarity || item?.metadata?.itemType || 'normal').toLowerCase();
   if (r === 'rare' || r === 'unique') return r;
@@ -144,6 +181,48 @@ function itemDurability(item) {
   return Math.max(0, Math.min(100, Math.floor(n)));
 }
 
+
+function isBagItem(item) {
+  const meta = item?.metadata || {};
+  const name = String(item?.item_name || item?.name || '').toLowerCase();
+  return item?.isBag === true || name === 'clothing_bags' || String(meta.categoryType || meta.category || '').toLowerCase() === 'bags';
+}
+
+function isClothingItem(item) {
+  const name = String(item?.item_name || item?.name || '').toLowerCase();
+  return item?.isClothing === true || name.startsWith('clothing_') || !!item?.metadata?.drawableId;
+}
+
+function bagLevelOf(item) {
+  const meta = item?.metadata || {};
+  const lvl = Number(item?.bagLevel || meta.bagLevel || meta.bag_level || meta.level || 0);
+  if (!lvl) return 0;
+  return Math.max(1, Math.min(4, Math.floor(lvl)));
+}
+
+function itemLabel(item) {
+  const level = bagLevelOf(item);
+  const current = String(item?.label || '').trim();
+  if (isBagItem(item) && level && (!current || current === 'Bag' || current === 'Clothing Bag' || current === 'clothing_bags')) {
+    return `Level ${level} Bag`;
+  }
+  return current || item?.item_name || 'ITEM';
+}
+
+function itemSubtitle(item) {
+  const meta = item?.metadata || {};
+  const level = bagLevelOf(item);
+  if (isBagItem(item) && level) return `BAG LEVEL ${level}`;
+  if (isClothingItem(item)) {
+    const cat = String(meta.categoryType || meta.category || item?.category || '').toUpperCase();
+    const drawable = meta.drawableId ?? meta.drawable;
+    const texture = meta.textureId ?? meta.texture;
+    if (cat && drawable !== undefined && drawable !== null) return `${cat} • ${drawable}/${texture ?? 0}`;
+    if (cat) return cat;
+  }
+  return `${kg((item.weight || 0) * (item.quantity || 1))} KG`;
+}
+
 function isLockedSlot(slot) {
   if (!slot || !slot.startsWith('backpack-')) return false;
   const idx = Number(slot.replace('backpack-', ''));
@@ -156,35 +235,62 @@ function metadataRows(item) {
   const rows = [];
   const durability = itemDurability(item);
   if (durability !== null) rows.push(['Durability', `${durability}%`]);
+
+  const bagLevel = bagLevelOf(item);
+  if (bagLevel) rows.push(['Bag Level', `Level ${bagLevel}`]);
+  if (isBagItem(item) && bagLevel) {
+    const cfgSlots = Number(item?.bagSlots || item?.backpackSlots || state.bag?.backpackSlots || 0);
+    if (cfgSlots) rows.push(['Slots', `${cfgSlots}/30`]);
+  }
+
+  if (isClothingItem(item)) {
+    const category = compactValue(meta.categoryType || meta.category || item?.category, 'Clothing');
+    const drawable = meta.drawableId ?? meta.drawable;
+    const texture = meta.textureId ?? meta.texture;
+    rows.push(['Type', String(category).toUpperCase()]);
+    if (drawable !== undefined && drawable !== null) rows.push(['Style', `${drawable}/${texture ?? 0}`]);
+  } else if (item?.category) {
+    rows.push(['Category', String(item.category).toUpperCase()]);
+  }
+
   if (meta.serial) rows.push(['Serial', meta.serial]);
-  if (meta.bagLevel) rows.push(['Bag Level', `Level ${meta.bagLevel}`]);
-  // Clothing-specific fields shown in a friendly order
-  if (meta.categoryType) rows.push(['Category', String(meta.categoryType).toUpperCase()]);
-  if (meta.gender) rows.push(['Gender', String(meta.gender).charAt(0).toUpperCase() + String(meta.gender).slice(1)]);
-  if (meta.drawableId !== undefined && meta.drawableId !== null) rows.push(['Style ID', meta.drawableId]);
-  if (meta.textureId !== undefined && meta.textureId !== null) rows.push(['Color ID', meta.textureId]);
-  if (meta.purchasedAt) rows.push(['Purchased', String(meta.purchasedAt).replace('T', ' ').replace('Z', '')]);
-  if (meta.createdAt) rows.push(['Created', String(meta.createdAt).replace('T', ' ').replace('Z', '')]);
   if (meta.owner || meta.registeredTo) rows.push(['Owner', meta.owner || meta.registeredTo]);
-  // Skip internal/redundant keys and object values
-  const skip = new Set([
-    'durability','serial','bagLevel','bag_level','level',
-    'categoryType','gender','drawableId','textureId','purchasedAt','createdAt','owner','registeredTo',
-    'rarity','itemType','label','description','image','icon',
-    'equipped','inventoryOnly','preferredContainer','preferredStorage','inventoryTarget','slotGroup',
-    'componentType','componentIndex','arms','armsTexture','undershirt','undershirtTexture','sleeveStyle',
-  ]);
-  Object.entries(meta).forEach(([k, v]) => {
-    if (skip.has(k)) return;
-    if (typeof v === 'object') return;
-    rows.push([k, String(v)]);
-  });
-  return rows;
+  return rows.slice(0, 6);
+}
+
+function tooltipRows(item) {
+  const rows = [];
+  rows.push(['Qty', item.quantity || 1]);
+  rows.push(['Weight', `${kg((item.weight || 0) * (item.quantity || 1))} KG`]);
+
+  const durability = itemDurability(item);
+  if (durability !== null) rows.push(['Durability', `${durability}%`]);
+
+  const bagLevel = bagLevelOf(item);
+  if (isBagItem(item) && bagLevel) {
+    rows.push(['Bag', `Level ${bagLevel}`]);
+    const slots = Number(item?.bagSlots || item?.backpackSlots || state.bag?.backpackSlots || 0);
+    if (slots) rows.push(['Slots', `${slots}/30`]);
+    return rows.slice(0, 4);
+  }
+
+  if (isClothingItem(item)) {
+    const meta = item?.metadata || {};
+    const category = compactValue(meta.categoryType || meta.category || item?.category, 'Clothing');
+    const drawable = meta.drawableId ?? meta.drawable;
+    const texture = meta.textureId ?? meta.texture;
+    rows.push(['Type', String(category).toUpperCase()]);
+    if (drawable !== undefined && drawable !== null) rows.push(['Style', `${drawable}/${texture ?? 0}`]);
+    return rows.slice(0, 4);
+  }
+
+  return rows.slice(0, 3);
 }
 
 function closeContext() {
   contextEl.classList.add('hidden');
   state.contextItem = null;
+  state.contextOpen = false;
 }
 
 function closeTooltip() {
@@ -230,7 +336,7 @@ function makeSlot(slot, group) {
   if (group === 'equipment' && !item) {
     const icon = document.createElement('div');
     icon.className = 'slot-label';
-    icon.innerHTML = `${equipmentIcons[slot] || '◇'}<br>${equipmentLabels[slot] || slot}`;
+    icon.innerHTML = `${equipmentIconSvg(slot)}<br><span>${escapeHtml(equipmentLabels[slot] || slot)}</span>`;
     el.appendChild(icon);
   }
 
@@ -242,6 +348,23 @@ let activeDrag = null;
 
 function clearDropTargets() {
   document.querySelectorAll('.drop-target').forEach(x => x.classList.remove('drop-target'));
+  if (giveDropZone) giveDropZone.classList.remove('active');
+}
+
+function isGiveZone(x, y) {
+  if (!activeDrag) return false;
+  return y >= window.innerHeight - Math.max(94, Math.round(window.innerHeight * 0.12));
+}
+
+function showGiveDropZone() {
+  if (!giveDropZone) return;
+  giveDropZone.classList.remove('hidden');
+}
+
+function hideGiveDropZone() {
+  if (!giveDropZone) return;
+  giveDropZone.classList.add('hidden');
+  giveDropZone.classList.remove('active');
 }
 
 function getSlotUnderCursor(x, y) {
@@ -259,8 +382,13 @@ function moveGhost(x, y) {
 
 function updateDropTarget(x, y) {
   clearDropTargets();
+  if (!activeDrag) return;
+  if (isGiveZone(x, y)) {
+    if (giveDropZone) giveDropZone.classList.add('active');
+    return;
+  }
   const slot = getSlotUnderCursor(x, y);
-  if (!slot || !activeDrag) return;
+  if (!slot) return;
   const slotEl = document.querySelector(`.slot[data-slot="${slot}"]`);
   if (!slotEl || slot === activeDrag.fromSlot) return;
   if (isLockedSlot(slot)) slotEl.classList.add('invalid-target');
@@ -270,14 +398,22 @@ function updateDropTarget(x, y) {
 function finishDrag(x, y) {
   if (!activeDrag) return;
 
+  const dragItem = activeDrag.item;
   const fromSlot = activeDrag.fromSlot;
   const toSlot = getSlotUnderCursor(x, y);
+  const wantsGive = isGiveZone(x, y);
 
   if (activeDrag.ghost) activeDrag.ghost.remove();
   if (activeDrag.sourceEl) activeDrag.sourceEl.classList.remove('dragging-source');
   clearDropTargets();
+  hideGiveDropZone();
 
   activeDrag = null;
+
+  if (wantsGive && dragItem) {
+    openGive(dragItem);
+    return;
+  }
 
   if (!toSlot || !fromSlot || fromSlot === toSlot) return;
   if (isLockedSlot(toSlot)) { showToast('That backpack slot is locked by your bag level.', 'error'); return; }
@@ -303,7 +439,7 @@ function makeItem(item) {
 
   const img = document.createElement('img');
   img.src = imgSrc(item);
-  img.alt = item.label || item.item_name;
+  img.alt = itemLabel(item);
   img.onerror = () => { img.style.display = 'none'; };
   el.appendChild(img);
 
@@ -311,13 +447,26 @@ function makeItem(item) {
   info.className = 'item-info';
   const label = document.createElement('div');
   label.className = 'item-name';
-  label.textContent = item.label || item.item_name || 'ITEM';
+  label.textContent = itemLabel(item);
   const weight = document.createElement('div');
   weight.className = 'item-weight';
-  weight.textContent = `${kg((item.weight || 0) * (item.quantity || 1))} KG`;
+  weight.textContent = itemSubtitle(item);
   info.appendChild(label);
   info.appendChild(weight);
   el.appendChild(info);
+
+  const level = bagLevelOf(item);
+  if (isBagItem(item) && level) {
+    const badge = document.createElement('div');
+    badge.className = 'item-badge bag-badge';
+    badge.textContent = `LVL ${level}`;
+    el.appendChild(badge);
+  } else if (isClothingItem(item)) {
+    const badge = document.createElement('div');
+    badge.className = 'item-badge clothing-badge';
+    badge.textContent = 'FIT';
+    el.appendChild(badge);
+  }
 
   const durability = itemDurability(item);
   if (durability !== null) {
@@ -350,6 +499,7 @@ function makeItem(item) {
       offsetY: e.clientY - rect.top
     };
 
+    showGiveDropZone();
     el.classList.add('dragging-source');
     moveGhost(e.clientX, e.clientY);
     updateDropTarget(e.clientX, e.clientY);
@@ -362,10 +512,10 @@ function makeItem(item) {
   });
 
   el.addEventListener('mouseenter', (e) => {
-    if (!activeDrag) showTooltip(item, e.clientX, e.clientY);
+    if (!activeDrag && !state.contextOpen) showTooltip(item, e.clientX, e.clientY);
   });
   el.addEventListener('mousemove', (e) => {
-    if (!activeDrag) positionTooltip(e.clientX, e.clientY);
+    if (!activeDrag && !state.contextOpen) positionTooltip(e.clientX, e.clientY);
   });
   el.addEventListener('mouseleave', closeTooltip);
 
@@ -386,60 +536,74 @@ document.addEventListener('mouseup', (e) => {
 });
 
 function showTooltip(item, x, y) {
-  const totalWeight = kg((item.weight || 0) * (item.quantity || 1));
-  const rows = metadataRows(item).map(([k, v]) => `<div><b>${k}</b><span>${v}</span></div>`).join('');
-  const src = imgSrc(item);
+  if (state.contextOpen || !contextEl.classList.contains('hidden')) return;
+  const rows = tooltipRows(item).map(([k, v]) => `<div><b>${escapeHtml(k)}</b><span>${escapeHtml(v)}</span></div>`).join('');
+  const src = escapeHtml(imgSrc(item));
   tooltipEl.innerHTML = `
     <div class="tooltip-header">
       <img class="tooltip-img" src="${src}" alt="" onerror="this.style.display='none'" />
       <div class="tooltip-title">
-        <strong>${item.label || item.item_name}</strong>
-        <p>${item.description || 'No description.'}</p>
+        <strong>${escapeHtml(itemLabel(item))}</strong>
+        <p>${escapeHtml(itemSubtitle(item))}</p>
       </div>
     </div>
-    <div class="tooltip-meta">
-      <div><b>Weight</b><span>${totalWeight} KG</span></div>
-      <div><b>Rarity</b><span>${rarityOf(item).toUpperCase()}</span></div>
-      ${rows}
-    </div>`;
+    <div class="tooltip-meta">${rows}</div>`;
   tooltipEl.classList.remove('hidden');
   positionTooltip(x, y);
 }
 
 function positionTooltip(x, y) {
-  tooltipEl.style.left = `${x + 14}px`;
-  tooltipEl.style.top = `${y + 14}px`;
+  if (state.contextOpen || !contextEl.classList.contains('hidden')) return;
+  const margin = 18;
+  const rect = tooltipEl.getBoundingClientRect();
+  const left = Math.min(x + 14, window.innerWidth - rect.width - margin);
+  const top = Math.min(y + 14, window.innerHeight - rect.height - margin);
+  tooltipEl.style.left = `${Math.max(margin, left)}px`;
+  tooltipEl.style.top = `${Math.max(margin, top)}px`;
 }
 
 function showContext(item, x, y) {
+  closeTooltip();
   state.contextItem = item;
+  state.contextOpen = true;
   const totalWeight = kg((item.weight || 0) * (item.quantity || 1));
   const rarity = rarityOf(item);
-  const details = metadataRows(item).map(([k, v]) => `<div class="detail-row"><span>${k}</span><b>${v}</b></div>`).join('');
+  const details = metadataRows(item).map(([k, v]) => `<div class="detail-row"><span>${escapeHtml(k)}</span><b>${escapeHtml(v)}</b></div>`).join('');
+  const category = String(item.category || 'misc').toUpperCase();
+  const qty = Number(item.quantity || 1);
+  const splitButton = qty > 1 ? '<button data-action="split"><span class="icon">↔</span>DIVIDE</button>' : '';
+  const dropAllButton = qty > 1 ? '<button data-action="dropall"><span class="icon">⇩</span>DROP ALL</button>' : '';
   contextEl.innerHTML = `
-    <div class="context-head rarity-${rarity}">
-      <div class="context-title">${item.label || item.item_name}</div>
-      <div class="context-meta">${item.quantity || 1} UNITS / ${totalWeight} KG<br>${rarity.toUpperCase()} • ${String(item.category || 'misc').toUpperCase()}</div>
-      <div class="context-desc">${item.description || 'No item description available.'}</div>
-      <div class="details-list">${details || '<div class="detail-row"><span>Metadata</span><b>None</b></div>'}</div>
+    <div class="context-head rarity-${escapeHtml(rarity)}">
+      <div class="context-title">${escapeHtml(itemLabel(item))}</div>
+      <div class="context-meta">${escapeHtml(qty)} UNITS / ${escapeHtml(totalWeight)} KG<br>${escapeHtml(rarity.toUpperCase())} • ${escapeHtml(category)}</div>
+      <div class="context-desc">${escapeHtml(item.description || itemSubtitle(item) || 'No item description available.')}</div>
+      <div class="details-list">${details || '<div class="detail-row"><span>Info</span><b>Standard Item</b></div>'}</div>
     </div>
-    <div class="context-actions">
+    <div class="context-actions compact">
       <button data-action="use"><span class="icon">↩</span>USE</button>
-      <button data-action="split"><span class="icon">↔</span>DIVIDE</button>
-      <button data-action="give"><span class="icon">⇢</span>GIVE</button>
+      ${splitButton}
       <button data-action="drop"><span class="icon">⌄</span>DROP</button>
-      <button data-action="dropall"><span class="icon">⇩</span>DROP ALL</button>
+      ${dropAllButton}
     </div>
   `;
   contextEl.querySelector('[data-action="use"]').onclick = () => { post('useItem', { slot: item.slot }); closeContext(); };
-  contextEl.querySelector('[data-action="drop"]').onclick = () => openDrop(item);
-  contextEl.querySelector('[data-action="dropall"]').onclick = () => { post('dropItem', { slot: item.slot, amount: item.quantity || 1 }); closeContext(); };
-  contextEl.querySelector('[data-action="split"]').onclick = () => openSplit(item);
-  contextEl.querySelector('[data-action="give"]').onclick = () => openGive(item);
+  contextEl.querySelector('[data-action="drop"]').onclick = () => {
+    if (qty <= 1) {
+      post('dropItem', { slot: item.slot, amount: 1 });
+      closeContext();
+      return;
+    }
+    openDrop(item);
+  };
+  const dropAll = contextEl.querySelector('[data-action="dropall"]');
+  if (dropAll) dropAll.onclick = () => { post('dropItem', { slot: item.slot, amount: qty }); closeContext(); };
+  const split = contextEl.querySelector('[data-action="split"]');
+  if (split) split.onclick = () => openSplit(item);
 
   contextEl.classList.remove('hidden');
-  const rectW = 420;
-  const rectH = 420;
+  const rectW = 430;
+  const rectH = 390;
   contextEl.style.left = `${Math.min(x, window.innerWidth - rectW - 20)}px`;
   contextEl.style.top = `${Math.min(y, window.innerHeight - rectH - 20)}px`;
 }
@@ -473,7 +637,7 @@ function openGive(item) {
 
 function openDrop(item) {
   state.dropSource = item;
-  dropLabel.textContent = `${item.label || item.item_name} • choose amount to drop`;
+  dropLabel.textContent = `${itemLabel(item)} • choose amount to drop`;
   dropAmount.max = Math.max(1, item.quantity || 1);
   dropAmount.value = 1;
   dropModal.classList.remove('hidden');
@@ -488,10 +652,44 @@ function findEmptySlot() {
   return null;
 }
 
+function updateBackpackHint() {
+  const section = document.querySelector('.backpack-section');
+  if (!section) return;
+  let hint = document.getElementById('backpack-unlock-hint');
+  if (!hint) {
+    hint = document.createElement('div');
+    hint.id = 'backpack-unlock-hint';
+    hint.className = 'bag-unlock-hint hidden';
+    const title = document.getElementById('backpack-title');
+    if (title && title.parentNode === section) title.insertAdjacentElement('afterend', hint);
+    else section.insertBefore(hint, section.firstChild);
+  }
+
+  const lvl = Number(state.bag?.level || 0);
+  const openSlots = Number(state.bag?.backpackSlots || 0);
+  let text = '';
+  if (openSlots <= 0 || lvl <= 0) text = 'Get backpack from 24/7 to unlock slots.';
+  else if (lvl === 1) text = 'Get Level 2 backpack to unlock more slots.';
+  else if (lvl === 2) text = 'Get Level 3 backpack to unlock more slots.';
+
+  if (text) {
+    hint.textContent = text;
+    hint.classList.remove('hidden');
+  } else {
+    hint.textContent = '';
+    hint.classList.add('hidden');
+  }
+}
+
 function render() {
   setWeight();
   const bagLabel = document.getElementById('bag-level-label');
-  if (bagLabel) bagLabel.textContent = `${state.bag?.label || 'No Bag'} • ${state.bag?.backpackSlots || 0}/${30} slots`;
+  if (bagLabel) {
+    const lvl = Number(state.bag?.level || 0);
+    const maxWeight = kg(state.bag?.maxWeight || state.weight?.max || 0);
+    bagLabel.textContent = `${state.bag?.label || 'No Bag'} • Level ${lvl} • ${state.bag?.backpackSlots || 0}/30 slots • ${maxWeight} KG`;
+  }
+  updateBackpackHint();
   quickEl.innerHTML = '';
   pocketEl.innerHTML = '';
   backpackEl.innerHTML = '';
@@ -515,8 +713,14 @@ function applyInventoryPayload(payload) {
 
 function openInventory(payload) {
   state.open = true;
-  root.classList.remove('hidden');
+
+  // Build all slots/items before the NUI becomes visible.
+  // This avoids the short empty/black flash when the inventory opens.
   applyInventoryPayload(payload || {});
+
+  requestAnimationFrame(() => {
+    root.classList.remove('hidden');
+  });
 }
 
 function updateInventory(payload) {
@@ -532,6 +736,7 @@ function closeInventory() {
   splitModal.classList.add('hidden');
   if (giveModal) giveModal.classList.add('hidden');
   if (dropModal) dropModal.classList.add('hidden');
+  hideGiveDropZone();
   if (progressOverlay) progressOverlay.classList.add('hidden');
 }
 

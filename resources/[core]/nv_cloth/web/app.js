@@ -60,6 +60,7 @@ const backToTorsoBtn    = $('backToTorsoBtn');
 /* ── Category metadata ─────────────────────────────────── */
 const CAT_ICONS = {
   torso:    svgIcon('shirt'),
+  armor:    svgIcon('vest'),
   arms:     svgIcon('arm'),
   tshirt:   svgIcon('shirt2'),
   pants:    svgIcon('pants'),
@@ -72,7 +73,7 @@ const CAT_ICONS = {
   watches:  svgIcon('watch'),
 };
 const CAT_LABELS = {
-  torso: 'Outerwear', arms: 'Arms / Fit', tshirt: 'Shirts',
+  torso: 'Outerwear', armor: 'Armor / Vest', arms: 'Arms / Fit', tshirt: 'Shirts',
   pants: 'Pants & Shorts', shoes: 'Shoes', hat: 'Headwear',
   glasses: 'Glasses', earrings: 'Earrings', chains: 'Accessories',
   bags: 'Bags', watches: 'Watches',
@@ -80,6 +81,7 @@ const CAT_LABELS = {
 
 function svgIcon(name) {
   const icons = {
+    vest:     '<svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path d="M8 3l4 3 4-3 3 3-2 3v9H7v-9L5 6l3-3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
     shirt:    '<svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path d="M20.38 3.46L16 2a4 4 0 01-8 0L3.62 3.46a2 2 0 00-1.34 2.23l.58 3.57a1 1 0 00.99.84H5v9a2 2 0 002 2h10a2 2 0 002-2v-9h1.15a1 1 0 00.99-.84l.58-3.57a2 2 0 00-1.33-2.23z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
     arm:      '<svg width="16" height="16" fill="none" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="4" stroke="currentColor" stroke-width="1.6"/></svg>',
     shirt2:   '<svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path d="M3 6l4-3h10l4 3-3 3v12H6V9L3 6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
@@ -96,12 +98,13 @@ function svgIcon(name) {
 }
 
 /* ── Index maps (component/prop → category) ─────────── */
-const COMP_IDX_CAT  = { 11:'torso', 8:'tshirt', 4:'pants', 6:'shoes', 7:'chains', 5:'bags' };
+const COMP_IDX_CAT  = { 11:'torso', 8:'tshirt', 4:'pants', 6:'shoes', 7:'chains', 5:'bags', 9:'armor' };
 const PROP_IDX_CAT  = { 0:'hat', 1:'glasses', 2:'earrings', 6:'watches' };
 
 /* ── Capture presets (server-mirrored) ─────────────── */
 const CAPTURE_PRESETS = {
   torso:    { angle:'front',  zOffset:0.00, bg:'green' },
+  armor:    { angle:'front',  zOffset:0.00, bg:'green' },
   tshirt:   { angle:'front',  zOffset:0.00, bg:'green' },
   pants:    { angle:'front',  zOffset:0.05, bg:'green' },
   shoes:    { angle:'front',  zOffset:0.28, bg:'green' },

@@ -31,6 +31,7 @@ local function getIconCaptureCrop(category)
   -- These defaults crop only the item zone so transparent icons stay clean.
   local defaults = {
     torso = { x = 0.30, y = 0.16, w = 0.40, h = 0.48, camera = 'body', padding = 10 },
+    armor = { x = 0.30, y = 0.16, w = 0.40, h = 0.48, camera = 'body', padding = 10 },
     tshirt = { x = 0.31, y = 0.18, w = 0.38, h = 0.34, camera = 'body', padding = 10 },
     pants = { x = 0.33, y = 0.47, w = 0.34, h = 0.39, camera = 'body', padding = 8 },
     shoes = { x = 0.34, y = 0.68, w = 0.32, h = 0.27, camera = 'feet', padding = 8 },
@@ -102,6 +103,7 @@ local function buildIconCapturePayload(data)
     sharedGender = sharedGender,
     level = tonumber(data.level or data.bagLevel),
     bagLevel = tonumber(data.bagLevel or data.level),
+    armorValue = tonumber(data.armorValue or data.armor_value),
   }
 
   if category == 'torso' then

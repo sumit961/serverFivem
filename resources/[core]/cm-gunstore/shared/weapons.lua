@@ -1,0 +1,92 @@
+-- cm-gunstore/shared/weapons.lua
+-- Firearm reference catalog built from FiveM weapon-models docs.
+-- Used by the admin picker. Each entry: hash (WEAPON_*), label, group, ammo, weight,
+-- and image (official FiveM doc render URL used as the default icon).
+-- Admin picks from here, sets price/damage/enabled, and creates the item in cm-items.
+
+Config = Config or {}
+
+local DOC_IMG = 'https://docs-backend.fivem.net/weapons/%s.png'
+local function img(hash) return DOC_IMG:format(hash) end
+
+-- group keys drive the admin tabs
+Config.WeaponGroups = { 'pistol', 'smg', 'rifle', 'shotgun', 'sniper', 'heavy' }
+
+Config.WeaponCatalog = {
+    -- ===== PISTOLS =====
+    { hash = 'WEAPON_PISTOL',          label = 'Pistol',                group = 'pistol', ammo = 'ammo_pistol', weight = 1100 },
+    { hash = 'WEAPON_PISTOL_MK2',      label = 'Pistol Mk II',          group = 'pistol', ammo = 'ammo_pistol', weight = 1200 },
+    { hash = 'WEAPON_COMBATPISTOL',    label = 'Combat Pistol',         group = 'pistol', ammo = 'ammo_pistol', weight = 1100 },
+    { hash = 'WEAPON_APPISTOL',        label = 'AP Pistol',             group = 'pistol', ammo = 'ammo_pistol', weight = 1150 },
+    { hash = 'WEAPON_PISTOL50',        label = 'Pistol .50',            group = 'pistol', ammo = 'ammo_pistol', weight = 1400 },
+    { hash = 'WEAPON_SNSPISTOL',       label = 'SNS Pistol',            group = 'pistol', ammo = 'ammo_pistol', weight = 900  },
+    { hash = 'WEAPON_SNSPISTOL_MK2',   label = 'SNS Pistol Mk II',      group = 'pistol', ammo = 'ammo_pistol', weight = 1000 },
+    { hash = 'WEAPON_HEAVYPISTOL',     label = 'Heavy Pistol',          group = 'pistol', ammo = 'ammo_pistol', weight = 1300 },
+    { hash = 'WEAPON_VINTAGEPISTOL',   label = 'Vintage Pistol',        group = 'pistol', ammo = 'ammo_pistol', weight = 1000 },
+    { hash = 'WEAPON_CERAMICPISTOL',   label = 'Ceramic Pistol',        group = 'pistol', ammo = 'ammo_pistol', weight = 900  },
+    { hash = 'WEAPON_MARKSMANPISTOL',  label = 'Marksman Pistol',       group = 'pistol', ammo = 'ammo_pistol', weight = 1200 },
+    { hash = 'WEAPON_REVOLVER',        label = 'Heavy Revolver',        group = 'pistol', ammo = 'ammo_pistol', weight = 1500 },
+    { hash = 'WEAPON_REVOLVER_MK2',    label = 'Heavy Revolver Mk II',  group = 'pistol', ammo = 'ammo_pistol', weight = 1600 },
+    { hash = 'WEAPON_DOUBLEACTION',    label = 'Double-Action Revolver',group = 'pistol', ammo = 'ammo_pistol', weight = 1300 },
+    { hash = 'WEAPON_NAVYREVOLVER',    label = 'Navy Revolver',         group = 'pistol', ammo = 'ammo_pistol', weight = 1400 },
+    { hash = 'WEAPON_GADGETPISTOL',    label = 'Perico Pistol',         group = 'pistol', ammo = 'ammo_pistol', weight = 1100 },
+    { hash = 'WEAPON_PISTOLXM3',       label = 'WM 29 Pistol',          group = 'pistol', ammo = 'ammo_pistol', weight = 1150 },
+
+    -- ===== SMG =====
+    { hash = 'WEAPON_MICROSMG',        label = 'Micro SMG',             group = 'smg', ammo = 'ammo_smg', weight = 2000 },
+    { hash = 'WEAPON_SMG',             label = 'SMG',                   group = 'smg', ammo = 'ammo_smg', weight = 2600 },
+    { hash = 'WEAPON_SMG_MK2',         label = 'SMG Mk II',             group = 'smg', ammo = 'ammo_smg', weight = 2700 },
+    { hash = 'WEAPON_ASSAULTSMG',      label = 'Assault SMG',           group = 'smg', ammo = 'ammo_smg', weight = 2800 },
+    { hash = 'WEAPON_COMBATPDW',       label = 'Combat PDW',            group = 'smg', ammo = 'ammo_smg', weight = 2900 },
+    { hash = 'WEAPON_MACHINEPISTOL',   label = 'Machine Pistol',        group = 'smg', ammo = 'ammo_smg', weight = 1400 },
+    { hash = 'WEAPON_MINISMG',         label = 'Mini SMG',              group = 'smg', ammo = 'ammo_smg', weight = 1800 },
+    { hash = 'WEAPON_TECPISTOL',       label = 'Tactical SMG',          group = 'smg', ammo = 'ammo_smg', weight = 1900 },
+
+    -- ===== RIFLES =====
+    { hash = 'WEAPON_ASSAULTRIFLE',     label = 'Assault Rifle',        group = 'rifle', ammo = 'ammo_rifle', weight = 3500 },
+    { hash = 'WEAPON_ASSAULTRIFLE_MK2', label = 'Assault Rifle Mk II',  group = 'rifle', ammo = 'ammo_rifle', weight = 3600 },
+    { hash = 'WEAPON_CARBINERIFLE',     label = 'Carbine Rifle',        group = 'rifle', ammo = 'ammo_rifle', weight = 3700 },
+    { hash = 'WEAPON_CARBINERIFLE_MK2', label = 'Carbine Rifle Mk II',  group = 'rifle', ammo = 'ammo_rifle', weight = 3800 },
+    { hash = 'WEAPON_ADVANCEDRIFLE',    label = 'Advanced Rifle',       group = 'rifle', ammo = 'ammo_rifle', weight = 3400 },
+    { hash = 'WEAPON_SPECIALCARBINE',   label = 'Special Carbine',      group = 'rifle', ammo = 'ammo_rifle', weight = 3600 },
+    { hash = 'WEAPON_SPECIALCARBINE_MK2', label = 'Special Carbine Mk II', group = 'rifle', ammo = 'ammo_rifle', weight = 3700 },
+    { hash = 'WEAPON_BULLPUPRIFLE',     label = 'Bullpup Rifle',        group = 'rifle', ammo = 'ammo_rifle', weight = 3400 },
+    { hash = 'WEAPON_BULLPUPRIFLE_MK2', label = 'Bullpup Rifle Mk II',  group = 'rifle', ammo = 'ammo_rifle', weight = 3500 },
+    { hash = 'WEAPON_COMPACTRIFLE',     label = 'Compact Rifle',        group = 'rifle', ammo = 'ammo_rifle', weight = 3000 },
+    { hash = 'WEAPON_MILITARYRIFLE',    label = 'Military Rifle',       group = 'rifle', ammo = 'ammo_rifle', weight = 3700 },
+    { hash = 'WEAPON_HEAVYRIFLE',       label = 'Heavy Rifle',          group = 'rifle', ammo = 'ammo_rifle', weight = 3800 },
+    { hash = 'WEAPON_BATTLERIFLE',      label = 'Battle Rifle',         group = 'rifle', ammo = 'ammo_rifle', weight = 3700 },
+    { hash = 'WEAPON_TACTICALRIFLE',    label = 'Service Carbine',      group = 'rifle', ammo = 'ammo_rifle', weight = 3600 },
+
+    -- ===== SHOTGUNS =====
+    { hash = 'WEAPON_PUMPSHOTGUN',      label = 'Pump Shotgun',         group = 'shotgun', ammo = 'ammo_shotgun', weight = 3800 },
+    { hash = 'WEAPON_PUMPSHOTGUN_MK2',  label = 'Pump Shotgun Mk II',   group = 'shotgun', ammo = 'ammo_shotgun', weight = 3900 },
+    { hash = 'WEAPON_SAWNOFFSHOTGUN',   label = 'Sawed-Off Shotgun',    group = 'shotgun', ammo = 'ammo_shotgun', weight = 3000 },
+    { hash = 'WEAPON_ASSAULTSHOTGUN',   label = 'Assault Shotgun',      group = 'shotgun', ammo = 'ammo_shotgun', weight = 4000 },
+    { hash = 'WEAPON_BULLPUPSHOTGUN',   label = 'Bullpup Shotgun',      group = 'shotgun', ammo = 'ammo_shotgun', weight = 3900 },
+    { hash = 'WEAPON_HEAVYSHOTGUN',     label = 'Heavy Shotgun',        group = 'shotgun', ammo = 'ammo_shotgun', weight = 4200 },
+    { hash = 'WEAPON_DBSHOTGUN',        label = 'Double Barrel Shotgun',group = 'shotgun', ammo = 'ammo_shotgun', weight = 3200 },
+    { hash = 'WEAPON_AUTOSHOTGUN',      label = 'Sweeper Shotgun',      group = 'shotgun', ammo = 'ammo_shotgun', weight = 3600 },
+    { hash = 'WEAPON_COMBATSHOTGUN',    label = 'Combat Shotgun',       group = 'shotgun', ammo = 'ammo_shotgun', weight = 3800 },
+
+    -- ===== SNIPERS =====
+    { hash = 'WEAPON_SNIPERRIFLE',      label = 'Sniper Rifle',         group = 'sniper', ammo = 'ammo_sniper', weight = 5000 },
+    { hash = 'WEAPON_HEAVYSNIPER',      label = 'Heavy Sniper',         group = 'sniper', ammo = 'ammo_sniper', weight = 5500 },
+    { hash = 'WEAPON_HEAVYSNIPER_MK2',  label = 'Heavy Sniper Mk II',   group = 'sniper', ammo = 'ammo_sniper', weight = 5600 },
+    { hash = 'WEAPON_MARKSMANRIFLE',    label = 'Marksman Rifle',       group = 'sniper', ammo = 'ammo_sniper', weight = 4800 },
+    { hash = 'WEAPON_MARKSMANRIFLE_MK2',label = 'Marksman Rifle Mk II', group = 'sniper', ammo = 'ammo_sniper', weight = 4900 },
+    { hash = 'WEAPON_PRECISIONRIFLE',   label = 'Precision Rifle',      group = 'sniper', ammo = 'ammo_sniper', weight = 5000 },
+
+    -- ===== HEAVY =====
+    { hash = 'WEAPON_MINIGUN',          label = 'Minigun',              group = 'heavy', ammo = 'ammo_rifle',   weight = 9000 },
+    { hash = 'WEAPON_GRENADELAUNCHER',  label = 'Grenade Launcher',     group = 'heavy', ammo = 'ammo_grenade', weight = 5000 },
+    { hash = 'WEAPON_RPG',              label = 'RPG',                  group = 'heavy', ammo = 'ammo_rocket',  weight = 7000 },
+    { hash = 'WEAPON_HOMINGLAUNCHER',   label = 'Homing Launcher',      group = 'heavy', ammo = 'ammo_rocket',  weight = 7000 },
+    { hash = 'WEAPON_RAILGUN',          label = 'Railgun',              group = 'heavy', ammo = 'ammo_rifle',   weight = 6000 },
+    { hash = 'WEAPON_COMPACTLAUNCHER',  label = 'Compact Grenade Launcher', group = 'heavy', ammo = 'ammo_grenade', weight = 4500 },
+}
+
+-- attach default doc image to every entry
+for _, w in ipairs(Config.WeaponCatalog) do
+    w.image = img(w.hash)
+end

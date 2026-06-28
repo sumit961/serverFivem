@@ -26,6 +26,7 @@ categories = {
   shoes    = { type = "component", index = 6  },
   chains   = { type = "component", index = 7  },
   bags     = { type = "component", index = 5  },
+  armor    = { type = "component", index = 9  }, -- body armor / vest; captured for cm-gunstore, not sold in clothes
   hat      = { type = "prop",      index = 0  },
   glasses  = { type = "prop",      index = 1  },
   earrings = { type = "prop",      index = 2  },
@@ -426,6 +427,12 @@ end, false)
 -- /clothingadmin is registered server-side so normal players cannot open it.
 RegisterNetEvent('nvCloth:client:openAdminPanel', function()
   openClothShop("ADMIN PANEL", { "torso", "arms", "tshirt", "pants", "shoes", "hat", "glasses", "earrings", "chains", "bags", "watches" }, "clothes", nil, true)
+end)
+
+-- Armor-only admin used by cm-gunstore. Locks the panel to the vest category and
+-- tags the shop key as "guns" so captures route to the gun store, not the clothes catalog.
+RegisterNetEvent('nvCloth:client:openArmorAdminPanel', function()
+  openClothShop("ARMOR CAPTURE", { "armor" }, "guns", nil, true)
 end)
 
 --========================================================

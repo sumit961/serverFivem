@@ -53,8 +53,17 @@ end
 local function setHudVisible(visible, external)
     if external ~= nil then uiHiddenByExternal = external == true end
     hudVisible = (visible == true) and isPlayerLoggedIn() and not uiHiddenByExternal
+
+    -- Hide/show both the native GTA HUD and this custom NUI HUD.
+    -- DisplayHud(false) alone does NOT hide cm-hud, so we also send setHudVisible to NUI.
+    DisplayHud(hudVisible)
     DisplayRadar(hudVisible)
-    SendNUIMessage({ action = 'setHudVisible', visible = hudVisible })
+    SendNUIMessage({
+        action = 'setHudVisible',
+        visible = hudVisible,
+        externalHidden = uiHiddenByExternal
+    })
+
     if not hudVisible then
         SendNUIMessage({ action = 'hideVehicle' })
         if setChatOpen then setChatOpen(false) end
@@ -438,11 +447,13 @@ RegisterNetEvent('cm-hud:client:setHudVisible', function(visible)
 end)
 
 RegisterNetEvent('cm-hud:client:hideForUi', function()
+    -- Explicit bridge used by inventory/phone/store UI.
     uiHiddenByExternal = true
     setHudVisible(false)
 end)
 
 RegisterNetEvent('cm-hud:client:showAfterUi', function()
+    -- Restore after external UI closes.
     uiHiddenByExternal = false
     setHudVisible(true)
 end)
@@ -791,6 +802,7 @@ AddEventHandler('onResourceStop', function(res)
     if res == GetCurrentResourceName() then
         SetNuiFocus(false, false)
         SetNuiFocusKeepInput(false)
+        DisplayHud(true)
         DisplayRadar(true)
     end
 end)

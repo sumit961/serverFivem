@@ -18,6 +18,7 @@ shared_scripts {
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
     'server/main.lua',
+    'server/items_catalog.lua',
     'server/image_upload.lua'
 }
 
@@ -43,6 +44,10 @@ files {
     'ui/images/clothing/custom/*.webp',
     'ui/images/clothing/custom/*.jpg',
     'ui/images/clothing/custom/*.jpeg',
+    'ui/images/catalog/*.png',
+    'ui/images/catalog/*.webp',
+    'ui/images/catalog/*.jpg',
+    'ui/images/catalog/*.jpeg',
     'ui/preview.html',
     'ui/preview.css',
     'ui/preview.js',

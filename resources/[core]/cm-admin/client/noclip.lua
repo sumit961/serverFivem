@@ -355,3 +355,91 @@ RegisterCommand('getcampos', function()
 
     print('==============================')
 end)
+
+-- Get current camera position + where it is looking.
+-- Use in F8:
+--   vehcamcurrent
+-- It prints config lines for:
+--   Config.VehicleAdminStudio.camera
+--   Config.VehicleAdminStudio.cameraLookAt
+--   Config.VehicleAdminStudio.cameraFov
+
+local function rnFmt(n)
+    return string.format('%.4f', tonumber(n) or 0.0)
+end
+
+local function rnRotationToDirection(rot)
+    local z = math.rad(rot.z)
+    local x = math.rad(rot.x)
+    local num = math.abs(math.cos(x))
+
+    return vector3(
+        -math.sin(z) * num,
+        math.cos(z) * num,
+        math.sin(x)
+    )
+end
+
+local function rnGetCurrentCameraData()
+    local cam = GetRenderingCam()
+    local camCoords, camRot, camFov
+
+    -- If script camera is active, read it.
+    -- Otherwise read normal gameplay camera.
+    if cam and cam ~= -1 and DoesCamExist(cam) then
+        camCoords = GetCamCoord(cam)
+        camRot = GetCamRot(cam, 2)
+        camFov = GetCamFov(cam)
+    else
+        camCoords = GetGameplayCamCoord()
+        camRot = GetGameplayCamRot(2)
+        camFov = GetGameplayCamFov()
+    end
+
+    local dir = rnRotationToDirection(camRot)
+    local far = camCoords + (dir * 80.0)
+
+    local ray = StartShapeTestRay(
+        camCoords.x,
+        camCoords.y,
+        camCoords.z,
+        far.x,
+        far.y,
+        far.z,
+        -1,
+        PlayerPedId(),
+        0
+    )
+
+    local _, hit, hitCoords = GetShapeTestResult(ray)
+
+    -- If raycast does not hit anything, use point in front of camera.
+    if hit ~= 1 then
+        hitCoords = camCoords + (dir * 8.0)
+    end
+
+    return camCoords, hitCoords, camFov
+end
+
+RegisterCommand('vehcamcurrent', function()
+    local camCoords, lookAt, fov = rnGetCurrentCameraData()
+
+    print('')
+    print('[rn-vehicleshop] Camera config from current view:')
+    print(('Config.VehicleAdminStudio.camera = vector3(%s, %s, %s)'):format(
+        rnFmt(camCoords.x),
+        rnFmt(camCoords.y),
+        rnFmt(camCoords.z)
+    ))
+    print(('Config.VehicleAdminStudio.cameraLookAt = vector3(%s, %s, %s)'):format(
+        rnFmt(lookAt.x),
+        rnFmt(lookAt.y),
+        rnFmt(lookAt.z)
+    ))
+    print(('Config.VehicleAdminStudio.cameraFov = %.1f'):format(fov))
+    print('')
+
+    BeginTextCommandThefeedPost('STRING')
+    AddTextComponentSubstringPlayerName('Camera position printed in F8 console.')
+    EndTextCommandThefeedPostTicker(false, false)
+end, false)

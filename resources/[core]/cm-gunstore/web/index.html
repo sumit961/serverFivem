@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CM Gun Store</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <section id="interactionPrompt" class="interaction-prompt hidden">
+        <div class="interaction-card">
+            <div class="interaction-key" id="interactionKey">E</div>
+            <div class="interaction-copy">
+                <p id="interactionName">Gun Store Clerk</p>
+                <h3 id="interactionTitle">Talk to Clerk</h3>
+                <span id="interactionSubtitle">Browse weapons, ammo, and armor</span>
+            </div>
+        </div>
+    </section>
+
+    <section id="npcDialog" class="npc-dialog hidden">
+        <div class="dialog-card">
+            <p class="dialog-eyebrow" id="dialogName">Gun Store Clerk</p>
+            <h2 id="dialogTitle">How can I help you today?</h2>
+            <div class="dialog-actions">
+                <button id="dialogStoreBtn" class="dialog-primary">Show me what you have got</button>
+                <button id="dialogCloseBtn" class="dialog-secondary">No thanks</button>
+            </div>
+        </div>
+    </section>
+
+    <main id="app" class="hidden">
+        <section class="shell">
+            <header class="topbar">
+                <div>
+                    <p class="eyebrow" id="modeLabel">STORE</p>
+                    <h1 id="title">Gun Store</h1>
+                </div>
+                <div class="tabs">
+                    <button class="tab active" data-filter="all">All</button>
+                    <button class="tab" data-filter="weapon">Weapons</button>
+                    <button class="tab" data-filter="ammo">Ammo</button>
+                    <button class="tab" data-filter="armor">Armor</button>
+                </div>
+                <button id="refreshBtn" class="ghost">Refresh</button>
+                <button id="closeBtn" class="close">×</button>
+            </header>
+
+            <section class="content">
+                <aside class="info-card">
+                    <h2>Secure Catalog</h2>
+                    <p>Buy weapons, ammo, and armor as inventory items. Walk to the clerk and press E to talk.</p>
+                    <div class="pay-note">
+                        <span>Cash</span>
+                        <span>Bank</span>
+                    </div>
+                </aside>
+
+                <section class="items" id="items"></section>
+            </section>
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>

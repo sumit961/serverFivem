@@ -1394,3 +1394,19 @@ body.hud-hidden #hud-container {
     from { opacity: 0; transform: translateY(12px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
+/* ==========================================================
+   INVENTORY / EXTERNAL UI HIDE BRIDGE
+   This guarantees cm-hud disappears when cm-inventory opens.
+   ========================================================== */
+body.hud-hidden #hud-container,
+body.hud-hidden .hud-module,
+body.hud-hidden #hud-vehicle,
+body.hud-hidden #hud-chat,
+body.hud-hidden #hud-death,
+body.hud-hidden #hud-notify {
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}

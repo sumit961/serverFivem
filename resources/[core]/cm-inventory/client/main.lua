@@ -8,22 +8,77 @@ local function nui(action, payload)
     SendNUIMessage(payload)
 end
 
+local function hideGameAndCustomHud()
+    -- Hide native GTA/FiveM HUD + radar.
+    DisplayHud(false)
+    DisplayRadar(false)
+
+    -- Hide your custom cm-hud NUI too. DisplayHud(false) does not affect custom NUI resources.
+    TriggerEvent('cm-hud:client:hideForUi')
+
+    if GetResourceState and GetResourceState('cm-hud') == 'started' then
+        pcall(function()
+            exports['cm-hud']:SetHudVisible(false)
+        end)
+    end
+end
+
+local function showGameAndCustomHud()
+    -- Restore native GTA/FiveM HUD + radar.
+    DisplayHud(true)
+    DisplayRadar(true)
+
+    -- Restore your custom cm-hud NUI after inventory closes.
+    TriggerEvent('cm-hud:client:showAfterUi')
+
+    if GetResourceState and GetResourceState('cm-hud') == 'started' then
+        pcall(function()
+            exports['cm-hud']:SetHudVisible(true)
+        end)
+    end
+end
+
 local function openInventory(payload)
     isOpen = true
+
+    -- Inventory NUI focus + hide native and custom HUD while inventory is open.
     SetNuiFocus(true, true)
     SetNuiFocusKeepInput(false)
-    DisplayRadar(false)
+    hideGameAndCustomHud()
+
     nui('open', payload or {})
     TriggerServerEvent('cm-inventory:server:requestDrops')
 end
 
 local function closeInventory()
     isOpen = false
+
+    -- Restore NUI focus + native/custom HUD when inventory closes.
     SetNuiFocus(false, false)
     SetNuiFocusKeepInput(false)
-    DisplayRadar(true)
+    showGameAndCustomHud()
+
     nui('close', {})
 end
+
+
+-- Keep native GTA/FiveM HUD hidden every frame while inventory is open.
+-- Some HUD/resources re-enable DisplayHud/DisplayRadar, so a one-time call is not enough.
+CreateThread(function()
+    while true do
+        if isOpen then
+            DisplayHud(false)
+            DisplayRadar(false)
+            HideHudAndRadarThisFrame()
+            for component = 0, 22 do
+                HideHudComponentThisFrame(component)
+            end
+            Wait(0)
+        else
+            Wait(250)
+        end
+    end
+end)
 
 local function drawText3D(x, y, z, text)
     local onScreen, sx, sy = World3dToScreen2d(x, y, z)
@@ -52,6 +107,14 @@ local function getClosestDrop()
     end
     return closest, closestDist
 end
+
+
+AddEventHandler('onResourceStop', function(resourceName)
+    if resourceName ~= GetCurrentResourceName() then return end
+    SetNuiFocus(false, false)
+    SetNuiFocusKeepInput(false)
+    showGameAndCustomHud()
+end)
 
 RegisterNetEvent('cm-inventory:client:open', function(payload)
     openInventory(payload)
@@ -94,6 +157,7 @@ end)
 
 
 local equippedWeaponHash = nil
+local equippedVestComponent = nil
 local equipmentState = {}
 
 local WeaponMap = {
@@ -104,6 +168,27 @@ local WeaponMap = {
     weapon_smg = `WEAPON_SMG`,
     weapon_carbinerifle = `WEAPON_CARBINERIFLE`
 }
+
+-- Resolve any weapon item to its GTA hash. Items are named after the weapon
+-- (weapon_carbinerifle -> WEAPON_CARBINERIFLE), so we derive the hash from the
+-- name and fall back to the static map / explicit metadata hash.
+local function resolveWeaponHash(itemName, item)
+    itemName = tostring(itemName or ''):lower()
+    -- explicit hash in metadata wins
+    if type(item) == 'table' then
+        local md = item.metadata or {}
+        local h = md.weaponHash or md.weapon_hash
+        if h then
+            if type(h) == 'string' then return GetHashKey(h) end
+            if type(h) == 'number' then return h end
+        end
+    end
+    if WeaponMap[itemName] then return WeaponMap[itemName] end
+    if itemName:find('^weapon_') then
+        return GetHashKey(itemName:upper()) -- weapon_carbinerifle -> WEAPON_CARBINERIFLE
+    end
+    return nil
+end
 
 
 local ClothingSlotMap = {
@@ -283,8 +368,8 @@ local function applyEquipmentSlot(slot, item, silent)
             RemoveWeaponFromPed(ped, equippedWeaponHash)
             equippedWeaponHash = nil
         end
-        if item and item.item_name and WeaponMap[item.item_name] then
-            equippedWeaponHash = WeaponMap[item.item_name]
+        if item and item.item_name and resolveWeaponHash(item.item_name, item) then
+            equippedWeaponHash = resolveWeaponHash(item.item_name, item)
             GiveWeaponToPed(ped, equippedWeaponHash, 250, false, true)
             SetPedAmmo(ped, equippedWeaponHash, 250)
             SetCurrentPedWeapon(ped, equippedWeaponHash, true)
@@ -293,9 +378,36 @@ local function applyEquipmentSlot(slot, item, silent)
     elseif slot == 'bodyarmor' then
         if item then
             local durability = tonumber(item.durability or (item.metadata and item.metadata.durability) or 100) or 100
-            SetPedArmour(ped, math.max(0, math.min(100, math.floor(durability))))
+
+            -- Wearable vest (cm-gunstore armor): apply GTA component 9 drawable/texture.
+            -- Metadata is set by cm-gunstore when the vest was captured/created.
+            local md = item.metadata or {}
+            local comp = tonumber(md.componentIndex or md.componentId or md.component_id)
+            local drawable = tonumber(md.drawableId or md.drawable or md.drawable_id)
+            local texture = tonumber(md.textureId or md.texture or md.texture_id) or 0
+            if drawable ~= nil and drawable >= 0 then
+                comp = comp or 9
+                SetPedComponentVariation(ped, comp, drawable, texture, 0)
+                equippedVestComponent = comp -- remember so we can clear it on unequip
+                -- Persist look so it survives respawn/relog if cm-characters is present.
+                if GetResourceState('cm-characters') == 'started' then
+                    pcall(function() exports['cm-characters']:SaveAppearance() end)
+                end
+            end
+
+            -- Armor health: prefer explicit armorValue from the vest, else durability.
+            local armorValue = tonumber(md.armorValue or md.armor_value) or durability
+            SetPedArmour(ped, math.max(0, math.min(100, math.floor(armorValue))))
             if not silent then notifyLocal(('Equipped %s'):format(item.label or item.item_name)) end
         else
+            -- Unequip: drop a worn vest component back to the default (no vest).
+            if equippedVestComponent then
+                SetPedComponentVariation(ped, equippedVestComponent, 0, 0, 0)
+                equippedVestComponent = nil
+                if GetResourceState('cm-characters') == 'started' then
+                    pcall(function() exports['cm-characters']:SaveAppearance() end)
+                end
+            end
             SetPedArmour(ped, 0)
         end
     elseif slot == 'bag' then
@@ -315,7 +427,7 @@ RegisterNetEvent('cm-inventory:client:addWeaponAmmo', function(weaponName, amoun
     local ped = PlayerPedId()
     weaponName = tostring(weaponName or ''):lower()
     amount = tonumber(amount) or 0
-    local hash = WeaponMap[weaponName]
+    local hash = resolveWeaponHash(weaponName)
     if not hash or amount <= 0 then return end
     if not HasPedGotWeapon(ped, hash, false) then
         GiveWeaponToPed(ped, hash, 0, false, true)
