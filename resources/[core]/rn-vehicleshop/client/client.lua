@@ -60,9 +60,10 @@ end)
 
 local function callHudExport(resourceName, exportName, ...)
     if GetResourceState(resourceName) ~= 'started' then return end
+    local args = { ... }
     pcall(function()
         local fn = exports[resourceName] and exports[resourceName][exportName]
-        if fn then fn(...) end
+        if fn then fn(table.unpack(args)) end
     end)
 end
 
@@ -634,9 +635,18 @@ RegisterNetEvent('rn-vehicleshop:client:startTestDrive', function(vehDetails, ti
     SetVehicleDoorsLockedForPlayer(testDriveVehicle, PlayerId(), false)
     local netId = 0
     local netDeadline = GetGameTimer() + 1500
+    -- Avoid NETWORK_GET_NETWORK_ID_FROM_ENTITY warnings by only asking for an id
+    -- after FiveM confirms the entity is networked.
+    pcall(function()
+        if not NetworkGetEntityIsNetworked(testDriveVehicle) then
+            NetworkRegisterEntityAsNetworked(testDriveVehicle)
+        end
+    end)
     repeat
-        netId = NetworkGetNetworkIdFromEntity(testDriveVehicle)
-        if netId and netId ~= 0 then break end
+        if NetworkGetEntityIsNetworked(testDriveVehicle) then
+            netId = NetworkGetNetworkIdFromEntity(testDriveVehicle)
+            if netId and netId ~= 0 then break end
+        end
         Wait(0)
     until GetGameTimer() > netDeadline
     if netId and netId ~= 0 then
