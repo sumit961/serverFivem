@@ -12,10 +12,216 @@ let cropPreviewState = null;
 let cropDragState = null;
 let cropHadAdminPanel = false;
 let testTimerInterval = null;
+let buyProcessing = false;
+let testDriveProcessing = false;
+let currentCategoryTitle = null;
+let currentVehicleButtons = [];
+let adminRenderedVehicles = [];
+let adminSelectedModel = null;
+let favorites = loadJsonStore('rnVehicleShopFavorites', []);
+let compareList = loadJsonStore('rnVehicleShopCompare', []);
 
 function money(n){ return Number(n || 0).toLocaleString() + '$'; }
 function safe(v){ return String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
-function post(name, payload){ return $.post(`https://rn-vehicleshop/${name}`, JSON.stringify(payload || {})); }
+function post(name, payload){ return $.post(`https://${GetParentResourceName()}/${name}`, JSON.stringify(payload || {})); }
+function loadJsonStore(key, fallback){
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch(e){ return fallback; }
+}
+function saveJsonStore(key, value){
+  try { localStorage.setItem(key, JSON.stringify(value || [])); } catch(e) {}
+}
+function modelKey(model){ return String(model || '').toLowerCase().trim(); }
+function isFavorite(model){ return favorites.includes(modelKey(model)); }
+function setFavorite(model, active){
+  const m = modelKey(model); if(!m) return;
+  favorites = favorites.filter(x => x !== m);
+  if(active) favorites.unshift(m);
+  favorites = favorites.slice(0, 100);
+  saveJsonStore('rnVehicleShopFavorites', favorites);
+}
+function selectedVehicleSnapshot(){
+  if(!details || !details.model) return null;
+  return {
+    model: details.model,
+    name: details.vehicle || details.name || details.model,
+    price: Number(details.numberprice || 0),
+    buyable: details.buyable === true,
+    owned: details.owned === true,
+    category: details.category || currentCategoryTitle || 'Vehicle',
+    trunkLevel: clampTrunkLevel(details.trunkLevel),
+    speed: $('.num-speed').text() || '0',
+    acceleration: $('.num-acceleration').text() || '0',
+    braking: $('.num-braking').text() || '0',
+    traction: $('.num-traction').text() || '0',
+    testDriveEnabled: details.testDriveEnabled !== false,
+  };
+}
+function updateFavoriteButton(){
+  const active = details && isFavorite(details.model);
+  $('#favorite-btn').toggleClass('active', !!active).html((active ? '<i class="fas fa-star"></i> Favorited' : '<i class="far fa-star"></i> Favorite'));
+}
+function updateCompareButton(){
+  const m = modelKey(details && details.model);
+  const active = m && compareList.some(v => modelKey(v.model) === m);
+  $('#compare-btn').toggleClass('active', !!active).html((active ? '<i class="fas fa-balance-scale"></i> In Compare' : '<i class="fas fa-balance-scale"></i> Compare'));
+}
+function updateQuickButtons(){ updateFavoriteButton(); updateCompareButton(); }
+
+function clampTrunkLevel(level){
+  level = Math.floor(Number(level));
+  if(Number.isNaN(level)) level = 1;
+  return Math.max(0, Math.min(6, level));
+}
+function trunkCells(level){
+  level = clampTrunkLevel(level);
+  return level <= 0 ? 0 : Math.min(30, level * 6);
+}
+function trunkLabel(level){
+  const cells = trunkCells(level);
+  return cells <= 0 ? 'No trunk' : (cells + ' Cells');
+}
+
+function updateCinematicMeta(){
+  const cat = String((details && details.category) || currentCategoryTitle || 'LOW');
+  const model = modelKey(details && details.model);
+  const idx = Math.max(0, currentVehicleButtons.findIndex(v => modelKey(v.model) === model));
+  const total = currentVehicleButtons.length || 0;
+  $('#cinema-counter').text(total ? ((idx >= 0 ? idx + 1 : 1) + ' / ' + total) : '0 / 0');
+  $('#dock-count').text(total ? (total + ' vehicles') : '');
+  $('#cinema-list-title').text(cat.toUpperCase());
+  const trunkLevel = clampTrunkLevel(details && details.trunkLevel);
+  $('#cinema-trunk-value').text(trunkLabel(trunkLevel).toUpperCase());
+  const isHeavy = /truck|suv|off road|van/i.test(cat);
+  const isFast = /super|sports/i.test(cat);
+  $('#cinema-tank-value').text(isHeavy ? '85 LITERS' : isFast ? '70 LITERS' : '60 LITERS');
+  $('#cinema-consumption-value').text(isFast ? 'MEDIUM' : isHeavy ? 'HIGH' : 'LOW');
+}
+function addToCompare(snapshot){
+  if(!snapshot || !snapshot.model) return;
+  const m = modelKey(snapshot.model);
+  compareList = compareList.filter(v => modelKey(v.model) !== m);
+  compareList.unshift(snapshot);
+  compareList = compareList.slice(0, 3);
+  saveJsonStore('rnVehicleShopCompare', compareList);
+  updateCompareButton();
+  renderComparePanel();
+}
+function renderComparePanel(){
+  const list = $('#compare-list').html('');
+  if(!compareList.length){
+    list.html('<div class="compare-empty">No vehicles added yet. Select a vehicle and press Compare.</div>');
+    return;
+  }
+  for(const v of compareList){
+    list.append(`
+      <div class="compare-card" data-model="${safe(v.model)}">
+        <div class="compare-title"><b>${safe(v.name)}</b><span>${safe(v.category || 'Vehicle')}</span></div>
+        <div class="compare-price">${v.buyable ? money(v.price) : 'Event / Task only'}${v.owned ? ' • Owned' : ''}</div>
+        <div class="compare-grid">
+          <span>Speed</span><b>${safe(v.speed)}</b>
+          <span>Acceleration</span><b>${safe(v.acceleration)}</b>
+          <span>Braking</span><b>${safe(v.braking)}</b>
+          <span>Traction</span><b>${safe(v.traction)}</b>
+          <span>Trunk</span><b>${safe(trunkLabel(v.trunkLevel))}</b>
+        </div>
+        <button class="compare-remove" data-model="${safe(v.model)}">Remove</button>
+      </div>`);
+  }
+}
+function ensureVisibleVehicleSelection(){
+  const selected = $('#vehicle-warp .category.selected, #vehicle-warp .category5.selected').first();
+  if(selected.length && selected.is(':visible')) return;
+  const first = $('#vehicle-warp .category:visible, #vehicle-warp .category5:visible').first();
+  if(first.length) first.trigger('click');
+}
+
+function applyStoreFilters(){
+  const q = String($('#store-search').val() || '').toLowerCase();
+  const filter = String($('#store-price-filter').val() || 'all');
+  $('.category, .category5').each(function(){
+    const el = $(this);
+    const hay = String(el.data('search') || '').toLowerCase();
+    const buyable = String(el.data('buyable')) === 'true';
+    const owned = String(el.data('owned')) === 'true';
+    const fav = isFavorite(el.data('model'));
+    let show = !q || hay.includes(q);
+    if(filter === 'buyable') show = show && buyable;
+    else if(filter === 'event') show = show && !buyable;
+    else if(filter === 'owned') show = show && owned;
+    else if(filter === 'fav') show = show && fav;
+    el.toggle(show);
+  });
+  setTimeout(ensureVisibleVehicleSelection, 25);
+}
+
+function requestPreviewSpawn(model){
+  if(!model) return;
+  vehicleDisplay = true;
+  inspect = true;
+  // Single spawn request. spawnPreviewVehicle() on the Lua side already deletes
+  // the previous preview car first; posting selectVehicle too respawned the same
+  // model twice (visible flicker + loadVeh busy race).
+  setTimeout(() => { try { post('spawnVehicle', { model }); } catch(e) {} }, 30);
+}
+function adminVisibleModels(){ return adminRenderedVehicles.map(v => String(v.model).toLowerCase()); }
+function selectAdminModel(model, preview = true){
+  model = modelKey(model); if(!model) return;
+  adminSelectedModel = model;
+  $('#admin-source-select').val(model);
+  $('.admin-car').removeClass('selected');
+  const card = $(`.admin-car[data-model="${model.replace(/"/g, '\\"')}"]`);
+  card.addClass('selected');
+  if(card.length){
+    const list = $('#admin-list');
+    const top = card.position().top + list.scrollTop() - 90;
+    list.stop(true).animate({ scrollTop: Math.max(0, top) }, 110);
+  }
+  fillAdminForm(model, preview);
+}
+function selectAdminRelative(delta){
+  const models = adminVisibleModels();
+  if(!models.length) return;
+  let idx = models.indexOf(modelKey(adminSelectedModel || $('#admin-source-select').val()));
+  if(idx < 0) idx = delta > 0 ? -1 : 0;
+  idx = (idx + delta + models.length) % models.length;
+  selectAdminModel(models[idx], true);
+}
+function setBuyProcessing(active){
+  buyProcessing = active === true;
+  $('#buy').prop('disabled', buyProcessing).toggleClass('is-processing', buyProcessing).text(buyProcessing ? 'Processing...' : 'Buy Vehicle');
+}
+function setTestDriveProcessing(active){
+  testDriveProcessing = active === true;
+  $('#test-accept').prop('disabled', testDriveProcessing).toggleClass('is-processing', testDriveProcessing).text(testDriveProcessing ? 'Processing...' : 'Start');
+}
+function resetActionProcessing(){ setBuyProcessing(false); setTestDriveProcessing(false); }
+function stopTestTimer(){
+  if(testTimerInterval){
+    clearInterval(testTimerInterval);
+    testTimerInterval = null;
+  }
+  $('body').removeClass('test-drive-active');
+  $('#test-drive-timer').removeClass('force-show').hide();
+  $('#timer').text('');
+}
+function showTestTimer(){
+  $('body').addClass('test-drive-active');
+  $('#test-drive-timer').addClass('force-show').show();
+}
+function setTimerValue(seconds, baseDuration){
+  const total = Math.max(0, Number(seconds) || 0);
+  const duration = Math.max(1, Number(baseDuration) || total || 60);
+  const minutes = parseInt(total / 60, 10);
+  const secs = parseInt(total % 60, 10);
+  $('#timer').text((minutes < 10 ? '0' : '') + minutes + ':' + (secs < 10 ? '0' : '') + secs);
+  if(total <= duration / 4) $('#timer').css('color', '#ff4d60');
+  else if(total <= duration / 2) $('#timer').css('color', '#ffeb3b');
+  else $('#timer').css('color', 'white');
+  showTestTimer();
+}
 function catalogByModel(){ const m = {}; for (const row of adminCatalog || []) m[String(row.model).toLowerCase()] = row; return m; }
 function statusFor(row){
   if(!row) return 'Not set';
@@ -30,9 +236,15 @@ function statusClass(row){
   return 'disabled';
 }
 
+function setBodyMode(mode){
+  $('body').removeClass('store-active admin-active dialog-active crop-review-open capture-hidden test-drive-active');
+  if(mode) $('body').addClass(mode);
+}
+
 addEventListener('message', (e) => {
   const msg = e.data || {};
   if(msg.action === 'forceClose'){
+    resetActionProcessing();
     forceCloseUi();
     return;
   }
@@ -42,13 +254,14 @@ addEventListener('message', (e) => {
       $('#interaction-clerk').text(msg.clerkName || 'Dealer');
       $('#interaction-title').text(msg.title || 'Talk to Dealer');
       $('#interaction-subtitle').text(msg.subtitle || '');
-      $('#interaction-prompt').show().addClass('show');
+      $('#interaction-prompt').css('display','flex').addClass('show');
     } else {
       $('#interaction-prompt').removeClass('show').hide();
     }
     return;
   } else if(msg.action === 'dealerDialog'){
     if(msg.close){
+      $('body').removeClass('dialog-active');
       $('#dealer-dialog').removeClass('show').hide();
       return;
     }
@@ -57,66 +270,96 @@ addEventListener('message', (e) => {
     $('#dealer-dialog-line').text(msg.line || '');
     $('#dealer-dialog-store').text(msg.optionStore || 'Show me the catalog');
     $('#dealer-dialog-close').text(msg.optionClose || 'Maybe later');
+    setBodyMode('dialog-active');
     $('#interaction-prompt').removeClass('show').hide();
-    $('#dealer-dialog').show().addClass('show');
+    $('#dealer-dialog').css('display','flex').addClass('show');
     return;
   } else if(msg.action === 'open'){
     data = msg;
-    $('body').removeClass('capture-hidden crop-review-open');
+    $('body').removeClass('capture-hidden crop-review-open dialog-active');
     closeAdminPanel(false);
     $('#drawmarker-container').css('left', '-260px');
     hideAllElements();
-    $('body').addClass('store-active').removeClass('admin-active');
-    $('#vehicle-class-title-container').fadeIn();
-    $('#vehicle-class-container').fadeIn();
+    $('body').addClass('store-active').removeClass('admin-active dialog-active');
+    window.__balance = (msg && msg.balance) || null;
+    applyBalanceHud();
     renderCategories();
+    autoStart();
   } else if(msg.action === 'updateInfo'){
     const v = msg.vehicleInfo || {};
-    $('.num-speed').text(v.speed || '0');
-    $('.num-acceleration').text(v.acceleration || '0');
-    $('.num-braking').text(v.braking || '0');
-    $('.num-traction').text(v.traction || '0');
-    $('.speed-line').css('width', ((Number(v.speed || 0) / 200) * 100) + '%');
-    $('.acceleration-line').css('width', ((Number(v.acceleration || 0)) * 10) + '%');
-    $('.braking-line').css('width', ((Number(v.braking || 0) / 50) * 100) + '%');
-    $('.traction-line').css('width', ((Number(v.traction || 0) / 50) * 100) + '%');
+    const rawSpeed = Number(v.speed || 0);
+    const rawAccel = Number(v.acceleration || 0);
+    const rawBraking = Number(v.braking || 0);
+    const rawTraction = Number(v.traction || 0);
+    const score = (value, max) => Math.max(0, Math.min(10, Math.round((Number(value) || 0) / max * 10)));
+    const speedScore = score(rawSpeed, 220);
+    const accelScore = score(rawAccel, 10);
+    const brakingScore = score(rawBraking, 10);
+    const tractionScore = score(rawTraction, 30);
+    $('.num-speed').text(speedScore + ' / 10');
+    $('.num-acceleration').text(accelScore + ' / 10');
+    $('.num-braking').text(brakingScore + ' / 10');
+    $('.num-traction').text(tractionScore + ' / 10');
+    $('.speed-line').css('width', (speedScore * 10) + '%');
+    $('.acceleration-line').css('width', (accelScore * 10) + '%');
+    $('.braking-line').css('width', (brakingScore * 10) + '%');
+    $('.traction-line').css('width', (tractionScore * 10) + '%');
+    drawPerfRadar(rawSpeed, rawAccel, rawBraking, rawTraction);
   } else if(msg.action === 'vehicleBought'){
     $('#buy-notify span').text('Vehicle purchased successfully.');
     $('#buy-notify div').text('Your vehicle has been added to your owned vehicles.');
     $('#buy-notify').fadeIn();
     setTimeout(() => $('#buy-notify').fadeOut(), 5000);
   } else if(msg.action === 'purchaseFailed'){
-    $('#buy-text').text(msg.message || 'Purchase failed.');
-    setTimeout(() => $('#buy-vehicle').css('top', '-600px'), 1500);
+    setBuyProcessing(false);
+    $('#buy-text').addClass('purchase-error').text(msg.message || 'Purchase failed.');
+    setTimeout(() => {
+      $('#buy-text').removeClass('purchase-error').text('Are you sure you want to buy this vehicle?');
+      $('#buy-vehicle').css('top', '-600px');
+    }, 2600);
   } else if(msg.action === 'draw'){
     $('#drawmarker-container').css('left', '1%');
   } else if(msg.action === 'undraw'){
     $('#drawmarker-container').css('left', '-260px');
   } else if(msg.action === 'hideTimer'){
-    if(testTimerInterval){ clearInterval(testTimerInterval); testTimerInterval = null; }
-    $('#test-drive-timer').fadeOut();
+    stopTestTimer();
   } else if(msg.action === 'testdriver'){
-    $('body').removeClass('store-active admin-active crop-review-open');
+    setTestDriveProcessing(false);
+    $('body').removeClass('store-active admin-active crop-review-open capture-hidden').addClass('test-drive-active');
     $('#test-drive-container').css('top', '-600px');
     $('#pointer').css('pointer-events', 'unset');
     hideAllElements();
+    const duration = Number(msg.duration || (data && data.testDrive && data.testDrive.testDriveTimer) || 60);
     $('#timer').css('color', 'white');
-    $('#test-drive-timer').fadeIn();
-    startTimer(Number(msg.duration || (data && data.testDrive && data.testDrive.testDriveTimer) || 60));
+    showTestTimer();
+    startTimer(duration);
     onBuyPage = false;
+  } else if(msg.action === 'testDriveTick'){
+    setTimerValue(Number(msg.remaining || 0), Number(msg.duration || msg.total || 60));
   } else if(msg.action === 'testDriveReturned'){
+    setTestDriveProcessing(false);
     const d = msg.details || details || {};
     details = { ...details, ...d };
     hideAllElements();
-    $('body').addClass('store-active').removeClass('admin-active');
+    $('body').addClass('store-active').removeClass('admin-active dialog-active');
+    window.__selectedVehicleModel = details.model || window.__selectedVehicleModel;
+    if(details.category || currentCategoryTitle){
+      renderVehicleCategory(details.category || currentCategoryTitle);
+    }
     $('#title-vehiclename').text(details.vehicle || details.name || details.model || 'Vehicle');
-    $('#title-stock').text(details.buyable ? ('Status: Buyable | Trunk Level: ' + (details.trunkLevel || 1)) : ('Status: Event / Task only | Trunk Level: ' + (details.trunkLevel || 1)));
-    $('#title-price').text(details.buyable ? ('Price: ' + (details.price || money(details.numberprice || 0))) : 'Price: Not for sale');
-    $('#buy-btn').toggleClass('disabled-buy', !details.buyable).find('.btn-text').text(details.buyable ? 'Buy Vehicle' : 'Event / Task Only');
-    $('#vehicle-container, #title-container, #statistics-container, #buy-btn, #test-btn, #hide-button, #slider-container, #btn-container').fadeIn();
+    $('#title-stock').text(details.owned ? 'You own this vehicle' : (details.buyable ? 'Available to purchase' : 'Event / task only'));
+    $('#title-price').text(details.buyable ? money(details.numberprice || 0) : 'Not for sale');
+    $('#title-trunk').text(trunkLabel(details.trunkLevel));
+    $('#buy-btn').toggleClass('disabled-buy', !details.buyable).find('.btn-text').text(details.buyable ? (details.owned ? 'Buy Another' : 'Buy Vehicle') : 'Event / Task Only');
+    updateAfford(Number(details.numberprice || 0), details.buyable);
+    updateCinematicMeta();
+    updateQuickButtons();
+    renderColorPalette();
+    $('#vehicle-container, #title-container, #statistics-container, #color-warp, #buy-btn, #test-btn, #btn-container').fadeIn();
     $('#test-btn').toggle(details.testDriveEnabled !== false);
     vehicleDisplay = true; inspect = true; onBuyPage = false;
   } else if(msg.action === 'buyvehicle'){
+    setBuyProcessing(false);
     $('#buy-vehicle').css('top', '-600px');
     $('#pointer').css('pointer-events', 'unset');
     hideAllElements();
@@ -138,9 +381,9 @@ addEventListener('message', (e) => {
     $('body').toggleClass('capture-hidden', msg.value === true);
   } else if(msg.action === 'adminFocus'){
     if(msg.value === false){
-      if($('#admin-panel').is(':visible')) cropHadAdminPanel = true;
+      cropHadAdminPanel = cropHadAdminPanel || $('body').hasClass('admin-active') || $('#admin-panel').is(':visible');
       $('#admin-panel').hide();
-    } else if(!$('body').hasClass('crop-review-open') && cropHadAdminPanel){
+    } else if(!$('body').hasClass('crop-review-open') && (cropHadAdminPanel || $('body').hasClass('admin-active'))){
       $('#admin-panel').show();
     }
   } else if(msg.action === 'processVehicleImage'){
@@ -193,90 +436,208 @@ addEventListener('message', (e) => {
 // and adjust the crop before saving.
 function clamp01(n, fb){ n = Number(n); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fb; }
 function clamp(n, min, max){ n = Number(n); if(!Number.isFinite(n)) return min; return Math.max(min, Math.min(max, n)); }
+function uiYield(){
+  return new Promise(resolve => {
+    if(typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
+    else setTimeout(resolve, 0);
+  });
+}
+
 function removeBackgroundAndCrop(dataUrl, payload = {}){
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => {
-      const src = document.createElement('canvas');
-      src.width = img.naturalWidth || img.width;
-      src.height = img.naturalHeight || img.height;
-      const sctx = src.getContext('2d', { willReadFrequently: true });
-      sctx.drawImage(img, 0, 0);
-      const imageData = sctx.getImageData(0, 0, src.width, src.height);
-      const d = imageData.data;
-      const ch = payload.chroma || {};
-      const bg = String(payload.background || 'green').toLowerCase();
-      const minGreen = Number(ch.minGreen ?? 90), dominance = Number(ch.dominance ?? 1.28);
-      const greenMargin = Number(ch.greenMargin ?? 28), maxRed = Number(ch.maxRed ?? 150), maxBlue = Number(ch.maxBlue ?? 165);
-      const soften = ch.soften !== false;
-      const crop = payload.crop || {};
-      const rx = clamp01(crop.x, 0.00), ry = clamp01(crop.y, 0.00), rw = clamp01(crop.w, 1.00), rh = clamp01(crop.h, 1.00);
-      const minX = Math.max(0, Math.floor(src.width * rx)), minY = Math.max(0, Math.floor(src.height * ry));
-      const maxX = Math.min(src.width - 1, Math.ceil(src.width * Math.min(1, rx + rw)));
-      const maxY = Math.min(src.height - 1, Math.ceil(src.height * Math.min(1, ry + rh)));
-      const idx = (x, y) => (y * src.width + x) * 4;
-      const isTransparent = (x, y) => d[idx(x,y)+3] <= 10;
-      function isKey(i){
-        const r = d[i], g = d[i+1], b = d[i+2];
-        if(bg === 'blue')  return b >= 110 && b >= r*1.25 && b >= g*1.15 && (b - Math.max(r,g)) >= 25 && r <= 165 && g <= 190;
-        if(bg === 'white') return r >= 225 && g >= 225 && b >= 225 && Math.abs(r-g) <= 18 && Math.abs(r-b) <= 18 && Math.abs(g-b) <= 18;
-        if(bg === 'black') return r <= 25 && g <= 25 && b <= 25;
-        return g >= minGreen && g > Math.max(r,b)*dominance && (g-r) >= greenMargin && (g-b) >= greenMargin && r <= maxRed && b <= maxBlue;
-      }
-      function nearTransparent(x, y, radius = 1){
-        for(let yy = Math.max(minY, y-radius); yy <= Math.min(maxY, y+radius); yy++)
-          for(let xx = Math.max(minX, x-radius); xx <= Math.min(maxX, x+radius); xx++)
-            if(isTransparent(xx, yy)) return true;
-        return false;
-      }
-      let removed = 0;
-      for(let y = 0; y < src.height; y++) for(let x = 0; x < src.width; x++)
-        if(x < minX || x > maxX || y < minY || y > maxY) d[idx(x,y)+3] = 0;
-      for(let y = minY; y <= maxY; y++) for(let x = minX; x <= maxX; x++){
-        const i = idx(x, y); if(d[i+3] > 10 && isKey(i)){ d[i+3] = 0; removed++; }
-      }
-      if(soften && bg === 'green'){
-        for(let y = minY; y <= maxY; y++) for(let x = minX; x <= maxX; x++){
-          const i = idx(x, y);
-          if(d[i+3] > 10 && nearTransparent(x, y, 1) && d[i+1] > d[i]*1.08 && d[i+1] > d[i+2]*1.08)
-            d[i+1] = Math.max(d[i], d[i+2]);
-        }
-        // Stronger cleanup pass for leftover green spill under tyres / lower body.
-        for(let y = minY; y <= maxY; y++) for(let x = minX; x <= maxX; x++){
-          const i = idx(x, y);
-          if(d[i+3] <= 10) continue;
+
+    img.onload = async () => {
+      let src = null;
+      let out = null;
+
+      try {
+        src = document.createElement('canvas');
+        src.width = img.naturalWidth || img.width;
+        src.height = img.naturalHeight || img.height;
+
+        const sctx = src.getContext('2d', { willReadFrequently: true });
+        sctx.drawImage(img, 0, 0);
+
+        const imageData = sctx.getImageData(0, 0, src.width, src.height);
+        const d = imageData.data;
+        const ch = payload.chroma || {};
+        const bg = String(payload.background || 'green').toLowerCase();
+
+        const minGreen = Number(ch.minGreen ?? 90);
+        const dominance = Number(ch.dominance ?? 1.28);
+        const greenMargin = Number(ch.greenMargin ?? 28);
+        const maxRed = Number(ch.maxRed ?? 150);
+        const maxBlue = Number(ch.maxBlue ?? 165);
+        const soften = ch.soften !== false;
+
+        const crop = payload.crop || {};
+        const rx = clamp01(crop.x, 0.00), ry = clamp01(crop.y, 0.00), rw = clamp01(crop.w, 1.00), rh = clamp01(crop.h, 1.00);
+        const minX = Math.max(0, Math.floor(src.width * rx));
+        const minY = Math.max(0, Math.floor(src.height * ry));
+        const maxX = Math.min(src.width - 1, Math.ceil(src.width * Math.min(1, rx + rw)));
+        const maxY = Math.min(src.height - 1, Math.ceil(src.height * Math.min(1, ry + rh)));
+
+        const idx = (x, y) => (y * src.width + x) * 4;
+        const isTransparent = (x, y) => d[idx(x, y) + 3] <= 10;
+        const yieldEvery = (src.width * src.height) > (1920 * 1080) ? 12 : 32;
+
+        function isKey(i){
           const r = d[i], g = d[i+1], b = d[i+2];
-          if(nearTransparent(x, y, 2) && g >= 35 && g > Math.max(r,b) * 1.03 && (g-r) >= 6 && (g-b) >= 6){
-            d[i+3] = 0; removed++;
-          } else if(nearTransparent(x, y, 2) && g > r * 1.04 && g > b * 1.04) {
-            d[i+1] = Math.max(r, b);
+          if(bg === 'blue')  return b >= 110 && b >= r*1.25 && b >= g*1.15 && (b - Math.max(r,g)) >= 25 && r <= 165 && g <= 190;
+          if(bg === 'white') return r >= 225 && g >= 225 && b >= 225 && Math.abs(r-g) <= 18 && Math.abs(r-b) <= 18 && Math.abs(g-b) <= 18;
+          if(bg === 'black') return r <= 25 && g <= 25 && b <= 25;
+          return g >= minGreen && g > Math.max(r,b)*dominance && (g-r) >= greenMargin && (g-b) >= greenMargin && r <= maxRed && b <= maxBlue;
+        }
+
+        function nearTransparent(x, y, radius = 1){
+          for(let yy = Math.max(minY, y-radius); yy <= Math.min(maxY, y+radius); yy++){
+            for(let xx = Math.max(minX, x-radius); xx <= Math.min(maxX, x+radius); xx++){
+              if(isTransparent(xx, yy)) return true;
+            }
+          }
+          return false;
+        }
+
+        let removed = 0;
+
+        // Outside-crop transparent pass. Yield every few rows so 4K captures do
+        // not freeze the whole NUI while the admin tool processes pixels.
+        for(let y = 0; y < src.height; y++){
+          for(let x = 0; x < src.width; x++){
+            if(x < minX || x > maxX || y < minY || y > maxY) d[idx(x, y) + 3] = 0;
+          }
+          if((y % yieldEvery) === 0) await uiYield();
+        }
+
+        for(let y = minY; y <= maxY; y++){
+          for(let x = minX; x <= maxX; x++){
+            const i = idx(x, y);
+            if(d[i+3] > 10 && isKey(i)){ d[i+3] = 0; removed++; }
+          }
+          if((y % yieldEvery) === 0) await uiYield();
+        }
+
+        if(soften && bg === 'green'){
+          for(let y = minY; y <= maxY; y++){
+            for(let x = minX; x <= maxX; x++){
+              const i = idx(x, y);
+              if(d[i+3] > 10 && nearTransparent(x, y, 1) && d[i+1] > d[i]*1.08 && d[i+1] > d[i+2]*1.08){
+                d[i+1] = Math.max(d[i], d[i+2]);
+              }
+            }
+            if((y % yieldEvery) === 0) await uiYield();
+          }
+
+          // Stronger cleanup pass for leftover green spill under tyres / lower body.
+          for(let y = minY; y <= maxY; y++){
+            for(let x = minX; x <= maxX; x++){
+              const i = idx(x, y);
+              if(d[i+3] <= 10) continue;
+              const r = d[i], g = d[i+1], b = d[i+2];
+              if(nearTransparent(x, y, 2) && g >= 35 && g > Math.max(r,b) * 1.03 && (g-r) >= 6 && (g-b) >= 6){
+                d[i+3] = 0; removed++;
+              } else if(nearTransparent(x, y, 2) && g > r * 1.04 && g > b * 1.04) {
+                d[i+1] = Math.max(r, b);
+              }
+            }
+            if((y % yieldEvery) === 0) await uiYield();
           }
         }
+
+        // Auto-crop around the actual car, not random green spill, shadows, or noise.
+        const alphaThreshold = 24;
+        const colCounts = new Array(src.width).fill(0);
+        const rowCounts = new Array(src.height).fill(0);
+        let totalOpaque = 0;
+
+        for(let y = minY; y <= maxY; y++){
+          for(let x = minX; x <= maxX; x++){
+            if(d[idx(x, y) + 3] > alphaThreshold){
+              colCounts[x]++;
+              rowCounts[y]++;
+              totalOpaque++;
+            }
+          }
+          if((y % yieldEvery) === 0) await uiYield();
+        }
+
+        const minColCount = Math.max(3, Math.floor((maxY - minY + 1) * 0.004));
+        const minRowCount = Math.max(3, Math.floor((maxX - minX + 1) * 0.004));
+        let bMinX = src.width, bMinY = src.height, bMaxX = 0, bMaxY = 0;
+
+        for(let x = minX; x <= maxX; x++){ if(colCounts[x] >= minColCount){ bMinX = x; break; } }
+        for(let x = maxX; x >= minX; x--){ if(colCounts[x] >= minColCount){ bMaxX = x; break; } }
+        for(let y = minY; y <= maxY; y++){ if(rowCounts[y] >= minRowCount){ bMinY = y; break; } }
+        for(let y = maxY; y >= minY; y--){ if(rowCounts[y] >= minRowCount){ bMaxY = y; break; } }
+
+        // Fallback to raw alpha bounds if a thin bike/vehicle was filtered too hard.
+        if(bMaxX <= bMinX || bMaxY <= bMinY){
+          bMinX = src.width; bMinY = src.height; bMaxX = 0; bMaxY = 0;
+          for(let y = minY; y <= maxY; y++){
+            for(let x = minX; x <= maxX; x++){
+              if(d[idx(x, y) + 3] > 10){
+                if(x < bMinX) bMinX = x;
+                if(y < bMinY) bMinY = y;
+                if(x > bMaxX) bMaxX = x;
+                if(y > bMaxY) bMaxY = y;
+              }
+            }
+            if((y % yieldEvery) === 0) await uiYield();
+          }
+        }
+
+        if(bMaxX <= bMinX || bMaxY <= bMinY){
+          throw new Error('No pixels after BG removal');
+        }
+
+        const basePad = Number(payload.padding ?? 12);
+        const smartPad = Math.max(basePad, Math.round(Math.max(bMaxX - bMinX, bMaxY - bMinY) * 0.025));
+        const fMinX = Math.max(0, bMinX - smartPad);
+        const fMinY = Math.max(0, bMinY - smartPad);
+        const fMaxX = Math.min(src.width - 1, bMaxX + smartPad);
+        const fMaxY = Math.min(src.height - 1, bMaxY + smartPad);
+        const fW = fMaxX - fMinX + 1;
+        const fH = fMaxY - fMinY + 1;
+
+        sctx.putImageData(imageData, 0, 0);
+
+        out = document.createElement('canvas');
+        out.width = fW;
+        out.height = fH;
+        out.getContext('2d').drawImage(src, fMinX, fMinY, fW, fH, 0, 0, fW, fH);
+
+        const png = out.toDataURL('image/png');
+        const fullPng = src.toDataURL('image/png');
+        const result = {
+          dataUrl: png,
+          imageBase64: png.split(',')[1],
+          fullDataUrl: fullPng,
+          autoBounds: { x: fMinX, y: fMinY, w: fW, h: fH },
+          naturalWidth: src.width,
+          naturalHeight: src.height,
+          meta: { removedPixels: removed, width: fW, height: fH, chunked: true }
+        };
+
+        resolve(result);
+      } catch(err) {
+        reject(err);
+      } finally {
+        if(out){ out.width = 0; out.height = 0; }
+        if(src){ src.width = 0; src.height = 0; }
+        img.onload = null;
+        img.onerror = null;
+        img.src = '';
       }
-      let bMinX = src.width, bMinY = src.height, bMaxX = 0, bMaxY = 0;
-      for(let y = minY; y <= maxY; y++) for(let x = minX; x <= maxX; x++)
-        if(d[idx(x,y)+3] > 10){ if(x<bMinX)bMinX=x; if(y<bMinY)bMinY=y; if(x>bMaxX)bMaxX=x; if(y>bMaxY)bMaxY=y; }
-      if(bMaxX <= bMinX || bMaxY <= bMinY){ reject(new Error('No pixels after BG removal')); return; }
-      const pad = Number(payload.padding ?? 12);
-      const fMinX = Math.max(0, bMinX - pad), fMinY = Math.max(0, bMinY - pad);
-      const fMaxX = Math.min(src.width-1, bMaxX + pad), fMaxY = Math.min(src.height-1, bMaxY + pad);
-      const fW = fMaxX - fMinX + 1, fH = fMaxY - fMinY + 1;
-      sctx.putImageData(imageData, 0, 0);
-      const out = document.createElement('canvas'); out.width = fW; out.height = fH;
-      out.getContext('2d').drawImage(src, fMinX, fMinY, fW, fH, 0, 0, fW, fH);
-      const png = out.toDataURL('image/png');
-      const fullPng = src.toDataURL('image/png');
-      resolve({
-        dataUrl: png,
-        imageBase64: png.split(',')[1],
-        fullDataUrl: fullPng,
-        autoBounds: { x: fMinX, y: fMinY, w: fW, h: fH },
-        naturalWidth: src.width,
-        naturalHeight: src.height,
-        meta: { removedPixels: removed, width: fW, height: fH }
-      });
     };
-    img.onerror = () => reject(new Error('Unable to load screenshot'));
+
+    img.onerror = () => {
+      img.onload = null;
+      img.onerror = null;
+      img.src = '';
+      reject(new Error('Unable to load screenshot'));
+    };
+
     img.src = dataUrl;
   });
 }
@@ -390,6 +751,7 @@ function saveCropSelection(){
     dataUrl = out.toDataURL(mime);
   }
   const ext = mime === 'image/webp' ? 'webp' : 'png';
+  out.width = 0; out.height = 0;
   $('#crop-save').prop('disabled', true).text('Saving...');
   post('vehicleImageProcessed', {
     dataUrl,
@@ -462,56 +824,176 @@ $(document).on('click', '#crop-recapture', function(){
 });
 $(document).on('click', '#crop-save', saveCropSelection);
 
-function renderCategories(){
-  $('#vehicle-class-warp').html('');
-  try { $('#vehicle-class-carousel').slick('slickRemove', null, null, true); } catch(e) {}
-  const vehicles = (data && data.vehicles) || [];
-  if(!vehicles.length){
-    $('#vehicle-class-warp').append(`<div class="empty-shop">No vehicles are enabled yet.<br>Use /vehicleadmin to add cars to the server catalog.</div>`);
-    return;
+/* ---- Fixed vehicle categories (icon grid, like the reference dealership) ---- */
+const FIXED_CATEGORIES = [
+  { title: 'Sports',      icon: 'fa-car-side' },
+  { title: 'Super',       icon: 'fa-gauge-high' },
+  { title: 'Sedans',      icon: 'fa-car' },
+  { title: 'Luxury',      icon: 'fa-gem' },
+  { title: 'SUVs',        icon: 'fa-car-rear' },
+  { title: 'Trucks',      icon: 'fa-truck' },
+  { title: 'Motorcycles', icon: 'fa-motorcycle' },
+  { title: 'Bikes',       icon: 'fa-bicycle' },
+];
+function normalizeCatKey(t){
+  let s = String(t || '').toLowerCase().trim();
+  if(s === 'suv') s = 'suvs';
+  else if(s === 'sedan') s = 'sedans';
+  else if(s === 'truck') s = 'trucks';
+  else if(s === 'motorcycle' || s === 'moto' || s === 'motorbike' || s === 'motorbikes') s = 'motorcycles';
+  else if(s === 'bike' || s === 'bicycle' || s === 'bicycles' || s === 'cycles' || s === 'pushbike') s = 'bikes';
+  else if(s === 'supercar' || s === 'supers') s = 'super';
+  else if(s === 'sport') s = 'sports';
+  return s;
+}
+function catIconFor(title){
+  const key = normalizeCatKey(title);
+  const f = FIXED_CATEGORIES.find(c => normalizeCatKey(c.title) === key);
+  return f ? f.icon : 'fa-car';
+}
+// Ordered category list: the fixed 8 first, then any extra categories that
+// actually contain vehicles, so nothing is orphaned.
+function getCategoryList(){
+  const groups = (data && data.vehicles) || [];
+  const byKey = {};
+  for(const g of groups){ const k = normalizeCatKey(g.title); (byKey[k] = byKey[k] || []).push(g); }
+  const out = [], used = {};
+  for(const fc of FIXED_CATEGORIES){
+    const k = normalizeCatKey(fc.title); used[k] = true;
+    let count = 0; for(const g of (byKey[k] || [])) count += (g.buttons || []).length;
+    out.push({ title: fc.title, icon: fc.icon, count });
   }
-  for(const vehiclesInfo of vehicles){
-    const cls = vehicles.length >= 8 ? 'vehicle-class' : 'vehicle-class5';
-    const html = `<div class="${cls}" data-title="${safe(vehiclesInfo.title)}">${safe(vehiclesInfo.title)}</div>`;
-    if(vehicles.length >= 8){ try { $('#vehicle-class-carousel').slick('slickAdd', html); } catch(e) { $('#vehicle-class-warp').append(html); } }
-    else $('#vehicle-class-warp').append(html);
+  for(const g of groups){
+    const k = normalizeCatKey(g.title);
+    if(used[k]) continue; used[k] = true;
+    let count = 0; for(const gg of (byKey[k] || [])) count += (gg.buttons || []).length;
+    out.push({ title: g.title, icon: catIconFor(g.title), count });
+  }
+  return out;
+}
+function buttonsForCategory(title){
+  const key = normalizeCatKey(title);
+  let buttons = [];
+  for(const g of ((data && data.vehicles) || [])){ if(normalizeCatKey(g.title) === key) buttons = buttons.concat(g.buttons || []); }
+  return buttons;
+}
+function renderCatGrid(activeTitle){
+  const grid = $('#cat-grid').html('');
+  for(const c of getCategoryList()){
+    const active = normalizeCatKey(c.title) === normalizeCatKey(activeTitle);
+    const dim = c.count === 0 ? ' cat-empty' : '';
+    grid.append(`<div class="cat-item${active ? ' active' : ''}${dim}" data-title="${safe(c.title)}"><i class="fas ${c.icon}"></i><span>${safe(c.title)}</span></div>`);
   }
 }
+function renderCategories(){
+  // Full-screen icon chooser (fixed tiles). Shown only when nothing is auto-selected.
+  $('#vehicle-class-warp').html('');
+  try { $('#vehicle-class-carousel').slick('slickRemove', null, null, true); } catch(e) {}
+  const list = getCategoryList();
+  if(!list.some(c => c.count > 0)){
+    $('#vehicle-class-warp').append(`<div class="empty-shop">No vehicles are enabled yet.<br>Use /vehicleadmin to add cars to the server catalog.</div>`);
+    renderCatGrid(null);
+    return;
+  }
+  for(const c of list){
+    const dim = c.count === 0 ? ' cat-empty' : '';
+    $('#vehicle-class-warp').append(
+      `<div class="vehicle-class5 cat-tile${dim}" data-title="${safe(c.title)}">
+        <i class="fas ${c.icon} cat-tile-icon"></i>
+        <span>${safe(c.title)}</span>
+        <div class="category-price">${c.count} vehicle${c.count === 1 ? '' : 's'}</div>
+      </div>`);
+  }
+  renderCatGrid(null);
+}
+// On open, drop the player straight into the first non-empty category with a car
+// already selected, so the shop is never empty.
+function autoStart(){
+  const first = getCategoryList().find(c => c.count > 0);
+  if(first){ renderVehicleCategory(first.title); }
+  else { $('#vehicle-class-title-container, #vehicle-class-container').fadeIn(); }
+}
 
-function renderVehicleCategory(title){
-  $('#vehicle-carousel').slick('slickRemove', null, null, true);
-  $('#vehicle-warp').html('');
-  $('#colors-container').html('');
-  const vehiclesInfo = ((data && data.vehicles) || []).find(v => v.title === title);
-  if(!vehiclesInfo) return;
+/* ---- Performance radar graph ---- */
+function normStat(v, max){ v = Number(v) || 0; return Math.max(0, Math.min(1, v / max)); }
+function drawPerfRadar(speed, accel, braking, traction){
+  const cv = document.getElementById('perf-graph');
+  if(!cv || !cv.getContext) return;
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height, cx = W / 2, cy = H / 2 + 4, R = Math.min(W, H) / 2 - 36;
+  ctx.clearRect(0, 0, W, H);
+  const axes = [
+    { label: 'SPEED', val: normStat(speed, 200) },
+    { label: 'ACCEL', val: normStat(accel, 15) },
+    { label: 'BRAKE', val: normStat(braking, 1.5) },
+    { label: 'GRIP',  val: normStat(traction, 3) },
+  ];
+  const n = axes.length;
+  const ang = i => (-Math.PI / 2) + i * (2 * Math.PI / n);
+  ctx.lineWidth = 1;
+  for(let ring = 1; ring <= 4; ring++){
+    const rr = R * ring / 4;
+    ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+    ctx.beginPath();
+    for(let i = 0; i <= n; i++){ const a = ang(i % n); const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(231,237,245,0.62)';
+  ctx.font = '700 11px Inter, Arial, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for(let i = 0; i < n; i++){
+    const a = ang(i), x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R;
+    ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x, y); ctx.stroke();
+    ctx.fillText(axes[i].label, cx + Math.cos(a) * (R + 18), cy + Math.sin(a) * (R + 15));
+  }
+  ctx.beginPath();
+  for(let i = 0; i <= n; i++){ const j = i % n, a = ang(j), rr = R * Math.max(0.04, axes[j].val); const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+  ctx.closePath();
+  const grad = ctx.createLinearGradient(0, cy - R, 0, cy + R);
+  grad.addColorStop(0, 'rgba(226,236,246,0.5)'); grad.addColorStop(1, 'rgba(205,216,227,0.1)');
+  ctx.fillStyle = grad; ctx.fill();
+  ctx.strokeStyle = '#dbe4ec'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#eef3f8';
+  for(let i = 0; i < n; i++){ const a = ang(i), rr = R * Math.max(0.04, axes[i].val); const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr; ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill(); }
+}
 
-  $('#vehicle-class-title-container, #vehicle-class-container').fadeOut();
-  $('#vehicle-container, #title-container, #statistics-container').fadeIn();
-  $('#vehicle-carousel').slick('refresh');
-  $('#title-vehiclecategory').text(title);
 
-  for(const vehicleBtn of vehiclesInfo.buttons || []){
-    const buyable = vehicleBtn.buyable === true || vehicleBtn.buyable === 'true';
-    const testEnabled = vehicleBtn.testDriveEnabled !== false && vehicleBtn.testDriveEnabled !== 'false';
-    const status = buyable ? money(vehicleBtn.costs) : 'Event / Task only';
-    const img = vehicleBtn.image
-      ? `<img class="vehicle-card-img" src="${safe(vehicleBtn.image)}" alt="${safe(vehicleBtn.name)}" />`
-      : `<div class="vehicle-card-img no-img">No Image</div>`;
-    const item = `
-      <div class="${(vehiclesInfo.buttons || []).length > 5 ? 'category' : 'category5'} ${buyable ? '' : 'server-only'}"
-        data-name="${safe(vehicleBtn.name)}" data-model="${safe(vehicleBtn.model)}" data-costs="${Number(vehicleBtn.costs || 0)}"
-        data-stock="${safe(vehicleBtn.maxStock || '')}" data-buyable="${buyable}" data-trunk="${Number(vehicleBtn.trunkLevel || 1)}"
-        data-test-enabled="${testEnabled}" data-test-timer="${Number(vehicleBtn.testDriveTimer || (data && data.testDrive && data.testDrive.testDriveTimer) || 60)}"
-        data-test-cost="${Number(vehicleBtn.testDriveCost || (data && data.testDrive && data.testDrive.testDriveCost) || 0)}">
-        ${img}
-        <span>${safe(vehicleBtn.name)}</span>
-        <div class="category-price">${status}</div>
-      </div>`;
-    if((vehiclesInfo.buttons || []).length > 5){ try { $('#vehicle-carousel').slick('slickAdd', item); } catch(e) { $('#vehicle-warp').append(item); } }
-    else $('#vehicle-warp').append(item);
+function getDisplayColors(colors){
+  const list = Array.isArray(colors) ? colors : [];
+  const byId = {};
+  for(const c of list){
+    const id = Number(c && c.gtaColor);
+    if(!Number.isNaN(id) && byId[id] == null) byId[id] = c;
   }
 
-  for(const vehicleColor of (data.colors || [])){
+  // Diverse, showroom-friendly palette first instead of the first 12 GTA colours,
+  // because the normal GTA order starts with many similar black/grey shades.
+  const preferredIds = [
+    111, 0, 4, 8,      // white/black/silver/stone
+    27, 38, 42, 55,    // red/orange/yellow/lime
+    53, 64, 70, 73,    // green/blue/light blue/racing blue
+    83, 89, 135, 145,  // purple/gold/hot pink/metallic purple style options
+    12, 14, 36, 88     // matte black/light grey/sunrise/orange-yellow backup
+  ];
+
+  const out = [];
+  for(const id of preferredIds){
+    if(byId[id] && !out.includes(byId[id])) out.push(byId[id]);
+  }
+
+  // Fill with more unique-looking colours if a specific GTA id is missing.
+  for(const c of list){
+    if(out.length >= 20) break;
+    if(!out.includes(c)) out.push(c);
+  }
+
+  return out.slice(0, 20);
+}
+
+function renderColorPalette(){
+  $('#colors-container').html('');
+  for(const vehicleColor of getDisplayColors((data && data.colors) || [])){
     $('#colors-container').append(`
       <div class="color" data-gtacolor="${vehicleColor.gtaColor}" data-colorname="${safe(vehicleColor.colorName)}"
         data-colorr="${vehicleColor.r}" data-colorg="${vehicleColor.g}" data-colorb="${vehicleColor.b}"
@@ -519,10 +1001,86 @@ function renderVehicleCategory(title){
         <div class="color-icon"><i class="fas fa-check-circle"></i></div>
       </div>`);
   }
+  const selectedColor = details && details.gtaColor !== undefined ? Number(details.gtaColor) : 111;
+  const selected = $(`#colors-container .color[data-gtacolor="${selectedColor}"]`).first();
+  if(selected.length){
+    selected.addClass('selected');
+    selected.children('.color-icon').show();
+  }
+}
+
+function renderVehicleCategory(title){
+  currentCategoryTitle = title;
+  try { $('#vehicle-carousel').slick('slickRemove', null, null, true); } catch(e) {}
+  $('#vehicle-warp').html('');
+  $('#colors-container').html('');
+  $('#store-search').val('');
+  $('#store-price-filter').val('all');
+  const buttons = buttonsForCategory(title);
+  currentVehicleButtons = buttons;
+  updateCinematicMeta();
+
+  $('#vehicle-class-title-container, #vehicle-class-container').fadeOut();
+  $('#vehicle-container, #title-container, #statistics-container, #color-warp').fadeIn();
+  try { $('#vehicle-carousel').slick('refresh'); } catch(e) {}
+  $('#title-vehiclecategory').text(title);
+  renderCatGrid(title);
+  drawPerfRadar(0, 0, 0, 0);
+
+  if(!buttons.length){
+    $('#vehicle-warp').html('<div class="empty-shop">No vehicles in this category yet.</div>');
+    vehiclesCategory = true;
+    return;
+  }
+
+  for(const vehicleBtn of buttons){
+    const buyable = vehicleBtn.buyable === true || vehicleBtn.buyable === 'true';
+    const owned = vehicleBtn.owned === true || vehicleBtn.owned === 'true';
+    const fav = isFavorite(vehicleBtn.model);
+    const testEnabled = vehicleBtn.testDriveEnabled !== false && vehicleBtn.testDriveEnabled !== 'false';
+    const status = buyable ? money(vehicleBtn.costs) : 'Event / Task only';
+    const img = vehicleBtn.image
+      ? `<img class="vehicle-card-img" src="${safe(vehicleBtn.image)}" alt="${safe(vehicleBtn.name)}" />`
+      : `<div class="vehicle-card-img no-img">No Image</div>`;
+    const search = `${vehicleBtn.name || ''} ${vehicleBtn.model || ''} ${title || ''} ${status}`;
+    const item = `
+      <div class="category ${buyable ? '' : 'server-only'} ${owned ? 'owned' : ''} ${fav ? 'favorited' : ''}"
+        data-name="${safe(vehicleBtn.name)}" data-model="${safe(vehicleBtn.model)}" data-costs="${Number(vehicleBtn.costs || 0)}"
+        data-status="${safe(status)}" data-buyable="${buyable}" data-owned="${owned}" data-trunk="${clampTrunkLevel(vehicleBtn.trunkLevel)}"
+        data-search="${safe(search)}" data-test-enabled="${testEnabled}" data-test-timer="${Number(vehicleBtn.testDriveTimer || (data && data.testDrive && data.testDrive.testDriveTimer) || 60)}"
+        data-test-cost="${Number(vehicleBtn.testDriveCost || (data && data.testDrive && data.testDrive.testDriveCost) || 0)}">
+        <div class="card-badges">
+          ${owned ? '<b class="badge owned-badge">OWNED</b>' : ''}
+          ${fav ? '<b class="badge fav-badge">★</b>' : ''}
+          ${!buyable && !owned ? '<b class="badge event-badge">EVENT</b>' : ''}
+        </div>
+        ${img}
+        <div class="vehicle-card-info">
+          <span class="vehicle-card-title">${safe(vehicleBtn.name)}</span>
+          <small class="vehicle-card-model">${safe(vehicleBtn.model || '')}</small>
+        </div>
+        <div class="category-price">${status}</div>
+      </div>`;
+    $('#vehicle-warp').append(item);
+  }
+  setTimeout(() => { applyStoreFilters(); ensureVisibleVehicleSelection(); }, 50);
+
+
+  renderColorPalette();
   vehiclesCategory = true;
+
+  // Never leave the shop empty: auto-select the last selected vehicle if it still
+  // exists, otherwise select the first visible vehicle.
+  setTimeout(() => {
+    const preferredModel = modelKey(window.__selectedVehicleModel || (details && details.model));
+    const preferredCard = preferredModel ? $(`#vehicle-warp .category[data-model="${preferredModel}"], #vehicle-warp .category5[data-model="${preferredModel}"]`).filter(':visible').first() : $();
+    if(preferredCard.length) preferredCard.trigger('click');
+    else ensureVisibleVehicleSelection();
+  }, 90);
 }
 
 $(document).on('click', '.vehicle-class,.vehicle-class5', function(){ renderVehicleCategory($(this).data('title')); });
+$(document).on('click', '#cat-grid .cat-item', function(){ renderVehicleCategory($(this).data('title')); });
 
 $(document).on('click', '.color', function(){
   const colorR = $(this).data('colorr');
@@ -536,40 +1094,73 @@ $(document).on('click', '.color', function(){
   details.b = colorB;
   details.gtaColor = gtaColor;
   $('.color-icon').fadeOut();
+  $('.color').removeClass('selected');
+  $(this).addClass('selected');
   $(this).children().fadeIn();
   post('changeColor', { colorR, colorG, colorB });
 });
 
 $(document).on('click', '.category, .category5', function(){
-  $('.category, .category5').css('border-bottom', '3px solid #f0f0f0');
-  $(this).css('border-bottom', '3px solid #f5c542');
+  $('.category, .category5').removeClass('selected');
+  $(this).addClass('selected');
   const model = String($(this).data('model'));
   const name = String($(this).data('name'));
   const costs = Number($(this).data('costs') || 0);
-  const stock = String($(this).data('stock') || '');
+  const status = String($(this).data('status') || '');
   const buyable = String($(this).data('buyable')) === 'true';
-  const trunkLevel = Number($(this).data('trunk') || 1);
+  const owned = String($(this).data('owned')) === 'true';
+  const trunkLevel = clampTrunkLevel($(this).data('trunk'));
   const testDriveEnabled = String($(this).data('test-enabled')) !== 'false';
   const testDriveTimer = Number($(this).data('test-timer') || (data && data.testDrive && data.testDrive.testDriveTimer) || 60);
   const testDriveCost = Number($(this).data('test-cost') || (data && data.testDrive && data.testDrive.testDriveCost) || 0);
   $('#title-vehiclename').text(name);
-  $('#title-stock').text(buyable ? ('Status: Buyable | Trunk Level: ' + trunkLevel) : ('Status: Event / Task only | Trunk Level: ' + trunkLevel));
-  $('#title-price').text(buyable ? ('Price: ' + money(costs)) : 'Price: Not for sale');
-  $('#buy-btn').toggleClass('disabled-buy', !buyable).find('.btn-text').text(buyable ? 'Buy Vehicle' : 'Event / Task Only');
-  $('#buy-btn, #hide-button, #slider-container, #btn-container').fadeIn();
+  $('#title-stock').text(owned ? 'You own this vehicle' : (buyable ? 'Available to purchase' : 'Event / task only'));
+  $('#title-price').text(buyable ? money(costs) : 'Not for sale');
+  $('#title-trunk').text(trunkLabel(trunkLevel));
+  $('#buy-btn').toggleClass('disabled-buy', !buyable).find('.btn-text').text(buyable ? (owned ? 'Buy Another' : 'Buy Vehicle') : 'Event / Task Only');
+  updateAfford(costs, buyable);
+  $('#buy-btn, #btn-container, #color-warp').fadeIn();
   $('#test-btn').toggle(testDriveEnabled === true);
   vehicleDisplay = true;
-  // Allow mouse orbit + scroll-zoom to inspect the car immediately, without
-  // having to press the "Preview" button first.
   inspect = true;
-  details = { buyer: data.buyer, price: money(costs), numberprice: costs, vehicle: name, model, color: 'White', r: 255, g: 255, b: 255, gtaColor: 111, stock, buyable, trunkLevel, testDriveEnabled, testDriveTimer, testDriveCost };
-  post('spawnVehicle', { model });
+  details = { buyer: data.buyer, price: money(costs), numberprice: costs, vehicle: name, model, color: 'White', r: 255, g: 255, b: 255, gtaColor: 111, status, buyable, owned, category: currentCategoryTitle, trunkLevel, testDriveEnabled, testDriveTimer, testDriveCost };
+  renderColorPalette();
+  updateCinematicMeta();
+  updateQuickButtons();
+  window.__selectedVehicleModel = model;
+  requestPreviewSpawn(model);
+});
+
+$(document).on('input', '#store-search', applyStoreFilters);
+$(document).on('change', '#store-price-filter', applyStoreFilters);
+$(document).on('click', '#favorite-btn', function(){
+  if(!details || !details.model){ showToast('Select a vehicle first.'); return; }
+  setFavorite(details.model, !isFavorite(details.model));
+  updateFavoriteButton();
+  renderVehicleCategory(currentCategoryTitle);
+  // Keep selected vehicle details visible after re-render.
+  const card = $(`.category[data-model="${safe(details.model)}"], .category5[data-model="${safe(details.model)}"]`).first();
+  if(card.length) card.addClass('selected');
+});
+$(document).on('click', '#compare-btn', function(){
+  const snap = selectedVehicleSnapshot();
+  if(!snap){ showToast('Select a vehicle first.'); return; }
+  addToCompare(snap);
+  $('#compare-panel').css('display','flex').hide().fadeIn().addClass('show');
+});
+$(document).on('click', '#compare-close', function(){ $('#compare-panel').fadeOut().removeClass('show'); });
+$(document).on('click', '#compare-clear', function(){ compareList = []; saveJsonStore('rnVehicleShopCompare', compareList); renderComparePanel(); updateCompareButton(); });
+$(document).on('click', '.compare-remove', function(){
+  const m = modelKey($(this).data('model'));
+  compareList = compareList.filter(v => modelKey(v.model) !== m);
+  saveJsonStore('rnVehicleShopCompare', compareList);
+  renderComparePanel(); updateCompareButton();
 });
 
 $('#buy-btn').click(function(){
   if(!details.buyable){ showToast('This vehicle is event/task only.'); return; }
   onBuyPage = true;
-  $('#buy-text').text('Are you sure you want to buy this vehicle?');
+  $('#buy-text').removeClass('purchase-error').text('Are you sure you want to buy this vehicle?');
   $('#buy-vehicle').show().css('top', '50%');
   $('#detail-name').text(details.buyer);
   $('#detail-price').text(details.price);
@@ -590,20 +1181,57 @@ $('#test-btn').click(function(){
 });
 
 $('#back, #test-back').click(function(){
+  resetActionProcessing();
   onBuyPage = false;
   $('#buy-vehicle, #test-drive-container').css('top', '-600px');
   $('#pointer').css('pointer-events','unset');
   $('#main').hide();
   $('#buy-vehicle, #test-drive-container').css('top','-600px').hide();
 });
-$('#test-accept').click(function(){ post('testDrive', { timer: Number(details.testDriveTimer || (data && data.testDrive && data.testDrive.testDriveTimer) || 60), details }); });
-$('#buy').click(function(){ if(details.gtaColor === undefined) details.gtaColor = 111; post('buyVehicle', { details }); });
+$('#test-accept').click(function(){
+  if(testDriveProcessing) return;
+  setTestDriveProcessing(true);
+  post('testDrive', { timer: Number(details.testDriveTimer || (data && data.testDrive && data.testDrive.testDriveTimer) || 60), details })
+    .fail(() => { showToast('Test drive request failed.'); setTestDriveProcessing(false); });
 
-$('#vehicle-carousel').slick({ slidesToShow: 5, dots:true, centerMode: true, centerPadding: '0px' });
-$('#vehicle-class-carousel').slick({ slidesToShow: 7, dots:true, centerMode: true, centerPadding: '0px' });
+  // The server can reject using a HUD notification only. Re-enable the button if
+  // the request did not transition to the test-drive screen shortly after.
+  setTimeout(() => {
+    if(testDriveProcessing && $('#test-drive-container').is(':visible')) setTestDriveProcessing(false);
+  }, 3500);
+});
+$('#buy').click(function(){
+  if(buyProcessing) return;
+  if(details.gtaColor === undefined) details.gtaColor = 111;
+  setBuyProcessing(true);
+  post('buyVehicle', { details }).fail(() => {
+    showToast('Purchase request failed.');
+    setBuyProcessing(false);
+  });
+});
+
+try { if($.fn && $.fn.slick){ $('#vehicle-carousel').slick({ slidesToShow: 5, dots:true, centerMode: true, centerPadding: '0px' }); $('#vehicle-class-carousel').slick({ slidesToShow: 7, dots:true, centerMode: true, centerPadding: '0px' }); } } catch(e) {}
 
 document.onkeydown = (e) => {
+  if($('body').hasClass('admin-active') && $('#admin-panel').is(':visible') && (e.key === 'ArrowUp' || e.key === 'ArrowDown')){
+    const tag = String((document.activeElement && document.activeElement.tagName) || '').toLowerCase();
+    if(tag !== 'input' && tag !== 'select' && tag !== 'textarea'){
+      selectAdminRelative(e.key === 'ArrowDown' ? 1 : -1);
+      e.preventDefault();
+      return;
+    }
+  }
   if(e.key !== 'Escape') return;
+
+  // Dealer dialog exists before the player enters the 3D showroom. Never call
+  // closeVehicleShop here, because client.lua has not saved showroom return coords yet.
+  if($('body').hasClass('dialog-active')){
+    $('body').removeClass('dialog-active');
+    $('#dealer-dialog').removeClass('show').hide();
+    post('dealerDialogClose');
+    return;
+  }
+
   if($('#crop-modal').is(':visible')){
     post('cancelVehicleImage');
     closeCropModal();
@@ -612,14 +1240,22 @@ document.onkeydown = (e) => {
   if($('#admin-panel').is(':visible')){ post('adminClose'); return; }
   if(onBuyPage){
     onBuyPage = false;
-    $('#buy-vehicle, #test-drive-container').css('top', '-600px');
+    $('#buy-vehicle, #test-drive-container').css('top', '-600px').hide();
     $('#pointer').css('pointer-events','unset');
     $('#main').hide();
-  $('#buy-vehicle, #test-drive-container').css('top','-600px').hide();
     return;
   }
-  if(vehiclesCategory){ backToCategories(); }
-  else { $('#vehicle-class-title-container, #vehicle-class-container').fadeOut(); post('closeVehicleShop'); }
+  /* redesign: categories stay in the left panel; ESC closes the shop directly */
+
+  // Only close the actual shop when the catalog/showroom is active. This avoids
+  // accidental close callbacks from non-showroom UI states.
+  if($('body').hasClass('store-active')){
+    $('#vehicle-class-title-container, #vehicle-class-container').fadeOut();
+    post('closeVehicleShop');
+    return;
+  }
+
+  forceCloseUi();
 };
 
 function backToCategories(){
@@ -627,7 +1263,7 @@ function backToCategories(){
   $('#hide-button').css('top','46%').text('Preview');
   try { $('#vehicle-carousel').slick('slickRemove', null, null, true); } catch(e) {}
   $('#vehicle-warp, #colors-container').html('');
-  $('#vehicle-container, #title-container, #btn-container, #hide-button, #slider-container, #colors-button, #statistics-container').fadeOut();
+  $('#vehicle-container, #title-container, #btn-container, #hide-button, #slider-container, #colors-button, #statistics-container, #store-tools').fadeOut();
   $('#vehicle-class-title-container, #vehicle-class-container').fadeIn();
   $('#vehicle-class-carousel').slick('refresh');
   vehicleDisplay = false; inspect = false;
@@ -659,20 +1295,50 @@ $('#hide-button').click(function(){
   }
 });
 let down = false;
-document.onmousedown = function(e){ if(inspect && vehicleDisplay && !down && e.button === 0){ down = true; post('mousedown'); } };
-document.onmouseup = function(){ if(inspect && down){ post('mouseup'); down = false; } };
-window.onmousewheel = function(e){ if(inspect){ post(e.wheelDelta < 0 ? 'downscroll' : 'upscroll'); } };
+
+function postCameraControl(name, payload){
+  try{ post(name, payload || {}); }catch(e){}
+}
+function startInspectRotate(e){
+  if(!inspect || !vehicleDisplay || down) return;
+  if(e && typeof e.button !== 'undefined' && e.button !== 0) return;
+  down = true;
+  postCameraControl('mousedown');
+}
+function stopInspectRotate(){
+  if(!down) return;
+  down = false;
+  postCameraControl('mouseup');
+}
+function blockedInspectTarget(target){
+  return $(target).closest('#btn-warp, #vehicle-container, #dealer-dialog, #buy-vehicle, #vehicleadmin, #confirm-buy, #compare-panel, #interaction-prompt').length;
+}
+document.addEventListener('mousedown', function(e){ if(blockedInspectTarget(e.target)) return; startInspectRotate(e); });
+document.addEventListener('mouseup', stopInspectRotate);
+document.addEventListener('mouseleave', stopInspectRotate);
+window.onmousedown = function(e){ if(blockedInspectTarget(e.target)) return; startInspectRotate(e); };
+window.onmouseup = stopInspectRotate;
+function handleWheelInspect(ev){
+  if(!inspect || !vehicleDisplay) return;
+  if(blockedInspectTarget(ev.target)) return;
+  if(ev.preventDefault) ev.preventDefault();
+  const dy = (ev.deltaY != null ? ev.deltaY : (ev.wheelDelta != null ? -ev.wheelDelta : 0));
+  postCameraControl(dy > 0 ? 'downscroll' : 'upscroll');
+}
+document.addEventListener('wheel', handleWheelInspect, { passive:false });
+$('#center-panel, #title-container, body').on('mousedown', function(e){ if(blockedInspectTarget(e.target)) return; startInspectRotate(e); });
 
 function startTimer(duration){
-  if(testTimerInterval){ clearInterval(testTimerInterval); testTimerInterval = null; }
-  let timer = Math.max(1, Number(duration) || 60);
+  stopTestTimer();
+  const totalDuration = Math.max(1, Number(duration) || 60);
+  let remaining = totalDuration;
   const tick = function(){
-    const minutes = parseInt(timer / 60, 10);
-    const seconds = parseInt(timer % 60, 10);
-    $('#timer').text((minutes < 10 ? '0' : '') + minutes + ':' + (seconds < 10 ? '0' : '') + seconds);
-    if((timer < duration/2) && (timer > duration/4)) $('#timer').css('color', '#ffeb3b');
-    else if(timer < duration/4) $('#timer').css('color', '#f44336');
-    if(--timer < 0){ clearInterval(testTimerInterval); testTimerInterval = null; }
+    setTimerValue(remaining, totalDuration);
+    remaining -= 1;
+    if(remaining < 0 && testTimerInterval){
+      clearInterval(testTimerInterval);
+      testTimerInterval = null;
+    }
   };
   tick();
   testTimerInterval = setInterval(tick, 1000);
@@ -688,9 +1354,10 @@ function stopAllAnimations(){
 }
 
 function forceCloseUi(){
+  resetActionProcessing();
   stopAllAnimations();
-  if(testTimerInterval){ clearInterval(testTimerInterval); testTimerInterval = null; }
-  $('body').removeClass('store-active admin-active crop-review-open capture-hidden');
+  stopTestTimer();
+  $('body').removeClass('store-active admin-active crop-review-open capture-hidden dialog-active test-drive-active');
   $('#main').hide();
   $('#buy-vehicle, #test-drive-container').css('top','-600px').hide();
   $('#dealer-dialog').removeClass('show').hide();
@@ -701,21 +1368,21 @@ function forceCloseUi(){
   $('#crop-modal').removeClass('show').hide();
   closeCropModal(false);
   $('#vehicle-warp, #colors-container').html('');
-  $('#vehicle-container, #color-warp, #title-container, #btn-container, #hide-button, #slider-container, #colors-button, #statistics-container, #vehicle-class-title-container, #vehicle-class-container').hide();
+  $('#vehicle-container, #color-warp, #title-container, #btn-container, #hide-button, #slider-container, #colors-button, #statistics-container, #vehicle-class-title-container, #vehicle-class-container, #store-tools, #compare-panel').hide();
   vehiclesCategory = false; vehicleDisplay = false; inspect = false; onBuyPage = false; hideDisplay = false;
 }
 
 function hideAllElements(){
   stopAllAnimations();
-  if(testTimerInterval){ clearInterval(testTimerInterval); testTimerInterval = null; }
-  $('body').removeClass('store-active admin-active');
+  stopTestTimer();
+  $('body').removeClass('store-active admin-active test-drive-active');
   closeCropModal(false);
   $('#main').hide();
   $('#buy-vehicle, #test-drive-container').css('top','-600px').hide();
   $('#hide-button').css('top','46%').text('Preview');
   try { $('#vehicle-carousel').slick('slickRemove', null, null, true); } catch(e) {}
   $('#vehicle-warp, #colors-container').html('');
-  $('#vehicle-container, #color-warp, #title-container, #btn-container, #hide-button, #slider-container, #colors-button, #statistics-container, #vehicle-class-title-container, #vehicle-class-container').fadeOut();
+  $('#vehicle-container, #color-warp, #title-container, #btn-container, #hide-button, #slider-container, #colors-button, #statistics-container, #vehicle-class-title-container, #vehicle-class-container, #store-tools, #compare-panel').fadeOut();
   vehiclesCategory = false; vehicleDisplay = false; inspect = false;
 }
 
@@ -727,35 +1394,50 @@ function renderAdmin(){
   const filter = String($('#admin-search').val() || '').toLowerCase();
   $('#admin-source-select').html('');
   $('#admin-list').html('');
+  adminRenderedVehicles = [];
   const merged = [...adminSourceVehicles];
   for(const row of adminCatalog){ if(!merged.find(v => String(v.model).toLowerCase() === String(row.model).toLowerCase())) merged.push({ model: row.model, label: row.label, category: row.category, price: row.price, trunkLevel: row.trunkLevel }); }
-  merged.sort((a,b) => String(a.label).localeCompare(String(b.label)));
+  merged.sort((a,b) => String(a.label || a.model).localeCompare(String(b.label || b.model)));
   for(const v of merged){
     const row = byCatalog[String(v.model).toLowerCase()];
     const hay = `${v.model} ${v.label} ${v.category} ${statusFor(row)}`.toLowerCase();
     if(filter && !hay.includes(filter)) continue;
-    $('#admin-source-select').append(`<option value="${safe(v.model)}">${safe(v.label)} (${safe(v.model)}) — ${safe(v.category || 'Custom')}</option>`);
+    adminRenderedVehicles.push(v);
+    $('#admin-source-select').append(`<option value="${safe(v.model)}">${safe(v.label || v.model)} (${safe(v.model)}) — ${safe(v.category || 'Custom')}</option>`);
     const img = row && row.image ? `<img class="admin-car-thumb" src="${safe(row.image)}" />` : `<div class="admin-car-thumb noimg">No img</div>`;
     $('#admin-list').append(`
-      <div class="admin-car ${statusClass(row)}" data-model="${safe(v.model)}">
+      <div class="admin-car ${statusClass(row)}" data-model="${safe(String(v.model).toLowerCase())}">
         ${img}
-        <div class="admin-car-meta"><b>${safe(v.label)}</b><span>${safe(v.model)} • ${safe(v.category || 'Custom')}</span></div>
+        <div class="admin-car-meta"><b>${safe(v.label || v.model)}</b><span>${safe(v.model)} • ${safe(v.category || 'Custom')}</span></div>
         <em>${statusFor(row)}</em>
       </div>`);
   }
-  if(!$('#admin-source-select').val() && merged.length) $('#admin-source-select').val(merged[0].model);
-  fillAdminForm($('#admin-source-select').val());
+  const visibleModels = adminVisibleModels();
+  let preferred = modelKey(adminSelectedModel || $('#admin-source-select').val());
+  if(!preferred || !visibleModels.includes(preferred)) preferred = modelKey(adminRenderedVehicles[0] && adminRenderedVehicles[0].model);
+  if(preferred) selectAdminModel(preferred, true);
+  else fillAdminForm('');
 }
 
-function fillAdminForm(model){
+
+function setAdminCategory(cat){
+  cat = String(cat || 'Custom');
+  const sel = $('#admin-category'); if(!sel.length) return;
+  let has = false;
+  sel.find('option').each(function(){ if($(this).val() === cat || $(this).text() === cat) has = true; });
+  if(!has) sel.append(`<option>${safe(cat)}</option>`);
+  sel.val(cat);
+}
+
+function fillAdminForm(model, preview = true){
   model = String(model || '').toLowerCase();
   const source = adminSourceVehicles.find(v => String(v.model).toLowerCase() === model) || {};
   const row = catalogByModel()[model] || {};
   $('#admin-model').val(row.model || source.model || model);
   $('#admin-label').val(row.label || source.label || source.name || model);
-  $('#admin-category').val(row.category || source.category || 'Custom');
+  setAdminCategory(row.category || source.category || 'Custom');
   $('#admin-price').val(row.price ?? source.price ?? 0);
-  $('#admin-trunk').val(row.trunkLevel ?? source.trunkLevel ?? 1);
+  $('#admin-trunk').val(clampTrunkLevel(row.trunkLevel ?? source.trunkLevel ?? 1));
   const statusMode = row.availableStore === true ? 'store' : (row.availableServer === true ? 'server' : 'hidden');
   $('#admin-status-mode').val(row.model ? statusMode : 'hidden');
   const td = (row.metadata && row.metadata.testDrive) || {};
@@ -763,22 +1445,24 @@ function fillAdminForm(model){
   $('#admin-test-duration').val(td.duration ?? (data && data.testDrive && data.testDrive.testDriveTimer) ?? 60);
   $('#admin-test-cost').val(td.cost ?? (data && data.testDrive && data.testDrive.testDriveCost) ?? 0);
   $('#admin-current-status').text(statusFor(row.model ? row : null));
-  if((row.model || source.model || model) && $('#admin-panel').is(':visible')) post('adminPreviewVehicle', { model: row.model || source.model || model });
-  const preview = $('#admin-image-preview');
-  if(row.image){ preview.attr('src', row.image).show(); }
-  else { preview.removeAttr('src').hide(); }
+  if(preview && (row.model || source.model || model) && $('#admin-panel').is(':visible')) post('adminPreviewVehicle', { model: row.model || source.model || model });
+  const imagePreview = $('#admin-image-preview');
+  if(row.image){ imagePreview.attr('src', row.image).show(); }
+  else { imagePreview.removeAttr('src').hide(); }
 }
 
 $(document).on('input', '#admin-search', renderAdmin);
-$(document).on('change', '#admin-source-select', function(){ fillAdminForm($(this).val()); });
-$(document).on('click', '.admin-car', function(){ $('#admin-source-select').val($(this).data('model')); fillAdminForm($(this).data('model')); });
+$(document).on('change', '#admin-source-select', function(){ selectAdminModel($(this).val(), true); });
+$(document).on('click', '.admin-car', function(){ selectAdminModel($(this).data('model'), true); });
+$(document).on('click', '#admin-prev', function(){ selectAdminRelative(-1); });
+$(document).on('click', '#admin-next', function(){ selectAdminRelative(1); });
 $(document).on('click', '#admin-save', function(){
   const mode = String($('#admin-status-mode').val() || 'hidden');
   const availableStore = mode === 'store';
   const availableServer = mode === 'server' || availableStore;
   const payload = {
     model: $('#admin-model').val(), label: $('#admin-label').val(), category: $('#admin-category').val(),
-    price: Number($('#admin-price').val() || 0), trunkLevel: Number($('#admin-trunk').val() || 1),
+    price: Number($('#admin-price').val() || 0), trunkLevel: clampTrunkLevel($('#admin-trunk').val()),
     availableServer, availableStore,
     testDriveEnabled: $('#admin-test-enabled').is(':checked'),
     testDriveTimer: Number($('#admin-test-duration').val() || 60),
@@ -786,8 +1470,8 @@ $(document).on('click', '#admin-save', function(){
   };
   post('adminSaveVehicle', payload);
 });
-$(document).on('click', '#dealer-dialog-store', function(){ post('dealerDialogStore'); });
-$(document).on('click', '#dealer-dialog-close', function(){ post('dealerDialogClose'); });
+$(document).on('click', '#dealer-dialog-store', function(){ $('body').removeClass('dialog-active'); $('#dealer-dialog').removeClass('show').hide(); $('#interaction-prompt').removeClass('show').hide(); post('dealerDialogStore'); });
+$(document).on('click', '#dealer-dialog-close', function(){ $('body').removeClass('dialog-active'); $('#dealer-dialog').removeClass('show').hide(); post('dealerDialogClose'); });
 $(document).on('click', '#admin-disable', function(){ post('adminDisableVehicle', { model: $('#admin-model').val() }); });
 $(document).on('click', '#admin-capture', function(){
   const model = String($('#admin-model').val() || '').trim();
@@ -802,3 +1486,72 @@ $(document).on('click', '#admin-capture', function(){
 });
 $(document).on('click', '#admin-refresh', function(){ post('adminRefresh'); });
 $(document).on('click', '#admin-close', function(){ closeAdminPanel(true); });
+
+
+/* ---- Redesign helpers: ESC panel, Cash/Bank HUD, Insufficient Funds ---- */
+$(document).on('click', '#esc-close', function(){ post('closeVehicleShop'); });
+
+function applyBalanceHud(){
+  const b = window.__balance;
+  if(b && (b.cash != null || b.bank != null)){
+    $('#hud-bar').css('display','flex');
+    $('#hud-cash').text(money(Number(b.cash || 0)));
+    $('#hud-bank').text(money(Number(b.bank || 0)));
+  } else {
+    $('#hud-bar').hide();  // no balance from server -> hide HUD, never block buying
+  }
+}
+
+function updateAfford(price, buyable){
+  const b = window.__balance;
+  const known = b && (b.cash != null || b.bank != null);
+  const cannotAfford = !!(buyable && known && ((Number(b.cash||0) + Number(b.bank||0)) < Number(price||0)));
+
+  // Keep the buy button clickable even when the local balance HUD says the
+  // player cannot afford it. The real validation happens server-side after the
+  // player confirms, so the confirm modal can show "You do not have enough money."
+  $('#buy-warning').hide();
+  $('#buy-btn').css('display', 'flex');
+  $('#buy-btn')
+    .toggleClass('disabled-buy', !buyable)
+    .toggleClass('cannot-afford', cannotAfford)
+    .attr('title', cannotAfford ? 'Not enough money. Confirm purchase to check with server.' : '');
+}
+
+
+
+/* Cinematic Cyan V2 category controls. This lets the visible right-side arrows
+   replace the old left category panel without breaking the existing renderer. */
+(function(){
+  function availableCinematicCategories(){
+    try { return getCategoryList().filter(c => Number(c.count || 0) > 0); } catch(e) { return []; }
+  }
+  function cycleCinematicCategory(dir){
+    const list = availableCinematicCategories();
+    if(!list.length) return;
+    const current = normalizeCatKey(currentCategoryTitle || '');
+    let idx = list.findIndex(c => normalizeCatKey(c.title) === current);
+    if(idx < 0) idx = 0;
+    idx = (idx + dir + list.length) % list.length;
+    renderVehicleCategory(list[idx].title);
+  }
+  $(document).on('click', '#cinema-cat-up', function(e){ e.preventDefault(); e.stopPropagation(); cycleCinematicCategory(-1); });
+  $(document).on('click', '#cinema-cat-down', function(e){ e.preventDefault(); e.stopPropagation(); cycleCinematicCategory(1); });
+  function cycleVisibleVehicle(dir){
+    const list = $('#vehicle-warp .category:visible, #vehicle-warp .category5:visible');
+    if(!list.length) return;
+    let idx = list.index($('#vehicle-warp .category.selected, #vehicle-warp .category5.selected').first());
+    if(idx < 0) idx = 0;
+    idx = (idx + dir + list.length) % list.length;
+    list.eq(idx).trigger('click');
+  }
+  $(document).on('click', '#cinema-veh-prev', function(e){ e.preventDefault(); e.stopPropagation(); cycleVisibleVehicle(-1); });
+  $(document).on('click', '#cinema-veh-next', function(e){ e.preventDefault(); e.stopPropagation(); cycleVisibleVehicle(1); });
+  $(document).on('keydown', function(e){
+    if(!$('body').hasClass('store-active')) return;
+    if(e.key === 'ArrowUp') { e.preventDefault(); cycleCinematicCategory(-1); }
+    if(e.key === 'ArrowDown') { e.preventDefault(); cycleCinematicCategory(1); }
+    if(e.key === 'ArrowLeft') { e.preventDefault(); cycleVisibleVehicle(-1); }
+    if(e.key === 'ArrowRight') { e.preventDefault(); cycleVisibleVehicle(1); }
+  });
+})();

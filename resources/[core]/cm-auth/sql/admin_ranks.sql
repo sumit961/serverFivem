@@ -14,9 +14,9 @@ INSERT INTO admin_ranks (`level`, `name`, `permissions`) VALUES
 (4, 'Senior Moderator', JSON_ARRAY('auth.lookup', 'auth.reset.ip', 'auth.reset.hwid')),
 (5, 'Administrator', JSON_ARRAY('auth.lookup', 'auth.reset.ip', 'auth.reset.hwid', 'auth.reset.socialclub')),
 (6, 'Senior Admin', JSON_ARRAY('auth.lookup', 'auth.reset.identifiers', 'auth.ranks.reload')),
-(7, 'Head Admin', JSON_ARRAY('auth.lookup', 'auth.reset.identifiers', 'auth.ranks.reload')),
-(8, 'Community Manager', JSON_ARRAY('auth.lookup', 'auth.reset.identifiers', 'auth.ranks.reload')),
-(9, 'Developer', JSON_ARRAY('auth.lookup', 'auth.reset.identifiers', 'auth.ranks.reload')),
+(7, 'Head Admin', JSON_ARRAY('auth.lookup', 'auth.reset.identifiers', 'auth.reset.password', 'auth.ranks.reload')),
+(8, 'Community Manager', JSON_ARRAY('auth.lookup', 'auth.reset.identifiers', 'auth.reset.password', 'auth.ranks.reload')),
+(9, 'Developer', JSON_ARRAY('auth.lookup', 'auth.reset.identifiers', 'auth.reset.password', 'auth.ranks.reload')),
 (10, 'Owner', JSON_ARRAY('*'))
 ON DUPLICATE KEY UPDATE
     `name` = VALUES(`name`),

@@ -3,7 +3,7 @@ game 'gta5'
 lua54 'yes'
 
 description 'CM-Auth: GTA IV-style loading screen, styled auth UI, trusted-device login, and 10-tier RBAC admin auth'
-version '2.2.1-reconnect-fix'
+version '2.2.3-native-passwordhash-fix'
 
 dependencies {
     'oxmysql',

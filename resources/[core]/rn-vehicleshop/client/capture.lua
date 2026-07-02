@@ -3,6 +3,7 @@
 -- Debug placement commands were intentionally removed for production.
 
 local pendingCapture = nil
+local captureSerial = 0
 local currentPreviewVehicle = nil
 local backdropProp = nil
 
@@ -51,9 +52,10 @@ local function applyEntityScale(entity, scale)
 end
 
 local function setCaptureHudVisible(visible)
-    if SetVehicleShopHudVisible then
-        SetVehicleShopHudVisible(visible == true, 'capture')
-    end
+    -- Keep capture.lua isolated from legacy global helper files. client.lua owns
+    -- HUD state through local wrappers and exposes this internal event only.
+    TriggerEvent('rn-vehicleshop:client:setHudVisible', visible == true, 'capture')
+    DisplayRadar(visible == true)
 end
 
 local function getCaptureStudio()
@@ -155,7 +157,7 @@ RegisterNUICallback('captureVehicleImage', function(data, cb)
     local veh = currentPreviewVehicle
     if not veh or not DoesEntityExist(veh) or GetEntityModel(veh) ~= joaat(model) then
         TriggerEvent('rn-vehicleshop:client:spawnPreviewForCapture', model)
-        local timeout = GetGameTimer() + 9000
+        local timeout = GetGameTimer() + tonumber((Config.ImageCapture and Config.ImageCapture.spawnTimeoutMs) or 9000)
         repeat
             Wait(50)
             veh = currentPreviewVehicle
@@ -168,7 +170,10 @@ RegisterNUICallback('captureVehicleImage', function(data, cb)
         return
     end
 
+    captureSerial = captureSerial + 1
+    local serial = captureSerial
     pendingCapture = {
+        serial = serial,
         model = model,
         label = data.label,
         category = data.category,
@@ -177,23 +182,70 @@ RegisterNUICallback('captureVehicleImage', function(data, cb)
         crop = Config.ImageCapture.crop,
         chroma = Config.ImageCapture.chroma,
     }
+    CreateThread(function()
+        Wait(tonumber((Config.ImageCapture and Config.ImageCapture.pendingTimeoutMs) or 60000))
+        if pendingCapture and pendingCapture.serial == serial then
+            pendingCapture = nil
+            clearBackdrop()
+            SetNuiFocus(true, true)
+            SendNUIMessage({ action = 'prepareVehicleCapture', value = false })
+            SendNUIMessage({ action = 'adminFocus', value = true })
+            SendNUIMessage({ action = 'vehicleImageResult', success = false, error = 'capture timed out' })
+        end
+    end)
 
     applyCaptureEnvironment()
+
+    -- Make the admin thumbnail capture deterministic: clear liveries/modkits,
+    -- remove dirt, ensure the vehicle is visible, and give streamed add-on
+    -- textures/collision a short grace period before screenshot-basic fires.
+    if ForceVehicleShopStockAppearancePasses then
+        ForceVehicleShopStockAppearancePasses(veh, false, false)
+    elseif ResetVehicleShopVehicleToDefaultStock then
+        ResetVehicleShopVehicleToDefaultStock(veh, false)
+    end
     SetVehicleDirtLevel(veh, 0.0)
     SetVehicleLights(veh, 2)
     SetVehicleFullbeam(veh, true)
+    FreezeEntityPosition(veh, false)
+    SetEntityCollision(veh, true, true)
+    pcall(function() SetVehicleOnGroundProperly(veh) end)
     FreezeEntityPosition(veh, true)
+    SetEntityAlpha(veh, 255, false)
+    SetEntityVisible(veh, true, false)
 
     if not spawnBackdrop() then
         pendingCapture = nil
+        SendNUIMessage({ action = 'prepareVehicleCapture', value = false })
+        SendNUIMessage({ action = 'adminFocus', value = true })
+        SetNuiFocus(true, true)
+        setCaptureHudVisible(false)
         cb({ ok = false, error = 'backdrop_failed' })
         return
     end
 
     SendNUIMessage({ action = 'prepareVehicleCapture', value = true })
+    SendNUIMessage({ action = 'adminFocus', value = false })
     SetNuiFocus(false, false)
     setCaptureHudVisible(false)
-    Wait(850)
+
+    local settleUntil = GetGameTimer() + tonumber((Config.ImageCapture and Config.ImageCapture.preShotDelayMs) or 1250)
+    while GetGameTimer() < settleUntil do
+        if not veh or not DoesEntityExist(veh) then
+            pendingCapture = nil
+            clearBackdrop()
+            SendNUIMessage({ action = 'prepareVehicleCapture', value = false })
+            SendNUIMessage({ action = 'adminFocus', value = true })
+            SetNuiFocus(true, true)
+            SendNUIMessage({ action = 'vehicleImageResult', success = false, error = 'preview vehicle disappeared' })
+            cb({ ok = false, error = 'vehicle_missing' })
+            return
+        end
+        if ResetVehicleShopVehicleToDefaultStock then ResetVehicleShopVehicleToDefaultStock(veh, false) end
+        SetEntityAlpha(veh, 255, false)
+        SetEntityVisible(veh, true, false)
+        Wait(100)
+    end
 
     exports['screenshot-basic']:requestScreenshot({ encoding = 'png' }, function(imageData)
         clearBackdrop()
@@ -205,6 +257,7 @@ RegisterNUICallback('captureVehicleImage', function(data, cb)
 
         if not imageData or imageData == '' then
             pendingCapture = nil
+            SendNUIMessage({ action = 'adminFocus', value = true })
             SendNUIMessage({ action = 'vehicleImageResult', success = false, error = 'screenshot failed' })
             return
         end
@@ -225,6 +278,14 @@ RegisterNUICallback('vehicleImageProcessed', function(data, cb)
         if tostring(data.error or '') ~= 'cancelled' then
             SendNUIMessage({ action = 'vehicleImageResult', success = false, error = tostring(data.error or 'empty processed image') })
         end
+        cb('ok')
+        return
+    end
+
+    if not payload.model then
+        pendingCapture = nil
+        SendNUIMessage({ action = 'adminFocus', value = true })
+        SendNUIMessage({ action = 'vehicleImageResult', success = false, error = 'capture payload expired' })
         cb('ok')
         return
     end
@@ -259,5 +320,7 @@ end)
 
 AddEventHandler('onResourceStop', function(res)
     if res ~= GetCurrentResourceName() then return end
+    pendingCapture = nil
+    currentPreviewVehicle = nil
     clearBackdrop()
 end)

@@ -1,0 +1,2 @@
+/* Local fallback for FontAwesome CDN. Icons become small clean dots instead of missing boxes. */
+.fa,.fas,.far{display:inline-flex;align-items:center;justify-content:center;min-width:1em;font-style:normal;font-weight:900}.fa:before,.fas:before,.far:before{content:"•"}.fa-star:before{content:"★"}.fa-check-circle:before{content:"✓"}.fa-search:before{content:"⌕"}.fa-balance-scale:before{content:"≍"}.fa-car-alt:before{content:"▰"}.fa-money-check-alt:before{content:"$"}.fa-clock:before{content:"⏱"}.fa-user-alt:before{content:"👤"}.fa-fill-drip:before{content:"●"}

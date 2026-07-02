@@ -51,6 +51,12 @@ local function getTrustedToken()
     return nil
 end
 
+local function getTrustedEmail()
+    local email = GetResourceKvpString(AUTH_EMAIL_KVP)
+    if email and email ~= '' then return email end
+    return ''
+end
+
 local function clearTrustedToken()
     DeleteResourceKvp(AUTH_TOKEN_KVP)
     DeleteResourceKvp(AUTH_EMAIL_KVP)
@@ -86,7 +92,7 @@ local function startAuthFlow(force)
 
     local token = getTrustedToken()
     if token then
-        TriggerServerEvent('cm-auth:server:previewToken', token)
+        TriggerServerEvent('cm-auth:server:previewToken', { token = token, email = getTrustedEmail() })
     else
         TriggerServerEvent('cm-auth:server:requestOpen')
     end
@@ -163,6 +169,10 @@ RegisterNetEvent('cm-auth:client:registerResult', function(success, msg)
     SendNUIMessage({ action = 'registerResult', success = success, message = msg or '' })
 end)
 
+RegisterNetEvent('cm-auth:client:resetResult', function(success, msg)
+    SendNUIMessage({ action = 'resetResult', success = success, message = msg or '' })
+end)
+
 RegisterNUICallback('uiReady', function(data, cb)
     uiReady = true
     cb('ok')
@@ -214,7 +224,16 @@ RegisterNUICallback('tokenLogin', function(data, cb)
         return
     end
 
-    TriggerServerEvent('cm-auth:server:loginWithToken', token)
+    TriggerServerEvent('cm-auth:server:loginWithToken', { token = token, email = getTrustedEmail() })
+    cb('ok')
+end)
+
+RegisterNUICallback('resetPassword', function(data, cb)
+    if isLoggedIn() then
+        cb('blocked')
+        return
+    end
+    TriggerServerEvent('cm-auth:server:resetPassword', data or {})
     cb('ok')
 end)
 

@@ -50,9 +50,38 @@ local function isPlayerLoggedIn()
     return loggedIn or (LocalPlayer and LocalPlayer.state and LocalPlayer.state.isLoggedIn == true)
 end
 
+local function isVehicleShopTestDriveState()
+    local st = LocalPlayer and LocalPlayer.state
+    if not st then return false end
+    return st.cmVehicleShop == 'test_drive' or st.cmVehicleShopTestDrive == true
+end
+
+-- Some resources, especially showroom/admin UIs, teleport the player or briefly drop
+-- NUI focus while the menu is still open. The old recovery loop could then show the
+-- HUD again for a moment, causing a blink. Keep these explicit state locks authoritative.
+local function isHudHiddenByExternalState()
+    local st = LocalPlayer and LocalPlayer.state
+    if not st then return false end
+
+    local vehicleShopMode = st.cmVehicleShop
+    -- Test drive is intentionally HUD-visible. Ignore any stale vehicle-shop hide
+    -- state that may arrive from the showroom transition.
+    if vehicleShopMode == 'test_drive' or st.cmVehicleShopTestDrive == true then
+        return false
+    end
+
+    if st.cmHudHiddenByVehicleShop or st.cmHudHiddenByClothing or st.inClothingStore then
+        return true
+    end
+
+    return vehicleShopMode == 'store' or vehicleShopMode == 'admin' or vehicleShopMode == 'capture'
+end
+
 local function setHudVisible(visible, external)
     if external ~= nil then uiHiddenByExternal = external == true end
-    hudVisible = (visible == true) and isPlayerLoggedIn() and not uiHiddenByExternal
+
+    local externallyHidden = uiHiddenByExternal or isHudHiddenByExternalState()
+    hudVisible = (visible == true) and isPlayerLoggedIn() and not externallyHidden
 
     -- Hide/show both the native GTA HUD and this custom NUI HUD.
     -- DisplayHud(false) alone does NOT hide cm-hud, so we also send setHudVisible to NUI.
@@ -61,7 +90,7 @@ local function setHudVisible(visible, external)
     SendNUIMessage({
         action = 'setHudVisible',
         visible = hudVisible,
-        externalHidden = uiHiddenByExternal
+        externalHidden = externallyHidden
     })
 
     if not hudVisible then
@@ -176,10 +205,22 @@ CreateThread(function()
             local focused = false
             if IsNuiFocused then focused = IsNuiFocused() == true end
             local externalFocus = focused and not chatOpen and not hudMouseOpen
-            if externalFocus ~= lastExternalFocus then
+            local stateHidden = isHudHiddenByExternalState()
+
+            if stateHidden then
+                -- Explicit locks from clothing/vehicle/admin resources always win over
+                -- the recovery logic. This prevents HUD blink while a UI owns the screen.
+                uiHiddenByExternal = true
+                setHudVisible(false)
+            elseif externalFocus ~= lastExternalFocus then
                 lastExternalFocus = externalFocus
                 uiHiddenByExternal = externalFocus
                 setHudVisible(not externalFocus)
+            elseif not externalFocus and not uiHiddenByExternal and not hudVisible then
+                -- Recovery: logged in, nothing external hiding us, but HUD is off.
+                -- This catches routing-bucket-driven unload/reload cycles where
+                -- cm-playerdata fires 'unloaded' without a matching 'loaded'.
+                setHudVisible(true)
             end
         elseif hudVisible then
             setHudVisible(false)
@@ -442,23 +483,44 @@ RegisterNetEvent('cm-hud:client:updateCharacterHud', function(payload)
 end)
 
 RegisterNetEvent('cm-hud:client:setHudVisible', function(visible)
+    -- Vehicle test drive must stay HUD-visible. Ignore stale hide events from the
+    -- showroom/admin transition, but still allow explicit show events.
+    if visible == false and isVehicleShopTestDriveState() then return end
     uiHiddenByExternal = visible == false
     setHudVisible(visible == true)
 end)
 
-RegisterNetEvent('cm-hud:client:hideForUi', function()
+RegisterNetEvent('cm-hud:client:hideForUi', function(reason)
     -- Explicit bridge used by inventory/phone/store UI.
+    if isVehicleShopTestDriveState() or reason == 'test_drive' then return end
     uiHiddenByExternal = true
     setHudVisible(false)
 end)
 
 RegisterNetEvent('cm-hud:client:showAfterUi', function()
-    -- Restore after external UI closes.
+    -- Restore after external UI closes, but never override an active store/admin lock.
+    if isHudHiddenByExternalState() then
+        uiHiddenByExternal = true
+        setHudVisible(false)
+        return
+    end
+
     uiHiddenByExternal = false
     setHudVisible(true)
+    -- Belt-and-suspenders: if isPlayerLoggedIn() was temporarily false (e.g. after a
+    -- routing-bucket change when the vehicle shop sends the player back to bucket 0),
+    -- setHudVisible(true) above would leave hudVisible=false. Force it here so the NUI
+    -- panel always appears when an in-game UI explicitly tells us to show.
+    if not hudVisible and not isHudHiddenByExternalState() then
+        hudVisible = true
+        DisplayHud(true)
+        DisplayRadar(true)
+        SendNUIMessage({ action = 'setHudVisible', visible = true, externalHidden = false })
+    end
 end)
 
 exports('SetHudVisible', function(visible)
+    if visible == false and isVehicleShopTestDriveState() then return end
     uiHiddenByExternal = visible == false
     setHudVisible(visible == true)
 end)

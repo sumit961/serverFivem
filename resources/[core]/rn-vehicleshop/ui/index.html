@@ -5,13 +5,12 @@
 	<meta http-equiv="X-UA-Compatible" content="IE=edge">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 
-  <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/slick-carousel/1.5.8/slick.min.css"/>
-  <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/slick-carousel/1.5.8/slick-theme.min.css"/>
+  <link rel="stylesheet" href="vendor/slick-lite.css"/>
+  <link rel="stylesheet" href="vendor/fa-lite.css"/>
   <link rel="stylesheet" href="style.css">
 
-  <script src="https://kit.fontawesome.com/6b037c9e5a.js" crossorigin="anonymous"></script>
-  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
-  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/slick-carousel/1.5.9/slick.min.js"></script>
+    <script src="vendor/jquery.min.js"></script>
+  <script src="vendor/slick-lite.js"></script>
   <script src="main.js" defer></script>
   
 </head>
@@ -39,101 +38,119 @@
       </div>
     </div>
 
-    <div id="title-container">
-      <div id="title-vehicleinfo">
-          <div id="title-vehiclename">Select Vehicle</div>
-          <div id="title-vehiclecategory">Sports</div>
-          <div id="title-stock" class="title-extra">Status: Select a vehicle</div>
-          <div id="title-price" class="title-extra">Price: -</div>
-          <div style="margin-top: 10px;">
-          </div>
-          <div id="color-warp">
-            <div id="colors-container">
+    <!-- ================= STORE VIEW — platinum glass redesign ================= -->
+    <div id="shop-grid">
+      <!-- CINEMATIC CYAN NIGHT HUD (added by ChatGPT) -->
+      <div id="cinema-top-stats" aria-hidden="true">
+        <div class="cinema-top-stat"><div class="cinema-icon">⛽</div><span>Tank Capacity</span><strong id="cinema-tank-value">70 Liters</strong></div>
+        <div class="cinema-top-stat"><div class="cinema-icon">◷</div><span>Consumption</span><strong id="cinema-consumption-value">Low</strong></div>
+        <div class="cinema-top-stat"><div class="cinema-icon">▣</div><span>Trunk Capacity</span><strong id="cinema-trunk-value">12 Cells</strong></div>
+      </div>
+      <div id="cinema-right-meta">
+        <div id="cinema-counter">0 / 0</div>
+        <button id="cinema-cat-up" class="cinema-arrows" type="button" title="Previous category">⌃</button>
+        <div id="cinema-list-title">SPORTS</div>
+        <button id="cinema-cat-down" class="cinema-arrows" type="button" title="Next category">⌄</button>
+      </div>
+
+
+      <!-- LEFT: brand · filters · vertical categories -->
+      <aside id="left-panel" class="glass">
+        <div class="lp-head">
+          <div class="lp-logo">A</div>
+          <div><div class="lp-title">AUTO GALLERY</div><div class="lp-sub">Premium V3 Showroom</div></div>
+        </div>
+        <div id="store-tools">
+          <div class="store-tool-row"><i class="fas fa-search"></i>
+            <input id="store-search" placeholder="Search vehicles..." /></div>
+          <select id="store-price-filter" title="Price filter">
+            <option value="all">All prices</option>
+            <option value="buyable">Buyable only</option>
+            <option value="event">Event / task only</option>
+            <option value="owned">Owned</option>
+            <option value="fav">Favorites</option>
+          </select>
+        </div>
+        <div class="lp-section-title">Categories</div>
+        <div id="cat-grid" class="cat-grid"></div>
+        <div class="lp-foot">
+          <div><div class="lp-foot-k">Showroom</div><div class="lp-foot-v">Open</div></div>
+          <span class="live"><span class="live-dot"></span> Live</span>
+        </div>
+      </aside>
+
+      <!-- CENTER: HUD + viewport (transparent) -->
+      <main id="center-panel">
+        <div id="hud-bar">
+          <div class="hud-chip"><span class="hud-ic"><i class="fas fa-wallet"></i></span>
+            <div><div class="hud-k">Cash</div><div id="hud-cash" class="hud-v num">$0</div></div></div>
+          <div class="hud-chip"><span class="hud-ic"><i class="fas fa-landmark"></i></span>
+            <div><div class="hud-k">Bank</div><div id="hud-bank" class="hud-v num">$0</div></div></div>
+        </div>
+        <div class="vp-hint"><span class="kbd">&#9664; &#9654;</span> rotate &nbsp;&middot;&nbsp; <span class="kbd">Scroll</span> zoom</div>
+      </main>
+
+      <!-- RIGHT: ESC + performance + details + color + actions -->
+      <section id="right-panel" class="glass">
+        <div class="rp-head">
+          <div class="spec-head"><i class="fas fa-gauge-high"></i> Performance</div>
+          <button id="esc-close" type="button" class="esc-btn" aria-label="Close"><span class="esc-key">ESC</span></button>
         </div>
 
-
-      </div>
-      </div>
-  </div>
-  <div id="vehicle-container">
-      <div id="vehicle-carousel">
-
-      </div>
-      <div id="vehicle-warp">
-          
-      </div>
-  </div>
-  <div id="statistics-warp">
-      <div id="statistics-container">
+        <div id="statistics-container">
+          <div class="perf-graph-wrap"><canvas id="perf-graph" width="300" height="240"></canvas></div>
           <div id="vehicle-stat-container">
-              <div class="vehicle-stat engine">
-                  <div class="stat-name">Max Speed (KM/H):</div>
-                  <div class="stat-progress-container">
-                      <div class="stat-progress">
-                          <div class="prog-line speed-line"></div>
-                      </div>
-                      <span class="prog-num num-speed">0.0</span>
-                  </div>
-              </div>
-              <div class="vehicle-stat brakes">
-                  <div class="stat-name">Acceleration:</div>
-                  <div class="stat-progress-container">
-                      <div class="stat-progress">
-                          <div class="prog-line acceleration-line"></div>
-                      </div>
-                      <span class="prog-num num-acceleration">0.0</span>
-                  </div>
-              </div>
-              <div class="vehicle-stat transition">
-                  <div class="stat-name">Braking:</div>
-                  <div class="stat-progress-container">
-                      <div class="stat-progress">
-                          <div class="prog-line braking-line"></div>
-                      </div>
-                      <span class="prog-num num-braking">0.0</span>
-                  </div>
-              </div>
-              <div class="vehicle-stat blalba">
-                  <div class="stat-name">Traction:</div>
-                  <div class="stat-progress-container">
-                      <div class="stat-progress">
-                          <div class="prog-line traction-line"></div>
-                      </div>
-                      <span class="prog-num num-traction">0.0</span>
-                  </div>
-              </div>
+            <div class="vehicle-stat"><div class="stat-name">Speed</div><div class="stat-progress-container"><div class="stat-progress"><div class="prog-line speed-line"></div></div><span class="prog-num num-speed">0.0</span></div></div>
+            <div class="vehicle-stat"><div class="stat-name">Acceleration</div><div class="stat-progress-container"><div class="stat-progress"><div class="prog-line acceleration-line"></div></div><span class="prog-num num-acceleration">0.0</span></div></div>
+            <div class="vehicle-stat"><div class="stat-name">Braking</div><div class="stat-progress-container"><div class="stat-progress"><div class="prog-line braking-line"></div></div><span class="prog-num num-braking">0.0</span></div></div>
+            <div class="vehicle-stat"><div class="stat-name">Control</div><div class="stat-progress-container"><div class="stat-progress"><div class="prog-line traction-line"></div></div><span class="prog-num num-traction">0.0</span></div></div>
           </div>
-      </div>
-      <div id="btn-warp">
-          <div id="hide-button">Preview</div>
-          <div id="btn-container" style="display: none;">
-            <a id="buy-btn" class="btn btn-success" style="margin-top: 50px; width: 320px;">
-                <span class='btn-text'>Buy Vehicle</span>
-            </a>
-            <div style="display: flex;">
-                <a id="back-btn" class="btn btn-danger" style="margin-top: 10px; width: 182px; margin-right: 5px;">
-                    <span class='btn-text back'>Back</span>
-                </a>
-                <a id="test-btn" class="btn btn-warn" style="margin-top: 10px; margin-left: 5px;">
-                    <span class='btn-text'>Test Drive</span>
-                </a>
-            </div>
+          <div id="tune-note">You can repaint and tune your car later at a service station. Chip tuning can improve speed and handling.</div>
         </div>
-      </div>
-  </div>
 
-  <div id="vehicle-class-title-container">
-      <div id="vehicle-class-title-vehicleinfo">
-          <div id="vehicle-class-title-vehiclename">Vehicle Showroom</div>
-          <div id="vehicle-class-title-vehiclecategory">Choose a vehicle category.</div>
-      </div>
-  </div>
-  <div id="vehicle-class-container">
-      <div id="vehicle-class-carousel">
-      </div>
-      <div id="vehicle-class-warp">
-      </div>
-  </div>
+        <div id="title-container">
+          <div id="title-vehiclecategory" class="veh-eyebrow">Sports</div>
+          <div id="title-vehiclename" class="veh-name">Select a vehicle</div>
+          <div id="title-stock" class="veh-status">Select a vehicle to begin</div>
+          <div class="veh-tiles">
+            <div class="veh-tile"><div class="vt-k">Price</div><div id="title-price" class="vt-v num">-</div></div>
+            <div class="veh-tile"><div class="vt-k">Trunk</div><div id="title-trunk" class="vt-v">-</div></div>
+          </div>
+        </div>
+
+        <div id="color-warp">
+          <div class="lp-section-title">Choose a Color</div>
+          <div id="colors-container"></div>
+        </div>
+
+        <div id="btn-warp">
+          <div id="btn-container">
+            <div id="cinema-buy-nav"><button id="cinema-veh-prev" type="button" class="cinema-veh-arrow" title="Previous vehicle">&#8592;</button><button id="cinema-veh-next" type="button" class="cinema-veh-arrow" title="Next vehicle">&#8594;</button></div>
+            <a id="buy-btn" class="btn"><span class="btn-text">Buy Vehicle</span></a>
+            <div id="buy-warning" class="buy-warning" style="display:none"><i class="fas fa-triangle-exclamation"></i> Insufficient Funds</div>
+            <div class="btn-row">
+              <a id="test-btn" class="btn btn-outline"><span class="btn-text">Test Drive</span></a>
+              <button id="compare-btn" class="btn btn-outline" type="button"><i class="fas fa-scale-balanced"></i> Compare</button>
+            </div>
+            <button id="favorite-btn" class="btn btn-ghost" type="button"><i class="far fa-star"></i> Favorite</button>
+          </div>
+          <div id="hide-button" style="display:none"></div>
+          <a id="back-btn" style="display:none"></a>
+        </div>
+      </section>
+
+      <!-- DOCK: horizontal car list with image thumbnails -->
+      <footer id="vehicle-container" class="glass">
+        <div class="dock-head"><span>Vehicles</span><span id="dock-count"></span></div>
+        <div id="vehicle-warp"></div>
+        <div id="vehicle-carousel" style="display:none"></div>
+      </footer>
+    </div>
+
+    <!-- legacy category chooser kept hidden for main.js fallbacks -->
+    <div id="vehicle-class-title-container" style="display:none"><div id="vehicle-class-title-vehiclename"></div><div id="vehicle-class-title-vehiclecategory"></div></div>
+    <div id="vehicle-class-container" style="display:none"><div id="vehicle-class-carousel"></div><div id="vehicle-class-warp"></div></div>
+
   <div id="buy-vehicle">
       <div id="title-buy-container">
           <div id="buy-offer">Payment Details</div>
@@ -175,7 +192,7 @@
   </div>
   <div id="test-drive-container">
       <div id="title-buy-container">
-          <div id="buy-offer">Test Drive Ayrıntıları</div>
+          <div id="buy-offer">Test Drive Details</div>
       </div>
       <div id="test-details">
           <div class="test-detail">
@@ -203,6 +220,22 @@
       <span id="timer"></span>
   </div>
 
+  <div id="compare-panel" style="display:none;">
+    <div class="compare-shell">
+      <div class="compare-head">
+        <div>
+          <h2>Vehicle Compare</h2>
+          <p>Compare up to 3 selected vehicles.</p>
+        </div>
+        <button id="compare-close">Close</button>
+      </div>
+      <div id="compare-list"></div>
+      <div class="compare-actions">
+        <button id="compare-clear">Clear Compare</button>
+      </div>
+    </div>
+  </div>
+
   <div id="admin-panel" style="display:none;">
     <div class="admin-shell">
       <div class="admin-head">
@@ -215,6 +248,11 @@
       <div class="admin-body">
         <aside class="admin-left">
           <input id="admin-search" placeholder="Search model, name, category..." />
+          <div class="admin-nav-buttons">
+            <button id="admin-prev" type="button"><i class="fas fa-chevron-up"></i> Up</button>
+            <button id="admin-next" type="button"><i class="fas fa-chevron-down"></i> Down</button>
+          </div>
+          <div class="admin-nav-hint">Use the buttons or keyboard ↑ / ↓ to preview cars fast.</div>
           <select id="admin-source-select" size="10"></select>
           <div id="admin-list"></div>
         </aside>
@@ -222,10 +260,27 @@
           <div class="admin-status-line">Current state: <b id="admin-current-status">Not set</b></div>
           <label>Model spawn name<input id="admin-model" placeholder="sultan" /></label>
           <label>Display name<input id="admin-label" placeholder="Karin Sultan" /></label>
-          <label>Category<input id="admin-category" placeholder="Sedan" /></label>
+          <label>Category
+            <select id="admin-category">
+              <option>Sports</option>
+              <option>Super</option>
+              <option>Sedans</option>
+              <option>Luxury</option>
+              <option>SUVs</option>
+              <option>Trucks</option>
+              <option>Motorcycles</option>
+              <option>Bikes</option>
+              <option>Compacts</option>
+              <option>Coupes</option>
+              <option>Muscle</option>
+              <option>Off Road</option>
+              <option>Vans</option>
+              <option>Custom</option>
+            </select>
+          </label>
           <div class="admin-row">
             <label>Price<input id="admin-price" type="number" min="0" step="1" /></label>
-            <label>Trunk level<input id="admin-trunk" type="number" min="0" max="6" step="1" /></label>
+            <label>Trunk level <small>0 = no trunk, 1 = 6 cells, 6 = 30 cells</small><input id="admin-trunk" type="number" min="0" max="6" step="1" /></label>
           </div>
           <label>Catalog status
             <select id="admin-status-mode">
@@ -252,8 +307,8 @@
             <img id="admin-image-preview" alt="No image yet" style="display:none;" />
           </div>
           <div class="admin-help">
-            <b>Use:</b> Hidden disables the car. Server only is for event/task cars. Store buyable appears in the dealership with buy button.<br>
-            <b>Image is required to enable:</b> when you enable a car and press <b>Save / Enable</b>, it is photographed in the airport 3D green-screen studio and saved as transparent PNG. Use <b>Recapture Image</b> to update the photo later.
+            <b>Use:</b> Hidden disables the car. Server only is for event/task cars. Store buyable appears in the dealership with a buy button.<br>
+            <b>Image:</b> when a car has no image, Save will trigger the 3D studio capture. The crop tool now auto-fits tightly around the car, then lets you review before saving.
           </div>
         </main>
       </div>
@@ -267,7 +322,7 @@
       <div class="crop-head">
         <div>
           <h2>Review Vehicle Image</h2>
-          <p>Preview the PNG before saving. Drag the crop box to move it, and drag the corner handle to resize it.</p>
+          <p>The car is auto-cropped first. Review it, or fine tune the crop box before saving.</p>
         </div>
       </div>
       <div class="crop-stage">

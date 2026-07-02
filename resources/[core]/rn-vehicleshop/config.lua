@@ -14,6 +14,18 @@ Config.Accounts = {
     bank = 'bank'
 }
 
+-- Server-side hardening. Keep AllowUnknownAddonModels false so admins can only
+-- save/capture models already listed in Config.Vehicles or already in catalog.
+Config.Security = {
+    ShopDistance = 35.0,
+    MaxImageBase64Bytes = 2500000, -- about 2.5 MB decoded PNG/webp
+    AdminOpenCooldownMs = 750,
+    AdminSaveCooldownMs = 1500,
+    AdminDisableCooldownMs = 1000,
+    ImageSaveCooldownMs = 5000,
+    AllowUnknownAddonModels = false
+}
+
 -- Transparent vehicle image capture (admin only), mirrors nv_cloth screenshot-basic flow.
 -- Vehicle admin now uses a real 3D airport studio: green wall + green floor/stage
 -- made from prop_ld_greenscreen_01. The flat DrawRect fallback is disabled by default
@@ -24,6 +36,8 @@ Config.ImageCapture = {
     catalogImagePrefix = 'images/vehicles', -- kept for compatibility
     width = 512,
     height = 512,
+    spawnTimeoutMs = 9000,
+    pendingTimeoutMs = 60000,
     padding = 12,
     background = 'green',
     crop = { x = 0.00, y = 0.00, w = 1.00, h = 1.00 },
@@ -87,6 +101,9 @@ Config.Admin = {
 
 -- Dealership interior (Pacific Bluffs MLO).
 Config.Location = vector3(-2261.85, 391.45, 174.67)
+-- Same as nv_cloth: return the player to the exact place where they opened the shop/admin.
+-- Set false if you want everyone to always exit at Config.ExitLocation instead.
+Config.ReturnToOriginalPosition = true
 Config.ExitLocation = vector4(-2264.3823, 392.3130, 174.6739, 263.2466)
 Config.BoughtVehicleSpawnLocation = { coords = vector3(-2268.13, 383.24, 174.82), heading = 69.53 }
 Config.TestVehicleSpawnLocation = { coords = vector3(-1047.42, -3023.59, 13.95), heading = 60.00 } -- airport test-drive spawn
@@ -122,8 +139,8 @@ Config.Ped = {
     freeze = true,
     blockEvents = true,
 
-    voiceEnabled = false,     -- no spoken bark
-    showGreeting = false,     -- no greeting/farewell text bubble above the dealer
+    voiceEnabled = true,      -- GTA native greeting voice only, no text bubble
+    showGreeting = false,     -- keep greeting text hidden; voice only
     greetingVoices = { 'GENERIC_HI', 'GENERIC_HOWS_IT_GOING', 'SHOP_GREET' },
     farewellVoices = { 'GENERIC_BYE', 'GENERIC_THANKS', 'SHOP_GOODBYE' },
 
@@ -138,7 +155,7 @@ Config.Ped = {
         'Welcome to Pacific Bluffs. Looking for something special?',
         'Afternoon. Take a look around, every model is on the floor.',
         'Need something fast, or something comfortable?',
-        'Fresh stock just landed. Want me to show you?',
+        'Fresh vehicles just landed. Want me to show you?',
         'Tell me your taste and I will find your car.'
     },
     farewells = {
@@ -165,8 +182,8 @@ Config.Interact = {
     markerDistance = 18.0,
     key = 38,        -- E
     keyLabel = 'E',
-    title = 'Talk to Dealer',
-    subtitle = 'Browse and buy vehicles'
+    title = 'Press E',
+    subtitle = 'Open Vehicle Dealer'
 }
 
 

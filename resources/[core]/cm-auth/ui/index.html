@@ -69,6 +69,7 @@
 
                                 <button type="submit" class="primary-btn" id="login-btn">Enter</button>
                                 <p class="switch-text">No account yet? <button type="button" onclick="showRegister()">Register now</button></p>
+                                <p class="switch-text"><button type="button" onclick="showReset()">Forgot password?</button></p>
                             </form>
 
                             <form id="register-form" class="form">
@@ -94,6 +95,33 @@
 
                                 <button type="submit" class="primary-btn" id="register-btn">Create account</button>
                                 <p class="switch-text">Already registered? <button type="button" onclick="showLogin()">Back to login</button></p>
+                            </form>
+
+                            <form id="reset-form" class="form">
+                                <p class="panel-copy">Resetting works only from the Rockstar account that owns this profile. Enter your email and a new password.</p>
+
+                                <label for="reset-email">Email address</label>
+                                <div class="input-wrap">
+                                    <span class="input-icon">@</span>
+                                    <input type="email" id="reset-email" placeholder="name@example.com" autocomplete="email" />
+                                </div>
+
+                                <label for="reset-pass">New password</label>
+                                <div class="input-wrap password-wrap">
+                                    <span class="input-icon">*</span>
+                                    <input type="password" id="reset-pass" placeholder="Minimum 6 characters" autocomplete="new-password" />
+                                    <button type="button" class="eye-btn" data-toggle="reset-pass">SHOW</button>
+                                </div>
+
+                                <label for="reset-pass2">Retype new password</label>
+                                <div class="input-wrap password-wrap">
+                                    <span class="input-icon">*</span>
+                                    <input type="password" id="reset-pass2" placeholder="Confirm new password" autocomplete="new-password" />
+                                    <button type="button" class="eye-btn" data-toggle="reset-pass2">SHOW</button>
+                                </div>
+
+                                <button type="submit" class="primary-btn" id="reset-btn">Reset password</button>
+                                <p class="switch-text">Remembered it? <button type="button" onclick="showLogin()">Back to login</button></p>
                             </form>
                         </div>
                     </div>

@@ -1,16 +1,42 @@
-# cm-auth v2.2.1 GTA IV UI + Trusted Login + 10-Tier RBAC
+# cm-auth v2.2.3 GTA IV UI + Trusted Login + 10-Tier RBAC
 
 ## Required order in `server.cfg`
 
 ```cfg
 ensure oxmysql
-ensure bcrypt
 ensure cm-core
 ensure cm-auth
 ensure cm-characters
 ```
 
 `cm-auth` already contains the loading screen. Do **not** run a separate loading-screen resource unless you intentionally replace this one.
+
+---
+
+## Password hashing requirement
+
+This version uses FXServer's built-in password hashing natives first:
+
+```lua
+local hash = GetPasswordHash('password')
+local ok = VerifyPasswordHash('password', hash)
+```
+
+That means you do **not** need a separate `bcrypt` resource for `cm-auth`.
+This fixes the common error where the console shows `bcrypt.Client.net` loaded,
+but server-side login/register fails with `bcrypt export not found`.
+
+If you still have an external `bcrypt` resource, it is now only optional fallback.
+A client-only bcrypt resource is not enough because `cm-auth` hashes passwords on
+the server.
+
+On boot, cm-auth runs a hash+verify self-test and prints a line like:
+
+```text
+[CM-AUTH] Password hashing OK via FXServer native GetPasswordHash/VerifyPasswordHash ...
+```
+
+If that line does not appear, update your FiveM server artifacts.
 
 ---
 
@@ -28,8 +54,14 @@ ensure cm-characters
   - first join still uses email/password
   - next join shows **Login as ...**
 - Brute-force lockouts:
-  - 5 failed attempts in 15 minutes
-  - 30 minute lockout by email/IP
+  - 5 failed login attempts in 15 minutes
+  - 3 account registrations per connection in 60 minutes
+  - 30 minute lockout by email/IP (login lockouts also block register)
+- Trusted-token hardening:
+  - tokens are random 48-char strings, hashed (bcrypt) before storage
+  - tokens expire after 30 days
+- Duplicate-account protection via UNIQUE indexes on `email` and `social_club_id`
+- Self-service password reset (proven by your Rockstar license) + admin override
 - No magic startup waits:
   - auth opens after `uiReady`
   - character selector opens from state-bag changes
@@ -76,6 +108,19 @@ CREATE TABLE IF NOT EXISTS auth_lockouts (
 );
 ```
 
+### `register_attempts` (auto-created; used for register throttling)
+
+```sql
+CREATE TABLE IF NOT EXISTS register_attempts (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    ip_address VARCHAR(64) NULL,
+    hwid_hash VARCHAR(255) NULL,
+    email VARCHAR(100) NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_register_lookup (ip_address, hwid_hash, created_at)
+);
+```
+
 ### `admin_ranks`
 
 ```sql
@@ -89,23 +134,10 @@ CREATE TABLE IF NOT EXISTS admin_ranks (
 );
 ```
 
-### Example `admin_ranks` seed data
-
-```sql
-INSERT INTO admin_ranks (`level`, `name`, `permissions`) VALUES
-(1, 'Helper', JSON_ARRAY('auth.lookup')),
-(2, 'Trial Moderator', JSON_ARRAY('auth.lookup', 'auth.reset.ip')),
-(3, 'Moderator', JSON_ARRAY('auth.lookup', 'auth.reset.ip', 'auth.reset.hwid')),
-(4, 'Senior Moderator', JSON_ARRAY('auth.lookup', 'auth.reset.ip', 'auth.reset.hwid')),
-(5, 'Administrator', JSON_ARRAY('auth.lookup', 'auth.reset.ip', 'auth.reset.hwid', 'auth.reset.socialclub')),
-(6, 'Senior Admin', JSON_ARRAY('auth.lookup', 'auth.reset.identifiers', 'auth.ranks.reload')),
-(7, 'Head Admin', JSON_ARRAY('auth.lookup', 'auth.reset.identifiers', 'auth.ranks.reload')),
-(8, 'Community Manager', JSON_ARRAY('auth.lookup', 'auth.reset.identifiers', 'auth.ranks.reload')),
-(9, 'Developer', JSON_ARRAY('auth.lookup', 'auth.reset.identifiers', 'auth.ranks.reload')),
-(10, 'Owner', JSON_ARRAY('*'));
-```
-
-The resource also attempts to create/seed these automatically on start.
+Seed data lives in `sql/admin_ranks.sql`. The resource also attempts to
+create/seed all of these automatically on start, and adds UNIQUE indexes on
+`accounts.email` and `accounts.social_club_id` (clean any duplicates first if
+the index fails to apply).
 
 ---
 
@@ -135,6 +167,7 @@ Supported permission nodes in this version:
 - `auth.reset.hwid`
 - `auth.reset.socialclub`
 - `auth.reset.identifiers`
+- `auth.reset.password`
 - `auth.ranks.reload`
 - `*`
 
@@ -148,8 +181,16 @@ Supported permission nodes in this version:
 /authresethwid <accountId|email>
 /authresetip <accountId|email>
 /authresetsocialclub <accountId|email>
+/authsetpassword <accountId|email> <newPassword>   (needs auth.reset.password)
 /authreloadranks
 ```
+
+### Forgot password (players)
+
+The login screen has a **Forgot password?** link. A player can set a new
+password **only** from the Rockstar account that owns it (the script verifies
+`social_club_id`). If the account is on a different Rockstar profile, an admin
+with `auth.reset.password` must run `/authsetpassword` instead.
 
 ### Event
 
