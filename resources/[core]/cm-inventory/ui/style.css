@@ -2112,7 +2112,7 @@ body,
    ========================================================= */
 
 :root {
-    --layout-gap: clamp(100px, 0.55vw, 10px) !important;
+    --layout-gap: clamp(6px, 0.55vw, 10px) !important;
 }
 
 .inventory-layout {
@@ -2296,4 +2296,279 @@ body,
         margin-bottom: 5px;
         padding: 4px 9px;
     }
+}
+
+/* -------------------------------------------------- EXTERNAL STORAGE --- */
+.character-wrap.external-wrap {
+    width: 100%;
+    justify-content: center;
+    align-items: flex-start;
+    padding: clamp(4px, .8vh, 10px) 0;
+}
+.gear-grid.external-grid,
+.external-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, var(--gear-slot));
+    grid-auto-rows: var(--gear-slot);
+    gap: var(--gap);
+    align-content: flex-start;
+    justify-content: center;
+    max-height: min(72vh, 760px);
+    overflow-y: auto;
+    padding-right: 4px;
+}
+.slot.external {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    width: var(--gear-slot);
+    height: var(--gear-slot);
+    border-radius: var(--radius-md);
+    border-color: rgba(69,236,255,.18);
+    background: linear-gradient(180deg, rgba(69,236,255,.055), rgba(255,255,255,.026));
+}
+.slot.external .external-label {
+    color: rgba(220,252,255,.54);
+    font-weight: 800;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    text-align: center;
+    font-size: 10px;
+    line-height: 1.2;
+}
+.slot.external .external-label strong {
+    display: block;
+    color: rgba(69,236,255,.86);
+    font-size: 18px;
+    margin-bottom: 3px;
+}
+.item.external-item {
+    box-shadow: inset 0 -3px 0 rgba(69,236,255,.72), 0 0 20px rgba(69,236,255,.18);
+}
+
+
+/* =========================================================
+   FINAL SHARED INVENTORY + 6x5 STORAGE UPDATE
+   - Fast access sits at the far left.
+   - Backpack stays close to fast access.
+   - Equipment/storage has exactly one slot gap from the player inventory.
+   - Empty slots now look empty, not filled.
+   - External storage uses a stable 6 columns x 5 rows visual language.
+   ========================================================= */
+:root {
+    --slot: clamp(70px, min(6.7vw, 10.6vh), 106px) !important;
+    --gear-slot: calc(var(--slot) * .78) !important;
+    --quick-slot: calc(var(--slot) * .82) !important;
+    --gap: clamp(7px, .75vw, 11px) !important;
+    --layout-gap: var(--gap) !important;
+}
+
+#inventory {
+    align-items: stretch !important;
+    justify-content: center !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+}
+
+.topbar {
+    position: fixed !important;
+    top: clamp(10px, 1.6vh, 22px) !important;
+    left: clamp(16px, 2vw, 34px) !important;
+    width: min(920px, calc(100vw - 40px)) !important;
+    margin: 0 !important;
+    z-index: 10 !important;
+}
+
+.inventory-layout {
+    position: fixed !important;
+    left: clamp(14px, 1.8vw, 34px) !important;
+    right: auto !important;
+    top: 52% !important;
+    transform: translateY(-50%) !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: calc(100vh - 92px) !important;
+    display: grid !important;
+    grid-template-columns: auto auto auto !important;
+    justify-content: start !important;
+    justify-items: start !important;
+    align-items: center !important;
+    column-gap: var(--gap) !important;
+    gap: var(--gap) !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+.inventory-layout::before,
+.inventory-layout::after {
+    display: none !important;
+}
+
+.fast-column,
+.bag-column,
+.character-column.equipment-column {
+    margin: 0 !important;
+    padding: 0 !important;
+    transform: none !important;
+    justify-self: start !important;
+    align-self: center !important;
+}
+
+.fast-column {
+    min-width: var(--quick-slot) !important;
+}
+
+.bag-column {
+    margin-left: var(--gap) !important;
+}
+
+.character-column.equipment-column {
+    /* one normal inventory-slot gap between backpack and equipment/storage */
+    margin-left: var(--slot) !important;
+}
+
+.fast-slots,
+.slot-row,
+.slot-grid,
+.gear-grid,
+.external-grid {
+    gap: var(--gap) !important;
+}
+
+.slot-row,
+.slot-grid {
+    grid-template-columns: repeat(6, var(--slot)) !important;
+}
+.slot-grid {
+    grid-template-rows: repeat(5, var(--slot)) !important;
+}
+.gear-grid:not(.external-grid) {
+    grid-template-columns: repeat(3, var(--gear-slot)) !important;
+    grid-auto-rows: var(--gear-slot) !important;
+}
+.external-grid,
+.gear-grid.external-grid {
+    display: grid !important;
+    grid-template-columns: repeat(6, var(--slot)) !important;
+    grid-template-rows: repeat(5, var(--slot)) !important;
+    grid-auto-rows: var(--slot) !important;
+    width: calc((var(--slot) * 6) + (var(--gap) * 5)) !important;
+    max-width: calc((var(--slot) * 6) + (var(--gap) * 5)) !important;
+    max-height: calc((var(--slot) * 5) + (var(--gap) * 4)) !important;
+    overflow: hidden !important;
+    align-content: start !important;
+    justify-content: start !important;
+    padding: 0 !important;
+}
+
+.slot,
+.slot.quick,
+.slot.equipment,
+.slot.external {
+    border-radius: 14px !important;
+}
+.slot.external {
+    width: var(--slot) !important;
+    height: var(--slot) !important;
+}
+
+.slot.empty,
+.slot.quick.empty,
+.slot.equipment.empty,
+.slot.external.empty {
+    background:
+        linear-gradient(180deg, rgba(255,255,255,.030), rgba(255,255,255,.010) 48%, rgba(0,0,0,.060)) !important;
+    border: 1px solid rgba(210, 250, 255, .095) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.045),
+        inset 0 0 0 1px rgba(0,0,0,.05),
+        0 7px 14px rgba(0,0,0,.10) !important;
+}
+.slot.empty::before,
+.slot.empty::after {
+    opacity: .05 !important;
+}
+.slot.empty .slot-label {
+    opacity: .36 !important;
+    color: rgba(210,250,255,.36) !important;
+    text-shadow: none !important;
+}
+.slot.external.empty .external-label span {
+    font-size: clamp(10px, .8vw, 13px) !important;
+    font-weight: 800 !important;
+    color: rgba(210,250,255,.28) !important;
+}
+.slot.storage-locked {
+    opacity: .20 !important;
+    filter: grayscale(1) !important;
+}
+.slot.storage-locked .slot-label::after {
+    content: 'LOCKED';
+    display: block;
+    margin-top: 4px;
+    font-size: 8px;
+    letter-spacing: .08em;
+    color: rgba(255,255,255,.34);
+}
+.slot:not(.empty) {
+    background:
+        radial-gradient(circle at 26% 14%, rgba(255,255,255,.12), transparent 24%),
+        linear-gradient(180deg, rgba(255,255,255,.070), rgba(255,255,255,.026) 50%, rgba(0,8,12,.18)) !important;
+    border-color: rgba(96, 235, 255, .20) !important;
+}
+
+@media (max-width: 1366px), (max-height: 820px) {
+    :root {
+        --slot: clamp(58px, min(6.5vw, 9.7vh), 82px) !important;
+        --gear-slot: calc(var(--slot) * .76) !important;
+        --quick-slot: calc(var(--slot) * .80) !important;
+        --gap: 7px !important;
+    }
+    .topbar {
+        height: 42px !important;
+    }
+    .inventory-layout {
+        top: 53% !important;
+        left: 12px !important;
+    }
+}
+
+/* =========================================================
+   EXTERNAL STORAGE DROP TARGET FIX v9
+   FiveM NUI sometimes misses transparent storage slots when dragging.
+   These rules keep the trunk/warehouse board above decorative layers and
+   make empty slots visibly clickable/drop-ready.
+   ========================================================= */
+.character-wrap.external-wrap,
+.gear-grid.external-grid,
+.external-grid {
+    position: relative !important;
+    z-index: 35 !important;
+    pointer-events: auto !important;
+}
+.slot.external {
+    position: relative !important;
+    z-index: 40 !important;
+    pointer-events: auto !important;
+    outline: 1px solid rgba(69, 236, 255, .06) !important;
+}
+.slot.external::before,
+.slot.external::after {
+    pointer-events: none !important;
+}
+.slot.external.drop-target {
+    border-color: rgba(69, 236, 255, .95) !important;
+    outline: 2px solid rgba(69, 236, 255, .55) !important;
+    background:
+        radial-gradient(circle at 50% 50%, rgba(69,236,255,.18), transparent 52%),
+        linear-gradient(180deg, rgba(69,236,255,.14), rgba(255,255,255,.035)) !important;
+    box-shadow: 0 0 30px rgba(69,236,255,.38), inset 0 0 0 1px rgba(69,236,255,.5) !important;
+}
+.slot.external.invalid-target {
+    border-color: rgba(255, 77, 100, .95) !important;
+    outline: 2px solid rgba(255, 77, 100, .45) !important;
+}
+.item.drag-ghost {
+    z-index: 99999 !important;
 }

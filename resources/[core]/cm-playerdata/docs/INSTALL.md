@@ -53,6 +53,8 @@ restart cm-playerdata
 
 ```lua
 exports['cm-playerdata']:GetPlayerData(src)
+exports['cm-playerdata']:GetCharId(src)
+exports['cm-playerdata']:GetSourceByCharId(characterId)
 exports['cm-playerdata']:IsLoaded(src)
 exports['cm-playerdata']:GetCash(src)
 exports['cm-playerdata']:GetBank(src)
@@ -69,6 +71,35 @@ exports['cm-playerdata']:Revive(src)
 exports['cm-playerdata']:Respawn(src)
 exports['cm-playerdata']:Load(src)
 exports['cm-playerdata']:Save(src)
+```
+
+
+## Player interaction / identity menu
+
+This version adds the blue/cyan player interaction layer:
+
+- Overhead label shows only database character ID, never FiveM server/source ID.
+- Unknown players show as `Stranger`.
+- Real character name shows only after same organization, same family, shared ID, or handshake.
+- Look at a nearby player and press `G` to open the radial menu.
+
+Visible example:
+
+```text
+Stranger
+ID: 12
+```
+
+`12` is `characters.id` from the database. Server ID/source is still used internally only for online event targeting.
+
+Useful exports:
+
+```lua
+exports['cm-playerdata']:GetCharId(src)
+exports['cm-playerdata']:GetSourceByCharId(characterId)
+exports['cm-playerdata']:KnowPlayerIdentity(viewerSrc, targetSrc, reason)
+exports['cm-playerdata']:SetOrganization(src, orgId, orgName)
+exports['cm-playerdata']:SetFamily(src, familyId, familyName)
 ```
 
 ## Notes

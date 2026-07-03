@@ -1,6 +1,8 @@
 # Ignore FiveM server cache
 cache/
 txData/cache/
+server.cfg
+\resources\[mlo]
 
 # Optional: Ignore logs and local configurations
 *.log

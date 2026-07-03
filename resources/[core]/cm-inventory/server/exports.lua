@@ -12,7 +12,7 @@ exports('AddItem', function(...)
         if isEquipmentSlot(placedSlot) then
             syncEquipmentSlot(tonumber(src), placedSlot)
         end
-        sendInventory(tonumber(src))
+        sendInventorySmart(tonumber(src))
     end
 
     return ok, placedSlotOrReason
@@ -106,4 +106,32 @@ CreateThread(function()
     cleanupDrops()
     sendDrops(-1)
     print('[CM-INVENTORY] Started v4.0-exportfix')
+end)
+
+exports('OpenExternalInventory', function(...)
+    local args = { ... }
+    if type(args[1]) == 'table' and args[2] ~= nil then table.remove(args, 1) end
+    return OpenExternalInventoryInternal(tonumber(args[1]), args[2] or {})
+end)
+
+exports('CloseExternalInventory', function(...)
+    local args = { ... }
+    if type(args[1]) == 'table' and args[2] ~= nil then table.remove(args, 1) end
+    return CloseExternalInventoryInternal(tonumber(args[1]))
+end)
+
+exports('GetOpenExternalInventory', function(...)
+    local args = { ... }
+    if type(args[1]) == 'table' and args[2] ~= nil then table.remove(args, 1) end
+    local ctx = ActiveExternalInventories[tonumber(args[1])]
+    if not ctx then return nil end
+    return {
+        ownerType = ctx.ownerType,
+        ownerId = ctx.ownerId,
+        kind = ctx.kind,
+        label = ctx.label,
+        slots = ctx.slots,
+        slotPrefix = ctx.slotPrefix,
+        data = ctx.data
+    }
 end)

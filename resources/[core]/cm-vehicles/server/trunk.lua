@@ -147,50 +147,173 @@ RegisterNetEvent('cm-vehicles:server:toggleTrunkDoor', function(plate, netId)
     U.Notify(src, newOpen and 'Trunk opened. Press I near the trunk to open inventory.' or 'Trunk closed.', 'success')
 end)
 
-RegisterNetEvent('cm-vehicles:server:openTrunk', function(plate, netId)
+RegisterNetEvent('cm-vehicles:server:openTrunk', function()
+    U.Notify(source, 'Open the trunk, then press I to use cm-inventory.')
+end)
+
+
+RegisterNetEvent('cm-vehicles:server:openSharedTrunkInventory', function(plate, netId)
     local src = source
     plate = CMVehicles.Server.ResolvePlate(plate, netId)
     local vehicle = CMVehicles.Server.GetVehicleByPlate(plate)
     if not vehicle then return U.Notify(src, 'Vehicle not found.', 'error') end
     if vehicle.is_locked then return U.Notify(src, 'Vehicle is locked.', 'error') end
-    if not CMVehicles.Server.HasAccess(src, plate) then return U.Notify(src, 'You do not have keys for this trunk.', 'error') end
-    local payload, err = CMVehicles.Trunk.BuildPayload(src, plate)
-    if not payload then return U.Notify(src, err or 'Could not open trunk.', 'error') end
+    if not CMVehicles.Server.IsOwner(src, plate) then return U.Notify(src, 'Only the vehicle owner can open this trunk inventory.', 'error') end
+
+    local slotCount = CMVehicles.Trunk.SlotCount(vehicle.trunk_level)
+    if slotCount <= 0 then return U.Notify(src, 'This vehicle has no trunk storage.', 'error') end
+
+    local spawned = CMVehicles.Server.Spawned[plate] or {}
+    if spawned.trunkOpen ~= true then
+        return U.Notify(src, 'Open the trunk first, then press I near the trunk.', 'error')
+    end
+
+    local near = CMVehicles.Server.ValidateNearVehicle(src, netId, (Config.Interaction.trunkDistance or 4.5) + 2.0)
+    if not near then return U.Notify(src, 'Move closer to the open trunk.', 'error') end
+
+    if GetResourceState('cm-inventory') ~= 'started' then
+        return U.Notify(src, 'Inventory resource is not started.', 'error')
+    end
+
+    CMVehicles.Server.Spawned[plate] = CMVehicles.Server.Spawned[plate] or {}
+    CMVehicles.Server.Spawned[plate].netId = tonumber(netId) or CMVehicles.Server.Spawned[plate].netId
+
+    local externalContext = {
+        ownerType = 'vehicle_trunk',
+        ownerId = tostring(vehicle.id),
+        slotPrefix = 'trunk-',
+        slots = math.min(slotCount, 30),
+        displaySlots = 30,
+        kind = 'vehicle_trunk',
+        label = tostring(vehicle.label or vehicle.model or 'Vehicle') .. ' Trunk',
+        subtitle = tostring(vehicle.plate or plate),
+        icon = 'vehicle',
+        replace = 'equipment',
+        noWeightLimit = true,
+        canDeposit = true,
+        canWithdraw = true,
+        data = {
+            plate = tostring(vehicle.plate or plate),
+            vehicleId = tostring(vehicle.id),
+            trunkLevel = tonumber(vehicle.trunk_level) or 0,
+            displaySlots = 30
+        }
+    }
+
+    U.Debug(('Opening cm-inventory external trunk src=%s plate=%s vehicleId=%s level=%s slots=%s netId=%s'):format(
+        tostring(src), tostring(plate), tostring(vehicle.id), tostring(vehicle.trunk_level), tostring(slotCount), tostring(netId)
+    ))
+    U.Debug(('External context ownerType=%s ownerId=%s prefix=%s slots=%s display=%s'):format(
+        tostring(externalContext.ownerType), tostring(externalContext.ownerId), tostring(externalContext.slotPrefix), tostring(externalContext.slots), tostring(externalContext.displaySlots)
+    ))
+
+    local ok, resultOrErr, externalErr = pcall(function()
+        return exports['cm-inventory']:OpenExternalInventory(src, externalContext)
+    end)
+
+    if not ok or resultOrErr ~= true then
+        U.Debug(('OpenExternalInventory failed src=%s result=%s err=%s'):format(tostring(src), tostring(resultOrErr), tostring(externalErr)))
+        return U.Notify(src, tostring(externalErr or resultOrErr or 'Could not open trunk inventory.'), 'error')
+    end
+
+    U.Debug(('OpenExternalInventory success src=%s plate=%s vehicleId=%s'):format(tostring(src), tostring(plate), tostring(vehicle.id)))
+end)
+
+-- Legacy cm-vehicles item inventory movement removed. All item movement now goes through cm-inventory external storage.
+RegisterNetEvent('cm-vehicles:server:moveToTrunk', function()
+    U.Notify(source, 'Vehicle inventory is handled by cm-inventory. Open the trunk and press I.', 'error')
+end)
+
+RegisterNetEvent('cm-vehicles:server:takeFromTrunk', function()
+    U.Notify(source, 'Vehicle inventory is handled by cm-inventory. Open the trunk and press I.', 'error')
+end)
+
+-- Player-in-trunk state. This is separate from the item inventory trunk.
+-- It prevents more than one player from hiding in the same vehicle trunk.
+CMVehicles.Server.TrunkOccupants = CMVehicles.Server.TrunkOccupants or {}
+
+local function occupantStillOnline(src)
+    src = tonumber(src)
+    return src and src > 0 and GetPlayerName(src) ~= nil
+end
+
+RegisterNetEvent('cm-vehicles:server:requestEnterTrunk', function(plate, netId)
+    local src = source
+    plate = CMVehicles.Server.ResolvePlate(plate, netId)
+    local vehicle = CMVehicles.Server.GetVehicleByPlate(plate)
+    if not vehicle then return U.Notify(src, 'Vehicle not found.', 'error') end
+    if vehicle.is_locked then return U.Notify(src, 'Unlock the vehicle first.', 'error') end
+    if CMVehicles.Trunk.SlotCount(vehicle.trunk_level) <= 0 then return U.Notify(src, 'This vehicle has no trunk.', 'error') end
+
+    local near = CMVehicles.Server.ValidateNearVehicle(src, netId, (Config.Interaction.trunkDistance or 4.5) + 2.5)
+    if not near then return U.Notify(src, 'You are too far from the trunk.', 'error') end
+
+    local current = CMVehicles.Server.TrunkOccupants[plate]
+    if current and current ~= src and occupantStillOnline(current) then
+        return U.Notify(src, 'Someone is already in this trunk.', 'error')
+    end
+
+    CMVehicles.Server.TrunkOccupants[plate] = src
     CMVehicles.Server.Spawned[plate] = CMVehicles.Server.Spawned[plate] or {}
     CMVehicles.Server.Spawned[plate].netId = tonumber(netId) or CMVehicles.Server.Spawned[plate].netId
     CMVehicles.Server.Spawned[plate].trunkOpen = true
-    TriggerClientEvent('cm-vehicles:client:openTrunk', src, payload)
-    TriggerClientEvent('cm-vehicles:client:setVehicleState', -1, plate, tonumber(netId) or CMVehicles.Server.GetSpawnedNetId(plate), { trunkOpen = true })
+
+    local finalNetId = tonumber(netId) or CMVehicles.Server.GetSpawnedNetId(plate)
+    TriggerClientEvent('cm-vehicles:client:setVehicleState', -1, plate, finalNetId, { trunkOpen = true })
+    TriggerClientEvent('cm-vehicles:client:enterTrunk', src, finalNetId, plate)
 end)
 
-RegisterNetEvent('cm-vehicles:server:moveToTrunk', function(data)
+RegisterNetEvent('cm-vehicles:server:leaveTrunk', function(plate)
     local src = source
-    data = type(data) == 'table' and data or {}
-    local plate = U.NormalizePlate(data.plate)
-    local vehicle = CMVehicles.Server.GetVehicleByPlate(plate)
-    local charId = CMVehicles.Server.GetCharacterId(src)
-    if not charId or not vehicle or vehicle.is_locked or not CMVehicles.Server.HasAccess(src, plate) then return end
-    local maxSlots = CMVehicles.Trunk.SlotCount(vehicle.trunk_level)
-    local row = getRowAt('character', charId, data.slot)
-    if not row then return U.Notify(src, 'Item not found.', 'error') end
-    local okAdd, addErr = addToTrunk(tostring(vehicle.id), maxSlots, row.item_name, data.amount, U.Decode(row.metadata), data.toSlot)
-    if not okAdd then return U.Notify(src, addErr or 'Could not move item.', 'error') end
-    local okRemove, remErr = removeFromRow(row, data.amount)
-    if not okRemove then return U.Notify(src, remErr or 'Could not remove item.', 'error') end
-    CMVehicles.Trunk.Refresh(src, plate)
+    plate = U.NormalizePlate(plate)
+    if plate ~= '' and tonumber(CMVehicles.Server.TrunkOccupants[plate]) == tonumber(src) then
+        CMVehicles.Server.TrunkOccupants[plate] = nil
+    else
+        for p, occupant in pairs(CMVehicles.Server.TrunkOccupants) do
+            if tonumber(occupant) == tonumber(src) then CMVehicles.Server.TrunkOccupants[p] = nil end
+        end
+    end
 end)
 
-RegisterNetEvent('cm-vehicles:server:takeFromTrunk', function(data)
+RegisterNetEvent('cm-vehicles:server:forceOutTrunk', function(plate, netId)
     local src = source
-    data = type(data) == 'table' and data or {}
-    local plate = U.NormalizePlate(data.plate)
+    plate = CMVehicles.Server.ResolvePlate(plate, netId)
     local vehicle = CMVehicles.Server.GetVehicleByPlate(plate)
-    if not vehicle or vehicle.is_locked or not CMVehicles.Server.HasAccess(src, plate) then return end
-    local row = getRowAt('vehicle_trunk', tostring(vehicle.id), data.slot)
-    if not row then return U.Notify(src, 'Item not found.', 'error') end
-    local ok, result, reason = U.CallExport('cm-inventory', 'AddItem', src, row.item_name, data.amount, U.Decode(row.metadata), 'vehicle_trunk_take', data.toSlot)
-    if not ok or result ~= true then return U.Notify(src, tostring(reason or result or 'No space in player inventory.'), 'error') end
-    local okRemove, remErr = removeFromRow(row, data.amount)
-    if not okRemove then return U.Notify(src, remErr or 'Could not remove trunk item.', 'error') end
-    CMVehicles.Trunk.Refresh(src, plate)
+    if not vehicle then return U.Notify(src, 'Vehicle not found.', 'error') end
+    if not CMVehicles.Server.HasAccess(src, plate) then return U.Notify(src, 'You do not have keys for this vehicle.', 'error') end
+
+    local near = CMVehicles.Server.ValidateNearVehicle(src, netId, 8.0)
+    if not near then return U.Notify(src, 'Move closer to the vehicle.', 'error') end
+
+    local target = CMVehicles.Server.TrunkOccupants[plate]
+    if not target or not occupantStillOnline(target) then
+        CMVehicles.Server.TrunkOccupants[plate] = nil
+        return U.Notify(src, 'No player is in this trunk.', 'error')
+    end
+
+    CMVehicles.Server.TrunkOccupants[plate] = nil
+    TriggerClientEvent('cm-vehicles:client:exitTrunk', target, true)
+    U.Notify(src, 'Player removed from the trunk.', 'success')
+    if tonumber(target) ~= tonumber(src) then U.Notify(target, 'You were removed from the trunk.', 'info') end
+end)
+
+RegisterNetEvent('cm-vehicles:server:ejectPassenger', function(plate, netId, targetSrc)
+    local src = source
+    targetSrc = tonumber(targetSrc)
+    plate = CMVehicles.Server.ResolvePlate(plate, netId)
+    if not targetSrc or not GetPlayerName(targetSrc) then return U.Notify(src, 'Passenger is not online.', 'error') end
+    if tonumber(targetSrc) == tonumber(src) then return U.Notify(src, 'You cannot eject yourself from this menu.', 'error') end
+    if not CMVehicles.Server.HasAccess(src, plate) then return U.Notify(src, 'You do not have keys for this vehicle.', 'error') end
+    if not CMVehicles.Server.IsDriverOfVehicle(src, netId) then return U.Notify(src, 'Only the driver can remove passengers.', 'error') end
+
+    TriggerClientEvent('cm-vehicles:client:forceLeaveVehicle', targetSrc)
+    U.Notify(src, 'Passenger removed from vehicle.', 'success')
+    U.Notify(targetSrc, 'The driver removed you from the vehicle.', 'info')
+end)
+
+AddEventHandler('playerDropped', function()
+    local src = source
+    for plate, occupant in pairs(CMVehicles.Server.TrunkOccupants) do
+        if tonumber(occupant) == tonumber(src) then CMVehicles.Server.TrunkOccupants[plate] = nil end
+    end
 end)

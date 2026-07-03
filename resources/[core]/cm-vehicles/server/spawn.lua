@@ -24,12 +24,20 @@ function CMVehicles.Spawn.RegisterEntity(src, row, netId)
     Entity(ent).state:set('cmPlate', plate, true)
     Entity(ent).state:set('cmVehicleId', tonumber(row.id), true)
     Entity(ent).state:set('cmLocked', row.is_locked == true, true)
+    local metadata = type(row.metadata) == 'table' and row.metadata or U.Decode(row.metadata)
+    Entity(ent).state:set('cmMileage', tonumber(metadata.mileage) or 0.0, true)
+    Entity(ent).state:set('cmRacingHarness', metadata.racingHarness == true or metadata.racing_harness == true, true)
     pcall(function() SetVehicleNumberPlateText(ent, '        ') end)
     return true
 end
 
 function CMVehicles.Spawn.DeleteByPlate(plate)
     plate = U.NormalizePlate(plate)
+    local occupant = CMVehicles.Server.TrunkOccupants and CMVehicles.Server.TrunkOccupants[plate]
+    if occupant then
+        TriggerClientEvent('cm-vehicles:client:exitTrunk', occupant, true)
+        CMVehicles.Server.TrunkOccupants[plate] = nil
+    end
     local active = CMVehicles.Server.Spawned[plate]
     if active and active.entity and DoesEntityExist(active.entity) then DeleteEntity(active.entity) end
     CMVehicles.Server.Spawned[plate] = nil
@@ -38,6 +46,11 @@ end
 function CMVehicles.Spawn.DeletePlayerVehicles(src)
     for plate, data in pairs(CMVehicles.Server.Spawned) do
         if tonumber(data.source) == tonumber(src) then
+            local occupant = CMVehicles.Server.TrunkOccupants and CMVehicles.Server.TrunkOccupants[plate]
+            if occupant then
+                TriggerClientEvent('cm-vehicles:client:exitTrunk', occupant, true)
+                CMVehicles.Server.TrunkOccupants[plate] = nil
+            end
             if data.entity and DoesEntityExist(data.entity) then DeleteEntity(data.entity) end
             CMVehicles.Server.Spawned[plate] = nil
         end
@@ -72,6 +85,9 @@ function CMVehicles.Spawn.CreateForPlayer(src, row, opts)
     Entity(veh).state:set('cmPlate', plate, true)
     Entity(veh).state:set('cmVehicleId', tonumber(row.id), true)
     Entity(veh).state:set('cmLocked', locked == true, true)
+    local metadata = type(row.metadata) == 'table' and row.metadata or U.Decode(row.metadata)
+    Entity(veh).state:set('cmMileage', tonumber(metadata.mileage) or 0.0, true)
+    Entity(veh).state:set('cmRacingHarness', metadata.racingHarness == true or metadata.racing_harness == true, true)
 
     local netId = NetworkGetNetworkIdFromEntity(veh)
     CMVehicles.Server.Spawned[plate] = { entity = veh, netId = netId, source = src, vehicleId = tonumber(row.id), plate = plate, updatedAt = os.time() }
@@ -91,7 +107,7 @@ function CMVehicles.Spawn.CreateForPlayer(src, row, opts)
         warp = opts.warp == true,
         engineOn = opts.engineOn == true,
         repairFirst = opts.repairFirst == true,
-        metadata = type(row.metadata) == 'table' and row.metadata or U.Decode(row.metadata)
+        metadata = metadata
     })
 
     return true, netId

@@ -38,6 +38,33 @@ local function markSpawned(charId)
     end)
 end
 
+local function resetPlayerWorldState(src, complete)
+    src = tonumber(src)
+    if not src or src <= 0 then return end
+
+    -- Bucket 0 is the main live world. Character selector uses private buckets,
+    -- so forgetting this reset makes players unable to hit/interact with each other.
+    SetPlayerRoutingBucket(src, 0)
+
+    local ply = Player(src)
+    if ply and ply.state then
+        ply.state:set('selectorBucket', 0, true)
+        ply.state:set('isInCharacterSelector', false, true)
+
+        if complete == true then
+            -- Now the ped is visible/controllable at the final spawn, so position saving can resume.
+            ply.state:set('characterFullySpawned', true, true)
+            ply.state:set('skipPositionSave', false, true)
+            ply.state:set('cmSpawnActive', false, true)
+        else
+            -- During teleport/camera we keep saving blocked so selector/transition coords are not stored.
+            ply.state:set('characterFullySpawned', false, true)
+            ply.state:set('skipPositionSave', true, true)
+            ply.state:set('cmSpawnActive', true, true)
+        end
+    end
+end
+
 AddEventHandler('cm-core:characterLoaded', function(src, charId)
     print('[CM-SPAWN] characterLoaded for src=' .. tostring(src) .. ' charId=' .. tostring(charId))
     PendingSpawns[src] = { charId = charId, ready = false }
@@ -71,6 +98,10 @@ AddEventHandler('cm-playerdata:server:readyForSpawn', function(src, data)
         PendingSpawns[src].ready = true
         DoSpawn(src, (data and data.charId) or PendingSpawns[src].charId)
     end
+end)
+
+AddEventHandler('playerDropped', function()
+    PendingSpawns[source] = nil
 end)
 
 function BuildSpawnList(lastPos, hasSpawned)
@@ -129,6 +160,7 @@ function DoSpawn(src, charId)
             local ok, decoded = pcall(json.decode, charRow[1].appearance_json)
             if ok then appearance = decoded end
         end
+        resetPlayerWorldState(src, false)
         TriggerClientEvent('cm-spawn:client:spawn', src, 'hospital', false, vector4(341.0, -1397.0, 33.0, 50.0), appearance)
         return
     end
@@ -158,6 +190,7 @@ function DoSpawn(src, charId)
         local default = GetSpawnByKey('hotel')
         if not default then return end
         print('[CM-SPAWN] First time spawn for src=' .. src .. ' at ' .. default.key)
+        resetPlayerWorldState(src, false)
         TriggerClientEvent('cm-spawn:client:spawn', src, default.key, true, default.coords, appearance)
     else
         print('[CM-SPAWN] Showing spawn selector for src=' .. src)
@@ -175,6 +208,8 @@ RegisterNetEvent('cm-spawn:server:selectSpawn', function(spawnKey)
         print('[CM-SPAWN] ERROR: No charId for player ' .. src)
         return
     end
+
+    resetPlayerWorldState(src, false)
 
     local spawnData = GetSpawnByKey(spawnKey)
     if not spawnData then
@@ -220,14 +255,43 @@ RegisterNetEvent('cm-spawn:server:selectSpawn', function(spawnKey)
 end)
 
 
+RegisterNetEvent('cm-spawn:server:resetWorldState', function(complete)
+    resetPlayerWorldState(source, complete == true)
+end)
+
 RegisterNetEvent('cm-spawn:server:spawnComplete', function()
     local src = source
+    resetPlayerWorldState(src, true)
+
     local charId = Player(src).state.charId
     if not charId then return end
     markSpawned(charId)
-    Player(src).state:set('characterFullySpawned', true, true)
-    Player(src).state:set('skipPositionSave', false, true)
 end)
+
+
+local function sendCommandLine(src, msg)
+    print(msg)
+    if src and src > 0 then
+        TriggerClientEvent('chat:addMessage', src, { args = { 'CM-SPAWN', msg } })
+    end
+end
+
+RegisterCommand('checkbuckets', function(src)
+    for _, id in ipairs(GetPlayers()) do
+        sendCommandLine(src, ('[bucket] player=%s bucket=%s'):format(id, GetPlayerRoutingBucket(tonumber(id))))
+    end
+end, false)
+
+RegisterCommand('fixbucket', function(src, args)
+    local target = tonumber(args and args[1]) or src
+    if not target or target <= 0 then
+        sendCommandLine(src, '[fixbucket] Usage from console: fixbucket PLAYER_ID')
+        return
+    end
+
+    resetPlayerWorldState(target, true)
+    sendCommandLine(src, ('[fixbucket] Player %s moved to bucket 0 and spawn state reset'):format(target))
+end, false)
 
 RegisterNetEvent('cm-spawn:server:tutorialComplete', function()
     local src = source

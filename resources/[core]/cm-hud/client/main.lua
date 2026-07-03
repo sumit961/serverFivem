@@ -538,43 +538,18 @@ end)
 -- ============================================================
 -- DEATH / RESPAWN / REVIVE
 -- ============================================================
-RegisterNetEvent('cm-playerdata:client:playerDied', function(killerSrc, weaponHash)
+-- Death UI is owned by cm-playerdata (v1.7 medical layer: bleed-out screen,
+-- ambulance/give-up choices, death cam). The HUD only tracks the dead flag so
+-- other HUD modules can react; it never draws a death overlay anymore.
+RegisterNetEvent('cm-playerdata:client:playerDied', function()
     isDead = true
     canRespawn = false
-    deathTimer = 30
-
-    SendNUIMessage({
-        action = 'showDeath',
-        time = deathTimer
-    })
-
-    -- Local countdown until server says we can respawn. Guard prevents stacked threads.
-    if not isDeathThreadRunning then
-        isDeathThreadRunning = true
-        CreateThread(function()
-            while isDead and deathTimer > 0 do
-                Wait(1000)
-                deathTimer = deathTimer - 1
-
-                SendNUIMessage({
-                    action = 'updateDeathTime',
-                    time = deathTimer
-                })
-            end
-
-            if isDead then
-                canRespawn = true
-                SendNUIMessage({ action = 'showRespawn' })
-            end
-            isDeathThreadRunning = false
-        end)
-    end
+    deathTimer = 0
+    SendNUIMessage({ action = 'hideDeath' })
 end)
 
 RegisterNetEvent('cm-playerdata:client:canRespawn', function()
-    canRespawn = true
-    deathTimer = 0
-    SendNUIMessage({ action = 'showRespawn' })
+    -- handled by cm-playerdata; kept for event compatibility
 end)
 
 RegisterNetEvent('cm-playerdata:client:respawn', function(spawn)
@@ -630,10 +605,11 @@ CreateThread(function()
                 -- Custom health/armor NUI update removed; GTA native bars are used.
             end
 
-            -- Auto-detect death if health drops to 0
+            -- Death detection is owned by cm-playerdata (it reports the killer
+            -- and weapon; a bare event from here would race it and win the
+            -- server's rate limit, wiping the killed-by info and kill logs).
             if health <= 0 and not isDead then
                 isDead = true
-                TriggerServerEvent('cm-playerdata:server:playerDied')
             end
         end
     end

@@ -1,7 +1,7 @@
 CMInventory = CMInventory or {}
 
 CMInventory.Config = {
-    Debug = false,
+    Debug = true,
     OpenKey = 'I',
 
     OwnerType = 'character',

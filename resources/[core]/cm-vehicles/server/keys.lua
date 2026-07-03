@@ -55,8 +55,22 @@ RegisterNetEvent('cm-vehicles:server:requestEngineStart', function(plate, netId)
         return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId or 0, false, 'Vehicle id not found yet. Try again.')
     end
 
+    local row = CMVehicles.Server.GetVehicleByPlate(plate)
+    if not row then
+        return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId or 0, false, 'Vehicle not found.')
+    end
+
     if not CMVehicles.Server.HasAccess(src, plate) then
         return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId or 0, false, 'You do not have keys for this vehicle.')
+    end
+
+    if (tonumber(row.fuel) or tonumber(Config.Fuel and Config.Fuel.defaultFuel) or 100.0) <= 0.1 then
+        return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId or 0, false, 'Vehicle has no fuel.')
+    end
+
+    local destroyedThreshold = tonumber(Config.Damage and Config.Damage.destroyedEngineHealth) or 150.0
+    if (tonumber(row.engine_health) or 1000.0) <= destroyedThreshold then
+        return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId or 0, false, 'Engine is too damaged to start. Repair it first.')
     end
 
     local near = CMVehicles.Server.ValidateNearVehicle(src, netId, 8.0)

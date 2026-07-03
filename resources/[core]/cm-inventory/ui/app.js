@@ -39,7 +39,8 @@ let state = {
   splitTarget: null,
   giveSource: null,
   dropSource: null,
-  bag: { level: 0, backpackSlots: 0, maxWeight: 25000 }
+  bag: { level: 0, backpackSlots: 0, maxWeight: 25000 },
+  external: null
 };
 
 const equipmentLabels = {
@@ -119,6 +120,43 @@ function post(path, body) {
   });
 }
 
+
+const INVENTORY_DEBUG = true;
+function debugLog(tag, payload = {}) {
+  if (!INVENTORY_DEBUG) return;
+  const safePayload = payload || {};
+  try {
+    console.log(`[CM-INVENTORY-UI][${tag}]`, JSON.parse(JSON.stringify(safePayload)));
+  } catch (e) {
+    console.log(`[CM-INVENTORY-UI][${tag}]`, safePayload);
+  }
+  try {
+    fetch(resourceUrl('debugMove'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+      body: JSON.stringify({ tag, payload: safePayload })
+    }).catch(() => {});
+  } catch (e) {}
+}
+
+function elementDebugAt(x, y) {
+  const el = document.elementFromPoint(x, y);
+  const slotEl = el && el.closest ? el.closest('.slot') : null;
+  return {
+    x: Math.round(Number(x) || 0),
+    y: Math.round(Number(y) || 0),
+    elementTag: el ? String(el.tagName || '') : null,
+    elementClass: el ? String(el.className || '') : null,
+    elementDataSlot: el?.dataset?.slot || null,
+    closestSlotClass: slotEl ? String(slotEl.className || '') : null,
+    closestSlotDataSlot: slotEl?.dataset?.slot || null,
+    closestSlotGroup: slotEl?.dataset?.group || null,
+    externalSlotByRect: state.external?.active ? findSlotByRect(x, y, '.slot.external', 2) : null,
+    externalSlotByNearest: state.external?.active ? getExternalSlotByNearest(x, y) : null,
+    anySlotByRect: findSlotByRect(x, y, '.slot', 2)
+  };
+}
+
 function imgSrc(item) {
   const meta = item?.metadata || {};
   let icon = meta.image || meta.icon || item?.image || item?.icon || 'placeholder.png';
@@ -150,6 +188,71 @@ function imgSrc(item) {
 
 function itemBySlot(slot) {
   return state.items.find(i => i.slot === slot);
+}
+
+function externalSlotIndex(slot) {
+  if (slot === null || slot === undefined) return null;
+  const raw = String(slot).trim();
+  if (!raw) return null;
+
+  // The UI always sends external-1..external-30, but this parser is intentionally
+  // tolerant so older HTML/CSS or future storage modules cannot fall back into
+  // normal player-slot validation and cause "Invalid slot".
+  const patterns = [
+    /^external[-_](\d+)$/i,
+    /^externalSlot[-_](\d+)$/i,
+    /^storage[-_](\d+)$/i,
+    /^storageSlot[-_](\d+)$/i
+  ];
+
+  const prefix = String(state.external?.slotPrefix || '').trim();
+  if (prefix) {
+    const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    patterns.push(new RegExp(`^${escaped}(\\d+)$`, 'i'));
+  }
+
+  for (const pattern of patterns) {
+    const m = raw.match(pattern);
+    if (m) {
+      const idx = Number(m[1]);
+      return Number.isFinite(idx) && idx > 0 ? Math.floor(idx) : null;
+    }
+  }
+
+  return null;
+}
+
+function isExternalSlot(slot) {
+  return externalSlotIndex(slot) !== null;
+}
+
+function normalizeSlot(slot) {
+  const idx = externalSlotIndex(slot);
+  if (idx !== null) return `external-${idx}`;
+  return typeof slot === 'string' ? slot.trim() : slot;
+}
+
+function externalSlotLimit() {
+  return Math.max(0, Number(state.external?.slotCount || state.external?.slots || 0));
+}
+
+function externalDisplaySlots() {
+  const usable = externalSlotLimit();
+  const display = Number(state.external?.displaySlots || state.external?.display_slots || 30);
+  return Math.max(usable, Math.min(30, Math.max(1, display || 30)));
+}
+
+function isExternalLockedSlot(slot) {
+  const idx = externalSlotIndex(slot);
+  return !!idx && externalSlotLimit() > 0 && idx > externalSlotLimit();
+}
+
+function externalLabel() {
+  const ext = state.external || {};
+  const label = String(ext.label || 'STORAGE').toUpperCase();
+  const slots = Number(ext.slotCount || ext.slots || 0);
+  const used = Array.isArray(ext.items) ? ext.items.length : 0;
+  return `${label} • ${used}/${slots} slots`;
 }
 
 function kg(grams) {
@@ -317,7 +420,19 @@ function makeSlot(slot, group) {
   const item = itemBySlot(slot);
   const el = document.createElement('div');
   el.className = `slot ${group || ''}`;
-  el.dataset.slot = slot;
+  el.dataset.group = group || '';
+  el.dataset.slot = normalizeSlot(slot);
+  if (group === 'external') {
+    const extIdx = externalSlotIndex(slot);
+    if (extIdx !== null) {
+      el.dataset.externalIndex = String(extIdx);
+      el.dataset.slot = `external-${extIdx}`;
+    }
+  }
+  if (!item) el.classList.add('empty');
+  if (group === 'external' && isExternalLockedSlot(slot)) {
+    el.classList.add('storage-locked');
+  }
   if (isLockedSlot(slot)) {
     el.classList.add('locked');
     const lock = document.createElement('div');
@@ -340,6 +455,14 @@ function makeSlot(slot, group) {
     el.appendChild(icon);
   }
 
+  if (group === 'external' && !item) {
+    const idx = externalSlotIndex(slot);
+    const icon = document.createElement('div');
+    icon.className = 'slot-label external-label';
+    icon.innerHTML = `<span>${idx || ''}</span>`;
+    el.appendChild(icon);
+  }
+
   if (item) el.appendChild(makeItem(item));
   return el;
 }
@@ -347,17 +470,18 @@ function makeSlot(slot, group) {
 let activeDrag = null;
 
 function clearDropTargets() {
-  document.querySelectorAll('.drop-target').forEach(x => x.classList.remove('drop-target'));
+  document.querySelectorAll('.drop-target, .invalid-target').forEach(x => x.classList.remove('drop-target', 'invalid-target'));
   if (giveDropZone) giveDropZone.classList.remove('active');
 }
 
 function isGiveZone(x, y) {
   if (!activeDrag) return false;
+  if (activeDrag.item?.external || isExternalSlot(activeDrag.fromSlot)) return false;
   return y >= window.innerHeight - Math.max(94, Math.round(window.innerHeight * 0.12));
 }
 
 function showGiveDropZone() {
-  if (!giveDropZone) return;
+  if (!giveDropZone || activeDrag?.item?.external || isExternalSlot(activeDrag?.fromSlot)) return;
   giveDropZone.classList.remove('hidden');
 }
 
@@ -367,11 +491,93 @@ function hideGiveDropZone() {
   giveDropZone.classList.remove('active');
 }
 
-function getSlotUnderCursor(x, y) {
-  const el = document.elementFromPoint(x, y);
+function slotFromElement(el) {
   if (!el) return null;
-  const slotEl = el.closest('.slot');
-  return slotEl ? slotEl.dataset.slot : null;
+  const slotEl = el.closest ? el.closest('.slot') : null;
+  if (!slotEl) return null;
+  return normalizeSlot(slotEl.dataset.slot || '');
+}
+
+function findSlotByRect(x, y, selector, padding = 0) {
+  const slots = Array.from(document.querySelectorAll(selector || '.slot'));
+  for (const slotEl of slots) {
+    const rect = slotEl.getBoundingClientRect();
+    if (x >= rect.left - padding && x <= rect.right + padding && y >= rect.top - padding && y <= rect.bottom + padding) {
+      return normalizeSlot(slotEl.dataset.slot || '');
+    }
+  }
+  return null;
+}
+
+function getExternalSlotByNearest(x, y) {
+  if (!state.external?.active) return null;
+
+  const slots = Array.from(document.querySelectorAll('.slot.external'));
+  if (!slots.length) return null;
+
+  let best = null;
+  let bestScore = Infinity;
+
+  for (const slotEl of slots) {
+    const rect = slotEl.getBoundingClientRect();
+    if (!rect.width || !rect.height) continue;
+
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const dx = Math.abs(x - cx);
+    const dy = Math.abs(y - cy);
+
+    // Accept drops inside the slot and also inside the normal gap between slots.
+    // This is important in FiveM NUI because transparent text/vehicle overlay can
+    // make the cursor feel like it is on a slot while elementFromPoint says it is not.
+    const allowX = rect.width * 0.68;
+    const allowY = rect.height * 0.68;
+    if (dx <= allowX && dy <= allowY) {
+      const score = (dx * dx) + (dy * dy);
+      if (score < bestScore) {
+        bestScore = score;
+        best = normalizeSlot(slotEl.dataset.slot || '');
+      }
+    }
+  }
+
+  if (best) return best;
+
+  // Final fallback: if the cursor is anywhere inside the external 6x5 grid box,
+  // calculate the closest cell from the grid position instead of depending on DOM hit testing.
+  const grid = document.querySelector('.external-grid');
+  if (!grid) return null;
+  const gridRect = grid.getBoundingClientRect();
+  const pad = 16;
+  if (x < gridRect.left - pad || x > gridRect.right + pad || y < gridRect.top - pad || y > gridRect.bottom + pad) return null;
+
+  const first = slots[0].getBoundingClientRect();
+  const second = slots[1] ? slots[1].getBoundingClientRect() : null;
+  const seventh = slots[6] ? slots[6].getBoundingClientRect() : null;
+  const stepX = second ? Math.max(1, second.left - first.left) : Math.max(1, first.width);
+  const stepY = seventh ? Math.max(1, seventh.top - first.top) : Math.max(1, first.height);
+  const col = Math.max(0, Math.min(5, Math.floor((x - first.left + stepX / 2) / stepX)));
+  const row = Math.max(0, Math.min(4, Math.floor((y - first.top + stepY / 2) / stepY)));
+  const idx = row * 6 + col + 1;
+  return `external-${idx}`;
+}
+
+function getSlotUnderCursor(x, y) {
+  // External storage must win every time. In this mode the right board replaces
+  // equipment, so a drop over that area should never be sent as bodyarmor/weapon/etc.
+  if (state.external?.active) {
+    const exactExternalSlot = findSlotByRect(x, y, '.slot.external', 2);
+    if (exactExternalSlot) return exactExternalSlot;
+
+    const nearestExternalSlot = getExternalSlotByNearest(x, y);
+    if (nearestExternalSlot) return nearestExternalSlot;
+  }
+
+  const el = document.elementFromPoint(x, y);
+  const directSlot = slotFromElement(el);
+  if (directSlot) return directSlot;
+
+  return findSlotByRect(x, y, '.slot', 2);
 }
 
 function moveGhost(x, y) {
@@ -391,7 +597,7 @@ function updateDropTarget(x, y) {
   if (!slot) return;
   const slotEl = document.querySelector(`.slot[data-slot="${slot}"]`);
   if (!slotEl || slot === activeDrag.fromSlot) return;
-  if (isLockedSlot(slot)) slotEl.classList.add('invalid-target');
+  if (isLockedSlot(slot) || isExternalLockedSlot(slot)) slotEl.classList.add('invalid-target');
   else slotEl.classList.add('drop-target');
 }
 
@@ -399,9 +605,36 @@ function finishDrag(x, y) {
   if (!activeDrag) return;
 
   const dragItem = activeDrag.item;
-  const fromSlot = activeDrag.fromSlot;
-  const toSlot = getSlotUnderCursor(x, y);
+  const fromSlotRaw = activeDrag.fromSlot;
+  const detectedSlotRaw = getSlotUnderCursor(x, y);
+  const fromSlot = normalizeSlot(fromSlotRaw);
+  const toSlot = normalizeSlot(detectedSlotRaw);
   const wantsGive = isGiveZone(x, y);
+  const debugPayload = {
+    fromSlotRaw,
+    detectedSlotRaw,
+    fromSlot,
+    toSlot,
+    fromIndex: externalSlotIndex(fromSlot),
+    toIndex: externalSlotIndex(toSlot),
+    externalActive: !!state.external?.active,
+    external: state.external ? {
+      ownerType: state.external.ownerType,
+      ownerId: state.external.ownerId,
+      slotPrefix: state.external.slotPrefix,
+      slotCount: state.external.slotCount || state.external.slots,
+      displaySlots: state.external.displaySlots || state.external.display_slots,
+      label: state.external.label
+    } : null,
+    item: dragItem ? {
+      name: dragItem.name || dragItem.item_name,
+      label: dragItem.label,
+      slot: dragItem.slot,
+      external: !!dragItem.external
+    } : null,
+    element: elementDebugAt(x, y)
+  };
+  debugLog('finishDrag', debugPayload);
 
   if (activeDrag.ghost) activeDrag.ghost.remove();
   if (activeDrag.sourceEl) activeDrag.sourceEl.classList.remove('dragging-source');
@@ -417,16 +650,29 @@ function finishDrag(x, y) {
 
   if (!toSlot || !fromSlot || fromSlot === toSlot) return;
   if (isLockedSlot(toSlot)) { showToast('That backpack slot is locked by your bag level.', 'error'); return; }
+  if (isExternalLockedSlot(toSlot)) { showToast(`This storage only has ${externalSlotLimit()} usable slots.`, 'error'); return; }
 
-  showToast(`Moving ${fromSlot} → ${toSlot}...`, 'info');
-  post('moveItem', { fromSlot, toSlot }).catch(() => {
+  const fromIndex = externalSlotIndex(fromSlot);
+  const toIndex = externalSlotIndex(toSlot);
+  const movePayload = {
+    fromSlot,
+    toSlot,
+    fromExternal: fromIndex !== null,
+    toExternal: toIndex !== null,
+    fromIndex,
+    toIndex,
+    uiDebug: debugPayload
+  };
+  showToast(`[DEBUG] ${fromSlot} → ${toSlot} | ext=${fromIndex !== null}->${toIndex !== null}`, 'info');
+  debugLog('postMoveItem', movePayload);
+  post('moveItem', movePayload).catch(() => {
     showToast('Move request failed.', 'error');
   });
 }
 
 function makeItem(item) {
   const el = document.createElement('div');
-  el.className = `item rarity-${rarityOf(item)}`;
+  el.className = `item rarity-${rarityOf(item)}${item?.external ? ' external-item' : ''}`;
   el.draggable = false;
   el.dataset.slot = item.slot;
 
@@ -566,6 +812,43 @@ function showContext(item, x, y) {
   closeTooltip();
   state.contextItem = item;
   state.contextOpen = true;
+
+  if (item?.external || isExternalSlot(item?.slot)) {
+    const target = firstEmptyMainSlot();
+    const details = metadataRows(item).map(([k, v]) => `<div class="detail-row"><span>${escapeHtml(k)}</span><b>${escapeHtml(v)}</b></div>`).join('');
+    contextEl.innerHTML = `
+      <div class="context-head rarity-${escapeHtml(rarityOf(item))}">
+        <div class="context-title">${escapeHtml(itemLabel(item))}</div>
+        <div class="context-meta">${escapeHtml(Number(item.quantity || 1))} UNITS / ${escapeHtml(kg((item.weight || 0) * (item.quantity || 1)))} KG<br>${escapeHtml((state.external?.label || 'STORAGE').toUpperCase())}</div>
+        <div class="context-desc">${escapeHtml(item.description || itemSubtitle(item) || 'Storage item.')}</div>
+        <div class="details-list">${details || '<div class="detail-row"><span>Info</span><b>Stored Item</b></div>'}</div>
+      </div>
+      <div class="context-actions compact">
+        <button data-action="take"><span class="icon">⇦</span>TAKE TO INVENTORY</button>
+      </div>
+    `;
+    const takeBtn = contextEl.querySelector('[data-action="take"]');
+    if (takeBtn) takeBtn.onclick = () => {
+      const slot = firstEmptyMainSlot();
+      if (!slot) { showToast('No empty pocket/backpack slot.', 'error'); closeContext(); return; }
+      post('moveItem', {
+        fromSlot: item.slot,
+        toSlot: slot,
+        fromExternal: true,
+        toExternal: false,
+        fromIndex: externalSlotIndex(item.slot),
+        toIndex: null
+      });
+      closeContext();
+    };
+    contextEl.classList.remove('hidden');
+    const rectW = 430;
+    const rectH = 390;
+    contextEl.style.left = `${Math.min(x, window.innerWidth - rectW - 20)}px`;
+    contextEl.style.top = `${Math.min(y, window.innerHeight - rectH - 20)}px`;
+    return;
+  }
+
   const totalWeight = kg((item.weight || 0) * (item.quantity || 1));
   const rarity = rarityOf(item);
   const details = metadataRows(item).map(([k, v]) => `<div class="detail-row"><span>${escapeHtml(k)}</span><b>${escapeHtml(v)}</b></div>`).join('');
@@ -699,12 +982,31 @@ function render() {
   for (let i = 1; i <= 6; i++) pocketEl.appendChild(makeSlot(`pocket-${i}`, 'pocket'));
   for (let i = 1; i <= 30; i++) backpackEl.appendChild(makeSlot(`backpack-${i}`, 'backpack'));
 
-  const gear = ['mask', 'glasses', 'headwear', 'earrings', 'outerwear', 'shirt', 'bodyarmor', 'bag', 'accessory', 'weapon', 'ammo', 'watch', 'pants', 'shoes'];
-  gear.forEach(slot => gearEl.appendChild(makeSlot(slot, 'equipment')));
+  const titleRow = document.querySelector('.equipment-column .section-title-row h3');
+  const characterWrap = document.querySelector('.equipment-column .character-wrap');
+
+  if (state.external?.active) {
+    const slots = externalDisplaySlots();
+    if (titleRow) titleRow.innerHTML = `${escapeHtml(externalLabel())} <span>ANY ITEM STORAGE • 6×5 BOARD</span>`;
+    if (characterWrap) characterWrap.classList.add('external-wrap');
+    gearEl.classList.add('external-grid');
+    gearEl.classList.remove('gear-grid');
+    for (let i = 1; i <= slots; i++) gearEl.appendChild(makeSlot(`external-${i}`, 'external'));
+  } else {
+    if (titleRow) titleRow.innerHTML = 'EQUIPMENT <span>WEAR / DRAG HERE</span>';
+    if (characterWrap) characterWrap.classList.remove('external-wrap');
+    gearEl.classList.remove('external-grid');
+    gearEl.classList.add('gear-grid');
+    const gear = ['mask', 'glasses', 'headwear', 'earrings', 'outerwear', 'shirt', 'bodyarmor', 'bag', 'accessory', 'weapon', 'ammo', 'watch', 'pants', 'shoes'];
+    gear.forEach(slot => gearEl.appendChild(makeSlot(slot, 'equipment')));
+  }
 }
 
 function applyInventoryPayload(payload) {
-  state.items = Array.isArray(payload.items) ? payload.items : [];
+  const playerItems = Array.isArray(payload.items) ? payload.items : [];
+  state.external = payload.external && payload.external.active ? payload.external : null;
+  const externalItems = state.external && Array.isArray(state.external.items) ? state.external.items.map(item => ({ ...item, external: true })) : [];
+  state.items = [...playerItems, ...externalItems];
   state.weight = payload.weight || { current: 0, max: 25000 };
   state.bag = payload.bag || { level: 0, backpackSlots: 0, maxWeight: state.weight.max || 25000 };
   state.slots = payload.slots || null;
@@ -730,6 +1032,7 @@ function updateInventory(payload) {
 
 function closeInventory() {
   state.open = false;
+  state.external = null;
   root.classList.add('hidden');
   closeContext();
   closeTooltip();

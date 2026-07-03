@@ -2,6 +2,16 @@ local Config = CMInventory.Config
 local isOpen = false
 local Drops = {}
 
+local function cdebug(message)
+    if not Config.Debug then return end
+    print(('[CM-INVENTORY-CLIENT] %s'):format(tostring(message)))
+end
+
+local function safeJson(value)
+    local ok, encoded = pcall(json.encode, value or {})
+    return ok and encoded or tostring(value)
+end
+
 local function nui(action, payload)
     payload = payload or {}
     payload.action = action
@@ -58,6 +68,7 @@ local function closeInventory()
     SetNuiFocusKeepInput(false)
     showGameAndCustomHud()
 
+    TriggerServerEvent('cm-inventory:server:closeInventory')
     nui('close', {})
 end
 
@@ -578,12 +589,30 @@ RegisterCommand('cleartestreceiver', function()
     TriggerServerEvent('cm-inventory:server:clearTestReceiver')
 end, false)
 
+
+RegisterCommand('invdebug', function()
+    Config.Debug = not Config.Debug
+    print(('[CM-INVENTORY-CLIENT] Debug is now %s'):format(Config.Debug and 'ON' or 'OFF'))
+    TriggerServerEvent('cm-inventory:server:setDebug', Config.Debug)
+end, false)
+
 RegisterNUICallback('close', function(_, cb)
     closeInventory()
     cb({ ok = true })
 end)
 
+RegisterNUICallback('debugMove', function(data, cb)
+    if Config.Debug then
+        cdebug(('NUI %s'):format(safeJson(data or {})))
+        TriggerServerEvent('cm-inventory:server:uiDebug', data or {})
+    end
+    cb({ ok = true })
+end)
+
 RegisterNUICallback('moveItem', function(data, cb)
+    if Config.Debug then
+        cdebug(('moveItem callback %s'):format(safeJson(data or {})))
+    end
     TriggerServerEvent('cm-inventory:server:moveItem', data or {})
     cb({ ok = true })
 end)

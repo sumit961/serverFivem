@@ -1,4 +1,5 @@
 local U = CMVehicles.Utils
+local Config = CMVehicles.Config
 
 
 local function getMileageSpeedMultiplier(mileage)
@@ -46,7 +47,22 @@ RegisterNetEvent('cm-vehicles:client:finalizeSpawn', function(data)
     SetVehicleBodyHealth(veh, body)
     SetVehiclePetrolTankHealth(veh, tank)
     SetVehicleDirtLevel(veh, tonumber(data.dirtLevel) or 0.0)
+
+    -- Important: GTA/FiveM often gives newly created vehicles a random/native fuel value
+    -- around 60%. Always apply the DB fuel value here so fuel is not stuck at 60.
+    local spawnFuel = tonumber(data.fuel)
+    if spawnFuel == nil then spawnFuel = tonumber(Config.Fuel and Config.Fuel.defaultFuel) or 100.0 end
+    CMVehicles.Client.SetVehicleFuel(veh, spawnFuel)
+    SetTimeout(600, function()
+        if DoesEntityExist(veh) then CMVehicles.Client.SetVehicleFuel(veh, spawnFuel) end
+    end)
+
     applyMileagePerformance(veh, data.metadata)
+    pcall(function()
+        local metadata = type(data.metadata) == 'table' and data.metadata or {}
+        Entity(veh).state:set('cmMileage', tonumber(metadata.mileage) or 0.0, true)
+        Entity(veh).state:set('cmRacingHarness', metadata.racingHarness == true or metadata.racing_harness == true, true)
+    end)
 
     SetVehicleNumberPlateText(veh, '        ')
     SetVehicleColours(veh, 111, 111)
@@ -86,8 +102,16 @@ CreateThread(function()
                 local deltaKm = 0.0
                 if lastCoords then deltaKm = #(coords - lastCoords) / 1000.0 end
                 lastCoords = coords
+                if deltaKm > 0.0 then
+                    pcall(function()
+                        local currentMileage = tonumber(Entity(veh).state.cmMileage) or 0.0
+                        local newMileage = currentMileage + deltaKm
+                        Entity(veh).state:set('cmMileage', newMileage, true)
+                        applyMileagePerformance(veh, { mileage = newMileage })
+                    end)
+                end
                 TriggerServerEvent('cm-vehicles:server:saveState', vehicleId, {
-                    fuel = GetVehicleFuelLevel(veh),
+                    fuel = CMVehicles.Client.GetVehicleFuel(veh),
                     engineHealth = GetVehicleEngineHealth(veh),
                     bodyHealth = GetVehicleBodyHealth(veh),
                     tankHealth = GetVehiclePetrolTankHealth(veh),

@@ -9,112 +9,71 @@
 <body>
   <div id="toast" class="toast hidden"></div>
 
-  <section id="vehicleMenu" class="radial-wrap hidden">
-    <div class="radial-bg"></div>
-
-    <div class="center-card">
-      <p class="eyebrow">Transport</p>
-      <h1 id="vehicleTitle">Vehicle</h1>
-      <p id="vehiclePlate" class="muted">Plate hidden</p>
-      <div class="status-row">
-        <span id="vehAccess">No key</span>
-        <span id="vehLock">Unknown</span>
-        <span id="vehTrunk">0 slots</span>
-      </div>
-      <p id="vehContext" class="context">Look at a vehicle and press G</p>
-      <button class="close-btn" data-close>×</button>
-    </div>
-
+  <section id="vehicleMenu" class="vehicle-menu hidden">
+    <div class="menu-shade"></div>
     <div id="radialActions" class="radial-actions"></div>
 
-    <div id="featuresPanel" class="side-card hidden">
-      <h2>Transportation Features</h2>
-      <p class="small">Quick controls. L locks/unlocks. Driving is normal GTA native control.</p>
-      <div class="feature-grid">
-        <button data-action="lock" class="feature-btn">Lock / Unlock</button>
-        <button data-action="engine" class="feature-btn">Engine Start / Stop</button>
-        <button data-action="windows" class="feature-btn">Windows</button>
-        <button data-action="doors" class="feature-btn">Doors</button>
-        <button data-action="hood" class="feature-btn">Hood</button>
-        <button data-action="neons" class="feature-btn">Neons</button>
-      </div>
-      <label>Give temporary key</label>
-      <div class="row">
-        <input id="targetId" type="number" placeholder="Player server ID" />
-        <button data-action="key" class="feature-btn">Give</button>
+    <button class="menu-close" data-close>×</button>
+
+    <div id="featuresPanel" class="menu-panel features hidden">
+      <h2>Drift Settings</h2>
+      <p class="small">Transportation features are reserved for managing drift settings. Connect these buttons to your drift/handling resource when that system is ready.</p>
+      <div class="feature-grid drift-grid">
+        <button data-action="drift" class="feature-btn">Drift Mode</button>
+        <button data-action="drift" class="feature-btn">Grip Mode</button>
+        <button data-action="drift" class="feature-btn">Angle Setup</button>
+        <button data-action="drift" class="feature-btn">Reset Setup</button>
       </div>
     </div>
 
-    <div id="infoPanel" class="side-card info-card hidden">
-      <h2>Information</h2>
-      <div class="info-grid">
-        <div><span>Access</span><b id="infoAccess">No</b></div>
-        <div><span>Fuel</span><b id="vehFuel">100%</b></div>
+    <div id="playerPicker" class="player-picker hidden">
+      <div class="picker-card">
+        <div class="picker-head">
+          <button id="pickerBack" class="back-btn">BACK</button>
+          <div>
+            <h2 id="pickerTitle">Select Player</h2>
+            <p id="pickerSubtitle" class="small">Nearby players</p>
+          </div>
+          <button id="pickerClose" class="mini-close">×</button>
+        </div>
+        <div id="pickerList" class="picker-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="vehicleInfoScreen" class="vehicle-info-screen hidden">
+    <div class="info-backdrop"></div>
+    <button id="infoBack" class="back-btn info-back">BACK</button>
+    <button id="infoClose" class="menu-close info-close">×</button>
+    <div class="state-card">
+      <div class="state-head">
+        <span>TRANSPORT INFORMATION</span>
+        <h1 id="infoVehicleName">Vehicle</h1>
+        <p id="infoContext">Outside vehicle · looking at vehicle</p>
+      </div>
+      <div class="state-grid">
+        <div><span>Owner Name</span><b id="infoOwnerName">Unknown</b></div>
+        <div><span>Number Plate</span><b id="infoPlate">Unknown</b></div>
+        <div><span>Insurance Days</span><b id="infoInsuranceDays">0 Days</b></div>
+        <div><span>State Value</span><b id="infoStateValue">$0</b></div>
+        <div><span>State Buy Price</span><b id="infoSellValue">$0</b></div>
+        <div><span>Vehicle ID</span><b id="infoVehicleId">Unknown</b></div>
+        <div><span>Access</span><b id="infoAccess">No key</b></div>
+        <div><span>Lock</span><b id="infoLock">Unknown</b></div>
+        <div><span>Fuel</span><b id="infoFuel">100%</b></div>
         <div><span>Trunk</span><b id="infoTrunk">0 slots</b></div>
-        <div><span>Body</span><b id="vehBody">100%</b></div>
+        <div><span>Body</span><b id="infoBody">100%</b></div>
+        <div><span>Engine</span><b id="infoEngine">100%</b></div>
+        <div><span>Odometer</span><b id="infoMileage">0.0 km</b></div>
+        <div><span>Mileage Wear</span><b id="infoMileagePenalty">No mileage data</b></div>
+        <div><span>Racing Harness</span><b id="infoHarness">Not installed</b></div>
       </div>
+      <button id="sellStateBtn" data-action="sellState" class="sell-state-btn">SELL CAR TO STATE FOR 30%</button>
+      <p class="sell-note">This removes the vehicle and pays 30% of the state value.</p>
     </div>
   </section>
 
-  <section id="trunkInventory" class="hidden">
-    <div class="background"></div>
-    <header class="topbar">
-      <div class="weight-card">
-        <span>BACKPACK WEIGHT</span>
-        <div class="weight-line">
-          <div class="gauge"><div id="weight-fill"></div></div>
-          <strong id="weight-current">0.0</strong><small>/</small><span id="weight-max">82 KG</span>
-        </div>
-      </div>
-      <div class="hint">DRAG ITEMS BETWEEN PLAYER INVENTORY AND VEHICLE TRUNK</div>
-      <div class="trunk-title-card">
-        <span>VEHICLE TRUNK</span>
-        <strong id="trunkTitle">Vehicle</strong>
-        <small id="trunkMeta">Level 0 · 0 slots</small>
-      </div>
-      <button id="trunkClose" class="close">✕</button>
-    </header>
-
-    <main class="trunk-layout-modern">
-      <section class="player-inventory-side">
-        <aside class="fast-column">
-          <div class="vertical-title">FAST ACCESS</div>
-          <div id="quickSlots" class="fast-slots"></div>
-        </aside>
-        <div class="bag-column">
-          <div class="section">
-            <h3>POCKETS</h3>
-            <div id="pocketSlots" class="slot-row"></div>
-          </div>
-          <div class="section backpack-section">
-            <h3 id="backpack-title">BACKPACK <span id="bagLevelLabel">NO BAG</span></h3>
-            <div id="backpackSlots" class="slot-grid"></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="vehicle-trunk-side">
-        <div class="section trunk-section">
-          <h3>VEHICLE INVENTORY <span id="trunkCount">0/0</span></h3>
-          <div id="vehicleSlots" class="trunk-slot-grid"></div>
-        </div>
-      </section>
-    </main>
-
-    <div id="tooltip" class="tooltip hidden"></div>
-    <div id="amountModal" class="modal hidden">
-      <div class="modal-card">
-        <h3 id="amountTitle">Move Item</h3>
-        <p id="amountLabel">Choose amount</p>
-        <input id="amountInput" type="number" min="1" value="1" />
-        <div class="modal-actions">
-          <button id="amountConfirm">Move</button>
-          <button id="amountCancel">Cancel</button>
-        </div>
-      </div>
-    </div>
-    <footer class="bottom-hint">DRAG ITEM PLAYER → TRUNK OR TRUNK → PLAYER • ESC/I TO CLOSE UI ONLY • CLOSE TRUNK FROM G MENU</footer>
-  </section>
+  <!-- Vehicle trunk item inventory removed. Storage UI now lives only in cm-inventory. -->
 
   <script src="app.js"></script>
 </body>

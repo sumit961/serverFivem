@@ -240,8 +240,8 @@ local function GiveItemInternal(src, slot, amount)
 
     notify(src, ('Gave %sx %s.'):format(amount, row.item_name), 'success')
     notify(target, ('Received %sx %s.'):format(amount, row.item_name), 'success')
-    sendInventory(src)
-    sendInventory(target)
+    sendInventorySmart(src)
+    sendInventorySmart(target)
     return true
 end
 
@@ -473,7 +473,12 @@ end
 
 RegisterNetEvent('cm-inventory:server:openInventory', function()
     local src = source
-    sendInventory(src, true)
+    CloseExternalInventoryInternal(src)
+    sendInventorySmart(src, true)
+end)
+
+RegisterNetEvent('cm-inventory:server:closeInventory', function()
+    CloseExternalInventoryInternal(source)
 end)
 
 RegisterNetEvent('cm-inventory:server:debugPing', function()
@@ -493,7 +498,7 @@ RegisterNetEvent('cm-inventory:server:pickupDrop', function(dropId)
     local ok, reason = PickupDropInternal(src, dropId)
     if ok then
         notify(src, 'Picked up item.', 'success')
-        sendInventory(src)
+        sendInventorySmart(src)
     else
         notify(src, reason or 'Could not pick up drop.', 'error')
         sendDrops(src)
@@ -508,7 +513,7 @@ RegisterNetEvent('cm-inventory:server:armorChanged', function(armorValue)
     local ok, newDur = setSlotDurability(ownerType, ownerId, 'bodyarmor', tonumber(armorValue) or 0)
     if ok then
         audit(ownerId, 'armor_durability_update', 'armor', 1, 'bodyarmor', 'bodyarmor', tostring(newDur), { durability = newDur })
-        sendInventory(src)
+        sendInventorySmart(src)
     end
 end)
 
@@ -521,28 +526,87 @@ RegisterNetEvent('cm-inventory:server:debugGiveItem', function(itemName, amount)
     if ok then
         dprint(('debugGiveItem added %sx %s to player %s'):format(amount, itemName, src))
         notify(src, ('Added %sx %s'):format(amount, itemName), 'success')
-        sendInventory(src)
+        sendInventorySmart(src)
     else
         dprint(('debugGiveItem failed for player %s item=%s reason=%s'):format(src, itemName, tostring(reason)))
         notify(src, 'Failed: ' .. tostring(reason), 'error')
     end
 end)
 
+
+RegisterNetEvent('cm-inventory:server:setDebug', function(enabled)
+    Config.Debug = enabled == true or enabled == 1 or enabled == '1' or tostring(enabled):lower() == 'true'
+    print(('[CM-INVENTORY] Debug toggled by player %s: %s'):format(tostring(source), Config.Debug and 'ON' or 'OFF'))
+end)
+
+RegisterNetEvent('cm-inventory:server:uiDebug', function(data)
+    if not Config.Debug then return end
+    local ok, encoded = pcall(json.encode, data or {})
+    print(('[CM-INVENTORY][UI-DEBUG][src=%s] %s'):format(tostring(source), ok and encoded or tostring(data)))
+end)
+
 RegisterNetEvent('cm-inventory:server:moveItem', function(data)
     local src = source
     data = type(data) == 'table' and data or {}
-    local fromSlot = tostring(data.fromSlot or '')
-    local toSlot = tostring(data.toSlot or '')
+
+    local function truthy(v)
+        return v == true or v == 1 or v == '1' or tostring(v):lower() == 'true'
+    end
+
+    local function slotFromExternalFlag(slot, flag, idx)
+        slot = tostring(slot or ''):gsub('^%s+', ''):gsub('%s+$', '')
+        if truthy(flag) then
+            local n = tonumber(idx)
+            if n and n >= 1 then return 'external-' .. tostring(math.floor(n)) end
+        end
+        return slot
+    end
+
+    local rawFromSlot = tostring(data.fromSlot or '')
+    local rawToSlot = tostring(data.toSlot or '')
+    local rawFromExternal = data.fromExternal
+    local rawToExternal = data.toExternal
+    local rawFromIndex = data.fromIndex
+    local rawToIndex = data.toIndex
+
+    local fromSlot = slotFromExternalFlag(data.fromSlot, data.fromExternal, data.fromIndex)
+    local toSlot = slotFromExternalFlag(data.toSlot, data.toExternal, data.toIndex)
+
+    -- Defensive compatibility: if an external storage is open and a future/old UI sends
+    -- trunk-1, storage_1, etc., normalize it back to external-1 before validation.
+    local ctx = ActiveExternalInventories and ActiveExternalInventories[tonumber(src)] or nil
+    local ctxFromIdx, ctxToIdx = nil, nil
+    if ctx then
+        ctxFromIdx = externalIndexForContext(ctx, fromSlot)
+        ctxToIdx = externalIndexForContext(ctx, toSlot)
+        if ctxFromIdx then fromSlot = 'external-' .. tostring(ctxFromIdx) end
+        if ctxToIdx then toSlot = 'external-' .. tostring(ctxToIdx) end
+    end
+
+    if Config.Debug then
+        local okJson, encoded = pcall(json.encode, data or {})
+        dprint(('MOVE RAW src=%s payload=%s'):format(tostring(src), okJson and encoded or tostring(data)))
+        dprint(('MOVE NORMALIZED src=%s raw=%s -> %s flags=%s/%s idx=%s/%s ctx=%s ctxInfo=%s/%s prefix=%s slots=%s ctxIdx=%s/%s final=%s -> %s'):format(
+            tostring(src), tostring(rawFromSlot), tostring(rawToSlot), tostring(rawFromExternal), tostring(rawToExternal),
+            tostring(rawFromIndex), tostring(rawToIndex), tostring(ctx ~= nil), tostring(ctx and ctx.ownerType), tostring(ctx and ctx.ownerId),
+            tostring(ctx and ctx.slotPrefix), tostring(ctx and ctx.slots), tostring(ctxFromIdx), tostring(ctxToIdx), tostring(fromSlot), tostring(toSlot)
+        ))
+    end
+
     dprint(('moveItem requested by player %s: %s -> %s'):format(src, fromSlot, toSlot))
-    local ok, reason = MoveItemInternal(src, fromSlot, toSlot)
+    local ok, reason = MoveItemSmart(src, fromSlot, toSlot)
     if ok then
         dprint(('moveItem success for player %s: %s -> %s'):format(src, fromSlot, toSlot))
         notify(src, 'Item moved.', 'success')
     else
         dprint(('moveItem failed for player %s: %s -> %s reason=%s'):format(src, fromSlot, toSlot, tostring(reason)))
-        notify(src, reason or 'Move failed.', 'error')
+        if Config.Debug then
+            notify(src, ('DEBUG MOVE FAIL | from=%s to=%s | ctx=%s | reason=%s'):format(tostring(fromSlot), tostring(toSlot), tostring(ctx ~= nil), tostring(reason)), 'error')
+        else
+            notify(src, reason or 'Move failed.', 'error')
+        end
     end
-    sendInventory(src)
+    sendInventorySmart(src)
 end)
 
 RegisterNetEvent('cm-inventory:server:splitItem', function(data)
@@ -550,5 +614,5 @@ RegisterNetEvent('cm-inventory:server:splitItem', function(data)
     data = type(data) == 'table' and data or {}
     local ok, reason = SplitItemInternal(src, tostring(data.fromSlot or ''), tostring(data.toSlot or ''), tonumber(data.amount) or 0)
     if not ok then notify(src, reason or 'Split failed.', 'error') end
-    sendInventory(src)
+    sendInventorySmart(src)
 end)

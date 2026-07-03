@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>cm-playerdata</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Overhead identity labels (Stranger / real name + character ID) -->
+    <div id="labels"></div>
+
+    <!-- Floating G prompt anchored to the looked-at player -->
+    <div id="gprompt" class="hidden"><span>G</span></div>
+
+    <!-- Numbered hex interaction menu -->
+    <div id="hexmenu" class="hidden">
+        <div id="hint">
+            <span class="hint-tag">HINT</span>
+            <span class="hint-text" id="hint-text"></span>
+        </div>
+        <div id="menu-anchor">
+            <div id="menu-title">
+                <div class="chevron">&#x2304;</div>
+                <div class="title-name" id="title-name">Stranger</div>
+                <div class="title-id" id="title-id">ID: ...</div>
+            </div>
+            <div id="hex-grid"></div>
+        </div>
+    </div>
+
+    <!-- Death screen: bleed-out timer, killed-by, [1] ambulance / [2] give up -->
+    <div id="deathscreen" class="hidden">
+        <div class="ds-vignette"></div>
+        <div class="ds-content">
+            <div class="ds-title">YOU ARE UNCONSCIOUS</div>
+            <div class="ds-killedby hidden" id="ds-killedby"></div>
+            <div class="ds-timer" id="ds-timer">02:00</div>
+            <div class="ds-options" id="ds-options">
+                <div class="ds-option" id="ds-ambulance">CALL AMBULANCE</div>
+                <div class="ds-option ds-danger" id="ds-die">GIVE UP</div>
+            </div>
+            <div class="ds-status hidden" id="ds-status"></div>
+        </div>
+    </div>
+
+    <!-- Mini timer after calling the ambulance (main overlay hidden) -->
+    <div id="deathmini" class="hidden">
+        <span class="dm-label">EMS CALLED</span>
+        <span class="dm-timer" id="dm-timer">04:00</span>
+    </div>
+
+    <!-- Passport-style ID card (shown when a player shares their ID with you) -->
+    <div id="idcard" class="hidden">
+        <div class="idc-header">
+            <span class="idc-state">SAN ANDREAS</span>
+            <span class="idc-type">IDENTITY CARD</span>
+        </div>
+        <div class="idc-body">
+            <div class="idc-photo">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="8.6" r="3.6"/><path d="M4.5 20.5c.9-4 3.9-6 7.5-6s6.6 2 7.5 6"/></svg>
+            </div>
+            <div class="idc-fields">
+                <div class="idc-field"><span class="idc-label">NAME</span><span class="idc-value" id="idc-name">—</span></div>
+                <div class="idc-field"><span class="idc-label">ID</span><span class="idc-value idc-accent" id="idc-id">—</span></div>
+                <div class="idc-field"><span class="idc-label">DATE OF BIRTH</span><span class="idc-value" id="idc-dob">—</span></div>
+                <div class="idc-field"><span class="idc-label">LICENSES</span><span class="idc-value" id="idc-lic">NONE</span></div>
+            </div>
+        </div>
+        <div class="idc-footer">PRESENTED TO YOU IN PERSON</div>
+    </div>
+
+    <script src="main.js"></script>
+</body>
+</html>

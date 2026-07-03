@@ -6,7 +6,7 @@ RegisterNetEvent('cm-inventory:server:dropItem', function(data)
     data = type(data) == 'table' and data or {}
     local ok, reason = DropItemInternal(src, tostring(data.slot or ''), tonumber(data.amount) or 1)
     if not ok then notify(src, reason or 'Drop failed.', 'error') end
-    sendInventory(src)
+    sendInventorySmart(src)
 end)
 
 local UseCooldowns = {}
@@ -63,7 +63,7 @@ RegisterNetEvent('cm-inventory:server:useItem', function(data)
     data = type(data) == 'table' and data or {}
     local ok, reason = UseItemWithProgress(src, tostring(data.slot or ''))
     if not ok then notify(src, reason or 'Use failed.', 'error') end
-    sendInventory(src)
+    sendInventorySmart(src)
 end)
 
 RegisterNetEvent('cm-inventory:server:reloadWeapon', function()
@@ -74,7 +74,7 @@ RegisterNetEvent('cm-inventory:server:reloadWeapon', function()
     else
         notify(src, reason or 'Reload failed.', 'error')
     end
-    sendInventory(src)
+    sendInventorySmart(src)
 end)
 
 RegisterNetEvent('cm-inventory:server:weaponShot', function()
@@ -84,7 +84,7 @@ RegisterNetEvent('cm-inventory:server:weaponShot', function()
         TriggerClientEvent('cm-inventory:client:noInventoryAmmo', src, reason or 'No ammo available.')
         return
     end
-    sendInventory(src)
+    sendInventorySmart(src)
 end)
 
 RegisterNetEvent('cm-inventory:server:giveItem', function(data)
@@ -93,7 +93,7 @@ RegisterNetEvent('cm-inventory:server:giveItem', function(data)
     local ok, reason = GiveItemInternal(src, tostring(data.slot or ''), tonumber(data.amount) or 1)
     if not ok then
         notify(src, reason or 'Give failed.', 'error')
-        sendInventory(src)
+        sendInventorySmart(src)
     end
 end)
 
@@ -104,7 +104,7 @@ RegisterNetEvent('cm-inventory:server:devGiveTest', function(itemName, amount)
     if ok then
         dprint(message)
         notify(src, message, 'success')
-        sendInventory(src)
+        sendInventorySmart(src)
     else
         dprint(('givetest failed for player %s item=%s reason=%s'):format(src, tostring(itemName), tostring(message)))
         notify(src, 'Give test failed: ' .. tostring(message), 'error')
@@ -129,7 +129,7 @@ RegisterCommand('giveitem', function(src, args)
     if ok then
         dprint(('/giveitem added %sx %s to player %s'):format(amount, itemName, src))
         notify(src, ('Added %sx %s'):format(amount, itemName), 'success')
-        sendInventory(src)
+        sendInventorySmart(src)
     else
         dprint(('/giveitem failed for player %s item=%s reason=%s'):format(src, itemName, tostring(reason)))
         notify(src, 'Failed: ' .. tostring(reason), 'error')
@@ -146,7 +146,7 @@ RegisterCommand('invgive', function(src, args)
     if ok then
         print(('[CM-INVENTORY] Console gave %sx %s to %s'):format(amount, itemName, target))
         notify(target, ('Added %sx %s'):format(amount, itemName), 'success')
-        sendInventory(target)
+        sendInventorySmart(target)
     else
         print(('[CM-INVENTORY] invgive failed: %s'):format(tostring(reason)))
     end
@@ -163,7 +163,7 @@ RegisterCommand('givebag', function(src, args)
     if ok then
         print(('[CM-INVENTORY] /givebag added %s with bagLevel=%s to player %s'):format(itemName, level, src))
         notify(src, ('Added Level %s bag'):format(level), 'success')
-        sendInventory(src)
+        sendInventorySmart(src)
     else
         print(('[CM-INVENTORY] /givebag failed player=%s item=%s level=%s reason=%s'):format(src, itemName, level, tostring(reason)))
         notify(src, 'Failed: ' .. tostring(reason), 'error')
@@ -181,7 +181,7 @@ RegisterCommand('invgivebag', function(src, args)
     if ok then
         print(('[CM-INVENTORY] invgivebag gave %s level=%s to %s'):format(itemName, level, target))
         notify(target, ('Added Level %s bag'):format(level), 'success')
-        sendInventory(target)
+        sendInventorySmart(target)
     else
         print(('[CM-INVENTORY] invgivebag failed: %s'):format(tostring(reason)))
     end
@@ -199,7 +199,7 @@ RegisterCommand('invgivetest', function(src, args)
     end
     local ok, message = DevGiveTestInternal(target, itemName, amount)
     print(('[CM-INVENTORY] invgivetest result: %s | %s'):format(tostring(ok), tostring(message)))
-    if target > 0 then sendInventory(target) end
+    if target > 0 then sendInventorySmart(target) end
 end, true)
 
 RegisterCommand('invshowtest', function(src)

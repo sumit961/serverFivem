@@ -9,6 +9,7 @@ local serverFiles = {
     'server/slots.lua',
     'server/bags.lua',
     'server/equipment.lua',
+    'server/external.lua',
     'server/drops.lua',
     'server/events.lua',
     'server/exports.lua'

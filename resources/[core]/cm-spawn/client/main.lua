@@ -17,6 +17,22 @@ local function setCmHudVisible(visible)
     end
 end
 
+local function enablePlayerCombat(ped)
+    ped = ped or PlayerPedId()
+
+    -- Re-enable normal player-to-player damage after character selector/spawn protection.
+    pcall(function() NetworkSetFriendlyFireOption(true) end)
+    pcall(function() SetCanAttackFriendly(ped, true, false) end)
+
+    SetPedCanBeTargetted(ped, true)
+    SetEntityInvincible(ped, false)
+    pcall(function() SetEntityProofs(ped, false, false, false, false, false, false, false, false) end)
+    SetEntityCollision(ped, true, true)
+    SetPedCanRagdoll(ped, true)
+    pcall(function() SetPedCanRagdollFromPlayerImpact(ped, true) end)
+    pcall(function() SetPedSuffersCriticalHits(ped, true) end)
+end
+
 local function cleanupSpawnCam(instant)
     if spawnCam and DoesCamExist(spawnCam) then
         RenderScriptCams(false, not instant, instant and 0 or 800, true, true)
@@ -40,6 +56,7 @@ local function makePlayerVisible(ped)
     SetPlayerControl(PlayerId(), true, 0)
     ClearPedTasksImmediately(ped)
     SetPedCanRagdoll(ped, true)
+    enablePlayerCombat(ped)
 end
 
 local function setupSkyToPlayerCamera(coords)
@@ -173,6 +190,11 @@ RegisterNetEvent('cm-spawn:client:spawn')
 AddEventHandler('cm-spawn:client:spawn', function(spawnKey, isFirstTime, coords, appearance)
     print('[CM-SPAWN] Spawning at ' .. tostring(spawnKey))
 
+    -- Leave the private character-selector world before final spawn.
+    -- If cm-characters does not have this event, this call is harmless.
+    TriggerServerEvent('cm-characters:server:leaveSelectorBucket')
+    TriggerServerEvent('cm-spawn:server:resetWorldState', false)
+
     isInSpawn = false
     pendingAppearance = nil
     SetNuiFocus(false, false)
@@ -210,6 +232,7 @@ AddEventHandler('cm-spawn:client:spawn', function(spawnKey, isFirstTime, coords,
     SetEntityInvincible(ped, false)
     SetPlayerControl(PlayerId(), true, 0)
     makePlayerVisible(ped)
+    enablePlayerCombat(ped)
     setCmHudVisible(true)
 
     print('[CM-SPAWN] Spawn complete')
@@ -220,6 +243,7 @@ end)
 
 RegisterNUICallback('selectSpawn', function(data, cb)
     print('[CM-SPAWN] selectSpawn: ' .. tostring(data.spawnKey))
+    TriggerServerEvent('cm-characters:server:leaveSelectorBucket')
     TriggerServerEvent('cm-spawn:server:selectSpawn', data.spawnKey)
     cb('ok')
 end)
@@ -230,6 +254,28 @@ RegisterNUICallback('closeSpawn', function(data, cb)
     SendNUIMessage({ action = 'closeSelector' })
     cleanupSpawnCam(false)
     makePlayerVisible(PlayerPedId())
+    enablePlayerCombat(PlayerPedId())
+    TriggerServerEvent('cm-spawn:server:resetWorldState', true)
     setCmHudVisible(true)
     cb('ok')
 end)
+
+
+AddEventHandler('cm-spawn:client:spawned', function()
+    CreateThread(function()
+        -- Some resources/skin changes can briefly re-apply spawn protection.
+        -- Refresh combat for a short safe window only, so future admin/death scripts are not fighting this loop forever.
+        local untilTime = GetGameTimer() + 15000
+        while GetGameTimer() < untilTime do
+            enablePlayerCombat(PlayerPedId())
+            Wait(1000)
+        end
+    end)
+end)
+
+RegisterCommand('cmfixcombat', function()
+    makePlayerVisible(PlayerPedId())
+    enablePlayerCombat(PlayerPedId())
+    TriggerServerEvent('cm-spawn:server:resetWorldState', true)
+    print('[CM-SPAWN] Combat/world state refreshed for this player')
+end, false)

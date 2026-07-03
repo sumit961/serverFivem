@@ -3,8 +3,8 @@ game 'gta5'
 lua54 'yes'
 
 author 'CM Framework / refactored for ClockMate'
-description 'CM owned vehicle system: OneSync server spawning, keys, locks, menu, trunk, persistence'
-version '2.0.0-onesync-modular'
+description 'CM owned vehicle system: keys, locks, menu, trunk access; inventory delegated to cm-inventory'
+version '2.3.0-fuel-engine-impact-fix'
 
 ui_page 'ui/index.html'
 
@@ -29,7 +29,8 @@ client_scripts {
 }
 
 client_exports {
-    'TryOpenNearbyTrunkInventory'
+    'TryOpenNearbyTrunkInventory',
+    'HasRacingHarness'
 }
 
 files {
@@ -38,4 +39,7 @@ files {
     'ui/app.js'
 }
 
-dependency 'cm-vehiclekeys'
+dependencies {
+    'cm-vehiclekeys',
+    'cm-inventory'
+}
