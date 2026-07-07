@@ -2,7 +2,7 @@
 cache/
 txData/cache/
 server.cfg
-\resources\[mlo]
+resources/[mlo]
 
 # Optional: Ignore logs and local configurations
 *.log
