@@ -1,4 +1,42 @@
+local function requestAnimDictSafe(dict, timeoutMs)
+    dict = tostring(dict or '')
+    if dict == '' then return false end
+    RequestAnimDict(dict)
+    local timeout = GetGameTimer() + (tonumber(timeoutMs) or 1200)
+    while not HasAnimDictLoaded(dict) and GetGameTimer() < timeout do Wait(10) end
+    return HasAnimDictLoaded(dict)
+end
+
+local function playActionAnim(kind, duration)
+    local ped = PlayerPedId()
+    if not ped or ped == 0 or IsPedInAnyVehicle(ped, false) then return end
+
+    kind = tostring(kind or 'use'):lower()
+    local dict, anim, flag
+    if kind == 'clothes' or kind == 'armor' then
+        dict, anim, flag, duration = 'clothingshirt', 'try_shirt_positive_d', 49, tonumber(duration) or 1200
+    elseif kind == 'pickup' then
+        dict, anim, flag, duration = 'pickup_object', 'pickup_low', 48, tonumber(duration) or 850
+    else
+        dict, anim, flag, duration = 'mp_common', 'givetake1_a', 48, tonumber(duration) or 900
+    end
+
+    CreateThread(function()
+        if requestAnimDictSafe(dict, 1400) then
+            TaskPlayAnim(ped, dict, anim, 8.0, -8.0, duration, flag, 0.0, false, false, false)
+            Wait(duration)
+            StopAnimTask(ped, dict, anim, 1.0)
+            RemoveAnimDict(dict)
+        end
+    end)
+end
+
+RegisterNetEvent('cm-itemactions:client:playActionAnim', function(kind, duration)
+    playActionAnim(kind, duration)
+end)
+
 RegisterNetEvent('cm-itemactions:client:heal', function(amount)
+    playActionAnim('use')
     amount = tonumber(amount) or 0
     local ped = PlayerPedId()
     local current = GetEntityHealth(ped)
@@ -7,6 +45,7 @@ RegisterNetEvent('cm-itemactions:client:heal', function(amount)
 end)
 
 RegisterNetEvent('cm-itemactions:client:armor', function(amount)
+    playActionAnim('armor')
     amount = tonumber(amount) or 0
     local ped = PlayerPedId()
     local current = GetPedArmour(ped)
@@ -14,6 +53,7 @@ RegisterNetEvent('cm-itemactions:client:armor', function(amount)
 end)
 
 RegisterNetEvent('cm-itemactions:client:repairVehicle', function()
+    playActionAnim('use', 1400)
     local ped = PlayerPedId()
     local veh = GetVehiclePedIsIn(ped, false)
     if veh == 0 then
@@ -29,11 +69,13 @@ RegisterNetEvent('cm-itemactions:client:repairVehicle', function()
 end)
 
 RegisterNetEvent('cm-itemactions:client:lockpickStart', function()
+    playActionAnim('use', 1200)
     -- Placeholder. Later this should open your lockpick minigame.
     print('[CM-ITEMACTIONS] Lockpick placeholder triggered')
 end)
 
 RegisterNetEvent('cm-itemactions:client:showIdCard', function(item)
+    playActionAnim('use', 900)
     -- Placeholder. Later this should show the ID card to nearby players.
     print(('[CM-ITEMACTIONS] ID card metadata: %s'):format(json.encode(item and item.metadata or {})))
 end)
@@ -154,6 +196,7 @@ RegisterNetEvent('cm-itemactions:client:swapClothing', function(requestId, itemN
     end
 
     local ped = PlayerPedId()
+    playActionAnim('clothes', 1200)
     local old = readCurrentClothing(ped, def)
     local ok
 

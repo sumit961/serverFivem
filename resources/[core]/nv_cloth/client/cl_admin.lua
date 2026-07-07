@@ -13,6 +13,7 @@ local studio = {
   refPed = nil,
   backdropActive = false,
   backdropProps = {},
+  backdropLayout = {},
   fallbackDrawBox = false,
   testProps = {},
   envApplied = false,
@@ -20,6 +21,11 @@ local studio = {
   backdropMode = 'green',
   forceBackdropDrawBox = false,
   captureWallHeading = nil,
+  -- Live greenscreen tuning (set by /vehgreen* commands). These feed BOTH the
+  -- live tuning prop and the real capture backdrop so what you tune is what
+  -- capture uses. Defaults come from Config.AdminStudio.Backdrop.
+  greenTune = nil,        -- { scale, zOffset } once initialised
+  greenTuneProp = nil,    -- handle of the single live tuning prop from /vehgreen
 }
 
 local function notify(msg, typ)
@@ -52,7 +58,71 @@ local function clearBackdropProps()
     deleteEntity(studio.backdropProps[i])
     studio.backdropProps[i] = nil
   end
+  studio.backdropLayout = {}
 end
+
+--========================================================
+-- Live greenscreen tuning (scale + vertical offset)
+-- Shared by the /vehgreen* commands and the real capture backdrop so tuning is
+-- live and 1:1 with what capture produces.
+--========================================================
+local function greenTune()
+  if not studio.greenTune then
+    local cfg = (Config.AdminStudio and Config.AdminStudio.Backdrop) or {}
+    studio.greenTune = {
+      scale = tonumber(cfg.scale) or 1.0,
+      zOffset = tonumber(cfg.tuneZOffset) or 0.0,
+    }
+  end
+  return studio.greenTune
+end
+
+-- Apply the current tuned scale to a greenscreen prop.
+-- GTA/FiveM has no SetEntityScale native, so we scale the prop's world matrix.
+-- IMPORTANT: SetEntityMatrix expects the basis in (right, forward, up) order, and
+-- FiveM's GetEntityMatrix returns them in that same order when captured as
+-- (right, forward, up, pos). We keep that exact order — swapping forward/right
+-- would tilt the flat greenscreen edge-on to the camera and make it "vanish".
+local function scaleVec(v, s)
+  local len = math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+  if len < 0.0001 then return vector3(0.0, 0.0, 0.0) end
+  return vector3((v.x / len) * s, (v.y / len) * s, (v.z / len) * s)
+end
+
+local function applyGreenScale(ent)
+  if not ent or ent == 0 or not DoesEntityExist(ent) then return end
+  local t = greenTune()
+  local scale = tonumber(t.scale) or 1.0
+  if scale <= 0 then scale = 1.0 end
+
+  if type(GetEntityMatrix) ~= 'function' or type(SetEntityMatrix) ~= 'function' then
+    return
+  end
+
+  local ok, right, forward, up, pos = pcall(GetEntityMatrix, ent)
+  if not ok or not right or not forward or not up or not pos then return end
+
+  local r = scaleVec(right, scale)
+  local f = scaleVec(forward, scale)
+  local u = scaleVec(up, scale)
+
+  pcall(SetEntityMatrix, ent,
+    r.x, r.y, r.z,
+    f.x, f.y, f.z,
+    u.x, u.y, u.z,
+    pos.x, pos.y, pos.z)
+end
+
+-- Re-apply scale + z to every currently spawned backdrop tile and the live prop.
+local function refreshGreenTuning()
+  for _, ent in ipairs(studio.backdropProps) do
+    applyGreenScale(ent)
+  end
+  if studio.greenTuneProp and studio.greenTuneProp ~= 0 and DoesEntityExist(studio.greenTuneProp) then
+    applyGreenScale(studio.greenTuneProp)
+  end
+end
+
 
 local function getGender()
   return GetEntityModel(PlayerPedId()) == `mp_f_freemode_01` and 'female' or 'male'
@@ -298,14 +368,23 @@ local function vectorComponent(v, key, index, default)
   return tonumber(v[key] or v[index]) or default
 end
 
-local function placeBackdropProp(ent, pieceIndex, pieceCount)
+-- Place one greenscreen prop tile. The backdrop is enlarged by tiling copies of
+-- the same prop in a grid: `col` shifts sideways (left/right of centre), `row`
+-- shifts backwards (behind the fixed wall). This roughly doubles the green field
+-- so it fills the whole screenshot from any capture angle, ground included.
+local function placeBackdropProp(ent, col, row)
   if not ent or ent == 0 or not DoesEntityExist(ent) then return end
 
   local ped = PlayerPedId()
   local cfg = (Config.AdminStudio and Config.AdminStudio.Backdrop) or {}
   local fixed = cfg.fixedCoords
-  local sideIndex = pieceIndex - ((pieceCount + 1) / 2.0)
-  local spacing = tonumber(cfg.spacing) or 1.55
+  col = tonumber(col) or 0.0
+  row = tonumber(row) or 0.0
+
+  -- Spacing between tiles. Keep it a touch under the prop width so tiles overlap
+  -- slightly and leave no gap/seam in the green.
+  local sideSpacing = tonumber(cfg.tileSpacing) or tonumber(cfg.spacing) or 2.6
+  local backSpacing = tonumber(cfg.tileDepthSpacing) or sideSpacing
 
   local bx, by, bz, heading
   if fixed and fixed.x and fixed.y and fixed.z then
@@ -324,11 +403,40 @@ local function placeBackdropProp(ent, pieceIndex, pieceCount)
     bz = pos.z + zOffset
   end
 
+  -- Sideways offset (perpendicular to the wall heading): widens the back wall so
+  -- side/rotated shots stay on green. This never moves toward the ped.
   local sideRad = math.rad(heading + 90.0)
-  local sx = math.cos(sideRad) * sideIndex * spacing
-  local sy = math.sin(sideRad) * sideIndex * spacing
+  local sx = math.cos(sideRad) * col * sideSpacing
+  local sy = math.sin(sideRad) * col * sideSpacing
 
-  SetEntityCoordsNoOffset(ent, bx + sx, by + sy, bz, false, false, false)
+  -- Depth offset: extra rows must push AWAY from the player, never in front of
+  -- them. Derive the "behind" direction from the ped→prop vector so tiles always
+  -- stack behind the wall regardless of the prop's own heading.
+  local bxo, byo = 0.0, 0.0
+  if row and row > 0 then
+    local studio = Config.AdminStudio and Config.AdminStudio.StudioCoords
+    local awayX, awayY
+    if studio and studio.x and studio.y then
+      awayX = bx - studio.x
+      awayY = by - studio.y
+    else
+      local pos = GetEntityCoords(ped)
+      awayX = bx - pos.x
+      awayY = by - pos.y
+    end
+    local len = math.sqrt(awayX * awayX + awayY * awayY)
+    if len > 0.01 then
+      awayX, awayY = awayX / len, awayY / len
+      bxo = awayX * row * backSpacing
+      byo = awayY * row * backSpacing
+    end
+  end
+
+  -- Apply the live-tuned vertical offset (from /vehgreenup / /vehgreendown) so
+  -- nudging the greenscreen moves the real capture backdrop too.
+  local tunedZ = tonumber(greenTune().zOffset) or 0.0
+
+  SetEntityCoordsNoOffset(ent, bx + sx + bxo, by + sy + byo, bz + tunedZ, false, false, false)
   SetEntityHeading(ent, (heading + (tonumber(cfg.headingOffset) or 0.0)) % 360.0)
 
   local rot = cfg.rotation or vector3(90.0, 0.0, 0.0)
@@ -336,6 +444,61 @@ local function placeBackdropProp(ent, pieceIndex, pieceCount)
   local ry = vectorComponent(rot, 'y', 2, 0.0)
   local rz = (heading + (tonumber(cfg.headingOffset) or 0.0) + vectorComponent(rot, 'z', 3, 0.0)) % 360.0
   SetEntityRotation(ent, rx, ry, rz, 2, true)
+end
+
+-- Camera-aware backdrop: a solid, unlit colour quad placed just behind the item
+-- along the CAPTURE camera's view axis and sized to overfill its FOV. Because it
+-- follows the actual capture camera, it stays behind the item for tight, low, and
+-- side/rotated shots (glasses, shoes, watch, bags) — not just full-body outerwear.
+-- A flat colour keys more cleanly than a shaded prop, so this works for every
+-- colour including green.
+local function drawCameraAwareWall(r, g, b, a)
+  local geom = CaptureCamGeom
+  if not geom or not geom.cam or not geom.target then return false end
+  local cam, tgt = geom.cam, geom.target
+
+  local fx, fy, fz = tgt.x - cam.x, tgt.y - cam.y, tgt.z - cam.z
+  local flen = math.sqrt(fx * fx + fy * fy + fz * fz)
+  if flen < 0.01 then return false end
+  fx, fy, fz = fx / flen, fy / flen, fz / flen
+
+  -- right = forward x worldUp ; up = right x forward
+  local rx = fy * 1.0 - fz * 0.0
+  local ry = fz * 0.0 - fx * 1.0
+  local rz = fx * 0.0 - fy * 0.0
+  local rlen = math.sqrt(rx * rx + ry * ry + rz * rz)
+  if rlen < 0.001 then rx, ry, rz, rlen = 1.0, 0.0, 0.0, 1.0 end
+  rx, ry, rz = rx / rlen, ry / rlen, rz / rlen
+  local upx = ry * fz - rz * fy
+  local upy = rz * fx - rx * fz
+  local upz = rx * fy - ry * fx
+
+  local fov = tonumber(geom.fov) or 34.0
+  local backMargin = 0.85                       -- how far behind the item the wall sits
+  local depth = flen + backMargin
+  local halfH = math.tan(math.rad(fov * 0.5)) * depth * 1.9  -- overfill vertically
+  local halfW = halfH * 2.0                                  -- and horizontally (wide aspect)
+
+  local cx = tgt.x + fx * backMargin
+  local cy = tgt.y + fy * backMargin
+  local cz = tgt.z + fz * backMargin
+
+  local function corner(sw, sh)
+    return cx + rx * halfW * sw + upx * halfH * sh,
+           cy + ry * halfW * sw + upy * halfH * sh,
+           cz + rz * halfW * sw + upz * halfH * sh
+  end
+  local tlx, tly, tlz = corner(-1,  1)
+  local trx, try_, trz = corner( 1,  1)
+  local brx, bry, brz = corner( 1, -1)
+  local blx, bly, blz = corner(-1, -1)
+
+  -- Two triangles, drawn both windings so the wall is opaque from either side.
+  DrawPoly(tlx, tly, tlz, trx, try_, trz, brx, bry, brz, r, g, b, a)
+  DrawPoly(tlx, tly, tlz, brx, bry, brz, blx, bly, blz, r, g, b, a)
+  DrawPoly(brx, bry, brz, trx, try_, trz, tlx, tly, tlz, r, g, b, a)
+  DrawPoly(blx, bly, blz, brx, bry, brz, tlx, tly, tlz, r, g, b, a)
+  return true
 end
 
 local function drawFallbackGreenWall()
@@ -350,6 +513,11 @@ local function drawFallbackGreenWall()
   local g = palette.g or tonumber(cfg.g) or 255
   local b = palette.b or tonumber(cfg.b) or 0
   local a = palette.a or tonumber(cfg.a) or 255
+
+  -- Preferred path during capture: a camera-aware quad that always fills the frame,
+  -- for every colour. Falls through to the legacy world DrawBox only when no
+  -- capture camera geometry is available (e.g. live browsing preview).
+  if drawCameraAwareWall(r, g, b, a) then return end
 
   local pedPos = GetEntityCoords(ped)
   -- For capture, keep the generated colour wall locked to the camera/studio heading.
@@ -416,10 +584,11 @@ local function startBackdropLoop()
         drawFallbackGreenWall()
         Wait(0)
       elseif #studio.backdropProps > 0 then
-        for i, ent in ipairs(studio.backdropProps) do
-          placeBackdropProp(ent, i, #studio.backdropProps)
-        end
-        Wait(100)
+        -- The backdrop props are frozen and never move on their own, so there is
+        -- no need to re-place or re-scale them every cycle. Re-placing them here
+        -- (SetEntityRotation + re-scale) caused a visible per-cycle flicker. Just
+        -- idle; spawn/tuning already positioned and scaled them.
+        Wait(500)
       else
         Wait(250)
       end
@@ -441,20 +610,42 @@ local function spawnBackdropProps()
     return
   end
 
-  local pieces = math.floor(tonumber(cfg.pieces) or 3)
-  if pieces < 1 then pieces = 1 end
-  if pieces > 6 then pieces = 6 end
+  -- Build a grid of tiles so the green field is roughly 2x the single prop and
+  -- wraps behind + to the sides. cols spread left/right, rows push backwards.
+  local cols = math.floor(tonumber(cfg.tileCols) or 3)
+  local rows = math.floor(tonumber(cfg.tileRows) or 2)
+  if cols < 1 then cols = 1 end
+  if cols > 6 then cols = 6 end
+  if rows < 1 then rows = 1 end
+  if rows > 4 then rows = 4 end
 
-  for i = 1, pieces do
-    local obj = CreateObjectNoOffset(hash, 0.0, 0.0, 0.0, false, false, false)
-    if obj and obj ~= 0 then
-      SetEntityAsMissionEntity(obj, true, true)
-      SetEntityCollision(obj, cfg.collision == true, cfg.collision == true)
-      FreezeEntityPosition(obj, true)
-      SetEntityAlpha(obj, 255, false)
-      SetEntityLodDist(obj, 200)
-      studio.backdropProps[#studio.backdropProps + 1] = obj
-      placeBackdropProp(obj, #studio.backdropProps, pieces)
+  -- Backwards compatibility: if an old config still sets `pieces`, use it as cols
+  -- and keep a single row unless tileRows was explicitly provided.
+  if cfg.pieces and not cfg.tileCols then
+    cols = math.max(1, math.min(6, math.floor(tonumber(cfg.pieces) or cols)))
+    if not cfg.tileRows then rows = 1 end
+  end
+
+  local colOffsets = {}
+  for c = 1, cols do colOffsets[c] = c - ((cols + 1) / 2.0) end  -- centre the row
+
+  for r = 0, rows - 1 do
+    for c = 1, cols do
+      -- Create the object directly at its final world position (not at 0,0,0 then
+      -- moved). Spawning at the origin and teleporting can leave a non-networked
+      -- prop unstreamed at its real location, which makes it flicker then vanish.
+      local obj = CreateObjectNoOffset(hash, 0.0, 0.0, 0.0, false, false, false)
+      if obj and obj ~= 0 then
+        SetEntityAsMissionEntity(obj, true, true)
+        SetEntityCollision(obj, cfg.collision == true, cfg.collision == true)
+        FreezeEntityPosition(obj, true)
+        SetEntityAlpha(obj, 255, false)
+        SetEntityLodDist(obj, 1000)
+        studio.backdropProps[#studio.backdropProps + 1] = obj
+        studio.backdropLayout[#studio.backdropProps] = { col = colOffsets[c], row = r }
+        placeBackdropProp(obj, colOffsets[c], r)
+        applyGreenScale(obj)
+      end
     end
   end
 
@@ -540,10 +731,29 @@ function SetAdminCaptureBackdropMode(mode, wallHeading)
   studio.backdropMode = tostring(mode or 'none'):lower()
   if studio.backdropMode == '' then studio.backdropMode = 'none' end
   studio.captureWallHeading = tonumber(wallHeading)
-  studio.forceBackdropDrawBox = (studio.backdropMode ~= 'green' and studio.backdropMode ~= 'none')
+
+  -- A wallHeading is only passed by the capture flow. During capture we use the
+  -- camera-aware quad for EVERY colour (including green) so coverage is guaranteed
+  -- for tight/low/side shots. While browsing we keep the physical green prop.
+  local capturing = wallHeading ~= nil
+  if studio.backdropMode == 'none' then
+    CaptureCamGeom = nil
+    studio.forceBackdropDrawBox = false
+  elseif capturing then
+    -- Green capture uses the real streamed greenscreen prop (floor + wall, both
+    -- green). It is tiled/enlarged so it fills the whole screenshot frame from
+    -- every capture angle. Other colours still use the generated flat wall.
+    studio.forceBackdropDrawBox = (studio.backdropMode ~= 'green')
+  else
+    -- While browsing, green uses the physical prop; other colours use the flat wall.
+    studio.forceBackdropDrawBox = (studio.backdropMode ~= 'green')
+  end
+
   refreshBackdropVisibility()
   if studio.backdropMode == 'none' then
     print('[nv_cloth] Chroma wall mode: hidden while browsing.')
+  elseif capturing then
+    print(('[nv_cloth] Chroma wall mode: %s camera-aware wall for capture.'):format(studio.backdropMode))
   elseif studio.backdropMode ~= 'green' then
     print(('[nv_cloth] Chroma wall mode: %s DrawBox wall enabled, green prop hidden.'):format(studio.backdropMode))
   else
@@ -622,9 +832,158 @@ RegisterNetEvent('nvCloth:client:printPosition', function()
   notify(('Position printed in F8: %s'):format(vec4Line), 'success')
 end)
 
+--========================================================
+-- Live greenscreen tuning commands (/vehgreen family)
+-- Spawn and tune the REAL capture greenscreen prop in-game so you can dial in
+-- scale, height and position, then copy the printed values into config.
+--========================================================
+
+-- Spawn a single live greenscreen prop where you're standing (or at the
+-- configured fixedCoords). This is the same model used for capture, so what you
+-- see is what capture uses once you copy the values into config.
+local function spawnLiveGreenProp(useFixed)
+  local cfg = (Config.AdminStudio and Config.AdminStudio.Backdrop) or {}
+  local model = tostring(cfg.model or 'prop_ld_greenscreen_01')
+  local hash = loadModel(model, 5000)
+  if not hash then
+    notify(('Greenscreen prop failed to load: %s. Check stream folder.'):format(model), 'error')
+    print(('[nv_cloth] /vehgreen failed. Model not valid/loaded: %s'):format(model))
+    return
+  end
+
+  -- Remove any previous live prop first.
+  if studio.greenTuneProp and studio.greenTuneProp ~= 0 and DoesEntityExist(studio.greenTuneProp) then
+    deleteEntity(studio.greenTuneProp)
+    studio.greenTuneProp = nil
+  end
+
+  local ped = PlayerPedId()
+  local px, py, pz, heading
+
+  local fixed = cfg.fixedCoords
+  if useFixed and fixed and fixed.x then
+    px, py, pz, heading = fixed.x, fixed.y, fixed.z, tonumber(fixed.w) or 0.0
+  else
+    local p = GetEntityCoords(ped)
+    heading = GetEntityHeading(ped)
+    local rad = math.rad(heading)
+    local distance = tonumber(cfg.distanceBehindPed) or 1.25
+    px = p.x - math.sin(rad) * distance
+    py = p.y + math.cos(rad) * distance
+    pz = p.z
+  end
+
+  local tunedZ = tonumber(greenTune().zOffset) or 0.0
+  local obj = CreateObjectNoOffset(hash, px, py, pz + tunedZ, false, false, false)
+  if not obj or obj == 0 or not DoesEntityExist(obj) then
+    SetModelAsNoLongerNeeded(hash)
+    notify(('CreateObject failed: %s'):format(model), 'error')
+    return
+  end
+
+  SetEntityAsMissionEntity(obj, true, true)
+  SetEntityCollision(obj, false, false)
+  FreezeEntityPosition(obj, true)
+  SetEntityAlpha(obj, 255, false)
+  SetEntityLodDist(obj, 300)
+
+  local rot = cfg.rotation or vector3(90.0, 0.0, 0.0)
+  local rx = vectorComponent(rot, 'x', 1, 90.0)
+  local ry = vectorComponent(rot, 'y', 2, 0.0)
+  local rz = (heading + (tonumber(cfg.headingOffset) or 0.0) + vectorComponent(rot, 'z', 3, 0.0)) % 360.0
+  SetEntityRotation(obj, rx, ry, rz, 2, true)
+
+  studio.greenTuneProp = obj
+  applyGreenScale(obj)
+  SetModelAsNoLongerNeeded(hash)
+
+  local t = greenTune()
+  notify(('Greenscreen spawned. scale=%.2f zOffset=%.2f. Use /vehgreenscale /vehgreenup /vehgreendown /vehgreenpos.'):format(t.scale, t.zOffset), 'success')
+  print(('[nv_cloth] /vehgreen spawned %s scale=%.2f zOffset=%.2f'):format(model, t.scale, t.zOffset))
+end
+
+local function moveLiveGreenZ(delta)
+  local t = greenTune()
+  t.zOffset = (tonumber(t.zOffset) or 0.0) + (tonumber(delta) or 0.0)
+
+  -- Move the live prop.
+  local ent = studio.greenTuneProp
+  if ent and ent ~= 0 and DoesEntityExist(ent) then
+    local c = GetEntityCoords(ent)
+    SetEntityCoordsNoOffset(ent, c.x, c.y, c.z + (tonumber(delta) or 0.0), false, false, false)
+  end
+
+  -- Also nudge the real backdrop tiles live (they read zOffset on next placement).
+  notify(('Greenscreen zOffset = %.2f'):format(t.zOffset), 'success')
+  print(('[nv_cloth] /vehgreen zOffset = %.4f'):format(t.zOffset))
+end
+
+RegisterNetEvent('nvCloth:client:greenSpawn', function(useFixed)
+  spawnLiveGreenProp(useFixed == true)
+end)
+
+RegisterNetEvent('nvCloth:client:greenScale', function(scale)
+  local t = greenTune()
+  scale = tonumber(scale)
+  if not scale or scale <= 0 then
+    notify('Usage: /vehgreenscale <number>  (e.g. /vehgreenscale 2.0)', 'error')
+    return
+  end
+  if scale > 8.0 then scale = 8.0 end
+  t.scale = scale
+  refreshGreenTuning()
+  notify(('Greenscreen scale = %.2f'):format(scale), 'success')
+  print(('[nv_cloth] /vehgreenscale = %.4f'):format(scale))
+end)
+
+RegisterNetEvent('nvCloth:client:greenUp', function(delta)
+  moveLiveGreenZ(math.abs(tonumber(delta) or 0.10))
+end)
+
+RegisterNetEvent('nvCloth:client:greenDown', function(delta)
+  moveLiveGreenZ(-math.abs(tonumber(delta) or 0.05))
+end)
+
+RegisterNetEvent('nvCloth:client:greenPos', function()
+  local ent = studio.greenTuneProp
+  local t = greenTune()
+  if not ent or ent == 0 or not DoesEntityExist(ent) then
+    notify('No live greenscreen prop. Spawn one first with /vehgreen.', 'error')
+    return
+  end
+  local c = GetEntityCoords(ent)
+  local h = GetEntityHeading(ent)
+  -- The live prop's world z already includes the tuned zOffset (from /vehgreenup /
+  -- /vehgreendown). Print fixedCoords with that offset removed and report the
+  -- offset separately, so pasting BOTH values never raises the backdrop twice.
+  local tunedZ = tonumber(t.zOffset) or 0.0
+  local baseZ = c.z - tunedZ
+  local vec4Line = ('vec4(%.4f, %.4f, %.4f, %.4f)'):format(c.x, c.y, baseZ, h)
+
+  print('[nv_cloth] Greenscreen prop position (paste into Config.AdminStudio.Backdrop):')
+  print(('[nv_cloth]     fixedCoords = %s,'):format(vec4Line))
+  print(('[nv_cloth]     scale       = %.4f,'):format(tonumber(t.scale) or 1.0))
+  print(('[nv_cloth]     tuneZOffset = %.4f,'):format(tunedZ))
+  print(('[nv_cloth] (fixedCoords height already excludes tuneZOffset; paste both as-is.)'))
+  notify(('Greenscreen pos printed in F8: %s'):format(vec4Line), 'success')
+end)
+
+RegisterNetEvent('nvCloth:client:greenClear', function()
+  if studio.greenTuneProp and studio.greenTuneProp ~= 0 and DoesEntityExist(studio.greenTuneProp) then
+    deleteEntity(studio.greenTuneProp)
+  end
+  studio.greenTuneProp = nil
+  notify('Live greenscreen prop removed.', 'success')
+end)
+
+
 AddEventHandler('onResourceStop', function(resource)
   if resource == GetCurrentResourceName() then
     StopClothingAdminStudio()
     clearTestProps()
+    if studio.greenTuneProp and studio.greenTuneProp ~= 0 and DoesEntityExist(studio.greenTuneProp) then
+      deleteEntity(studio.greenTuneProp)
+      studio.greenTuneProp = nil
+    end
   end
 end)

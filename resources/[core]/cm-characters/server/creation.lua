@@ -1,120 +1,127 @@
 -- cm-characters/server/creation.lua
+-- Secure character creation. Account/slot ownership is server-authoritative only.
 
-CreateThread(function()
-    Wait(1000)
-    pcall(function()
-        exports['cm-core']:Query('ALTER TABLE characters ADD COLUMN IF NOT EXISTS has_spawned TINYINT(1) NOT NULL DEFAULT 0')
-    end)
-end)
+local creationLocks = {}
 
+local function creationFail(src, message)
+    TriggerClientEvent('cm-characters:client:createResult', src, false, tostring(message or 'Character creation failed'))
+end
 
-RegisterNetEvent('cm-characters:server:create', function(accountId, charSlot, data)
+RegisterNetEvent('cm-characters:server:create', function(_clientAccountId, charSlot, data)
     local src = source
-
-    -- Always use server-authoritative account ID to prevent spoofing.
-    local stateAccountId = tostring(Player(src).state.accountId or '')
-    if stateAccountId ~= '' then accountId = stateAccountId end
-
-    print('[CM-CHARACTERS] server:create called')
-    print('[CM-CHARACTERS] accountId=' .. tostring(accountId) .. ' slot=' .. tostring(charSlot))
-    print('[CM-CHARACTERS] data=' .. json.encode(data))
-
-    -- Validate
-    if not data.firstName or data.firstName == '' then
-        print('[CM-CHARACTERS] ERROR: Empty firstName')
-        TriggerClientEvent('cm-characters:client:createResult', src, false, 'First name required')
+    local accountId = CMCharacters.RequireAccount(src)
+    if not accountId then
+        creationFail(src, 'You are not logged in. Please login again.')
         return
     end
 
-    if not data.lastName or data.lastName == '' then
-        print('[CM-CHARACTERS] ERROR: Empty lastName')
-        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Last name required')
+    local maxCharacters = CMCharacters.GetMaxCharacters(accountId)
+    local valid, cleanOrErr = CMCharacters.ValidateCreationData(data, charSlot, maxCharacters)
+    if not valid then
+        creationFail(src, cleanOrErr)
         return
     end
 
-    -- Check slot not taken
-    local existing = exports['cm-core']:Query(
-        'SELECT id FROM characters WHERE account_id = ? AND slot = ?',
-        {tostring(accountId), tonumber(charSlot)}
+    local clean = cleanOrErr
+    local lockKey = accountId .. ':' .. tostring(clean.slot)
+    if creationLocks[lockKey] then
+        creationFail(src, 'This slot is already being created. Please wait a moment.')
+        return
+    end
+    creationLocks[lockKey] = true
+
+    local function done()
+        creationLocks[lockKey] = nil
+    end
+
+    print(('[CM-CHARACTERS] secure create: src=%s account=%s slot=%s name=%s %s'):format(
+        tostring(src), tostring(accountId), tostring(clean.slot), clean.firstName, clean.lastName
+    ))
+
+    -- Check slot not taken. DB unique key also protects this as a second safety layer.
+    local existing = CMCharacters.Query(
+        'SELECT id FROM characters WHERE account_id = ? AND slot = ? LIMIT 1',
+        { accountId, clean.slot }
     )
     if existing and #existing > 0 then
-        print('[CM-CHARACTERS] ERROR: Slot already used')
-        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Character slot already used')
+        done()
+        creationFail(src, 'Character slot already used')
         return
     end
 
-    local maxCharacters = tonumber(Config and Config.MaxCharacters) or 2
-
-    -- Check max characters
-    local count = exports['cm-core']:Scalar(
+    -- Check max characters for this account.
+    local count = tonumber(CMCharacters.Scalar(
         'SELECT COUNT(*) FROM characters WHERE account_id = ?',
-        {tostring(accountId)}
-    )
-    if count and count >= maxCharacters then
-        print('[CM-CHARACTERS] ERROR: Max ' .. tostring(maxCharacters) .. ' characters reached')
-        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Maximum ' .. tostring(maxCharacters) .. ' characters reached')
+        { accountId }
+    ) or 0) or 0
+
+    if count >= maxCharacters then
+        done()
+        creationFail(src, 'Maximum ' .. tostring(maxCharacters) .. ' characters reached')
         return
     end
 
-    -- Check name not taken
-    local nameTaken = exports['cm-core']:Query(
-        'SELECT id FROM characters WHERE first_name = ? AND last_name = ?',
-        {data.firstName, data.lastName}
+    -- Check RP name not taken, case-insensitive.
+    local nameTaken = CMCharacters.Query(
+        'SELECT id FROM characters WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) LIMIT 1',
+        { clean.firstName, clean.lastName }
     )
     if nameTaken and #nameTaken > 0 then
-        print('[CM-CHARACTERS] ERROR: Name taken')
-        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Name already taken')
+        done()
+        creationFail(src, 'Name already taken')
         return
     end
 
-    local spawn = {x = -1037.0, y = -2737.0, z = 13.8, heading = 0.0}
-
-    -- Fixed RP character ID.
-    -- This is NOT the FiveM source/server ID. It is the permanent DB ID used everywhere.
-    -- First created character = 0, next = 1, next = 2...
     local newCharId, idErr = CMAllocateCharacterId()
     if not newCharId then
+        done()
         print('[CM-CHARACTERS] ERROR allocating fixed character ID: ' .. tostring(idErr))
-        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Could not allocate character ID')
+        creationFail(src, 'Could not allocate character ID')
         return
     end
 
-    print('[CM-CHARACTERS] Allocated fixed charId: ' .. tostring(newCharId))
-
-    -- Insert character
+    local spawn = { x = -1037.0, y = -2737.0, z = 13.8, heading = 0.0 }
     local ok, err = pcall(function()
-        exports['cm-core']:Query([[
-            INSERT INTO characters 
+        CMCharacters.Query([[
+            INSERT INTO characters
             (id, account_id, slot, first_name, last_name, dob, gender, appearance_json, last_position, cash, bank, has_spawned)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ]], {
-            newCharId,
-            tostring(accountId),
-            tonumber(charSlot),
-            data.firstName,
-            data.lastName,
-            data.dob or nil,
-            data.gender or 'male',
+            tostring(newCharId),
+            accountId,
+            clean.slot,
+            clean.firstName,
+            clean.lastName,
+            clean.dob,
+            clean.gender,
             '{}',
             json.encode(spawn),
             500,
             2000,
             0
         })
-        return true
     end)
+
+    done()
 
     if not ok then
         print('[CM-CHARACTERS] ERROR creating character: ' .. tostring(err))
-        TriggerClientEvent('cm-characters:client:createResult', src, false, 'Database error: ' .. tostring(err))
+        creationFail(src, 'Database error while creating character')
         return
     end
 
-    print('[CM-CHARACTERS] Character created successfully: ' .. newCharId)
+    exports['cm-core']:CacheInvalidate('chars:' .. accountId)
+    CMCharacters.LogAdmin(src, 'character_created', {
+        account_id = accountId,
+        char_id = tostring(newCharId),
+        slot = clean.slot,
+        name = clean.firstName .. ' ' .. clean.lastName
+    })
 
+    print('[CM-CHARACTERS] Character created successfully: ' .. tostring(newCharId))
     TriggerClientEvent('cm-characters:client:createResult', src, true, {
-        charId = newCharId,
-        gender = data.gender,
+        charId = tostring(newCharId),
+        gender = clean.gender,
         message = 'Character created'
     })
 end)

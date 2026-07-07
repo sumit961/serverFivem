@@ -16,7 +16,7 @@
 
 ::-webkit-scrollbar-thumb {
     border-radius: 999px;
-    background: rgba(155,132,255,0.8);
+    background: rgba(0,229,255,0.8);
 }
 
 #appearance-ui {
@@ -70,7 +70,6 @@
     color: rgba(255,255,255,0.82);
     background: rgba(18,19,24,0.72);
     border: 1px solid rgba(255,255,255,0.12);
-    backdrop-filter: blur(14px);
     transition: 0.18s ease;
     font-weight: 900;
 }
@@ -79,8 +78,8 @@
 .categoryBtn.active {
     transform: translateY(-3px);
     color: #fff;
-    border-color: rgba(155,132,255,0.76);
-    box-shadow: 0 16px 34px rgba(132,104,255,0.22);
+    border-color: rgba(0,229,255,0.76);
+    box-shadow: 0 16px 34px rgba(0,140,255,0.22);
     background: rgba(46,42,69,0.78);
 }
 
@@ -141,7 +140,6 @@
     border-radius: 24px;
     background: rgba(18,19,24,0.72);
     border: 1px solid rgba(255,255,255,0.11);
-    backdrop-filter: blur(14px);
     box-shadow: 0 18px 60px rgba(0,0,0,0.24);
 }
 
@@ -210,14 +208,14 @@
 
 .left-arrow:hover,
 .right-arrow:hover {
-    background: rgba(155,132,255,0.32);
+    background: rgba(0,229,255,0.32);
     transform: scale(1.06);
 }
 
 .input-option,
 .input-option-radius {
     width: 100%;
-    accent-color: #9b84ff;
+    accent-color: #00e5ff;
 }
 
 input[type="range"] {
@@ -232,9 +230,9 @@ input[type="range"]::-webkit-slider-thumb {
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: #9b84ff;
+    background: #00e5ff;
     cursor: pointer;
-    box-shadow: 0 0 20px rgba(155,132,255,0.5);
+    box-shadow: 0 0 20px rgba(0,229,255,0.5);
 }
 
 .second-item-bar {
@@ -286,7 +284,6 @@ input[type="range"]::-webkit-slider-thumb {
     border-radius: 26px;
     background: rgba(18,19,24,0.72);
     border: 1px solid rgba(255,255,255,0.12);
-    backdrop-filter: blur(14px);
     box-shadow: 0 18px 60px rgba(0,0,0,0.26);
 }
 
@@ -331,8 +328,8 @@ input[type="range"]::-webkit-slider-thumb {
 
 .accept-skin {
     color: #fff;
-    background: linear-gradient(90deg, #8468ff, #a58aff);
-    box-shadow: 0 14px 32px rgba(132,104,255,0.25);
+    background: linear-gradient(90deg, #008cff, #00e5ff);
+    box-shadow: 0 14px 32px rgba(0,140,255,0.25);
 }
 
 .hands-up {
@@ -386,7 +383,6 @@ input[type="range"]::-webkit-slider-thumb {
     text-transform: uppercase;
     letter-spacing: 0.1em;
     cursor: pointer;
-    backdrop-filter: blur(10px);
 }
 
 /* Keep appearance overlays scoped. Selector screen must remain transparent. */

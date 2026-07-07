@@ -28,6 +28,7 @@ const customItemName    = $('customItemName');
 const customItemPrice   = $('customItemPrice');
 const itemDestination   = $('itemDestination');
 const checkoutBtn       = $('checkoutBtn');
+const purchaseStatus    = $('purchaseStatus');
 const bagLevelControls  = $('bagLevelControls');
 const bagLevel          = $('bagLevel');
 const adminCaptureControls = $('adminCaptureControls');
@@ -41,6 +42,20 @@ const sharedGenderWrap  = $('sharedGenderWrap');
 const textureStatus     = $('textureStatus');
 const bulkProgress      = $('bulkProgress');
 const capturePreview    = $('capturePreview');
+const cropEditorModal   = $('cropEditorModal');
+const cropEditorPreview = $('cropEditorPreview');
+const cropTrimLeft      = $('cropTrimLeft');
+const cropTrimTop       = $('cropTrimTop');
+const cropTrimRight     = $('cropTrimRight');
+const cropTrimBottom    = $('cropTrimBottom');
+const cropTrimLeftVal   = $('cropTrimLeftVal');
+const cropTrimTopVal    = $('cropTrimTopVal');
+const cropTrimRightVal  = $('cropTrimRightVal');
+const cropTrimBottomVal = $('cropTrimBottomVal');
+const cropResetBtn      = $('cropResetBtn');
+const cropSaveBtn       = $('cropSaveBtn');
+const cropUseAutoBtn    = $('cropUseAutoBtn');
+const cropCancelBtn     = $('cropCancelBtn');
 const saveMissingBtn    = $('saveMissingBtn');
 const saveAllBtn        = $('saveAllBtn');
 const cancelBulkBtn     = $('cancelBulkBtn');
@@ -56,6 +71,32 @@ const fitHelperTitle    = $('fitHelperTitle');
 const fitHelperText     = $('fitHelperText');
 const openArmsFitBtn    = $('openArmsFitBtn');
 const backToTorsoBtn    = $('backToTorsoBtn');
+const filterPanel       = $('filterPanel');
+const searchInput       = $('searchInput');
+const genderFilter      = $('genderFilter');
+const drawableFilter    = $('drawableFilter');
+const minPriceFilter    = $('minPriceFilter');
+const maxPriceFilter    = $('maxPriceFilter');
+const clearFiltersBtn   = $('clearFiltersBtn');
+const cartPanel         = $('cartPanel');
+const cartList          = $('cartList');
+const cartTotal         = $('cartTotal');
+const clearCartBtn      = $('clearCartBtn');
+const checkoutModal     = $('checkoutModal');
+const confirmTitle      = $('confirmTitle');
+const confirmText       = $('confirmText');
+const confirmItems      = $('confirmItems');
+const confirmCashBtn    = $('confirmCashBtn');
+const confirmBankBtn    = $('confirmBankBtn');
+const confirmCancelBtn  = $('confirmCancelBtn');
+const pricePreset       = $('pricePreset');
+const requiredJob       = $('requiredJob');
+const requiredGang      = $('requiredGang');
+const requiredFamily    = $('requiredFamily');
+const missingImageWarning = $('missingImageWarning');
+const bulkEnableBtn     = $('bulkEnableBtn');
+const bulkDisableBtn    = $('bulkDisableBtn');
+const adminItemState    = $('adminItemState');
 
 /* ── Category metadata ─────────────────────────────────── */
 const CAT_ICONS = {
@@ -78,6 +119,10 @@ const CAT_LABELS = {
   glasses: 'Glasses', earrings: 'Earrings', chains: 'Accessories',
   bags: 'Bags', watches: 'Watches',
 };
+
+// Categories that support manual "pose the ped, then confirm" capture.
+const MANUAL_POSE_CATS = new Set(['hat', 'glasses', 'earrings', 'watches', 'chains', 'shoes']);
+
 
 function svgIcon(name) {
   const icons = {
@@ -107,7 +152,7 @@ const CAPTURE_PRESETS = {
   armor:    { angle:'front',  zOffset:0.00, bg:'green' },
   tshirt:   { angle:'front',  zOffset:0.00, bg:'green' },
   pants:    { angle:'front',  zOffset:0.05, bg:'green' },
-  shoes:    { angle:'front',  zOffset:0.28, bg:'green' },
+  shoes:    { angle:'front',  zOffset:0.00, bg:'green' },
   bags:     { angle:'back',   zOffset:0.00, bg:'green', sharedGender:true },
   hat:      { angle:'front',  zOffset:0.00, bg:'green' },
   glasses:  { angle:'front',  zOffset:0.00, bg:'green' },
@@ -136,9 +181,25 @@ let S = {
   exactTextureRows: [], // catalog rows for current drawable's textures
   adminTorsoTarget: null,
   cart: [],
+  favourites: new Set(),   // fav keys: gender:category:drawable (global across shops)
+  captureCrops: {},         // admin: saved per-category crop { left, top, right, bottom }
+  armCropForCategory: null,  // when set to a category, the next capture opens the crop editor to (re)set it
+  manualMode: false,         // admin: pose-and-shoot instead of auto-snapping the angle
+  manualPosing: false,       // true while the on-screen pose bar is up
+  manualShotPending: false,  // open crop editor after the confirmed manual shot
+  singleManual: false,       // current run is a single manual-eligible capture
+  manualDrag: null,          // drag state for rotate-by-drag
+  economy: {},              // auto-pricing config (from Config.Economy)
   bulkRunning: false,
   bulkCancel: false,
   pendingIconResolver: null,
+  pricePresets: {},
+  filters: { q: '', gender: 'all', drawable: '', minPrice: '', maxPrice: '' },
+  checkoutBusy: false,
+  lastAdminSyncKey: '',
+  captureMode: null,
+  manualCropNextCapture: false,
+  cropEditor: null,
 };
 
 /* ══════════════════════════════════════════════════════════
@@ -158,12 +219,20 @@ function normCat(row) {
   return c || '';
 }
 
+function exactCmItemName(row = {}) {
+  const v = row.itemName || row.item_name || row.nameKey || row.name_key || row.inventoryItem || row.inventory_item || row.item_key || '';
+  const key = String(v || '').trim();
+  // Do not use display labels as inventory item names. CM item keys are identifiers.
+  return key && !/\s/.test(key) ? key : '';
+}
+
 function normRow(row) {
   const category = normCat(row);
   const drawable  = Number(row.drawableId ?? row.drawable_id ?? row.drawable ?? 0);
   const texRaw    = Number(row.textureId  ?? row.texture_id  ?? row.texture  ?? 0);
   const texture   = texRaw < 0 ? 0 : texRaw;
-  return {
+  const itemKey   = exactCmItemName(row);
+  const normalised = {
     ...row,
     category,
     drawable,
@@ -171,8 +240,20 @@ function normRow(row) {
     label:   row.label || `${CAT_LABELS[category] || category} ${drawable}`,
     price:   Number(row.price ?? S.prices[category] ?? 0),
     enabled: !(row.enabled === false || row.enabled === 0 || row.enabled === '0'),
+    gender: String(row.gender || row.sex || row.pedGender || 'all').toLowerCase(),
+    requiredJob: row.requiredJob || row.required_job || row.job || '',
+    requiredGang: row.requiredGang || row.required_gang || row.gang || row.org || '',
+    requiredFamily: row.requiredFamily || row.required_family || row.family || row.familyId || '',
     hasCatalogRow: !row.generated,
   };
+  if (itemKey) {
+    normalised.itemName = itemKey;
+    normalised.item_name = itemKey;
+    normalised.nameKey = itemKey;
+    normalised.inventoryItem = itemKey;
+  }
+  normalised.catalogKey = normalised.catalogKey || `${normalised.gender}:${category}:${drawable}:${texture}`;
+  return normalised;
 }
 
 /* ── Catalog helpers ──────────────────────────────── */
@@ -180,6 +261,34 @@ const catalogRows = (inclDisabled = false) =>
   S.catalog.map(normRow).filter(r => r.category && (inclDisabled || r.enabled !== false));
 
 const hasImage = r => String(r.image || r.icon || '').trim() !== '';
+const hasStoredCatalogData = r => !!(r && (hasImage(r) || r.price != null || r.destination || r.requiredJob || r.requiredGang || r.requiredFamily || r.enabled !== undefined));
+const destinationValue = r => {
+  const d = String(r?.destination || r?.dest || r?.storeDestination || '').toLowerCase();
+  if (d === 'hidden' || d === 'event' || d === 'private') return 'hidden';
+  return 'store';
+};
+const currentSelectionKey = row => row ? `${row.category}:${Number(row.drawable)}:${Number((row.texture ?? row.textureId ?? S.texture) || 0)}` : '';
+function syncAdminFormFromSelected(force = false) {
+  if (!S.isAdmin || !S.selected) return;
+  const item = S.selected;
+  const key = currentSelectionKey(item);
+  if (!force && key === S.lastAdminSyncKey) return;
+  S.lastAdminSyncKey = key;
+  if (customItemName && document.activeElement !== customItemName) customItemName.value = String(item.label || item.name || CAT_LABELS[item.category] || '').trim();
+  const auto = autoPriceFor(item);
+  const storedItem = hasStoredCatalogData(item);
+  if (customItemPrice && document.activeElement !== customItemPrice) {
+    if (auto && !storedItem) customItemPrice.value = String(auto.price);
+    else customItemPrice.value = String(Number(item.price ?? S.prices[item.category] ?? 0));
+  }
+  if (itemDestination) {
+    if (auto && !storedItem) itemDestination.value = auto.dest;
+    else itemDestination.value = destinationValue(item);
+  }
+  if (requiredJob && document.activeElement !== requiredJob) requiredJob.value = String(item.requiredJob || item.required_job || item.job || '').trim();
+  if (requiredGang && document.activeElement !== requiredGang) requiredGang.value = String(item.requiredGang || item.required_gang || item.gang || '').trim();
+  if (requiredFamily && document.activeElement !== requiredFamily) requiredFamily.value = String(item.requiredFamily || item.required_family || item.family || '').trim();
+}
 
 function drawKey(r)  { return `${r.category}:${Number(r.drawable)}`; }
 function fullKey(r) {
@@ -223,10 +332,35 @@ function applyTextureModeFromCatalog(preferredTex) {
   }
 }
 
+function rowMatchesFilters(row) {
+  const f = S.filters || {};
+  const q = String(f.q || '').trim().toLowerCase();
+  if (q) {
+    const hay = [row.label, row.name, row.category, row.drawable, row.texture, row.price, row.requiredJob, row.requiredGang, row.requiredFamily]
+      .map(v => String(v ?? '').toLowerCase()).join(' ');
+    if (!hay.includes(q)) return false;
+  }
+  const gender = String(f.gender || 'all').toLowerCase();
+  if (gender !== 'all') {
+    const rg = String(row.gender || 'all').toLowerCase();
+    if (rg !== 'all' && rg !== 'both' && rg !== 'unisex' && rg !== gender) return false;
+  }
+  if (String(f.drawable || '').trim() !== '' && Number(row.drawable) !== Number(f.drawable)) return false;
+  const price = Number(row.price || 0);
+  if (String(f.minPrice || '').trim() !== '' && price < Number(f.minPrice)) return false;
+  if (String(f.maxPrice || '').trim() !== '' && price > Number(f.maxPrice)) return false;
+  return true;
+}
+
 /* ── Rows for a category ──────────────────────────── */
 function getRowsForCategory(category) {
+  if (category === '__fav') {
+    const imaged = catalogRows(false).filter(r =>
+      r.category !== 'arms' && hasImage(r) && S.favourites.has(rowFavKey(r)) && rowMatchesFilters(r));
+    return uniqueByDrawable(imaged);
+  }
   if (!S.isAdmin) {
-    const imaged  = catalogRows(false).filter(r => r.category === category && hasImage(r));
+    const imaged  = catalogRows(false).filter(r => r.category === category && hasImage(r) && rowMatchesFilters(r));
     const unique  = uniqueByDrawable(imaged);
     if (unique.length || S.useCatalogOnly) return unique;
   }
@@ -245,7 +379,7 @@ function getRowsForCategory(category) {
     };
     result.push(byDrawKey.get(drawKey(gen)) || gen);
   }
-  return result;
+  return result.filter(rowMatchesFilters);
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -253,6 +387,20 @@ function getRowsForCategory(category) {
    ══════════════════════════════════════════════════════════ */
 function renderCategories() {
   categoriesEl.innerHTML = '';
+
+  // Favourites quick-access chip (store only). Jumps to every favourited item
+  // across categories so players re-find fits they like without re-buying.
+  if (!S.isAdmin) {
+    const favChip = document.createElement('button');
+    favChip.className = `category category--fav${S.activeCategory === '__fav' ? ' active' : ''}`;
+    favChip.innerHTML = `
+      <span class="cat-icon">★</span>
+      <span class="cat-label">Favourites</span>
+      <span class="cat-count">${S.favourites.size}</span>`;
+    favChip.onclick = () => setCategory('__fav');
+    categoriesEl.appendChild(favChip);
+  }
+
   S.categories.filter(c => c !== 'arms' && (S.isAdmin || c !== 'bags')).forEach(cat => {
     const rows        = getRowsForCategory(cat);
     const enabled     = rows.filter(r => r.enabled !== false).length;
@@ -382,11 +530,36 @@ function updateBottom() {
 
   // Admin capture panel
   if (adminCaptureControls) adminCaptureControls.classList.toggle('hidden', !S.isAdmin);
+  if (S.isAdmin && S.selected) syncAdminFormFromSelected();
+  if (missingImageWarning) {
+    const current = S.selected;
+    const missing = S.isAdmin && !!current && !hasImage(current);
+    missingImageWarning.classList.toggle('hidden', !missing);
+  }
+  if (adminItemState) {
+    if (S.isAdmin && S.selected) {
+      const current = S.selected;
+      const stored = hasStoredCatalogData(current);
+      const autoInfo = autoPriceFor(current);
+      const flag = autoInfo ? (autoInfo.addon ? 'Add-on' : 'Store') : '';
+      const tag = `#${Number(current.drawable)}${flag ? ` · ${flag}` : ''}`;
+      const stateText = stored
+        ? `${hasImage(current) ? 'Image saved' : 'No image yet'} · ${destinationValue(current) === 'hidden' ? 'Hidden / Event Only' : 'Public Store'} · Price $${Number(current.price ?? S.prices[current.category] ?? 0)} · ${tag}`
+        : `New item · ${tag}. Set name / price / store, then capture and save the image.`;
+      adminItemState.textContent = stateText;
+      adminItemState.classList.remove('hidden');
+      adminItemState.classList.toggle('item-state-note--ok', stored);
+      adminItemState.classList.toggle('item-state-note--warn', !stored);
+    } else {
+      adminItemState.classList.add('hidden');
+    }
+  }
 
   updateFitHelper();
   updateAdminButton();
   renderTextureStatus();
   updateCartUI();
+  updateFavButton();
 }
 
 function updateAdminButton() {
@@ -399,18 +572,60 @@ function updateAdminButton() {
     buyBtn.textContent = 'SAVE FIT TO TORSO';
     buyBtn.classList.add('btn--fit');
   } else {
-    buyBtn.textContent = 'SAVE CURRENT TEXTURE';
+    const existing = hasStoredCatalogData(S.selected || {});
+    buyBtn.textContent = existing ? 'UPDATE / RETAKE IMAGE' : 'TAKE IMAGE + SAVE';
     buyBtn.classList.remove('btn--fit');
   }
 }
 
-function updateCartUI() {
-  const total = S.cart.reduce((s, i) => s + Number(i.price || 0), 0);
-  if (checkoutBtn) {
-    const show = !S.isAdmin && S.cart.length > 0;
-    checkoutBtn.classList.toggle('hidden', !show);
-    if (show) checkoutBtn.textContent = `CHECKOUT ${S.cart.length} ITEM${S.cart.length===1?'':'S'}  ·  $${total}`;
+function cartItemCount() {
+  return S.cart.reduce((sum, item) => sum + Math.max(1, Number(item.qty || 1)), 0);
+}
+
+function cartAmount() {
+  return S.cart.reduce((sum, item) => sum + (Number(item.price || 0) * Math.max(1, Number(item.qty || 1))), 0);
+}
+
+function addToCart(item) {
+  const key = `${item.category}:${Number(item.drawable)}:${Number(item.texture || 0)}`;
+  const existing = S.cart.find(i => i.cartKey === key);
+  if (existing) existing.qty = Math.max(1, Number(existing.qty || 1)) + 1;
+  else S.cart.push({ ...item, qty: 1, cartKey: key });
+}
+
+function expandedCartItems() {
+  const out = [];
+  for (const item of S.cart) {
+    const qty = Math.max(1, Number(item.qty || 1));
+    for (let i = 0; i < qty; i++) out.push({ ...item, qty: undefined });
   }
+  return out.map(({ cartKey, qty, ...item }) => item);
+}
+
+function renderCartPreview() {
+  if (!cartPanel || !cartList) return;
+  const show = !S.isAdmin && S.cart.length > 0;
+  cartPanel.classList.toggle('hidden', !show);
+  if (!show) { cartList.innerHTML = ''; if (cartTotal) cartTotal.textContent = '$0'; return; }
+  cartList.innerHTML = S.cart.map((item, idx) => {
+    const qty = Math.max(1, Number(item.qty || 1));
+    return `<div class="cart-row" data-index="${idx}">
+      <div class="cart-info"><strong>${item.label || item.category}</strong><span>${item.category} · D${Number(item.drawable)} / T${Number(item.texture || 0)}</span></div>
+      <div class="cart-controls"><button data-act="dec">−</button><b>${qty}</b><button data-act="inc">+</button><button data-act="remove">×</button></div>
+    </div>`;
+  }).join('');
+  if (cartTotal) cartTotal.textContent = `$${cartAmount()}`;
+}
+
+function updateCartUI() {
+  const total = cartAmount();
+  const count = cartItemCount();
+  if (checkoutBtn) {
+    const show = !S.isAdmin && count > 0;
+    checkoutBtn.classList.toggle('hidden', !show);
+    if (show) checkoutBtn.textContent = `CHECKOUT ${count} ITEM${count===1?'':'S'}  ·  $${total}`;
+  }
+  renderCartPreview();
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -423,6 +638,13 @@ function setCaptureControlsForCategory(cat) {
   if (captureBackground) captureBackground.value  = p.bg || 'green';
   if (sharedGender)      sharedGender.checked     = cat === 'bags' || p.sharedGender === true;
   if (sharedGenderWrap)  sharedGenderWrap.classList.toggle('hidden', cat !== 'bags');
+  // Manual pose & shoot only applies to accessories + shoes; hide the toggle
+  // elsewhere so it's clear when it's available.
+  const manualWrap = $('manualModeWrap');
+  const manualNote = $('manualModeNote');
+  const poseable = MANUAL_POSE_CATS.has(String(cat));
+  if (manualWrap) manualWrap.classList.toggle('hidden', !poseable);
+  if (manualNote) manualNote.classList.toggle('hidden', !poseable);
 }
 
 function refreshCaptureBackdropPreview() {
@@ -442,6 +664,7 @@ function setCategory(cat) {
   if (S.isAdmin) {
     setCaptureControlsForCategory(cat);
     refreshCaptureBackdropPreview();
+    syncCropSection();
   }
   S.texture      = S.selected ? Number(S.selected.texture || 0) : 0;
   S.textureCount = 1;
@@ -508,6 +731,195 @@ function moveTexture(dir) {
 }
 
 /* ══════════════════════════════════════════════════════════
+   FAVOURITES (global across shops) + ADMIN CAMERA TUNER
+   ══════════════════════════════════════════════════════════ */
+function rowFavKey(r) {
+  if (!r) return '';
+  const g = String(r.gender || 'male').toLowerCase();
+  return `${g}:${r.category}:${Number(r.drawable)}`;
+}
+function currentFavKey() {
+  if (!S.selected) return '';
+  const g = String(S.selected.gender || 'male').toLowerCase();
+  return `${g}:${S.selected.category}:${Number(S.selected.drawable)}`;
+}
+
+function updateFavButton() {
+  const btn = $('favBtn');
+  if (!btn) return;
+  // No favourites in admin mode, or when nothing is selected.
+  const usable = !S.isAdmin && !!S.selected;
+  btn.classList.toggle('hidden', !usable);
+  if (!usable) return;
+  const on = S.favourites.has(currentFavKey());
+  btn.classList.toggle('is-fav', on);
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  btn.title = on ? 'Remove from favourites' : 'Add to favourites';
+}
+
+function toggleCurrentFavourite() {
+  if (S.isAdmin || !S.selected) return;
+  const key = currentFavKey();
+  if (!key) return;
+  const on = !S.favourites.has(key);
+  if (on) S.favourites.add(key); else S.favourites.delete(key);
+  updateFavButton();
+  renderCategories();               // refresh the ★ count
+  if (S.activeCategory === '__fav') setCategory('__fav'); // keep the fav list live
+  post('toggleFavourite', { key, on });
+}
+
+// ── Admin per-category crop ──────────────────────────────
+// A saved crop for a category is reused automatically on every capture of that
+// category until it is changed or cleared. Shape: { left, top, right, bottom }.
+function savedCropFor(cat) {
+  const c = S.captureCrops[cat];
+  if (c && [c.left, c.top, c.right, c.bottom].every(v => Number.isFinite(Number(v)))) return c;
+  return null;
+}
+function syncCropSection() {
+  const section = $('cropSection');
+  if (!section) return;
+  const cat = S.activeCategory;
+  const show = S.isAdmin && cat && cat !== 'arms' && cat !== '__fav';
+  section.classList.toggle('hidden', !show);
+  const catLabel = $('cropPanelCat');
+  if (catLabel) catLabel.textContent = show ? (CAT_LABELS[cat] || cat) : '—';
+  if (!show) return;
+
+  const saved = savedCropFor(cat);
+  const status = $('cropSectionStatus');
+  if (status) {
+    status.textContent = saved
+      ? `Saved crop: L${saved.left}% · T${saved.top}% · R${saved.right}% · B${saved.bottom}% — applied to every ${CAT_LABELS[cat] || cat} capture.`
+      : 'No saved crop for this category. Auto-crop is used.';
+  }
+  const clearBtn = $('clearCropBtn');
+  if (clearBtn) clearBtn.disabled = !saved;
+}
+// Arm the next single capture to open the crop editor so the admin can set/reset
+// the crop for the current category. The saved crop then reapplies on its own.
+function armCropSetup() {
+  const cat = S.activeCategory;
+  if (!S.isAdmin || !cat || cat === 'arms' || cat === '__fav') return;
+  if (!S.selected) { toast('Select an item first, then Set Crop.', 'error'); return; }
+  S.armCropForCategory = cat;
+  toast(`Capturing once so you can set the ${CAT_LABELS[cat] || cat} crop…`, 'info');
+  runBulkCapture('current');
+}
+function clearSavedCrop() {
+  const cat = S.activeCategory;
+  if (!S.isAdmin || !cat) return;
+  delete S.captureCrops[cat];
+  post('resetCaptureCrop', { category: cat });
+  syncCropSection();
+  toast(`Cleared saved crop for ${CAT_LABELS[cat] || cat}.`, 'success');
+}
+
+// ── Manual pose & shoot ──────────────────────────────────
+// When Manual mode is on, a single accessory/shoe capture pauses so the admin can
+// rotate the ped (drag or buttons) and lift it (shoes) before shooting. Confirm
+// takes the screenshot; the normal crop editor then opens to trim and save.
+const poseBar = $('poseBar');
+function enterPoseMode(category, heading) {
+  S.manualPosing = true;
+  setCaptureStatus(false);
+  if (poseBar) poseBar.classList.remove('hidden');
+  // Dim the panel so the ped is visible in the game view behind it.
+  if (app) app.classList.add('posing');
+  const catLabel = $('poseBarCat');
+  if (catLabel) catLabel.textContent = CAT_LABELS[category] || category || 'item';
+  const slider = $('poseHeading');
+  if (slider) slider.value = Math.round(((heading % 360) + 360) % 360);
+  const val = $('poseHeadingVal');
+  if (val) val.textContent = `${Math.round(((heading % 360) + 360) % 360)}°`;
+}
+function exitPoseMode() {
+  S.manualPosing = false;
+  if (poseBar) poseBar.classList.add('hidden');
+  if (app) app.classList.remove('posing');
+}
+function poseRotate(delta) {
+  if (!S.manualPosing) return;
+  post('manualPoseRotate', { delta });
+}
+function poseSetHeading(absolute) {
+  if (!S.manualPosing) return;
+  post('manualPoseRotate', { absolute });
+  const val = $('poseHeadingVal');
+  if (val) val.textContent = `${Math.round(absolute)}°`;
+}
+function poseLift(delta) {
+  if (!S.manualPosing) return;
+  post('manualPoseLift', { delta });
+}
+function poseConfirm() {
+  if (!S.manualPosing) return;
+  exitPoseMode();
+  S.manualShotPending = true;   // open the crop editor after this shot
+  setCaptureStatus(true, 'Shooting…');
+  post('confirmManualShot', {});
+}
+function poseCancel() {
+  if (!S.manualPosing) return;
+  exitPoseMode();
+  post('cancelManualShot', {});
+  // Release the pending single-capture waiter so the flow doesn't hang.
+  if (S.pendingIconResolver) S.pendingIconResolver({ success: false, error: 'manual_cancelled' });
+}
+
+// WASD + zoom camera control while posing.
+//   W / S  = zoom in / out
+//   A / D  = orbit camera left / right around the ped
+//   R / F  = raise / lower the camera
+//   Q / E  = widen / narrow lens (fov)
+function poseCameraKey(key) {
+  if (!S.manualPosing) return false;
+  switch (key) {
+    case 'w': post('manualPoseCam', { action: 'zoom',   amount:  0.12 }); return true;
+    case 's': post('manualPoseCam', { action: 'zoom',   amount: -0.12 }); return true;
+    case 'a': post('manualPoseCam', { action: 'orbit',  amount: -4.0  }); return true;
+    case 'd': post('manualPoseCam', { action: 'orbit',  amount:  4.0  }); return true;
+    case 'r': post('manualPoseCam', { action: 'height', amount:  0.04 }); return true;
+    case 'f': post('manualPoseCam', { action: 'height', amount: -0.04 }); return true;
+    case 'q': post('manualPoseCam', { action: 'fov',    amount: -2.0  }); return true;
+    case 'e': post('manualPoseCam', { action: 'fov',    amount:  2.0  }); return true;
+  }
+  return false;
+}
+document.addEventListener('keydown', e => {
+  if (!S.manualPosing) return;
+  const k = (e.key || '').toLowerCase();
+  if (poseCameraKey(k)) { e.preventDefault(); e.stopPropagation(); return; }
+  if (k === 'enter') { e.preventDefault(); poseConfirm(); }
+  else if (k === 'escape') { e.preventDefault(); poseCancel(); }
+});
+
+// ── Auto pricing (economy) ───────────────────────────────
+function isAddonDrawable(category, drawable, gender) {
+  const map = S.economy && S.economy.addonStartsAt;
+  if (!map) return false;
+  const t = map[category];
+  if (t == null) return false;
+  let thr;
+  if (typeof t === 'object') thr = Number(t[gender] ?? t.male ?? t.female);
+  else thr = Number(t);
+  return Number.isFinite(thr) && Number(drawable) >= thr;
+}
+// Returns { price, addon, dest } or null when auto-pricing is off.
+function autoPriceFor(row) {
+  if (!row || !S.economy || S.economy.enabled === false) return null;
+  const cat = row.category;
+  const g = String(row.gender || 'male').toLowerCase();
+  const addon = isAddonDrawable(cat, row.drawable, g);
+  const table = addon ? (S.economy.addonPrices || {}) : (S.economy.storePrices || {});
+  let price = table[cat];
+  if (price == null) price = S.prices[cat] ?? 0;
+  const dest = addon ? (S.economy.addonDestination || 'hidden') : 'store';
+  return { price: Math.max(0, Math.floor(Number(price) || 0)), addon, dest };
+}
+
+/* ══════════════════════════════════════════════════════════
    SHOP OPEN / CLOSE
    ══════════════════════════════════════════════════════════ */
 function openShop(data) {
@@ -519,6 +931,8 @@ function openShop(data) {
   S.prices      = data.prices       || S.prices      || {};
   S.translations = data.translations || S.translations || {};
   S.useCatalogOnly = data.useCatalogOnly !== false;
+  S.pricePresets = data.pricePresets || S.pricePresets || {};
+  if (data.economy) S.economy = data.economy;
 
   app.classList.remove('hidden');
 
@@ -548,6 +962,11 @@ function setAdminMode(value) {
   // Show/hide admin controls
   adminBlock.classList.toggle('hidden', !S.isAdmin);
   if (adminCaptureControls) adminCaptureControls.classList.toggle('hidden', !S.isAdmin);
+  if (missingImageWarning) {
+    const current = S.selected;
+    const missing = S.isAdmin && !!current && !hasImage(current);
+    missingImageWarning.classList.toggle('hidden', !missing);
+  }
 
   // Admin never uses catalog-only filter — show all drawables
   if (S.isAdmin) S.useCatalogOnly = false;
@@ -607,6 +1026,12 @@ function getAdminTarget() {
   t.name        = t.label;
   t.destination = getAdminDest();
   t.price       = getAdminPrice(t.price ?? S.prices[t.category]);
+  t.requiredJob = requiredJob ? requiredJob.value.trim() : '';
+  t.requiredGang = requiredGang ? requiredGang.value.trim() : '';
+  t.requiredFamily = requiredFamily ? requiredFamily.value.trim() : '';
+  t.required_job = t.requiredJob;
+  t.required_gang = t.requiredGang;
+  t.required_family = t.requiredFamily;
   if (t.category === 'bags') {
     const lvl = getBagLevel();
     if (!lvl) { toast('Select bag level 1-4 before saving.', 'error'); return null; }
@@ -621,10 +1046,198 @@ function getAdminTarget() {
 /* ══════════════════════════════════════════════════════════
    CAPTURE PIPELINE
    ══════════════════════════════════════════════════════════ */
+
+
+function pctText(v) { return `${Math.round(Number(v) || 0)}%`; }
+function syncCropReadouts() {
+  if (cropTrimLeftVal && cropTrimLeft) cropTrimLeftVal.textContent = pctText(cropTrimLeft.value);
+  if (cropTrimTopVal && cropTrimTop) cropTrimTopVal.textContent = pctText(cropTrimTop.value);
+  if (cropTrimRightVal && cropTrimRight) cropTrimRightVal.textContent = pctText(cropTrimRight.value);
+  if (cropTrimBottomVal && cropTrimBottom) cropTrimBottomVal.textContent = pctText(cropTrimBottom.value);
+}
+function cropEditorValues() {
+  const left = Number(cropTrimLeft ? cropTrimLeft.value : 0) || 0;
+  const top = Number(cropTrimTop ? cropTrimTop.value : 0) || 0;
+  const right = Number(cropTrimRight ? cropTrimRight.value : 0) || 0;
+  const bottom = Number(cropTrimBottom ? cropTrimBottom.value : 0) || 0;
+  return { left, top, right, bottom };
+}
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('crop_image_load_failed'));
+    img.src = url;
+  });
+}
+async function renderCropEditorPreview() {
+  if (!S.cropEditor || !cropEditorPreview) return;
+  syncCropReadouts();
+  const { result } = S.cropEditor;
+  const img = await loadImage(result.dataUrl);
+  const vals = cropEditorValues();
+  const maxTrim = 45;
+  const leftPx = Math.floor(img.width * Math.min(maxTrim, Math.max(0, vals.left)) / 100);
+  const topPx = Math.floor(img.height * Math.min(maxTrim, Math.max(0, vals.top)) / 100);
+  const rightPx = Math.floor(img.width * Math.min(maxTrim, Math.max(0, vals.right)) / 100);
+  const bottomPx = Math.floor(img.height * Math.min(maxTrim, Math.max(0, vals.bottom)) / 100);
+  let sx = leftPx, sy = topPx;
+  let sw = Math.max(1, img.width - leftPx - rightPx);
+  let sh = Math.max(1, img.height - topPx - bottomPx);
+  if (sw < 8 || sh < 8) { sx = 0; sy = 0; sw = img.width; sh = img.height; }
+
+  const cvs = cropEditorPreview;
+  const ctx = cvs.getContext('2d');
+  cvs.width = 512; cvs.height = 512;
+  ctx.clearRect(0,0,cvs.width,cvs.height);
+  const scale = Math.min(cvs.width / sw, cvs.height / sh);
+  const dw = Math.max(1, Math.round(sw * scale));
+  const dh = Math.max(1, Math.round(sh * scale));
+  const dx = Math.round((cvs.width - dw) / 2);
+  const dy = Math.round((cvs.height - dh) / 2);
+  ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+}
+// Shared: given a processed square icon and { left, top, right, bottom } (percent
+// trims), produce a re-centered square icon. Used both by the crop editor and by
+// the silent per-category saved-crop path so the two always match exactly.
+function cropTrimToPixels(img, vals) {
+  const maxTrim = 45;
+  const leftPx = Math.floor(img.width * Math.min(maxTrim, Math.max(0, vals.left)) / 100);
+  const topPx = Math.floor(img.height * Math.min(maxTrim, Math.max(0, vals.top)) / 100);
+  const rightPx = Math.floor(img.width * Math.min(maxTrim, Math.max(0, vals.right)) / 100);
+  const bottomPx = Math.floor(img.height * Math.min(maxTrim, Math.max(0, vals.bottom)) / 100);
+  const sx = leftPx, sy = topPx;
+  const sw = Math.max(1, img.width - leftPx - rightPx);
+  const sh = Math.max(1, img.height - topPx - bottomPx);
+  return { sx, sy, sw, sh };
+}
+async function cropResultWithVals(result, vals) {
+  const img = await loadImage(result.dataUrl);
+  const { sx, sy, sw, sh } = cropTrimToPixels(img, vals);
+  if (sw < 8 || sh < 8) throw new Error('crop_too_small');
+
+  const out = document.createElement('canvas');
+  out.width = img.width;
+  out.height = img.height;
+  const octx = out.getContext('2d');
+  octx.clearRect(0, 0, out.width, out.height);
+  const scale = Math.min(out.width / sw, out.height / sh);
+  const dw = Math.max(1, Math.round(sw * scale));
+  const dh = Math.max(1, Math.round(sh * scale));
+  const dx = Math.round((out.width - dw) / 2);
+  const dy = Math.round((out.height - dh) / 2);
+  octx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+  const png = out.toDataURL('image/png');
+  return {
+    ...result,
+    dataUrl: png,
+    imageBase64: png.split(',')[1],
+    meta: { ...(result.meta || {}), manualCrop: { left: vals.left, top: vals.top, right: vals.right, bottom: vals.bottom } },
+  };
+}
+async function buildCroppedResult(result) {
+  return cropResultWithVals(result, cropEditorValues());
+}
+// Silently apply a category's saved crop to a freshly processed icon.
+async function applySavedCropToResult(result, saved) {
+  return cropResultWithVals(result, {
+    left: Number(saved.left) || 0,
+    top: Number(saved.top) || 0,
+    right: Number(saved.right) || 0,
+    bottom: Number(saved.bottom) || 0,
+  });
+}
+function openCropEditor(result, payload) {
+  if (!cropEditorModal) return Promise.resolve(result);
+  S.cropEditor = { result, payload };
+  const cat = String((payload && payload.category) || S.activeCategory || '').toLowerCase();
+  // Pre-fill sliders from any existing saved crop for this category so the admin
+  // adjusts from the current setting instead of starting at zero.
+  const saved = savedCropFor(cat) || { left: 0, top: 0, right: 0, bottom: 0 };
+  if (cropTrimLeft) cropTrimLeft.value = saved.left || 0;
+  if (cropTrimTop) cropTrimTop.value = saved.top || 0;
+  if (cropTrimRight) cropTrimRight.value = saved.right || 0;
+  if (cropTrimBottom) cropTrimBottom.value = saved.bottom || 0;
+  if ($('cropEditorCat')) $('cropEditorCat').textContent = CAT_LABELS[cat] || cat || 'this category';
+  syncCropReadouts();
+  cropEditorModal.classList.remove('hidden');
+  renderCropEditorPreview().catch(() => {});
+  return new Promise((resolve, reject) => {
+    S.cropEditor.resolve = resolve;
+    S.cropEditor.reject = reject;
+  });
+}
+function closeCropEditor() {
+  if (cropEditorModal) cropEditorModal.classList.add('hidden');
+  S.cropEditor = null;
+}
+async function saveCropEditor(useAuto) {
+  if (!S.cropEditor) return;
+  const payload = S.cropEditor.payload || {};
+  const cat = String(payload.category || S.activeCategory || '').toLowerCase();
+  try {
+    const vals = cropEditorValues();
+    const finalResult = useAuto ? S.cropEditor.result : await buildCroppedResult(S.cropEditor.result);
+    if (capturePreview && finalResult.dataUrl) {
+      capturePreview.src = finalResult.dataUrl;
+      capturePreview.classList.remove('hidden');
+    }
+
+    // Persist this crop for the category (unless the admin chose plain auto-crop).
+    if (!useAuto && cat) {
+      const crop = { left: vals.left, top: vals.top, right: vals.right, bottom: vals.bottom };
+      S.captureCrops[cat] = crop;
+      post('saveCaptureCrop', { category: cat, ...crop });
+      toast(`Crop saved for ${CAT_LABELS[cat] || cat}. It now applies to every capture of this category.`, 'success');
+    }
+    S.armCropForCategory = null;
+    syncCropSection();
+
+    const res = S.cropEditor.resolve;
+    closeCropEditor();
+    if (res) res(finalResult);
+  } catch (err) {
+    toast(`Crop failed: ${err.message || err}`, 'error');
+  }
+}
+function cancelCropEditor() {
+  if (!S.cropEditor) return;
+  const rej = S.cropEditor.reject;
+  S.armCropForCategory = null;
+  closeCropEditor();
+  if (rej) rej(new Error('crop_cancelled'));
+}
+
+function showPurchaseStatus(message, type) {
+  if (!purchaseStatus) return;
+  purchaseStatus.innerHTML = message || 'Items will go to inventory first. Wear them later from inventory.';
+  purchaseStatus.classList.remove('hidden', 'is-error', 'is-success');
+  if (type) purchaseStatus.classList.add(`is-${type}`);
+}
+
+function hidePurchaseStatus() {
+  if (!purchaseStatus) return;
+  purchaseStatus.classList.add('hidden');
+  purchaseStatus.classList.remove('is-error', 'is-success');
+}
+
 function setCaptureStatus(show, text) {
   if (!captureStatus) return;
   captureStatus.textContent = text || 'Processing…';
   captureStatus.classList.toggle('hidden', !show);
+}
+
+// Lightweight transient toast. Reuses the capture toast element so messages
+// (crop saved, errors, etc.) surface without adding new UI. Auto-hides.
+let _toastTimer = null;
+function toast(message, _type) {
+  if (!captureStatus) return;
+  captureStatus.textContent = String(message || '');
+  captureStatus.classList.remove('hidden');
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => {
+    if (!S.bulkRunning) captureStatus.classList.add('hidden');
+  }, 2600);
 }
 
 function setBulkProgress(text, show = true) {
@@ -659,6 +1272,8 @@ function applyBulkDisabled(disabled) {
   if (buyBtn)         buyBtn.disabled         = disabled || !S.selected;
   if (saveMissingBtn) saveMissingBtn.disabled  = disabled || !S.selected;
   if (saveAllBtn)     saveAllBtn.disabled      = disabled || !S.selected;
+  if ($('catMissingBtn')) $('catMissingBtn').disabled = disabled || !S.isAdmin;
+  if ($('catAllBtn'))     $('catAllBtn').disabled     = disabled || !S.isAdmin;
   if (cancelBulkBtn)  cancelBulkBtn.classList.toggle('hidden', !disabled);
 }
 
@@ -674,6 +1289,12 @@ async function captureOneTexture(texture) {
   if (!target) return { success: false, error: 'invalid_target' };
   target.texture   = S.texture;
   target.textureId = S.texture;
+
+  // Manual pose-and-shoot only applies to a genuine single capture of an
+  // accessory/shoe category. Multi-texture and whole-category loops run auto.
+  if (S.manualMode && S.singleManual && MANUAL_POSE_CATS.has(String(S.activeCategory))) {
+    target.manual = true;
+  }
 
   const waiter = waitForIconResult();
   const res    = await post('captureInventoryIcon', target);
@@ -698,12 +1319,20 @@ async function runBulkCapture(mode) {
   }
   S.bulkRunning = true;
   S.bulkCancel  = false;
+  S.captureMode = 'category_' + mode;
+  S.manualCropNextCapture = false;
+  // Manual pose-and-shoot for accessories/shoes: pose the FIRST texture by hand,
+  // then the remaining textures reuse that exact angle/lift/camera automatically.
+  const manualRun = S.manualMode && MANUAL_POSE_CATS.has(String(S.activeCategory));
+  S.singleManual = manualRun && (mode === 'current' && indices.length === 1);
   applyBulkDisabled(true);
 
   let saved = 0; const failed = [];
   for (let i = 0; i < indices.length; i++) {
     if (S.bulkCancel) break;
     const tex = indices[i];
+    // Only the first texture is posed by hand; the rest replay the remembered pose.
+    S.singleManual = manualRun && i === 0;
     setCaptureStatus(true, `Saving ${i+1}/${indices.length} (T${tex})…`);
     setBulkProgress(`Saving ${i+1}/${indices.length} · T${tex}`);
     const r = await captureOneTexture(tex);
@@ -712,6 +1341,9 @@ async function runBulkCapture(mode) {
     await delay(350);
   }
   S.bulkRunning = false;
+  S.captureMode = null;
+  S.manualCropNextCapture = false;
+  S.singleManual = false;
   applyBulkDisabled(false);
   setCaptureStatus(false);
   renderTextureStatus();
@@ -719,6 +1351,79 @@ async function runBulkCapture(mode) {
   const done = S.bulkCancel ? 'Cancelled' : 'Done';
   setBulkProgress(`${done}: saved ${saved}/${indices.length}${failed.length ? ` · Failed: ${failed.join(', ')}` : ''}`, true);
   setTimeout(() => setBulkProgress('', false), 5000);
+}
+
+// Batch capture EVERY drawable in the active category (one icon per item, texture 0).
+// mode 'missing' skips items that already have an image; 'all' recaptures everything.
+// Each item is auto-named, auto-priced, and routed to store/hidden by the economy rules.
+async function runCategoryCapture(mode) {
+  if (!S.isAdmin || !S.activeCategory || S.bulkRunning) return;
+  const cat = S.activeCategory;
+  if (cat === 'arms' || cat === '__fav') {
+    setBulkProgress('Pick a clothing category first.', true);
+    setTimeout(() => setBulkProgress('', false), 2500);
+    return;
+  }
+
+  const rows = getRowsForCategory(cat).slice();
+  const targets = mode === 'missing' ? rows.filter(r => !hasImage(r)) : rows;
+  if (!targets.length) {
+    setBulkProgress(mode === 'missing' ? 'Every item here already has an image.' : 'Nothing to capture.', true);
+    setTimeout(() => setBulkProgress('', false), 2500);
+    return;
+  }
+  if (!window.confirm(`Capture ${targets.length} ${CAT_LABELS[cat] || cat} item(s)? This can take a few minutes — don't touch the game while it runs.`)) return;
+
+  S.bulkRunning = true;
+  S.bulkCancel  = false;
+  S.captureMode = 'wholecategory_' + mode;
+  S.manualCropNextCapture = false;
+  applyBulkDisabled(true);
+
+  let saved = 0, empty = 0; const failed = [];
+  for (let i = 0; i < targets.length; i++) {
+    if (S.bulkCancel) break;
+    const row = targets[i];
+
+    // Select this drawable so preview + capture use it.
+    const pos = S.filtered.findIndex(r => drawKey(r) === drawKey(row));
+    S.itemPos  = pos >= 0 ? pos : 0;
+    S.selected = row;
+    S.texture  = 0;
+
+    // Auto name / price / destination for this item.
+    const auto = autoPriceFor(row);
+    if (customItemName) customItemName.value = String(row.label || `${CAT_LABELS[cat] || cat} ${row.drawable}`);
+    if (auto) {
+      if (customItemPrice) customItemPrice.value = String(auto.price);
+      if (itemDestination) itemDestination.value = auto.dest;
+    }
+    updateBottom();
+
+    const tag = `#${row.drawable}${auto && auto.addon ? ' · Add-on' : ''}`;
+    setCaptureStatus(true, `Capturing ${i + 1}/${targets.length} · ${tag}`);
+    setBulkProgress(`Capturing ${i + 1}/${targets.length} · ${tag}`);
+
+    const r = await captureOneTexture(0);
+    if (r && r.success) saved++;
+    else if (r && /empty|too_small|no pixels/i.test(String(r.error || ''))) { empty++; failed.push(`#${row.drawable}: empty`); }
+    else failed.push(`#${row.drawable}: ${r?.error || 'failed'}`);
+    await delay(300);
+  }
+
+  S.bulkRunning = false;
+  S.captureMode = null;
+  S.manualCropNextCapture = false;
+  applyBulkDisabled(false);
+  setCaptureStatus(false);
+  renderTextureStatus();
+  renderCategories();
+
+  const done = S.bulkCancel ? 'Cancelled' : 'Done';
+  const emptyStr = empty ? ` · ${empty} empty — re-shoot these` : '';
+  const failStr  = failed.length ? ` · ${failed.slice(0, 6).join(', ')}${failed.length > 6 ? '…' : ''}` : '';
+  setBulkProgress(`${done}: saved ${saved}/${targets.length}${emptyStr}${failStr}`, true);
+  setTimeout(() => setBulkProgress('', false), 9000);
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -739,26 +1444,35 @@ function removeBackgroundAndCrop(dataUrl, payload = {}) {
       const imageData = sctx.getImageData(0, 0, src.width, src.height);
       const d = imageData.data;
       const ch  = payload.chroma || {};
+      const ac  = payload.autoCrop || {};
       const bg  = String(payload.captureBackground || payload.backgroundColor || 'green').toLowerCase();
 
-      // Chroma key params
+      // Chroma key params. The normal key is conservative so green clothing is safer.
+      // The broad key is only used by edge flood-fill, so it can also remove
+      // shadowed/darker green backdrop without eating disconnected green clothes.
       const minGreen    = Number(ch.minGreen  ?? 95);
       const dominance   = Number(ch.dominance ?? 1.35);
       const greenMargin = Number(ch.greenMargin ?? 35);
       const maxRed      = Number(ch.maxRed    ?? 130);
       const maxBlue     = Number(ch.maxBlue   ?? 150);
       const soften      = ch.soften !== false;
+      const shadowKey   = ch.shadowKey !== false;
+      const shadowMinGreen    = Number(ch.shadowMinGreen ?? 35);
+      const shadowDominance   = Number(ch.shadowDominance ?? 1.10);
+      const shadowGreenMargin = Number(ch.shadowGreenMargin ?? 8);
 
-      // Crop region
+      // Crop region. This is a generous safety window. After background removal,
+      // we auto-trim to the real visible clothing pixels.
       const crop   = payload.crop || {};
-      const rx = clamp01(crop.x, 0.25), ry = clamp01(crop.y, 0.08);
-      const rw = clamp01(crop.w, 0.50), rh = clamp01(crop.h, 0.84);
+      const rx = clamp01(crop.x, 0.10), ry = clamp01(crop.y, 0.05);
+      const rw = clamp01(crop.w, 0.80), rh = clamp01(crop.h, 0.90);
       const minX = Math.max(0, Math.floor(src.width  * rx));
       const minY = Math.max(0, Math.floor(src.height * ry));
       const maxX = Math.min(src.width  - 1, Math.ceil(src.width  * Math.min(1, rx + rw)));
       const maxY = Math.min(src.height - 1, Math.ceil(src.height * Math.min(1, ry + rh)));
 
       const idx = (x, y) => (y * src.width + x) * 4;
+      const key1 = (x, y) => y * src.width + x;
       const makeTransparent = (x, y) => { d[idx(x,y)+3] = 0; };
       const isTransparent   = (x, y) => d[idx(x,y)+3] <= 10;
 
@@ -772,6 +1486,68 @@ function removeBackgroundAndCrop(dataUrl, payload = {}) {
         return g >= minGreen && g > Math.max(r,b)*dominance && (g-r) >= greenMargin && (g-b) >= greenMargin && r <= maxRed && b <= maxBlue;
       }
 
+      function isBroadKey(i) {
+        if (isKey(i)) return true;
+        if (!shadowKey) return false;
+        const r = d[i], g = d[i+1], b = d[i+2];
+        if (bg === 'green') {
+          return g >= shadowMinGreen &&
+            g > Math.max(r,b) * shadowDominance &&
+            (g - Math.max(r,b)) >= shadowGreenMargin &&
+            r <= Math.max(165, maxRed + 30) && b <= Math.max(180, maxBlue + 30);
+        }
+        if (bg === 'blue') {
+          return b >= 45 && b > Math.max(r,g) * 1.08 && (b - Math.max(r,g)) >= 8;
+        }
+        if (bg === 'magenta' || bg === 'pink') {
+          return r >= 55 && b >= 55 && g <= 165 && (Math.min(r,b) - g) >= 8;
+        }
+        if (bg === 'white') {
+          return r >= 185 && g >= 185 && b >= 185;
+        }
+        if (bg === 'black') {
+          return r <= 45 && g <= 45 && b <= 45;
+        }
+        return false;
+      }
+
+      function shouldRunHeadFallback() {
+        const cat = String(payload.category || '').toLowerCase();
+        if (payload.forceRemoveHead === false) return false;
+        return ['torso','tshirt','armor','chains','bags'].includes(cat);
+      }
+
+      function isSkinLike(i) {
+        const r = d[i], g = d[i+1], b = d[i+2], a = d[i+3];
+        if (a <= 10) return false;
+        const max = Math.max(r,g,b), min = Math.min(r,g,b);
+        return r > 75 && g > 35 && b > 20 && (max - min) > 15 && r > g * 1.05 && r > b * 1.18 && (r - b) > 18;
+      }
+
+      function removeHeadFallbackPixels() {
+        if (!shouldRunHeadFallback()) return 0;
+        const cat = String(payload.category || '').toLowerCase();
+        let count = 0;
+
+        if (['torso','tshirt','armor','chains','bags'].includes(cat)) {
+          const cx = Math.floor(minX + (maxX - minX) * 0.50);
+          const cy = Math.floor(minY + (maxY - minY) * 0.16);
+          const rxE = Math.floor((maxX - minX) * 0.135);
+          const ryE = Math.floor((maxY - minY) * 0.125);
+          for (let y = Math.max(minY, cy - ryE); y <= Math.min(maxY, cy + ryE); y++) {
+            for (let x = Math.max(minX, cx - rxE); x <= Math.min(maxX, cx + rxE); x++) {
+              const nx = (x - cx) / Math.max(1, rxE);
+              const ny = (y - cy) / Math.max(1, ryE);
+              if ((nx*nx + ny*ny) <= 1.05 && d[idx(x,y)+3] > 10) {
+                d[idx(x,y)+3] = 0; count++;
+              }
+            }
+          }
+        }
+
+        return count;
+      }
+
       function nearTransparent(x, y) {
         for (let yy = Math.max(minY, y-1); yy <= Math.min(maxY, y+1); yy++)
           for (let xx = Math.max(minX, x-1); xx <= Math.min(maxX, x+1); xx++)
@@ -781,39 +1557,100 @@ function removeBackgroundAndCrop(dataUrl, payload = {}) {
 
       let removed = 0;
 
-      // Step 1: crop outside region
-      for (let y = 0; y < src.height; y++)
-        for (let x = 0; x < src.width; x++)
+      // Step 1: remove everything outside the generous crop window.
+      for (let y = 0; y < src.height; y++) {
+        for (let x = 0; x < src.width; x++) {
           if (x < minX || x > maxX || y < minY || y > maxY) makeTransparent(x, y);
+        }
+      }
 
-      // Step 2: chroma key inside crop
-      for (let y = minY; y <= maxY; y++)
+      // Step 2: edge flood-fill background removal.
+      // This is what removes daylight/shadow variation from the green screen.
+      // It starts only from crop edges, so disconnected green clothing is much safer.
+      if (ac.floodFillBackground !== false) {
+        const visited = new Uint8Array(src.width * src.height);
+        const queue = [];
+        const push = (x, y) => {
+          if (x < minX || x > maxX || y < minY || y > maxY) return;
+          const k = key1(x, y);
+          if (visited[k]) return;
+          visited[k] = 1;
+          const i = idx(x, y);
+          if (d[i+3] > 10 && isBroadKey(i)) queue.push([x, y]);
+        };
+
+        for (let x = minX; x <= maxX; x++) { push(x, minY); push(x, maxY); }
+        for (let y = minY; y <= maxY; y++) { push(minX, y); push(maxX, y); }
+
+        for (let q = 0; q < queue.length; q++) {
+          const [x, y] = queue[q];
+          const i = idx(x, y);
+          if (d[i+3] > 10) { d[i+3] = 0; removed++; }
+          push(x + 1, y); push(x - 1, y); push(x, y + 1); push(x, y - 1);
+        }
+      }
+
+      // Step 3: normal chroma key inside crop.
+      for (let y = minY; y <= maxY; y++) {
         for (let x = minX; x <= maxX; x++) {
           const i = idx(x, y);
           if (d[i+3] > 10 && isKey(i)) { d[i+3] = 0; removed++; }
         }
+      }
 
-      // Step 3: green de-spill
-      if (soften && bg === 'green')
-        for (let y = minY; y <= maxY; y++)
+      // Step 4: green de-spill on remaining item edge pixels.
+      if (soften && bg === 'green') {
+        for (let y = minY; y <= maxY; y++) {
           for (let x = minX; x <= maxX; x++) {
             const i = idx(x, y);
-            if (d[i+3] > 10 && nearTransparent(x, y) && d[i+1] > d[i]*1.12 && d[i+1] > d[i+2]*1.12)
+            if (d[i+3] > 10 && nearTransparent(x, y) && d[i+1] > d[i]*1.12 && d[i+1] > d[i+2]*1.12) {
               d[i+1] = Math.max(d[i], d[i+2]);
+            }
           }
+        }
+      }
 
-      // Find tight bounding box
+      // Step 5: fallback head removal if streamed invisible head/reset flag fails.
+      removed += removeHeadFallbackPixels();
+
+      // Step 6: remove tiny isolated leftover pixels caused by shadow/compression.
+      const passes = ac.removeLoosePixels === false ? 0 : Math.max(0, Number(ac.loosePixelPasses ?? 1));
+      for (let pass = 0; pass < passes; pass++) {
+        const toClear = [];
+        for (let y = minY + 1; y <= maxY - 1; y++) {
+          for (let x = minX + 1; x <= maxX - 1; x++) {
+            const i = idx(x, y);
+            if (d[i+3] <= 10) continue;
+            let neighbours = 0;
+            if (d[idx(x+1,y)+3] > 10) neighbours++;
+            if (d[idx(x-1,y)+3] > 10) neighbours++;
+            if (d[idx(x,y+1)+3] > 10) neighbours++;
+            if (d[idx(x,y-1)+3] > 10) neighbours++;
+            if (neighbours <= 1) toClear.push(i);
+          }
+        }
+        for (const i of toClear) { d[i+3] = 0; removed++; }
+      }
+
+      // Step 7: find a tight bounding box around the final visible clothing pixels.
+      const alphaMin = Number(ac.minAlpha ?? 12);
       let bMinX = src.width, bMinY = src.height, bMaxX = 0, bMaxY = 0;
-      for (let y = minY; y <= maxY; y++)
+      for (let y = minY; y <= maxY; y++) {
         for (let x = minX; x <= maxX; x++) {
           const a = d[idx(x,y)+3];
-          if (a > 10) {
+          if (a > alphaMin) {
             if (x < bMinX) bMinX = x; if (y < bMinY) bMinY = y;
             if (x > bMaxX) bMaxX = x; if (y > bMaxY) bMaxY = y;
           }
         }
+      }
 
-      if (bMaxX <= bMinX || bMaxY <= bMinY) { reject(new Error('No pixels found after BG removal')); return; }
+      if (bMaxX <= bMinX || bMaxY <= bMinY) { reject(new Error('icon_empty_or_too_small')); return; }
+
+      const bboxW = bMaxX - bMinX + 1, bboxH = bMaxY - bMinY + 1;
+      const minRatio = Number(ac.minItemRatio ?? 0.025);
+      const minSide = Math.max(8, Math.floor(Math.min(src.width, src.height) * minRatio));
+      if (bboxW < minSide && bboxH < minSide) { reject(new Error('icon_empty_or_too_small')); return; }
 
       let pad = Number(payload.padding ?? 18);
       if (payload.crop && Number.isFinite(Number(payload.crop.padding))) pad = Number(payload.crop.padding);
@@ -822,16 +1659,49 @@ function removeBackgroundAndCrop(dataUrl, payload = {}) {
       const fW = fMaxX - fMinX + 1, fH = fMaxY - fMinY + 1;
 
       sctx.putImageData(imageData, 0, 0);
+
       const out = document.createElement('canvas');
-      out.width = fW; out.height = fH;
-      out.getContext('2d').drawImage(src, fMinX, fMinY, fW, fH, 0, 0, fW, fH);
+      let meta;
+
+      if (ac.squareOutput !== false) {
+        const outW = Math.max(32, Number(ac.outputWidth || payload.width || 512));
+        const outH = Math.max(32, Number(ac.outputHeight || payload.height || 512));
+        const outPad = Math.max(0, Number(ac.outputPadding ?? 18));
+        const fitW = Math.max(1, outW - outPad * 2);
+        const fitH = Math.max(1, outH - outPad * 2);
+        const scale = Math.min(fitW / fW, fitH / fH);
+        const drawW = Math.max(1, Math.round(fW * scale));
+        const drawH = Math.max(1, Math.round(fH * scale));
+        const dx = Math.round((outW - drawW) / 2);
+        const dy = Math.round((outH - drawH) / 2);
+
+        out.width = outW;
+        out.height = outH;
+        const octx = out.getContext('2d');
+        octx.clearRect(0, 0, outW, outH);
+        octx.drawImage(src, fMinX, fMinY, fW, fH, dx, dy, drawW, drawH);
+
+        meta = {
+          removedPixels: removed,
+          width: outW,
+          height: outH,
+          background: bg,
+          sourceCrop: { x: fMinX, y: fMinY, w: fW, h: fH },
+          fitted: { x: dx, y: dy, w: drawW, h: drawH, scale },
+        };
+      } else {
+        out.width = fW;
+        out.height = fH;
+        out.getContext('2d').drawImage(src, fMinX, fMinY, fW, fH, 0, 0, fW, fH);
+        meta = { removedPixels: removed, width: fW, height: fH, background: bg,
+                 crop: { x: fMinX, y: fMinY, w: fW, h: fH } };
+      }
 
       const png = out.toDataURL('image/png');
       resolve({
         dataUrl: png,
         imageBase64: png.split(',')[1],
-        meta: { removedPixels: removed, width: fW, height: fH, background: bg,
-                crop: { x: fMinX, y: fMinY, w: fW, h: fH } },
+        meta,
       });
     };
     img.onerror = () => reject(new Error('Unable to load screenshot'));
@@ -854,6 +1724,22 @@ window.addEventListener('message', ({ data = {} }) => {
       else renderCategories();
       break;
     case 'adminMode':         setAdminMode(data.value);                         break;
+
+    case 'favourites':
+      S.favourites = new Set((data.keys || []).map(k => String(k).toLowerCase()));
+      updateFavButton();
+      renderCategories();
+      if (S.activeCategory === '__fav') setCategory('__fav');
+      break;
+
+    case 'captureCrops':
+      S.captureCrops = data.crops || {};
+      syncCropSection();
+      break;
+
+    case 'manualPoseStart':
+      enterPoseMode(data.category, Number(data.heading) || 0);
+      break;
 
     case 'prepareIconCapture':
       app.classList.toggle('capture-hidden', data.value === true);
@@ -884,6 +1770,13 @@ window.addEventListener('message', ({ data = {} }) => {
       if (S.pendingIconResolver) S.pendingIconResolver(data);
       break;
 
+    case 'purchaseResult':
+      S.checkoutBusy = false;
+      if (checkoutModal) checkoutModal.classList.add('hidden');
+      showPurchaseStatus(data.message || (data.success ? '<strong>Purchased.</strong> Item is now in inventory.' : '<strong>Purchase failed.</strong> Try again.'), data.success ? 'success' : 'error');
+      if (data.success) { S.cart = []; updateCartUI(); }
+      break;
+
     case 'processIconImage':
       setCaptureStatus(true, 'Removing background…');
       removeBackgroundAndCrop(data.image, data.payload || {})
@@ -892,8 +1785,35 @@ window.addEventListener('message', ({ data = {} }) => {
             capturePreview.src = result.dataUrl;
             capturePreview.classList.remove('hidden');
           }
-          return post('iconProcessed', { ...result, payload: data.payload || {} });
+          const cat = String((data.payload && data.payload.category) || S.activeCategory || '').toLowerCase();
+
+          // Manual pose shot just confirmed: always open the crop editor so the
+          // admin trims and saves this hand-posed image.
+          if (S.manualShotPending) {
+            S.manualShotPending = false;
+            setCaptureStatus(true, 'Crop the shot, then save…');
+            return openCropEditor(result, data.payload || {});
+          }
+
+          // 1) Admin is (re)setting the crop for this category: open the editor.
+          //    Whatever they save becomes the category's persistent crop.
+          //    Only during a single capture — never mid category bulk run.
+          const inCategoryBulk = String(S.captureMode || '').startsWith('wholecategory_');
+          if (S.armCropForCategory && S.armCropForCategory === cat && !inCategoryBulk) {
+            setCaptureStatus(true, 'Set the crop for this category, then save…');
+            return openCropEditor(result, data.payload || {});
+          }
+
+          // 2) A saved crop exists for this category: apply it silently so every
+          //    capture of this category is cropped the same way, no editor needed.
+          const saved = savedCropFor(cat);
+          if (saved) {
+            return applySavedCropToResult(result, saved).catch(() => result);
+          }
+
+          return result;
         })
+        .then(result => post('iconProcessed', { ...result, payload: data.payload || {} }))
         .then(() => { if (!S.bulkRunning) setCaptureStatus(false); })
         .catch(err => {
           setCaptureStatus(false);
@@ -915,6 +1835,92 @@ payTabs.forEach(btn => btn.onclick = () => {
   S.payment = btn.dataset.pay || 'bank';
 });
 
+
+// Filters
+function readFilters() {
+  S.filters = {
+    q: searchInput ? searchInput.value : '',
+    gender: genderFilter ? genderFilter.value : 'all',
+    drawable: drawableFilter ? drawableFilter.value : '',
+    minPrice: minPriceFilter ? minPriceFilter.value : '',
+    maxPrice: maxPriceFilter ? maxPriceFilter.value : '',
+  };
+  if (S.activeCategory) setCategory(S.activeCategory);
+}
+[searchInput, genderFilter, drawableFilter, minPriceFilter, maxPriceFilter].forEach(el => {
+  if (el) el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', readFilters);
+});
+
+// Favourites star
+if ($('favBtn')) $('favBtn').addEventListener('click', toggleCurrentFavourite);
+
+// Admin per-category crop section
+if ($('setCropBtn')) $('setCropBtn').addEventListener('click', armCropSetup);
+if ($('clearCropBtn')) $('clearCropBtn').addEventListener('click', clearSavedCrop);
+if (clearFiltersBtn) clearFiltersBtn.onclick = () => {
+  if (searchInput) searchInput.value = '';
+  if (genderFilter) genderFilter.value = 'all';
+  if (drawableFilter) drawableFilter.value = '';
+  if (minPriceFilter) minPriceFilter.value = '';
+  if (maxPriceFilter) maxPriceFilter.value = '';
+  readFilters();
+};
+
+if (pricePreset) pricePreset.onchange = () => {
+  if (!S.selected || !customItemPrice) return;
+  const presetName = pricePreset.value;
+  const table = S.pricePresets[presetName] || null;
+  if (table && table[S.selected.category] != null) customItemPrice.value = String(table[S.selected.category]);
+  else customItemPrice.value = String(S.prices[S.selected.category] || S.selected.price || 0);
+};
+
+if (cartList) cartList.onclick = e => {
+  const btn = e.target.closest('button[data-act]');
+  const row = e.target.closest('.cart-row');
+  if (!btn || !row) return;
+  const idx = Number(row.dataset.index);
+  const item = S.cart[idx];
+  if (!item) return;
+  const act = btn.dataset.act;
+  if (act === 'inc') item.qty = Math.max(1, Number(item.qty || 1)) + 1;
+  if (act === 'dec') item.qty = Math.max(1, Number(item.qty || 1)) - 1;
+  if (act === 'remove' || Number(item.qty || 1) <= 0) S.cart.splice(idx, 1);
+  updateCartUI();
+};
+if (clearCartBtn) clearCartBtn.onclick = () => { S.cart = []; updateCartUI(); hidePurchaseStatus(); };
+if (confirmCancelBtn) confirmCancelBtn.onclick = () => checkoutModal && checkoutModal.classList.add('hidden');
+if (confirmCashBtn) confirmCashBtn.onclick = () => processCheckout('cash');
+if (confirmBankBtn) confirmBankBtn.onclick = () => processCheckout('bank');
+if (checkoutModal) checkoutModal.onclick = e => { if (e.target === checkoutModal) checkoutModal.classList.add('hidden'); };
+
+async function adminBulkToggle(enabled) {
+  if (!S.isAdmin || !S.filtered.length) return;
+  const visible = S.filtered.slice(0, 250).map(r => ({
+    ...r,
+    label: customItemName && customItemName.value.trim() ? customItemName.value.trim() : r.label,
+    price: getAdminPrice(r.price ?? S.prices[r.category]),
+    destination: getAdminDest(),
+    requiredJob: requiredJob ? requiredJob.value.trim() : '',
+    requiredGang: requiredGang ? requiredGang.value.trim() : '',
+    requiredFamily: requiredFamily ? requiredFamily.value.trim() : '',
+  }));
+  const ok = window.confirm(`${enabled ? 'Enable' : 'Disable'} ${visible.length} visible ${S.activeCategory} item(s)?`);
+  if (!ok) return;
+  setBulkProgress(`${enabled ? 'Enabling' : 'Disabling'} ${visible.length} item(s)…`);
+  await post('adminBulkToggleItems', { enabled, items: visible, category: S.activeCategory });
+  for (const row of visible) {
+    const key = drawKey(row);
+    const i = S.catalog.findIndex(c => drawKey(normRow(c)) === key);
+    if (i >= 0) S.catalog[i] = { ...S.catalog[i], ...row, enabled };
+    else S.catalog.push({ ...row, enabled, texture: -1, textureId: -1 });
+  }
+  setCategory(S.activeCategory);
+  setBulkProgress(`${enabled ? 'Enabled' : 'Disabled'} ${visible.length} item(s).`, true);
+  setTimeout(() => setBulkProgress('', false), 3000);
+}
+if (bulkEnableBtn) bulkEnableBtn.onclick = () => adminBulkToggle(true);
+if (bulkDisableBtn) bulkDisableBtn.onclick = () => adminBulkToggle(false);
+
 // Selectors
 $('prevItem').onclick    = () => moveItem(-1);
 $('nextItem').onclick    = () => moveItem(1);
@@ -934,6 +1940,8 @@ if (previewWall) previewWall.onchange = () => refreshCaptureBackdropPreview();
 // Bulk capture buttons
 if (saveMissingBtn) saveMissingBtn.onclick = async () => runBulkCapture('missing');
 if (saveAllBtn)     saveAllBtn.onclick     = async () => runBulkCapture('all');
+if ($('catMissingBtn')) $('catMissingBtn').onclick = async () => runCategoryCapture('missing');
+if ($('catAllBtn'))     $('catAllBtn').onclick     = async () => runCategoryCapture('all');
 if (captureIconBtn) captureIconBtn.onclick = async () => runBulkCapture('current');
 if (cancelBulkBtn)  cancelBulkBtn.onclick  = () => {
   S.bulkCancel = true;
@@ -945,18 +1953,39 @@ buyBtn.onclick = async () => {
   if (!S.selected) return;
   if (S.isAdmin) { await runBulkCapture('current'); return; }
   const item = { ...S.selected, texture: S.texture, textureId: S.texture, drawableId: S.selected.drawable };
-  S.cart.push(item);
+  addToCart(item);
   updateCartUI();
+  hidePurchaseStatus();
   $('itemName').textContent = `${item.label} added to cart`;
+
+  // Buying is inventory-first. After adding to cart, remove the preview clothing from the ped
+  // so the player does not look like they already own/wear it.
+  await post('resetCartItems');
 };
 
 // Checkout
-if (checkoutBtn) checkoutBtn.onclick = async () => {
+function openCheckoutModal() {
+  if (!checkoutModal || S.cart.length <= 0) return;
+  const count = cartItemCount();
+  const total = cartAmount();
+  if (confirmTitle) confirmTitle.textContent = `Buy ${count} clothing item${count === 1 ? '' : 's'}?`;
+  if (confirmText) confirmText.textContent = `Total $${total}. Choose cash or bank. Items go to inventory first; wear them from your bag.`;
+  if (confirmItems) confirmItems.innerHTML = S.cart.map(i => `<div><span>${i.label || i.category} × ${Math.max(1, Number(i.qty || 1))}</span><b>$${Number(i.price || 0) * Math.max(1, Number(i.qty || 1))}</b></div>`).join('');
+  checkoutModal.classList.remove('hidden');
+}
+
+async function processCheckout(method) {
+  if (S.checkoutBusy || S.isAdmin || S.cart.length <= 0) return;
+  S.checkoutBusy = true;
+  const items = expandedCartItems();
+  const payment = method || S.payment || 'bank';
+  showPurchaseStatus(`Processing checkout by ${payment.toUpperCase()}… items will go to inventory only.`, 'success');
+  await post('buyClothes', { paymentMethod: payment, items, cart: items, name: items.map(i => i.label).join(', ') });
+}
+
+if (checkoutBtn) checkoutBtn.onclick = () => {
   if (S.isAdmin || S.cart.length <= 0) return;
-  const items = [...S.cart];
-  await post('buyClothes', { paymentMethod: S.payment, items, cart: items, name: items.map(i => i.label).join(', ') });
-  S.cart = [];
-  updateCartUI();
+  openCheckoutModal();
 };
 
 // Close
@@ -964,10 +1993,13 @@ $('closeBtn').onclick = () => {
   S.isAdmin         = false;
   S.adminTorsoTarget = null;
   S.cart            = [];
+  S.lastAdminSyncKey = ''; 
+  hidePurchaseStatus();
   if (customItemName)   customItemName.value   = '';
   if (customItemPrice)  customItemPrice.value  = '';
   if (itemDestination)  itemDestination.value  = 'store';
   if (bulkProgress)     bulkProgress.classList.add('hidden');
+  if (checkoutModal)    checkoutModal.classList.add('hidden');
   updateCartUI();
   setCaptureStatus(false);
   post('closeMenu');
@@ -986,11 +2018,42 @@ document.addEventListener('keydown', e => {
 
 // Mouse-drag ped rotation
 let dragging = false, lastX = 0;
-document.addEventListener('mousedown', e => { dragging = true; lastX = e.clientX; });
+document.addEventListener('mousedown', e => {
+  // While posing, don't start a drag when clicking on the pose bar itself.
+  if (S.manualPosing && poseBar && poseBar.contains(e.target)) return;
+  dragging = true; lastX = e.clientX;
+});
 document.addEventListener('mouseup',   () => { dragging = false; });
 document.addEventListener('mousemove', e => {
   if (!dragging || !S.open) return;
   const dx = e.clientX - lastX;
   lastX = e.clientX;
-  if (Math.abs(dx) > 1) post('rotatePed', { delta: -dx * 0.45 });
+  if (Math.abs(dx) <= 1) return;
+  if (S.manualPosing) {
+    // During manual posing, drag rotates the posed ped via the manual callback.
+    post('manualPoseRotate', { delta: -dx * 0.5 });
+  } else {
+    post('rotatePed', { delta: -dx * 0.45 });
+  }
 });
+
+
+;[cropTrimLeft, cropTrimTop, cropTrimRight, cropTrimBottom].forEach(el => { if (el) el.addEventListener('input', () => { renderCropEditorPreview().catch(() => {}); }); });
+if (cropResetBtn) cropResetBtn.addEventListener('click', () => { if (cropTrimLeft) cropTrimLeft.value = 0; if (cropTrimTop) cropTrimTop.value = 0; if (cropTrimRight) cropTrimRight.value = 0; if (cropTrimBottom) cropTrimBottom.value = 0; renderCropEditorPreview().catch(() => {}); });
+if (cropSaveBtn) cropSaveBtn.addEventListener('click', () => { saveCropEditor(false); });
+if (cropUseAutoBtn) cropUseAutoBtn.addEventListener('click', () => { saveCropEditor(true); });
+if (cropCancelBtn) cropCancelBtn.addEventListener('click', cancelCropEditor);
+
+// Manual mode toggle
+if ($('manualMode')) $('manualMode').addEventListener('change', e => { S.manualMode = !!e.target.checked; });
+
+// Pose bar controls
+if ($('poseRotLeftBig'))  $('poseRotLeftBig').addEventListener('click',  () => poseRotate(-45));
+if ($('poseRotLeft'))     $('poseRotLeft').addEventListener('click',     () => poseRotate(-15));
+if ($('poseRotRight'))    $('poseRotRight').addEventListener('click',    () => poseRotate(15));
+if ($('poseRotRightBig')) $('poseRotRightBig').addEventListener('click', () => poseRotate(45));
+if ($('poseHeading'))     $('poseHeading').addEventListener('input', e => poseSetHeading(Number(e.target.value) || 0));
+if ($('poseLiftUp'))      $('poseLiftUp').addEventListener('click',   () => poseLift(0.05));
+if ($('poseLiftDown'))    $('poseLiftDown').addEventListener('click', () => poseLift(-0.05));
+if ($('poseConfirm'))     $('poseConfirm').addEventListener('click', poseConfirm);
+if ($('poseCancel'))      $('poseCancel').addEventListener('click', poseCancel);

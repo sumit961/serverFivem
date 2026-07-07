@@ -24,7 +24,7 @@ Config.DefaultDressingRoom = vec4(-1197.2906, -778.9427, 17.3298, 128.0196)
 -- Use /cmpos in-game to print your current position, then replace StudioCoords if you want another spot.
 Config.AdminStudio = {
     -- Fixed admin player spot confirmed in-game.
-    StudioCoords = vec4(-1341.6483, -2802.7166, 13.9449, 231.0469),
+    StudioCoords = vec4(-1339.2468, -2799.4224, 13.9449, 328.4029),
     LockPlayerToStudio = true,
     StripToDefaultNaked = true,
     -- Disabled by default so admin capture does not show any extra/naked NPC.
@@ -35,13 +35,47 @@ Config.AdminStudio = {
     Backdrop = {
         enabled = true,
         -- Custom green prop. Put prop_ld_greenscreen_01.ydr in nv_cloth/stream/.
+        -- This prop has both the floor and the wall in green.
         model = 'prop_ld_greenscreen_01',
-        pieces = 1,
         -- Keep the greenscreen fixed at the confirmed world position.
-        fixedCoords = vec4(-1341.9189, -2802.7861, 14.5417, 52.0929),
-        spacing = 1.55,
+        fixedCoords = vec4(-1338.6660, -2797.2190, 17.6949, 151.4439),
+
+        -- ── Enlarge the greenscreen by tiling copies of the same prop ──────────
+        -- The prop is widened into a row of copies so the green wall fills the
+        -- whole screenshot frame from every capture angle (front/back/left/right).
+        -- Tiles only ever extend sideways and BEHIND the player, never in front.
+        --   tileCols = how many side-by-side (left↔right). 3 ≈ double width.
+        --   tileRows = how many stacked BEHIND each other (depth). Keep 1 unless
+        --              you need deeper cover; extra rows always push away from the
+        --              player so they can never appear in front of them.
+        --   tileSpacing = metres between side tiles (a bit under prop width so
+        --                 they overlap and leave no seam).
+        --   tileDepthSpacing = metres between depth rows (defaults to tileSpacing).
+        -- The prop is scaled 3x below, so a single tile already fills the frame.
+        -- Keep tileCols at 1 to avoid overlapping duplicate copies; raise it only
+        -- if you lower the scale and need to widen the wall again.
+        tileCols = 1,
+        tileRows = 1,
+        tileSpacing = 2.6,
+        tileDepthSpacing = 2.6,
+
         distanceBehindPed = 1.25,
         zOffset = 0.0,
+
+        -- ── Live tuning (set via the /vehgreen* commands) ──────────────────────
+        -- scale       = mesh scale applied to every greenscreen tile (1.0 = default,
+        --               2.0 = twice as big). Uses the entity-matrix scale trick so
+        --               it visibly resizes the prop. Also useful alongside tileCols.
+        -- tuneZOffset = extra vertical offset applied to the whole backdrop, on top
+        --               of zOffset. /vehgreenup and /vehgreendown adjust this live.
+        -- Spawn a live prop with /vehgreen, tune it, then /vehgreenpos and paste the
+        -- printed fixedCoords / scale / tuneZOffset back here.
+        scale = 3.0,
+        -- Note: the tuned +3.75 height is already baked into fixedCoords.z above
+        -- (the /vehgreenpos position was captured after the up-nudge), so the extra
+        -- runtime offset must be 0 here to avoid raising the backdrop twice.
+        tuneZOffset = 0.0,
+
         -- prop_ld_greenscreen_01 should already be upright.
         rotation = vec3(0.0, 0.0, 0.0),
         headingOffset = 0.0,
@@ -67,6 +101,40 @@ Config.IconCapture = {
     width = 512,
     height = 512,
     padding = 18,
+
+    -- Clean daylight screenshot mode.
+    -- This is applied only while screenshot-basic is taking the admin icon.
+    -- It keeps the scene bright and stable and reduces shadow/ambient-occlusion marks.
+    lighting = {
+        enabled = true,
+        hour = 12,
+        minute = 0,
+        second = 0,
+        weather = 'EXTRASUNNY',
+        timecycle = 'neutral',
+        timecycleStrength = 0.0,
+        noPedBlobShadow = true,
+        suppressCascadeShadows = true,
+        applyEveryFrame = true,
+        waitBeforeScreenshot = 900,
+    },
+
+    -- NUI image processor.
+    -- First removes the green/blue/magenta/white/black background, then automatically
+    -- trims to the visible clothing pixels. squareOutput keeps all saved icons the same
+    -- 512x512 size while still auto-cropping/centering the clothing item inside it.
+    autoCrop = {
+        enabled = true,
+        floodFillBackground = true, -- removes shadowed green backdrop connected to crop edges
+        removeLoosePixels = true,
+        loosePixelPasses = 1,
+        squareOutput = true,
+        outputWidth = 512,
+        outputHeight = 512,
+        outputPadding = 18,
+        minAlpha = 12,
+        minItemRatio = 0.025,
+    },
 
     -- Capture uses the admin airport studio prop backdrop when /clothingadmin is open.
     -- The DrawBox wall is now only a fallback if the configured prop model fails to load.
@@ -97,22 +165,117 @@ Config.IconCapture = {
         maxBlue = 150,
         soften = true,
         edgeTolerance = 0,
+        -- Helps remove green shadows on the backdrop without needing harsh lighting.
+        -- The NUI uses this mainly with edge flood-fill so green clothing is safer.
+        shadowKey = true,
+        shadowMinGreen = 35,
+        shadowDominance = 1.10,
+        shadowGreenMargin = 8,
     },
 
     -- Category-specific capture presets used by admin auto image save.
-    -- view: front/back/left/right. For bags, back view turns the ped while keeping the same camera/background.
+    -- view: front/back/left/right/front-left/front-right/back-left/back-right.
+    -- viewAngle: an EXACT rotation offset (degrees) applied to the ped so the item
+    --            faces the fixed camera the same way for every drawable. This is
+    --            Option B: the camera never moves per item; only the ped rotates.
+    --            When set, viewAngle overrides `view`. Angles below are adapted
+    --            from the reference greenscreener's per-component rotations.
     presets = {
         torso    = { camera = 'body', view = 'front', zOffset = 0.00, padding = 10 },
         tshirt   = { camera = 'body', view = 'front', zOffset = 0.00, padding = 10 },
         pants    = { camera = 'body', view = 'front', zOffset = 0.05, padding = 8  },
-        shoes    = { camera = 'feet', view = 'front', zOffset = 0.28, padding = 8  },
+        shoes    = { camera = 'feet', view = 'front', zOffset = 0.00, padding = 8  },
         hat      = { camera = 'face', view = 'front', zOffset = 0.00, padding = 8  },
         glasses  = { camera = 'face', view = 'front', zOffset = 0.00, padding = 6  },
-        earrings = { camera = 'face', view = 'right', zOffset = 0.00, padding = 6  },
+        -- Ears/watches/bracelets present the item at a precise diagonal so the
+        -- accessory faces the camera and the supporting limb is turned mostly out
+        -- of frame (then cropped). Tune viewAngle if an item sits slightly off.
+        earrings = { camera = 'face', view = 'right', viewAngle = -122.5, zOffset = 0.00, padding = 6  },
         chains   = { camera = 'body', view = 'front', zOffset = 0.00, padding = 6  },
         bags     = { camera = 'body', view = 'back',  zOffset = 0.00, padding = 10, sharedGender = true },
-        watches  = { camera = 'body', view = 'left',  zOffset = 0.00, padding = 6  },
-    }
+        watches  = { camera = 'body', view = 'left',  viewAngle = 59.0, zOffset = 0.00, padding = 6  },
+    },
+
+    -- ── Per-category capture CAMERA framing ──────────────────────────────
+    -- This is what makes "pant shot frames the pant, shoe shot frames the shoe".
+    -- Each entry positions the capture camera on that item's body region:
+    --   dist = camera distance from the ped (smaller = closer / bigger item)
+    --   z    = height the camera AIMS at, relative to the ped root
+    --          (positive = higher up = head/torso, negative = lower = legs/feet)
+    --   fov  = zoom (smaller fov = tighter/more zoomed in)
+    -- Starting values are adapted from Bentix's greenscreener per-component
+    -- settings. Tweak these live and re-capture; you don't need to touch any Lua.
+    captureCameras = {
+        torso    = { dist = 2.95, z =  0.26, fov = 36.0 },
+        tshirt   = { dist = 2.90, z =  0.28, fov = 36.0 },
+        armor    = { dist = 2.90, z =  0.28, fov = 36.0 },
+        chains   = { dist = 2.10, z =  0.40, fov = 26.0 },
+        pants    = { dist = 2.85, z = -0.40, fov = 36.0 },
+        shoes    = { dist = 1.80, z = -0.90, fov = 26.0 },
+        bags     = { dist = 3.05, z =  0.26, fov = 38.0 },
+        hat      = { dist = 1.90, z =  0.64, fov = 24.0 },
+        glasses  = { dist = 1.55, z =  0.60, fov = 18.0 },
+        earrings = { dist = 1.45, z =  0.62, fov = 16.0 },
+        -- Watch: very tight and close on the wrist so the forearm/hand fall outside
+        -- the frame and are cropped away, leaving just the watch (Option B).
+        watches  = { dist = 1.10, z =  0.05, fov = 14.0 },
+    },
+
+    -- ── Head-prop capture: force freemode model ──────────────────────────
+    -- Hat/glasses/earrings hide the head via the streamed invisible-head file,
+    -- which only overrides mp_m_freemode_01 / mp_f_freemode_01. The capture code
+    -- re-asserts the invisible head before each shot, which normally suffices.
+    -- If the head STILL shows on head-prop shots, set this true to force the ped
+    -- to the matching freemode model during capture (most reliable, but resets
+    -- appearance during the shot and restores after). Leave false unless needed.
+    forceFreemodeForHeadProps = false,
+
+    -- ── Per-category ground lift ─────────────────────────────────────────
+    -- Raises the ped vertically during capture so items don't sink into the
+    -- floor. Mainly for shoes (the feet sit at ground level and can clip). The
+    -- manual pose bar can also lift live with the ▲/▼ buttons; this is the
+    -- default applied automatically. Value in metres.
+    groundLift = {
+        shoes = 0.35,
+    },
+
+    -- ── Keep supporting body parts visible per category ──────────────────
+    -- Items that sit ON the body (shoes on a foot, watch on a wrist) look wrong
+    -- floating in empty space. For those, keep the supporting component visible
+    -- at a neutral skin drawable instead of hiding it. Everything else still hides,
+    -- and the head stays invisible unless a category sets head = true.
+    --   [componentIndex] = neutralDrawable   (3 = arms/torso, 4 = legs, 6 = feet)
+    --   head = true                          (show a normal head — also shows the face)
+    --   hair = <drawable>                    (only used when head = true; -1 = bald)
+    keepBody = {
+        -- Pure item capture for outerwear, pants and bags: do NOT keep the mannequin body.
+        -- This leaves only the target clothing visible after the head-hide / ghost pass.
+        torso    = { },
+        tshirt   = { [3] = 0, [4] = 0, [6] = 0 },
+        armor    = { [3] = 0, [4] = 0, [6] = 0, [8] = 0 },
+        pants    = { },
+        bags     = { },
+        -- Shoes: the shoe IS component 6 (feet) and is always shown as the target.
+        -- Do NOT keep the legs (component 4) — leg drawable 0 renders as pants/
+        -- underwear, which is the "pants" that was showing in shoe shots. With legs
+        -- hidden, only the foot/shoe shows (bare shin above it at most), and the low
+        -- shoe camera + crop trims the rest.
+        shoes    = { },
+        -- Watch: prop-only. Hide the arm (component 3 -> -1) so ONLY the watch
+        -- renders, with no hand/forearm skin. The watch stays attached to the wrist
+        -- bone (which still exists even with the arm mesh hidden), so it floats
+        -- alone. On the rare model where -1 leaves a bare-arm fallback, the tight
+        -- watch camera (captureCameras.watches) still crops the stub out.
+        watches  = { },
+        chains   = { [3] = 0, [8] = 0 }, -- keep upper body so necklaces/chains are visible
+        -- Hats, glasses and earrings attach to the HEAD BONE, which still exists
+        -- even when the head mesh is invisible. So we hide the head (head not kept)
+        -- and the prop renders alone, floating where the head would be — no head in
+        -- the icon. Set head = true instead if you WANT a visible head for context.
+        hat      = { },
+        glasses  = { },
+        earrings = { },
+    },
 }
 
 Config.Prices = {
@@ -128,6 +291,64 @@ Config.Prices = {
     ['bags'] = 20,
     ['earrings'] = 30,
     ['watches'] = 40,
+}
+
+
+-- ── Automatic pricing (economy-balanced) ─────────────────────────────────
+-- Anchored to your earn rate: ~50k per 4h played  ->  ~12,500/hour (~208/min).
+-- Store (base-game) clothing is a small sink: seconds-to-minutes of play.
+-- Add-on clothing is a flex: roughly 30 minutes to ~4 hours of play, and is kept
+-- OUT of the public store by default (still fully capturable in the admin panel).
+Config.Economy = {
+    enabled = true,          -- master switch for auto-price suggestions
+    hourlyEarn = 12500,      -- documentation anchor only
+
+    -- Base-game (store) price per category — cheap.
+    storePrices = {
+        tshirt = 200,  glasses = 250, hat = 350,  pants = 500,  shoes = 750,
+        torso  = 1200, chains  = 1500, bags = 1800, earrings = 1200, watches = 3000,
+        armor  = 0,
+    },
+    -- Add-on (exclusive) price per category — a flex.
+    addonPrices = {
+        tshirt = 6000,  glasses = 8000,  hat = 9000,  pants = 12000, shoes = 15000,
+        torso  = 22000, chains  = 28000, bags = 18000, earrings = 20000, watches = 45000,
+        armor  = 0,
+    },
+
+    -- An item is treated as ADD-ON when its drawable index is >= the number here.
+    -- Set each to your VANILLA drawable count for that category (what
+    -- GetNumberOfPedDrawableVariations returned BEFORE you streamed your add-on
+    -- packs). Leave a category unset to treat all of its items as store.
+    -- You can split by gender: torso = { male = 180, female = 200 }.
+    -- Tip: open the admin panel and browse to the first add-on item; the panel
+    -- shows the drawable index and Store/Add-on flag so you can read the boundary.
+    addonStartsAt = {
+        -- torso = 200, pants = 150, shoes = 120, ...
+    },
+
+    -- Where add-on items go. 'hidden' = not shown in the public store.
+    addonDestination = 'hidden',
+}
+
+
+
+-- CM clothing purchase behaviour
+Config.AutoOpenInventoryAfterPurchase = false
+Config.TryBeforeBuySeconds = 60
+Config.ClothingStore = Config.ClothingStore or {}
+Config.ClothingStore.EnableCheckoutConfirm = true
+Config.ClothingStore.EnableNpcSpeech = true
+Config.ClothingStore.NpcGreetingCooldown = 18000
+Config.ClothingStore.DefaultRestrictionText = 'Members only'
+
+-- Admin price presets shown in the clothing creator UI.
+Config.PricePresets = {
+    default = Config.Prices,
+    economy = { tshirt = 8, torso = 35, pants = 12, shoes = 15, hat = 12, chains = 20, glasses = 8, bags = 18, earrings = 18, watches = 25 },
+    standard = { tshirt = 15, torso = 60, pants = 25, shoes = 30, hat = 25, chains = 40, glasses = 20, bags = 35, earrings = 35, watches = 50 },
+    premium = { tshirt = 35, torso = 120, pants = 70, shoes = 85, hat = 65, chains = 100, glasses = 70, bags = 120, earrings = 90, watches = 150 },
+    luxury = { tshirt = 75, torso = 250, pants = 160, shoes = 220, hat = 150, chains = 300, glasses = 180, bags = 350, earrings = 220, watches = 500 },
 }
 
 -- Bag inventory capacity levels saved in catalog metadata.

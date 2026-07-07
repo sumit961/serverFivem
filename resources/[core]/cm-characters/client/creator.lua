@@ -7,20 +7,30 @@ local isCreating = false
 
 local function setCharacterFlowState(active)
     LocalPlayer.state:set('isInCharacterSelector', active == true, true)
+    LocalPlayer.state:set('isInCharacterCreation', active == true, true)
     LocalPlayer.state:set('skipPositionSave', active == true, true)
     LocalPlayer.state:set('characterFullySpawned', active ~= true, true)
 end
 
 local function setHudVisible(visible)
-    DisplayRadar(visible == true)
-    LocalPlayer.state:set('cmHudHidden', visible ~= true, true)
-    TriggerEvent('cm-hud:client:setVisible', visible == true)
-    TriggerEvent('cm-hud:client:toggle', visible == true)
-    TriggerEvent('cm-hud:client:hide', visible ~= true)
+    visible = visible == true
+    LocalPlayer.state:set('cmHudHiddenByCharacters', not visible, true)
+
+    if visible then
+        TriggerEvent('cm-hud:client:showUiOnly', 'cm-characters-creator')
+        TriggerEvent('cm-hud:client:setUiVisible', true, 'cm-characters-creator')
+    else
+        TriggerEvent('cm-hud:client:hideUiOnly', 'cm-characters-creator')
+        TriggerEvent('cm-hud:client:setUiVisible', false, 'cm-characters-creator')
+    end
+
     if GetResourceState('cm-hud') == 'started' then
-        pcall(function() exports['cm-hud']:SetVisible(visible == true) end)
-        pcall(function() exports['cm-hud']:ToggleHud(visible == true) end)
-        pcall(function() exports['cm-hud']:HideHud(visible ~= true) end)
+        pcall(function() exports['cm-hud']:SetUiVisible(visible, 'cm-characters-creator') end)
+        if visible then
+            pcall(function() exports['cm-hud']:ShowUiOnly('cm-characters-creator') end)
+        else
+            pcall(function() exports['cm-hud']:HideUiOnly('cm-characters-creator') end)
+        end
     end
 end
 
@@ -43,6 +53,7 @@ AddEventHandler('cm-characters:client:openCreator', function(slot, accountId)
     currentAccountId = accountId
     display = true
     isCreating = false
+    TriggerEvent('cm-characters:client:setWorldLock', 'creator', true)
     setCharacterFlowState(true)
     setHudVisible(false)
     preloadFreemodeModels()
@@ -106,6 +117,6 @@ RegisterNUICallback('closeCreator', function(data, cb)
     -- Returning from creator goes back to selector, so keep NUI focus.
     SetNuiFocus(true, true)
     SendNUIMessage({ action = 'showApp' })
-    TriggerServerEvent('cm-characters:server:getSlots', currentAccountId)
+    TriggerServerEvent('cm-characters:server:getSlots')
     cb('ok')
 end)

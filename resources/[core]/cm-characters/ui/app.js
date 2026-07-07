@@ -57,6 +57,8 @@ const detailEls = {
 };
 
 let currentSlots = {};
+let lastSlotsSignature = '';
+let slotsAlreadyRendered = false;
 let selectedCharacter = null;
 let selectedSlot = null;
 let isCreatingChar = false;
@@ -75,6 +77,27 @@ function post(path, payload) {
     });
 }
 
+function makeSlotsSignature(slots, max) {
+    const safeSlots = slots || {};
+    const count = Number(max || 2);
+    const parts = [];
+    for (let i = 1; i <= count; i += 1) {
+        const ch = safeSlots[String(i)] || safeSlots[i];
+        if (ch) {
+            parts.push([
+                i,
+                ch.uniqueId || ch.charId || '',
+                ch.name || '',
+                ch.firstName || '',
+                ch.lastName || '',
+                ch.gender || ''
+            ].join(':'));
+        } else {
+            parts.push(`${i}:empty`);
+        }
+    }
+    return parts.join('|');
+}
 
 function setCreationLoading(show, message, targetPercent) {
     if (!creationLoading) return;
@@ -226,9 +249,11 @@ function stopMusic() {
     bgm.currentTime = 0;
 }
 
-function renderSlots() {
+function renderSlots(options) {
+    options = options || {};
     if (!characterList) return;
 
+    const previousCharId = selectedCharacter && (selectedCharacter.uniqueId || selectedCharacter.charId);
     const existing = getExistingCharacters();
     const emptySlot = getFirstEmptySlot();
     const total = existing.length;
@@ -244,22 +269,34 @@ function renderSlots() {
         card.type = 'button';
         card.className = 'character-card';
         card.dataset.slot = String(slot);
-        card.dataset.charId = char.uniqueId;
-        card.innerHTML = `
-            <div class="card-topline">
-                <span>Slot ${slot}</span>
-                <strong>#${char.uniqueId || 'N/A'}</strong>
-            </div>
-            <div class="avatar-badge ${String(char.gender).toLowerCase() === 'female' ? 'female' : 'male'}">
-                ${String(char.gender).toLowerCase() === 'female' ? 'F' : 'M'}
-            </div>
-            <h3>${char.name || 'Unknown Character'}</h3>
-            <p>${titleCase(char.gender)} · Level ${char.level || 1}</p>
-            <div class="mini-stats">
-                <span>${money(char.cash)}</span>
-                <span>${money(char.bank)} bank</span>
-            </div>
-        `;
+        card.dataset.charId = String(char.uniqueId || '');
+
+        const top = document.createElement('div');
+        top.className = 'card-topline';
+        const slotText = document.createElement('span');
+        slotText.textContent = `Slot ${slot}`;
+        const idText = document.createElement('strong');
+        idText.textContent = `#${char.uniqueId || 'N/A'}`;
+        top.append(slotText, idText);
+
+        const badge = document.createElement('div');
+        badge.className = `avatar-badge ${String(char.gender).toLowerCase() === 'female' ? 'female' : 'male'}`;
+        badge.textContent = String(char.gender).toLowerCase() === 'female' ? 'F' : 'M';
+
+        const title = document.createElement('h3');
+        title.textContent = char.name || 'Unknown Character';
+        const meta = document.createElement('p');
+        meta.textContent = `${titleCase(char.gender)} · Level ${char.level || 1}`;
+
+        const stats = document.createElement('div');
+        stats.className = 'mini-stats';
+        const cash = document.createElement('span');
+        cash.textContent = money(char.cash);
+        const bank = document.createElement('span');
+        bank.textContent = `${money(char.bank)} bank`;
+        stats.append(cash, bank);
+
+        card.append(top, badge, title, meta, stats);
         card.addEventListener('click', () => selectCharacterCard(slot, char.uniqueId));
         characterList.appendChild(card);
     });
@@ -283,7 +320,17 @@ function renderSlots() {
     }
 
     if (existing.length > 0) {
-        selectCharacterCard(existing[0].slot, existing[0].char.uniqueId);
+        let target = null;
+        if (options.preserveSelection && previousCharId) {
+            target = existing.find(({ char }) => String(char.uniqueId || char.charId) === String(previousCharId));
+        }
+        if (target) {
+            selectCharacterCard(target.slot, target.char.uniqueId, options.skipPreview === true);
+        } else if (options.noAutoSelect !== true) {
+            selectCharacterCard(existing[0].slot, existing[0].char.uniqueId, options.skipPreview === true);
+        } else {
+            clearDetails();
+        }
     } else {
         clearDetails();
     }
@@ -304,7 +351,7 @@ function clearDetails() {
     playBtn.disabled = true;
 }
 
-function selectCharacterCard(slot, charId) {
+function selectCharacterCard(slot, charId, skipPreview) {
     const char = slotValue(slot);
     if (!char) return;
 
@@ -326,7 +373,9 @@ function selectCharacterCard(slot, charId) {
     detailEls.created.textContent = formatDate(char.created);
     playBtn.disabled = false;
 
-    post('previewCharacter', { slot, charId: char.uniqueId }).catch(() => {});
+    if (skipPreview !== true) {
+        post('previewCharacter', { slot, charId: char.uniqueId }).catch(() => {});
+    }
 }
 
 function selectCurrentCharacter() {
@@ -391,26 +440,51 @@ window.addEventListener('message', function(event) {
 
     if (data.action === 'showSlots') {
         spawnFlowActive = false;
-        // Full-screen loader owns the screen first. Do not show/reveal the
-        // selector until Lua confirms the preview ped/camera is ready and the
-        // loader has reached 100%.
-        loaderHoldingSelector = true;
-        hideSelectorBehindLoader();
-        setCreationLoading(true, 'Loading character preview...', 35);
+
+        const newSlots = data.slots || {};
+        const newMaxCharacters = Number(data.maxCharacters || 2);
+        const signature = makeSlotsSignature(newSlots, newMaxCharacters);
+        const duplicateSlots = slotsAlreadyRendered && signature === lastSlotsSignature;
+        const firstSelectorRender = !slotsAlreadyRendered && data.replay !== true;
+
+        // cm-auth/spawn fallback/uiReady can resend the same slot payload. Do not
+        // restart the loading overlay or re-render cards for a duplicate replay,
+        // because renderSlots auto-selects the first character and would ask Lua
+        // to spawn the preview ped again.
+        if (duplicateSlots) {
+            currentSlots = newSlots;
+            maxCharacters = newMaxCharacters;
+            startMusic();
+            return;
+        }
+
+        if (firstSelectorRender) {
+            loaderHoldingSelector = true;
+            hideSelectorBehindLoader();
+            setCreationLoading(true, 'Loading character preview...', 35);
+            selectedCharacter = null;
+            selectedSlot = null;
+            if (playBtn) {
+                playBtn.textContent = 'Enter City';
+                playBtn.disabled = true;
+            }
+        } else {
+            loaderHoldingSelector = false;
+            forceSelectorVisible();
+        }
 
         isCreatingChar = false;
-        selectedCharacter = null;
-        selectedSlot = null;
-        playBtn.textContent = 'Enter City';
-        playBtn.disabled = true;
-
-        currentSlots = data.slots || {};
-        maxCharacters = Number(data.maxCharacters || 2);
-        renderSlots();
+        currentSlots = newSlots;
+        maxCharacters = newMaxCharacters;
+        lastSlotsSignature = signature;
+        slotsAlreadyRendered = true;
+        renderSlots({ preserveSelection: !firstSelectorRender, skipPreview: !firstSelectorRender });
         startMusic();
     }
 
     if (data.action === 'showCreator') {
+        loaderHoldingSelector = false;
+        forceHideCharacterLoader();
         app.style.display = 'block';
         app.style.visibility = 'visible';
         app.style.opacity = '1';
@@ -429,6 +503,8 @@ window.addEventListener('message', function(event) {
     if (data.action === 'hideAll') {
         spawnFlowActive = true;
         loaderHoldingSelector = false;
+        slotsAlreadyRendered = false;
+        lastSlotsSignature = '';
         forceHideCharacterLoader();
         app.classList.add('hidden');
         slotsScreen.classList.add('hidden');
@@ -524,12 +600,12 @@ setMusicState(localStorage.getItem('cm_char_music_muted') !== '0');
 
 window.addEventListener('DOMContentLoaded', () => {
     startMusic();
-    post('uiReady', {}).catch(() => {});
+    post('uiReady', { reason: 'dom' }).catch(() => {});
 
-    // Safety: if FiveM CEF autoplays the music but the selector message arrived too early,
-    // ask the Lua client to replay the visible selector state.
-    setTimeout(() => post('uiReady', {}).catch(() => {}), 500);
-    setTimeout(() => post('uiReady', {}).catch(() => {}), 1500);
+    // Safety pings stay, but Lua now treats them as soft UI refresh only and will
+    // not request slots/restart the preview loader again.
+    setTimeout(() => post('uiReady', { reason: 'safety_500' }).catch(() => {}), 500);
+    setTimeout(() => post('uiReady', { reason: 'safety_1500' }).catch(() => {}), 1500);
 });
 
 // v1.3.1 selector scene editor UI
@@ -664,5 +740,169 @@ window.addEventListener('message', function(event) {
     }
     if (data.action === 'sceneEditorClose') {
         if (editorScreen) editorScreen.classList.add('hidden');
+    }
+});
+
+// Character admin panel
+const adminScreen = document.getElementById('admin-screen');
+const adminClose = document.getElementById('admin-close');
+const adminSearchInput = document.getElementById('admin-search');
+const adminSearchBtn = document.getElementById('admin-search-btn');
+const adminResults = document.getElementById('admin-results');
+const adminToast = document.getElementById('admin-toast');
+const adminSelectedName = document.getElementById('admin-selected-name');
+const adminSelectedMeta = document.getElementById('admin-selected-meta');
+const adminFirstName = document.getElementById('admin-first-name');
+const adminLastName = document.getElementById('admin-last-name');
+const adminSlot = document.getElementById('admin-slot');
+const adminAccountId = document.getElementById('admin-account-id');
+const adminMaxSlots = document.getElementById('admin-max-slots');
+let adminCharacters = [];
+let adminSelectedCharacter = null;
+
+function showAdminToast(message, type = 'success') {
+    if (!adminToast) return;
+    adminToast.textContent = message || '';
+    adminToast.classList.add('show');
+    adminToast.classList.toggle('error', type === 'error');
+    setTimeout(() => adminToast.classList.remove('show'), 3600);
+}
+
+function openCharacterAdminPanel() {
+    if (!app || !adminScreen) return;
+    forceHideCharacterLoader();
+    app.style.display = 'block';
+    app.style.visibility = 'visible';
+    app.style.opacity = '1';
+    app.classList.remove('hidden');
+    if (slotsScreen) slotsScreen.classList.add('hidden');
+    if (creatorScreen) creatorScreen.classList.add('hidden');
+    if (editorScreen) editorScreen.classList.add('hidden');
+    adminScreen.classList.remove('hidden');
+    stopMusic();
+}
+
+function closeCharacterAdminPanel() {
+    if (adminScreen) adminScreen.classList.add('hidden');
+    post('charAdminClose', {}).catch(() => {});
+    if (app && (!slotsScreen || slotsScreen.classList.contains('hidden')) && (!creatorScreen || creatorScreen.classList.contains('hidden')) && (!editorScreen || editorScreen.classList.contains('hidden'))) {
+        app.classList.add('hidden');
+    }
+}
+
+function selectAdminCharacter(charId) {
+    adminSelectedCharacter = adminCharacters.find(c => String(c.charId) === String(charId)) || null;
+    document.querySelectorAll('.admin-row').forEach(row => row.classList.toggle('active', row.dataset.charId === String(charId)));
+
+    if (!adminSelectedCharacter) {
+        if (adminSelectedName) adminSelectedName.textContent = 'Select a character';
+        if (adminSelectedMeta) adminSelectedMeta.textContent = 'No character selected.';
+        return;
+    }
+
+    if (adminSelectedName) adminSelectedName.textContent = adminSelectedCharacter.name || 'Unknown Character';
+    if (adminSelectedMeta) {
+        adminSelectedMeta.textContent = `Character ID #${adminSelectedCharacter.charId} · Account ${adminSelectedCharacter.accountId} · Slot ${adminSelectedCharacter.slot} · ${adminSelectedCharacter.online ? 'Online' : 'Offline'}`;
+    }
+    if (adminFirstName) adminFirstName.value = adminSelectedCharacter.firstName || '';
+    if (adminLastName) adminLastName.value = adminSelectedCharacter.lastName || '';
+    if (adminSlot) adminSlot.value = adminSelectedCharacter.slot || 1;
+    if (adminAccountId) adminAccountId.value = adminSelectedCharacter.accountId || '';
+}
+
+function renderAdminResults(results) {
+    adminCharacters = Array.isArray(results) ? results : [];
+    if (!adminResults) return;
+    adminResults.textContent = '';
+
+    if (adminCharacters.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'admin-row';
+        empty.textContent = 'No characters found.';
+        adminResults.appendChild(empty);
+        selectAdminCharacter(null);
+        return;
+    }
+
+    adminCharacters.forEach(char => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'admin-row';
+        row.dataset.charId = String(char.charId);
+
+        const id = document.createElement('div');
+        id.className = 'admin-id';
+        id.textContent = `#${char.charId}`;
+
+        const name = document.createElement('div');
+        name.className = 'admin-name';
+        const strong = document.createElement('strong');
+        strong.textContent = char.name || 'Unknown Character';
+        const span = document.createElement('span');
+        span.textContent = `Account ${char.accountId || 'N/A'} · Slot ${char.slot || 'N/A'} · ${titleCase(char.gender)}`;
+        name.appendChild(strong);
+        name.appendChild(span);
+
+        const status = document.createElement('div');
+        status.className = `admin-status ${char.online ? 'online' : 'offline'}`;
+        status.textContent = char.online ? 'Online' : 'Offline';
+
+        row.appendChild(id);
+        row.appendChild(name);
+        row.appendChild(status);
+        row.addEventListener('click', () => selectAdminCharacter(char.charId));
+        adminResults.appendChild(row);
+    });
+
+    selectAdminCharacter(adminCharacters[0].charId);
+}
+
+function runAdminSearch() {
+    post('charAdminSearch', { query: adminSearchInput ? adminSearchInput.value.trim() : '' }).catch(() => showAdminToast('Search failed.', 'error'));
+}
+
+function runAdminAction(actionName) {
+    const selected = adminSelectedCharacter;
+    const payload = {};
+
+    if (actionName === 'setAccountSlots') {
+        payload.accountId = adminAccountId ? adminAccountId.value.trim() : '';
+        payload.maxSlots = adminMaxSlots ? Number(adminMaxSlots.value) : 0;
+    } else {
+        if (!selected) {
+            showAdminToast('Select a character first.', 'error');
+            return;
+        }
+        payload.charId = selected.charId;
+        if (actionName === 'rename') {
+            payload.firstName = adminFirstName ? adminFirstName.value.trim() : '';
+            payload.lastName = adminLastName ? adminLastName.value.trim() : '';
+        }
+        if (actionName === 'setSlot') {
+            payload.slot = adminSlot ? Number(adminSlot.value) : 0;
+        }
+    }
+
+    post('charAdminAction', { actionName, payload }).catch(() => showAdminToast('Admin action failed.', 'error'));
+}
+
+if (adminClose) adminClose.addEventListener('click', closeCharacterAdminPanel);
+if (adminSearchBtn) adminSearchBtn.addEventListener('click', runAdminSearch);
+if (adminSearchInput) {
+    adminSearchInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') runAdminSearch();
+    });
+}
+document.querySelectorAll('.admin-action').forEach(button => {
+    button.addEventListener('click', () => runAdminAction(button.dataset.adminAction));
+});
+
+window.addEventListener('message', function(event) {
+    const data = event.data || {};
+    if (data.action === 'openCharacterAdmin') openCharacterAdminPanel();
+    if (data.action === 'characterAdminResults') renderAdminResults(data.results || []);
+    if (data.action === 'characterAdminStatus') showAdminToast(data.message, data.ok === false ? 'error' : 'success');
+    if (data.action === 'hideAll' || data.action === 'spawnStarted' || data.action === 'showApp' || data.action === 'showSlots' || data.action === 'showCreator' || data.action === 'openSceneEditor') {
+        if (adminScreen) adminScreen.classList.add('hidden');
     }
 });

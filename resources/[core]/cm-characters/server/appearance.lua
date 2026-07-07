@@ -171,6 +171,8 @@ local function cmGiveStarterClothes(src, appearance)
     return next(equipment) and equipment or nil
 end
 
+CMCharacters.GiveStarterClothes = cmGiveStarterClothes
+
 local function cmMakeNakedAppearance(appearance)
     appearance = type(appearance) == 'table' and appearance or {}
     local gender = cmIsFemaleAppearance(appearance) and 'female' or 'male'
@@ -180,46 +182,40 @@ local function cmMakeNakedAppearance(appearance)
     return appearance
 end
 
+
+local function failAppearanceSave(src, message)
+    message = tostring(message or 'Failed to save appearance')
+    TriggerClientEvent('cm-characters:client:error', src, message)
+    TriggerClientEvent('cm-characters:client:appearanceSaved', src, false, { message = message })
+end
+
 RegisterNetEvent('cm-characters:server:saveAppearance', function(charId, appearanceData)
     local src = source
 
     if type(appearanceData) ~= 'table' then
-        TriggerClientEvent('cm-characters:client:error', src, 'Invalid appearance data')
+        failAppearanceSave(src, 'Invalid appearance data')
         return
     end
 
-    local char = exports['cm-core']:Query('SELECT * FROM characters WHERE id = ?', {charId})
-    if not char or #char == 0 then
-        TriggerClientEvent('cm-characters:client:error', src, 'Character not found')
-        return
-    end
-    
-    local charFull = char[1]
-
-    -- Verify this character belongs to the requesting player's account.
-    local playerAccountId = tostring(Player(src).state.accountId or '')
-    if playerAccountId ~= '' and tostring(charFull.account_id) ~= playerAccountId then
-        TriggerClientEvent('cm-characters:client:error', src, 'Character does not belong to your account')
+    local char, accountId, err = CMCharacters.GetOwnedCharacter(src, charId)
+    if not char then
+        failAppearanceSave(src, err or 'Character not found')
         return
     end
 
     -- IMPORTANT:
     -- cm-inventory resolves owner from Player(src).state.charId.
     -- During first character creation this state may not exist yet, so set it BEFORE AddItem.
-    Player(src).state:set('charId', charId, true)
-    Player(src).state:set('characterId', charId, true)
+    CMCharacters.SetCharacterState(src, char)
 
     -- Give starter clothing items only the first time this character saves appearance.
     -- Otherwise every later SaveAppearance/equip would duplicate starter clothes.
     local alreadyHasAppearance = false
-    if charFull.appearance_json and charFull.appearance_json ~= '' and charFull.appearance_json ~= '{}' and charFull.appearance_json ~= 'null' then
+    if char.appearance_json and char.appearance_json ~= '' and char.appearance_json ~= '{}' and char.appearance_json ~= 'null' then
         alreadyHasAppearance = true
     end
 
-    -- Keep the creator outfit for starter inventory items, but save only the naked/base
-    -- body appearance to the character JSON. This prevents clothes coming back from JSON.
     local creatorOutfit = cmCopyTable(appearanceData)
-
     local starterEquipment = nil
     if not alreadyHasAppearance then
         starterEquipment = cmGiveStarterClothes(src, creatorOutfit)
@@ -228,84 +224,77 @@ RegisterNetEvent('cm-characters:server:saveAppearance', function(charId, appeara
     local baseAppearance = cmMakeNakedAppearance(cmCopyTable(appearanceData))
     local appearanceJson = json.encode(baseAppearance)
 
-    -- Use Query for UPDATE (cm-core doesn't have Execute)
     local ok, result = pcall(function()
-        exports['cm-core']:Query(
-            'UPDATE characters SET appearance_json = ? WHERE id = ?',
-            {appearanceJson, charId}
+        CMCharacters.Query(
+            'UPDATE characters SET appearance_json = ?, last_seen = CURRENT_TIMESTAMP WHERE id = ? AND account_id = ?',
+            { appearanceJson, tostring(char.id), accountId }
         )
-        return true
     end)
 
     if not ok then
         print('[CM-CHARACTERS] ERROR saving appearance: ' .. tostring(result))
-        TriggerClientEvent('cm-characters:client:error', src, 'Failed to save appearance')
+        failAppearanceSave(src, 'Failed to save appearance')
         return
     end
 
-    print('[CM-CHARACTERS] Appearance saved for char ' .. tostring(charId))
+    print('[CM-CHARACTERS] Appearance saved for char ' .. tostring(char.id))
+    exports['cm-core']:CacheInvalidate('char:' .. tostring(char.id))
 
-    exports['cm-core']:CacheInvalidate('char:' .. charId)
+    -- Refresh state with saved character details.
+    CMCharacters.SetCharacterState(src, char)
 
-    Player(src).state:set('charId', charId, true)
-    Player(src).state:set('isLoggedIn', true, true)
-    Player(src).state:set('cash', charFull.cash or 0, true)
-    Player(src).state:set('bank', charFull.bank or 0, true)
-
-    -- For first creation, do NOT apply the naked/base appearance immediately.
-    -- The player is already wearing the chosen creator clothes client-side; applying base here
-    -- caused the one-frame default/naked blink. cm-spawn may still apply the saved base after
-    -- characterLoaded, so we re-apply inventory equipment several times on the client.
     if alreadyHasAppearance then
         TriggerClientEvent('cm-characters:client:applyAppearance', src, baseAppearance)
     end
 
-    TriggerEvent('cm-core:characterLoaded', src, charId)
-
-    -- Spawn is handled by cm-spawn / cm-core:characterLoaded. Do not trigger the old removed
-    -- cm-characters:client:spawn event here; this resource no longer registers that client event.
+    TriggerEvent('cm-core:characterLoaded', src, tostring(char.id))
 
     if starterEquipment then
         TriggerClientEvent('cm-characters:client:equipStarterClothingSlots', src, starterEquipment)
     end
 
-    -- Always let inventory win after creation/spawn. This covers cm-spawn or any other
-    -- appearance script that applies the naked/base JSON after our starter event.
     TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src)
     SetTimeout(1000, function() TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src) end)
     SetTimeout(3000, function() TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src) end)
+
+    -- Acknowledgement used by the client to close the creator only after the DB/inventory work finished.
+    TriggerClientEvent('cm-characters:client:appearanceSaved', src, true, {
+        charId = tostring(char.id),
+        alreadyHadAppearance = alreadyHasAppearance,
+        starterEquipment = starterEquipment ~= nil
+    })
 end)
 
 RegisterNetEvent('cm-characters:server:saveCurrentAppearance', function(appearanceData)
     local src = source
     local charId = Player(src).state.charId or Player(src).state.characterId
     if not charId then
-        TriggerClientEvent('cm-hud:client:notify', src, 'No active character to save appearance.', 'error')
+        CMCharacters.Notify(src, 'No active character to save appearance.', 'error')
         return
     end
     if type(appearanceData) ~= 'table' then return end
 
-    -- Merge with existing appearance so a clothing-only save cannot wipe face/hair data.
+    local char, accountId, err = CMCharacters.GetOwnedCharacter(src, charId)
+    if not char then
+        CMCharacters.Notify(src, err or 'Character not found.', 'error')
+        return
+    end
+
     local merged = {}
-    local rows = exports['cm-core']:Query('SELECT appearance_json FROM characters WHERE id = ?', { charId })
-    local existingJson = rows and rows[1] and rows[1].appearance_json
+    local existingJson = char.appearance_json
     if existingJson and existingJson ~= '' and existingJson ~= 'null' then
         local ok, decoded = pcall(json.decode, existingJson)
-        if ok and type(decoded) == 'table' then
-            merged = decoded
-        end
+        if ok and type(decoded) == 'table' then merged = decoded end
     end
 
-    for key, value in pairs(appearanceData) do
-        merged[key] = value
-    end
-
-    -- Clothing is inventory-owned. Even when SaveAppearance is triggered after equipping or
-    -- removing clothes, never persist shirt/torso/pants/shoes into appearance_json.
+    for key, value in pairs(appearanceData) do merged[key] = value end
     merged = cmMakeNakedAppearance(merged)
 
-    exports['cm-core']:Query('UPDATE characters SET appearance_json = ? WHERE id = ?', { json.encode(merged), charId })
-    exports['cm-core']:CacheInvalidate('char:' .. tostring(charId))
+    CMCharacters.Query(
+        'UPDATE characters SET appearance_json = ?, last_seen = CURRENT_TIMESTAMP WHERE id = ? AND account_id = ?',
+        { json.encode(merged), tostring(char.id), accountId }
+    )
+    exports['cm-core']:CacheInvalidate('char:' .. tostring(char.id))
 end)
 
 exports('SaveAppearance', function(src)
@@ -315,16 +304,27 @@ exports('SaveAppearance', function(src)
     return true
 end)
 
-
--- Development helper: /givestarterclothes from F8/server console event if starter clothes were missed during testing.
 RegisterNetEvent('cm-characters:server:debugGiveStarterClothes', function(appearanceData)
     local src = source
+    if not CMCharacters.IsAdmin(src) then
+        CMCharacters.Notify(src, 'No permission to use starter clothing debug tools.', 'error')
+        return
+    end
+
     local charId = Player(src).state.charId or Player(src).state.characterId
     if not charId then
-        TriggerClientEvent('cm-hud:client:notify', src, 'No active character.', 'error')
+        CMCharacters.Notify(src, 'No active character.', 'error')
         return
     end
     if type(appearanceData) ~= 'table' then return end
+
+    local char = CMCharacters.GetOwnedCharacter(src, charId)
+    if not char then
+        CMCharacters.Notify(src, 'Character ownership check failed.', 'error')
+        return
+    end
+
     cmGiveStarterClothes(src, appearanceData)
-    TriggerClientEvent('cm-hud:client:notify', src, 'Starter clothing items added.', 'success')
+    CMCharacters.LogAdmin(src, 'debug_give_starter_clothes', { char_id = tostring(charId) })
+    CMCharacters.Notify(src, 'Starter clothing items added.', 'success')
 end)

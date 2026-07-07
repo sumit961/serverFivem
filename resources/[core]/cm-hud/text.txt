@@ -1,30 +1,6 @@
-# CM-HUD: Custom Chat API Developer Guide
+# CM-HUD v2.2
 
-This document explains how to use the `cm-hud` chat system from other resources (like gangs, jobs, or admin scripts) without ever modifying the HUD files again.
+Chat has been moved out of cm-hud into the new cm-chat resource.
 
-The HUD exposes two global server-side exports.
-
----
-
-## 1. Registering a Custom Channel
-Before sending messages to a custom channel, you should register it when your script starts. This tells the HUD to create a new tab in the UI.
-
-**Export:**
-`exports['cm-hud']:RegisterChatChannel(channelId, channelLabel, options)`
-
-* **`channelId`** (string): The internal ID of the channel (e.g., `'ballas'`, `'police'`).
-* **`channelLabel`** (string): The text displayed on the UI tab (e.g., `'BALLAS'`, `'LSPD'`).
-* **`options`** (table, optional):
-    * `radius` (number): If set, standard broadcasts to this channel will only be visible to players within this distance (e.g., `20.0`). Leave as `nil` for global chat.
-
-**Example (e.g., in `cm-gangs/server/main.lua`):**
-```lua
-AddEventHandler('onResourceStart', function(resourceName)
-    if resourceName == GetCurrentResourceName() then
-        -- Creates a global channel tab called "BALLAS"
-        exports['cm-hud']:RegisterChatChannel('ballas', 'BALLAS', { radius = nil })
-        
-        -- Creates a local proximity channel tab called "LSPD"
-        exports['cm-hud']:RegisterChatChannel('police', 'LSPD', { radius = 25.0 })
-    end
-end)
+Use cm-hud for visual HUD, money, character ID, location, speedometer, notifications, and hide/show exports.
+Use cm-chat for RP/NON-RP chat, slash commands, proximity chat, channels, and logs.

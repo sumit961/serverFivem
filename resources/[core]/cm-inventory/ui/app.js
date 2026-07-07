@@ -26,6 +26,8 @@ const progressFill = document.getElementById('progress-fill');
 const progressLabel = document.getElementById('progress-label');
 const toastEl = document.getElementById('toast');
 const giveDropZone = document.getElementById('give-drop-zone');
+const dropPickupPanel = document.getElementById('drop-pickup-panel');
+const dropPickupList = document.getElementById('drop-pickup-list');
 
 let state = {
   open: false,
@@ -351,6 +353,7 @@ function metadataRows(item) {
     const drawable = meta.drawableId ?? meta.drawable;
     const texture = meta.textureId ?? meta.texture;
     rows.push(['Type', String(category).toUpperCase()]);
+    if (meta.gender || meta.sex) rows.push(['Gender', String(meta.gender || meta.sex).toUpperCase()]);
     if (drawable !== undefined && drawable !== null) rows.push(['Style', `${drawable}/${texture ?? 0}`]);
   } else if (item?.category) {
     rows.push(['Category', String(item.category).toUpperCase()]);
@@ -383,6 +386,7 @@ function tooltipRows(item) {
     const drawable = meta.drawableId ?? meta.drawable;
     const texture = meta.textureId ?? meta.texture;
     rows.push(['Type', String(category).toUpperCase()]);
+    if (meta.gender || meta.sex) rows.push(['Gender', String(meta.gender || meta.sex).toUpperCase()]);
     if (drawable !== undefined && drawable !== null) rows.push(['Style', `${drawable}/${texture ?? 0}`]);
     return rows.slice(0, 4);
   }
@@ -1015,6 +1019,7 @@ function applyInventoryPayload(payload) {
 
 function openInventory(payload) {
   state.open = true;
+  if (dropPickupPanel) dropPickupPanel.classList.add('hidden');
 
   // Build all slots/items before the NUI becomes visible.
   // This avoids the short empty/black flash when the inventory opens.
@@ -1028,6 +1033,38 @@ function openInventory(payload) {
 function updateInventory(payload) {
   if (!state.open) return;
   applyInventoryPayload(payload || {});
+}
+
+
+function showNearbyDrops(payload) {
+  if (!dropPickupPanel || !dropPickupList) return;
+  const visible = payload?.visible === true && Array.isArray(payload.drops) && payload.drops.length > 0 && !state.open;
+  if (!visible) {
+    dropPickupPanel.classList.add('hidden');
+    dropPickupList.innerHTML = '';
+    return;
+  }
+
+  const drops = payload.drops.slice(0, 6);
+  dropPickupList.innerHTML = drops.map((drop, index) => {
+    const selected = drop.selected === true || Number(payload.selected || 1) === index + 1;
+    const qty = Math.max(1, Number(drop.quantity || 1));
+    const image = escapeHtml(drop.image || 'images/placeholder.png');
+    const label = escapeHtml(drop.label || 'Item');
+    return `
+      <div class="drop-pickup-row${selected ? ' selected' : ''}">
+        <div class="drop-pickup-img"><img src="${image}" onerror="this.style.display='none'" /></div>
+        <div class="drop-pickup-text"><strong>${label}</strong><span>${qty}x</span></div>
+      </div>`;
+  }).join('');
+
+  const help = dropPickupPanel.querySelector('.drop-pickup-help');
+  if (help) {
+    help.innerHTML = drops.length > 1
+      ? '<b>E</b> Pick selected <span>•</span> <b>↑/↓</b> Select'
+      : '<b>E</b> Pick up';
+  }
+  dropPickupPanel.classList.remove('hidden');
 }
 
 function closeInventory() {
@@ -1050,6 +1087,7 @@ window.addEventListener('message', (event) => {
   if (data.action === 'close') closeInventory();
   if (data.action === 'notify') showToast(data.message, data.type || 'info');
   if (data.action === 'progress') showProgress(data.label || 'Using item...', Number(data.ms) || 1000);
+  if (data.action === 'nearDrops') showNearbyDrops(data);
 });
 
 function showProgress(label, ms) {

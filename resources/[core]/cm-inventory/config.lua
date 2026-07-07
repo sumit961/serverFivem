@@ -71,10 +71,26 @@ CMInventory.Config = {
 
     Drops = {
         enabled = true,
-        expireMinutes = 10,
+        expireMinutes = 1,
         pickupDistance = 2.0,
         markerDistance = 18.0,
-        markerType = 2
+        uiDistance = 2.4,
+        groupDistance = 1.2,
+        cleanupSeconds = 15,
+        markerType = 2,
+        defaultProp = 'prop_paper_bag_small',
+        PropModels = {
+            food = 'prop_food_bs_burger2',
+            drink = 'prop_ld_flow_bottle',
+            medical = 'prop_ld_health_pack',
+            tool = 'prop_tool_box_04',
+            weapon = 'w_pi_pistol',
+            ammo = 'prop_box_ammo03a',
+            clothing = 'prop_ld_suitcase_01',
+            armor = 'prop_bodyarmour_03',
+            bodyarmor = 'prop_bodyarmour_03',
+            bag = 'prop_ld_suitcase_01'
+        }
     },
 
     Give = {
@@ -86,10 +102,32 @@ CMInventory.Config = {
         enabled = true,
         slot = 'ammo',
         weapons = {
+            -- Pistols / SMGs
             weapon_pistol = { ammo = 'ammo_9mm' },
             weapon_combatpistol = { ammo = 'ammo_9mm' },
             weapon_appistol = { ammo = 'ammo_9mm' },
-            weapon_smg = { ammo = 'ammo_9mm' }
+            weapon_pistol_mk2 = { ammo = 'ammo_9mm' },
+            weapon_snspistol = { ammo = 'ammo_9mm' },
+            weapon_snspistol_mk2 = { ammo = 'ammo_9mm' },
+            weapon_vintagepistol = { ammo = 'ammo_9mm' },
+            weapon_smg = { ammo = 'ammo_9mm' },
+            weapon_smg_mk2 = { ammo = 'ammo_9mm' },
+            weapon_microsmg = { ammo = 'ammo_9mm' },
+            weapon_minismg = { ammo = 'ammo_9mm' },
+
+            -- Rifles / shotguns. Add these ammo items in cm-items if your gun store sells them.
+            weapon_carbinerifle = { ammo = 'ammo_556' },
+            weapon_carbinerifle_mk2 = { ammo = 'ammo_556' },
+            weapon_assaultrifle = { ammo = 'ammo_556' },
+            weapon_assaultrifle_mk2 = { ammo = 'ammo_556' },
+            weapon_bullpuprifle = { ammo = 'ammo_556' },
+            weapon_compactrifle = { ammo = 'ammo_556' },
+            weapon_pumpshotgun = { ammo = 'ammo_shotgun' },
+            weapon_pumpshotgun_mk2 = { ammo = 'ammo_shotgun' },
+            weapon_sawnoffshotgun = { ammo = 'ammo_shotgun' },
+            weapon_heavyshotgun = { ammo = 'ammo_shotgun' },
+            weapon_sniperrifle = { ammo = 'ammo_762' },
+            weapon_marksmanrifle = { ammo = 'ammo_762' }
         }
     },
 
@@ -137,6 +175,9 @@ CMInventory.Config = {
         lockpick = 'lockpick.png',
         weapon_pistol = 'weapon_pistol.png',
         ammo_9mm = 'ammo_9mm.png',
+        ammo_556 = 'ammo_9mm.png',
+        ammo_762 = 'ammo_9mm.png',
+        ammo_shotgun = 'ammo_9mm.png',
         id_card = 'id_card.png',
         clothing_tshirt = 'clothing.png',
         clothing_torso = 'clothing.png',
@@ -166,6 +207,9 @@ CMInventory.Config = {
         id_card = { label = 'ID Card', category = 'document', itemType = 'unique', rarity = 'unique', weight = 50, stack = false, usable = true, image = 'id_card.png', description = 'Personal identification card.' },
         weapon_pistol = { label = 'Pistol', category = 'weapon', equipmentSlot = 'weapon', itemType = 'unique', rarity = 'unique', weight = 1200, stack = false, usable = true, image = 'weapon_pistol.png', description = 'A small firearm.', durability = 100 },
         ammo_9mm = { label = '9mm Ammo', category = 'ammo', equipmentSlot = 'ammo', itemType = 'normal', rarity = 'normal', weight = 15, stack = true, usable = true, image = 'ammo_9mm.png', description = '9mm ammunition.' },
+        ammo_556 = { label = '5.56 Ammo', category = 'ammo', equipmentSlot = 'ammo', itemType = 'normal', rarity = 'normal', weight = 18, stack = true, usable = true, image = 'ammo_9mm.png', description = '5.56 rifle ammunition.' },
+        ammo_762 = { label = '7.62 Ammo', category = 'ammo', equipmentSlot = 'ammo', itemType = 'normal', rarity = 'normal', weight = 22, stack = true, usable = true, image = 'ammo_9mm.png', description = '7.62 rifle ammunition.' },
+        ammo_shotgun = { label = 'Shotgun Shells', category = 'ammo', equipmentSlot = 'ammo', itemType = 'normal', rarity = 'normal', weight = 30, stack = true, usable = true, image = 'ammo_9mm.png', description = 'Shotgun ammunition.' },
         clothing_tshirt = { label = 'T-Shirt', category = 'clothing', equipmentSlot = 'shirt', itemType = 'unique', rarity = 'normal', weight = 250, stack = false, usable = true, image = 'clothing.png', description = 'Wearable clothing item.' },
         clothing_torso = { label = 'Torso', category = 'clothing', equipmentSlot = 'outerwear', itemType = 'unique', rarity = 'normal', weight = 250, stack = false, usable = true, image = 'clothing.png', description = 'Wearable clothing item.' },
         clothing_pants = { label = 'Pants', category = 'clothing', equipmentSlot = 'pants', itemType = 'unique', rarity = 'normal', weight = 250, stack = false, usable = true, image = 'clothing.png', description = 'Wearable clothing item.' },

@@ -20,6 +20,22 @@ local restoreSceneEnvironment
 local selectorAudioMuted = false
 local waitingForSpawnAfterSelect = false
 
+-- v1.5.1: duplicate-open protection. cm-auth, spawn fallbacks and NUI uiReady
+-- can all fire close together. These guards stop the selector from rebuilding
+-- the same camera/ped/loader twice while the player is already on selection.
+local selectorSessionId = 0
+local slotsRequestInFlight = false
+local lastSlotsRequestAt = 0
+local lastShowSlotsFingerprint = nil
+local lastShowSlotsAt = 0
+
+-- v1.5.2: selector loader appears only once per selector session.
+-- Slot refreshes, duplicate auth handoffs, uiReady pings and preview clicks must not
+-- restart the "Loading character preview" overlay while the player stays here.
+local selectorInitialLoadingShown = false
+local selectorInitialLoadingFinished = false
+local selectorPreviewInitialized = false
+
 -- v1.2.5 fixed preview scene: flat, streamed ground location.
 -- We move the hidden real player here during selection so GTA streams the world,
 -- then spawn the preview ped on this same ground instead of using current/underground coords.
@@ -114,15 +130,24 @@ local selectorEditMode = false
 local editorCam = nil
 
 local function setCmHudVisible(visible)
-    DisplayRadar(visible == true)
-    LocalPlayer.state:set('cmHudHidden', visible ~= true, true)
-    TriggerEvent('cm-hud:client:setVisible', visible == true)
-    TriggerEvent('cm-hud:client:toggle', visible == true)
-    TriggerEvent('cm-hud:client:hide', visible ~= true)
+    visible = visible == true
+    LocalPlayer.state:set('cmHudHiddenByCharacters', not visible, true)
+
+    if visible then
+        TriggerEvent('cm-hud:client:showUiOnly', 'cm-characters')
+        TriggerEvent('cm-hud:client:setUiVisible', true, 'cm-characters')
+    else
+        TriggerEvent('cm-hud:client:hideUiOnly', 'cm-characters')
+        TriggerEvent('cm-hud:client:setUiVisible', false, 'cm-characters')
+    end
+
     if GetResourceState('cm-hud') == 'started' then
-        pcall(function() exports['cm-hud']:SetVisible(visible == true) end)
-        pcall(function() exports['cm-hud']:ToggleHud(visible == true) end)
-        pcall(function() exports['cm-hud']:HideHud(visible ~= true) end)
+        pcall(function() exports['cm-hud']:SetUiVisible(visible, 'cm-characters') end)
+        if visible then
+            pcall(function() exports['cm-hud']:ShowUiOnly('cm-characters') end)
+        else
+            pcall(function() exports['cm-hud']:HideUiOnly('cm-characters') end)
+        end
     end
 end
 
@@ -144,9 +169,75 @@ local function hideCharacterLoading(force)
     end
 end
 
+local function showSelectorInitialLoading(message, percent)
+    if selectorInitialLoadingShown then return end
+    selectorInitialLoadingShown = true
+    selectorInitialLoadingFinished = false
+    showCharacterLoading(message or 'Loading your character preview...', percent or 0)
+end
+
+local function finishSelectorInitialLoading(force)
+    if selectorInitialLoadingFinished then return end
+    selectorInitialLoadingFinished = true
+    hideCharacterLoading(force == true)
+end
+
 local function markSpawnFlowStarted()
     SendNUIMessage({ action = 'spawnStarted' })
     hideCharacterLoading(true)
+end
+
+local function resetSelectorLoadGuards()
+    slotsRequestInFlight = false
+    lastSlotsRequestAt = 0
+    lastShowSlotsFingerprint = nil
+    lastShowSlotsAt = 0
+    selectorInitialLoadingShown = false
+    selectorInitialLoadingFinished = false
+    selectorPreviewInitialized = false
+end
+
+local function requestCharacterSlots(reason, force)
+    if not selectorOpen and force ~= true then return false end
+
+    local now = GetGameTimer()
+    if force ~= true then
+        if slotsRequestInFlight then
+            print(('[CM-CHARACTERS] getSlots skipped (%s): request already in flight'):format(tostring(reason or 'unknown')))
+            return false
+        end
+        if lastSlotsRequestAt > 0 and (now - lastSlotsRequestAt) < 1200 then
+            print(('[CM-CHARACTERS] getSlots skipped (%s): debounce'):format(tostring(reason or 'unknown')))
+            return false
+        end
+    end
+
+    slotsRequestInFlight = true
+    lastSlotsRequestAt = now
+    TriggerServerEvent('cm-characters:server:getSlots')
+    return true
+end
+
+local function makeSlotsFingerprint(slots, maxCharacters)
+    slots = slots or {}
+    local max = tonumber(maxCharacters) or tonumber(Config and Config.MaxCharacters) or 2
+    local parts = {}
+    for slot = 1, max do
+        local char = slots[tostring(slot)] or slots[slot]
+        if char then
+            parts[#parts + 1] = table.concat({
+                tostring(slot),
+                tostring(char.uniqueId or char.charId or ''),
+                tostring(char.name or ''),
+                tostring(char.firstName or ''),
+                tostring(char.lastName or ''),
+                tostring(char.gender or '')
+            }, ':')
+        else
+            parts[#parts + 1] = tostring(slot) .. ':empty'
+        end
+    end
+    return table.concat(parts, '|')
 end
 
 local function muteSelectorAudio()
@@ -238,7 +329,14 @@ end
 local buildCreationStyleSceneConfig
 
 local function getActiveSelectorSceneConfig()
-    -- Hard-force the selector preview scene. Do not use old editor data or Legion fallback.
+    -- Use the saved data/selector_scene.json config first. The editor can override it
+    -- with a draft while previewing, then save back to the server file.
+    if selectorEditMode and EditorSceneDraft then
+        return deepCopySceneConfig(EditorSceneDraft)
+    end
+    if SavedSelectorScene then
+        return deepCopySceneConfig(SavedSelectorScene)
+    end
     return deepCopySceneConfig(buildCreationStyleSceneConfig())
 end
 
@@ -638,16 +736,24 @@ local function destroySelectorCam()
     selectorCam = nil
 end
 
-local function cleanupSelectorScene(restorePlayer)
+local function cleanupSelectorScene(restorePlayer, keepScreenLock)
     deletePreviewPeds(true)
     destroySelectorCam()
     ClearFocus()
     dynamicStage = nil
-    restoreSceneEnvironment()
-    unmuteSelectorAudio()
+
+    if keepScreenLock == true then
+        -- Keep only cm-hud hidden. Do not hide GTA radar/minimap here.
+        setCmHudVisible(false)
+    else
+        restoreSceneEnvironment()
+        unmuteSelectorAudio()
+        DisplayHud(true)
+        DisplayRadar(true)
+        setCmHudVisible(true)
+    end
+
     DoScreenFadeIn(250)
-    DisplayRadar(true)
-    setCmHudVisible(true)
 
     local ped = PlayerPedId()
     restoreRealPlayerAfterSelector()
@@ -667,9 +773,9 @@ local function cleanupSelectorSceneForSpawn()
     destroySelectorCam()
     ClearFocus()
     dynamicStage = nil
-    restoreSceneEnvironment()
+    -- Keep the character-screen world lock active until the real spawn is ready.
+    -- Do not restore cm-climatime here or weather/time can flash away from night.
     hideRealPlayerForSelector()
-    DisplayRadar(false)
     setCmHudVisible(false)
 end
 
@@ -868,7 +974,6 @@ local function setupSelectorScene(char)
     ClearTimecycleModifier()
     ClearExtraTimecycleModifier()
     SetArtificialLightsState(false)
-    DisplayRadar(false)
     setCmHudVisible(false)
     hideRealPlayerForSelector()
 
@@ -1053,7 +1158,7 @@ local function spawnSimplePreviewCharacter(charId)
 
     SetTimeout(tonumber(Config and Config.SelectorInitialLoadingMs) or 1800, function()
         if selectorOpen and myToken == previewWalkToken then
-            hideCharacterLoading()
+            finishSelectorInitialLoading(false)
         end
     end)
 
@@ -1088,20 +1193,24 @@ local function sendShowApp()
     SendNUIMessage({ action = 'showApp' })
 end
 
-local function sendShowSlots(accountId)
+local function sendShowSlots(accountId, replay)
     SendNUIMessage({
         action = 'showSlots',
         slots = currentSlots or {},
         accountId = accountId or currentAccountId,
-        maxCharacters = tonumber(Config and Config.MaxCharacters) or 2
+        maxCharacters = tonumber(Config and Config.MaxCharacters) or 2,
+        replay = replay == true
     })
 end
 
-local function replaySelectorUi()
+local function replaySelectorUi(forceSlots)
     if not selectorOpen then return end
     sendShowApp()
-    if currentSlots then
-        sendShowSlots(currentAccountId)
+    -- Only replay slot cards when the UI explicitly asks for it. Re-sending
+    -- showSlots every 250ms restarts the loading overlay and looks like the
+    -- selector loads twice.
+    if forceSlots == true and currentSlots then
+        sendShowSlots(currentAccountId, true)
     end
 end
 
@@ -1115,6 +1224,16 @@ RegisterNetEvent('cm-characters:client:selectorSceneConfig', function(config)
     end
 end)
 
+
+RegisterNetEvent('cm-characters:client:openSelectorSceneEditor', function(config)
+    if type(config) == 'table' then
+        SavedSelectorScene = deepCopySceneConfig(config)
+        EditorSceneDraft = deepCopySceneConfig(SavedSelectorScene)
+        dynamicStage = nil
+    end
+    openSelectorSceneEditorUi()
+end)
+
 RegisterNetEvent('cm-characters:client:selectorSceneSaved', function(ok, message, config)
     if ok and type(config) == 'table' then
         SavedSelectorScene = deepCopySceneConfig(config)
@@ -1125,27 +1244,42 @@ RegisterNetEvent('cm-characters:client:selectorSceneSaved', function(ok, message
 end)
 
 RegisterNUICallback('uiReady', function(data, cb)
+    local firstReady = not nuiReady
     nuiReady = true
     cb('ok')
 
     if selectorOpen or pendingSelectorOpen then
         pendingSelectorOpen = false
-        replaySelectorUi()
-        if currentAccountId then
-            TriggerServerEvent('cm-characters:server:getSlots', currentAccountId)
+        replaySelectorUi(firstReady == true)
+        if firstReady and currentAccountId then
+            requestCharacterSlots('uiReady', false)
         end
     end
 end)
 
 RegisterNetEvent('cm-characters:client:openSelector', function(accountId)
-    local accId = tostring(accountId)
+    local accId = tostring(accountId or '')
+    if accId == '' or accId == 'nil' then
+        print('[CM-CHARACTERS] openSelector ignored: missing accountId')
+        return
+    end
+
     print('[CM-CHARACTERS] openSelector received! accountId=' .. accId)
 
     if selectorOpen and currentAccountId == accId then
-        print('[CM-CHARACTERS] selector already open for this account, refreshing slots only')
+        print('[CM-CHARACTERS] selector already open for this account; not rebuilding scene/loading again')
+        SetNuiFocus(true, true)
+        replaySelectorUi(false)
+        requestCharacterSlots('duplicate_openSelector', false)
+        return
     end
 
+    selectorSessionId = selectorSessionId + 1
+    local mySession = selectorSessionId
+    resetSelectorLoadGuards()
+
     currentAccountId = accId
+    TriggerEvent('cm-characters:client:setWorldLock', 'selector', true)
     LocalPlayer.state:set('isInCharacterSelector', true, true)
     LocalPlayer.state:set('characterFullySpawned', false, true)
     LocalPlayer.state:set('skipPositionSave', true, true)
@@ -1155,20 +1289,20 @@ RegisterNetEvent('cm-characters:client:openSelector', function(accountId)
     display = true
     selectorOpen = true
     SetNuiFocus(true, true)
-    showCharacterLoading('Loading your character preview...')
+    showSelectorInitialLoading('Loading your character preview...', 15)
 
     pendingSelectorOpen = not nuiReady
     sendShowApp()
-    TriggerServerEvent('cm-characters:server:getSlots', accId)
+    requestCharacterSlots('openSelector', true)
 
-    -- Fallback: if auth opens character selector before NUI JS is ready,
-    -- replay the open message for a few seconds. This fixes the "music only, no UI" case.
+    -- Fallback: if auth opens character selector before NUI JS is ready, replay only
+    -- showApp. Do not replay showSlots repeatedly or the loader restarts.
     local attempts = 0
     local function retryOpenUi()
-        if not selectorOpen then return end
+        if not selectorOpen or mySession ~= selectorSessionId then return end
         attempts = attempts + 1
-        replaySelectorUi()
-        if attempts < 12 then
+        sendShowApp()
+        if attempts < 12 and not nuiReady then
             SetTimeout(250, retryOpenUi)
         end
     end
@@ -1177,31 +1311,58 @@ end)
 
 RegisterNetEvent('cm-characters:client:showSlots', function(slots, accountId, maxCharacters)
     print('[CM-CHARACTERS] showSlots received!')
+    slotsRequestInFlight = false
 
+    local fingerprint = makeSlotsFingerprint(slots, maxCharacters)
+    local sameAsLast = selectorOpen and lastShowSlotsFingerprint == fingerprint
     currentSlots = slots or {}
-    showCharacterLoading('Preparing your character preview...')
-    spawnPreviewPeds(currentSlots)
 
-    sendShowSlots(accountId)
-
-    -- Replay after a small delay in case the NUI page finished loading just after this event.
-    SetTimeout(350, function()
-        if selectorOpen then sendShowSlots(accountId) end
-    end)
-
-    -- Auto-preview immediately. The preview ped is created hidden first, then shown only
-    -- after appearance/clothes are applied, so first load feels fast without default-ped flicker.
-    local firstChar = nil
-    for slot = 1, (tonumber(maxCharacters) or tonumber(Config and Config.MaxCharacters) or 2) do
-        firstChar = currentSlots[tostring(slot)] or currentSlots[slot]
-        if firstChar and firstChar.uniqueId then break end
+    -- If the same slots arrive again because uiReady/auth/spawn fallback fired twice,
+    -- refresh the UI cards only. Do not rebuild the camera/ped or restart loader.
+    if sameAsLast then
+        print('[CM-CHARACTERS] duplicate showSlots ignored: refreshing UI only')
+        sendShowSlots(accountId, true)
+        return
     end
-    if firstChar and firstChar.uniqueId then
-        walkInPreviewCharacter(firstChar.uniqueId)
-    else
-        SetTimeout(tonumber(Config and Config.SelectorInitialLoadingMs) or 1800, function()
-            if selectorOpen then hideCharacterLoading() end
+
+    lastShowSlotsFingerprint = fingerprint
+    lastShowSlotsAt = GetGameTimer()
+
+    -- Do not restart the loader here. The initial selector loader is started once
+    -- from openSelector and is completed by the preview/no-character timeout.
+    local firstPreviewBuild = not selectorPreviewInitialized
+    if firstPreviewBuild then
+        selectorPreviewInitialized = true
+        spawnPreviewPeds(currentSlots)
+    end
+
+    sendShowSlots(accountId, not firstPreviewBuild)
+
+    -- Replay once as a soft refresh only; UI will not restart the loader for replay.
+    local mySession = selectorSessionId
+    if firstPreviewBuild then
+        SetTimeout(350, function()
+            if selectorOpen and mySession == selectorSessionId then
+                sendShowSlots(accountId, true)
+            end
         end)
+    end
+
+    -- Auto-preview only for the first slot payload in this selector session. Later
+    -- server refreshes update UI data only and must not reload ped/camera/loading.
+    if firstPreviewBuild then
+        local firstChar = nil
+        for slot = 1, (tonumber(maxCharacters) or tonumber(Config and Config.MaxCharacters) or 2) do
+            firstChar = currentSlots[tostring(slot)] or currentSlots[slot]
+            if firstChar and firstChar.uniqueId then break end
+        end
+        if firstChar and firstChar.uniqueId then
+            walkInPreviewCharacter(firstChar.uniqueId)
+        else
+            SetTimeout(tonumber(Config and Config.SelectorInitialLoadingMs) or 1800, function()
+                if selectorOpen and mySession == selectorSessionId then finishSelectorInitialLoading(false) end
+            end)
+        end
     end
 end)
 
@@ -1227,6 +1388,56 @@ RegisterNUICallback('previewCharacter', function(data, cb)
     cb('ok')
 end)
 
+
+local function prepareClimatimeBeforeRealSpawn()
+    local c = Config and Config.CharacterScreenWorld or {}
+    if c.preSpawnClimatePrepare ~= true then return false end
+    if GetResourceState('cm-climatime') ~= 'started' then return false end
+
+    local fadeMs = tonumber(c.preSpawnFadeOutMs) or 350
+    local prepareMs = tonumber(c.preSpawnClimatePrepareMs) or 2600
+    if prepareMs < 600 then prepareMs = 600 end
+
+    LocalPlayer.state:set('cmCharactersPreparingSpawnClimate', true, true)
+    LocalPlayer.state:set('cmClimatimePreSpawnPreparing', true, true)
+    LocalPlayer.state:set('cmClimatimePreSpawnPrepared', false, true)
+
+    if not IsScreenFadedOut() and not IsScreenFadingOut() then
+        DoScreenFadeOut(fadeMs)
+        Wait(fadeMs + 80)
+    end
+
+    -- Release selector/creator world lock while the screen is black, so climatime
+    -- can take ownership before cm-spawn reveals the real player.
+    TriggerEvent('cm-characters:client:setWorldLock', 'selector', false)
+    TriggerEvent('cm-characters:client:setWorldLock', 'creator', false)
+    LocalPlayer.state:set('isInCharacterSelector', false, true)
+    LocalPlayer.state:set('isInCharacterCreation', false, true)
+
+    local payload = {
+        reason = 'cm-characters-pre-spawn',
+        prepareMs = prepareMs,
+        validMs = tonumber(c.preSpawnValidMs) or 25000,
+        weatherTransitionSeconds = tonumber(c.preSpawnWeatherTransitionSeconds) or 1.2,
+        rainRampSeconds = tonumber(c.preSpawnRainRampSeconds) or 1.2
+    }
+
+    local preparedByExport = false
+    if GetResourceState('cm-climatime') == 'started' then
+        preparedByExport = pcall(function() exports['cm-climatime']:PrepareBeforeSpawn(payload) end)
+    end
+    if not preparedByExport then
+        TriggerEvent('cm-climatime:client:prepareBeforeSpawn', payload)
+    end
+
+    Wait(prepareMs)
+
+    LocalPlayer.state:set('cmCharactersPreparingSpawnClimate', false, true)
+    LocalPlayer.state:set('cmClimatimePreSpawnPreparing', false, true)
+    LocalPlayer.state:set('cmClimatimePreSpawnPrepared', true, true)
+    return true
+end
+
 RegisterNUICallback('selectSlot', function(data, cb)
     print('[CM-CHARACTERS] selectSlot: ' .. json.encode(data))
 
@@ -1234,12 +1445,15 @@ RegisterNUICallback('selectSlot', function(data, cb)
         display = false
         selectorOpen = false
         pendingSelectorOpen = false
+        resetSelectorLoadGuards()
         waitingForSpawnAfterSelect = true
         SetNuiFocus(false, false)
-        -- No end loading screen. Close character UI/loading immediately and let cm-spawn open
-        -- the selector for returning players, or do hotel spawn for true first-time players.
+        -- No end loading screen. Close character UI/loading immediately and prepare
+        -- the live world climate while the screen is black, BEFORE cm-spawn reveals
+        -- the real player. This avoids the ugly sky/weather snap after spawn.
         markSpawnFlowStarted()
         SendNUIMessage({ action = 'hideAll' })
+        prepareClimatimeBeforeRealSpawn()
         -- Smooth transition: remove only the local preview dummy and camera, but keep
         -- the real player invisible/frozen until cm-spawn finishes. This removes the
         -- one-frame Michael/default ped blink before the spawn screen.
@@ -1248,9 +1462,16 @@ RegisterNUICallback('selectSlot', function(data, cb)
         -- Keep skipPositionSave=true until cm-playerdata/cm-spawn finishes the real spawn.
         TriggerServerEvent('cm-characters:server:selectCharacter', data.charId)
     else
+        display = false
+        selectorOpen = false
+        pendingSelectorOpen = false
+        resetSelectorLoadGuards()
+        TriggerEvent('cm-characters:client:setWorldLock', 'creator', true)
+        LocalPlayer.state:set('isInCharacterCreation', true, true)
         deletePreviewPeds(false)
-        cleanupSelectorScene(true)
+        cleanupSelectorScene(true, true)
         TriggerServerEvent('cm-characters:server:leaveSelectorBucket')
+        TriggerEvent('cm-characters:client:setWorldLock', 'selector', false)
         LocalPlayer.state:set('isInCharacterSelector', false, true)
         TriggerEvent('cm-characters:client:openCreator', data.slot, currentAccountId)
     end
@@ -1262,11 +1483,13 @@ RegisterNUICallback('close', function(data, cb)
     display = false
     selectorOpen = false
     pendingSelectorOpen = false
+    resetSelectorLoadGuards()
     SetNuiFocus(false, false)
     hideCharacterLoading()
-    cleanupSelectorScene(true)
-    TriggerServerEvent('cm-characters:server:leaveSelectorBucket')
+    TriggerEvent('cm-characters:client:setWorldLock', 'selector', false)
     LocalPlayer.state:set('isInCharacterSelector', false, true)
+    cleanupSelectorScene(true, false)
+    TriggerServerEvent('cm-characters:server:leaveSelectorBucket')
     LocalPlayer.state:set('skipPositionSave', false, true)
     cb('ok')
 end)
@@ -1276,17 +1499,15 @@ CreateThread(function()
     while true do
         if selectorOpen then
             if IsScreenFadedOut() or IsScreenFadingOut() then DoScreenFadeIn(0) end
-            HideHudAndRadarThisFrame()
+            -- Only the CM HUD NUI is hidden here. Do not hide native radar/minimap.
             if selectorCam and DoesCamExist(selectorCam) then
                 SetCamActive(selectorCam, true)
                 RenderScriptCams(true, false, 0, true, true)
             end
             Wait(0)
         elseif waitingForSpawnAfterSelect then
-            HideHudAndRadarThisFrame()
-            DisplayRadar(false)
             hideRealPlayerForSelector()
-            setCmHudVisible(false)
+            -- Do not hide native radar/minimap here; cm-spawn and cm-hud handle visibility.
             Wait(0)
         else
             Wait(500)
@@ -1295,7 +1516,12 @@ CreateThread(function()
 end)
 
 
+local function cmDevCommandsEnabled()
+    return Config and Config.EnableDevCommands == true
+end
+
 RegisterCommand('chartestui', function()
+    if not cmDevCommandsEnabled() then return end
     local accountId = currentAccountId or tostring(LocalPlayer.state.accountId or '')
     if accountId == '' then
         print('[CM-CHARACTERS] /chartestui failed: no accountId in state yet')
@@ -1307,11 +1533,13 @@ end, false)
 
 
 RegisterCommand('charpreviewclear', function()
+    if not cmDevCommandsEnabled() then return end
     deletePreviewPeds(true)
     print('[CM-CHARACTERS] Cleared all tracked selector preview peds.')
 end, false)
 
 RegisterCommand('charpreviewtest', function()
+    if not cmDevCommandsEnabled() then return end
     local firstChar = nil
     for slot = 1, 2 do
         firstChar = currentSlots[tostring(slot)] or currentSlots[slot]
@@ -1363,12 +1591,16 @@ local function setEditorCameraFromGameplay()
 end
 
 RegisterCommand('charselectedit', function()
-    openSelectorSceneEditorUi()
+    TriggerServerEvent('cm-characters:server:requestOpenSelectorSceneEditor')
 end, false)
 
-RegisterCommand('cshelp', printEditorHelp, false)
+RegisterCommand('cshelp', function()
+    if not cmDevCommandsEnabled() then return end
+    printEditorHelp()
+end, false)
 
 RegisterCommand('cssetplayer', function()
+    if not cmDevCommandsEnabled() then return end
     local draft = ensureEditorDraft()
     draft.walkFinish = getPedVec4()
     draft.stream = getPedVec4()
@@ -1377,6 +1609,7 @@ RegisterCommand('cssetplayer', function()
 end, false)
 
 RegisterCommand('cssetwalkstart', function()
+    if not cmDevCommandsEnabled() then return end
     local draft = ensureEditorDraft()
     draft.walkStart = getPedVec4()
     dynamicStage = nil
@@ -1384,6 +1617,7 @@ RegisterCommand('cssetwalkstart', function()
 end, false)
 
 RegisterCommand('cssetstream', function()
+    if not cmDevCommandsEnabled() then return end
     local draft = ensureEditorDraft()
     draft.stream = getPedVec4()
     dynamicStage = nil
@@ -1391,10 +1625,12 @@ RegisterCommand('cssetstream', function()
 end, false)
 
 RegisterCommand('cscamfromview', function()
+    if not cmDevCommandsEnabled() then return end
     setEditorCameraFromGameplay()
 end, false)
 
 RegisterCommand('csfov', function(_, args)
+    if not cmDevCommandsEnabled() then return end
     local draft = ensureEditorDraft()
     draft.fov = tonumber(args[1]) or draft.fov or 34.0
     dynamicStage = nil
@@ -1402,6 +1638,7 @@ RegisterCommand('csfov', function(_, args)
 end, false)
 
 RegisterCommand('cstime', function(_, args)
+    if not cmDevCommandsEnabled() then return end
     local draft = ensureEditorDraft()
     draft.time = draft.time or {}
     draft.time.hours = math.max(0, math.min(23, tonumber(args[1]) or draft.time.hours or 12))
@@ -1412,6 +1649,7 @@ RegisterCommand('cstime', function(_, args)
 end, false)
 
 RegisterCommand('csweather', function(_, args)
+    if not cmDevCommandsEnabled() then return end
     local draft = ensureEditorDraft()
     draft.weather = tostring(args[1] or draft.weather or 'EXTRASUNNY'):upper()
     applySceneEnvironment(draft)
@@ -1419,6 +1657,7 @@ RegisterCommand('csweather', function(_, args)
 end, false)
 
 RegisterCommand('csanim', function(_, args)
+    if not cmDevCommandsEnabled() then return end
     local draft = ensureEditorDraft()
     draft.idleDict = tostring(args[1] or draft.idleDict or 'amb@world_human_hang_out_street@male_c@idle_a')
     draft.idleAnim = tostring(args[2] or draft.idleAnim or 'idle_b')
@@ -1427,6 +1666,7 @@ RegisterCommand('csanim', function(_, args)
 end, false)
 
 RegisterCommand('cspreview', function()
+    if not cmDevCommandsEnabled() then return end
     EditorSceneDraft = ensureEditorDraft()
     dynamicStage = nil
     selectorOpen = true
@@ -1444,11 +1684,13 @@ RegisterCommand('cspreview', function()
 end, false)
 
 RegisterCommand('cssave', function()
+    if not cmDevCommandsEnabled() then return end
     local draft = serializableSceneConfig(ensureEditorDraft())
     TriggerServerEvent('cm-characters:server:saveSelectorSceneConfig', draft)
 end, false)
 
 RegisterCommand('csprint', function()
+    if not cmDevCommandsEnabled() then return end
     print(json.encode(serializableSceneConfig(ensureEditorDraft())))
 end, false)
 
@@ -1563,8 +1805,7 @@ setupEditorPlayerPreview = function(message)
     ClearTimecycleModifier()
     ClearExtraTimecycleModifier()
     SetArtificialLightsState(false)
-    DisplayRadar(false)
-
+    -- Do not hide GTA radar/minimap from the editor helper.
     selectorCam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
     SetCamCoord(selectorCam, stage.camera.x, stage.camera.y, stage.camera.z)
     if stage.camrotation then
@@ -1691,6 +1932,7 @@ RegisterNUICallback('editorClose', function(data, cb)
     SetNuiFocus(false, false)
     selectorEditMode = false
     selectorOpen = false
+    resetSelectorLoadGuards()
     cleanupSelectorScene(true)
     cb({ ok = true })
 end)
@@ -1806,7 +2048,7 @@ end)
 
 -- Override the previous command handler with a UI-first editor entry point.
 RegisterCommand('charselecteditui', function()
-    openSelectorSceneEditorUi()
+    TriggerServerEvent('cm-characters:server:requestOpenSelectorSceneEditor')
 end, false)
 
 AddEventHandler('cm-characters:client:selectorSceneSaved', function(ok, message, config)
@@ -1816,6 +2058,10 @@ AddEventHandler('cm-characters:client:selectorSceneSaved', function(ok, message,
 end)
 
 RegisterCommand('csfreecam', function()
+    if not cmDevCommandsEnabled() then
+        TriggerServerEvent('cm-characters:server:requestOpenSelectorSceneEditor')
+        return
+    end
     if not selectorEditMode then openSelectorSceneEditorUi() end
     SetTimeout(250, function() startEditorFreeCamera() end)
 end, false)
@@ -1828,9 +2074,17 @@ RegisterNetEvent('cm-characters:client:characterReady', function()
     hideCharacterLoading(true)
     unmuteSelectorAudio()
     restoreRealPlayerAfterSelector()
+    TriggerEvent('cm-characters:client:setWorldLock', 'selector', false)
+    TriggerEvent('cm-characters:client:setWorldLock', 'creator', false)
     LocalPlayer.state:set('isInCharacterSelector', false, true)
+    LocalPlayer.state:set('isInCharacterCreation', false, true)
     LocalPlayer.state:set('characterFullySpawned', true, true)
     LocalPlayer.state:set('skipPositionSave', false, true)
+    LocalPlayer.state:set('cmCharactersPreparingSpawnClimate', false, true)
+    LocalPlayer.state:set('cmClimatimePreSpawnPreparing', false, true)
+    TriggerEvent('cm-characters:client:releaseWorldLockNow')
+    DisplayHud(true)
+    DisplayRadar(true)
     setCmHudVisible(true)
 end)
 
@@ -1839,9 +2093,17 @@ RegisterNetEvent('cm-spawn:client:spawned', function()
     hideCharacterLoading(true)
     unmuteSelectorAudio()
     restoreRealPlayerAfterSelector()
+    TriggerEvent('cm-characters:client:setWorldLock', 'selector', false)
+    TriggerEvent('cm-characters:client:setWorldLock', 'creator', false)
     LocalPlayer.state:set('isInCharacterSelector', false, true)
+    LocalPlayer.state:set('isInCharacterCreation', false, true)
     LocalPlayer.state:set('characterFullySpawned', true, true)
     LocalPlayer.state:set('skipPositionSave', false, true)
+    LocalPlayer.state:set('cmCharactersPreparingSpawnClimate', false, true)
+    LocalPlayer.state:set('cmClimatimePreSpawnPreparing', false, true)
+    TriggerEvent('cm-characters:client:releaseWorldLockNow')
+    DisplayHud(true)
+    DisplayRadar(true)
     setCmHudVisible(true)
 end)
 

@@ -5,6 +5,7 @@ local appearanceCam = nil
 local appearanceOffset = nil
 local currentCharData = nil
 local isInAppearance = false
+local appearanceSavePending = false
 
 -- Config (from vms_charcreator adapted for cm)
 local AppearanceConfig = {
@@ -458,15 +459,24 @@ end
 
 
 local function setCreationHudVisible(visible)
-    DisplayRadar(visible == true)
-    LocalPlayer.state:set('cmHudHidden', visible ~= true, true)
-    TriggerEvent('cm-hud:client:setVisible', visible == true)
-    TriggerEvent('cm-hud:client:toggle', visible == true)
-    TriggerEvent('cm-hud:client:hide', visible ~= true)
+    visible = visible == true
+    LocalPlayer.state:set('cmHudHiddenByCharacters', not visible, true)
+
+    if visible then
+        TriggerEvent('cm-hud:client:showUiOnly', 'cm-characters-appearance')
+        TriggerEvent('cm-hud:client:setUiVisible', true, 'cm-characters-appearance')
+    else
+        TriggerEvent('cm-hud:client:hideUiOnly', 'cm-characters-appearance')
+        TriggerEvent('cm-hud:client:setUiVisible', false, 'cm-characters-appearance')
+    end
+
     if GetResourceState('cm-hud') == 'started' then
-        pcall(function() exports['cm-hud']:SetVisible(visible == true) end)
-        pcall(function() exports['cm-hud']:ToggleHud(visible == true) end)
-        pcall(function() exports['cm-hud']:HideHud(visible ~= true) end)
+        pcall(function() exports['cm-hud']:SetUiVisible(visible, 'cm-characters-appearance') end)
+        if visible then
+            pcall(function() exports['cm-hud']:ShowUiOnly('cm-characters-appearance') end)
+        else
+            pcall(function() exports['cm-hud']:HideUiOnly('cm-characters-appearance') end)
+        end
     end
 end
 
@@ -512,6 +522,7 @@ end
 AddEventHandler('cm-characters:client:openAppearance', function(charData)
     currentCharData = charData
     isInAppearance = true
+    TriggerEvent('cm-characters:client:setWorldLock', 'creator', true)
     setCreationState(true)
     setCreationHudVisible(false)
     sendCreationLoading(true, 'Preparing character creator...')
@@ -714,9 +725,19 @@ end)
 
 -- SAVE - Complete character creation
 RegisterNUICallback('appearanceSave', function(data, cb)
-    isInAppearance = false
+    if appearanceSavePending then
+        cb('ok')
+        return
+    end
+
+    if not currentCharData or not currentCharData.charId then
+        cb('ok')
+        return
+    end
+
+    appearanceSavePending = true
     SetNuiFocus(false, false)
-    SendNUIMessage({ action = 'hideAll' })
+    SendNUIMessage({ action = 'creationLoading', show = true, message = 'Saving character...', percent = 55 })
 
     -- Hide the transition while the server saves naked/base JSON and inventory re-equips
     -- starter clothes. This prevents the brief default-body blink after pressing Create.
@@ -725,31 +746,98 @@ RegisterNUICallback('appearanceSave', function(data, cb)
         Wait(180)
     end
 
-    -- Save appearance to server. The server turns clothes into inventory items and strips
-    -- clothes from appearance_json.
+    -- Server acknowledgement will close the creator after DB/inventory work finishes.
     TriggerServerEvent('cm-characters:server:saveAppearance', currentCharData.charId, tempSkinTable)
 
-    -- Cleanup camera
-    DeleteAppearanceCam()
-
-    -- Teleport to spawn
-    local ped = PlayerPedId()
-    SetEntityCoords(ped, AppearanceConfig.afterSpawnCoords.x, AppearanceConfig.afterSpawnCoords.y, AppearanceConfig.afterSpawnCoords.z)
-    SetEntityHeading(ped, AppearanceConfig.afterSpawnCoords.w)
-
-    -- Notify core that character is fully ready
-    setCreationState(false)
-    setCreationHudVisible(true)
-    TriggerEvent('cm-characters:client:characterReady', currentCharData.charId)
-
-    -- Safety: if the starter-equipment event fails for any reason, do not leave the screen black.
-    SetTimeout(6000, function()
-        if IsScreenFadedOut() or IsScreenFadingOut() then
-            DoScreenFadeIn(350)
+    -- Safety: if the server event fails for any reason, do not leave the screen black forever.
+    local savedCharId = currentCharData.charId
+    SetTimeout(9000, function()
+        if appearanceSavePending and currentCharData and tostring(currentCharData.charId) == tostring(savedCharId) then
+            appearanceSavePending = false
+            isInAppearance = false
+            SendNUIMessage({ action = 'hideAll' })
+            DeleteAppearanceCam()
+            setCreationState(false)
+            setCreationHudVisible(false)
+            TriggerEvent('cm-characters:client:characterReady', savedCharId)
+            if IsScreenFadedOut() or IsScreenFadingOut() then DoScreenFadeIn(350) end
         end
     end)
 
     cb('ok')
+end)
+
+
+local function prepareClimatimeBeforeFirstSpawn()
+    local c = Config and Config.CharacterScreenWorld or {}
+    if c.preSpawnClimatePrepare ~= true then return false end
+    if GetResourceState('cm-climatime') ~= 'started' then return false end
+
+    local prepareMs = tonumber(c.preSpawnClimatePrepareMs) or 2600
+    if prepareMs < 600 then prepareMs = 600 end
+
+    LocalPlayer.state:set('cmCharactersPreparingSpawnClimate', true, true)
+    LocalPlayer.state:set('cmClimatimePreSpawnPreparing', true, true)
+    LocalPlayer.state:set('cmClimatimePreSpawnPrepared', false, true)
+    TriggerEvent('cm-characters:client:setWorldLock', 'creator', false)
+    LocalPlayer.state:set('isInCharacterCreation', false, true)
+
+    local payload = {
+        reason = 'cm-characters-new-character-pre-spawn',
+        prepareMs = prepareMs,
+        validMs = tonumber(c.preSpawnValidMs) or 25000,
+        weatherTransitionSeconds = tonumber(c.preSpawnWeatherTransitionSeconds) or 1.2,
+        rainRampSeconds = tonumber(c.preSpawnRainRampSeconds) or 1.2
+    }
+
+    local preparedByExport = false
+    if GetResourceState('cm-climatime') == 'started' then
+        preparedByExport = pcall(function() exports['cm-climatime']:PrepareBeforeSpawn(payload) end)
+    end
+    if not preparedByExport then
+        TriggerEvent('cm-climatime:client:prepareBeforeSpawn', payload)
+    end
+    Wait(prepareMs)
+    LocalPlayer.state:set('cmCharactersPreparingSpawnClimate', false, true)
+    LocalPlayer.state:set('cmClimatimePreSpawnPreparing', false, true)
+    LocalPlayer.state:set('cmClimatimePreSpawnPrepared', true, true)
+    return true
+end
+
+RegisterNetEvent('cm-characters:client:appearanceSaved', function(ok, payload)
+    payload = type(payload) == 'table' and payload or {}
+    if not appearanceSavePending then return end
+    appearanceSavePending = false
+
+    if ok ~= true then
+        isInAppearance = true
+        SetNuiFocus(true, true)
+        SendNUIMessage({ action = 'openAppearance' })
+        SendNUIMessage({ action = 'creationLoading', show = false })
+        if IsScreenFadedOut() or IsScreenFadingOut() then DoScreenFadeIn(250) end
+        return
+    end
+
+    isInAppearance = false
+    SendNUIMessage({ action = 'hideAll' })
+    DeleteAppearanceCam()
+
+    local ped = PlayerPedId()
+    SetEntityCoords(ped, AppearanceConfig.afterSpawnCoords.x, AppearanceConfig.afterSpawnCoords.y, AppearanceConfig.afterSpawnCoords.z)
+    SetEntityHeading(ped, AppearanceConfig.afterSpawnCoords.w)
+
+    setCreationState(false)
+    setCreationHudVisible(false)
+
+    -- Prepare live cm-climatime while still faded out, before characterReady
+    -- restores the real view. New characters then spawn directly into the right
+    -- time/weather instead of seeing it change afterwards.
+    prepareClimatimeBeforeFirstSpawn()
+    TriggerEvent('cm-characters:client:characterReady', payload.charId or (currentCharData and currentCharData.charId))
+
+    SetTimeout(250, function()
+        if IsScreenFadedOut() or IsScreenFadingOut() then DoScreenFadeIn(350) end
+    end)
 end)
 
 -- Close appearance (shouldn't happen for new chars, but handle it)
@@ -758,6 +846,7 @@ RegisterNUICallback('appearanceClose', function(data, cb)
     SetNuiFocus(false, false)
     SendNUIMessage({ action = 'hideAll' })
     sendCreationLoading(false)
+    TriggerEvent('cm-characters:client:setWorldLock', 'creator', false)
     setCreationState(false)
     setCreationHudVisible(true)
     DeleteAppearanceCam()

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CM Admin</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app" class="hidden">
+    <div class="vignette"></div>
+    <main class="admin-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">CM</div>
+          <div>
+            <h1>Admin</h1>
+            <p id="serverName">CM Server</p>
+          </div>
+        </div>
+
+        <nav id="nav" class="nav"></nav>
+
+        <div class="me-card">
+          <small>Admin mode</small>
+          <strong id="adminName">-</strong>
+          <span id="adminRank">-</span>
+        </div>
+      </aside>
+
+      <section class="content">
+        <header class="topbar">
+          <div>
+            <span class="kicker" id="pageKicker">CM Framework</span>
+            <h2 id="pageTitle">Dashboard</h2>
+          </div>
+          <div class="top-actions">
+            <button class="btn ghost" id="refreshBtn">Refresh</button>
+            <button class="btn danger" id="closeBtn">ESC Close</button>
+          </div>
+        </header>
+
+        <section id="page" class="page"></section>
+      </section>
+    </main>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>

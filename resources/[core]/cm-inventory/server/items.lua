@@ -70,6 +70,84 @@ local function getItemDef(itemName)
     return nil
 end
 
+
+
+local function stableEncode(value)
+    local t = type(value)
+    if t == 'nil' then return 'null' end
+    if t == 'number' or t == 'boolean' then return tostring(value) end
+    if t == 'string' then return string.format('%q', value) end
+    if t ~= 'table' then return string.format('%q', tostring(value)) end
+
+    local keys = {}
+    for k in pairs(value) do keys[#keys + 1] = k end
+    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+
+    local parts = {}
+    for _, k in ipairs(keys) do
+        local v = value[k]
+        if v ~= nil then
+            parts[#parts + 1] = stableEncode(tostring(k)) .. ':' .. stableEncode(v)
+        end
+    end
+    return '{' .. table.concat(parts, ',') .. '}'
+end
+
+local function normalizeStackMetadata(metadata)
+    metadata = type(metadata) == 'table' and metadata or {}
+    local normalized = {}
+
+    -- These fields are generated only for display/default bookkeeping and should not split
+    -- normal stackable items into separate slots. Real unique fields such as serial,
+    -- durability, drawableId, textureId, gender, bagLevel, etc. are intentionally kept.
+    local ignoredDefaults = {
+        createdAt = true,
+        itemType = true,
+        rarity = true,
+        type = true
+    }
+
+    for k, v in pairs(metadata) do
+        if v ~= nil and v ~= '' then
+            local key = tostring(k)
+            local lowerValue = tostring(v):lower()
+            local isIgnored = ignoredDefaults[key] and (
+                lowerValue == 'normal' or lowerValue == 'misc' or lowerValue:match('^%d%d%d%d%-%d%d%-%d%dt') ~= nil
+            )
+            if not isIgnored then
+                normalized[key] = v
+            end
+        end
+    end
+
+    return normalized
+end
+
+local function stackMetadataSignature(metadata)
+    return stableEncode(normalizeStackMetadata(metadata))
+end
+
+local function rowsCanStack(a, b)
+    if not a or not b then return false end
+    if tostring(a.item_name or ''):lower() ~= tostring(b.item_name or ''):lower() then return false end
+
+    local def = getItemDef(a.item_name)
+    if not def or def.stack == false or def.unique == true then return false end
+
+    return stackMetadataSignature(decode(a.metadata)) == stackMetadataSignature(decode(b.metadata))
+end
+
+local function rowCanStackWithMetadata(row, itemName, metadata)
+    if not row then return false end
+    itemName = tostring(itemName or ''):lower()
+    if tostring(row.item_name or ''):lower() ~= itemName then return false end
+
+    local def = getItemDef(itemName)
+    if not def or def.stack == false or def.unique == true then return false end
+
+    return stackMetadataSignature(decode(row.metadata)) == stackMetadataSignature(metadata)
+end
+
 local function isInventoryItem(itemName)
     itemName = tostring(itemName or ''):lower()
     if itemName == '' then return false, 'Invalid item.' end

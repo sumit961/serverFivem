@@ -1,6 +1,10 @@
 local Config = CMInventory.Config
 local isOpen = false
 local Drops = {}
+local DropProps = {}
+local selectedDropIndex = 1
+local lastDropUiKey = nil
+local playInventoryAnim
 
 local function cdebug(message)
     if not Config.Debug then return end
@@ -120,11 +124,17 @@ local function getClosestDrop()
 end
 
 
+local deleteDropProp
+
 AddEventHandler('onResourceStop', function(resourceName)
     if resourceName ~= GetCurrentResourceName() then return end
     SetNuiFocus(false, false)
     SetNuiFocusKeepInput(false)
     showGameAndCustomHud()
+    nui('nearDrops', { visible = false, drops = {} })
+    for id in pairs(DropProps or {}) do
+        deleteDropProp(id)
+    end
 end)
 
 RegisterNetEvent('cm-inventory:client:open', function(payload)
@@ -138,8 +148,79 @@ RegisterNetEvent('cm-inventory:client:update', function(payload)
     end
 end)
 
+deleteDropProp = function(dropId)
+    dropId = tonumber(dropId)
+    local obj = dropId and DropProps[dropId] or nil
+    if obj and DoesEntityExist(obj) then
+        DeleteEntity(obj)
+    end
+    if dropId then DropProps[dropId] = nil end
+end
+
+local function loadDropModel(modelName)
+    modelName = tostring(modelName or (Config.Drops and Config.Drops.defaultProp) or 'prop_paper_bag_small')
+    local hash = GetHashKey(modelName)
+    if not IsModelInCdimage(hash) then
+        modelName = (Config.Drops and Config.Drops.defaultProp) or 'prop_paper_bag_small'
+        hash = GetHashKey(modelName)
+    end
+    if not IsModelInCdimage(hash) then return nil end
+
+    RequestModel(hash)
+    local timeout = GetGameTimer() + 2500
+    while not HasModelLoaded(hash) and GetGameTimer() < timeout do
+        Wait(10)
+    end
+    if not HasModelLoaded(hash) then return nil end
+    return hash
+end
+
+local function ensureDropProp(drop)
+    if not drop or not drop.id then return end
+    local id = tonumber(drop.id)
+    if not id or DropProps[id] and DoesEntityExist(DropProps[id]) then return end
+
+    local c = drop.coords or {}
+    local x, y, z = tonumber(c.x), tonumber(c.y), tonumber(c.z)
+    if not x or not y or not z then return end
+
+    CreateThread(function()
+        if DropProps[id] and DoesEntityExist(DropProps[id]) then return end
+        local hash = loadDropModel(drop.propModel)
+        if not hash then return end
+
+        local obj = CreateObject(hash, x, y, z, false, false, false)
+        if obj and obj ~= 0 then
+            SetEntityAsMissionEntity(obj, true, true)
+            PlaceObjectOnGroundProperly(obj)
+            FreezeEntityPosition(obj, true)
+            SetEntityCollision(obj, true, true)
+            SetEntityAlpha(obj, 235, false)
+            DropProps[id] = obj
+        end
+        SetModelAsNoLongerNeeded(hash)
+    end)
+end
+
+local function syncDropProps(drops)
+    local active = {}
+    for _, drop in ipairs(drops or {}) do
+        if drop and drop.id then
+            active[tonumber(drop.id)] = true
+            ensureDropProp(drop)
+        end
+    end
+
+    for id in pairs(DropProps) do
+        if not active[tonumber(id)] then
+            deleteDropProp(id)
+        end
+    end
+end
+
 RegisterNetEvent('cm-inventory:client:updateDrops', function(drops)
     Drops = type(drops) == 'table' and drops or {}
+    syncDropProps(Drops)
 end)
 
 RegisterNetEvent('cm-inventory:client:notify', function(message, typeName)
@@ -150,7 +231,9 @@ RegisterNetEvent('cm-inventory:client:notify', function(message, typeName)
 end)
 
 RegisterNetEvent('cm-inventory:client:useProgress', function(label, ms)
-    nui('progress', { label = label or 'Using item...', ms = tonumber(ms) or 1000 })
+    ms = tonumber(ms) or 1000
+    nui('progress', { label = label or 'Using item...', ms = ms })
+    if playInventoryAnim then playInventoryAnim('use_item', math.min(ms, 1400)) end
 end)
 
 RegisterNetEvent('cm-inventory:client:applyHealth', function(amount)
@@ -168,6 +251,8 @@ end)
 
 
 local equippedWeaponHash = nil
+local equippedWeaponName = nil
+local currentWeaponAmmo = 0
 local equippedVestComponent = nil
 local equipmentState = {}
 
@@ -253,6 +338,22 @@ local function getPedGender(ped)
     return model == `mp_f_freemode_01` and 'female' or 'male'
 end
 
+
+local function normalizeWearGender(value)
+    if value == nil or value == '' then return nil end
+    local raw = tostring(value):lower()
+    if raw == '0' or raw == 'm' or raw == 'male' or raw == 'man' or raw == 'mp_m_freemode_01' then return 'male' end
+    if raw == '1' or raw == 'f' or raw == 'female' or raw == 'woman' or raw == 'mp_f_freemode_01' then return 'female' end
+    if raw == 'any' or raw == 'all' or raw == 'unisex' or raw == 'both' then return nil end
+    return nil
+end
+
+local function itemFitsCurrentGender(metadata)
+    metadata = type(metadata) == 'table' and metadata or {}
+    local required = normalizeWearGender(metadata.gender or metadata.sex or metadata.pedGender or metadata.ped_gender or metadata.model)
+    return not required or required == getPedGender(PlayerPedId())
+end
+
 local function resolveTorsoFitForItem(ped, metadata, drawable, texture)
     metadata = type(metadata) == 'table' and metadata or {}
     local fallback = {
@@ -306,6 +407,8 @@ local function equipClothingFromInventorySlot(slot, item)
     if not def then return false end
 
     local metadata = item.metadata or {}
+    if not itemFitsCurrentGender(metadata) then return false end
+
     local drawable = tonumber(metadata.drawableId or metadata.drawable)
     local texture = tonumber(metadata.textureId or metadata.texture or 0) or 0
     if drawable == nil then return false end
@@ -344,6 +447,53 @@ local function notifyLocal(message)
     EndTextCommandThefeedPostTicker(false, false)
 end
 
+local function requestAnimDictSafe(dict, timeoutMs)
+    dict = tostring(dict or '')
+    if dict == '' then return false end
+    RequestAnimDict(dict)
+    local timeout = GetGameTimer() + (tonumber(timeoutMs) or 1200)
+    while not HasAnimDictLoaded(dict) and GetGameTimer() < timeout do
+        Wait(10)
+    end
+    return HasAnimDictLoaded(dict)
+end
+
+playInventoryAnim = function(kind, duration)
+    local ped = PlayerPedId()
+    if not ped or ped == 0 or IsPedInAnyVehicle(ped, false) then return end
+
+    kind = tostring(kind or 'use_item'):lower()
+    duration = tonumber(duration) or 900
+
+    local dict, anim, flag
+    if kind == 'pickup' then
+        dict, anim, flag, duration = 'pickup_object', 'pickup_low', 48, 850
+    elseif kind == 'clothes_on' or kind == 'clothes_off' or kind == 'clothes_change' then
+        dict, anim, flag, duration = 'clothingshirt', 'try_shirt_positive_d', 49, math.max(duration, 1200)
+    elseif kind == 'weapon_out' or kind == 'weapon_use' then
+        dict, anim, flag, duration = 'reaction@intimidation@1h', 'intro', 48, 900
+    elseif kind == 'weapon_change' then
+        dict, anim, flag, duration = 'reaction@intimidation@1h', 'intro', 48, 750
+    elseif kind == 'weapon_in' or kind == 'weapon_keep' then
+        dict, anim, flag, duration = 'reaction@intimidation@1h', 'outro', 48, 850
+    else
+        dict, anim, flag, duration = 'mp_common', 'givetake1_a', 48, math.max(duration, 900)
+    end
+
+    CreateThread(function()
+        if requestAnimDictSafe(dict, 1400) then
+            TaskPlayAnim(ped, dict, anim, 8.0, -8.0, duration, flag, 0.0, false, false, false)
+            Wait(duration)
+            StopAnimTask(ped, dict, anim, 1.0)
+            RemoveAnimDict(dict)
+        end
+    end)
+end
+
+RegisterNetEvent('cm-inventory:client:playInventoryAnim', function(kind, duration)
+    playInventoryAnim(kind, duration)
+end)
+
 local function applyEquipmentSlot(slot, item, silent)
     equipmentState[slot] = item
     local ped = PlayerPedId()
@@ -351,6 +501,7 @@ local function applyEquipmentSlot(slot, item, silent)
     if ClothingSlotMap[slot] then
         if item and tostring(item.item_name or ''):find('clothing_', 1, true) == 1 then
             if equipClothingFromInventorySlot(slot, item) then
+                if not silent then playInventoryAnim('clothes_change') end
                 -- If a shirt/undershirt is changed while outerwear is equipped, apply outerwear again
                 -- because outerwear metadata contains the clipping-safe arms + undershirt pairing.
                 if slot == 'shirt' and equipmentState.outerwear then
@@ -359,6 +510,7 @@ local function applyEquipmentSlot(slot, item, silent)
                 if not silent then notifyLocal(('Equipped %s'):format(item.label or item.item_name)) end
             end
         elseif not item then
+            if not silent then playInventoryAnim('clothes_off') end
             clearClothingSlot(slot)
 
             -- Removing outerwear should reveal the shirt slot if one exists.
@@ -375,24 +527,50 @@ local function applyEquipmentSlot(slot, item, silent)
     end
 
     if slot == 'weapon' then
-        if equippedWeaponHash then
-            RemoveWeaponFromPed(ped, equippedWeaponHash)
-            equippedWeaponHash = nil
-        end
-        if item and item.item_name and resolveWeaponHash(item.item_name, item) then
-            equippedWeaponHash = resolveWeaponHash(item.item_name, item)
-            GiveWeaponToPed(ped, equippedWeaponHash, 250, false, true)
-            SetPedAmmo(ped, equippedWeaponHash, 250)
-            SetCurrentPedWeapon(ped, equippedWeaponHash, true)
-            if not silent then notifyLocal(('Equipped %s'):format(item.label or item.item_name)) end
+        local oldHash = equippedWeaponHash
+        local oldName = equippedWeaponName
+        local newHash = item and item.item_name and resolveWeaponHash(item.item_name, item) or nil
+        local newName = item and tostring(item.item_name or ''):lower() or nil
+
+        -- Remove every native GTA weapon first. The player can only carry/use the
+        -- inventory weapon that is currently in the gun equipment slot.
+        RemoveAllPedWeapons(ped, true)
+        equippedWeaponHash = nil
+        equippedWeaponName = nil
+
+        if newHash then
+            if oldName ~= newName then currentWeaponAmmo = 0 end
+            equippedWeaponHash = newHash
+            equippedWeaponName = newName
+            GiveWeaponToPed(ped, newHash, 0, false, true)
+            SetPedAmmo(ped, newHash, math.max(0, tonumber(currentWeaponAmmo) or 0))
+            SetCurrentPedWeapon(ped, newHash, true)
+
+            if not silent then
+                if oldHash and oldHash ~= newHash then
+                    playInventoryAnim('weapon_change')
+                else
+                    playInventoryAnim('weapon_out')
+                end
+                notifyLocal(('Equipped %s'):format(item.label or item.item_name))
+            end
+        else
+            SetCurrentPedWeapon(ped, GetHashKey('WEAPON_UNARMED'), true)
+            currentWeaponAmmo = 0
+            if oldHash and not silent then
+                playInventoryAnim('weapon_in')
+                notifyLocal('Weapon stored.')
+            end
         end
     elseif slot == 'bodyarmor' then
         if item then
+            if not silent then playInventoryAnim('clothes_on') end
             local durability = tonumber(item.durability or (item.metadata and item.metadata.durability) or 100) or 100
 
             -- Wearable vest (cm-gunstore armor): apply GTA component 9 drawable/texture.
             -- Metadata is set by cm-gunstore when the vest was captured/created.
             local md = item.metadata or {}
+            if not itemFitsCurrentGender(md) then return end
             local comp = tonumber(md.componentIndex or md.componentId or md.component_id)
             local drawable = tonumber(md.drawableId or md.drawable or md.drawable_id)
             local texture = tonumber(md.textureId or md.texture or md.texture_id) or 0
@@ -411,6 +589,7 @@ local function applyEquipmentSlot(slot, item, silent)
             SetPedArmour(ped, math.max(0, math.min(100, math.floor(armorValue))))
             if not silent then notifyLocal(('Equipped %s'):format(item.label or item.item_name)) end
         else
+            if not silent then playInventoryAnim('clothes_off') end
             -- Unequip: drop a worn vest component back to the default (no vest).
             if equippedVestComponent then
                 SetPedComponentVariation(ped, equippedVestComponent, 0, 0, 0)
@@ -440,19 +619,36 @@ RegisterNetEvent('cm-inventory:client:addWeaponAmmo', function(weaponName, amoun
     amount = tonumber(amount) or 0
     local hash = resolveWeaponHash(weaponName)
     if not hash or amount <= 0 then return end
-    if not HasPedGotWeapon(ped, hash, false) then
-        GiveWeaponToPed(ped, hash, 0, false, true)
-    end
-    AddAmmoToPed(ped, hash, amount)
+    if equippedWeaponHash ~= hash then return end
+    currentWeaponAmmo = math.max(0, currentWeaponAmmo + amount)
+    SetPedAmmo(ped, hash, currentWeaponAmmo)
     SetCurrentPedWeapon(ped, hash, true)
     notifyLocal(('Reloaded %sx ammo'):format(amount))
+end)
+
+RegisterNetEvent('cm-inventory:client:setWeaponAmmo', function(weaponName, amount, ammoItem)
+    weaponName = weaponName and tostring(weaponName):lower() or nil
+    currentWeaponAmmo = math.max(0, tonumber(amount) or 0)
+
+    local ped = PlayerPedId()
+    if not equippedWeaponHash then return end
+
+    local expectedHash = weaponName and resolveWeaponHash(weaponName) or equippedWeaponHash
+    if expectedHash and expectedHash == equippedWeaponHash then
+        SetPedAmmo(ped, equippedWeaponHash, currentWeaponAmmo)
+        if currentWeaponAmmo <= 0 then
+            SetAmmoInClip(ped, equippedWeaponHash, 0)
+        end
+    end
 end)
 
 
 RegisterNetEvent('cm-inventory:client:noInventoryAmmo', function(message)
     local ped = PlayerPedId()
+    currentWeaponAmmo = 0
     if equippedWeaponHash then
         SetPedAmmo(ped, equippedWeaponHash, 0)
+        SetAmmoInClip(ped, equippedWeaponHash, 0)
     end
     notifyLocal(message or 'No inventory ammo available.')
 end)
@@ -463,7 +659,16 @@ CreateThread(function()
             Wait(0)
             DisableControlAction(0, 45, true) -- disable GTA reload; inventory controls ammo.
             local ped = PlayerPedId()
+
+            -- No inventory ammo = no shooting. This stops fake GTA ammo from being used.
+            if currentWeaponAmmo <= 0 then
+                DisableControlAction(0, 24, true)
+                DisableControlAction(0, 257, true)
+                DisablePlayerFiring(PlayerId(), true)
+            end
+
             if IsPedShooting(ped) then
+                currentWeaponAmmo = math.max(0, (tonumber(currentWeaponAmmo) or 0) - 1)
                 TriggerServerEvent('cm-inventory:server:weaponShot')
                 Wait(120)
             end
@@ -492,6 +697,12 @@ RegisterNetEvent('cm-inventory:client:setEquipment', function(payload)
         if payload[slot] ~= nil then
             applyEquipmentSlot(slot, payload[slot], true)
         end
+    end
+
+    -- Nil keys are omitted in Lua/NUI payloads, so explicitly clear native GTA
+    -- weapons if inventory has no weapon item equipped.
+    if payload.weapon == nil then
+        applyEquipmentSlot('weapon', nil, true)
     end
 end)
 
@@ -664,14 +875,43 @@ CreateThread(function()
     end
 end)
 
+local function isInventoryWeaponInHand()
+    if not equippedWeaponHash then return false end
+    local ped = PlayerPedId()
+    local selected = GetSelectedPedWeapon(ped)
+    return selected == equippedWeaponHash and selected ~= GetHashKey('WEAPON_UNARMED')
+end
+
+-- Remove GTA V weapon wheel / native weapon slot scrolling.
+-- CM weapons are controlled only by inventory gun slot + fast access keys.
+CreateThread(function()
+    local blocked = {37, 14, 15, 16, 17, 45, 157, 158, 159, 160, 161, 162, 163, 164, 165}
+    while true do
+        if not isOpen then
+            pcall(function() BlockWeaponWheelThisFrame() end)
+            HideHudComponentThisFrame(19) -- weapon wheel
+            HideHudComponentThisFrame(20) -- weapon stats
+            for _, control in ipairs(blocked) do
+                DisableControlAction(0, control, true)
+            end
+            Wait(0)
+        else
+            Wait(250)
+        end
+    end
+end)
+
 -- Quick access keys 1-5 while inventory is closed.
 CreateThread(function()
     local controls = {157, 158, 160, 164, 165}
     while true do
         if not isOpen then
             for index, control in ipairs(controls) do
-                if IsControlJustPressed(0, control) then
-                    TriggerServerEvent('cm-inventory:server:useItem', { slot = 'quickaccess-' .. index })
+                if IsDisabledControlJustPressed(0, control) or IsControlJustPressed(0, control) then
+                    TriggerServerEvent('cm-inventory:server:quickAccessHotkey', {
+                        index = index,
+                        weaponInHand = isInventoryWeaponInHand()
+                    })
                 end
             end
             Wait(0)
@@ -715,7 +955,79 @@ AddEventHandler('playerSpawned', function()
     TriggerServerEvent('cm-inventory:server:requestEquipment')
 end)
 
--- Ground drops: marker + E pickup.
+-- Ground drops: real prop + on-screen pickup card.
+local function dropCoords(drop)
+    local c = drop and drop.coords or {}
+    return vector3(tonumber(c.x) or 0.0, tonumber(c.y) or 0.0, tonumber(c.z) or 0.0)
+end
+
+local function imageForDrop(drop)
+    local image = drop and (drop.image or drop.icon) or 'placeholder.png'
+    image = tostring(image or 'placeholder.png')
+    if image:find('^nui://') then
+        local resource, path = image:match('^nui://([^/]+)/(.+)$')
+        if resource and path then return ('https://cfx-nui-%s/%s'):format(resource, path) end
+    end
+    if image:find('^https?://') or image:find('^data:') then return image end
+    if image:find('^custom/') then return 'https://cfx-nui-cm-items/ui/images/clothing/' .. image end
+    if image:find('^clothing/') then return 'https://cfx-nui-cm-items/ui/images/' .. image end
+    return 'images/' .. image
+end
+
+local function buildNearbyDrops(playerCoords)
+    local uiDistance = tonumber((Config.Drops or {}).uiDistance) or ((tonumber((Config.Drops or {}).pickupDistance) or 2.0) + 0.4)
+    local list = {}
+    for _, drop in ipairs(Drops or {}) do
+        local coords = dropCoords(drop)
+        local dist = #(playerCoords - coords)
+        if dist <= uiDistance then
+            list[#list + 1] = {
+                id = tonumber(drop.id),
+                label = drop.label or drop.item_name or 'Item',
+                quantity = tonumber(drop.quantity) or 1,
+                image = imageForDrop(drop),
+                distance = dist,
+                coords = coords
+            }
+        end
+    end
+    table.sort(list, function(a, b) return (a.distance or 999.0) < (b.distance or 999.0) end)
+    return list
+end
+
+local function sendDropPickupUi(list, selected)
+    list = type(list) == 'table' and list or {}
+    if #list == 0 or isOpen then
+        if lastDropUiKey ~= 'hidden' then
+            nui('nearDrops', { visible = false, drops = {} })
+            lastDropUiKey = 'hidden'
+        end
+        return
+    end
+
+    local payloadDrops = {}
+    for i, drop in ipairs(list) do
+        payloadDrops[#payloadDrops + 1] = {
+            id = drop.id,
+            label = drop.label,
+            quantity = drop.quantity,
+            image = drop.image,
+            selected = i == selected
+        }
+        if #payloadDrops >= 6 then break end
+    end
+
+    local key = tostring(selected) .. ':'
+    for _, drop in ipairs(payloadDrops) do
+        key = key .. tostring(drop.id) .. ':' .. tostring(drop.quantity) .. '|'
+    end
+
+    if key ~= lastDropUiKey then
+        nui('nearDrops', { visible = true, drops = payloadDrops, selected = selected, count = #list })
+        lastDropUiKey = key
+    end
+end
+
 CreateThread(function()
     Wait(1500)
     TriggerServerEvent('cm-inventory:server:requestDrops')
@@ -727,29 +1039,62 @@ CreateThread(function()
             local coords = GetEntityCoords(ped)
             local markerDistance = (Config.Drops and Config.Drops.markerDistance) or 18.0
             local pickupDistance = (Config.Drops and Config.Drops.pickupDistance) or 2.0
+            local nearby = buildNearbyDrops(coords)
+
+            if #nearby > 0 then
+                sleep = 0
+                if selectedDropIndex < 1 then selectedDropIndex = 1 end
+                if selectedDropIndex > #nearby then selectedDropIndex = #nearby end
+
+                if #nearby > 1 then
+                    if IsControlJustPressed(0, 172) or IsControlJustPressed(0, 15) or IsDisabledControlJustPressed(0, 15) then -- Arrow up / mouse wheel up
+                        selectedDropIndex = selectedDropIndex - 1
+                        if selectedDropIndex < 1 then selectedDropIndex = #nearby end
+                        lastDropUiKey = nil
+                    elseif IsControlJustPressed(0, 173) or IsControlJustPressed(0, 14) or IsDisabledControlJustPressed(0, 14) then -- Arrow down / mouse wheel down
+                        selectedDropIndex = selectedDropIndex + 1
+                        if selectedDropIndex > #nearby then selectedDropIndex = 1 end
+                        lastDropUiKey = nil
+                    end
+                else
+                    selectedDropIndex = 1
+                end
+
+                sendDropPickupUi(nearby, selectedDropIndex)
+
+                local selected = nearby[selectedDropIndex]
+                if selected and selected.distance <= (pickupDistance + 0.5) and IsControlJustPressed(0, 38) then -- E
+                    TriggerServerEvent('cm-inventory:server:pickupDrop', selected.id)
+                    Wait(450)
+                end
+            else
+                selectedDropIndex = 1
+                sendDropPickupUi({}, 1)
+            end
 
             for _, drop in ipairs(Drops) do
-                local c = drop.coords or {}
-                local dropCoords = vector3(tonumber(c.x) or 0.0, tonumber(c.y) or 0.0, tonumber(c.z) or 0.0)
-                local dist = #(coords - dropCoords)
+                local dCoords = dropCoords(drop)
+                local dist = #(coords - dCoords)
                 if dist <= markerDistance then
                     sleep = 0
-                    DrawMarker((Config.Drops and Config.Drops.markerType) or 2, dropCoords.x, dropCoords.y, dropCoords.z + 0.18,
+                    DrawMarker((Config.Drops and Config.Drops.markerType) or 2, dCoords.x, dCoords.y, dCoords.z + 0.14,
                         0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                        0.25, 0.25, 0.25, 39, 231, 255, 170,
+                        0.18, 0.18, 0.18, 39, 231, 255, 105,
                         false, true, 2, false, nil, nil, false)
-                    drawText3D(dropCoords.x, dropCoords.y, dropCoords.z + 0.45,
-                        ('%sx %s'):format(drop.quantity or 1, drop.label or drop.item_name or 'Item'))
-                    if dist <= pickupDistance then
-                        drawText3D(dropCoords.x, dropCoords.y, dropCoords.z + 0.65, '[E] Pick up')
-                        if IsControlJustPressed(0, 38) then -- E
-                            TriggerServerEvent('cm-inventory:server:pickupDrop', drop.id)
-                            Wait(500)
-                        end
-                    end
                 end
             end
+        else
+            selectedDropIndex = 1
+            sendDropPickupUi({}, 1)
         end
         Wait(sleep)
+    end
+end)
+
+-- Keep drops fresh so one-minute expired props disappear even when nobody picks them up.
+CreateThread(function()
+    while true do
+        Wait(15000)
+        TriggerServerEvent('cm-inventory:server:requestDrops')
     end
 end)

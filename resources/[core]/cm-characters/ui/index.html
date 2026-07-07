@@ -168,6 +168,57 @@
             </div>
         </section>
 
+
+        <section id="admin-screen" class="admin-screen hidden">
+            <div class="admin-card">
+                <div class="admin-head">
+                    <div>
+                        <p class="eyebrow">Character Admin</p>
+                        <h1>Admin Panel</h1>
+                        <p class="subtitle">Search characters, rename, move slots, reset appearance, and refresh online state.</p>
+                    </div>
+                    <button class="editor-close" id="admin-close" type="button">×</button>
+                </div>
+
+                <div class="admin-tools">
+                    <input type="text" id="admin-search" placeholder="Search name, character ID, or account ID" />
+                    <button class="primary-btn" id="admin-search-btn" type="button">Search</button>
+                </div>
+
+                <div class="admin-layout">
+                    <div class="admin-results" id="admin-results"></div>
+
+                    <aside class="admin-detail">
+                        <h2 id="admin-selected-name">Select a character</h2>
+                        <p id="admin-selected-meta">No character selected.</p>
+
+                        <label>First name</label>
+                        <input type="text" id="admin-first-name" maxlength="20" />
+                        <label>Last name</label>
+                        <input type="text" id="admin-last-name" maxlength="20" />
+                        <button class="secondary-btn admin-action" data-admin-action="rename" type="button">Rename Character</button>
+
+                        <label>Move to slot</label>
+                        <input type="number" id="admin-slot" min="1" max="20" />
+                        <button class="secondary-btn admin-action" data-admin-action="setSlot" type="button">Update Slot</button>
+
+                        <div class="admin-divider"></div>
+                        <button class="secondary-btn admin-action" data-admin-action="refreshState" type="button">Refresh Online State</button>
+                        <button class="secondary-btn admin-action" data-admin-action="giveStarterClothes" type="button">Give Starter Clothes</button>
+                        <button class="danger-btn admin-action" data-admin-action="resetAppearance" type="button">Reset Appearance</button>
+
+                        <div class="admin-divider"></div>
+                        <h3>Account Slots</h3>
+                        <input type="text" id="admin-account-id" placeholder="Account ID" />
+                        <input type="number" id="admin-max-slots" min="1" max="20" placeholder="Max slots" />
+                        <button class="secondary-btn admin-action" data-admin-action="setAccountSlots" type="button">Set Account Slots</button>
+                    </aside>
+                </div>
+
+                <div id="admin-toast" class="toast inline-toast"></div>
+            </div>
+        </section>
+
         <section id="creator-screen" class="creator-modal hidden">
             <div class="creator-card">
                 <p class="eyebrow">New identity</p>

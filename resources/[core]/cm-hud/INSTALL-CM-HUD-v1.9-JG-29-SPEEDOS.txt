@@ -1,0 +1,25 @@
+CM HUD v1.9 - JG 29 Speedometers + Belt Sounds
+
+Install:
+1. Backup your old cm-hud folder.
+2. Replace it with this cm-hud folder.
+3. ensure cm-hud in server.cfg
+4. restart cm-hud
+
+Commands:
+/hud admin
+/hud speedo 1-29
+/hud reset
+seatbelt key: B
+
+New in v1.9:
+- Kept current /hud admin.
+- Added JG HUD speedometer group.
+- Added JG car speedometers #24-#29.
+- Auto vehicle type speedometer for bike, boat, plane/helicopter and train.
+- Improved JG-style minimap/NUI bounds location positioning.
+- Added seatbelt on/off/alarm sounds from jg-hud.
+- Kept CM cyan/blue theme.
+
+Note:
+JG HUD web UI is compiled React, so the JG speedometers are rebuilt in CM HUD HTML/CSS/JS instead of directly copying React source.

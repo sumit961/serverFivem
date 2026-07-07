@@ -3,8 +3,8 @@ game 'gta5'
 lua54 'yes'
 
 author 'cm-dev'
-description 'CM Characters - freemode dummy selector preview with creator-style camera and inventory clothing'
-version '1.4.3-creation-preload-hud-hide'
+description 'CM Characters - secure selector, creator, admin panel, CM cyan theme'
+version '1.5.6-pre-spawn-climatime-prepare'
 
 shared_scripts {
     '@cm-core/shared/config.lua',
@@ -12,20 +12,24 @@ shared_scripts {
 }
 
 client_scripts {
+    'client/worldlock.lua',
     'client/main.lua',
     'client/creator.lua',
     'client/appearance.lua',
     'client/apply.lua',
+    'client/admin.lua',
 }
 
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
     'server/id-generator.lua',
+    'server/utils.lua',
     'server/main.lua',
     'server/creation.lua',
     'server/slots.lua',
     'server/appearance.lua',
     'server/bridge.lua',
+    'server/admin.lua',
 }
 
 ui_page 'ui/index.html'

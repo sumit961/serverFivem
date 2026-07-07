@@ -137,24 +137,18 @@ local function itemWeight(row)
 end
 
 local function sameStackableItem(a, b)
-    if not a or not b then return false end
-    if tostring(a.item_name or ''):lower() ~= tostring(b.item_name or ''):lower() then return false end
-    local itemA = rowToItem(a)
-    local itemB = rowToItem(b)
-    if itemA.stack == false or itemB.stack == false then return false end
-    local ma = a.metadata or '{}'
-    local mb = b.metadata or '{}'
-    if ma == nil or ma == '' then ma = '{}' end
-    if mb == nil or mb == '' then mb = '{}' end
-    return tostring(ma) == tostring(mb)
+    return rowsCanStack(a, b)
 end
 
-local function canPlayerReceiveRow(ownerType, ownerId, destSlot, incomingRow, outgoingRow)
+local function canPlayerReceiveRow(src, ownerType, ownerId, destSlot, incomingRow, outgoingRow)
     if not isValidSlot(destSlot) then return false, 'Invalid player slot.' end
     if not isSlotUnlocked(ownerType, ownerId, destSlot) then return false, 'That backpack slot is locked by your bag level.' end
 
     local canSlot, slotErr = canPlaceInSlot(incomingRow.item_name, destSlot)
     if not canSlot then return false, slotErr end
+
+    local genderOk, genderErr = validateEquipmentGender(src, destSlot, incomingRow)
+    if not genderOk then return false, genderErr end
 
     local maxWeight = getMaxWeight(ownerType, ownerId)
     local afterWeight = getUsedWeight(ownerType, ownerId) + itemWeight(incomingRow) - itemWeight(outgoingRow)
@@ -297,7 +291,7 @@ local function moveFromPlayerToExternal(src, ctx, fromSlot, toSlot)
         return true
     end
 
-    local canReceive, receiveErr = canPlayerReceiveRow(ownerType, ownerId, fromSlot, dest, source)
+    local canReceive, receiveErr = canPlayerReceiveRow(src, ownerType, ownerId, fromSlot, dest, source)
     if not canReceive then return false, receiveErr end
 
     local tempSlot = ('__tmp_ext_%s_%s'):format(source.id, math.random(1000, 9999))
@@ -324,7 +318,7 @@ local function moveFromExternalToPlayer(src, ctx, fromSlot, toSlot)
     if not source then return false, 'Storage slot is empty.' end
 
     local dest = getItemAt(ownerType, ownerId, toSlot)
-    local canReceive, receiveErr = canPlayerReceiveRow(ownerType, ownerId, toSlot, source, dest)
+    local canReceive, receiveErr = canPlayerReceiveRow(src, ownerType, ownerId, toSlot, source, dest)
     if not canReceive then return false, receiveErr end
 
     if not dest then

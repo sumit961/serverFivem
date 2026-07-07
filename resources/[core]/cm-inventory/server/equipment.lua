@@ -1,6 +1,35 @@
 -- cm-inventory/equipment.lua
 -- Split from legacy server/main.lua. Loaded by server/main.lua bootloader in this exact order.
 
+local syncCurrentWeaponAmmo
+
+local function findStackTarget(ownerType, ownerId, itemName, metadata, preferredSlot)
+    itemName = tostring(itemName or ''):lower()
+    local def = getItemDef(itemName)
+    if not def or def.stack == false or def.unique == true then return nil end
+
+    if preferredSlot then
+        local existingAtPreferred = getItemAt(ownerType, ownerId, preferredSlot)
+        if existingAtPreferred and rowCanStackWithMetadata(existingAtPreferred, itemName, metadata) then
+            return existingAtPreferred
+        end
+    end
+
+    local rows = MySQL.query.await([[SELECT * FROM inventory_items
+        WHERE owner_type = ? AND owner_id = ? AND item_name = ?
+        ORDER BY FIELD(SUBSTRING_INDEX(slot, '-', 1), 'pocket', 'backpack', 'quickaccess'), slot ASC, id ASC]], {
+        ownerType, tostring(ownerId), itemName
+    }) or {}
+
+    for _, row in ipairs(rows) do
+        if rowCanStackWithMetadata(row, itemName, metadata) then
+            return row
+        end
+    end
+
+    return nil
+end
+
 local function AddItemInternal(src, itemName, amount, metadata, reason, preferredSlot)
     amount = math.floor(tonumber(amount) or 1)
     if amount < 1 then return false, 'Invalid amount.' end
@@ -29,17 +58,11 @@ local function AddItemInternal(src, itemName, amount, metadata, reason, preferre
     local slot = preferredSlot
     if slot and not canPlaceInSlot(itemName, slot) then slot = nil end
 
-    if def.stack ~= false and next(metadata) == nil and not slot then
-        local existing = MySQL.single.await([[SELECT * FROM inventory_items
-            WHERE owner_type = ? AND owner_id = ? AND item_name = ? AND (metadata IS NULL OR metadata = '' OR metadata = '{}')
-            ORDER BY FIELD(SUBSTRING_INDEX(slot, '-', 1), 'pocket', 'backpack', 'quickaccess') LIMIT 1]], {
-            ownerType, tostring(ownerId), itemName
-        })
-        if existing then
-            MySQL.update.await('UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?', { amount, existing.id })
-            audit(ownerId, 'add_stack', itemName, amount, nil, existing.slot, reason, metadata)
-            return true, existing.slot
-        end
+    local stackTarget = findStackTarget(ownerType, ownerId, itemName, metadata, slot)
+    if stackTarget and (not slot or stackTarget.slot == slot) then
+        MySQL.update.await('UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?', { amount, stackTarget.id })
+        audit(ownerId, 'add_stack', itemName, amount, nil, stackTarget.slot, reason, metadata)
+        return true, stackTarget.slot
     end
 
     if not slot then slot = findEmptySlot(ownerType, ownerId) end
@@ -50,7 +73,14 @@ local function AddItemInternal(src, itemName, amount, metadata, reason, preferre
     if not canSlot then return false, slotErr end
 
     local existingAtSlot = getItemAt(ownerType, ownerId, slot)
-    if existingAtSlot then return false, 'Slot is already occupied.' end
+    if existingAtSlot then
+        if rowCanStackWithMetadata(existingAtSlot, itemName, metadata) then
+            MySQL.update.await('UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?', { amount, existingAtSlot.id })
+            audit(ownerId, 'add_stack_slot', itemName, amount, nil, existingAtSlot.slot, reason, metadata)
+            return true, existingAtSlot.slot
+        end
+        return false, 'Slot is already occupied.'
+    end
 
     MySQL.insert.await([[INSERT INTO inventory_items
         (owner_type, owner_id, slot, item_name, quantity, metadata)
@@ -110,6 +140,13 @@ local function syncEquipmentSlot(src, slot)
     local row = getItemAt(ownerType, ownerId, slot)
     local item = row and rowToItem(row) or nil
     TriggerClientEvent('cm-inventory:client:equipmentSlot', src, slot, item)
+
+    -- Weapon/ammo are linked: whenever either slot changes, push the real
+    -- inventory ammo count to the client so GTA ammo never uses fake bullets.
+    local ammoSlot = (Config.Ammo and Config.Ammo.slot) or 'ammo'
+    if (slot == 'weapon' or slot == ammoSlot) and syncCurrentWeaponAmmo then
+        syncCurrentWeaponAmmo(src)
+    end
 end
 
 local function syncAllEquipment(src)
@@ -121,6 +158,7 @@ local function syncAllEquipment(src)
         payload[slot] = row and rowToItem(row) or nil
     end
     TriggerClientEvent('cm-inventory:client:setEquipment', src, payload)
+    if syncCurrentWeaponAmmo then syncCurrentWeaponAmmo(src) end
 end
 
 local CLOTHING_SLOT_BY_CATEGORY = {
@@ -151,6 +189,61 @@ local function saveAppearance(src)
     end
 end
 
+
+local function normalizeGender(value)
+    if value == nil or value == '' then return nil end
+    local raw = tostring(value):lower()
+    if raw == '0' or raw == 'm' or raw == 'male' or raw == 'man' or raw == 'mp_m_freemode_01' then return 'male' end
+    if raw == '1' or raw == 'f' or raw == 'female' or raw == 'woman' or raw == 'mp_f_freemode_01' then return 'female' end
+    if raw == 'any' or raw == 'all' or raw == 'unisex' or raw == 'both' then return nil end
+    return nil
+end
+
+local function getPlayerGender(src)
+    local stateGender = nil
+    pcall(function()
+        local st = Player(src).state
+        stateGender = st.gender or st.sex or st.characterGender or st.character_gender or st.cmGender
+    end)
+    local normalized = normalizeGender(stateGender)
+    if normalized then return normalized end
+
+    local ped = GetPlayerPed(src)
+    if ped and ped ~= 0 then
+        local model = GetEntityModel(ped)
+        if model == GetHashKey('mp_f_freemode_01') then return 'female' end
+        if model == GetHashKey('mp_m_freemode_01') then return 'male' end
+    end
+
+    return nil
+end
+
+local function getItemGenderFromRow(row)
+    if not row then return nil end
+    local metadata = decode(row.metadata)
+    local def = getItemDef(row.item_name) or {}
+    return normalizeGender(metadata.gender or metadata.sex or metadata.pedGender or metadata.ped_gender or metadata.model or def.gender or def.sex)
+end
+
+local function validateWearableGender(src, row)
+    local requiredGender = getItemGenderFromRow(row)
+    if not requiredGender then return true end
+    local playerGender = getPlayerGender(src)
+    if not playerGender then return true end
+    if playerGender ~= requiredGender then
+        return false, ('This item is for %s characters only.'):format(requiredGender)
+    end
+    return true
+end
+
+local function validateEquipmentGender(src, slot, row)
+    if not row or not isEquipmentSlot(slot) then return true end
+    if not (isClothingItemName(row.item_name) or tostring(row.item_name or ''):lower():find('armor', 1, true)) then
+        return true
+    end
+    return validateWearableGender(src, row)
+end
+
 local function MoveItemInternal(src, fromSlot, toSlot)
     local ownerType, ownerId = getOwner(src)
     if not ownerId then return false, 'No character owner found.' end
@@ -160,6 +253,9 @@ local function MoveItemInternal(src, fromSlot, toSlot)
 
     local source = getItemAt(ownerType, ownerId, fromSlot)
     if not source then return false, 'Source slot is empty.' end
+
+    local genderOk, genderErr = validateEquipmentGender(src, toSlot, source)
+    if not genderOk then return false, genderErr end
 
     local canSlot, slotErr = canPlaceInSlot(source.item_name, toSlot)
     if not canSlot then return false, slotErr end
@@ -184,7 +280,7 @@ local function MoveItemInternal(src, fromSlot, toSlot)
     end
 
     local destItem = rowToItem(dest)
-    if source.item_name == dest.item_name and sourceItem.stack and destItem.stack then
+    if rowsCanStack(source, dest) then
         MySQL.update.await('UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?', { source.quantity, dest.id })
         MySQL.update.await('DELETE FROM inventory_items WHERE id = ?', { source.id })
         audit(ownerId, 'merge', source.item_name, source.quantity, fromSlot, toSlot, 'move_merge', {})
@@ -198,6 +294,9 @@ local function MoveItemInternal(src, fromSlot, toSlot)
 
     local canBack, backErr = canPlaceInSlot(dest.item_name, fromSlot)
     if not canBack then return false, backErr end
+
+    local backGenderOk, backGenderErr = validateEquipmentGender(src, fromSlot, dest)
+    if not backGenderOk then return false, backGenderErr end
 
     local tempSlot = ('__tmp_%s_%s'):format(source.id, math.random(1000, 9999))
     MySQL.update.await('UPDATE inventory_items SET slot = ? WHERE id = ?', { tempSlot, source.id })
@@ -389,15 +488,66 @@ local function findFirstAmmoStack(ownerType, ownerId, ammoName, includeAmmoSlot)
     return nil
 end
 
+local function inferAmmoForWeapon(weaponName, metadata)
+    weaponName = tostring(weaponName or ''):lower()
+    metadata = type(metadata) == 'table' and metadata or {}
+
+    local explicit = metadata.ammo or metadata.ammoItem or metadata.ammo_item or metadata.ammoType or metadata.ammo_type or metadata.caliber
+    explicit = explicit and tostring(explicit):lower() or ''
+    if explicit ~= '' then
+        if explicit:find('^ammo_') then return explicit end
+        explicit = explicit:gsub('%s+', '_'):gsub('[^%w_]', '')
+        if explicit ~= '' then return 'ammo_' .. explicit end
+    end
+
+    -- Safe fallbacks. Custom gun-store weapons should put ammo/ammoItem in metadata.
+    if weaponName:find('shotgun', 1, true) then return 'ammo_shotgun' end
+    if weaponName:find('sniper', 1, true) or weaponName:find('marksman', 1, true) then return 'ammo_762' end
+    if weaponName:find('rifle', 1, true) or weaponName:find('carbine', 1, true) or weaponName:find('bullpup', 1, true) or weaponName:find('compactrifle', 1, true) then return 'ammo_556' end
+    if weaponName:find('smg', 1, true) or weaponName:find('pistol', 1, true) then return 'ammo_9mm' end
+    return 'ammo_9mm'
+end
+
 local function getEquippedWeaponAmmoConfig(ownerType, ownerId)
     local weaponRow = getItemAt(ownerType, ownerId, 'weapon')
     if not weaponRow then return nil, nil, 'No weapon equipped.' end
 
     local weaponName = tostring(weaponRow.item_name or ''):lower()
     local weaponCfg = Config.Ammo and Config.Ammo.weapons and Config.Ammo.weapons[weaponName]
-    if not weaponCfg then return nil, weaponName, 'This weapon has no ammo config.' end
+    if weaponCfg then return weaponCfg, weaponName, nil end
 
-    return weaponCfg, weaponName, nil
+    local metadata = decode(weaponRow.metadata)
+    local inferredAmmo = inferAmmoForWeapon(weaponName, metadata)
+    if inferredAmmo and inferredAmmo ~= '' then
+        return { ammo = inferredAmmo }, weaponName, nil
+    end
+
+    return nil, weaponName, 'This weapon has no ammo config.'
+end
+
+syncCurrentWeaponAmmo = function(src)
+    if Config.Ammo and Config.Ammo.enabled == false then return end
+
+    local ownerType, ownerId = getOwner(src)
+    if not ownerId then return end
+
+    local weaponRow = getItemAt(ownerType, ownerId, 'weapon')
+    if not weaponRow then
+        TriggerClientEvent('cm-inventory:client:setWeaponAmmo', src, nil, 0, nil)
+        return
+    end
+
+    local weaponCfg, weaponName = getEquippedWeaponAmmoConfig(ownerType, ownerId)
+    local requiredAmmo = weaponCfg and tostring(weaponCfg.ammo or ''):lower() or ''
+    local ammoSlot = (Config.Ammo and Config.Ammo.slot) or 'ammo'
+    local ammoRow = getItemAt(ownerType, ownerId, ammoSlot)
+    local count = 0
+
+    if requiredAmmo ~= '' and ammoRow and tostring(ammoRow.item_name or ''):lower() == requiredAmmo then
+        count = math.max(0, tonumber(ammoRow.quantity) or 0)
+    end
+
+    TriggerClientEvent('cm-inventory:client:setWeaponAmmo', src, weaponName, count, requiredAmmo)
 end
 
 local function EnsureAmmoSlotForWeaponInternal(src)
@@ -417,13 +567,15 @@ local function EnsureAmmoSlotForWeaponInternal(src)
 
     local ammoAtSlot = getItemAt(ownerType, ownerId, ammoSlot)
     if ammoAtSlot and tostring(ammoAtSlot.item_name or ''):lower() == requiredAmmo and (tonumber(ammoAtSlot.quantity) or 0) > 0 then
+        if syncCurrentWeaponAmmo then syncCurrentWeaponAmmo(src) end
         return true, ('%s is already in ammo slot.'):format(requiredAmmo), ammoAtSlot
     end
 
     local found = findFirstAmmoStack(ownerType, ownerId, requiredAmmo, false)
     if not found then
+        if syncCurrentWeaponAmmo then syncCurrentWeaponAmmo(src) end
         if ammoAtSlot then
-            return false, ('Ammo slot has %s, but %s is required.'):format(tostring(ammoAtSlot.item_name or 'unknown'), requiredAmmo)
+            return false, ('Ammo slot has %s, but %s is required. Put %s in your bag to auto-swap.'):format(tostring(ammoAtSlot.item_name or 'unknown'), requiredAmmo, requiredAmmo)
         end
         return false, ('No %s found in inventory.'):format(requiredAmmo)
     end
@@ -431,12 +583,14 @@ local function EnsureAmmoSlotForWeaponInternal(src)
     local fromSlot = tostring(found.slot)
     local moved, moveErr = MoveItemInternal(src, fromSlot, ammoSlot)
     if not moved then
+        if syncCurrentWeaponAmmo then syncCurrentWeaponAmmo(src) end
         return false, moveErr or ('Could not move %s to ammo slot.'):format(requiredAmmo)
     end
 
     local newAmmoRow = getItemAt(ownerType, ownerId, ammoSlot)
     audit(ownerId, 'ammo_slot_fill', requiredAmmo, tonumber(found.quantity) or 1, fromSlot, ammoSlot, weaponName, decode(found.metadata))
-    return true, ('Moved %s from %s to ammo slot.'):format(requiredAmmo, fromSlot), newAmmoRow
+    if syncCurrentWeaponAmmo then syncCurrentWeaponAmmo(src) end
+    return true, ('Loaded %s for this weapon.'):format(requiredAmmo), newAmmoRow
 end
 
 local function saveRowMetadata(rowId, metadata)

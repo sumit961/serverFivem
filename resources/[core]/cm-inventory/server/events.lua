@@ -66,6 +66,73 @@ RegisterNetEvent('cm-inventory:server:useItem', function(data)
     sendInventorySmart(src)
 end)
 
+
+local function quickSlotFromIndex(index)
+    index = math.floor(tonumber(index) or 0)
+    local maxQuick = Config.Slots and Config.Slots.quick and tonumber(Config.Slots.quick.count) or 5
+    if index < 1 or index > maxQuick then return nil end
+    return (Config.Slots.quick.prefix or 'quickaccess-') .. tostring(index), index
+end
+
+local function QuickAccessHotkeyInternal(src, index, weaponInHand)
+    local quickSlot = quickSlotFromIndex(index)
+    if not quickSlot then return false, 'Invalid fast access slot.' end
+
+    local ownerType, ownerId = getOwner(src)
+    if not ownerId then return false, 'No character owner found.' end
+
+    local quickRow = getItemAt(ownerType, ownerId, quickSlot)
+    local weaponRow = getItemAt(ownerType, ownerId, 'weapon')
+    local quickIsWeapon = quickRow and isWeaponItemName(quickRow.item_name)
+    local weaponIsEquipped = weaponRow and isWeaponItemName(weaponRow.item_name)
+
+    -- 1) Fast slot has a gun: draw/swap that gun into the weapon equipment slot.
+    --    If another gun is currently in-hand, it is swapped back into the pressed fast slot.
+    if quickIsWeapon then
+        local moved, moveErr = MoveItemInternal(src, quickSlot, 'weapon')
+        if not moved then return false, moveErr or 'Could not equip fast access gun.' end
+
+        local ammoReady, ammoMsg = EnsureAmmoSlotForWeaponInternal(src)
+        if syncCurrentWeaponAmmo then syncCurrentWeaponAmmo(src) end
+
+        if weaponIsEquipped or weaponInHand == true then
+            notify(src, ammoReady and ('Changed weapon. ' .. tostring(ammoMsg or '')) or ('Changed weapon. ' .. tostring(ammoMsg or 'No matching ammo found.')), ammoReady and 'success' or 'info')
+        else
+            notify(src, ammoReady and ('Weapon equipped. ' .. tostring(ammoMsg or '')) or ('Weapon equipped. ' .. tostring(ammoMsg or 'No matching ammo found.')), ammoReady and 'success' or 'info')
+        end
+        return true
+    end
+
+    -- 2) Gun is physically in hand and pressed fast slot is empty: put the gun away into that slot.
+    --    If the pressed fast slot has another gun this case is handled above. Non-gun items are protected.
+    if weaponInHand == true and weaponIsEquipped then
+        if quickRow then
+            return false, 'Fast slot must be empty or contain another gun to store/change your weapon.'
+        end
+
+        local moved, moveErr = MoveItemInternal(src, 'weapon', quickSlot)
+        if not moved then return false, moveErr or 'Could not store weapon.' end
+        if syncCurrentWeaponAmmo then syncCurrentWeaponAmmo(src) end
+        notify(src, ('Weapon stored in fast slot %s.'):format(tostring(index)), 'success')
+        return true
+    end
+
+    -- 3) Normal fast access item use. Weapons never use directly from a fast slot; they first move to gun slot.
+    if quickRow then
+        return UseItemWithProgress(src, quickSlot)
+    end
+
+    return false, 'Fast access slot is empty.'
+end
+
+RegisterNetEvent('cm-inventory:server:quickAccessHotkey', function(data)
+    local src = source
+    data = type(data) == 'table' and data or {}
+    local ok, reason = QuickAccessHotkeyInternal(src, data.index or data.slotIndex or data.hotkey, data.weaponInHand == true)
+    if not ok then notify(src, reason or 'Fast access failed.', 'error') end
+    sendInventorySmart(src)
+end)
+
 RegisterNetEvent('cm-inventory:server:reloadWeapon', function()
     local src = source
     local ok, reason = ReloadWeaponInternal(src)

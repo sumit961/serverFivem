@@ -20,19 +20,62 @@ local function getCharacterByIdRaw(charId)
     charId = tostring(charId)
 
     return exports['cm-core']:CacheRemember('char:' .. charId, 30, function()
-        local result = exports['cm-core']:Query('SELECT * FROM characters WHERE id = ?', {charId})
-        return result and result[1] or nil
+        return CMCharacters.GetCharacterById(charId)
     end)
 end
 
+CreateThread(function()
+    Wait(1000)
+    CMCharacters.EnsureSchema()
+end)
+
 exports('GetCurrentCharacterId', function(src)
     return getStateCharId(src)
+end)
+
+exports('GetCharacterId', function(src)
+    return getStateCharId(src)
+end)
+
+exports('IsCharacterLoaded', function(src)
+    src = tonumber(src)
+    if not src or src <= 0 then return false end
+    return Player(src).state.characterLoaded == true or getStateCharId(src) ~= nil
 end)
 
 exports('GetCharacter', function(src)
     local charId = getStateCharId(src)
     if not charId then return nil end
     return getCharacterByIdRaw(charId)
+end)
+
+exports('GetCharacterName', function(src)
+    local charId = getStateCharId(src)
+    if not charId then return nil end
+    local char = getCharacterByIdRaw(charId)
+    return char and CMCharacters.CharacterFullName(char) or nil
+end)
+
+exports('GetCharacterDisplayName', function(src)
+    local charId = getStateCharId(src)
+    if not charId then return nil end
+    local char = getCharacterByIdRaw(charId)
+    local name = char and CMCharacters.CharacterFullName(char) or 'Unknown'
+    return ('%s (%s)'):format(name, tostring(charId))
+end)
+
+exports('GetCharacterState', function(src)
+    src = tonumber(src)
+    if not src or src <= 0 then return nil end
+    return {
+        charId = getStateCharId(src),
+        characterId = getStateCharId(src),
+        firstName = Player(src).state.charFirstName,
+        lastName = Player(src).state.charLastName,
+        fullName = Player(src).state.charFullName,
+        gender = Player(src).state.charGender,
+        loaded = Player(src).state.characterLoaded == true
+    }
 end)
 
 exports('GetCharacterById', function(charId)
@@ -42,7 +85,7 @@ end)
 exports('GetCharactersByAccount', function(accountId)
     if accountId == nil then return {} end
 
-    return exports['cm-core']:Query(
+    return CMCharacters.Query(
         'SELECT * FROM characters WHERE account_id = ? ORDER BY slot',
         {tostring(accountId)}
     ) or {}
@@ -138,13 +181,13 @@ local function canEditSelectorScene(src)
 
     local okPerm, allowed = pcall(function()
         if GetResourceState('cm-auth') == 'started' then
-            return exports['cm-auth']:HasPermission(src, 'characters.selector.edit')
+            return exports['cm-auth']:HasPermission(src, Config.EditorPermission or 'characters.selector.edit')
         end
         return false
     end)
     if okPerm and allowed == true then return true end
 
-    if IsPlayerAceAllowed(src, 'command.charselectedit') or IsPlayerAceAllowed(src, 'characters.selector.edit') then return true end
+    if CMCharacters.HasPermission(src, Config.EditorPermission or 'characters.selector.edit') then return true end
 
     return false
 end
@@ -173,7 +216,29 @@ RegisterNetEvent('cm-characters:server:saveSelectorSceneConfig', function(data)
     end
 end)
 
+
+RegisterNetEvent('cm-characters:server:requestOpenSelectorSceneEditor', function()
+    local src = source
+    if not canEditSelectorScene(src) then
+        CMCharacters.Notify(src, 'No permission to use selector scene editor.', 'error')
+        return
+    end
+    TriggerClientEvent('cm-characters:client:openSelectorSceneEditor', src, loadSelectorSceneConfig())
+end)
+
+RegisterCommand('charselectedit', function(src)
+    if not canEditSelectorScene(src) then
+        CMCharacters.Notify(src, 'No permission to use selector scene editor.', 'error')
+        return
+    end
+    TriggerClientEvent('cm-characters:client:openSelectorSceneEditor', src, loadSelectorSceneConfig())
+end, false)
+
 RegisterCommand('charselectscene', function(src)
+    if not canEditSelectorScene(src) then
+        CMCharacters.Notify(src, 'No permission to use selector scene tools.', 'error')
+        return
+    end
     TriggerClientEvent('cm-characters:client:selectorSceneConfig', src, loadSelectorSceneConfig())
 end, false)
 

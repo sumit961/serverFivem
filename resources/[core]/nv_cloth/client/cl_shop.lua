@@ -280,6 +280,8 @@ local function sendOpenMessage(label, cats, counts, isOpen)
       translations = Config.Translations[Config.Lang],
       counts       = counts,
       useCatalogOnly = Config.UseCatalogOnly ~= false,
+      pricePresets = Config.PricePresets or {},
+      economy      = Config.Economy or {},
     })
     nuiInitialized = true
   else
@@ -290,6 +292,8 @@ local function sendOpenMessage(label, cats, counts, isOpen)
       categories = cats,
       counts     = counts,
       useCatalogOnly = Config.UseCatalogOnly ~= false,
+      pricePresets = Config.PricePresets or {},
+      economy      = Config.Economy or {},
     })
   end
 
@@ -406,6 +410,14 @@ function openClothShop(label, cats, shopKey, shopData, adminMode)
   -- Admin needs disabled + non-catalog native variations; normal shop only receives enabled catalog rows.
   TriggerServerEvent('nvCloth:server:getCachedShopCatalog', GetGameTimer(), currentShopKey, gender, isAdminShop)
 
+  -- Pull the player's favourites (store) or the admin capture overrides.
+  if isAdminShop then
+    TriggerServerEvent('nvCloth:server:getCaptureCameras')
+    TriggerServerEvent('nvCloth:server:getCaptureCrops')
+  else
+    TriggerServerEvent('nvCloth:server:getFavourites')
+  end
+
   setShopPlayerLocked(true)
   if SetShopCameraFixedMode then SetShopCameraFixedMode(true) end
   CreateSkinCam("body")
@@ -447,6 +459,28 @@ end)
 RegisterNetEvent("nvCloth:closeMenu")
 AddEventHandler("nvCloth:closeMenu", function()
   closeShopRoutine()
+end)
+
+
+--========================================================
+-- Favourites bridge (global across shops)
+--========================================================
+RegisterNUICallback('toggleFavourite', function(data, cb)
+  data = type(data) == 'table' and data or {}
+  local key = tostring(data.key or '')
+  if key ~= '' then
+    TriggerServerEvent('nvCloth:server:toggleFavourite', key, data.on == true)
+  end
+  cb({ success = true })
+end)
+
+RegisterNUICallback('requestFavourites', function(_, cb)
+  TriggerServerEvent('nvCloth:server:getFavourites')
+  cb({ success = true })
+end)
+
+RegisterNetEvent('nvCloth:client:favourites', function(keys)
+  SendNUIMessage({ type = 'favourites', keys = keys or {} })
 end)
 
 
@@ -509,6 +543,13 @@ RegisterNUICallback("adminToggleItem", function(data, cb)
 end)
 
 
+
+
+RegisterNUICallback("adminBulkToggleItems", function(data, cb)
+  data = type(data) == 'table' and data or {}
+  TriggerServerEvent('nvCloth:server:adminBulkToggleItems', data)
+  cb({ success = true })
+end)
 
 -- Admin inventory icon capture moved to client/cl_capture.lua
 

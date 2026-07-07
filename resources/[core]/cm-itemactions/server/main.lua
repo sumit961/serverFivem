@@ -246,11 +246,13 @@ exports('UseItem', function(a, b, c, d)
 
     if itemName == 'water' then
         -- No hunger/thirst system. This is only an RP consume action.
+        TriggerClientEvent('cm-itemactions:client:playActionAnim', src, 'use', 900)
         return result(true, 1, 'You drank water.')
     end
 
     if itemName == 'sandwich' then
         -- No hunger system. This is only an RP consume action.
+        TriggerClientEvent('cm-itemactions:client:playActionAnim', src, 'use', 900)
         return result(true, 1, 'You ate a sandwich.')
     end
 

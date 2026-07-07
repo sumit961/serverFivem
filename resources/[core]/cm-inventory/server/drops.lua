@@ -16,6 +16,8 @@ local function UseItemInternal(src, slot)
     -- USE bag first. `clothing_bags` is both clothing and a real backpack, so bag capacity
     -- must be resolved before the generic clothing branch catches it.
     if isBagItemName(itemName) then
+        local genderOk, genderErr = validateWearableGender(src, row)
+        if not genderOk then return false, genderErr end
         if slot ~= 'bag' then
             local moved, moveErr = MoveItemInternal(src, slot, 'bag')
             if not moved then return false, moveErr or 'Could not equip bag.' end
@@ -31,6 +33,8 @@ local function UseItemInternal(src, slot)
 
     -- USE clothing = move it to the matching clothing/equipment slot. Dragging to that slot uses the same visual equip logic.
     if isClothingItemName(itemName) then
+        local genderOk, genderErr = validateWearableGender(src, row)
+        if not genderOk then return false, genderErr end
         local targetSlot = getClothingEquipSlot(itemName, item.metadata)
         if not targetSlot then return false, 'This clothing category has no inventory slot.' end
 
@@ -52,7 +56,7 @@ local function UseItemInternal(src, slot)
     if isWeaponItemName(itemName) then
         local moved, moveErr = MoveItemInternal(src, slot, 'weapon')
         if not moved then return false, moveErr or 'Could not equip weapon.' end
-        syncEquipmentSlot(src, 'weapon')
+        if slot == 'weapon' then syncEquipmentSlot(src, 'weapon') end
 
         local ammoReady, ammoMsg = EnsureAmmoSlotForWeaponInternal(src)
         if ammoReady then
@@ -68,12 +72,14 @@ local function UseItemInternal(src, slot)
     -- USE armor = equip into the body armor slot and apply armor on the character.
     -- Armor item is not deleted; it becomes equipped in the bodyarmor slot.
     if isArmorItemName(itemName) then
+        local genderOk, genderErr = validateWearableGender(src, row)
+        if not genderOk then return false, genderErr end
         if slot ~= 'bodyarmor' then
             local moved, moveErr = MoveItemInternal(src, slot, 'bodyarmor')
             if not moved then return false, moveErr or 'Could not equip armor.' end
         end
 
-        syncEquipmentSlot(src, 'bodyarmor')
+        if slot == 'bodyarmor' then syncEquipmentSlot(src, 'bodyarmor') end
         notify(src, 'Body armor equipped.', 'success')
         audit(ownerId, 'use_armor', itemName, 1, slot, 'bodyarmor', 'use_armor_equip', item.metadata)
         return true
@@ -163,10 +169,14 @@ local function ConsumeEquippedWeaponAmmoInternal(src)
     end
 
     local consumed, consumeErr = ConsumeSlotItemInternal(src, ammoSlot, 1, 'weapon_shot')
-    if not consumed then return false, consumeErr or 'Could not consume ammo.' end
+    if not consumed then
+        if syncCurrentWeaponAmmo then syncCurrentWeaponAmmo(src) end
+        return false, consumeErr or 'Could not consume ammo.'
+    end
 
     reduceSlotDurability(ownerType, ownerId, 'weapon', 1)
     audit(ownerId, 'weapon_shot', requiredAmmo, 1, ammoSlot, 'weapon', weaponName, {})
+    if syncCurrentWeaponAmmo then syncCurrentWeaponAmmo(src) end
     return true, 'Ammo consumed from inventory.'
 end
 
@@ -275,17 +285,11 @@ local function AddItemToOwnerContainer(ownerType, ownerId, itemName, amount, met
     local slot = preferredSlot
     if slot and not canPlaceInSlot(itemName, slot) then slot = nil end
 
-    if def.stack ~= false and next(metadata) == nil and not slot then
-        local existing = MySQL.single.await([[SELECT * FROM inventory_items
-            WHERE owner_type = ? AND owner_id = ? AND item_name = ? AND (metadata IS NULL OR metadata = '' OR metadata = '{}')
-            ORDER BY FIELD(SUBSTRING_INDEX(slot, '-', 1), 'pocket', 'backpack', 'quickaccess') LIMIT 1]], {
-            ownerType, ownerId, itemName
-        })
-        if existing then
-            MySQL.update.await('UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?', { amount, existing.id })
-            audit(ownerId, 'dev_add_stack', itemName, amount, nil, existing.slot, reason or 'dev_test_add', metadata)
-            return true, existing.slot
-        end
+    local stackTarget = findStackTarget(ownerType, ownerId, itemName, metadata, slot)
+    if stackTarget and (not slot or stackTarget.slot == slot) then
+        MySQL.update.await('UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?', { amount, stackTarget.id })
+        audit(ownerId, 'dev_add_stack', itemName, amount, nil, stackTarget.slot, reason or 'dev_test_add', metadata)
+        return true, stackTarget.slot
     end
 
     if not slot then slot = findEmptySlot(ownerType, ownerId) end
@@ -295,7 +299,14 @@ local function AddItemToOwnerContainer(ownerType, ownerId, itemName, amount, met
     if not canSlot then return false, slotErr end
 
     local existingAtSlot = getItemAt(ownerType, ownerId, slot)
-    if existingAtSlot then return false, 'Slot is already occupied.' end
+    if existingAtSlot then
+        if rowCanStackWithMetadata(existingAtSlot, itemName, metadata) then
+            MySQL.update.await('UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?', { amount, existingAtSlot.id })
+            audit(ownerId, 'dev_add_stack_slot', itemName, amount, nil, existingAtSlot.slot, reason or 'dev_test_add', metadata)
+            return true, existingAtSlot.slot
+        end
+        return false, 'Slot is already occupied.'
+    end
 
     MySQL.insert.await([[INSERT INTO inventory_items
         (owner_type, owner_id, slot, item_name, quantity, metadata)
@@ -385,20 +396,34 @@ local function ClearTestReceiverInternal(src)
     return true
 end
 
+local function getDropPropModel(item)
+    local dropsCfg = Config.Drops or {}
+    local propModels = dropsCfg.PropModels or {}
+    local category = tostring((item and (item.category or item.type)) or 'misc'):lower()
+    local name = tostring((item and (item.item_name or item.name)) or ''):lower()
+    if propModels[category] then return propModels[category] end
+    if name:find('weapon_', 1, true) == 1 and propModels.weapon then return propModels.weapon end
+    if name:find('ammo_', 1, true) == 1 and propModels.ammo then return propModels.ammo end
+    if name:find('clothing_', 1, true) == 1 and propModels.clothing then return propModels.clothing end
+    if name:find('armor', 1, true) and (propModels.armor or propModels.bodyarmor) then return propModels.armor or propModels.bodyarmor end
+    return dropsCfg.defaultProp or 'prop_paper_bag_small'
+end
+
 local function dropToPayload(row)
-    local def = getItemDef(row.item_name) or { label = row.item_name, image = 'placeholder.png', weight = 0, category = 'misc' }
-    local metadata = decode(row.metadata)
+    local item = rowToItem(row)
     return {
         id = tonumber(row.id),
         item_name = row.item_name,
         name = row.item_name,
-        label = def.label or row.item_name,
-        image = metadata.image or metadata.icon or def.image or def.icon or 'placeholder.png',
-        icon = metadata.icon or metadata.image or def.image or def.icon or 'placeholder.png',
+        label = item.label or row.item_name,
+        image = item.image or item.icon or 'placeholder.png',
+        icon = item.icon or item.image or 'placeholder.png',
         quantity = tonumber(row.quantity) or 1,
-        weight = tonumber(def.weight) or 0,
-        category = def.category or def.type or 'misc',
-        metadata = metadata,
+        weight = tonumber(item.weight) or 0,
+        category = item.category or item.type or 'misc',
+        metadata = item.metadata or {},
+        propModel = getDropPropModel(item),
+        expiresAt = row.expires_at,
         coords = { x = tonumber(row.x), y = tonumber(row.y), z = tonumber(row.z) }
     }
 end
@@ -418,6 +443,18 @@ end
 sendDrops = function(target)
     TriggerClientEvent('cm-inventory:client:updateDrops', target or -1, getActiveDrops())
 end
+
+CreateThread(function()
+    while true do
+        local seconds = tonumber((Config.Drops or {}).cleanupSeconds) or 15
+        if seconds < 5 then seconds = 5 end
+        Wait(seconds * 1000)
+        if Config.Drops and Config.Drops.enabled ~= false then
+            cleanupDrops()
+            sendDrops(-1)
+        end
+    end
+end)
 
 createWorldDrop = function(src, row, amount)
     if not Config.Drops or Config.Drops.enabled == false then return nil end
@@ -497,6 +534,7 @@ RegisterNetEvent('cm-inventory:server:pickupDrop', function(dropId)
     local src = source
     local ok, reason = PickupDropInternal(src, dropId)
     if ok then
+        TriggerClientEvent('cm-inventory:client:playInventoryAnim', src, 'pickup')
         notify(src, 'Picked up item.', 'success')
         sendInventorySmart(src)
     else

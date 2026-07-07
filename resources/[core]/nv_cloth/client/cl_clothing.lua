@@ -12,6 +12,35 @@
 --========================================================
 
 outfitToBuy = nil
+local previewToken = 0
+
+local function closeStoreAfterPurchase()
+  CreateThread(function()
+    -- Always close the clothing store after buying. Do not open inventory automatically.
+    if type(closeShopRoutine) == 'function' then
+      closeShopRoutine()
+    end
+  end)
+end
+
+local function scheduleTryBeforeBuyRevert()
+  local seconds = tonumber(Config.TryBeforeBuySeconds or 0) or 0
+  if seconds <= 0 or (NvCloth_IsAdminShop and NvCloth_IsAdminShop()) then return end
+  previewToken = previewToken + 1
+  local token = previewToken
+  CreateThread(function()
+    Wait(math.floor(seconds * 1000))
+    if token ~= previewToken then return end
+    if opened and type(saveClothes) == 'table' then
+      setOutfit(saveClothes)
+      SendNUIMessage({
+        type = 'purchaseResult',
+        success = true,
+        message = '<strong>Preview expired.</strong> Outfit restored. Add item to cart or checkout to keep it.'
+      })
+    end
+  end)
+end
 
 -- Map des champs skinchanger par catégorie (si utilisé)
 local SKINCHANGER_FIELDS = {
@@ -291,15 +320,27 @@ local function WaitForFreemodeModel()
 end
 
 
-RegisterNetEvent('nvCloth:client:purchaseComplete', function()
+RegisterNetEvent('nvCloth:client:purchaseComplete', function(receipt)
   -- Purchase is buy-to-inventory only. Restore the pre-shop outfit after buying.
   outfitToBuy = nil
+  previewToken = previewToken + 1
   setOutfit(saveClothes)
-  showNotification('Clothing purchased. Check your inventory.', 'success')
+  SendNUIMessage({
+    type = 'purchaseResult',
+    success = true,
+    message = ('<strong>Purchased.</strong> Receipt %s. Store closed. Item added to your bag; open inventory when you want to wear it.'):format(receipt and receipt.receiptId or '#')
+  })
+  showNotification('Clothing purchased. Store closed.', 'success')
+  closeStoreAfterPurchase()
 end)
 
-RegisterNetEvent('nvCloth:client:purchaseFailed', function()
+RegisterNetEvent('nvCloth:client:purchaseFailed', function(reason)
   setOutfit(saveClothes)
+  SendNUIMessage({
+    type = 'purchaseResult',
+    success = false,
+    message = '<strong>Purchase failed.</strong> ' .. tostring(reason or 'Check cash/bank and inventory space.')
+  })
 end)
 
 --========================================================
@@ -344,6 +385,7 @@ RegisterNUICallback("sendSelectedArticle", function(data, cb)
 
   -- Apply immediately for preview.
   applyItem(ped, category, drawable, texture)
+  scheduleTryBeforeBuyRevert()
 
   -- Number of textures available for this drawable.
   local count
@@ -457,12 +499,43 @@ local function buildBuyMetadata(item)
   local model = GetEntityModel(ped)
   local gender = model == GetHashKey('mp_f_freemode_01') and 'female' or 'male'
 
+  local drawable = tonumber(item.drawable or item.drawableId or item.component or item.componentId) or 0
+  local texture = tonumber(item.texture or item.textureId or 0) or 0
+  local image = item.image or item.icon or item.inventoryImage or item.inventory_icon
+  local itemKey = item.itemName or item.item_name or item.nameKey or item.name_key or item.inventoryItem or item.inventory_item or item.item_key or ('clothing_' .. category)
+
   local metadata = {
+    itemName = itemKey,
+    item_name = itemKey,
+    nameKey = itemKey,
+    inventoryItem = itemKey,
+    name = itemKey,
+    itemType = 'clothing',
+    type = 'clothing',
     categoryType = category,
-    drawableId = tonumber(item.drawable or item.drawableId or item.component or item.componentId) or 0,
-    textureId = tonumber(item.texture or item.textureId or 0) or 0,
+    category = category,
+    clothingCategory = category,
+    drawableId = drawable,
+    drawable_id = drawable,
+    drawable = drawable,
+    component = drawable,
+    componentId = drawable,
+    textureId = texture,
+    texture_id = texture,
+    texture = texture,
     gender = gender,
-    label = item.label or item.name or ('Clothing ' .. category)
+    sex = gender,
+    label = item.label or item.displayName or ('Clothing ' .. category),
+    price = tonumber(item.price) or nil,
+    catalogId = item.catalogId or item.catalog_id or item.id,
+    catalogKey = item.catalogKey or (gender .. ':' .. category .. ':' .. tostring(drawable) .. ':' .. tostring(texture)),
+    image = image,
+    icon = image,
+    inventoryImage = image,
+    inventory_icon = image,
+    isClothing = true,
+    unique = true,
+    stack = false
   }
 
   -- Torso items must remember matching arms and undershirt to prevent clipping.
@@ -507,6 +580,7 @@ local function buyCommon(data, payment)
   end
 
   outfitToBuy = { items = purchasable, name = name }
+  previewToken = previewToken + 1
   TriggerServerEvent("nvCloth:buyClothes", payment, outfitToBuy)
 
   -- Strip preview immediately. Bought clothes stay as physical inventory items.

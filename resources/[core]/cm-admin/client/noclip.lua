@@ -61,7 +61,8 @@ local function restorePed()
     SetPlayerControl(PlayerId(), true, 0)
     SetPlayerInvincible(PlayerId(), oldInvincible or false)
     SetPedCanRagdoll(ped, true)
-    SetPedCanRagdollFromPlayerImpact(ped, true)
+    -- SetPedCanRagdollFromPlayerImpact stays false: cm-playerdata owns the
+    -- push-protection rule and expects it to survive noclip.
     SetPedConfigFlag(ped, 32, false)
     ResetPedMovementClipset(ped, 0.0)
     ResetPedStrafeClipset(ped)
@@ -81,7 +82,6 @@ local function applyNoclipState(entity)
     end
 
     if Config.InvincibleDuringNoclip then
-        oldInvincible = GetPlayerInvincible(PlayerId())
         SetEntityInvincible(entity, true)
         SetPlayerInvincible(PlayerId(), true)
     end
@@ -183,6 +183,9 @@ local function enableNoclip()
     local entity = getControlEntity()
     noclip = true
     noclipEntity = entity
+    -- Capture BEFORE applying: applyNoclipState sets invincible, and reading it
+    -- afterwards would save 'true' and restore permanent god mode on exit.
+    oldInvincible = GetPlayerInvincible(PlayerId())
     lastGoodGround = groundAt(GetEntityCoords(entity)) or GetEntityCoords(entity)
     applyNoclipState(entity)
     notify('Noclip enabled. F2 again to disable.', 'success')
@@ -210,9 +213,8 @@ CreateThread(function()
             if not entity or entity == 0 or not DoesEntityExist(entity) then
                 entity = getControlEntity()
                 noclipEntity = entity
+                applyNoclipState(entity) -- full state only when entity changes
             end
-
-            applyNoclipState(entity)
 
             DisableControlAction(0, 30, true)
             DisableControlAction(0, 31, true)
@@ -223,6 +225,8 @@ CreateThread(function()
             DisableControlAction(0, 22, true)
             DisableControlAction(0, 36, true)
             DisableControlAction(0, 75, true)
+            DisableControlAction(0, 38, true) -- E (used for up)
+            DisableControlAction(0, 44, true) -- Q/cover (used for down)
 
             local speed = Config.Speeds.normal or 1.6
             if IsDisabledControlPressed(0, 21) then
@@ -241,12 +245,13 @@ CreateThread(function()
             if IsDisabledControlPressed(0, 33) then move = move - forward end
             if IsDisabledControlPressed(0, 35) then move = move + right end
             if IsDisabledControlPressed(0, 34) then move = move - right end
-            if IsDisabledControlPressed(0, 22) or IsControlPressed(0, 38) then move = move + vector3(0.0, 0.0, 1.0) end
-            if IsDisabledControlPressed(0, 36) or IsControlPressed(0, 44) then move = move - vector3(0.0, 0.0, 1.0) end
+            if IsDisabledControlPressed(0, 22) or IsDisabledControlPressed(0, 38) then move = move + vector3(0.0, 0.0, 1.0) end
+            if IsDisabledControlPressed(0, 36) or IsDisabledControlPressed(0, 44) then move = move - vector3(0.0, 0.0, 1.0) end
 
             if #(move) > 0.0 then
                 move = move / #(move)
-                pos = pos + (move * speed)
+                -- Frame-time scaled: identical fly speed at 60 or 240 fps.
+                pos = pos + (move * speed * GetFrameTime() * 60.0)
                 SetEntityCoordsNoOffset(entity, pos.x, pos.y, pos.z, false, false, true)
             end
 
@@ -276,30 +281,32 @@ AddEventHandler('onResourceStop', function(resourceName)
     restorePed()
 end)
 
-RegisterCommand('cmunstuck', function()
+-- Utility actions: triggered by the server after permission checks.
+RegisterNetEvent('cm-admin:client:unstuck', function()
     if noclip then noclip = false end
     local entity = getControlEntity()
     standEntitySafely(entity)
     notify('Placed on safe standing ground.', 'success')
-end, false)
+end)
 
-RegisterCommand('cmstand', function()
+RegisterNetEvent('cm-admin:client:stand', function()
     local entity = getControlEntity()
     standEntitySafely(entity)
     notify('Forced player to stand on nearest surface.', 'success')
-end, false)
+end)
 
-RegisterCommand('cmup', function(_, args)
+RegisterNetEvent('cm-admin:client:moveUp', function(args)
     local entity = getControlEntity()
-    local amount = tonumber(args[1]) or 2.0
+    local amount = tonumber(args and args[1]) or 2.0
+    amount = math.min(math.max(amount, 0.5), 25.0)
     restoreEntity(entity)
     restorePed()
     local pos = GetEntityCoords(entity)
     SetEntityCoordsNoOffset(entity, pos.x, pos.y, pos.z + amount, false, false, true)
     notify(('Moved up %.1fm.'):format(amount), 'success')
-end, false)
+end)
 
-RegisterCommand('cmsafe', function()
+RegisterNetEvent('cm-admin:client:safeTeleport', function()
     local entity = getControlEntity()
     local safe = Config.SafeCoords or vector4(215.76, -810.12, 30.73, 157.0)
     restoreEntity(entity)
@@ -312,134 +319,8 @@ RegisterCommand('cmsafe', function()
     restorePed()
     FreezeEntityPosition(entity, false)
     notify('Teleported to safe test point.', 'success')
-end, false)
-
-RegisterCommand('getcampos', function()
-    local ped = PlayerPedId()
-
-    local pedCoords = GetEntityCoords(ped)
-    local pedHeading = GetEntityHeading(ped)
-
-    local camCoord = GetGameplayCamCoord()
-    local camRot = GetGameplayCamRot(2)
-    local camFov = GetGameplayCamFov()
-
-    print('==============================')
-    print('PLAYER POSITION')
-    print(string.format(
-        'vector4(%.4f, %.4f, %.4f, %.4f)',
-        pedCoords.x,
-        pedCoords.y,
-        pedCoords.z,
-        pedHeading
-    ))
-
-    print('CAMERA POSITION')
-    print(string.format(
-        'vector3(%.4f, %.4f, %.4f)',
-        camCoord.x,
-        camCoord.y,
-        camCoord.z
-    ))
-
-    print('CAMERA ROTATION')
-    print(string.format(
-        'vector3(%.4f, %.4f, %.4f)',
-        camRot.x,
-        camRot.y,
-        camRot.z
-    ))
-
-    print('CAMERA FOV')
-    print(camFov)
-
-    print('==============================')
 end)
 
--- Get current camera position + where it is looking.
--- Use in F8:
---   vehcamcurrent
--- It prints config lines for:
---   Config.VehicleAdminStudio.camera
---   Config.VehicleAdminStudio.cameraLookAt
---   Config.VehicleAdminStudio.cameraFov
-
-local function rnFmt(n)
-    return string.format('%.4f', tonumber(n) or 0.0)
-end
-
-local function rnRotationToDirection(rot)
-    local z = math.rad(rot.z)
-    local x = math.rad(rot.x)
-    local num = math.abs(math.cos(x))
-
-    return vector3(
-        -math.sin(z) * num,
-        math.cos(z) * num,
-        math.sin(x)
-    )
-end
-
-local function rnGetCurrentCameraData()
-    local cam = GetRenderingCam()
-    local camCoords, camRot, camFov
-
-    -- If script camera is active, read it.
-    -- Otherwise read normal gameplay camera.
-    if cam and cam ~= -1 and DoesCamExist(cam) then
-        camCoords = GetCamCoord(cam)
-        camRot = GetCamRot(cam, 2)
-        camFov = GetCamFov(cam)
-    else
-        camCoords = GetGameplayCamCoord()
-        camRot = GetGameplayCamRot(2)
-        camFov = GetGameplayCamFov()
-    end
-
-    local dir = rnRotationToDirection(camRot)
-    local far = camCoords + (dir * 80.0)
-
-    local ray = StartShapeTestRay(
-        camCoords.x,
-        camCoords.y,
-        camCoords.z,
-        far.x,
-        far.y,
-        far.z,
-        -1,
-        PlayerPedId(),
-        0
-    )
-
-    local _, hit, hitCoords = GetShapeTestResult(ray)
-
-    -- If raycast does not hit anything, use point in front of camera.
-    if hit ~= 1 then
-        hitCoords = camCoords + (dir * 8.0)
-    end
-
-    return camCoords, hitCoords, camFov
-end
-
-RegisterCommand('vehcamcurrent', function()
-    local camCoords, lookAt, fov = rnGetCurrentCameraData()
-
-    print('')
-    print('[rn-vehicleshop] Camera config from current view:')
-    print(('Config.VehicleAdminStudio.camera = vector3(%s, %s, %s)'):format(
-        rnFmt(camCoords.x),
-        rnFmt(camCoords.y),
-        rnFmt(camCoords.z)
-    ))
-    print(('Config.VehicleAdminStudio.cameraLookAt = vector3(%s, %s, %s)'):format(
-        rnFmt(lookAt.x),
-        rnFmt(lookAt.y),
-        rnFmt(lookAt.z)
-    ))
-    print(('Config.VehicleAdminStudio.cameraFov = %.1f'):format(fov))
-    print('')
-
-    BeginTextCommandThefeedPost('STRING')
-    AddTextComponentSubstringPlayerName('Camera position printed in F8 console.')
-    EndTextCommandThefeedPostTicker(false, false)
-end, false)
+RegisterNetEvent('cm-admin:client:disableNoclip', function()
+    if noclip then disableNoclip() end
+end)

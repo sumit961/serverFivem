@@ -3,8 +3,8 @@ game 'gta5'
 lua54 'yes'
 
 author 'CM Development'
-description 'CM Inventory v4.1 - shared 6x5 external storage UI'
-version '4.1.0'
+description 'CM Inventory v4.2 - gun-slot-only weapons, fast access swapping, prop drops'
+version '4.2.0'
 
 dependencies {
     'oxmysql',

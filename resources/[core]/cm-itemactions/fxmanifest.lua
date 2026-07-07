@@ -3,8 +3,8 @@ game 'gta5'
 lua54 'yes'
 
 author 'CM Development'
-description 'CM Item Actions v2.5: player polish usable items'
-version '2.5.0'
+description 'CM Item Actions v2.6: usable item and clothing animations'
+version '2.6.0'
 
 dependencies {
     'cm-inventory'

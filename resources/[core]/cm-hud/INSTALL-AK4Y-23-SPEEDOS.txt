@@ -1,0 +1,24 @@
+CM HUD v1.8 / 2.4.0 - 23 Speedometers
+
+What changed:
+- Kept existing 14 CM/Fast HUD V2 speedometer styles.
+- Added all 9 AK4Y speedometers from ak4y-hud-main:
+  #15 AK4Y Speedo V1
+  #16 AK4Y Speedo V2
+  #17 AK4Y Speedo V3
+  #18 AK4Y Speedo V4
+  #19 AK4Y Speedo V5
+  #20 AK4Y Speedo V6
+  #21 AK4Y Bike
+  #22 AK4Y Boat
+  #23 AK4Y Plane
+- /hud admin now shows 23 styles.
+- /hud speedo 1-23 works.
+- Responsive minimap/location fix is still included.
+
+Install:
+1. Backup your old cm-hud folder.
+2. Replace it with this cm-hud folder.
+3. Run: restart cm-hud
+4. Test: /hud admin
+5. Quick select: /hud speedo 17

@@ -1,0 +1,19 @@
+CM HUD v2.0 - Exact Circular Speedometer #30
+
+Added:
+- New /hud speedo 30
+- Black circular white RPM speedometer matching the screenshot style
+- Keeps /hud admin, all previous speedometers #1-#29
+- Keeps auto vehicle-type speedometers
+- Keeps responsive minimap/location fix
+- Keeps seatbelt sounds
+
+Install:
+1. Backup your old cm-hud folder.
+2. Replace it with this cm-hud folder.
+3. Run: restart cm-hud
+4. Use: /hud speedo 30
+5. Open: /hud admin
+
+Tip:
+Set unit to MPH in /hud admin if you want it to display exactly like the screenshot.

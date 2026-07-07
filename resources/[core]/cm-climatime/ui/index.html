@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CM Climatime</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div id="app" class="hidden">
+        <div class="panel">
+            <aside class="sidebar">
+                <div class="brand">
+                    <div class="brandIcon">☀</div>
+                    <div class="brandName">Climatime</div>
+                </div>
+
+                <button class="nav active" data-tab="weather"><span>☁</span> Weather</button>
+                <button class="nav" data-tab="time"><span>◷</span> Time</button>
+                <button class="nav" data-tab="schedule"><span>▣</span> Schedule</button>
+                <button class="nav" data-tab="zones"><span>⌖</span> Zones</button>
+
+                <div class="sidebarBottom">
+                    <div class="locationCard">
+                        <span class="pin">●</span>
+                        <div>
+                            <strong id="locStreet">Current Position</strong>
+                            <small id="locSub">Synced server-wide</small>
+                        </div>
+                    </div>
+                    <button id="exitBtn" class="danger full">↪ Exit</button>
+                </div>
+            </aside>
+
+            <main class="content">
+                <header class="topbar">
+                    <div>
+                        <div id="breadcrumb" class="crumb">Climatime › Weather</div>
+                        <h1 id="pageTitle">Forecast</h1>
+                        <p id="pageDesc">Current conditions and weather management controls.</p>
+                    </div>
+                    <div class="statusTop">
+                        <span>▰ WIFI</span>
+                        <strong id="topTime">00:00</strong>
+                    </div>
+                </header>
+
+                <section id="tab-weather" class="tab active">
+                    <div class="grid2">
+                        <div class="weatherCard glow">
+                            <div class="row between"><span>Current Weather</span><span id="weatherTime">00:00</span></div>
+                            <div class="bigWeather"><span id="weatherIcon">☀</span><strong id="weatherName">Clear</strong></div>
+                            <div class="stats">
+                                <span>Mode <b id="weatherMode">Dynamic</b></span>
+                                <span>Next Change <b id="nextChange">--</b></span>
+                                <span>Transition <b id="transitionRead">20s</b></span>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="row between"><h3>Weather Manager</h3><button id="resetWeather" class="ghost">Reset</button></div>
+                            <div class="toggleRow"><span>Dynamic Weather</span><label class="switch"><input id="dynamicToggle" type="checkbox"><i></i></label></div>
+                            <div class="toggleRow"><span>Freeze Weather</span><label class="switch"><input id="freezeWeather" type="checkbox"><i></i></label></div>
+                            <div class="toggleRow"><span>Smooth Change</span><label class="switch"><input id="smoothToggle" type="checkbox"><i></i></label></div>
+                            <div class="toggleRow"><span>Instant Change / No Smooth</span><label class="switch"><input id="instantToggle" type="checkbox"><i></i></label></div>
+                            <div class="toggleRow"><span>Enable Blackout</span><label class="switch"><input id="blackoutToggle" type="checkbox"><i></i></label></div>
+                            <div class="toggleRow"><span>Force Snow On Ground</span><label class="switch"><input id="snowToggle" type="checkbox"><i></i></label></div>
+                            <div class="miniForm two">
+                                <label>Duration min <input id="weatherDuration" type="number" min="1" max="240" value="30"></label>
+                                <label>Transition sec <input id="transitionSeconds" type="number" min="0" max="120" value="20"></label>
+                            </div>
+                            <button id="saveWeatherOptions" class="primary full">Apply Manager Settings</button>
+                            <div class="presetBox">
+                                <label>Weather Event Preset <select id="eventPreset"></select></label>
+                                <button id="applyPreset" class="ghost full">Apply Preset</button>
+                                <div id="historyList" class="historyList"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h2>Weather Control</h2>
+                    <p class="muted">Select a weather type to apply server-wide. Dynamic mode will stop until you turn it back on.</p>
+                    <div id="weatherGrid" class="weatherGrid"></div>
+                </section>
+
+                <section id="tab-time" class="tab">
+                    <div class="timeSlider card outline">
+                        <div class="row between">
+                            <strong>◷ 00:00 — 23:59</strong>
+                            <div class="quickBtns"><button id="setDay" class="ghost">Set Day</button><button id="setNight" class="ghost">Set Night</button></div>
+                        </div>
+                        <input id="timeRange" type="range" min="0" max="1439" value="720" />
+                        <div class="ticks"><span>00</span><span>02</span><span>04</span><span>06</span><span>08</span><span>10</span><span>12</span><span>14</span><span>16</span><span>18</span><span>20</span><span>22</span></div>
+                    </div>
+
+                    <div class="grid2">
+                        <div class="card">
+                            <h3>Current Time</h3>
+                            <div id="currentTimeBig" class="timeBig">00:00</div>
+                            <p class="muted">Synced across all connected players.</p>
+                            <label>Custom Time
+                                <input id="customTime" type="time" value="12:00" />
+                            </label>
+                            <small>Use 24-hour format, then press Apply.</small>
+                        </div>
+
+                        <div class="card">
+                            <h3>Time of Day</h3>
+                            <div id="dayPart" class="dayPart">Morning</div>
+                            <p class="muted">By default this follows the real-life 24-hour server time.</p>
+                            <div class="toggleRow"><span>Freeze Time</span><label class="switch"><input id="freezeTime" type="checkbox"><i></i></label></div>
+                            <div class="buttonsRight">
+                                <button id="resetTime" class="danger">↻ Reset</button>
+                                <button id="applyTime" class="primary">● Apply</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="tab-schedule" class="tab">
+                    <div class="card scheduleHeader">
+                        <div>
+                            <h3>◷ Schedule <span id="scheduleBadge" class="badge">INACTIVE</span></h3>
+                            <p class="muted">Create weather rotation presets with custom durations.</p>
+                        </div>
+                        <label class="switch big"><input id="scheduleActive" type="checkbox"><i></i></label>
+                    </div>
+                    <div class="miniForm scheduleForm">
+                        <label>Weather <select id="scheduleWeather"></select></label>
+                        <label>Duration minutes <input id="scheduleDuration" type="number" min="1" max="1440" value="30"></label>
+                        <label>Start Mode
+                            <select id="scheduleMode">
+                                <option value="sequence">Rotation Sequence</option>
+                                <option value="delay">Start After Delay</option>
+                                <option value="time">Start At Time</option>
+                            </select>
+                        </label>
+                        <label>Delay min <input id="scheduleDelay" type="number" min="1" max="1440" value="30"></label>
+                        <label>Start Time <input id="scheduleStartTime" type="time" value="18:00"></label>
+                        <label class="toggleRow inlineToggle"><span>Repeat Daily</span><label class="switch"><input id="scheduleRepeat" type="checkbox"><i></i></label></label>
+                        <button id="addSchedule" class="primary">＋ Add</button>
+                    </div>
+                    <div id="scheduleList" class="scheduleList"></div>
+                    <button id="saveSchedule" class="primary rightBtn">Save Schedule</button>
+                </section>
+
+                <section id="tab-zones" class="tab">
+                    <div class="row between zoneTop">
+                        <div>
+                            <h2>Weather Zones</h2>
+                            <p class="muted">Create areas where weather can be different from the rest of the server.</p>
+                        </div>
+                        <div class="toggleRow compact"><span>Enable Zones</span><label class="switch"><input id="zonesEnabled" type="checkbox"><i></i></label></div>
+                    </div>
+
+                    <div class="zoneLayout">
+                        <div class="card zoneForm">
+                            <label>Zone ID <input id="zoneId" value="#auto"></label>
+                            <label>Zone Name <input id="zoneName" placeholder="Example: Paleto Snow"></label>
+                            <div class="miniForm two">
+                                <label>Mode
+                                    <select id="zoneMode">
+                                        <option value="static">Static Weather</option>
+                                        <option value="dynamic">Dynamic Weather</option>
+                                        <option value="mix">Mix Weather Pool</option>
+                                    </select>
+                                </label>
+                                <label>Weather <select id="zoneWeather"></select></label>
+                            </div>
+                            <label>Mix Pool <input id="zonePool" placeholder="RAIN, THUNDER, FOGGY"></label>
+                            <div class="miniForm three coords">
+                                <label>X <input id="zoneX" type="number" step="0.01" value="0"></label>
+                                <label>Y <input id="zoneY" type="number" step="0.01" value="0"></label>
+                                <label>Z <input id="zoneZ" type="number" step="0.01" value="0"></label>
+                            </div>
+                            <div class="miniForm two">
+                                <label>Radius <input id="zoneRadius" type="number" min="10" max="5000" value="200"></label>
+                                <label>Duration min <input id="zoneDuration" type="number" min="1" max="240" value="20"></label>
+                            </div>
+                            <label>Priority <input id="zonePriority" type="number" min="0" max="100" value="0"></label>
+                            <div class="miniForm two">
+                                <button id="getPos" class="primary">⌖ Get Current Position</button>
+                                <button id="saveZone" class="primary">▣ Save Zone</button>
+                            </div>
+                            <button id="cancelZone" class="danger full">× Clear Form</button>
+                        </div>
+
+                        <div class="mapCard card">
+                            <div class="zoneMapHeader">
+                                <div>
+                                    <span class="mapTag">GTA Interactive Zone Map</span>
+                                    <p class="muted">Click the map to choose the zone center. Drag the marker, scroll to zoom, then set weather and radius.</p>
+                                </div>
+                                <strong id="zoneMapCoords">X 0.00 Y 0.00</strong>
+                            </div>
+                            <div class="zoneMapShell">
+                                <div id="zoneMap" class="zoneMap"></div>
+                                <div id="zoneMapHint" class="zoneMapHint">Loading interactive GTA map...</div>
+                            </div>
+                            <div id="zoneList" class="zoneList"></div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+        <div id="toast" class="toast hidden"></div>
+    </div>
+    <script type="module" src="leaflet-loader.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

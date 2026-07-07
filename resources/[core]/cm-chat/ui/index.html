@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CM Chat</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="chat-root" class="chat-closed">
+        <div id="chat-messages" class="chat-messages"></div>
+
+        <div id="chat-controls" class="chat-controls hidden">
+            <div id="chat-tabs" class="chat-tabs"></div>
+
+            <div class="chat-input-row">
+                <input id="chat-input" type="text" maxlength="180" autocomplete="off" spellcheck="false">
+                <button id="chat-submit" title="Send">➤</button>
+            </div>
+
+            <div class="chat-actions-row">
+                <button id="actions-toggle" class="actions-toggle">ACTIONS</button>
+                <div id="chat-actions" class="chat-actions hidden"></div>
+            </div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
