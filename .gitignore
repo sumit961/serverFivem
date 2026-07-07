@@ -2,8 +2,8 @@
 cache/
 txData/cache/
 server.cfg
-resources/[mlo]
-resources/[clothes]
+resources/\[mlo\]/
+resources/\[clothes\]/
 
 # Optional: Ignore logs and local configurations
 *.log
