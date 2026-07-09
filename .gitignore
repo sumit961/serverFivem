@@ -15,8 +15,9 @@ server.local.cfg
 *.pem
 
 # Large/private asset folders
-resources/[mlo]/
-resources/[clothes]/
+# Large/private asset folders
+resources/\[mlo\]/
+resources/\[clothes\]/
 
 # Backup zip files
 *.zip
