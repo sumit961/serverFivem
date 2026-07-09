@@ -1,10 +1,22 @@
-# Ignore FiveM server cache
+# FiveM cache / generated files
 cache/
-txData/cache/
-server.cfg
-resources/\[mlo\]/
-resources/\[clothes\]/
-
-# Optional: Ignore logs and local configurations
+txData/
+crashes/
+logs/
 *.log
 server.log
+
+# Private local server configs / secrets
+server.local.cfg
+*.local.cfg
+.env
+.env.*
+*.key
+*.pem
+
+# Large/private asset folders
+resources/[mlo]/
+resources/[clothes]/
+
+# Backup zip files
+*.zip
