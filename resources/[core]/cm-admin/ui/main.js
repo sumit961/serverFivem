@@ -11,9 +11,11 @@ const state = {
   open: false,
   tab: 'dashboard',
   selectedPlayer: null,
-  data: { me: {}, players: [], admins: [], ranks: [], logs: [], permissions: [], server: {} },
+  data: { me: {}, players: [], admins: [], ranks: [], logs: [], logCategories: [], permissions: [], server: {} },
   offline: { query: '', results: [] },
-  map: { players: [], vehicles: [], showVehicles: false, cam: { x: 0, y: 0, zoom: 0.08 }, timer: null, drag: null },
+  map: { players: [], vehicles: [], showVehicles: true, showAdmins: true, cam: { x: 0, y: -800, zoom: 0.34 }, timer: null, drag: null, moved: false, cursor: null, resizeBound: false, selected: null, calibrating: false, calibration: null },
+  rankEditor: { name: '', label: '', level: 20, permissions: [] },
+  logFilter: 'all',
   detail: null,
 };
 
@@ -32,6 +34,7 @@ function post(name, payload) {
 function action(actionName, data) {
   return post('adminAction', { action: actionName, data: data || {} });
 }
+function sendAction(actionName, data) { return action(actionName, data); }
 
 function closeUi() { post('close', {}); }
 
@@ -115,11 +118,11 @@ function dashboard() {
   return `
     <div class="grid cols-4">
       <div class="card stat"><small>Online players</small><strong>${players.length}</strong><span>Live server</span></div>
-      <div class="card stat"><small>Admins saved</small><strong>${admins.length}</strong><span>Database</span></div>
+      <div class="card stat"><small>Admins online</small><strong>${players.filter(p => p.adminMode).length}</strong><span>/admin mode</span></div>
       <div class="card stat"><small>Ranks</small><strong>${ranks.length}</strong><span>Permission groups</span></div>
       <div class="card stat"><small>Recent logs</small><strong>${logs.length}</strong><span>Audit trail</span></div>
     </div>
-    <div class="grid cols-2" style="margin-top:16px">
+    <div class="grid cols-3" style="margin-top:16px">
       <div class="card">
         <h3>How this works</h3>
         <div class="detail-grid">
@@ -136,6 +139,14 @@ function dashboard() {
           <div class="kv"><small>Rank</small><strong>${esc(state.data.me.rankLabel || state.data.me.rank)}</strong></div>
           <div class="kv"><small>Level</small><strong>${esc(state.data.me.level)}</strong></div>
           <div class="kv"><small>Character ID</small><strong>${esc(state.data.me.characterId || '-')}</strong></div><div class="kv"><small>Admin Key</small><strong>${esc(state.data.me.identifier)}</strong></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Quick Tools</h3>
+        <div class="actions vertical">
+          ${(hasPerm('gps.teleport') || hasPerm('teleport') || hasPerm('players.teleport')) ? `<button class="btn primary" onclick="action('gpsTeleport')">GPS Teleport</button>` : ''}
+          ${hasPerm('map.view') || hasPerm('players.view') ? `<button class="btn" onclick="cmSetTab('map')">Open Live Map</button>` : ''}
+          ${hasPerm('dev.view') ? `<button class="btn" onclick="cmSetTab('developer')">Open Developer Launchers</button>` : ''}
         </div>
       </div>
     </div>`;
@@ -156,7 +167,7 @@ function playersPage() {
 
   const list = players.map(p => `
     <button class="item ${selected && Number(selected.id) === Number(p.id) ? 'active' : ''}" onclick="cmSelectPlayer(${Number(p.id)})">
-      <div class="avatar">${esc(p.id)}</div>
+      <div class="avatar">${esc(p.characterId || '?')}</div>
       <div><strong>${esc(p.name)}</strong><small>Char ${esc(p.characterId || '-')} · Ping ${esc(p.ping)}${p.cash !== undefined && p.cash !== null ? ` · $${Number(p.cash).toLocaleString()} / $${Number(p.bank || 0).toLocaleString()}` : ''}${distLabel(p) ? ' · ' + distLabel(p) : ''}</small></div>
       <span class="badge ${p.distance !== undefined && p.distance < 50 && !p.isSelf ? 'near' : (p.adminMode ? '' : 'off')}">${p.isSelf ? 'You' : (p.distance !== undefined && p.distance < 50 ? 'Nearby' : (p.adminMode ? 'Admin' : 'Player'))}</span>
     </button>`).join('');
@@ -174,10 +185,11 @@ function playersPage() {
 function playerDetail(p) {
   return `
     <div class="card">
-      <h3>${esc(p.name)} <span class="badge">ID ${esc(p.id)}</span></h3>
+      <h3>${esc(p.name)} <span class="badge">Char ${esc(p.characterId || '-')}</span></h3>
       <div class="detail-grid">
         <div class="kv"><small>Character ID</small><strong>${esc(p.characterId || '-')}</strong></div>
         <div class="kv"><small>Character name</small><strong>${esc(p.characterName || '-')}</strong></div>
+        <div class="kv"><small>Session source</small><strong>${esc(p.id || '-')}</strong></div>
         <div class="kv"><small>Identifier</small><strong>${esc(p.identifier || '-')}</strong></div>
         <div class="kv"><small>Cash / Bank</small><strong>${esc(money(p.cash))} / ${esc(money(p.bank))}</strong></div>
         <div class="kv"><small>Coords</small><strong>${esc(formatCoords(p))}</strong></div>
@@ -320,26 +332,70 @@ window.cmAddAdmin = function() {
 window.cmRemoveAdmin = function(identifier) { if (confirm('Disable this admin?')) action('removeAdmin', { identifier }); };
 window.cmSetAdminRank = function(identifier, rank) { action('setAdminRank', { identifier, rank }); };
 
+function permissionLabel(permission) {
+  return String(permission || '').replace(/\./g, ' / ');
+}
+
+function ensureRankEditor() {
+  if (!state.rankEditor) state.rankEditor = { name: '', label: '', level: 20, permissions: [] };
+  if (!state.rankEditor.name) {
+    const first = (state.data.ranks || [])[0];
+    if (first) {
+      state.rankEditor = {
+        name: first.name,
+        label: first.label,
+        level: Number(first.level || 0),
+        permissions: Array.from(new Set(first.permissions || []))
+      };
+    }
+  }
+}
+
 function ranksPage() {
+  ensureRankEditor();
   const ranks = state.data.ranks || [];
-  const perms = ['*'].concat(state.data.permissions || []);
+  const allPerms = ['*'].concat(state.data.permissions || []);
+  const assigned = Array.from(new Set(state.rankEditor.permissions || []));
+  const available = allPerms.filter(p => !assigned.includes(p));
+
+  const assignedHtml = assigned.map(p => `
+    <button class="perm-pill assigned" draggable="true" ondragstart="cmDragPerm(event, '${esc(p)}')">
+      <span>${esc(permissionLabel(p))}</span><b onclick="event.stopPropagation(); cmRemovePerm('${esc(p)}')">×</b>
+    </button>`).join('');
+
+  const availableHtml = available.map(p => `
+    <button class="perm-pill" draggable="true" ondragstart="cmDragPerm(event, '${esc(p)}')" onclick="cmAddPerm('${esc(p)}')">
+      ${esc(permissionLabel(p))}
+    </button>`).join('');
+
   return `
-    <div class="grid cols-2">
-      <div class="card">
-        <h3>Create / Edit Rank</h3>
+    <div class="rank-layout">
+      <div class="card rank-editor">
+        <h3>Rank Permission Builder</h3>
         <div class="form">
-          <div class="field"><label>Rank Name</label><input id="rankName" class="input" placeholder="senioradmin" /></div>
-          <div class="field"><label>Label</label><input id="rankLabel" class="input" placeholder="Senior Admin" /></div>
-          <div class="field"><label>Level</label><input id="rankLevel" class="input" type="number" value="20" /></div>
+          <div class="field"><label>Rank Name</label><input id="rankName" class="input" placeholder="senioradmin" value="${esc(state.rankEditor.name)}" /></div>
+          <div class="field"><label>Label</label><input id="rankLabel" class="input" placeholder="Senior Admin" value="${esc(state.rankEditor.label)}" /></div>
+          <div class="field"><label>Level</label><input id="rankLevel" class="input" type="number" value="${esc(state.rankEditor.level)}" /></div>
           <div class="actions"><button class="btn primary" onclick="cmSaveRank()">Save Rank</button><button class="btn danger" onclick="cmDeleteRank()">Delete Rank</button></div>
-          <div class="field full"><label>Permissions</label><div class="permissions">${perms.map(p => `<label class="check"><input class="permCheck" type="checkbox" value="${esc(p)}" /> ${esc(p)}</label>`).join('')}</div></div>
+        </div>
+        <div class="permission-builder">
+          <div class="perm-box" ondragover="event.preventDefault()" ondrop="cmDropPerm(event, true)">
+            <div class="perm-box-head"><strong>Assigned permissions</strong><small>Drag here to add · press × to remove</small></div>
+            <div class="perm-list assigned-list">${assignedHtml || '<span class="empty-inline">No permissions assigned</span>'}</div>
+          </div>
+          <div class="perm-box" ondragover="event.preventDefault()" ondrop="cmDropPerm(event, false)">
+            <div class="perm-box-head"><strong>Available permissions</strong><small>Click or drag into assigned</small></div>
+            <div class="perm-list">${availableHtml || '<span class="empty-inline">All permissions assigned</span>'}</div>
+          </div>
         </div>
       </div>
-      <div class="card">
+      <div class="card rank-list-card">
         <h3>Ranks</h3>
-        <div class="table-wrap"><table><thead><tr><th>Rank</th><th>Level</th><th>Permissions</th><th>Action</th></tr></thead><tbody>
-          ${ranks.map(r => `<tr><td><strong>${esc(r.label)}</strong><br><small>${esc(r.name)}</small></td><td>${esc(r.level)}</td><td>${esc((r.permissions || []).join(', '))}</td><td><button class="btn small" onclick="cmLoadRank('${esc(r.name)}')">Edit</button></td></tr>`).join('')}
-        </tbody></table></div>
+        <div class="rank-list">
+          ${ranks.map(r => `<button class="rank-row ${state.rankEditor.name === r.name ? 'active' : ''}" onclick="cmLoadRank('${esc(r.name)}')">
+            <strong>${esc(r.label)}</strong><small>${esc(r.name)} · Level ${esc(r.level)} · ${(r.permissions || []).length} permissions</small>
+          </button>`).join('')}
+        </div>
       </div>
     </div>`;
 }
@@ -347,41 +403,90 @@ function ranksPage() {
 window.cmLoadRank = function(name) {
   const r = (state.data.ranks || []).find(x => x.name === name);
   if (!r) return;
-  document.getElementById('rankName').value = r.name;
-  document.getElementById('rankLabel').value = r.label;
-  document.getElementById('rankLevel').value = r.level;
-  document.querySelectorAll('.permCheck').forEach(cb => { cb.checked = (r.permissions || []).includes(cb.value); });
+  state.rankEditor = {
+    name: r.name,
+    label: r.label,
+    level: Number(r.level || 0),
+    permissions: Array.from(new Set(r.permissions || []))
+  };
+  render();
 };
+
+window.cmDragPerm = function(event, permission) {
+  event.dataTransfer.setData('text/plain', permission);
+  event.dataTransfer.effectAllowed = 'move';
+};
+
+window.cmDropPerm = function(event, assign) {
+  event.preventDefault();
+  const permission = event.dataTransfer.getData('text/plain');
+  if (!permission) return;
+  if (assign) cmAddPerm(permission);
+  else cmRemovePerm(permission);
+};
+
+window.cmAddPerm = function(permission) {
+  permission = String(permission || '');
+  if (!permission) return;
+  const set = new Set(state.rankEditor.permissions || []);
+  set.add(permission);
+  state.rankEditor.permissions = Array.from(set);
+  render();
+};
+
+window.cmRemovePerm = function(permission) {
+  state.rankEditor.permissions = (state.rankEditor.permissions || []).filter(p => p !== permission);
+  render();
+};
+
 window.cmSaveRank = function() {
-  const permissions = Array.from(document.querySelectorAll('.permCheck:checked')).map(cb => cb.value);
+  const nameEl = document.getElementById('rankName');
+  const labelEl = document.getElementById('rankLabel');
+  const levelEl = document.getElementById('rankLevel');
+  state.rankEditor.name = nameEl ? nameEl.value : state.rankEditor.name;
+  state.rankEditor.label = labelEl ? labelEl.value : state.rankEditor.label;
+  state.rankEditor.level = Number(levelEl ? levelEl.value : state.rankEditor.level || 0);
   action('saveRank', {
-    name: document.getElementById('rankName').value,
-    label: document.getElementById('rankLabel').value,
-    level: Number(document.getElementById('rankLevel').value || 0),
-    permissions
+    name: state.rankEditor.name,
+    label: state.rankEditor.label,
+    level: state.rankEditor.level,
+    permissions: Array.from(new Set(state.rankEditor.permissions || []))
   });
 };
+
 window.cmDeleteRank = function() {
-  const name = document.getElementById('rankName').value;
+  const nameEl = document.getElementById('rankName');
+  const name = nameEl ? nameEl.value : state.rankEditor.name;
   if (!name) return;
   if (confirm(`Delete rank ${name}?`)) action('deleteRank', { name });
 };
 
 function logsPage() {
-  const logs = state.detail && state.detail.type === 'logs' ? state.detail.data.logs : (state.data.logs || []);
+  const rawLogs = state.detail && state.detail.type === 'logs' ? state.detail.data.logs : (state.data.logs || []);
+  const categories = (state.detail && state.detail.data && state.detail.data.categories) || state.data.logCategories || [];
+  const logs = state.logFilter === 'all' ? rawLogs : rawLogs.filter(l => (l.category || 'system') === state.logFilter);
+  const catButtons = [{ id: 'all', label: 'All' }].concat(categories).map(c =>
+    `<button class="btn small ${state.logFilter === c.id ? 'primary' : ''}" onclick="cmLogFilter('${esc(c.id)}')">${esc(c.label || c.id)}</button>`
+  ).join('');
   return `
     <div class="card">
       <div class="actions" style="justify-content:space-between; margin-bottom:12px">
-        <h3 style="margin:0">Audit Logs</h3>
+        <h3 style="margin:0">Role-Based Audit Logs</h3>
         <button class="btn primary" onclick="action('viewLogs')">Load More</button>
       </div>
+      <div class="actions log-filters">${catButtons}</div>
       <div class="table-wrap">
-        <table><thead><tr><th>ID</th><th>Admin</th><th>Action</th><th>Target</th><th>Details</th><th>Time</th></tr></thead><tbody>
-          ${logs.map(l => `<tr><td>${esc(l.id)}</td><td>${esc(l.adminName || l.identifier || '-')}<br><small>${esc(l.source || '')}</small></td><td><span class="badge">${esc(l.action)}</span></td><td>${esc(l.targetName || '-')}<br><small>${esc(l.targetIdentifier || '')}</small></td><td><div class="json">${esc(JSON.stringify(l.details || {}, null, 2))}</div></td><td>${esc(l.createdAt || '-')}</td></tr>`).join('')}
+        <table><thead><tr><th>ID</th><th>Category</th><th>Admin</th><th>Action</th><th>Target</th><th>Details</th><th>Time</th></tr></thead><tbody>
+          ${logs.map(l => `<tr><td>${esc(l.id)}</td><td><span class="badge">${esc(l.category || 'system')}</span></td><td>${esc(l.adminName || l.identifier || '-')}<br><small>${esc(l.source || '')}</small></td><td><span class="badge">${esc(l.action)}</span></td><td>${esc(l.targetName || '-')}<br><small>${esc(l.targetIdentifier || '')}</small></td><td><div class="json">${esc(JSON.stringify(l.details || {}, null, 2))}</div></td><td>${esc(l.createdAt || '-')}</td></tr>`).join('') || '<tr><td colspan="7" class="empty-cell">No logs available for your role/filter.</td></tr>'}
         </tbody></table>
       </div>
     </div>`;
 }
+
+window.cmLogFilter = function(category) {
+  state.logFilter = category || 'all';
+  render();
+};
 
 function tableFromRows(rows) {
   rows = rows || [];
@@ -461,8 +566,8 @@ window.addEventListener('message', (event) => {
   }
   if (msg.action === 'mapData') {
     state.map.players = (msg.data && msg.data.players) || [];
-    if (msg.data && msg.data.vehicles) state.map.vehicles = msg.data.vehicles;
-    if (state.tab === 'map') drawMap();
+    state.map.vehicles = (msg.data && msg.data.vehicles) || [];
+    if (state.tab === 'map') scheduleMapDraw();
     return;
   }
   if (msg.action === 'detailResult') {
@@ -527,27 +632,256 @@ function cmOffline(action, characterId, identifier) {
 }
 
 // ---------------------------------------------------------------------------
-// Live map (canvas radar: pan = drag, zoom = wheel, click = open profile).
-// Drop a rendered GTA V atlas as ui/map.png to get a real map background.
+// Live map (calibrated GTA atlas: pan = drag, zoom = wheel, click = select).
+// Uses the same stitched 6-tile atlas style as cm-climatime, but with admin
+// selection/action panels for players and vehicles.
 // ---------------------------------------------------------------------------
-const MAP_BOUNDS = { minX: -4230, maxX: 4600, minY: -4400, maxY: 8000 };
-let mapImg = null, mapImgTried = false;
+const MAP_DEFAULT_BOUNDS = { minX: -4000, maxX: 4500, minY: -4300, maxY: 8000 };
+let mapImg = null, mapImgTried = false, mapDrawQueued = false;
+
+function cleanBounds(input) {
+  const b = input || {};
+  const out = {
+    minX: Number(b.minX ?? MAP_DEFAULT_BOUNDS.minX),
+    maxX: Number(b.maxX ?? MAP_DEFAULT_BOUNDS.maxX),
+    minY: Number(b.minY ?? MAP_DEFAULT_BOUNDS.minY),
+    maxY: Number(b.maxY ?? MAP_DEFAULT_BOUNDS.maxY),
+  };
+  if (!Number.isFinite(out.minX)) out.minX = MAP_DEFAULT_BOUNDS.minX;
+  if (!Number.isFinite(out.maxX)) out.maxX = MAP_DEFAULT_BOUNDS.maxX;
+  if (!Number.isFinite(out.minY)) out.minY = MAP_DEFAULT_BOUNDS.minY;
+  if (!Number.isFinite(out.maxY)) out.maxY = MAP_DEFAULT_BOUNDS.maxY;
+  if (out.maxX <= out.minX) out.maxX = out.minX + 1000;
+  if (out.maxY <= out.minY) out.maxY = out.minY + 1000;
+  return out;
+}
+
+function serverMapBounds() {
+  return cleanBounds((state.data && state.data.server && state.data.server.mapBounds) || MAP_DEFAULT_BOUNDS);
+}
+
+function mapBounds() {
+  if (state.map.calibrating && state.map.calibration && state.map.calibration.bounds) {
+    return cleanBounds(state.map.calibration.bounds);
+  }
+  return serverMapBounds();
+}
+
+function canCalibrateMap() {
+  const srv = (state.data && state.data.server) || {};
+  return srv.mapAllowUiSave !== false && (hasPerm('map.calibrate') || hasPerm('ranks.manage') || hasPerm('dev.tools'));
+}
 
 function mapPage() {
   return `
-    <div class="card map-card">
-      <h3>Live Map
-        <label class="check map-toggle"><input type="checkbox" id="mapVehToggle" ${state.map.showVehicles ? 'checked' : ''} onchange="cmMapVehToggle(this.checked)" /> Show vehicles</label>
-      </h3>
-      <canvas id="mapCanvas"></canvas>
-      <div class="map-hint">Drag = pan · Wheel = zoom · Click blip = open profile</div>
+    <div class="map-layout">
+      <div class="card map-card">
+        <div class="zoneMapHeader admin-map-head">
+          <div>
+            <span class="mapTag">GTA Live Staff Map</span>
+            <p class="muted">Calibrated stitched 6-tile GTA atlas. Drag to pan, wheel to zoom, click player/vehicle blips for actions.</p>
+          </div>
+          <strong id="mapCoordsHint">X 0 Y 0</strong>
+        </div>
+        <div class="zoneMapToolbar admin-map-toolbar">
+          <button class="btn small ghost" type="button" onclick="cmMapZoom(1)">＋ Zoom</button>
+          <button class="btn small ghost" type="button" onclick="cmMapZoom(-1)">－ Zoom</button>
+          <button class="btn small ghost" type="button" onclick="cmMapFocusSelf()">⌖ Focus Self</button>
+          <button class="btn small ghost" type="button" onclick="cmMapClearSelection()">Clear Select</button>
+          ${canCalibrateMap() ? `<button class="btn small warn" type="button" onclick="cmMapToggleCalibration()">${state.map.calibrating ? 'Close Calibration' : 'Calibrate Map'}</button>` : ''}
+          ${(hasPerm('gps.teleport') || hasPerm('teleport') || hasPerm('players.teleport')) ? `<button class="btn small primary" type="button" onclick="action('gpsTeleport')">GPS TP</button>` : ''}
+          <label class="check map-toggle"><input type="checkbox" id="mapVehToggle" ${state.map.showVehicles ? 'checked' : ''} onchange="cmMapVehToggle(this.checked)" /> Vehicles</label>
+          <label class="check map-toggle"><input type="checkbox" id="mapAdminToggle" ${state.map.showAdmins ? 'checked' : ''} onchange="cmMapAdminToggle(this.checked)" /> Admins</label>
+        </div>
+        <div class="admin-map-wrap"><canvas id="mapCanvas"></canvas></div>
+        <div class="map-legend"><span class="dot player"></span> Player <span class="dot admin"></span> Logged-in admin <span class="dot self"></span> You <span class="dot vehicle"></span> Vehicle <span class="dot selected"></span> Selected</div>
+      </div>
+      <div id="mapSelection" class="map-selection">${mapSidePanel()}</div>
     </div>`;
 }
 
+function mapSidePanel() {
+  return `${mapCalibrationPanel()}${mapSelectionPanel()}`;
+}
+
+function mapCalibrationPanel() {
+  if (!state.map.calibrating) return '';
+  const b = mapBounds();
+  const source = esc(((state.data && state.data.server && state.data.server.mapBoundsSource) || 'config'));
+  const configText = `Config.Map.Bounds = {\n    minX = ${Math.round(b.minX)},\n    maxX = ${Math.round(b.maxX)},\n    minY = ${Math.round(b.minY)},\n    maxY = ${Math.round(b.maxY)}\n}`;
+  return `<div class="card map-side-card map-cal-card">
+    <h3>Map Calibration <span class="badge">${source}</span></h3>
+    <p class="muted tiny">Tune the atlas once, preview live, then save. Saved values load every restart from <code>data/map_bounds.json</code>.</p>
+    <div class="bounds-grid">
+      ${['minX','maxX','minY','maxY'].map(k => `<label><span>${k}</span><input id="cal_${k}" type="number" value="${Math.round(b[k])}" onchange="cmMapCalSet('${k}', this.value)" /></label>`).join('')}
+    </div>
+    <div class="cal-nudge-grid">
+      <button class="btn xsmall" onclick="cmMapCalShift('x', -100)">Map Left</button>
+      <button class="btn xsmall" onclick="cmMapCalShift('x', 100)">Map Right</button>
+      <button class="btn xsmall" onclick="cmMapCalShift('y', 100)">Map Up</button>
+      <button class="btn xsmall" onclick="cmMapCalShift('y', -100)">Map Down</button>
+      <button class="btn xsmall ghost" onclick="cmMapCalScale('x', 100)">Wider X</button>
+      <button class="btn xsmall ghost" onclick="cmMapCalScale('x', -100)">Narrower X</button>
+      <button class="btn xsmall ghost" onclick="cmMapCalScale('y', 100)">Taller Y</button>
+      <button class="btn xsmall ghost" onclick="cmMapCalScale('y', -100)">Shorter Y</button>
+    </div>
+    <textarea id="mapBoundsConfig" class="config-copy" readonly>${esc(configText)}</textarea>
+    <div class="actions">
+      <button class="btn small primary" onclick="cmMapCalSave()">Save For Every Restart</button>
+      <button class="btn small" onclick="cmMapCalCopy()">Copy Config</button>
+      <button class="btn small ghost" onclick="cmMapCalReset()">Reset Config Bounds</button>
+    </div>
+  </div>`;
+}
+
+function mapSelectionPanel() {
+  const sel = state.map.selected;
+  if (!sel) {
+    return `<div class="card map-side-card"><h3>Map Selection</h3><p class="empty">Click a player or vehicle blip on the map.</p><p class="muted tiny">Player actions are permission based. Vehicle actions use network entity/plate when available.</p></div>`;
+  }
+  if (sel.type === 'world') {
+    const w = sel.data || {};
+    return `<div class="card map-side-card"><h3>Map Point</h3>
+      <div class="detail-grid compact"><div class="kv"><small>X</small><strong>${Math.round(w.x || 0)}</strong></div><div class="kv"><small>Y</small><strong>${Math.round(w.y || 0)}</strong></div><div class="kv"><small>Z</small><strong>${Math.round(w.z || 40)}</strong></div></div>
+      <div class="actions">${hasPerm('map.teleport') || hasPerm('gps.teleport') || hasPerm('players.teleport') || hasPerm('teleport') ? `<button class="btn small primary" onclick="cmMapTeleport(${Number(w.x || 0)}, ${Number(w.y || 0)}, ${Number(w.z || 40)})">Teleport Here</button>` : ''}</div>
+    </div>`;
+  }
+  if (sel.type === 'vehicle') {
+    const v = sel.data || {};
+    const plate = esc(v.plate || 'UNKNOWN');
+    return `<div class="card map-side-card selected-vehicle"><h3>Vehicle <span class="badge">${plate}</span></h3>
+      <div class="detail-grid compact">
+        <div class="kv"><small>Plate</small><strong>${plate}</strong></div>
+        <div class="kv"><small>Model Hash</small><strong>${esc(v.model || '-')}</strong></div>
+        <div class="kv"><small>Net ID</small><strong>${esc(v.netId || '-')}</strong></div>
+        <div class="kv"><small>Coords</small><strong>${esc(formatCoords(v))}</strong></div>
+      </div>
+      <div class="actions">
+        ${(hasPerm('map.teleport') || hasPerm('players.teleport') || hasPerm('teleport') || hasPerm('vehicles.view')) ? `<button class="btn small primary" onclick="cmMapVehicleAction('${escJs(v.netId || 0)}','${escJs(v.plate || '')}','goto')">Go To Vehicle</button>` : ''}
+        ${hasPerm('vehicles.manage') ? `<button class="btn small success" onclick="cmMapVehicleAction('${escJs(v.netId || 0)}','${escJs(v.plate || '')}','repair')">Repair</button><button class="btn small danger" onclick="cmMapVehicleAction('${escJs(v.netId || 0)}','${escJs(v.plate || '')}','delete')">Delete</button>` : ''}
+      </div>
+    </div>`;
+  }
+  const p = sel.data || {};
+  return `<div class="card map-side-card selected-player"><h3>${esc(p.name || 'Player')} <span class="badge">Char ${esc(p.characterId || '-')}</span></h3>
+    <div class="detail-grid compact">
+      <div class="kv"><small>Status</small><strong>${p.self ? 'You' : (p.adminMode ? 'Admin' : 'Player')}</strong></div>
+      <div class="kv"><small>Character ID</small><strong>${esc(p.characterId || '-')}</strong></div>
+      <div class="kv"><small>Character name</small><strong>${esc(p.characterName || '-')}</strong></div>
+      <div class="kv"><small>Coords</small><strong>${esc(formatCoords(p))}</strong></div>
+    </div>
+    <div class="actions">
+      ${hasPerm('players.view') ? `<button class="btn small" onclick="cmMapInspectPlayer(${Number(p.id || 0)})">Inspect</button>` : ''}
+      ${hasPerm('players.teleport') ? `<button class="btn small primary" onclick="cmPlayerAction(${Number(p.id || 0)}, 'goto')">Go To</button><button class="btn small primary" onclick="cmPlayerAction(${Number(p.id || 0)}, 'bring')">Bring</button>` : ''}
+      ${hasPerm('players.freeze') ? `<button class="btn small" onclick="cmPlayerAction(${Number(p.id || 0)}, 'freeze')">Freeze</button><button class="btn small" onclick="cmPlayerAction(${Number(p.id || 0)}, 'unfreeze')">Unfreeze</button>` : ''}
+      ${hasPerm('tools.heal') ? `<button class="btn small success" onclick="cmPlayerAction(${Number(p.id || 0)}, 'heal')">Heal</button><button class="btn small success" onclick="cmPlayerAction(${Number(p.id || 0)}, 'armor')">Armor</button>` : ''}
+      ${hasPerm('inventory.view') ? `<button class="btn small" onclick="cmViewInventory(${Number(p.id || 0)})">Inventory</button>` : ''}
+      ${hasPerm('vehicles.view') ? `<button class="btn small" onclick="cmViewVehicles(${Number(p.id || 0)})">Cars</button>` : ''}
+      ${hasPerm('players.kick') ? `<button class="btn small danger" onclick="cmKick(${Number(p.id || 0)})">Kick</button>` : ''}
+    </div>
+  </div>`;
+}
+
+function escJs(value) {
+  return String(value === null || value === undefined ? '' : value).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, ' ');
+}
+
+function updateMapSelection() {
+  const el = document.getElementById('mapSelection');
+  if (el) el.innerHTML = mapSidePanel();
+  scheduleMapDraw();
+}
+
 function cmMapVehToggle(v) { state.map.showVehicles = v; requestMapData(); }
+function cmMapAdminToggle(v) { state.map.showAdmins = v; scheduleMapDraw(); }
+function cmMapZoom(dir) {
+  const cam = state.map.cam;
+  cam.zoom = Math.min(1.65, Math.max(0.035, cam.zoom * (dir > 0 ? 1.22 : 0.82)));
+  scheduleMapDraw();
+}
+function cmMapFocusSelf() {
+  const self = (state.map.players || []).find(p => p.self);
+  if (self) {
+    state.map.cam.x = Number(self.x) || 0;
+    state.map.cam.y = Number(self.y) || 0;
+    state.map.selected = { type: 'player', data: self };
+    updateMapSelection();
+  } else {
+    requestMapData();
+  }
+}
+function cmMapClearSelection() { state.map.selected = null; updateMapSelection(); }
+function ensureMapCalibration() {
+  if (!state.map.calibration || !state.map.calibration.bounds) {
+    state.map.calibration = { bounds: cleanBounds(serverMapBounds()) };
+  }
+  return state.map.calibration.bounds;
+}
+function cmMapToggleCalibration() {
+  state.map.calibrating = !state.map.calibrating;
+  if (state.map.calibrating) ensureMapCalibration();
+  render();
+}
+function cmMapCalSet(key, value) {
+  const b = ensureMapCalibration();
+  if (!Object.prototype.hasOwnProperty.call(b, key)) return;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return;
+  b[key] = Math.round(n);
+  state.map.calibration.bounds = cleanBounds(b);
+  updateMapSelection();
+}
+function cmMapCalShift(axis, amount) {
+  const b = ensureMapCalibration();
+  amount = Number(amount || 0);
+  if (axis === 'x') { b.minX += amount; b.maxX += amount; }
+  if (axis === 'y') { b.minY += amount; b.maxY += amount; }
+  state.map.calibration.bounds = cleanBounds(b);
+  updateMapSelection();
+}
+function cmMapCalScale(axis, amount) {
+  const b = ensureMapCalibration();
+  amount = Number(amount || 0);
+  if (axis === 'x') { b.minX -= amount; b.maxX += amount; }
+  if (axis === 'y') { b.minY -= amount; b.maxY += amount; }
+  state.map.calibration.bounds = cleanBounds(b);
+  updateMapSelection();
+}
+function cmMapCalSave() {
+  const b = cleanBounds(ensureMapCalibration());
+  state.data.server = state.data.server || {};
+  state.data.server.mapBounds = b;
+  state.data.server.mapBoundsSource = 'saved';
+  sendAction('saveMapBounds', { bounds: b });
+  updateMapSelection();
+}
+function cmMapCalReset() {
+  const b = cleanBounds((state.data && state.data.server && state.data.server.mapConfigBounds) || MAP_DEFAULT_BOUNDS);
+  state.map.calibration = { bounds: b };
+  state.data.server = state.data.server || {};
+  state.data.server.mapBounds = b;
+  sendAction('resetMapBounds', {});
+  updateMapSelection();
+}
+function cmMapCalCopy() {
+  const ta = document.getElementById('mapBoundsConfig');
+  if (!ta) return;
+  ta.focus();
+  ta.select();
+  try { document.execCommand('copy'); } catch (e) {}
+}
+function cmMapInspectPlayer(id) {
+  state.selectedPlayer = Number(id || 0);
+  state.tab = 'players';
+  stopMapTimer();
+  sendAction('refresh', {});
+  render();
+}
+function cmMapTeleport(x, y, z) { sendAction('mapTeleportToCoords', { x, y, z }); }
+function cmMapVehicleAction(netId, plate, vehicleAction) { sendAction('vehicleMapAction', { netId: Number(netId || 0), plate: plate || '', vehicleAction }); }
 
 function requestMapData() {
-  sendAction('mapData', { vehicles: state.map.showVehicles });
+  sendAction('mapData', { vehicles: state.map.showVehicles, admins: state.map.showAdmins });
 }
 
 function stopMapTimer() {
@@ -561,44 +895,73 @@ function initMap() {
   if (!mapImgTried) {
     mapImgTried = true;
     const img = new Image();
-    img.onload = () => { mapImg = img; drawMap(); };
-    img.src = 'map.png';
+    img.onload = () => { mapImg = img; scheduleMapDraw(); };
+    img.onerror = () => { mapImg = null; scheduleMapDraw(); };
+    img.src = 'assets/gta-map-local.png';
   }
 
-  canvas.width = canvas.clientWidth;
-  canvas.height = canvas.clientHeight;
+  resizeMapCanvas(canvas);
+  if (!state.map.resizeBound) {
+    state.map.resizeBound = true;
+    window.addEventListener('resize', () => {
+      if (state.tab === 'map' && state.open) {
+        const c = document.getElementById('mapCanvas');
+        if (c) resizeMapCanvas(c);
+        scheduleMapDraw();
+      }
+    }, { passive: true });
+  }
 
-  canvas.onmousedown = (e) => { state.map.drag = { x: e.clientX, y: e.clientY }; };
+  canvas.onmousedown = (e) => { state.map.drag = { x: e.clientX, y: e.clientY }; state.map.moved = false; };
   window.onmouseup = () => { state.map.drag = null; };
   canvas.onmousemove = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const w = screenToWorld(canvas, mx, my);
+    state.map.cursor = w;
+    const hint = document.getElementById('mapCoordsHint');
+    if (hint) hint.textContent = `X ${Math.round(w.x)} Y ${Math.round(w.y)}`;
+
     if (!state.map.drag) return;
     const cam = state.map.cam;
-    cam.x -= (e.clientX - state.map.drag.x) / cam.zoom;
-    cam.y += (e.clientY - state.map.drag.y) / cam.zoom;
+    const dx = e.clientX - state.map.drag.x;
+    const dy = e.clientY - state.map.drag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 3) state.map.moved = true;
+    cam.x -= dx / cam.zoom;
+    cam.y += dy / cam.zoom;
     state.map.drag = { x: e.clientX, y: e.clientY };
-    drawMap();
+    scheduleMapDraw();
   };
   canvas.onwheel = (e) => {
     e.preventDefault();
+    const before = screenToWorld(canvas, e.offsetX, e.offsetY);
     const cam = state.map.cam;
-    cam.zoom = Math.min(1.2, Math.max(0.02, cam.zoom * (e.deltaY < 0 ? 1.18 : 0.85)));
-    drawMap();
+    cam.zoom = Math.min(1.65, Math.max(0.035, cam.zoom * (e.deltaY < 0 ? 1.18 : 0.85)));
+    const after = screenToWorld(canvas, e.offsetX, e.offsetY);
+    cam.x += before.x - after.x;
+    cam.y += before.y - after.y;
+    scheduleMapDraw();
   };
   canvas.onclick = (e) => {
-    if (state.map.dragMoved) return;
+    if (state.map.moved) return;
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left, my = e.clientY - rect.top;
-    for (const p of state.map.players) {
+
+    let best = null;
+    for (const p of state.map.players || []) {
       const s = worldToScreen(canvas, p.x, p.y);
-      if (Math.hypot(s.x - mx, s.y - my) < 12) {
-        state.selectedPlayer = p.id;
-        state.tab = 'players';
-        stopMapTimer();
-        sendAction('refresh', {});
-        render();
-        return;
+      const d = Math.hypot(s.x - mx, s.y - my);
+      if (d < 18 && (!best || d < best.d)) best = { d, type: 'player', data: p };
+    }
+    if (state.map.showVehicles) {
+      for (const v of state.map.vehicles || []) {
+        const s = worldToScreen(canvas, v.x, v.y);
+        const d = Math.hypot(s.x - mx, s.y - my);
+        if (d < 16 && (!best || d < best.d)) best = { d, type: 'vehicle', data: v };
       }
     }
+    state.map.selected = best ? { type: best.type, data: best.data } : { type: 'world', data: screenToWorld(canvas, mx, my) };
+    updateMapSelection();
   };
 
   stopMapTimer();
@@ -606,71 +969,135 @@ function initMap() {
   state.map.timer = setInterval(() => {
     if (state.tab === 'map' && state.open) requestMapData();
     else stopMapTimer();
-  }, 2000);
+  }, 1500);
 
-  drawMap();
+  scheduleMapDraw();
 }
+
+function resizeMapCanvas(canvas) {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  canvas.width = Math.max(300, Math.floor(rect.width * dpr));
+  canvas.height = Math.max(260, Math.floor(rect.height * dpr));
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  canvas._cmWidth = rect.width;
+  canvas._cmHeight = rect.height;
+}
+
+function canvasW(canvas) { return canvas._cmWidth || canvas.clientWidth || canvas.width; }
+function canvasH(canvas) { return canvas._cmHeight || canvas.clientHeight || canvas.height; }
 
 function worldToScreen(canvas, wx, wy) {
   const cam = state.map.cam;
   return {
-    x: (wx - cam.x) * cam.zoom + canvas.width / 2,
-    y: -(wy - cam.y) * cam.zoom + canvas.height / 2
+    x: (Number(wx || 0) - cam.x) * cam.zoom + canvasW(canvas) / 2,
+    y: -(Number(wy || 0) - cam.y) * cam.zoom + canvasH(canvas) / 2
   };
+}
+
+function screenToWorld(canvas, sx, sy) {
+  const cam = state.map.cam;
+  return {
+    x: ((sx - canvasW(canvas) / 2) / cam.zoom) + cam.x,
+    y: -((sy - canvasH(canvas) / 2) / cam.zoom) + cam.y,
+    z: 40
+  };
+}
+
+function scheduleMapDraw() {
+  if (mapDrawQueued) return;
+  mapDrawQueued = true;
+  requestAnimationFrame(() => { mapDrawQueued = false; drawMap(); });
 }
 
 function drawMap() {
   const canvas = document.getElementById('mapCanvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
+  const w = canvasW(canvas), h = canvasH(canvas);
   const cam = state.map.cam;
+  const bounds = mapBounds();
 
-  ctx.fillStyle = '#0a141b';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#07131b';
+  ctx.fillRect(0, 0, w, h);
 
   if (mapImg) {
-    const tl = worldToScreen(canvas, MAP_BOUNDS.minX, MAP_BOUNDS.maxY);
-    const w = (MAP_BOUNDS.maxX - MAP_BOUNDS.minX) * cam.zoom;
-    const h = (MAP_BOUNDS.maxY - MAP_BOUNDS.minY) * cam.zoom;
-    ctx.globalAlpha = 0.55;
-    ctx.drawImage(mapImg, tl.x, tl.y, w, h);
+    const tl = worldToScreen(canvas, bounds.minX, bounds.maxY);
+    const iw = (bounds.maxX - bounds.minX) * cam.zoom;
+    const ih = (bounds.maxY - bounds.minY) * cam.zoom;
+    ctx.globalAlpha = 0.92;
+    ctx.drawImage(mapImg, tl.x, tl.y, iw, ih);
     ctx.globalAlpha = 1;
   } else {
-    // Grid every 500m
-    ctx.strokeStyle = 'rgba(140, 230, 255, 0.07)';
+    ctx.strokeStyle = 'rgba(140, 230, 255, 0.08)';
     ctx.lineWidth = 1;
-    for (let gx = MAP_BOUNDS.minX; gx <= MAP_BOUNDS.maxX; gx += 500) {
-      const a = worldToScreen(canvas, gx, MAP_BOUNDS.minY), b = worldToScreen(canvas, gx, MAP_BOUNDS.maxY);
+    for (let gx = bounds.minX; gx <= bounds.maxX; gx += 500) {
+      const a = worldToScreen(canvas, gx, bounds.minY), b = worldToScreen(canvas, gx, bounds.maxY);
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     }
-    for (let gy = MAP_BOUNDS.minY; gy <= MAP_BOUNDS.maxY; gy += 500) {
-      const a = worldToScreen(canvas, MAP_BOUNDS.minX, gy), b = worldToScreen(canvas, MAP_BOUNDS.maxX, gy);
+    for (let gy = bounds.minY; gy <= bounds.maxY; gy += 500) {
+      const a = worldToScreen(canvas, bounds.minX, gy), b = worldToScreen(canvas, bounds.maxX, gy);
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     }
   }
+
+  const selected = state.map.selected;
 
   if (state.map.showVehicles) {
-    ctx.fillStyle = 'rgba(255, 176, 32, 0.85)';
-    for (const v of state.map.vehicles) {
+    for (const v of state.map.vehicles || []) {
       const s = worldToScreen(canvas, v.x, v.y);
-      ctx.fillRect(s.x - 2.5, s.y - 2.5, 5, 5);
+      if (s.x < -20 || s.y < -20 || s.x > w + 20 || s.y > h + 20) continue;
+      const isSel = selected && selected.type === 'vehicle' && ((selected.data.netId && selected.data.netId === v.netId) || (selected.data.plate && selected.data.plate === v.plate));
+      ctx.save();
+      ctx.translate(s.x, s.y);
+      ctx.fillStyle = isSel ? '#ffffff' : 'rgba(255, 195, 72, 0.95)';
+      ctx.strokeStyle = isSel ? '#ffd25a' : 'rgba(0,0,0,0.75)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.rect(-4.5, -4.5, 9, 9);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
     }
   }
 
-  for (const p of state.map.players) {
+  for (const p of state.map.players || []) {
+    const isAdmin = p.adminMode && state.map.showAdmins;
+    const isSel = selected && selected.type === 'player' && Number(selected.data.id) === Number(p.id);
     const s = worldToScreen(canvas, p.x, p.y);
+    if (s.x < -100 || s.y < -40 || s.x > w + 140 || s.y > h + 40) continue;
     ctx.beginPath();
-    ctx.arc(s.x, s.y, p.self ? 7 : 5.5, 0, Math.PI * 2);
-    ctx.fillStyle = p.self ? '#39ff88' : '#00e6ff';
+    ctx.arc(s.x, s.y, isSel ? 9 : (p.self ? 8 : (isAdmin ? 7 : 5.5)), 0, Math.PI * 2);
+    ctx.fillStyle = isSel ? '#ffffff' : (p.self ? '#52ffa9' : (isAdmin ? '#ff2d3d' : '#45e0ff'));
     ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+    ctx.lineWidth = isSel ? 3 : 2;
+    ctx.strokeStyle = isSel ? '#45e0ff' : 'rgba(0,0,0,0.72)';
     ctx.stroke();
-    ctx.fillStyle = 'rgba(235, 252, 255, 0.92)';
-    ctx.font = '600 11px Nunito, sans-serif';
-    ctx.fillText(`${p.name} [${p.id}]`, s.x + 9, s.y + 4);
+    ctx.fillStyle = isAdmin ? '#ff2d3d' : 'rgba(235, 252, 255, 0.95)';
+    ctx.font = isSel ? '800 11px Arial, sans-serif' : '700 11px Arial, sans-serif';
+    const idText = p.characterId ? `#${p.characterId}` : 'No Char';
+    const label = `${isAdmin ? 'ADMIN ' : ''}${p.name || 'Player'} ${idText}`;
+    ctx.fillText(label, s.x + 10, s.y + 4);
   }
 }
 
+window.cmMapToggleCalibration = cmMapToggleCalibration;
+window.cmMapCalSet = cmMapCalSet;
+window.cmMapCalShift = cmMapCalShift;
+window.cmMapCalScale = cmMapCalScale;
+window.cmMapCalSave = cmMapCalSave;
+window.cmMapCalReset = cmMapCalReset;
+window.cmMapCalCopy = cmMapCalCopy;
+window.cmMapVehToggle = cmMapVehToggle;
+window.cmMapAdminToggle = cmMapAdminToggle;
+window.cmMapZoom = cmMapZoom;
+window.cmMapFocusSelf = cmMapFocusSelf;
+window.cmMapClearSelection = cmMapClearSelection;
+window.cmMapInspectPlayer = cmMapInspectPlayer;
+window.cmMapTeleport = cmMapTeleport;
+window.cmMapVehicleAction = cmMapVehicleAction;
 
 // ---------------------------------------------------------------------------
 // Developer tools (plugin-registered by other resources; nothing hardcoded).

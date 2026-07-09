@@ -1,0 +1,6 @@
+CM Spawn v1.1.2 Dead Spawn Netfix
+
+Fixes:
+- Sends cm-spawn:client:spawnComplete after the server accepts spawnComplete.
+- Locally triggers cm-spawn:client:spawnComplete after the spawn reveal.
+- Dead-location spawns keep health at downed threshold and keep HUD/radar hidden until cm-playerdata deathscreen takes over.

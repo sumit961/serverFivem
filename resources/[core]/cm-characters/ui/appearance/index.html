@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Character Appearance</title>
-    <link href="https://fonts.googleapis.com/css2?family=Titillium+Web:ital,wght@0,200;0,300;0,400;0,600;0,700;0,900;1,200;1,300;1,400;1,600;1,700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-components.css">
     <link rel="stylesheet" href="style.css">
 </head>
 <body style="display:none">
@@ -44,17 +44,18 @@
             </div>
             <div class="actions">
                 <div class="accept-skin" onclick="saveAppearance()">
-                    <i class="fa-solid fa-check accept-icon"></i>
+                    <span class="accept-icon">✓</span>
                     <p id="save">SAVE & SPAWN</p>
                 </div>
                 <div class="hands-up" onclick="handsUp()">
-                    <i class="fa-solid fa-hands-holding-circle"></i>
+                    <span>Hands</span>
                 </div>
             </div>
         </div>
     </div>
 
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="nui://cm-ui/web/cm-ui.js"></script>
+    <script src="../vendor/cm-miniquery.js"></script>
     <script src="translation.js"></script>
     <script src="app.js"></script>
 </body>

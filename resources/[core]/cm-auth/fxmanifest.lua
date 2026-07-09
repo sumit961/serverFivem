@@ -2,10 +2,11 @@ fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
 
-description 'CM-Auth: GTA IV-style loading screen, styled auth UI, trusted-device login, and 10-tier RBAC admin auth'
-version '2.2.3-native-passwordhash-fix'
+description 'CM-Auth: GTA IV-style loading screen, styled auth UI, trusted-device login, and character selector handoff'
+version '2.3.1-cm-ui-auth'
 
 dependencies {
+    'cm-ui',
     'oxmysql',
     'cm-core'
 }

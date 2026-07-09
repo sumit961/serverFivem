@@ -1,0 +1,7 @@
+CM Spawn v1.1.3
+
+Fixes:
+- Uses persistent death_location when dead characters reconnect.
+- Any spawn selection while dead resolves server-side to last body location.
+- Adds spawn selector state bags so deathscreen waits until spawn UI closes.
+- Preloads cm-climatime while the spawn page is open, then prepares again before reveal.

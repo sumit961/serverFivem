@@ -1,6 +1,31 @@
 -- cm-characters appearance client
 -- Integrates vms_charcreator for character customization
 
+
+-- Production-safe local logger wrapper.
+-- When Config.Debug/Config.VerboseLogs is false, normal CM-CHARACTERS debug prints are hidden.
+-- Warnings/errors still print so real problems are visible.
+local __cmCharactersPrint = print
+local function __cmCharactersShouldVerbose()
+    return Config and (Config.Debug == true or Config.VerboseLogs == true or Config.ProductionMode == false)
+end
+local function print(...)
+    if __cmCharactersShouldVerbose() then
+        return __cmCharactersPrint(...)
+    end
+
+    local first = tostring(select(1, ...) or '')
+    local isCmCharactersLog = first:find('%[CM%-CHARACTERS') ~= nil
+    if not isCmCharactersLog then
+        return __cmCharactersPrint(...)
+    end
+
+    local upper = first:upper()
+    if upper:find('ERROR', 1, true) or upper:find('WARNING', 1, true) or upper:find('FAILED', 1, true) or upper:find('DENIED', 1, true) then
+        return __cmCharactersPrint(...)
+    end
+end
+
 local appearanceCam = nil
 local appearanceOffset = nil
 local currentCharData = nil
@@ -768,6 +793,25 @@ RegisterNUICallback('appearanceSave', function(data, cb)
 end)
 
 
+
+local function callClimatimeExport(name, payload)
+    if GetResourceState('cm-climatime') ~= 'started' then return false end
+    local ok = pcall(function()
+        exports['cm-climatime'][name](payload)
+    end)
+    return ok == true
+end
+
+local function notifyPreSpawnClimatePhase(phase, payload)
+    payload = type(payload) == 'table' and payload or {}
+    payload.phase = phase
+    payload.source = 'cm-characters'
+    payload.startedAt = GetGameTimer()
+    TriggerEvent('cm-spawn:client:climatePreloadPhase', payload)
+    TriggerEvent('cm-climatime:client:preSpawnPhase', payload)
+    TriggerEvent('cm-climatime:client:requestSync', payload.reason or 'cm-characters-pre-spawn')
+end
+
 local function prepareClimatimeBeforeFirstSpawn()
     local c = Config and Config.CharacterScreenWorld or {}
     if c.preSpawnClimatePrepare ~= true then return false end
@@ -790,14 +834,22 @@ local function prepareClimatimeBeforeFirstSpawn()
         rainRampSeconds = tonumber(c.preSpawnRainRampSeconds) or 1.2
     }
 
-    local preparedByExport = false
-    if GetResourceState('cm-climatime') == 'started' then
-        preparedByExport = pcall(function() exports['cm-climatime']:PrepareBeforeSpawn(payload) end)
-    end
-    if not preparedByExport then
-        TriggerEvent('cm-climatime:client:prepareBeforeSpawn', payload)
-    end
+    notifyPreSpawnClimatePhase('starting', payload)
+
+    local preparedByExport = callClimatimeExport('PrepareBeforeSpawn', payload)
+        or callClimatimeExport('PreloadBeforeSpawn', payload)
+        or callClimatimeExport('RequestPreSpawnSync', payload)
+        or callClimatimeExport('SyncNow', payload)
+
+    TriggerEvent('cm-climatime:client:prepareBeforeSpawn', payload)
+    TriggerEvent('cm-climatime:client:preloadBeforeSpawn', payload)
+    TriggerEvent('cm-climatime:client:requestImmediateSync', payload)
+
     Wait(prepareMs)
+
+    payload.preparedByExport = preparedByExport
+    notifyPreSpawnClimatePhase('ready', payload)
+
     LocalPlayer.state:set('cmCharactersPreparingSpawnClimate', false, true)
     LocalPlayer.state:set('cmClimatimePreSpawnPreparing', false, true)
     LocalPlayer.state:set('cmClimatimePreSpawnPrepared', true, true)

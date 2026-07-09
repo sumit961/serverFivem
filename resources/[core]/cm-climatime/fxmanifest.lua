@@ -2,9 +2,11 @@ fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
 
-version '1.5.2-pre-spawn-weather-prepare'
+version '1.7.2-clock-map-zone-ui-fix'
 author 'CM Framework / Sumit Yadav'
-description 'CM Climatime - advanced CM weather/time with spawn-gated start, pre-spawn weather prepare, smooth rain, zone blending, presets, forecast exports and schedules'
+description 'CM Climatime - production weather/time with cm-ui admin panel, silent pre-spawn climate, overflow guard, and improved GTA zone map'
+
+dependency 'cm-ui'
 
 shared_scripts {
     'shared/config.lua'

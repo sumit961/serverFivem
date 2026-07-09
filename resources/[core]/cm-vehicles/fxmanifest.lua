@@ -4,7 +4,7 @@ lua54 'yes'
 
 author 'CM Framework / refactored for ClockMate'
 description 'CM owned vehicle system: keys, locks, menu, trunk access; inventory delegated to cm-inventory'
-version '2.3.0-fuel-engine-impact-fix'
+version '2.4.0-interaction-arbiter'
 
 ui_page 'ui/index.html'
 

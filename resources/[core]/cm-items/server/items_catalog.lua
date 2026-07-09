@@ -84,6 +84,26 @@ local function rowToDef(row)
     }
 end
 
+local function copyForClient(value)
+    if type(value) ~= 'table' then return value end
+    local out = {}
+    for k, v in pairs(value) do out[k] = copyForClient(v) end
+    return out
+end
+
+local function syncItemsCatalog(target)
+    local payload = {}
+    for name, def in pairs(CMItems.CatalogItems or {}) do
+        payload[name] = copyForClient(def)
+    end
+
+    if target and tonumber(target) and tonumber(target) > 0 then
+        TriggerClientEvent('cm-items:client:setItemsCatalog', tonumber(target), payload)
+    else
+        TriggerClientEvent('cm-items:client:setItemsCatalog', -1, payload)
+    end
+end
+
 -- ============================================================
 -- Image save (base64 dataURL -> cm-items/ui/images/catalog/<name>.png)
 -- Returns the nui path so it can be stored in the catalog row.
@@ -197,6 +217,7 @@ function CMItems.SaveCatalogItem(def)
     CMItems.Items[name] = def2
 
     dbg(('SaveCatalogItem name=%s category=%s image=%s'):format(name, row.category, tostring(image)))
+    syncItemsCatalog()
     return true, { name = name, image = image }
 end
 
@@ -220,9 +241,22 @@ function CMItems.DeleteCatalogItem(name)
     name = normalizeName(name)
     if name == '' then return false, 'invalid_name' end
     if not ensureCatalogTable() then return false, 'catalog_table_unavailable' end
+
+    local rows = MySQL.query.await('SELECT name FROM cm_items_catalog WHERE name = ? LIMIT 1', { name }) or {}
+    if #rows == 0 then
+        return false, 'catalog_item_not_found_or_static_item'
+    end
+
     MySQL.query.await('DELETE FROM cm_items_catalog WHERE name = ?', { name })
     CMItems.CatalogItems[name] = nil
-    if CMItems.Items then CMItems.Items[name] = nil end
+
+    -- Only remove SQL-backed runtime items here. Static shared/items.lua definitions
+    -- must be removed from code and reloaded, not deleted from the UI/export.
+    if CMItems.Items and (not CMItems.Items[name] or CMItems.Items[name].catalogMeta ~= nil) then
+        CMItems.Items[name] = nil
+    end
+
+    syncItemsCatalog()
     return true
 end
 
@@ -232,13 +266,19 @@ end
 function CMItems.ReloadItemsCatalog()
     if not ensureCatalogTable() then return end
     local rows = MySQL.query.await('SELECT * FROM cm_items_catalog WHERE enabled = 1') or {}
-    CMItems.CatalogItems = {}
     CMItems.Items = CMItems.Items or {}
+    for name in pairs(CMItems.CatalogItems or {}) do
+        if CMItems.Items[name] and CMItems.Items[name].catalogMeta ~= nil then
+            CMItems.Items[name] = nil
+        end
+    end
+    CMItems.CatalogItems = {}
     for _, row in ipairs(rows) do
         local def = rowToDef(row)
         CMItems.CatalogItems[def.name] = def
         CMItems.Items[def.name] = def
     end
+    syncItemsCatalog()
     dbg(('ReloadItemsCatalog loaded %s catalog items'):format(#rows))
 end
 
@@ -276,9 +316,9 @@ function CMItems.GiveCatalogItem(src, name, amount, metaOverride)
 
     local inv = exports['cm-inventory']
     local attempts = {
-        function() return inv:AddItem(src, name, amount, meta, 'cm_items_give') end,
-        function() return inv:AddItem(src, name, amount, meta) end,
-        function() return inv:AddItem(src, name, amount, false, meta, 'cm_items_give') end,
+        function() return inv['AddItem'](src, name, amount, meta, nil, 'cm_items_give') end,
+        function() return inv['AddItem'](src, name, amount, meta, 'cm_items_give') end,
+        function() return inv['addItem'] and inv['addItem'](src, name, amount, meta, nil, 'cm_items_give') end,
     }
     for _, fn in ipairs(attempts) do
         local ok, result = pcall(fn)
@@ -288,6 +328,10 @@ function CMItems.GiveCatalogItem(src, name, amount, metaOverride)
     end
     return false, 'add_failed'
 end
+
+RegisterNetEvent('cm-items:server:requestItemsCatalogSync', function()
+    syncItemsCatalog(source)
+end)
 
 -- ============================================================
 -- Exports

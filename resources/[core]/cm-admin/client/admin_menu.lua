@@ -49,22 +49,31 @@ RegisterNetEvent('cm-admin:client:detailResult', function(payload)
 end)
 
 RegisterNetEvent('cm-admin:client:closeForDevTool', function()
+    menuOpen = false
     SetNuiFocus(false, false)
+    SetNuiFocusKeepInput(false)
     SendNUIMessage({ action = 'close' })
+    setHudVisible(true)
 end)
 
 RegisterNetEvent('cm-admin:client:runCommand', function(command, values)
     if type(command) ~= 'string' or command == '' then return end
+    menuOpen = false
     SetNuiFocus(false, false) -- release menu focus so the tool's own UI can take it
+    SetNuiFocusKeepInput(false)
     SendNUIMessage({ action = 'close' })
+    setHudVisible(true)
     Wait(150)
     ExecuteCommand(command)
 end)
 
 RegisterNetEvent('cm-admin:client:devClientEvent', function(eventName, values)
     if type(eventName) ~= 'string' or eventName == '' then return end
+    menuOpen = false
     SetNuiFocus(false, false)
+    SetNuiFocusKeepInput(false)
     SendNUIMessage({ action = 'close' })
+    setHudVisible(true)
     Wait(150)
     TriggerEvent(eventName, values)
 end)
@@ -148,6 +157,128 @@ RegisterNetEvent('cm-admin:client:teleportToCoords', function(coords)
     notify('Teleported.', 'success')
 end)
 
+
+local function loadGroundZ(x, y, startZ)
+    local z = tonumber(startZ) or 800.0
+    RequestCollisionAtCoord(x, y, z)
+    for i = 1, 45 do
+        local probeZ = 1000.0 - (i * 22.0)
+        RequestCollisionAtCoord(x, y, probeZ)
+        local found, groundZ = GetGroundZFor_3dCoord(x + 0.0, y + 0.0, probeZ + 0.0, false)
+        if found then
+            return groundZ + 1.2
+        end
+        Wait(0)
+    end
+    return z
+end
+
+RegisterNetEvent('cm-admin:client:teleportToWaypoint', function()
+    local blip = GetFirstBlipInfoId(8) -- waypoint
+    if not DoesBlipExist(blip) then
+        notify('Set a GPS waypoint on the map first.', 'error')
+        return
+    end
+
+    local coords = GetBlipInfoIdCoord(blip)
+    local ped = PlayerPedId()
+    local entity = currentControlEntity()
+    local z = loadGroundZ(coords.x, coords.y, 850.0)
+
+    DoScreenFadeOut(150)
+    Wait(150)
+    RequestCollisionAtCoord(coords.x, coords.y, z)
+    SetEntityCoordsNoOffset(entity, coords.x, coords.y, z, false, false, true)
+    if entity ~= ped then SetPedIntoVehicle(ped, entity, -1) end
+    Wait(350)
+    DoScreenFadeIn(150)
+    notify('Teleported to GPS waypoint.', 'success')
+end)
+
+local function drawAdminText(x, y, z, text)
+    local onScreen, sx, sy = World3dToScreen2d(x, y, z)
+    if not onScreen then return end
+    SetTextScale(0.0, 0.34)
+    SetTextFont(4)
+    SetTextProportional(1)
+    -- Admin tag is intentionally full red so staff mode is visually clear.
+    local c = (Config.AdminTags and Config.AdminTags.Color) or { r = 255, g = 35, b = 35, a = 245 }
+    SetTextColour(tonumber(c.r) or 255, tonumber(c.g) or 35, tonumber(c.b) or 35, tonumber(c.a) or 245)
+    SetTextCentre(true)
+    SetTextOutline()
+    BeginTextCommandDisplayText('STRING')
+    AddTextComponentSubstringPlayerName(text)
+    EndTextCommandDisplayText(sx, sy)
+end
+
+local function isLocalAdminNoclip()
+    return LocalPlayer and LocalPlayer.state and LocalPlayer.state.cm_admin_noclip == true
+end
+
+local adminTagPlayers = {}
+
+local function rebuildAdminTagCache()
+    adminTagPlayers = {}
+    if not Config.AdminTags or Config.AdminTags.Enabled == false then return end
+
+    -- If this client is in admin noclip, do not render overhead names at all.
+    -- This keeps the noclip/admin view clean and avoids showing our own name.
+    if isLocalAdminNoclip() then return end
+
+    local myServerId = GetPlayerServerId(PlayerId())
+    for _, playerId in ipairs(GetActivePlayers()) do
+        local serverId = GetPlayerServerId(playerId)
+        if serverId and serverId > 0 and serverId ~= myServerId then
+            local state = Player(serverId).state
+            local tag = state and state.cm_admin_tag or nil
+            local targetNoclip = state and state.cm_admin_noclip == true
+            if tag and tag.active == true and tag.noclip ~= true and not targetNoclip then
+                adminTagPlayers[#adminTagPlayers + 1] = { playerId = playerId, serverId = serverId, tag = tag }
+            end
+        end
+    end
+end
+
+CreateThread(function()
+    while true do
+        rebuildAdminTagCache()
+        Wait(750)
+    end
+end)
+
+CreateThread(function()
+    while true do
+        if #adminTagPlayers == 0 then
+            Wait(500)
+        else
+            Wait(0)
+            local myPed = PlayerPedId()
+            local myCoords = GetEntityCoords(myPed)
+            local cfg = Config.AdminTags or {}
+            local maxDistance = tonumber(cfg.DrawDistance) or 32.0
+            local height = tonumber(cfg.HeightOffset) or 1.18
+            local myServerId = GetPlayerServerId(PlayerId())
+            for _, item in ipairs(adminTagPlayers) do
+                local targetPed = GetPlayerPed(item.playerId)
+                if targetPed and targetPed ~= 0 and DoesEntityExist(targetPed) and item.serverId ~= myServerId then
+                    local state = Player(item.serverId).state
+                    local tag = item.tag or {}
+                    if tag.active == true and tag.noclip ~= true and not (state and state.cm_admin_noclip == true) then
+                        local coords = GetEntityCoords(targetPed)
+                        local distance = #(coords - myCoords)
+                        if distance <= maxDistance then
+                            local charId = tag.characterId or '?'
+                            local name = tag.name or GetPlayerName(item.playerId) or 'Admin'
+                            local rank = cfg.ShowRank and tag.rank and (' · ' .. tostring(tag.rank)) or ''
+                            drawAdminText(coords.x, coords.y, coords.z + height, ('%s%s\n%s (%s)'):format(cfg.Label or 'Administrator', rank, name, charId))
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
 RegisterNetEvent('cm-admin:client:setFrozen', function(state)
     frozen = state == true
     local ped = PlayerPedId()
@@ -198,5 +329,33 @@ AddEventHandler('onResourceStop', function(resource)
     if frozen then
         FreezeEntityPosition(PlayerPedId(), false)
         SetPlayerControl(PlayerId(), true, 0)
+    end
+end)
+
+
+RegisterNetEvent('cm-admin:client:repairVehicleNet', function(netId, plate)
+    local veh = 0
+    if tonumber(netId or 0) and tonumber(netId or 0) > 0 then
+        veh = NetworkGetEntityFromNetworkId(tonumber(netId))
+    end
+    if (not veh or veh == 0 or not DoesEntityExist(veh)) and plate and plate ~= '' then
+        local wanted = tostring(plate):upper():gsub('^%s+', ''):gsub('%s+$', '')
+        local vehicles = GetGamePool('CVehicle')
+        for _, candidate in ipairs(vehicles) do
+            if DoesEntityExist(candidate) and tostring(GetVehicleNumberPlateText(candidate) or ''):upper():gsub('^%s+', ''):gsub('%s+$', '') == wanted then
+                veh = candidate
+                break
+            end
+        end
+    end
+    if veh and veh ~= 0 and DoesEntityExist(veh) then
+        SetVehicleFixed(veh)
+        SetVehicleDeformationFixed(veh)
+        SetVehicleDirtLevel(veh, 0.0)
+        SetVehicleEngineHealth(veh, 1000.0)
+        SetVehicleBodyHealth(veh, 1000.0)
+        notify('Vehicle repaired.', 'success')
+    else
+        notify('Vehicle is not streamed on your client.', 'error')
     end
 end)

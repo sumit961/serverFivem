@@ -1,6 +1,31 @@
 -- cm-characters/server/bridge.lua
 -- Connects cm-auth/login to character selector. Client can never choose accountId.
 
+
+-- Production-safe local logger wrapper.
+-- When Config.Debug/Config.VerboseLogs is false, normal CM-CHARACTERS debug prints are hidden.
+-- Warnings/errors still print so real problems are visible.
+local __cmCharactersPrint = print
+local function __cmCharactersShouldVerbose()
+    return Config and (Config.Debug == true or Config.VerboseLogs == true or Config.ProductionMode == false)
+end
+local function print(...)
+    if __cmCharactersShouldVerbose() then
+        return __cmCharactersPrint(...)
+    end
+
+    local first = tostring(select(1, ...) or '')
+    local isCmCharactersLog = first:find('%[CM%-CHARACTERS') ~= nil
+    if not isCmCharactersLog then
+        return __cmCharactersPrint(...)
+    end
+
+    local upper = first:upper()
+    if upper:find('ERROR', 1, true) or upper:find('WARNING', 1, true) or upper:find('FAILED', 1, true) or upper:find('DENIED', 1, true) then
+        return __cmCharactersPrint(...)
+    end
+end
+
 -- v1.5.1: server-side open debounce. cm-auth and spawn fallback may both ask
 -- to open the selector during the same login. Client also has a guard, but this
 -- reduces duplicated network events and loading messages.
@@ -47,8 +72,14 @@ end)
 
 RegisterCommand('char', function(source, args)
     local src = source
-    if not CMCharacters.HasPermission(src, 'command.char') then
+    local hasPermission = CMCharacters.HasPermission(src, 'command.char')
+    if not hasPermission then
         CMCharacters.Notify(src, 'No permission to use /char.', 'error')
+        return
+    end
+
+    if Config and Config.EnableManualSelectorCommand ~= true and Config.EnableDevCommands ~= true then
+        CMCharacters.Notify(src, '/char is disabled in production. Open character selector through cm-auth or cm-admin.', 'error')
         return
     end
 
@@ -61,7 +92,7 @@ RegisterCommand('char', function(source, args)
     end
 
     if not accountId then
-        CMCharacters.Notify(src, 'No accountId in state. Login first or use /char [accountId] as admin.', 'error')
+        CMCharacters.Notify(src, 'No accountId in state. Login first or use /char [accountId] as admin/dev.', 'error')
         return
     end
 

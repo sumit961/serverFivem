@@ -284,10 +284,12 @@ AddStateBagChangeHandler('accountId', nil, function(bagName, key, value)
     if value and tostring(value) ~= '' then tryOpenCharacterSelector() end
 end)
 
-RegisterCommand('loginui', function()
-    if not isLoggedIn() then
-        openLogin('login')
-    end
-end, false)
+if DEBUG then
+    RegisterCommand('loginui', function()
+        if not isLoggedIn() then
+            openLogin('login')
+        end
+    end, false)
 
-print('[CM-AUTH-CLIENT] Auth client loaded with GTA-IV loading handoff, skip support, and trusted-device login')
+    dprint('Auth client loaded with loading handoff, skip support, and trusted-device login')
+end

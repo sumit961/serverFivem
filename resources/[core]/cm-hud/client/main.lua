@@ -22,10 +22,17 @@ local seatbeltOn = false
 local cruiseOn = false
 local cruiseSpeed = 0.0
 local isDeathThreadRunning = false
+local HUD_DEBUG = false
+local function hudDebug(message)
+    if HUD_DEBUG then print(message) end
+end
 
 local wasInVehicle = false
 local lastVehiclePayload = nil
 local lastSeatbeltAlarmAt = 0
+local HIDE_DEFAULT_AMMO_PREVIEW = true
+local HIDE_DEFAULT_VEHICLE_NAME = true
+
 
 
 -- ============================================================
@@ -36,10 +43,10 @@ local HUD_DEFAULT_SETTINGS = {
     speedoStyle = 1,
     speedUnit = 'KM/H',
     theme = 'cyan',
-    uiScale = 1.0,
+    uiScale = 1.35,
     speedoScale = 1.0,
-    locationOffsetX = 0,
-    locationOffsetY = 0,
+    locationOffsetX = -7,
+    locationOffsetY = -112,
     speedoOffsetX = 0,
     speedoOffsetY = 0,
     showTopRight = true,
@@ -97,7 +104,7 @@ local function normaliseHudSettings(raw)
 end
 
 local function loadHudSettings()
-    local raw = GetResourceKvpString('cm_hud_settings_v16')
+    local raw = GetResourceKvpString('cm_hud_settings_v17')
     if raw and raw ~= '' then
         local ok, decoded = pcall(json.decode, raw)
         if ok and type(decoded) == 'table' then
@@ -111,7 +118,7 @@ local function loadHudSettings()
 end
 
 local function saveHudSettings()
-    SetResourceKvp('cm_hud_settings_v16', json.encode(hudSettings))
+    SetResourceKvp('cm_hud_settings_v17', json.encode(hudSettings))
 end
 
 local function sendHudSettings()
@@ -168,7 +175,7 @@ end
 RegisterCommand('hudfix', function()
     clearHudNuiFocus()
     SendNUIMessage({ action = 'hideDeath' })
-    print('[CM-HUD] NUI focus cleared')
+    hudDebug('[CM-HUD] NUI focus cleared')
 end, false)
 
 local function isPlayerLoggedIn()
@@ -333,6 +340,28 @@ end, false)
 
 RegisterKeyMapping('hudmouse', 'Toggle HUD mouse', 'keyboard', 'GRAVE')
 RegisterKeyMapping('hudmouse', 'Toggle HUD mouse alternate', 'keyboard', 'OEM_3')
+
+-- Lightweight visual-only key listeners for radio indicators.
+-- These do not run gameplay logic; future family/org resources can own the real radio actions.
+local visualKeyState = { O = false, U = false }
+local function setVisualKeyState(key, active)
+    key = tostring(key or ''):upper()
+    active = active == true
+    if visualKeyState[key] == active then return end
+    visualKeyState[key] = active
+    if isPlayerLoggedIn() then
+        SendNUIMessage({ action = 'keyState', key = key, active = active })
+    end
+end
+
+RegisterCommand('+cmhud_family_radio_visual', function() setVisualKeyState('O', true) end, false)
+RegisterCommand('-cmhud_family_radio_visual', function() setVisualKeyState('O', false) end, false)
+RegisterKeyMapping('+cmhud_family_radio_visual', 'HUD family radio indicator', 'keyboard', 'O')
+
+RegisterCommand('+cmhud_org_radio_visual', function() setVisualKeyState('U', true) end, false)
+RegisterCommand('-cmhud_org_radio_visual', function() setVisualKeyState('U', false) end, false)
+RegisterKeyMapping('+cmhud_org_radio_visual', 'HUD organization radio indicator', 'keyboard', 'U')
+
 
 RegisterNUICallback('closeHudMouse', function(data, cb)
     setHudMouse(false)
@@ -700,7 +729,7 @@ RegisterNetEvent('cm-playerdata:client:loaded', function(data)
     captureStateCharacterHints()
     TriggerServerEvent('cm-hud:server:requestCharacterHud', characterId, characterHints)
     if characterId then TriggerServerEvent('cm-hud:server:setCharacter', characterId) end
-    print('[CM-HUD] Initialized | ID:' .. tostring(serverId))
+    hudDebug('[CM-HUD] Initialized | ID:' .. tostring(serverId))
 end)
 
 -- ============================================================
@@ -889,6 +918,37 @@ RegisterNUICallback('respawn', function(data, cb)
     cb('ok')
 end)
 
+
+-- ============================================================
+-- HIDE GTA DEFAULT WEAPON / AMMO PREVIEW + VEHICLE NAME POPUP
+-- Keeps CM HUD clean and prevents GTA's default ammo/weapon box
+-- and default vehicle name/class popups from appearing over the custom HUD.
+-- ============================================================
+CreateThread(function()
+    while true do
+        if isPlayerLoggedIn() and hudVisible and not uiHiddenByExternal then
+            if HIDE_DEFAULT_AMMO_PREVIEW then
+                HideHudComponentThisFrame(2)   -- Weapon icon / ammo preview
+                HideHudComponentThisFrame(20)  -- Weapon wheel stats
+                HideHudComponentThisFrame(22)  -- Weapon wheel components
+                pcall(function() DisplayAmmoThisFrame(false) end)
+            end
+
+            if HIDE_DEFAULT_VEHICLE_NAME then
+                local ped = PlayerPedId()
+                if ped and ped ~= 0 and IsPedInAnyVehicle(ped, false) then
+                    HideHudComponentThisFrame(6) -- Vehicle name popup
+                    HideHudComponentThisFrame(8) -- Vehicle class/name popup
+                end
+            end
+
+            Wait(0)
+        else
+            Wait(500)
+        end
+    end
+end)
+
 -- ============================================================
 -- HEALTH POLLING (smooth bar updates)
 -- ============================================================
@@ -914,7 +974,7 @@ CreateThread(function()
             -- Death detection is owned by cm-playerdata (it reports the killer
             -- and weapon; a bare event from here would race it and win the
             -- server's rate limit, wiping the killed-by info and kill logs).
-            if health <= 0 and not isDead then
+            if health <= 100 and not isDead then
                 isDead = true
             end
         end
@@ -978,6 +1038,7 @@ end)
 -- ============================================================
 -- KEY STATE POLLING (visual feedback only)
 -- ============================================================
+local lastHudKeyStates = {}
 CreateThread(function()
     while true do
         Wait(100)
@@ -986,7 +1047,6 @@ CreateThread(function()
             local keys = {
                 { key = 'N',   pad = 0, button = 249 }, -- Push-to-talk / Voice
                 { key = 'M',   pad = 0, button = 244 }, -- Interaction menu
-                { key = 'U',   pad = 0, button = 303 }, -- Job menu
                 { key = 'I',   pad = 0, button = 199 }, -- Inventory / Phone
                 { key = 'L',   pad = 0, button = 182 }, -- Lock vehicle
                 { key = 'Z',   pad = 0, button = 20  }, -- Multiplayer info
@@ -995,12 +1055,20 @@ CreateThread(function()
 
             for _, k in ipairs(keys) do
                 local pressed = IsControlPressed(k.pad, k.button) or IsDisabledControlPressed(k.pad, k.button)
-                SendNUIMessage({
-                    action = 'keyState',
-                    key = k.key,
-                    active = pressed
-                })
+                if lastHudKeyStates[k.key] ~= pressed then
+                    lastHudKeyStates[k.key] = pressed
+                    SendNUIMessage({
+                        action = 'keyState',
+                        key = k.key,
+                        active = pressed
+                    })
+                end
             end
+        elseif next(lastHudKeyStates) ~= nil then
+            for key, active in pairs(lastHudKeyStates) do
+                if active then SendNUIMessage({ action = 'keyState', key = key, active = false }) end
+            end
+            lastHudKeyStates = {}
         end
     end
 end)
@@ -1081,7 +1149,9 @@ CreateThread(function()
             local ped = PlayerPedId()
             local veh = GetVehiclePedIsIn(ped, false)
 
-            if veh ~= 0 and hudSettings.showSpeedometer ~= false then
+            local isDriver = veh ~= 0 and GetPedInVehicleSeat(veh, -1) == ped
+
+            if veh ~= 0 and isDriver and hudSettings.showSpeedometer ~= false then
                 wasInVehicle = true
 
                 if veh ~= lastVeh then
@@ -1178,12 +1248,21 @@ end)
 -- ============================================================
 -- NOTIFICATION BRIDGE
 -- ============================================================
+local lastNotifyHash = nil
+local lastNotifyAt = 0
 local function Notify(text, notifyType)
     if not isPlayerLoggedIn() then return end
+    local safeText = tostring(text or '')
+    local safeType = tostring(notifyType or 'info')
+    local now = GetGameTimer()
+    local hash = safeType .. ':' .. safeText
+    if hash == lastNotifyHash and (now - lastNotifyAt) < 850 then return end
+    lastNotifyHash = hash
+    lastNotifyAt = now
     SendNUIMessage({
         action = 'notify',
-        text = tostring(text or ''),
-        type = notifyType or 'info'
+        text = safeText,
+        type = safeType
     })
 end
 

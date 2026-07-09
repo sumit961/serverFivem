@@ -1,6 +1,31 @@
 -- cm-characters/client/main.lua
 -- Simple character selector preview: selected character spawns and idles.
 
+
+-- Production-safe local logger wrapper.
+-- When Config.Debug/Config.VerboseLogs is false, normal CM-CHARACTERS debug prints are hidden.
+-- Warnings/errors still print so real problems are visible.
+local __cmCharactersPrint = print
+local function __cmCharactersShouldVerbose()
+    return Config and (Config.Debug == true or Config.VerboseLogs == true or Config.ProductionMode == false)
+end
+local function print(...)
+    if __cmCharactersShouldVerbose() then
+        return __cmCharactersPrint(...)
+    end
+
+    local first = tostring(select(1, ...) or '')
+    local isCmCharactersLog = first:find('%[CM%-CHARACTERS') ~= nil
+    if not isCmCharactersLog then
+        return __cmCharactersPrint(...)
+    end
+
+    local upper = first:upper()
+    if upper:find('ERROR', 1, true) or upper:find('WARNING', 1, true) or upper:find('FAILED', 1, true) or upper:find('DENIED', 1, true) then
+        return __cmCharactersPrint(...)
+    end
+end
+
 local display = false
 local currentAccountId = nil
 local selectorCam = nil
@@ -19,6 +44,7 @@ local dynamicStage = nil
 local restoreSceneEnvironment
 local selectorAudioMuted = false
 local waitingForSpawnAfterSelect = false
+local selectionSubmitInProgress = false
 
 -- v1.5.1: duplicate-open protection. cm-auth, spawn fallbacks and NUI uiReady
 -- can all fire close together. These guards stop the selector from rebuilding
@@ -1367,6 +1393,7 @@ RegisterNetEvent('cm-characters:client:showSlots', function(slots, accountId, ma
 end)
 
 RegisterNetEvent('cm-characters:client:error', function(msg)
+    selectionSubmitInProgress = false
     print('[CM-CHARACTERS] error: ' .. tostring(msg))
     display = true
     selectorOpen = true
@@ -1388,6 +1415,28 @@ RegisterNUICallback('previewCharacter', function(data, cb)
     cb('ok')
 end)
 
+
+
+local function callClimatimeExport(name, payload)
+    if GetResourceState('cm-climatime') ~= 'started' then return false end
+    local ok = pcall(function()
+        exports['cm-climatime'][name](payload)
+    end)
+    return ok == true
+end
+
+local function notifyPreSpawnClimatePhase(phase, payload)
+    payload = type(payload) == 'table' and payload or {}
+    payload.phase = phase
+    payload.source = 'cm-characters'
+    payload.startedAt = GetGameTimer()
+
+    -- Local alias events are intentionally cheap and safe. Only resources that
+    -- already listen for them will react; missing handlers cost nothing.
+    TriggerEvent('cm-spawn:client:climatePreloadPhase', payload)
+    TriggerEvent('cm-climatime:client:preSpawnPhase', payload)
+    TriggerEvent('cm-climatime:client:requestSync', payload.reason or 'cm-characters-pre-spawn')
+end
 
 local function prepareClimatimeBeforeRealSpawn()
     local c = Config and Config.CharacterScreenWorld or {}
@@ -1422,15 +1471,21 @@ local function prepareClimatimeBeforeRealSpawn()
         rainRampSeconds = tonumber(c.preSpawnRainRampSeconds) or 1.2
     }
 
-    local preparedByExport = false
-    if GetResourceState('cm-climatime') == 'started' then
-        preparedByExport = pcall(function() exports['cm-climatime']:PrepareBeforeSpawn(payload) end)
-    end
-    if not preparedByExport then
-        TriggerEvent('cm-climatime:client:prepareBeforeSpawn', payload)
-    end
+    notifyPreSpawnClimatePhase('starting', payload)
+
+    local preparedByExport = callClimatimeExport('PrepareBeforeSpawn', payload)
+        or callClimatimeExport('PreloadBeforeSpawn', payload)
+        or callClimatimeExport('RequestPreSpawnSync', payload)
+        or callClimatimeExport('SyncNow', payload)
+
+    TriggerEvent('cm-climatime:client:prepareBeforeSpawn', payload)
+    TriggerEvent('cm-climatime:client:preloadBeforeSpawn', payload)
+    TriggerEvent('cm-climatime:client:requestImmediateSync', payload)
 
     Wait(prepareMs)
+
+    payload.preparedByExport = preparedByExport
+    notifyPreSpawnClimatePhase('ready', payload)
 
     LocalPlayer.state:set('cmCharactersPreparingSpawnClimate', false, true)
     LocalPlayer.state:set('cmClimatimePreSpawnPreparing', false, true)
@@ -1439,44 +1494,57 @@ local function prepareClimatimeBeforeRealSpawn()
 end
 
 RegisterNUICallback('selectSlot', function(data, cb)
+    data = type(data) == 'table' and data or {}
     print('[CM-CHARACTERS] selectSlot: ' .. json.encode(data))
 
-    if data.charId then
-        display = false
-        selectorOpen = false
-        pendingSelectorOpen = false
-        resetSelectorLoadGuards()
-        waitingForSpawnAfterSelect = true
-        SetNuiFocus(false, false)
-        -- No end loading screen. Close character UI/loading immediately and prepare
-        -- the live world climate while the screen is black, BEFORE cm-spawn reveals
-        -- the real player. This avoids the ugly sky/weather snap after spawn.
-        markSpawnFlowStarted()
-        SendNUIMessage({ action = 'hideAll' })
-        prepareClimatimeBeforeRealSpawn()
-        -- Smooth transition: remove only the local preview dummy and camera, but keep
-        -- the real player invisible/frozen until cm-spawn finishes. This removes the
-        -- one-frame Michael/default ped blink before the spawn screen.
-        cleanupSelectorSceneForSpawn()
-        TriggerServerEvent('cm-characters:server:leaveSelectorBucket')
-        -- Keep skipPositionSave=true until cm-playerdata/cm-spawn finishes the real spawn.
-        TriggerServerEvent('cm-characters:server:selectCharacter', data.charId)
-    else
-        display = false
-        selectorOpen = false
-        pendingSelectorOpen = false
-        resetSelectorLoadGuards()
-        TriggerEvent('cm-characters:client:setWorldLock', 'creator', true)
-        LocalPlayer.state:set('isInCharacterCreation', true, true)
-        deletePreviewPeds(false)
-        cleanupSelectorScene(true, true)
-        TriggerServerEvent('cm-characters:server:leaveSelectorBucket')
-        TriggerEvent('cm-characters:client:setWorldLock', 'selector', false)
-        LocalPlayer.state:set('isInCharacterSelector', false, true)
-        TriggerEvent('cm-characters:client:openCreator', data.slot, currentAccountId)
+    if selectionSubmitInProgress then
+        cb({ ok = true, busy = true })
+        return
     end
+    selectionSubmitInProgress = true
+    cb({ ok = true })
 
-    cb('ok')
+    CreateThread(function()
+        if data.charId then
+            display = false
+            selectorOpen = false
+            pendingSelectorOpen = false
+            resetSelectorLoadGuards()
+            waitingForSpawnAfterSelect = true
+            SetNuiFocus(false, false)
+            SetNuiFocusKeepInput(false)
+            -- No end loading screen. Close character UI/loading immediately and prepare
+            -- the live world climate while the screen is black, BEFORE cm-spawn reveals
+            -- the real player. This avoids the ugly sky/weather snap after spawn.
+            markSpawnFlowStarted()
+            SendNUIMessage({ action = 'hideAll' })
+            prepareClimatimeBeforeRealSpawn()
+            -- Smooth transition: remove only the local preview dummy and camera, but keep
+            -- the real player invisible/frozen until cm-spawn finishes. This removes the
+            -- one-frame Michael/default ped blink before the spawn screen.
+            cleanupSelectorSceneForSpawn()
+            TriggerServerEvent('cm-characters:server:leaveSelectorBucket')
+            -- Keep skipPositionSave=true until cm-playerdata/cm-spawn finishes the real spawn.
+            TriggerServerEvent('cm-characters:server:selectCharacter', data.charId)
+        else
+            display = false
+            selectorOpen = false
+            pendingSelectorOpen = false
+            resetSelectorLoadGuards()
+            TriggerEvent('cm-characters:client:setWorldLock', 'creator', true)
+            LocalPlayer.state:set('isInCharacterCreation', true, true)
+            deletePreviewPeds(false)
+            cleanupSelectorScene(true, true)
+            TriggerServerEvent('cm-characters:server:leaveSelectorBucket')
+            TriggerEvent('cm-characters:client:setWorldLock', 'selector', false)
+            LocalPlayer.state:set('isInCharacterSelector', false, true)
+            TriggerEvent('cm-characters:client:openCreator', data.slot, currentAccountId)
+        end
+
+        SetTimeout(1500, function()
+            selectionSubmitInProgress = false
+        end)
+    end)
 end)
 
 RegisterNUICallback('close', function(data, cb)
@@ -2070,6 +2138,7 @@ end, false)
 -- cm-playerdata compatibility: selection/preview moves the hidden player to the preview scene.
 -- Keep position saving disabled during selector and only re-enable after the real character spawn is finished.
 RegisterNetEvent('cm-characters:client:characterReady', function()
+    selectionSubmitInProgress = false
     waitingForSpawnAfterSelect = false
     hideCharacterLoading(true)
     unmuteSelectorAudio()
@@ -2089,6 +2158,7 @@ RegisterNetEvent('cm-characters:client:characterReady', function()
 end)
 
 RegisterNetEvent('cm-spawn:client:spawned', function()
+    selectionSubmitInProgress = false
     waitingForSpawnAfterSelect = false
     hideCharacterLoading(true)
     unmuteSelectorAudio()

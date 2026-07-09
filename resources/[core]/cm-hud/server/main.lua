@@ -5,7 +5,10 @@
 -- Pulls ID/cash/bank from characters table so HUD matches DB in real time.
 -- Supports oxmysql exports without making oxmysql a hard manifest dependency.
 -- ============================================================
-local HUD_SYNC_INTERVAL_MS = 2500
+local HUD_DEBUG = false
+local function hudDebug(message)
+    if HUD_DEBUG then print(message) end
+end
 local ActiveHudCharacters = {}
 local LastHudPayload = {}
 
@@ -29,7 +32,7 @@ dbFetchOne = function(query, params, cb)
         return true
     end
 
-    print('[CM-HUD] No SQL resource found. Start oxmysql before cm-hud for DB money sync.')
+    hudDebug('[CM-HUD] No SQL resource found. Start oxmysql before cm-hud for DB money sync.')
     cb(nil)
     return false
 end
@@ -45,7 +48,7 @@ local function sendCharacterHud(src, charId)
     if type(charId) == 'table' then charId = charId.id end
     local active = ActiveHudCharacters[src]
     if not charId and type(active) == 'table' then charId = active.id end
-    charId = cleanCharacterId(charId or active)
+    charId = cleanCharacterId(charId or (active and active.id))
     if not charId then return end
 
     dbFetchOne('SELECT id, first_name, last_name, cash, bank FROM characters WHERE id = ? LIMIT 1', { charId }, function(row)
@@ -185,7 +188,7 @@ RegisterNetEvent('cm-hud:server:requestCharacterHud', function(charId, hints)
         resolvedId = cleanCharacterId(resolvedId)
         if not resolvedId then
             TriggerClientEvent('cm-hud:client:updateCharacterHud', src, { id = '', name = 'Unknown', cash = 0, bank = 0 })
-            print(('[CM-HUD] Could not resolve DB character for player %s. Send character id/account_id from cm-playerdata.'):format(src))
+            hudDebug(('[CM-HUD] Could not resolve DB character for player %s. Send character id/account_id from cm-playerdata.'):format(src))
             return
         end
         ActiveHudCharacters[src] = { id = resolvedId, name = nil }
@@ -202,17 +205,7 @@ exports('RefreshCharacterHud', function(src, charId)
     sendCharacterHud(src, ActiveHudCharacters[src])
 end)
 
-CreateThread(function()
-    while true do
-        Wait(HUD_SYNC_INTERVAL_MS)
-        for _, playerId in ipairs(GetPlayers()) do
-            local src = tonumber(playerId)
-            if src and ActiveHudCharacters[src] then
-                sendCharacterHud(src, ActiveHudCharacters[src])
-            end
-        end
-    end
-end)
+-- DB polling removed in v2.8.0. Money HUD refresh is event/export driven only.
 
 AddEventHandler('playerDropped', function()
     ActiveHudCharacters[source] = nil

@@ -2,6 +2,31 @@
 -- Global fixed character ID generator.
 -- This creates character IDs like 0, 1, 2, 3... and keeps them forever in characters.id.
 
+
+-- Production-safe local logger wrapper.
+-- When Config.Debug/Config.VerboseLogs is false, normal CM-CHARACTERS debug prints are hidden.
+-- Warnings/errors still print so real problems are visible.
+local __cmCharactersPrint = print
+local function __cmCharactersShouldVerbose()
+    return Config and (Config.Debug == true or Config.VerboseLogs == true or Config.ProductionMode == false)
+end
+local function print(...)
+    if __cmCharactersShouldVerbose() then
+        return __cmCharactersPrint(...)
+    end
+
+    local first = tostring(select(1, ...) or '')
+    local isCmCharactersLog = first:find('%[CM%-CHARACTERS') ~= nil
+    if not isCmCharactersLog then
+        return __cmCharactersPrint(...)
+    end
+
+    local upper = first:upper()
+    if upper:find('ERROR', 1, true) or upper:find('WARNING', 1, true) or upper:find('FAILED', 1, true) or upper:find('DENIED', 1, true) then
+        return __cmCharactersPrint(...)
+    end
+end
+
 local idTableReady = false
 
 local function safeNumber(value, fallback)

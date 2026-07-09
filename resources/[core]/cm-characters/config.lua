@@ -11,8 +11,32 @@ Config.SpawnTransitionLoadingMs = Config.SpawnTransitionLoadingMs or 2500
 
 -- Admin/production safety. Commands below still require ACE/cm-auth permissions.
 Config.EnableDevCommands = Config.EnableDevCommands or false
+-- Production logging: keep false on live server. Set true only when debugging character selector issues.
+Config.Debug = Config.Debug == true
+Config.VerboseLogs = Config.VerboseLogs == true
 Config.AdminPermission = Config.AdminPermission or 'characters.admin'
 Config.EditorPermission = Config.EditorPermission or 'characters.selector.edit'
+
+-- Production routing rules.
+-- cm-characters owns only selector, creator, appearance save, and safe character exports.
+-- Full staff/admin menus belong in cm-admin. Keep legacy character admin UI disabled unless you are migrating.
+Config.ProductionMode = Config.ProductionMode ~= false
+Config.EnableLegacyCharacterAdmin = Config.EnableLegacyCharacterAdmin or false
+Config.EnableManualSelectorCommand = Config.EnableManualSelectorCommand or false
+Config.EnableSelectorSceneEditor = Config.EnableSelectorSceneEditor ~= false
+
+-- New character starter money. cm-playerdata is the runtime money owner after load.
+Config.StartingCash = Config.StartingCash or 500
+Config.StartingBank = Config.StartingBank or 2000
+
+-- Server-side event rate limits. These are intentionally gentle and only stop spam/abuse.
+Config.RateLimits = Config.RateLimits or {
+    getSlots = { limit = 8, seconds = 10 },
+    selectCharacter = { limit = 4, seconds = 10 },
+    createCharacter = { limit = 3, seconds = 30 },
+    saveAppearance = { limit = 3, seconds = 30 },
+    saveCurrentAppearance = { limit = 6, seconds = 60 }
+}
 
 
 -- While player is in character selection / creation, cm-characters owns the local

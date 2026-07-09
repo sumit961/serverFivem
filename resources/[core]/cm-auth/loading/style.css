@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Oswald:wght@500;600;700&display=swap');
+/* cm-auth loading screen skin. Shared colors/components come from cm-ui. FiveM-safe transparent rendering. */
 
 * {
     box-sizing: border-box;
@@ -11,9 +11,9 @@ body {
     width: 100%;
     height: 100%;
     overflow: hidden;
-    font-family: Inter, Arial, sans-serif;
-    color: #f6f2ea;
-    background: #0d0f12;
+    font-family: var(--cm-font, Arial, sans-serif);
+    color: var(--cm-text, #eaf7ff);
+    background: var(--cm-bg-deep, #030812);
 }
 
 body.skipped .loading-root {
@@ -27,7 +27,7 @@ body.skipped .loading-root {
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: #0f1114;
+    background: var(--cm-bg, #07111f);
 }
 
 .slide-stack,
@@ -75,7 +75,7 @@ body.skipped .loading-root {
 .global-vignette {
     background:
         radial-gradient(circle at 50% 50%, transparent 0%, rgba(0,0,0,0.18) 54%, rgba(0,0,0,0.56) 100%),
-        linear-gradient(180deg, rgba(7,8,10,0.44), rgba(7,8,10,0.72));
+        linear-gradient(180deg, rgba(3,8,18,0.48), rgba(3,8,18,0.78));
     pointer-events: none;
 }
 
@@ -114,7 +114,7 @@ body.skipped .loading-root {
 .top-line {
     height: 1px;
     border-radius: 999px;
-    background: linear-gradient(90deg, rgba(255,255,255,0.22), rgba(255,255,255,0.04));
+    background: linear-gradient(90deg, rgba(var(--cm-primary-rgb, 0, 229, 255), 0.34), rgba(255,255,255,0.04));
 }
 
 .top-meta,
@@ -127,7 +127,7 @@ body.skipped .loading-root {
 }
 
 .top-badge {
-    color: #ad9dff;
+    color: var(--cm-primary, #00e5ff);
 }
 
 .hero-wrap {
@@ -157,17 +157,17 @@ body.skipped .loading-root {
 
 .ghost-title {
     margin-top: 26px;
-    font-family: Oswald, sans-serif;
+    font-family: var(--cm-font, Arial, sans-serif);
     font-size: clamp(98px, 16vw, 280px);
     line-height: 0.86;
     letter-spacing: -0.04em;
-    color: rgba(255,255,255,0.08);
+    color: rgba(var(--cm-primary-rgb, 0, 229, 255), 0.09);
     text-transform: uppercase;
 }
 
 h1 {
     margin-top: -18px;
-    font-family: Oswald, sans-serif;
+    font-family: var(--cm-font, Arial, sans-serif);
     font-size: clamp(56px, 7vw, 108px);
     line-height: 0.9;
     letter-spacing: -0.03em;
@@ -213,8 +213,8 @@ h1 {
     width: 0%;
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, #f6f3ea 0%, #b39cff 50%, #8e74ff 100%);
-    box-shadow: 0 0 24px rgba(142, 116, 255, 0.48);
+    background: linear-gradient(90deg, var(--cm-primary, #00e5ff) 0%, var(--cm-blue, #2563eb) 100%);
+    box-shadow: var(--cm-glow, 0 0 22px rgba(0,229,255,0.22));
     transition: width 0.3s ease;
 }
 
@@ -234,9 +234,8 @@ h1 {
 .hint-block,
 .skip-hint {
     min-height: 58px;
-    border: 1px solid rgba(255,255,255,0.15);
-    background: rgba(9,10,12,0.52);
-    backdrop-filter: blur(8px);
+    border: 1px solid var(--cm-border-soft, rgba(143,190,220,0.14));
+    background: var(--cm-panel, rgba(8,18,34,0.96));
     display: flex;
     align-items: center;
     border-radius: 999px;
@@ -257,7 +256,7 @@ h1 {
     margin-right: 12px;
     border-radius: 50%;
     border: 2px solid rgba(255,255,255,0.16);
-    border-top-color: #9a83ff;
+    border-top-color: var(--cm-primary, #00e5ff);
     animation: spin 0.9s linear infinite;
 }
 
@@ -280,8 +279,8 @@ h1 {
     font-weight: 900;
     letter-spacing: 0.15em;
     text-transform: uppercase;
-    color: #121318;
-    background: #f2efe8;
+    color: var(--cm-bg-deep, #030812);
+    background: var(--cm-primary, #00e5ff);
 }
 
 .hint-text {
@@ -291,7 +290,7 @@ h1 {
 }
 
 .skip-hint strong {
-    color: #b39cff;
+    color: var(--cm-primary, #00e5ff);
 }
 
 @media (max-width: 980px) {

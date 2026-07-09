@@ -1,5 +1,31 @@
 -- cm-characters/server/admin.lua
--- Character admin panel. Permission: characters.admin / cm.characters.admin / command.charadmin.
+-- Legacy character admin bridge. Full staff UI belongs in cm-admin.
+-- This file keeps safe server helpers/exports and disables the old direct panel by default.
+
+
+-- Production-safe local logger wrapper.
+-- When Config.Debug/Config.VerboseLogs is false, normal CM-CHARACTERS debug prints are hidden.
+-- Warnings/errors still print so real problems are visible.
+local __cmCharactersPrint = print
+local function __cmCharactersShouldVerbose()
+    return Config and (Config.Debug == true or Config.VerboseLogs == true or Config.ProductionMode == false)
+end
+local function print(...)
+    if __cmCharactersShouldVerbose() then
+        return __cmCharactersPrint(...)
+    end
+
+    local first = tostring(select(1, ...) or '')
+    local isCmCharactersLog = first:find('%[CM%-CHARACTERS') ~= nil
+    if not isCmCharactersLog then
+        return __cmCharactersPrint(...)
+    end
+
+    local upper = first:upper()
+    if upper:find('ERROR', 1, true) or upper:find('WARNING', 1, true) or upper:find('FAILED', 1, true) or upper:find('DENIED', 1, true) then
+        return __cmCharactersPrint(...)
+    end
+end
 
 local function adminReply(src, ok, message, extra)
     extra = type(extra) == 'table' and extra or {}
@@ -8,12 +34,22 @@ local function adminReply(src, ok, message, extra)
     TriggerClientEvent('cm-characters:client:adminStatus', src, extra)
 end
 
-local function requireAdmin(src)
-    if not CMCharacters.IsAdmin(src) then
+local function hasCharacterAdminPermission(src, permission)
+    return CMCharacters.HasPermission(src, permission or 'characters.admin')
+end
+
+local function requireAdmin(src, permission)
+    if not hasCharacterAdminPermission(src, permission or 'characters.admin') then
         CMCharacters.Notify(src, 'No permission to use character admin.', 'error')
         return false
     end
     return true
+end
+
+local function legacyAdminEnabled(src)
+    if Config and Config.EnableLegacyCharacterAdmin == true then return true end
+    CMCharacters.Notify(src, 'Legacy cm-characters admin UI is disabled. Use cm-admin.', 'error')
+    return false
 end
 
 local function findOnlineSourceByCharId(charId)
@@ -50,15 +86,18 @@ local function compactChar(row)
     }
 end
 
-local function sendSearchResults(src, query)
+local function searchCharacters(query, limit)
     query = CMCharacters.Trim(query)
-    local rows
+    limit = tonumber(limit) or 30
+    if limit < 1 then limit = 1 end
+    if limit > 100 then limit = 100 end
 
+    local rows
     if query == '' then
-        rows = CMCharacters.Query([[SELECT * FROM characters ORDER BY id DESC LIMIT 30]], {}) or {}
+        rows = CMCharacters.Query(('SELECT * FROM characters ORDER BY id DESC LIMIT %d'):format(limit), {}) or {}
     else
         local like = '%' .. query .. '%'
-        rows = CMCharacters.Query([[
+        rows = CMCharacters.Query(([[
             SELECT * FROM characters
             WHERE CAST(id AS CHAR) LIKE ?
                OR CAST(account_id AS CHAR) LIKE ?
@@ -66,31 +105,38 @@ local function sendSearchResults(src, query)
                OR last_name LIKE ?
                OR CONCAT(first_name, ' ', last_name) LIKE ?
             ORDER BY id DESC
-            LIMIT 30
-        ]], { like, like, like, like, like }) or {}
+            LIMIT %d
+        ]]):format(limit), { like, like, like, like, like }) or {}
     end
 
     local out = {}
     for _, row in ipairs(rows) do out[#out + 1] = compactChar(row) end
-    TriggerClientEvent('cm-characters:client:adminResults', src, out)
+    return out
+end
+
+local function sendSearchResults(src, query)
+    TriggerClientEvent('cm-characters:client:adminResults', src, searchCharacters(query, 30))
 end
 
 RegisterNetEvent('cm-characters:server:requestOpenAdmin', function()
     local src = source
-    if not requireAdmin(src) then return end
+    if not legacyAdminEnabled(src) then return end
+    if not requireAdmin(src, 'characters.admin') then return end
     TriggerClientEvent('cm-characters:client:openAdmin', src)
     sendSearchResults(src, '')
 end)
 
 RegisterNetEvent('cm-characters:server:adminSearch', function(query)
     local src = source
-    if not requireAdmin(src) then return end
+    if not legacyAdminEnabled(src) then return end
+    if not requireAdmin(src, 'characters.view') then return end
     sendSearchResults(src, query)
 end)
 
 RegisterNetEvent('cm-characters:server:adminAction', function(action, payload)
     local src = source
-    if not requireAdmin(src) then return end
+    if not legacyAdminEnabled(src) then return end
+    if not requireAdmin(src, 'characters.admin') then return end
 
     action = tostring(action or '')
     payload = type(payload) == 'table' and payload or {}
@@ -221,7 +267,50 @@ RegisterNetEvent('cm-characters:server:adminAction', function(action, payload)
 end)
 
 RegisterCommand('charadmin', function(src)
-    if not requireAdmin(src) then return end
+    if not legacyAdminEnabled(src) then return end
+    if not requireAdmin(src, 'characters.admin') then return end
     TriggerClientEvent('cm-characters:client:openAdmin', src)
     sendSearchResults(src, '')
 end, false)
+
+
+-- Safe exports for cm-admin. These keep staff UI ownership in cm-admin while
+-- cm-characters owns the actual character database operations.
+exports('AdminSearchCharacters', function(adminSource, query, limit)
+    adminSource = tonumber(adminSource)
+    if not hasCharacterAdminPermission(adminSource, 'characters.view') then return false, 'No permission' end
+    return true, searchCharacters(query, limit)
+end)
+
+exports('AdminRefreshCharacterState', function(adminSource, charId)
+    adminSource = tonumber(adminSource)
+    if not hasCharacterAdminPermission(adminSource, 'characters.refresh') then return false, 'No permission' end
+    charId = tostring(charId or '')
+    local target = findOnlineSourceByCharId(charId)
+    if not target then return false, 'Character is not online' end
+    local char = CMCharacters.GetCharacterById(charId)
+    if not char then return false, 'Character not found' end
+    CMCharacters.SetCharacterState(target, char)
+    CMCharacters.SyncWithPlayerData(target, tostring(char.id), 'admin_refresh_state')
+    TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', target)
+    CMCharacters.LogAdmin(adminSource, 'admin_refresh_character_state', { char_id = charId, target = target })
+    return true, 'Character state refreshed'
+end)
+
+exports('AdminSetAccountSlots', function(adminSource, accountId, maxSlots, reason)
+    adminSource = tonumber(adminSource)
+    if not hasCharacterAdminPermission(adminSource, 'characters.slots') then return false, 'No permission' end
+    accountId = CMCharacters.Trim(accountId)
+    local slots = tonumber(maxSlots)
+    if accountId == '' or not slots or slots < 1 or slots > 20 or math.floor(slots) ~= slots then
+        return false, 'Invalid account or slot count'
+    end
+    CMCharacters.Query([[
+        INSERT INTO character_slot_limits (account_id, max_slots, reason, updated_by)
+        VALUES (?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE max_slots = VALUES(max_slots), reason = VALUES(reason), updated_by = VALUES(updated_by)
+    ]], { accountId, slots, tostring(reason or 'cm-admin'), tostring(adminSource) })
+    CMCharacters.LogAdmin(adminSource, 'admin_set_account_slots', { account_id = accountId, max_slots = slots })
+    exports['cm-core']:CacheInvalidate('chars:' .. accountId)
+    return true, 'Account slot limit updated'
+end)

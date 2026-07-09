@@ -1,6 +1,7 @@
 -- cm-auth/server/main.lua
--- Modern email/password auth with bcrypt, trusted-device token login, lockouts,
--- 10-tier RBAC admin cache, and identifier reset helpers.
+-- Modern email/password auth with trusted-device token login, lockouts,
+-- safe session state, and clean handoff to cm-characters.
+-- Admin/staff tools belong in cm-admin, not here.
 
 local DEBUG = false
 local LOGIN_COOLDOWN = 1500
@@ -17,43 +18,12 @@ local lastRegister = {}
 local lastTokenLogin = {}
 local lastReset = {}
 
--- FXServer has native password hashing functions:
---   GetPasswordHash(password)
---   VerifyPasswordHash(password, hash)
--- Use those first so cm-auth does not depend on a separate bcrypt resource.
--- If you still run an external bcrypt resource, the export fallback below keeps
--- compatibility with common resource/export names.
-local BCRYPT_RESOURCES = { 'bcrypt', 'fivem-bcrypt', 'fivem-bcrypt-async', 'cm-bcrypt', 'pe-bcrypt' }
-local SALT_ROUNDS = 11
-local HASH_EXPORTS = { 'GetPasswordHash', 'hash_sync', 'hashSync', 'HashPassword', 'hash', 'digest_sync', 'digest' }
-local VERIFY_EXPORTS = { 'VerifyPasswordHash', 'check_sync', 'checkSync', 'verify_sync', 'compare_sync', 'VerifyPassword', 'check', 'verify', 'compare' }
+-- Prefer FXServer native password hashing. If the server artifact does not
+-- provide it, use CM1 local salted iterative SHA-256 fallback. No external
+-- external password resource/export is used by this version.
 local TOKEN_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-
-local RankCache = {}
-local DefaultRankSeeds = {
-    { level = 1,  name = 'Helper',             permissions = { 'auth.lookup' } },
-    { level = 2,  name = 'Trial Moderator',    permissions = { 'auth.lookup', 'auth.reset.ip' } },
-    { level = 3,  name = 'Moderator',          permissions = { 'auth.lookup', 'auth.reset.ip', 'auth.reset.hwid' } },
-    { level = 4,  name = 'Senior Moderator',   permissions = { 'auth.lookup', 'auth.reset.ip', 'auth.reset.hwid' } },
-    { level = 5,  name = 'Administrator',      permissions = { 'auth.lookup', 'auth.reset.ip', 'auth.reset.hwid', 'auth.reset.socialclub' } },
-    { level = 6,  name = 'Senior Admin',       permissions = { 'auth.lookup', 'auth.reset.identifiers', 'auth.ranks.reload' } },
-    { level = 7,  name = 'Head Admin',         permissions = { 'auth.lookup', 'auth.reset.identifiers', 'auth.reset.password', 'auth.ranks.reload' } },
-    { level = 8,  name = 'Community Manager',  permissions = { 'auth.lookup', 'auth.reset.identifiers', 'auth.reset.password', 'auth.ranks.reload' } },
-    { level = 9,  name = 'Developer',          permissions = { 'auth.lookup', 'auth.reset.identifiers', 'auth.reset.password', 'auth.ranks.reload' } },
-    { level = 10, name = 'Owner',              permissions = { '*' } },
-}
-
-local RESET_PERMISSION_MAP = {
-    hwid_hash = 'auth.reset.hwid',
-    ip_address = 'auth.reset.ip',
-    social_club_id = 'auth.reset.socialclub'
-}
-
-local RESET_LABELS = {
-    hwid_hash = 'HWID',
-    ip_address = 'IP address',
-    social_club_id = 'Social Club / Rockstar license'
-}
+local LOCAL_HASH_PREFIX = 'CM1$'
+local LOCAL_HASH_ROUNDS = 1500
 
 math.randomseed(os.time() + GetGameTimer())
 
@@ -73,17 +43,22 @@ local function sendRegister(src, success, message)
     TriggerClientEvent('cm-auth:client:registerResult', src, success, message)
 end
 
+local function shouldPrintLevel(level)
+    level = tostring(level or 'info'):lower()
+    return DEBUG or level == 'warning' or level == 'error' or level == 'critical'
+end
+
 local function safeLog(resource, level, message, metadata)
     metadata = metadata or {}
     metadata.category = metadata.category or 'auth'
     local ok = pcall(function()
         if exports['cm-core'] and exports['cm-core'].Log then
             exports['cm-core'].Log(resource or 'cm-auth', level or 'info', message or '', metadata)
-        else
+        elseif shouldPrintLevel(level) then
             print(('[CM-AUTH] %s: %s'):format(level or 'info', message or ''))
         end
     end)
-    if not ok then
+    if not ok and shouldPrintLevel(level) then
         print(('[CM-AUTH] %s: %s'):format(level or 'info', message or ''))
     end
 end
@@ -117,7 +92,7 @@ local function dbQuery(sql, params)
     end)
     if not ok then
         print('[CM-AUTH] DB query failed: ' .. tostring(result))
-        print('[CM-AUTH] SQL: ' .. sql)
+        dprint('SQL:', sql)
         return nil
     end
     return result
@@ -133,7 +108,7 @@ local function dbSingle(sql, params)
     end)
     if not ok then
         print('[CM-AUTH] DB single failed: ' .. tostring(result))
-        print('[CM-AUTH] SQL: ' .. sql)
+        dprint('SQL:', sql)
         return nil
     end
     return result
@@ -149,7 +124,7 @@ local function dbScalar(sql, params)
     end)
     if not ok then
         print('[CM-AUTH] DB scalar failed: ' .. tostring(result))
-        print('[CM-AUTH] SQL: ' .. sql)
+        dprint('SQL:', sql)
         return nil
     end
     return result
@@ -171,34 +146,21 @@ local function validateEmail(email)
     return true, email
 end
 
-local function normalizePermissions(raw)
-    if type(raw) == 'string' then
-        local ok, decoded = pcall(json.decode, raw)
-        if ok and type(decoded) == 'table' then
-            raw = decoded
-        else
-            raw = {}
-        end
-    end
-
-    if type(raw) ~= 'table' then
-        raw = {}
-    end
-
-    local seen = {}
-    local output = {}
-    for _, perm in ipairs(raw) do
-        if type(perm) == 'string' then
-            perm = sanitize(perm)
-            if perm ~= '' and not seen[perm] then
-                seen[perm] = true
-                output[#output + 1] = perm
-            end
-        end
-    end
-
-    return output
+local function isSourceLoggedIn(src)
+    if not src or src == 0 then return false end
+    local ok, value = pcall(function() return Player(src).state.isLoggedIn == true end)
+    return ok and value == true
 end
+
+local function getSourceAccountId(src)
+    if not src or src == 0 then return nil end
+    local ok, value = pcall(function() return Player(src).state.accountId end)
+    if ok and value then return tostring(value) end
+    return nil
+end
+
+exports('IsLoggedIn', isSourceLoggedIn)
+exports('GetAccountId', getSourceAccountId)
 
 -- Reseed from several changing sources before generating a credential. This is
 -- not a full CSPRNG (Lua has no native secure RNG), but it removes the trivial
@@ -229,18 +191,9 @@ end
 
 local function generateAuthToken()
     reseedRandom()
-    -- 48 random chars from a 62-char alphabet (~285 bits). Kept under bcrypt's
-    -- 72-byte limit so the whole token is covered when hashed at rest.
+    -- 48 random chars from a 62-char alphabet. The raw token is sent only to
+    -- the client once and a hash is stored in the database.
     return randomString(48)
-end
-
-local function getBcryptResource()
-    for _, resourceName in ipairs(BCRYPT_RESOURCES) do
-        if GetResourceState(resourceName) == 'started' then
-            return resourceName
-        end
-    end
-    return nil
 end
 
 local function tryNativeHash(password)
@@ -275,32 +228,126 @@ local function tryNativeVerify(password, storedHash)
     return false, tostring(result)
 end
 
-local function callBcrypt(exportNames, ...)
-    local resourceName = getBcryptResource()
-    if not resourceName then
-        return false, 'No external bcrypt resource is started. This is OK if FXServer native hashing is available.'
+local function bxor(a, b)
+    return (a ~ b) & 0xffffffff
+end
+
+local function rrotate(x, n)
+    return ((x >> n) | (x << (32 - n))) & 0xffffffff
+end
+
+local SHA256_K = {
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+}
+
+local function sha256(message)
+    message = tostring(message or '')
+    local bytes = { message:byte(1, #message) }
+    local bitLen = #bytes * 8
+
+    bytes[#bytes + 1] = 0x80
+    while (#bytes % 64) ~= 56 do
+        bytes[#bytes + 1] = 0
     end
 
-    local args = { ... }
-    local lastErr = nil
-    for _, exportName in ipairs(exportNames) do
-        local ok, result = pcall(function()
-            local fn = exports[resourceName] and exports[resourceName][exportName]
-            if type(fn) ~= 'function' then
-                error(('missing export %s'):format(exportName))
-            end
-            return fn(table.unpack(args))
-        end)
-        -- A valid result includes boolean false (e.g. a verify returning "no match"),
-        -- so we accept any non-nil result and only skip when the export errored/missing.
-        if ok and result ~= nil then
-            return true, result
+    -- FiveM passwords/tokens are far below 2^32 bits, so the high 32 bits are 0.
+    for _ = 1, 4 do bytes[#bytes + 1] = 0 end
+    for shift = 24, 0, -8 do
+        bytes[#bytes + 1] = (bitLen >> shift) & 0xff
+    end
+
+    local h0, h1, h2, h3 = 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a
+    local h4, h5, h6, h7 = 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+
+    for chunk = 1, #bytes, 64 do
+        local w = {}
+        for i = 0, 15 do
+            local j = chunk + (i * 4)
+            w[i] = (((bytes[j] or 0) << 24) | ((bytes[j + 1] or 0) << 16) | ((bytes[j + 2] or 0) << 8) | (bytes[j + 3] or 0)) & 0xffffffff
         end
-        if not ok then lastErr = result end
+
+        for i = 16, 63 do
+            local s0 = bxor(bxor(rrotate(w[i - 15], 7), rrotate(w[i - 15], 18)), (w[i - 15] >> 3))
+            local s1 = bxor(bxor(rrotate(w[i - 2], 17), rrotate(w[i - 2], 19)), (w[i - 2] >> 10))
+            w[i] = (w[i - 16] + s0 + w[i - 7] + s1) & 0xffffffff
+        end
+
+        local a, b, c, d, e, f, g, h = h0, h1, h2, h3, h4, h5, h6, h7
+
+        for i = 0, 63 do
+            local S1 = bxor(bxor(rrotate(e, 6), rrotate(e, 11)), rrotate(e, 25))
+            local ch = bxor((e & f), (((~e) & 0xffffffff) & g))
+            local temp1 = (h + S1 + ch + SHA256_K[i + 1] + w[i]) & 0xffffffff
+            local S0 = bxor(bxor(rrotate(a, 2), rrotate(a, 13)), rrotate(a, 22))
+            local maj = bxor(bxor((a & b), (a & c)), (b & c))
+            local temp2 = (S0 + maj) & 0xffffffff
+
+            h = g
+            g = f
+            f = e
+            e = (d + temp1) & 0xffffffff
+            d = c
+            c = b
+            b = a
+            a = (temp1 + temp2) & 0xffffffff
+        end
+
+        h0 = (h0 + a) & 0xffffffff
+        h1 = (h1 + b) & 0xffffffff
+        h2 = (h2 + c) & 0xffffffff
+        h3 = (h3 + d) & 0xffffffff
+        h4 = (h4 + e) & 0xffffffff
+        h5 = (h5 + f) & 0xffffffff
+        h6 = (h6 + g) & 0xffffffff
+        h7 = (h7 + h) & 0xffffffff
     end
 
-    return false, ('bcrypt export not found on "%s" (tried: %s). %s'):format(
-        resourceName, table.concat(exportNames, ', '), lastErr and ('last error: ' .. tostring(lastErr)) or '')
+    return ('%08x%08x%08x%08x%08x%08x%08x%08x'):format(h0, h1, h2, h3, h4, h5, h6, h7)
+end
+
+local function safeEquals(a, b)
+    a = tostring(a or '')
+    b = tostring(b or '')
+    if #a ~= #b then return false end
+
+    local diff = 0
+    for i = 1, #a do
+        diff = diff | (a:byte(i) ~ b:byte(i))
+    end
+    return diff == 0
+end
+
+local function makeLocalPasswordHash(password, salt, rounds)
+    rounds = tonumber(rounds) or LOCAL_HASH_ROUNDS
+    local digest = sha256(tostring(salt) .. ':' .. tostring(password))
+    for _ = 1, rounds do
+        digest = sha256(digest .. ':' .. tostring(salt) .. ':' .. tostring(password))
+    end
+    return digest
+end
+
+local function createLocalPasswordHash(password)
+    reseedRandom()
+    local salt = randomString(24)
+    local digest = makeLocalPasswordHash(password, salt, LOCAL_HASH_ROUNDS)
+    return ('%s%d$%s$%s'):format(LOCAL_HASH_PREFIX, LOCAL_HASH_ROUNDS, salt, digest)
+end
+
+local function verifyLocalPasswordHash(password, storedHash)
+    local rounds, salt, digest = tostring(storedHash or ''):match('^CM1%$(%d+)%$([A-Za-z0-9]+)%$([a-fA-F0-9]+)$')
+    if not rounds or not salt or not digest then
+        return false
+    end
+
+    local check = makeLocalPasswordHash(password, salt, tonumber(rounds) or LOCAL_HASH_ROUNDS)
+    return safeEquals(check:lower(), digest:lower())
 end
 
 local function LegacyTempHash(password)
@@ -314,24 +361,11 @@ end
 local function HashPassword(password)
     if type(password) ~= 'string' then return nil, 'Invalid password.' end
 
-    -- Prefer FXServer's built-in native. This avoids the common issue where a
-    -- bcrypt resource is started on the client but has no server export.
     local nativeOk, nativeResult = tryNativeHash(password)
     if nativeOk then return nativeResult end
 
-    -- Fallback for servers that intentionally use an external bcrypt resource.
-    -- Some resources expose hash(password); others require hash(password, rounds).
-    local ok, result = callBcrypt(HASH_EXPORTS, password)
-    if not ok or type(result) ~= 'string' or result == '' then
-        local ok2, result2 = callBcrypt(HASH_EXPORTS, password, SALT_ROUNDS)
-        if ok2 then ok, result = ok2, result2 end
-    end
-
-    if not ok then
-        return nil, ('Password hashing unavailable. Native error: %s | Export error: %s'):format(tostring(nativeResult), tostring(result))
-    end
-    if type(result) ~= 'string' or result == '' then return nil, 'bcrypt returned invalid hash.' end
-    return result
+    -- No external dependency: use the local CM1 salted SHA-256 fallback.
+    return createLocalPasswordHash(password)
 end
 
 local function VerifyPassword(password, storedHash)
@@ -339,7 +373,14 @@ local function VerifyPassword(password, storedHash)
         return false, 'Invalid credentials.'
     end
 
-    -- Legacy fallback hashes do not depend on bcrypt, so verify them directly.
+    if storedHash:sub(1, #LOCAL_HASH_PREFIX) == LOCAL_HASH_PREFIX then
+        if verifyLocalPasswordHash(password, storedHash) then
+            return true, 'cm-local'
+        end
+        return false, 'Wrong password. Try again.'
+    end
+
+    -- Legacy fallback hashes do not depend on any external resource.
     if storedHash:sub(1, 5) == 'TEMP_' then
         if LegacyTempHash(password) == storedHash then
             return true, 'legacy'
@@ -353,12 +394,7 @@ local function VerifyPassword(password, storedHash)
         return false, 'Wrong password. Try again.'
     end
 
-    local ok, result = callBcrypt(VERIFY_EXPORTS, password, storedHash)
-    if not ok then
-        return false, ('Password verification unavailable. Native error: %s | Export error: %s'):format(tostring(nativeResult), tostring(result))
-    end
-    if result == true or result == 1 then return true, 'bcrypt' end
-    return false, 'Wrong password. Try again.'
+    return false, 'Password verification unavailable for this old hash. Reset the password.'
 end
 
 local function GetSocialClubId(src)
@@ -512,102 +548,6 @@ local function handleFailedLogin(email, src)
     return false
 end
 
-local function seedAdminRanksIfNeeded()
-    local count = tonumber(dbScalar('SELECT COUNT(*) FROM admin_ranks', {}) or 0) or 0
-    if count > 0 then return end
-
-    for _, rank in ipairs(DefaultRankSeeds) do
-        dbQuery('INSERT INTO admin_ranks (`level`, `name`, `permissions`) VALUES (?, ?, ?)', {
-            rank.level,
-            rank.name,
-            json.encode(rank.permissions)
-        })
-    end
-end
-
-local function loadRankCache()
-    RankCache = {}
-    local rows = dbQuery('SELECT `level`, `name`, `permissions` FROM admin_ranks ORDER BY `level` ASC', {}) or {}
-
-    for _, row in ipairs(rows) do
-        local level = tonumber(row.level) or 0
-        if level > 0 then
-            RankCache[level] = {
-                level = level,
-                name = tostring(row.name or ('Level ' .. tostring(level))),
-                permissions = normalizePermissions(row.permissions)
-            }
-        end
-    end
-
-    return RankCache
-end
-
-local function getRankData(adminLevel)
-    adminLevel = tonumber(adminLevel) or 0
-    local rank = RankCache[adminLevel]
-    if rank then return rank end
-
-    return {
-        level = adminLevel,
-        name = adminLevel > 0 and ('Level ' .. tostring(adminLevel)) or 'Player',
-        permissions = {}
-    }
-end
-
-local function permissionMatches(granted, requested)
-    if granted == '*' or granted == requested then return true end
-    if granted:sub(-2) == '.*' then
-        local prefix = granted:sub(1, -3)
-        return requested:sub(1, #prefix) == prefix
-    end
-    return false
-end
-
-local function syncAdminState(src, adminLevel)
-    local rank = getRankData(adminLevel)
-    local perms = rank.permissions or {}
-
-    Player(src).state:set('adminLevel', tonumber(rank.level) or 0, true)
-    Player(src).state:set('adminRankName', rank.name or 'Player', true)
-    Player(src).state:set('adminPermissions', perms, true)
-
-    return perms, rank
-end
-
-local function clearAdminState(src)
-    Player(src).state:set('adminLevel', 0, true)
-    Player(src).state:set('adminRankName', nil, true)
-    Player(src).state:set('adminPermissions', {}, true)
-end
-
-function HasPermission(src, permissionNode)
-    if src == 0 then return true end
-    if not src or not permissionNode or type(permissionNode) ~= 'string' then return false end
-
-    local state = Player(src).state
-    local adminLevel = tonumber(state.adminLevel or 0) or 0
-    if adminLevel >= 10 then return true end
-
-    local perms = state.adminPermissions or {}
-    if type(perms) == 'string' then
-        perms = normalizePermissions(perms)
-    elseif type(perms) ~= 'table' then
-        perms = {}
-    end
-
-    for _, granted in ipairs(perms) do
-        if type(granted) == 'string' and permissionMatches(granted, permissionNode) then
-            return true
-        end
-    end
-
-    return false
-end
-
-_G.HasPermission = HasPermission
-exports('HasPermission', HasPermission)
-
 local function ensureAuthDatabase()
     dbQuery([[CREATE TABLE IF NOT EXISTS login_attempts (
         id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -625,14 +565,6 @@ local function ensureAuthDatabase()
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )]])
 
-    dbQuery([[CREATE TABLE IF NOT EXISTS admin_ranks (
-        `level` TINYINT UNSIGNED NOT NULL,
-        `name` VARCHAR(64) NOT NULL,
-        `permissions` JSON NOT NULL,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (`level`)
-    )]])
 
     dbQuery([[CREATE TABLE IF NOT EXISTS register_attempts (
         id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -658,10 +590,6 @@ local function ensureAuthDatabase()
         dbQuery('ALTER TABLE accounts ADD COLUMN auth_token_created_at DATETIME NULL')
     end
 
-    local adminLevelCol = dbQuery("SHOW COLUMNS FROM accounts LIKE 'admin_level'")
-    if not adminLevelCol or not adminLevelCol[1] then
-        dbQuery('ALTER TABLE accounts ADD COLUMN admin_level TINYINT UNSIGNED NOT NULL DEFAULT 0')
-    end
 
     -- Indexes to speed up lookups and stop duplicate-account races at the DB level.
     local function indexExists(tableName, indexName)
@@ -687,42 +615,32 @@ local function ensureAuthDatabase()
         dbQuery('ALTER TABLE login_attempts ADD INDEX idx_attempts_lookup (username, ip_address, created_at)')
     end
 
-    seedAdminRanksIfNeeded()
-    loadRankCache()
 end
 
 local function finishLogin(src, account, token, mode)
     local accountIdStr = tostring(account.id)
     local email = tostring(account.email or ''):lower()
-    local adminLevel = tonumber(account.admin_level or 0) or 0
 
     Player(src).state:set('accountId', accountIdStr, true)
     Player(src).state:set('accountEmail', email, true)
     Player(src).state:set('isLoggedIn', true, true)
     Player(src).state:set('authLoggedIn', true, true)
 
-    local activePerms, rank = syncAdminState(src, adminLevel)
-
     safeLog('cm-auth', 'info', 'Login success', {
         player_src = src,
         account_id = accountIdStr,
         email = email,
-        mode = mode or 'password',
-        admin_level = adminLevel,
-        admin_rank = rank.name or 'Player'
+        mode = mode or 'password'
     })
 
-    print('[CM-AUTH] Login success, accountId=' .. accountIdStr .. ', mode=' .. tostring(mode or 'password'))
+    dprint('Login success, accountId=' .. accountIdStr .. ', mode=' .. tostring(mode or 'password'))
 
     sendLogin(src, true, {
         accountId = accountIdStr,
         email = email,
         username = account.username or email,
         authToken = token,
-        mode = mode or 'password',
-        adminLevel = adminLevel,
-        adminRank = rank.name or 'Player',
-        adminPermissions = activePerms
+        mode = mode or 'password'
     })
 end
 
@@ -733,7 +651,7 @@ local function validateTokenForPlayer(src, token, email)
         return nil, 'Saved login expired. Please login again.'
     end
 
-    -- Look the account up by email, then bcrypt-verify the raw token against the
+    -- Look the account up by email, then verify the raw token against the
     -- hash stored at rest. A leaked database row no longer reveals usable tokens.
     local account = GetAccountByEmail(email)
     if not account or not account.auth_token or tostring(account.auth_token) == '' then
@@ -748,8 +666,8 @@ local function validateTokenForPlayer(src, token, email)
     -- Optional expiry: tokens older than TOKEN_MAX_AGE_DAYS require a fresh login.
     if account.auth_token_created_at then
         local expired = dbScalar(
-            'SELECT (auth_token_created_at < DATE_SUB(NOW(), INTERVAL ? DAY)) FROM accounts WHERE id = ?',
-            { TOKEN_MAX_AGE_DAYS, account.id })
+            ('SELECT (auth_token_created_at < DATE_SUB(NOW(), INTERVAL %d DAY)) FROM accounts WHERE id = ?'):format(TOKEN_MAX_AGE_DAYS),
+            { account.id })
         if expired == 1 or expired == true then
             return nil, 'Saved login expired. Please login again.'
         end
@@ -772,45 +690,6 @@ local function validateTokenForPlayer(src, token, email)
     end
 
     return account, nil, security
-end
-
-local function canResetField(src, field)
-    local permissionNode = RESET_PERMISSION_MAP[field]
-    if not permissionNode then return false end
-
-    if HasPermission(src, 'auth.reset.identifiers') then return true end
-    return HasPermission(src, permissionNode)
-end
-
-local function performAdminReset(actorSrc, target, field)
-    if not canResetField(actorSrc, field) then
-        notify(actorSrc, 'You do not have permission to reset ' .. tostring(RESET_LABELS[field] or field) .. '.', 'error')
-        return false
-    end
-
-    local account = GetAccountByIdOrEmail(target)
-    if not account then
-        notify(actorSrc, 'Target account not found.', 'error')
-        return false
-    end
-
-    dbQuery(([[
-        UPDATE accounts
-        SET %s = NULL,
-            auth_token = NULL,
-            auth_token_created_at = NULL
-        WHERE id = ?
-    ]]):format(field), { account.id })
-
-    safeLog('cm-auth', 'warning', 'Admin reset identifier', {
-        actor_src = actorSrc,
-        target_account = tostring(account.id),
-        target_email = tostring(account.email or ''),
-        field = field
-    })
-
-    notify(actorSrc, ('Reset %s for account %s (%s).'):format(RESET_LABELS[field] or field, tostring(account.id), tostring(account.email or 'no-email')), 'success')
-    return true
 end
 
 RegisterNetEvent('cm-auth:server:register', function(data)
@@ -881,9 +760,9 @@ RegisterNetEvent('cm-auth:server:register', function(data)
         recordRegisterAttempt(src, email)
 
         local result = dbQuery([[
-            INSERT INTO accounts (id, social_club_id, account_slot, username, password_hash, email, hwid_hash, ip_address, admin_level)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ]], { accountId, security.social, 1, username, passwordHash, email, security.hwid, security.ip, 0 })
+            INSERT INTO accounts (id, social_club_id, account_slot, username, password_hash, email, hwid_hash, ip_address)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ]], { accountId, security.social, 1, username, passwordHash, email, security.hwid, security.ip })
 
         if result == nil then
             sendRegister(src, false, 'Database error. Check server console.')
@@ -957,7 +836,7 @@ RegisterNetEvent('cm-auth:server:resetPassword', function(data)
                     player_src = src, email = email, ip = security.ip
                 })
             end
-            sendReset(src, false, 'This account is not linked to your Rockstar profile. Ask an admin to reset it for you.')
+            sendReset(src, false, 'This account is not linked to your Rockstar profile. Ask staff to reset it through cm-admin.')
             return
         end
 
@@ -1057,7 +936,7 @@ RegisterNetEvent('cm-auth:server:login', function(data)
         local authToken = generateAuthToken()
         local tokenHash = HashPassword(authToken)
         if not tokenHash then
-            -- Should not happen (login already proved bcrypt works), but never
+            -- Should not happen (login already proved password hashing works), but never
             -- store a raw token if hashing fails.
             sendLogin(src, false, 'Password security service error. Try again.')
             return
@@ -1176,105 +1055,9 @@ RegisterNetEvent('cm-auth:server:logout', function()
     Player(src).state:set('accountEmail', nil, true)
     Player(src).state:set('isLoggedIn', false, true)
     Player(src).state:set('authLoggedIn', false, true)
-    clearAdminState(src)
-
     TriggerClientEvent('cm-auth:client:clearToken', src)
     TriggerClientEvent('cm-auth:client:openLogin', src)
 end)
-
-RegisterNetEvent('cm-auth:server:adminResetIdentifier', function(data)
-    local src = source
-    data = type(data) == 'table' and data or {}
-    local target = sanitize(data.target)
-    local field = sanitize(data.field)
-
-    if target == '' or field == '' then
-        notify(src, 'Usage: target and field are required.', 'error')
-        return
-    end
-
-    if RESET_PERMISSION_MAP[field] == nil then
-        notify(src, 'Invalid reset field.', 'error')
-        return
-    end
-
-    performAdminReset(src, target, field)
-end)
-
-RegisterCommand('authreloadranks', function(src)
-    if src ~= 0 and not HasPermission(src, 'auth.ranks.reload') then
-        notify(src, 'You do not have permission to reload admin ranks.', 'error')
-        return
-    end
-
-    loadRankCache()
-    notify(src, ('Admin rank cache reloaded (%d ranks).'):format(#DefaultRankSeeds), 'success')
-end, false)
-
-RegisterCommand('authresethwid', function(src, args)
-    local target = sanitize(args[1] or '')
-    if target == '' then
-        notify(src, 'Usage: /authresethwid <accountId|email>', 'error')
-        return
-    end
-    performAdminReset(src, target, 'hwid_hash')
-end, false)
-
-RegisterCommand('authresetip', function(src, args)
-    local target = sanitize(args[1] or '')
-    if target == '' then
-        notify(src, 'Usage: /authresetip <accountId|email>', 'error')
-        return
-    end
-    performAdminReset(src, target, 'ip_address')
-end, false)
-
-RegisterCommand('authresetsocialclub', function(src, args)
-    local target = sanitize(args[1] or '')
-    if target == '' then
-        notify(src, 'Usage: /authresetsocialclub <accountId|email>', 'error')
-        return
-    end
-    performAdminReset(src, target, 'social_club_id')
-end, false)
-
-RegisterCommand('authsetpassword', function(src, args)
-    if src ~= 0 and not HasPermission(src, 'auth.reset.password') then
-        notify(src, 'You do not have permission to set passwords.', 'error')
-        return
-    end
-
-    local target = sanitize(args[1] or '')
-    local newPassword = args[2]
-    if target == '' or type(newPassword) ~= 'string' or #newPassword < 6 then
-        notify(src, 'Usage: /authsetpassword <accountId|email> <newPassword (min 6 chars)>', 'error')
-        return
-    end
-    if #newPassword > 72 then
-        notify(src, 'Password is too long (max 72 characters).', 'error')
-        return
-    end
-
-    local account = GetAccountByIdOrEmail(target)
-    if not account then
-        notify(src, 'Target account not found.', 'error')
-        return
-    end
-
-    local newHash = HashPassword(newPassword)
-    if not newHash then
-        notify(src, 'Password security service error.', 'error')
-        return
-    end
-
-    dbQuery('UPDATE accounts SET password_hash = ?, auth_token = NULL, auth_token_created_at = NULL WHERE id = ?', { newHash, account.id })
-    safeLog('cm-auth', 'warning', 'Admin set account password', {
-        actor_src = src,
-        target_account = tostring(account.id),
-        target_email = tostring(account.email or '')
-    })
-    notify(src, ('Password updated for %s (%s).'):format(tostring(account.id), tostring(account.email or 'no-email')), 'success')
-end, false)
 
 AddEventHandler('playerDropped', function()
     local src = source
@@ -1293,10 +1076,9 @@ CreateThread(function()
     if probe then
         local okVerify, verifyMode = VerifyPassword('cm-auth-selftest', probe)
         if okVerify then
-            local bcryptResource = getBcryptResource()
             local provider = (verifyMode == 'native') and 'FXServer native GetPasswordHash/VerifyPasswordHash'
-                or (bcryptResource and ('external resource: ' .. bcryptResource) or 'unknown')
-            print(('[CM-AUTH] Password hashing OK via %s | trusted-device login enabled | admin ranks cached: %s'):format(provider, tostring(#DefaultRankSeeds)))
+                or 'CM1 local salted SHA-256 fallback'
+            dprint(('Password hashing OK via %s | trusted-device login enabled'):format(provider))
         else
             print(('[CM-AUTH] WARNING: password hash self-test failed to verify. %s'):format(tostring(verifyMode)))
         end

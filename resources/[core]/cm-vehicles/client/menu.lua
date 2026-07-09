@@ -1,6 +1,52 @@
 local U = CMVehicles.Utils
 local Config = CMVehicles.Config
 
+-- ---------------------------------------------------------------------------
+-- Single-prompt interaction arbiter (mirror of cm-playerdata).
+-- When a player AND a vehicle are both targeted, only one G should show.
+-- cm-playerdata publishes LocalPlayer.state.cmPlayerInteractDist; we publish
+-- LocalPlayer.state.cmVehicleInteractDist and yield to the player using the SAME
+-- settings, pulled live from cm-playerdata so they can never drift out of sync.
+-- ---------------------------------------------------------------------------
+local arbiter = { enabled = true, priority = 'closest', tie = 0.1 }
+
+CreateThread(function()
+    while true do
+        if GetResourceState('cm-playerdata') == 'started' then
+            local ok, s = pcall(function() return exports['cm-playerdata']:GetInteractionArbiter() end)
+            if ok and type(s) == 'table' then
+                arbiter.enabled = s.enabled ~= false
+                arbiter.priority = tostring(s.priority or 'closest')
+                arbiter.tie = tonumber(s.tie) or 0.1
+            end
+        end
+        Wait(5000)
+    end
+end)
+
+local lastVehInteractDist = false
+local function PublishVehicleInteractDist(dist)
+    local v = (type(dist) == 'number') and dist or false
+    if v ~= lastVehInteractDist then
+        lastVehInteractDist = v
+        LocalPlayer.state:set('cmVehicleInteractDist', v, false) -- local only
+    end
+end
+
+-- True when the player menu owns the prompt this frame, so we hide ours / don't open.
+local function VehicleShouldYield(myVehDist)
+    if not arbiter.enabled then return false end
+    local pDist = LocalPlayer.state.cmPlayerInteractDist
+    if type(pDist) ~= 'number' then return false end -- player has no target -> we're free
+
+    local mode = arbiter.priority
+    if mode == 'player' then return true end          -- player always wins when it has a target
+    if mode == 'vehicle' then return false end         -- vehicle always wins when it has a target
+
+    if type(myVehDist) ~= 'number' then return true end
+    return pDist <= (myVehDist + (arbiter.tie or 0.1)) -- 'closest'; player wins near-ties
+end
+
 local function playKeyFob()
     local ped = PlayerPedId()
     RequestAnimDict('anim@mp_player_intmenu@key_fob@')
@@ -178,10 +224,14 @@ RegisterCommand('veh_menu', function()
     local veh = GetVehiclePedIsIn(ped, false)
 
     if veh and veh ~= 0 then
+        -- Seated in own vehicle: no player-target conflict, open normally.
         CMVehicles.Client.CurrentMenuContext = CMVehicles.Client.GetVehicleContext(veh, false)
     else
-        veh = CMVehicles.Client.GetLookedAtVehicle(tonumber(Config.Interaction.lookDistance) or tonumber(Config.Interaction.distance) or 7.5)
-        if veh and veh ~= 0 then
+        local lookVeh, lookDist = CMVehicles.Client.GetLookedAtVehicle(tonumber(Config.Interaction.lookDistance) or tonumber(Config.Interaction.distance) or 7.5)
+        if lookVeh and lookVeh ~= 0 then
+            -- If the player menu owns the prompt this frame, let it handle G instead.
+            if VehicleShouldYield(lookDist) then return end
+            veh = lookVeh
             CMVehicles.Client.CurrentMenuContext = CMVehicles.Client.GetVehicleContext(veh, true)
         end
     end
@@ -312,14 +362,20 @@ RegisterCommand('vehtrunkinv', function() if not tryOpenNearbyTrunkInventory() t
 CreateThread(function()
     while true do
         local sleep = 700
+        local vehTargetDist = nil
         if not CMVehicles.Client.MenuOpen and not CMVehicles.Client.InTrunk then
             local ped = PlayerPedId()
             if not IsPedInAnyVehicle(ped, false) then
                 local actionDistance = tonumber(Config.Interaction.distance) or 6.5
                 local veh, dist = CMVehicles.Client.GetLookedAtVehicle(tonumber(Config.Interaction.lookDistance) or actionDistance)
                 if veh and veh ~= 0 and dist and dist <= actionDistance then
-                    sleep = 0
-                    CMVehicles.Client.DrawVehiclePromptForVehicle(veh)
+                    vehTargetDist = dist
+                    -- Only show the vehicle G if the player menu isn't the closer/
+                    -- priority target this frame, so at most one G is on screen.
+                    if not VehicleShouldYield(dist) then
+                        sleep = 0
+                        CMVehicles.Client.DrawVehiclePromptForVehicle(veh)
+                    end
                 end
             end
         elseif CMVehicles.Client.InTrunk then
@@ -347,6 +403,9 @@ CreateThread(function()
                 end
             end
         end
+        -- Share our current vehicle target distance (or clear it) so the player
+        -- menu can arbitrate; false when we have no vehicle target this frame.
+        PublishVehicleInteractDist(vehTargetDist)
         Wait(sleep)
     end
 end)

@@ -2053,7 +2053,7 @@ if ($('poseRotLeft'))     $('poseRotLeft').addEventListener('click',     () => p
 if ($('poseRotRight'))    $('poseRotRight').addEventListener('click',    () => poseRotate(15));
 if ($('poseRotRightBig')) $('poseRotRightBig').addEventListener('click', () => poseRotate(45));
 if ($('poseHeading'))     $('poseHeading').addEventListener('input', e => poseSetHeading(Number(e.target.value) || 0));
-if ($('poseLiftUp'))      $('poseLiftUp').addEventListener('click',   () => poseLift(0.05));
-if ($('poseLiftDown'))    $('poseLiftDown').addEventListener('click', () => poseLift(-0.05));
+if ($('poseLiftUp'))      $('poseLiftUp').addEventListener('click',   () => poseLift(0.08));
+if ($('poseLiftDown'))    $('poseLiftDown').addEventListener('click', () => poseLift(-0.08));
 if ($('poseConfirm'))     $('poseConfirm').addEventListener('click', poseConfirm);
 if ($('poseCancel'))      $('poseCancel').addEventListener('click', poseCancel);

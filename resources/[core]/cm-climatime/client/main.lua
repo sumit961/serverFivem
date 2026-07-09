@@ -28,9 +28,17 @@ local lastSyncRequestAt = 0
 local applyCurrentClimate -- assigned after weather helpers are declared
 local spawnHandoff = nil
 local rainRampGeneration = 0
+local weatherApplyGeneration = 0
+local preSpawnPrepareGeneration = 0
+local lastPreSpawnApplyAt = 0
+local lastPreSpawnSignature = ''
 local activeRainLevel = 0.0
 local preSpawnPreparing = false
 local preSpawnPreparedUntil = 0
+local lastPreSpawnPayload = nil
+local preSpawnZoneCoords = nil
+local preSpawnZoneCoordsUntil = 0
+local localStateCache = {}
 
 
 local function startupCfg()
@@ -51,10 +59,54 @@ local function lifeDbg(...)
     end
 end
 
-local function setLocalState(key, value)
-    if LocalPlayer and LocalPlayer.state then
-        LocalPlayer.state:set(key, value, true)
+local missingNativeWarnings = {}
+
+local function callNativeIfAvailable(nativeName, ...)
+    local fn = rawget(_G, nativeName)
+    if type(fn) ~= 'function' then
+        if Config.Debug and not missingNativeWarnings[nativeName] then
+            missingNativeWarnings[nativeName] = true
+            print(('[cm-climatime] native unavailable, skipped: %s'):format(nativeName))
+        end
+        return false
     end
+
+    local ok, err = pcall(fn, ...)
+    if not ok then
+        if Config.Debug then
+            print(('[cm-climatime] native failed: %s | %s'):format(nativeName, tostring(err)))
+        end
+        return false
+    end
+
+    return true
+end
+
+local function setWorldBlackoutSafe(enabled)
+    enabled = enabled == true
+
+    -- Some FiveM builds do not expose SetArtificialLightsState as a Lua global.
+    -- Prefer it when available, otherwise fall back to SetBlackout.
+    local usedArtificialLights = callNativeIfAvailable('SetArtificialLightsState', enabled)
+    if not usedArtificialLights then
+        callNativeIfAvailable('SetBlackout', enabled)
+    end
+
+    callNativeIfAvailable('SetArtificialLightsStateAffectsVehicles', false)
+end
+
+local function setSnowEffectsSafe(enabled)
+    enabled = enabled == true
+    callNativeIfAvailable('SetForceVehicleTrails', enabled)
+    callNativeIfAvailable('SetForcePedFootstepsTracks', enabled)
+end
+
+
+local function setLocalState(key, value)
+    if not (LocalPlayer and LocalPlayer.state) then return end
+    if localStateCache[key] == value then return end
+    localStateCache[key] = value
+    LocalPlayer.state:set(key, value, true)
 end
 
 local function isPreSpawnPrepareActive()
@@ -199,15 +251,22 @@ local function dbg(...)
     end
 end
 
-local function notify(msg)
+local function notify(msg, opts)
     msg = tostring(msg or '')
     if msg == '' then return end
-    pcall(function()
-        BeginTextCommandThefeedPost('STRING')
-        AddTextComponentSubstringPlayerName(msg)
-        EndTextCommandThefeedPostTicker(false, false)
-    end)
-    if uiOpen then
+    opts = type(opts) == 'table' and opts or {}
+
+    local ncfg = Config.Notifications or {}
+    local useFeed = opts.forceFeed == true or ncfg.UseGtaFeed == true
+    if useFeed then
+        pcall(function()
+            BeginTextCommandThefeedPost('STRING')
+            AddTextComponentSubstringPlayerName(msg)
+            EndTextCommandThefeedPostTicker(false, false)
+        end)
+    end
+
+    if uiOpen and ncfg.UiToasts ~= false and opts.silentUi ~= true then
         SendNUIMessage({ action = 'toast', message = msg })
     end
 end
@@ -225,7 +284,9 @@ local function getTimeFromState()
     end
 
     local elapsedSeconds = math.floor((GetGameTimer() - receivedAtGameTimer) / 1000)
-    local total = ((h * 60) + m + math.floor(elapsedSeconds / 60)) % 1440
+    local speed = tonumber(climateState.time.speed) or 1
+    if speed < 0 then speed = 0 end
+    local total = ((h * 60) + m + math.floor((elapsedSeconds * speed) / 60)) % 1440
     return math.floor(total / 60), total % 60
 end
 
@@ -244,6 +305,15 @@ local function getZoneDistance(zone, coords)
     return math.sqrt((dx * dx) + (dy * dy))
 end
 
+local function getZoneSearchCoords()
+    if preSpawnZoneCoords and GetGameTimer() < preSpawnZoneCoordsUntil then
+        return preSpawnZoneCoords
+    end
+
+    local ped = PlayerPedId()
+    return GetEntityCoords(ped)
+end
+
 local function findCurrentZone()
     if not climateState or not climateState.zones or climateState.zones.enabled ~= true then
         activeZoneId = nil
@@ -258,8 +328,7 @@ local function findCurrentZone()
         return nil
     end
 
-    local ped = PlayerPedId()
-    local coords = GetEntityCoords(ped)
+    local coords = getZoneSearchCoords()
     local best = nil
     local bestScore = nil
     local bestDistance = nil
@@ -514,6 +583,7 @@ local function preSpawnCfg()
         rainRampSeconds = tonumber(c.RainRampSeconds) or 1.2,
         prepareMs = tonumber(c.PrepareMs) or 2600,
         validMs = tonumber(c.ValidMs) or 25000,
+        clientThrottleMs = tonumber(c.ClientThrottleMs) or 900,
         debug = c.Debug == true
     }
 end
@@ -529,6 +599,34 @@ local function applyPreSpawnClimate(data)
     local c = preSpawnCfg()
     if not c.enabled then return false end
     data = type(data) == 'table' and data or {}
+
+    -- cm-spawn may emit both applyBeforeSpawn and prepareBeforeSpawn for the
+    -- same phase. Accept the first request and ignore duplicate copies for a
+    -- short window to prevent reliable event/statebag pressure during spawn.
+    local now = GetGameTimer()
+    local signature = table.concat({
+        tostring(data.reason or ''),
+        tostring(data.x or ''),
+        tostring(data.y or ''),
+        tostring(data.z or ''),
+        tostring(data.prepareMs or ''),
+        tostring(data.validMs or '')
+    }, '|')
+    if signature == lastPreSpawnSignature and (now - lastPreSpawnApplyAt) < c.clientThrottleMs then
+        preSpawnDebug('duplicate pre-spawn prepare ignored', signature)
+        return true
+    end
+    lastPreSpawnSignature = signature
+    lastPreSpawnApplyAt = now
+    lastPreSpawnPayload = data
+    preSpawnPrepareGeneration = preSpawnPrepareGeneration + 1
+    local currentPreSpawnGen = preSpawnPrepareGeneration
+
+    local x, y, z = tonumber(data.x), tonumber(data.y), tonumber(data.z)
+    if x and y then
+        preSpawnZoneCoords = vector3(x + 0.0, y + 0.0, (z or 0.0) + 0.0)
+        preSpawnZoneCoordsUntil = GetGameTimer() + (tonumber(data.validMs) or c.validMs)
+    end
 
     preSpawnPreparing = true
     preSpawnPreparedUntil = GetGameTimer() + (tonumber(data.validMs) or c.validMs)
@@ -577,6 +675,7 @@ local function applyPreSpawnClimate(data)
     -- Set the final weather too, because the player is hidden/black-screened.
     -- This is better than letting the transition finish visibly after spawn.
     SetTimeout(math.max(250, math.floor((transition or 0) * 1000)), function()
+        if currentPreSpawnGen ~= preSpawnPrepareGeneration then return end
         if preSpawnPreparing or wasPreSpawnRecentlyPrepared() then
             ClearOverrideWeather()
             SetWeatherTypeNowPersist(weather)
@@ -593,6 +692,7 @@ local function applyPreSpawnClimate(data)
 
     local prepareMs = tonumber(data.prepareMs) or c.prepareMs
     SetTimeout(math.max(500, prepareMs), function()
+        if currentPreSpawnGen ~= preSpawnPrepareGeneration then return end
         preSpawnPreparing = false
         setLocalState('cmClimatimePreSpawnPreparing', false)
         setLocalState('cmClimatimePreSpawnPrepared', true)
@@ -638,8 +738,14 @@ local function applyWeather(weather, isZoneWeather)
         rainRampSeconds = tonumber(Config.WeatherEffects.RainRampSeconds) or 0
     end
 
+    transition = tonumber(transition) or 0
     lastAppliedWeather = weather
     applyingTransition = true
+
+    -- Generation guard: older weather transition threads must never finalize
+    -- stale weather after a newer global/zone/admin weather request starts.
+    weatherApplyGeneration = weatherApplyGeneration + 1
+    local currentGen = weatherApplyGeneration
 
     CreateThread(function()
         -- During spawn handoff, keep the character selector scene as the visual
@@ -649,6 +755,8 @@ local function applyWeather(weather, isZoneWeather)
             if (tonumber(handoff.holdMs) or 0) > 0 then Wait(tonumber(handoff.holdMs) or 0) end
         end
 
+        if currentGen ~= weatherApplyGeneration then return end
+
         ClearOverrideWeather()
         ClearWeatherTypePersist()
 
@@ -657,29 +765,39 @@ local function applyWeather(weather, isZoneWeather)
             SetWeatherTypeNow(weather)
             SetWeatherTypePersist(weather)
             applyWeatherEffects(weather, rainRampSeconds)
+
+            if currentGen == weatherApplyGeneration then
+                applyingTransition = false
+            end
         else
             SetWeatherTypeOvertimePersist(weather, transition + 0.0)
             -- Start rain effects early so RAIN/THUNDER visibly works during the transition.
             applyWeatherEffects(weather, rainRampSeconds)
+
             Wait((transition * 1000) + 500)
-            SetWeatherTypeNowPersist(weather)
-            SetWeatherTypeNow(weather)
-            SetWeatherTypePersist(weather)
-            applyWeatherEffects(weather, 0)
+
+            if currentGen == weatherApplyGeneration then
+                SetWeatherTypeNowPersist(weather)
+                SetWeatherTypeNow(weather)
+                SetWeatherTypePersist(weather)
+                applyWeatherEffects(weather, 0)
+                applyingTransition = false
+            end
         end
-        if handoff and spawnHandoff == handoff then
+
+        if currentGen == weatherApplyGeneration and handoff and spawnHandoff == handoff then
             handoff.weatherDone = true
             finishSpawnHandoffIfReady()
         end
-        applyingTransition = false
     end)
 
-    if Config.Weather.NotifyPlayers and GetGameTimer() - lastWeatherNotifyAt > 10000 then
+    local ncfg = Config.Notifications or {}
+    if Config.Weather.NotifyPlayers == true and ncfg.WeatherChangeToasts == true and GetGameTimer() - lastWeatherNotifyAt > 10000 then
         lastWeatherNotifyAt = GetGameTimer()
         if isZoneWeather then
-            notify(('Local Weather: %s'):format(weatherLabel(weather)))
+            notify(('Local Weather: %s'):format(weatherLabel(weather)), { silentUi = false })
         else
-            notify(('Weather Forecast: %s'):format(weatherLabel(weather)))
+            notify(('Weather Forecast: %s'):format(weatherLabel(weather)), { silentUi = false })
         end
     end
 end
@@ -691,10 +809,8 @@ forceEffects = function()
     local weather = lastEffectiveWeather or (climateState.weather and climateState.weather.current) or Config.Weather.Start or 'CLEAR'
     local gameplay = Config.GameplayEffects or {}
 
-    SetArtificialLightsState(blackout)
-    SetArtificialLightsStateAffectsVehicles(false)
-    SetForceVehicleTrails(snow)
-    SetForcePedFootstepsTracks(snow)
+    setWorldBlackoutSafe(blackout)
+    setSnowEffectsSafe(snow)
 
     if gameplay.Enabled ~= false then
         if gameplay.WetRoads ~= false then
@@ -753,6 +869,14 @@ RegisterNetEvent('cm-climatime:client:sync', function(newState)
 
     if uiOpen then
         SendNUIMessage({ action = 'state', state = climateState, weatherTypes = weatherTypes, ui = uiConfig })
+    end
+
+    -- If cm-spawn/characters asked for climate while the screen is still hidden,
+    -- apply this fresh server state immediately so the spawn page and reveal
+    -- already have the correct weather/time before Last Location/Hotel is clicked.
+    if isPreSpawnPrepareActive() or wasPreSpawnRecentlyPrepared() then
+        applyPreSpawnClimate(lastPreSpawnPayload or { reason = 'sync-during-pre-spawn', prepareMs = 500 })
+        return
     end
 
     -- Important: receiving state is not the same as starting climate control.
@@ -945,11 +1069,23 @@ RegisterNetEvent('cm-climatime:client:startAfterSpawn', function(reason)
     activateClimate(reason or 'manual-start-after-spawn')
 end)
 
+RegisterNetEvent('cm-climatime:client:resumeAfterCharacter', function(reason)
+    setClimatePaused(false, 'cm-characters')
+    setClimatePaused(false, 'character-screen')
+    if isPreSpawnPrepareActive() or wasPreSpawnRecentlyPrepared() then
+        applyPreSpawnClimate(lastPreSpawnPayload or { reason = reason or 'resume-after-character', prepareMs = 500 })
+    end
+end)
+
 RegisterNetEvent('cm-climatime:client:beginSpawnHandoff', function(data)
     startSpawnHandoff(data or {})
 end)
 
 RegisterNetEvent('cm-climatime:client:prepareBeforeSpawn', function(data)
+    applyPreSpawnClimate(data or {})
+end)
+
+RegisterNetEvent('cm-climatime:client:applyBeforeSpawn', function(data)
     applyPreSpawnClimate(data or {})
 end)
 

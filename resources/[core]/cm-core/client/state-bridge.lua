@@ -1,24 +1,30 @@
 CM = CM or {}
-CM.ClientState = {}
+CM.ClientState = CM.ClientState or {}
 
 RegisterNetEvent('cm-core:client:stateUpdate', function(namespace, key, value)
+    if type(namespace) ~= 'string' then return end
     CM.ClientState[namespace] = CM.ClientState[namespace] or {}
     CM.ClientState[namespace][key] = value
-    SendNUIMessage({action = 'stateUpdate', namespace = namespace, key = key, value = value})
+    SendNUIMessage({ action = 'stateUpdate', namespace = namespace, key = key, value = value })
 end)
 
-RegisterNUICallback('getState', function(data, cb)
-    local pos = GetEntityCoords(PlayerPedId())
+RegisterNUICallback('getState', function(_, cb)
+    local ped = PlayerPedId()
+    local pos = GetEntityCoords(ped)
+
     cb({
         player = {
             charId = LocalPlayer.state.charId,
+            accountId = LocalPlayer.state.accountId,
             isLoggedIn = LocalPlayer.state.isLoggedIn,
             isDead = LocalPlayer.state.isDead,
-            position = {x = pos.x, y = pos.y, z = pos.z},
-            heading = GetEntityHeading(PlayerPedId()),
+            cash = LocalPlayer.state.cash,
+            bank = LocalPlayer.state.bank,
+            position = { x = pos.x, y = pos.y, z = pos.z },
+            heading = GetEntityHeading(ped),
         },
         config = CM.Shared,
-        registry = CM.ClientState
+        registry = CM.ClientState,
     })
 end)
 

@@ -1,14 +1,19 @@
--- CM-Core v1.1 Safe Patch: Money Ledger
+-- Compatibility money ledger. Real economy transaction ownership should later move to cm-playerdata/cm-economy.
 
 local function getCharacterId(src)
+    src = tonumber(src)
+    if not src then return nil end
+
     local player = exports['cm-core']:GetPlayer(src)
     if player and player.CharacterId then return player.CharacterId end
 
-    local ok, char = pcall(function()
-        return exports['cm-characters']:GetCharacter(src)
-    end)
-    if ok and char then return char.id end
-    return nil
+    if GetResourceState('cm-playerdata') == 'started' then
+        local ok, charId = pcall(function() return exports['cm-playerdata']:GetCharacterId(src) end)
+        if ok and charId then return charId end
+    end
+
+    local ok, stateChar = pcall(function() return Player(src).state.charId end)
+    return ok and stateChar or nil
 end
 
 exports('LogMoneyTransaction', function(src, account, action, amount, reason, balanceAfter, targetCharId)
@@ -19,8 +24,8 @@ exports('LogMoneyTransaction', function(src, account, action, amount, reason, ba
             VALUES (?, ?, ?, ?, ?, ?, ?)]], {
             charId,
             targetCharId,
-            account == 'cash' and 'cash' or 'bank',
-            tostring(action or 'unknown'),
+            tostring(account or 'cash'):sub(1, 20),
+            tostring(action or 'unknown'):sub(1, 30),
             tonumber(amount) or 0,
             tonumber(balanceAfter) or 0,
             tostring(reason or 'unknown'):sub(1, 100)
@@ -32,6 +37,7 @@ end)
 exports('GetMoneyLedger', function(characterId, limit)
     limit = tonumber(limit) or 50
     if limit > 200 then limit = 200 end
+    if not characterId then return {} end
     return exports['cm-core']:Query('SELECT * FROM money_ledger WHERE character_id = ? ORDER BY id DESC LIMIT ?', {
         characterId,
         limit

@@ -1,4 +1,6 @@
 -- cm-spawn/server/spawnpoints.lua
+-- Static base spawn definitions. Dynamic/future systems such as organizations are
+-- resolved in server/main.lua so selection is always server-authoritative.
 
 SpawnPoints = {
     {
@@ -23,9 +25,9 @@ SpawnPoints = {
     },
     {
         key = 'family',
-        label = 'FAMILY',
+        label = 'FAMILY HOME',
         coords = vector4(0, 0, 0, 0),
-        description = 'Family house spawn point for future housing/family systems.',
+        description = 'Family house spawn point for future housing and family systems.',
         locked = true,
         lockedReason = 'Coming soon',
         icon = 'fa-house-chimney',
@@ -33,15 +35,16 @@ SpawnPoints = {
         image = 'assets/family.svg'
     },
     {
-        key = 'gang',
-        label = 'GANG',
-        coords = vector4(0, 0, 0, 0),
-        description = 'Gang territory spawn point for future gang systems.',
+        key = 'organization',
+        label = 'ORGANIZATION',
+        coords = nil,
+        description = 'Future-ready spawn for gangs, police, army, companies, clubs, or any custom organization.',
         locked = true,
-        lockedReason = 'Coming soon',
-        icon = 'fa-skull',
-        color = 'purple',
-        image = 'assets/gang.svg'
+        lockedReason = 'Join an organization with an assigned spawn to unlock this.',
+        icon = 'fa-building-shield',
+        color = 'cyan',
+        image = 'assets/organization.svg',
+        dynamic = 'organization'
     }
 }
 
@@ -54,7 +57,6 @@ end
 
 exports('GetSpawnByKey', GetSpawnByKey)
 
-exports('GetAvailableSpawns', function(src, charData)
-    print('[CM-SPAWN] WARNING: GetAvailableSpawns export called — use BuildSpawnList in main.lua')
-    return {}, true
+exports('GetStaticSpawnPoints', function()
+    return SpawnPoints
 end)

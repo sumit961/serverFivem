@@ -27,6 +27,12 @@ const ICONS = {
     back: '<svg viewBox="0 0 24 24"><path d="M14.5 6 8 12l6.5 6"/></svg>',
     hello: '<svg viewBox="0 0 24 24"><path d="M8 12V5.8a1.3 1.3 0 0 1 2.6 0V11M10.6 11V4.8a1.3 1.3 0 0 1 2.6 0V11M13.2 11V6a1.3 1.3 0 0 1 2.6 0v7.5"/><path d="M8 12l-1.6-1.8a1.4 1.4 0 0 0-2.1 1.8l3.5 5.5A5.5 5.5 0 0 0 12.5 20c3 0 3.9-1.9 3.9-4.5"/></svg>',
     license: '<svg viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="M6.5 9.5h5M6.5 12.5h4M6.5 15.5h5.5"/><circle cx="16.8" cy="11" r="1.8"/><path d="M14.8 15.6c.4-1.2 1.2-1.7 2-1.7s1.6.5 2 1.7"/></svg>',
+    shield: '<svg viewBox="0 0 24 24"><path d="M12 3.5 19 6v5.4c0 4.2-2.6 7.5-7 9.1-4.4-1.6-7-4.9-7-9.1V6l7-2.5z"/><path d="M9 12l2 2 4-5"/></svg>',
+    admin: '<svg viewBox="0 0 24 24"><path d="M12 3.5 19 6v5.4c0 4.2-2.6 7.5-7 9.1-4.4-1.6-7-4.9-7-9.1V6l7-2.5z"/><path d="M9 12l2 2 4-5"/></svg>',
+    radio: '<svg viewBox="0 0 24 24"><rect x="7" y="8" width="10" height="12" rx="2"/><path d="M10 8V5h4v3M10 12h4M10 15h2"/><circle cx="14.5" cy="16" r="1"/></svg>',
+    vehicle: '<svg viewBox="0 0 24 24"><path d="M5 14l1.4-4.2A2.6 2.6 0 0 1 8.9 8h6.2a2.6 2.6 0 0 1 2.5 1.8L19 14"/><rect x="4" y="13" width="16" height="5" rx="1.6"/><circle cx="7.5" cy="18" r="1.5"/><circle cx="16.5" cy="18" r="1.5"/></svg>',
+    house: '<svg viewBox="0 0 24 24"><path d="M4 11.5 12 5l8 6.5"/><path d="M6.5 10.5V19h11v-8.5"/><path d="M10 19v-5h4v5"/></svg>',
+    key: '<svg viewBox="0 0 24 24"><circle cx="8" cy="12" r="3.5"/><path d="M11.5 12H21l-2 2 2 2"/></svg>',
     dot: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/></svg>'
 };
 
@@ -39,7 +45,8 @@ function getLabelEl(i) {
     if (pool[i]) return pool[i];
     const el = document.createElement('div');
     el.className = 'plabel';
-    el.innerHTML = '<div class="pname"></div><div class="pid"></div>';
+    el.innerHTML = '<div class="pstatus"></div><div class="pname"></div><div class="pid"></div>';
+    el._status = el.querySelector('.pstatus');
     el._name = el.querySelector('.pname');
     el._id = el.querySelector('.pid');
     labelsRoot.appendChild(el);
@@ -47,7 +54,7 @@ function getLabelEl(i) {
     return el;
 }
 
-function renderLabels(labels, g) {
+function renderLabels(labels) {
     const count = labels ? labels.length : 0;
 
     for (let i = 0; i < count; i++) {
@@ -59,6 +66,13 @@ function renderLabels(labels, g) {
         el.style.top = (data.y * 100) + '%';
         el.style.fontSize = (LABEL_BASE_PX * (data.s || 1)) + 'px';
 
+        const status = data.status || '';
+        if (el._lastStatus !== status) {
+            el._status.textContent = status;
+            el._status.style.display = status ? 'block' : 'none';
+            el._lastStatus = status;
+        }
+
         if (el._lastName !== data.name) { el._name.textContent = data.name; el._lastName = data.name; }
         if (el._lastId !== data.id) { el._id.textContent = data.id; el._lastId = data.id; }
 
@@ -67,16 +81,25 @@ function renderLabels(labels, g) {
             el.classList.toggle('target', isTarget);
             el._lastTarget = isTarget;
         }
+
+        const isAdmin = !!data.admin;
+        if (el._lastAdmin !== isAdmin) {
+            el.classList.toggle('admin', isAdmin);
+            el._lastAdmin = isAdmin;
+        }
     }
 
     for (let i = count; i < pool.length; i++) {
         if (pool[i]) pool[i].style.display = 'none';
     }
+}
 
+// G prompt is its own channel now, so nothing else can hide/flicker it.
+function renderGPrompt(g) {
     if (g && typeof g.x === 'number') {
-        gPrompt.classList.remove('hidden');
         gPrompt.style.left = (g.x * 100) + '%';
         gPrompt.style.top = (g.y * 100) + '%';
+        gPrompt.classList.remove('hidden');
     } else {
         gPrompt.classList.add('hidden');
     }
@@ -181,7 +204,12 @@ window.addEventListener('message', (event) => {
 
     switch (msg.action) {
         case 'labels':
-            renderLabels(msg.labels, msg.g);
+            renderLabels(msg.labels);
+            // Backward-compat: if an older push still bundles g on this channel, honor it.
+            if (Object.prototype.hasOwnProperty.call(msg, 'g')) renderGPrompt(msg.g);
+            break;
+        case 'gprompt':
+            renderGPrompt(msg.g);
             break;
         case 'openRadial':
             buildHexMenu(msg);
@@ -206,6 +234,7 @@ const dsStatus = document.getElementById('ds-status');
 let deathDeadline = 0;
 let deathTick = null;
 let deathMode = 'screen'; // 'screen' | 'mini'
+let deathExpiredPosted = false;
 
 function fmtTime(ms) {
     if (ms < 0) ms = 0;
@@ -220,14 +249,21 @@ function tickDeath() {
     const text = fmtTime(remaining);
     if (deathMode === 'mini') { dmTimer.textContent = text; }
     else { dsTimer.textContent = text; }
-    if (remaining <= 0 && deathTick) {
-        clearInterval(deathTick);
-        deathTick = null;
+    if (remaining <= 0) {
+        if (!deathExpiredPosted) {
+            deathExpiredPosted = true;
+            post('deathExpired');
+        }
+        if (deathTick) {
+            clearInterval(deathTick);
+            deathTick = null;
+        }
     }
 }
 
 function openDeathScreen(msg) {
     deathMode = 'screen';
+    deathExpiredPosted = false;
     deathDeadline = Date.now() + (msg.remainingMs || 120000);
 
     if (msg.killedBy && msg.killedBy.charId) {
@@ -251,6 +287,7 @@ function openDeathScreen(msg) {
 function ambulanceMode(msg) {
     // Overlay goes away, mini pill takes over; player is still dead.
     deathMode = 'mini';
+    deathExpiredPosted = false;
     deathDeadline = Date.now() + (msg.remainingMs || 0);
     deathScreen.classList.add('hidden');
     deathMini.classList.remove('hidden');
@@ -269,6 +306,7 @@ function deathChoice(msg) {
 function closeDeathScreen() {
     deathScreen.classList.add('hidden');
     deathMini.classList.add('hidden');
+    deathExpiredPosted = false;
     if (deathTick) { clearInterval(deathTick); deathTick = null; }
 }
 

@@ -1,5 +1,5 @@
 -- cm-admin/server/devtools.lua
--- v2.4 Developer tools plugin system.
+-- v2.6 Developer tools plugin system.
 --
 -- THE POINT: cm-admin is never edited again for new tools. Any resource
 -- self-registers at startup:
@@ -31,8 +31,12 @@ local toolOwner = {}    -- [id] = resource name
 
 local function log(src, action, data)
     local name = src and src > 0 and GetPlayerName(src) or 'system'
-    print(('[CM-ADMIN:DEV] %s (%s) -> %s %s'):format(name, src or 0, action, data and json.encode(data) or ''))
-    TriggerEvent('cm-admin:server:actionLogged', src or 0, action, data)
+    if Config.QuietConsoleLogs ~= true then
+        print(('[CM-ADMIN:DEV] %s (%s) -> %s %s'):format(name, src or 0, action, data and json.encode(data) or ''))
+    end
+    data = type(data) == 'table' and data or {}
+    data.category = data.category or 'dev'
+    TriggerEvent('cm-admin:server:addLog', src or 0, action, data)
 end
 
 local function hasPerm(src, permission)
@@ -64,7 +68,7 @@ end
 local function registerDevTool(tool)
     local ok, err = validateTool(tool)
     if not ok then
-        print(('[CM-ADMIN:DEV] Rejected tool registration: %s'):format(err))
+        if Config.QuietConsoleLogs ~= true then print(('[CM-ADMIN:DEV] Rejected tool registration: %s'):format(err)) end
         return false
     end
 
@@ -72,7 +76,7 @@ local function registerDevTool(tool)
     tool.permission = tool.permission or 'dev.tools'
     tools[tool.id] = tool
     toolOwner[tool.id] = GetInvokingResource() or GetCurrentResourceName()
-    print(('[CM-ADMIN:DEV] Registered dev tool "%s" (%s) from %s'):format(tool.label, tool.id, toolOwner[tool.id]))
+    if Config.QuietConsoleLogs ~= true then print(('[CM-ADMIN:DEV] Registered dev tool "%s" (%s) from %s'):format(tool.label, tool.id, toolOwner[tool.id])) end
     return true
 end
 

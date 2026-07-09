@@ -431,13 +431,27 @@ RegisterNetEvent('cm-gunstore:client:weaponPicker', function(list, groups)
     nui('weaponPicker', { list = list or {}, groups = groups or {} })
 end)
 
+RegisterNetEvent('cm-gunstore:client:ammoPicker', function(list, groups)
+    nui('ammoPicker', { list = list or {}, groups = groups or {} })
+end)
+
 RegisterNUICallback('adminRequestWeaponPicker', function(_, cb)
     TriggerServerEvent('cm-gunstore:server:requestWeaponPicker')
     cb({ ok = true })
 end)
 
+RegisterNUICallback('adminRequestAmmoPicker', function(_, cb)
+    TriggerServerEvent('cm-gunstore:server:requestAmmoPicker')
+    cb({ ok = true })
+end)
+
 RegisterNUICallback('adminCreateWeapon', function(data, cb)
     TriggerServerEvent('cm-gunstore:server:createWeaponFromPicker', data or {})
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('adminCreateAmmo', function(data, cb)
+    TriggerServerEvent('cm-gunstore:server:createAmmoFromPicker', data or {})
     cb({ ok = true })
 end)
 
@@ -495,6 +509,11 @@ end)
 
 RegisterNUICallback('adminSaveItem', function(data, cb)
     TriggerServerEvent('cm-gunstore:server:adminSaveItem', data or {})
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('adminDeleteItem', function(data, cb)
+    TriggerServerEvent('cm-gunstore:server:adminDeleteItem', data or {})
     cb({ ok = true })
 end)
 

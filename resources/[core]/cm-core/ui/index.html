@@ -1,25 +1,37 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CM-Core Bridge</title>
-    <style>body { margin: 0; background: transparent; overflow: hidden; }</style>
+    <style>
+        html, body {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            background: transparent;
+            overflow: hidden;
+        }
+    </style>
 </head>
 <body>
     <script>
+        const state = {};
+
         window.addEventListener('message', function(event) {
-            const data = event.data;
-            if (data.action === 'stateUpdate') {
-                console.log('[CM-Core] State update:', data.namespace, data.key, data.value);
-            }
+            const data = event.data || {};
+            if (data.action !== 'stateUpdate' || !data.namespace) return;
+            state[data.namespace] = state[data.namespace] || {};
+            state[data.namespace][data.key] = data.value;
         });
-        
-        fetch(`https://${GetParentResourceName()}/getState`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
-        });
+
+        setTimeout(function() {
+            fetch(`https://${GetParentResourceName()}/getState`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            }).catch(function() {});
+        }, 250);
     </script>
 </body>
 </html>

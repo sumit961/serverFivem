@@ -1,6 +1,6 @@
 Config = Config or {}
 
--- CM Admin v2.5 - character ID based staff access
+-- CM Admin v2.6 - character ID based staff access + role-based staff center
 -- You join as a normal player. Type /admin to enter/leave admin mode.
 -- F11 opens the admin menu ONLY while admin mode is enabled.
 
@@ -25,6 +25,21 @@ Config.DisableLegacyIdentifierAdmins = true
 -- If true, ACE will only bootstrap the CURRENT selected character, not the whole account.
 Config.AllowAceAdminBootstrap = false
 Config.AdminAce = 'group.admin'
+
+-- Production: keep server console quiet. Actions are still stored in cm_admin_logs.
+Config.QuietConsoleLogs = true
+
+-- Admin overhead statebag is still set by cm-admin, but drawing is owned by
+-- cm-playerdata so normal player labels and admin labels never duplicate.
+-- Keep this false unless you intentionally want the old separate cm-admin overlay.
+Config.AdminTags = {
+    Enabled = false,
+    DrawDistance = 32.0,
+    HeightOffset = 1.18,
+    ShowRank = false,
+    Label = 'Administrator',
+    Color = { r = 255, g = 35, b = 35, a = 245 }
+}
 
 
 -- Optional event names from your character/spawn resources that can pass selected character data.
@@ -52,7 +67,7 @@ Config.Speeds = {
 }
 
 Config.ShowHelp = true
-Config.MakeInvisible = false
+Config.MakeInvisible = true
 Config.DisableCollision = true
 Config.InvincibleDuringNoclip = true
 Config.SafeCoords = vector4(215.76, -810.12, 30.73, 157.0)
@@ -79,9 +94,11 @@ Config.DefaultRanks = {
         permissions = {
             'menu.open', 'players.view', 'players.manage', 'players.teleport', 'players.freeze', 'players.kick', 'money.manage',
             'inventory.view', 'vehicles.view', 'vehicles.manage', 'vehicle_inventory.view',
-            'admins.view', 'admins.manage', 'ranks.view', 'ranks.manage', 'logs.view',
+            'admins.view', 'admins.manage', 'ranks.view', 'ranks.manage',
+            'logs.view', 'logs.all', 'logs.admin', 'logs.players', 'logs.economy', 'logs.inventory', 'logs.vehicles', 'logs.dev', 'logs.system',
+            'map.view', 'map.vehicles', 'map.admins', 'gps.teleport',
             'noclip', 'teleport', 'tools.heal',
-            'dev.view', 'dev.tools', 'dev.clothing', 'dev.vehicles', 'dev.weapons', 'dev.climatime'
+            'dev.view', 'dev.tools', 'dev.clothing', 'dev.vehicles', 'dev.weapons', 'dev.climatime', 'dev.hud'
         }
     },
     senior_admin = {
@@ -89,14 +106,14 @@ Config.DefaultRanks = {
         permissions = {
             'menu.open', 'players.view', 'players.manage', 'players.teleport', 'players.freeze', 'players.kick', 'money.manage',
             'inventory.view', 'vehicles.view', 'vehicles.manage', 'vehicle_inventory.view',
-            'admins.view', 'logs.view', 'noclip', 'teleport', 'tools.heal', 'dev.view'
+            'admins.view', 'logs.view', 'logs.admin', 'logs.players', 'logs.vehicles', 'map.view', 'map.vehicles', 'map.admins', 'gps.teleport', 'noclip', 'teleport', 'tools.heal', 'dev.view'
         }
     },
     admin = {
         label = 'Admin', level = 60,
         permissions = {
             'menu.open', 'players.view', 'players.manage', 'players.teleport', 'players.freeze', 'money.manage',
-            'inventory.view', 'vehicles.view', 'vehicle_inventory.view', 'logs.view',
+            'inventory.view', 'vehicles.view', 'vehicle_inventory.view', 'logs.view', 'logs.players', 'map.view', 'gps.teleport',
             'noclip', 'teleport', 'tools.heal'
         }
     },
@@ -104,25 +121,25 @@ Config.DefaultRanks = {
         label = 'Senior Moderator', level = 50,
         permissions = {
             'menu.open', 'players.view', 'players.manage', 'players.teleport', 'players.freeze', 'money.manage',
-            'inventory.view', 'logs.view', 'noclip', 'tools.heal'
+            'inventory.view', 'logs.view', 'logs.players', 'map.view', 'noclip', 'tools.heal'
         }
     },
     moderator = {
         label = 'Moderator', level = 40,
         permissions = {
-            'menu.open', 'players.view', 'players.teleport', 'players.freeze', 'logs.view', 'noclip'
+            'menu.open', 'players.view', 'players.teleport', 'players.freeze', 'logs.view', 'logs.players', 'map.view', 'noclip'
         }
     },
     trial_mod = {
         label = 'Trial Moderator', level = 30,
         permissions = {
-            'menu.open', 'players.view', 'players.freeze', 'logs.view'
+            'menu.open', 'players.view', 'players.freeze', 'logs.view', 'logs.players'
         }
     },
     support = {
         label = 'Support', level = 20,
         permissions = {
-            'menu.open', 'players.view', 'logs.view'
+            'menu.open', 'players.view', 'logs.view', 'logs.players'
         }
     },
     trial_support = {
@@ -149,6 +166,22 @@ Config.OfflineSearchQueries = {
 -- and appear automatically with permission gating and audit logging.
 Config.DevToolsBuiltin = {
     {
+        id = 'climatime', label = 'Climatime Admin', category = 'Systems',
+        icon = 'cloud', permission = 'dev.climatime',
+        actions = {
+            { id = 'open', label = 'Open Weather / Time Admin', type = 'command', command = 'climatime',
+              hint = 'Opens cm-climatime visual weather/time control.' },
+            { id = 'debug', label = 'Toggle Zone Debug', type = 'command', command = 'climazone' }
+        }
+    },
+    {
+        id = 'hud', label = 'HUD Admin', category = 'Systems',
+        icon = 'hud', permission = 'dev.hud',
+        actions = {
+            { id = 'open', label = 'Open HUD Admin', type = 'command', command = 'hud admin' }
+        }
+    },
+    {
         id = 'clothing', label = 'Clothing Store', category = 'Stores',
         icon = 'shirt', permission = 'dev.clothing',
         actions = {
@@ -173,8 +206,42 @@ Config.DevToolsBuiltin = {
 }
 
 Config.Map = {
-    RefreshMs = 2000,
-    MaxVehicles = 300
+    RefreshMs = 1500,
+    MaxVehicles = 300,
+    IncludeVehiclesDefault = true,
+    IncludeAdminsDefault = true,
+    UseClimatimeMapAsset = true,
+
+    -- Admin map calibration. Keep these in one place so we can fine tune the
+    -- stitched 6-tile GTA atlas without changing player/vehicle code.
+    -- minX/maxX = left/right edge of the map image.
+    -- minY/maxY = bottom/top edge of the map image.
+    Bounds = {
+        minX = -4000,
+        maxX = 4500,
+        minY = -4300,
+        maxY = 8000
+    },
+
+    -- If enabled, the Admin Map Calibration panel can save bounds to this file.
+    -- The saved file wins over Config.Map.Bounds until you disable UseSavedBounds
+    -- or delete/reset the JSON file. This means you can tune once in UI and reuse
+    -- the same value every restart without editing code each time.
+    UseSavedBounds = true,
+    AllowUiBoundsSave = true,
+    SavedBoundsFile = 'data/map_bounds.json'
+}
+
+-- Log categories are permission-gated in the admin menu.
+-- logs.view = can open Logs tab. logs.all OR category permission = can see that category.
+Config.LogCategories = {
+    { id = 'admin', label = 'Admin', permission = 'logs.admin' },
+    { id = 'players', label = 'Players', permission = 'logs.players' },
+    { id = 'economy', label = 'Economy', permission = 'logs.economy' },
+    { id = 'inventory', label = 'Inventory', permission = 'logs.inventory' },
+    { id = 'vehicles', label = 'Vehicles', permission = 'logs.vehicles' },
+    { id = 'dev', label = 'Developer', permission = 'logs.dev' },
+    { id = 'system', label = 'System', permission = 'logs.system' }
 }
 
 Config.DatabaseBridge = {

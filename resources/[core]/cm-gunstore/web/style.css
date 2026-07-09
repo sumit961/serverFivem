@@ -404,7 +404,8 @@ button {
 }
 
 .admin-fields input,
-.admin-fields textarea {
+.admin-fields textarea,
+.admin-fields select {
     width: 100%;
     border: 1px solid var(--line);
     border-radius: 12px;
@@ -418,10 +419,13 @@ button {
 }
 
 .admin-fields input:focus,
-.admin-fields textarea:focus {
+.admin-fields textarea:focus,
+.admin-fields select:focus {
     border-color: rgba(70,236,255,.58);
     box-shadow: 0 0 0 3px rgba(70,236,255,.10);
 }
+
+.admin-fields select option { color: #111; }
 
 .admin-fields textarea {
     resize: vertical;
@@ -785,6 +789,8 @@ button {
     letter-spacing: .06em;
 }
 .save.secondary { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.17); }
+.delete, .wdelete { min-height: 42px; border-radius: 14px; padding: 0 14px; background: rgba(255,109,123,.13); border: 1px solid rgba(255,109,123,.42); color: var(--red); font-weight: 900; text-transform: uppercase; font-size: 11px; letter-spacing: .06em; }
+.delete:hover, .wdelete:hover { background: rgba(255,109,123,.22); color: #ffe9ec; }
 .creator-note { margin: 10px 0 0; color: rgba(255,255,255,.50); font-size: 12px; }
 body.capture-flash::after {
     content: 'CAPTURING ARMOR PHOTO...';
@@ -834,21 +840,61 @@ body.capture-flash::after {
 .whash { font-size:10px; color:var(--muted); opacity:.7; word-break:break-all; }
 .wstatus { font-size:10px; padding:3px 8px; border-radius:999px; white-space:nowrap; }
 .wstatus.on { background: rgba(140,255,186,.16); color: var(--green); }
-.wstatus.hidden { background: rgba(255,203,92,.16); color: #ffcb5c; }
+.wstatus.off { background: rgba(255,203,92,.16); color: #ffcb5c; }
 .wstatus.made { background: rgba(70,236,255,.16); color: var(--aqua); }
 .wstatus.new { background: rgba(255,255,255,.08); color: var(--muted); }
 .wfields { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
 .wfields label { display:flex; flex-direction:column; gap:3px; font-size:11px; color:var(--muted); }
 .wfields label span { letter-spacing:.04em; }
-.wfields input[type=number], .wfields input:not([type]) , .wfields input[type=text] {
+.wfields input[type=number], .wfields input:not([type]) , .wfields input[type=text], .wfields select {
     background: var(--panel-2); border:1px solid var(--line); color:var(--text);
     border-radius:8px; padding:7px 9px; font-size:13px; outline:none; width:100%;
 }
+.wfields .wide { grid-column: 1 / -1; }
+.wfields select option { color:#111; }
 .wfields .wtoggle { flex-direction:row; align-items:center; gap:6px; grid-column:1 / -1; }
 .wfields .wtoggle input { width:auto; }
+.wbuttons { display:grid; grid-template-columns: 1fr auto; gap:8px; align-items:center; margin-top:2px; }
 .wcreate {
-    margin-top:2px; background: linear-gradient(180deg, rgba(70,236,255,.22), rgba(70,236,255,.10));
+    background: linear-gradient(180deg, rgba(70,236,255,.22), rgba(70,236,255,.10));
     border:1px solid rgba(70,236,255,.45); color:var(--aqua); border-radius:10px; padding:9px;
     font-size:13px; letter-spacing:.06em; cursor:pointer; transition:.15s;
 }
 .wcreate:hover { background: rgba(70,236,255,.28); color:#eaffff; }
+.wcreate:disabled { opacity:.45; cursor:not-allowed; filter:grayscale(.35); }
+
+/* v1.1.1 ammo-linked damage fixes */
+.creator-panel {
+    position: relative;
+    z-index: 4;
+    overflow: visible;
+}
+.creator-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 8;
+    padding: 10px 0 0;
+    background: linear-gradient(180deg, transparent, rgba(8, 18, 24, .88) 28%, rgba(8, 18, 24, .94));
+}
+.creator-actions button,
+.admin-actions button,
+.wbuttons button {
+    pointer-events: auto;
+    position: relative;
+    z-index: 9;
+}
+.ammo-damage-note {
+    margin: 0;
+    padding: 7px 9px;
+    border-radius: 8px;
+    border: 1px solid rgba(70,236,255,.18);
+    background: rgba(70,236,255,.06);
+    color: rgba(255,255,255,.58);
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1.35;
+}
+.admin-fields input:disabled {
+    opacity: .72;
+    cursor: not-allowed;
+}

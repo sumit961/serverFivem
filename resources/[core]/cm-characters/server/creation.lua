@@ -1,6 +1,31 @@
 -- cm-characters/server/creation.lua
 -- Secure character creation. Account/slot ownership is server-authoritative only.
 
+
+-- Production-safe local logger wrapper.
+-- When Config.Debug/Config.VerboseLogs is false, normal CM-CHARACTERS debug prints are hidden.
+-- Warnings/errors still print so real problems are visible.
+local __cmCharactersPrint = print
+local function __cmCharactersShouldVerbose()
+    return Config and (Config.Debug == true or Config.VerboseLogs == true or Config.ProductionMode == false)
+end
+local function print(...)
+    if __cmCharactersShouldVerbose() then
+        return __cmCharactersPrint(...)
+    end
+
+    local first = tostring(select(1, ...) or '')
+    local isCmCharactersLog = first:find('%[CM%-CHARACTERS') ~= nil
+    if not isCmCharactersLog then
+        return __cmCharactersPrint(...)
+    end
+
+    local upper = first:upper()
+    if upper:find('ERROR', 1, true) or upper:find('WARNING', 1, true) or upper:find('FAILED', 1, true) or upper:find('DENIED', 1, true) then
+        return __cmCharactersPrint(...)
+    end
+end
+
 local creationLocks = {}
 
 local function creationFail(src, message)
@@ -9,6 +34,10 @@ end
 
 RegisterNetEvent('cm-characters:server:create', function(_clientAccountId, charSlot, data)
     local src = source
+    if CMCharacters.IsRateLimited(src, 'createCharacter', 3, 30) then
+        creationFail(src, 'Please wait before creating another character.')
+        return
+    end
     local accountId = CMCharacters.RequireAccount(src)
     if not accountId then
         creationFail(src, 'You are not logged in. Please login again.')
@@ -96,8 +125,8 @@ RegisterNetEvent('cm-characters:server:create', function(_clientAccountId, charS
             clean.gender,
             '{}',
             json.encode(spawn),
-            500,
-            2000,
+            tonumber(Config and Config.StartingCash) or 500,
+            tonumber(Config and Config.StartingBank) or 2000,
             0
         })
     end)
@@ -111,7 +140,8 @@ RegisterNetEvent('cm-characters:server:create', function(_clientAccountId, charS
     end
 
     exports['cm-core']:CacheInvalidate('chars:' .. accountId)
-    CMCharacters.LogAdmin(src, 'character_created', {
+    exports['cm-core']:Log('cm-characters', 'info', 'Character created', {
+        player_src = src,
         account_id = accountId,
         char_id = tostring(newCharId),
         slot = clean.slot,

@@ -313,3 +313,217 @@ select option { color: #111; }
 .historyItem { display: flex; justify-content: space-between; gap: 8px; border: 1px solid var(--line); border-radius: 9px; padding: 7px 8px; background: rgba(255,255,255,0.035); }
 .historyItem b { font-size: 11px; color: white; }
 .historyItem small { font-size: 10px; color: var(--muted); }
+
+/* v1.6 visual weather builder: no manual typing needed for mixed zone weather. */
+.presetBox { margin-top: 14px; display: grid; gap: 10px; }
+.historyList { margin-top: 8px; display: grid; gap: 8px; max-height: 92px; overflow-y: auto; }
+.historyItem { border: 1px solid var(--line); background: rgba(255,255,255,0.035); border-radius: 10px; padding: 9px 10px; display: grid; gap: 3px; }
+.historyItem b { font-size: 12px; }
+.historyItem small { color: var(--muted); font-size: 10px; }
+
+.mixBuilder {
+    margin-top: 14px;
+    border: 1px solid var(--accent-border);
+    background: linear-gradient(135deg, rgba(0, 229, 255, 0.075), rgba(255,255,255,0.028));
+    border-radius: 14px;
+    padding: 13px;
+    box-shadow: inset 0 0 26px rgba(0, 229, 255, 0.025);
+}
+.mixBuilder.disabled { opacity: 0.72; border-color: var(--line); }
+.mixHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.mixHeader strong { display: block; font-size: 12px; color: white; }
+.mixHeader small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; line-height: 1.3; }
+.pill { flex: 0 0 auto; background: var(--accent); color: #031015; border-radius: 999px; padding: 5px 8px; font-size: 10px; font-weight: 950; }
+.weatherPalette { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; max-height: 176px; overflow-y: auto; padding-right: 3px; }
+.weatherChip {
+    height: 43px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 0 9px;
+    color: rgba(255,255,255,0.88);
+    background: rgba(255,255,255,0.055);
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    text-align: left;
+}
+.weatherChip span { font-size: 16px; color: var(--accent); text-shadow: 0 0 10px var(--accent-soft); }
+.weatherChip b { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; }
+.weatherChip.selected { border-color: var(--accent-border); background: var(--accent-soft); color: white; }
+.weatherChip.dragging { opacity: 0.45; }
+.poolDrop {
+    min-height: 74px;
+    margin-top: 10px;
+    border: 1px dashed var(--accent-border);
+    border-radius: 13px;
+    background: rgba(0,0,0,0.20);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    align-content: center;
+    gap: 8px;
+    padding: 10px;
+    transition: 140ms ease;
+}
+.poolDrop.dragOver { border-color: var(--accent); background: rgba(0, 229, 255, 0.12); box-shadow: inset 0 0 24px var(--accent-soft); }
+.dropHint { color: var(--muted); font-size: 12px; font-weight: 850; }
+.poolChip {
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 6px 0 10px;
+    border-radius: 999px;
+    border: 1px solid var(--accent-border);
+    background: linear-gradient(135deg, var(--accent-soft), rgba(255,255,255,0.045));
+    color: white;
+    font-size: 11px;
+    font-weight: 900;
+}
+.poolChip span { color: var(--accent); }
+.poolChip button {
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    padding: 0;
+    border-radius: 50%;
+    background: rgba(255, 65, 77, 0.18);
+    color: #fff;
+    line-height: 1;
+}
+.poolQuickActions { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; margin-top: 10px; }
+.poolQuickActions button { height: 32px; padding: 0 8px; font-size: 11px; }
+
+@media (max-width: 1100px) {
+    .weatherPalette { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .poolQuickActions { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* v1.7.0 CM UI large admin panel + performance-safe map polish */
+:root {
+    --accent: var(--cm-accent, #00e5ff);
+    --accent-soft: rgba(0, 229, 255, 0.14);
+    --accent-border: rgba(0, 229, 255, 0.46);
+    --bg: rgba(4, 10, 12, 0.88);
+    --panel: rgba(7, 15, 18, 0.94);
+    --card: rgba(13, 26, 31, 0.82);
+    --card2: rgba(6, 16, 21, 0.78);
+}
+
+#app { padding: 2.4vh 2.2vw; place-items: stretch; }
+.panel {
+    width: min(1560px, 95vw);
+    height: min(920px, 91vh);
+    margin: auto;
+    grid-template-columns: 245px minmax(0, 1fr);
+    border-radius: 24px;
+}
+.sidebar { padding: 30px 24px; }
+.content { padding: 28px 38px; }
+.topbar { height: 84px; }
+h1 { font-size: 31px; }
+.tab { height: calc(100% - 84px); padding-right: 10px; }
+.card, .weatherCard { border-radius: 18px; padding: 20px; }
+.weatherGrid { grid-template-columns: repeat(5, minmax(120px, 1fr)); gap: 13px; }
+.weatherBtn { min-height: 104px; height: auto; }
+.zoneLayout { grid-template-columns: minmax(360px, 0.7fr) minmax(560px, 1.3fr); gap: 20px; }
+.zoneForm { max-height: calc(91vh - 180px); overflow-y: auto; }
+.mapCard { min-height: calc(91vh - 180px); }
+.zoneMapShell { height: min(620px, calc(91vh - 370px)); min-height: 430px; border-radius: 18px; }
+.zoneList { max-height: 210px; }
+.zoneMapToolbar { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 8px 0 12px; }
+.zoneMapToolbar button { height: 36px; padding: 0 10px; font-size: 12px; }
+.zoneMapHint { max-width: calc(100% - 24px); }
+.cm-zone-marker { width: 34px; height: 34px; font-size: 15px; }
+.cm-zone-label { min-width: 116px; top: -12px; }
+.cm-zone-radius-handle {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fff;
+    color: #031015;
+    border: 3px solid var(--accent);
+    box-shadow: 0 0 18px var(--accent), 0 8px 22px rgba(0,0,0,0.45);
+    font-size: 13px;
+    font-weight: 950;
+}
+.cm-zone-radius-handle-wrap { pointer-events: auto; }
+
+button.cm-btn, .primary, .ghost, .danger { will-change: auto; }
+button:hover { transform: translateY(-1px); }
+
+@media (max-width: 1300px) {
+    .panel { width: 96vw; height: 92vh; grid-template-columns: 220px 1fr; }
+    .weatherGrid { grid-template-columns: repeat(4, minmax(120px, 1fr)); }
+    .zoneLayout { grid-template-columns: 1fr; }
+    .mapCard, .zoneForm { max-height: none; min-height: 0; }
+    .zoneMapShell { height: 460px; min-height: 360px; }
+}
+
+@media (max-width: 980px) {
+    #app { padding: 1.2vh 1.2vw; }
+    .panel { grid-template-columns: 1fr; }
+    .sidebar { display: grid; grid-template-columns: 1fr repeat(4, auto) auto; gap: 8px; align-items: center; padding: 14px; border-right: 0; border-bottom: 1px solid var(--line); }
+    .brand { margin: 0; }
+    .nav { margin: 0; width: auto; }
+    .sidebarBottom { position: static; display: flex; gap: 8px; align-items: center; }
+    .locationCard { display: none; }
+    .content { padding: 18px; }
+    .grid2, .miniForm.two, .miniForm.three { grid-template-columns: 1fr; }
+    .weatherGrid { grid-template-columns: repeat(2, 1fr); }
+    .zoneMapToolbar { grid-template-columns: repeat(2, 1fr); }
+}
+
+
+/* ===================================================================== */
+/* V1.7.2 — zone form appears only after map click/new/edit, no weather dropdown */
+/* ===================================================================== */
+.hiddenNativeSelect {
+    position: absolute !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    width: 1px !important;
+    height: 1px !important;
+    overflow: hidden !important;
+}
+.selectedWeatherCard {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin: 8px 0 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--accent-border);
+    background: var(--accent-soft);
+    color: rgba(235, 252, 255, 0.94);
+}
+.selectedWeatherCard b {
+    color: white;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+}
+.selectedWeatherCard strong {
+    color: var(--accent);
+    font-size: 13px;
+}
+.selectedWeatherCard small {
+    margin-left: auto;
+    color: rgba(210, 240, 248, .66);
+    font-size: 11px;
+}
+#zoneDurationWrap.hidden { display: none !important; }
+.zoneForm.hidden + .mapCard {
+    grid-column: 1 / -1;
+}
+.zoneForm.hidden + .mapCard .zoneMapShell {
+    min-height: calc(91vh - 310px);
+}
+@media (max-width: 1100px) {
+    .selectedWeatherCard { flex-wrap: wrap; }
+    .selectedWeatherCard small { margin-left: 0; width: 100%; }
+}

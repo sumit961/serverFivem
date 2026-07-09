@@ -267,7 +267,7 @@ function renderSlots(options) {
     existing.forEach(({ slot, char }) => {
         const card = document.createElement('button');
         card.type = 'button';
-        card.className = 'character-card';
+        card.className = 'character-card cm-card';
         card.dataset.slot = String(slot);
         card.dataset.charId = String(char.uniqueId || '');
 
@@ -289,7 +289,7 @@ function renderSlots(options) {
         meta.textContent = `${titleCase(char.gender)} · Level ${char.level || 1}`;
 
         const stats = document.createElement('div');
-        stats.className = 'mini-stats';
+        stats.className = 'mini-stats cm-chip-list';
         const cash = document.createElement('span');
         cash.textContent = money(char.cash);
         const bank = document.createElement('span');
@@ -304,7 +304,7 @@ function renderSlots(options) {
     if (emptySlot) {
         const createCard = document.createElement('button');
         createCard.type = 'button';
-        createCard.className = 'character-card create-card';
+        createCard.className = 'character-card create-card cm-card';
         createCard.dataset.slot = String(emptySlot);
         createCard.innerHTML = `
             <div class="card-topline">
@@ -552,6 +552,7 @@ function showSlots() {
 }
 
 function showError(msg) {
+    if (window.CMUI && typeof window.CMUI.toast === 'function') window.CMUI.toast(msg || 'Something went wrong.', 'error');
     if (!errorMsg) return;
     errorMsg.textContent = msg || 'Something went wrong.';
     errorMsg.classList.add('show');
@@ -559,6 +560,7 @@ function showError(msg) {
 }
 
 function showCreatorError(msg) {
+    if (window.CMUI && typeof window.CMUI.toast === 'function') window.CMUI.toast(msg || 'Something went wrong.', 'error');
     if (!creatorError) return;
     creatorError.textContent = msg || 'Something went wrong.';
     creatorError.classList.add('show');
@@ -626,6 +628,7 @@ const editorAnimPreset = document.getElementById('editor-anim-preset');
 let editorScene = null;
 
 function showEditorToast(message, type = 'success') {
+    if (window.CMUI && typeof window.CMUI.toast === 'function') window.CMUI.toast(message || '', type === 'error' ? 'error' : 'success');
     if (!editorToast) return;
     editorToast.textContent = message || '';
     editorToast.classList.add('show');
@@ -761,6 +764,7 @@ let adminCharacters = [];
 let adminSelectedCharacter = null;
 
 function showAdminToast(message, type = 'success') {
+    if (window.CMUI && typeof window.CMUI.toast === 'function') window.CMUI.toast(message || '', type === 'error' ? 'error' : 'success');
     if (!adminToast) return;
     adminToast.textContent = message || '';
     adminToast.classList.add('show');
@@ -817,7 +821,7 @@ function renderAdminResults(results) {
 
     if (adminCharacters.length === 0) {
         const empty = document.createElement('div');
-        empty.className = 'admin-row';
+        empty.className = 'admin-row cm-card';
         empty.textContent = 'No characters found.';
         adminResults.appendChild(empty);
         selectAdminCharacter(null);
@@ -827,7 +831,7 @@ function renderAdminResults(results) {
     adminCharacters.forEach(char => {
         const row = document.createElement('button');
         row.type = 'button';
-        row.className = 'admin-row';
+        row.className = 'admin-row cm-card';
         row.dataset.charId = String(char.charId);
 
         const id = document.createElement('div');

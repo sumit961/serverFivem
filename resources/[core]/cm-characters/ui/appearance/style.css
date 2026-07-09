@@ -23,8 +23,8 @@
     position: fixed;
     inset: 0;
     overflow: hidden;
-    color: #f3f0e8;
-    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: var(--cm-text);
+    font-family: var(--cm-font);
 }
 
 .background {
@@ -42,7 +42,7 @@
     position: absolute;
     top: 11vh;
     left: 3vw;
-    font-family: Oswald, Inter, sans-serif;
+    font-family: var(--cm-font);
     font-size: clamp(82px, 12vw, 190px);
     line-height: 0.9;
     color: rgba(255,255,255,0.045);
@@ -68,8 +68,8 @@
     align-items: center;
     justify-content: center;
     color: rgba(255,255,255,0.82);
-    background: rgba(18,19,24,0.72);
-    border: 1px solid rgba(255,255,255,0.12);
+    background: var(--cm-panel-soft);
+    border: 1px solid var(--cm-border-soft);
     transition: 0.18s ease;
     font-weight: 900;
 }
@@ -77,7 +77,7 @@
 .categoryBtn:hover,
 .categoryBtn.active {
     transform: translateY(-3px);
-    color: #fff;
+    color: var(--cm-text-strong);
     border-color: rgba(0,229,255,0.76);
     box-shadow: 0 16px 34px rgba(0,140,255,0.22);
     background: rgba(46,42,69,0.78);
@@ -106,12 +106,12 @@
 
 #headerCategory {
     margin: 10px 0 0;
-    font-family: Oswald, Inter, sans-serif;
+    font-family: var(--cm-font);
     font-size: clamp(38px, 4vw, 66px);
     line-height: 0.95;
     letter-spacing: -0.03em;
     text-transform: uppercase;
-    color: #fff;
+    color: var(--cm-text-strong);
     text-shadow: 0 14px 40px rgba(0,0,0,0.36);
 }
 
@@ -138,19 +138,19 @@
     margin-bottom: 14px;
     padding: 22px;
     border-radius: 24px;
-    background: rgba(18,19,24,0.72);
-    border: 1px solid rgba(255,255,255,0.11);
+    background: var(--cm-panel-soft);
+    border: 1px solid var(--cm-border-soft);
     box-shadow: 0 18px 60px rgba(0,0,0,0.24);
 }
 
 .item-title {
     margin: 0 0 14px;
-    font-family: Oswald, Inter, sans-serif;
+    font-family: var(--cm-font);
     text-transform: uppercase;
     letter-spacing: -0.02em;
     font-size: 28px;
     line-height: 1;
-    color: #fff;
+    color: var(--cm-text-strong);
 }
 
 .item-subname {
@@ -202,7 +202,7 @@
     height: 30px;
     border-radius: 999px;
     cursor: pointer;
-    color: #fff;
+    color: var(--cm-text-strong);
     transition: 0.16s ease;
 }
 
@@ -215,7 +215,7 @@
 .input-option,
 .input-option-radius {
     width: 100%;
-    accent-color: #00e5ff;
+    accent-color: var(--cm-primary);
 }
 
 input[type="range"] {
@@ -230,7 +230,7 @@ input[type="range"]::-webkit-slider-thumb {
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: #00e5ff;
+    background: var(--cm-primary);
     cursor: pointer;
     box-shadow: 0 0 20px rgba(0,229,255,0.5);
 }
@@ -262,7 +262,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .item-sub-color-selector:hover {
-    border-color: #fff;
+    border-color: var(--cm-text-strong);
     transform: translateY(-2px) scale(1.04);
 }
 
@@ -282,8 +282,8 @@ input[type="range"]::-webkit-slider-thumb {
     width: min(520px, 38vw);
     padding: 18px;
     border-radius: 26px;
-    background: rgba(18,19,24,0.72);
-    border: 1px solid rgba(255,255,255,0.12);
+    background: var(--cm-panel-soft);
+    border: 1px solid var(--cm-border-soft);
     box-shadow: 0 18px 60px rgba(0,0,0,0.26);
 }
 
@@ -327,8 +327,8 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .accept-skin {
-    color: #fff;
-    background: linear-gradient(90deg, #008cff, #00e5ff);
+    color: var(--cm-text-strong);
+    background: linear-gradient(90deg, var(--cm-blue), var(--cm-primary));
     box-shadow: 0 14px 32px rgba(0,140,255,0.25);
 }
 
@@ -377,7 +377,7 @@ input[type="range"]::-webkit-slider-thumb {
     min-height: 42px;
     border: 1px solid rgba(255,255,255,0.14);
     border-radius: 999px;
-    background: rgba(18,19,24,0.76);
+    background: var(--cm-panel-soft);
     color: rgba(255,255,255,0.84);
     font-weight: 900;
     text-transform: uppercase;
@@ -389,4 +389,19 @@ input[type="range"]::-webkit-slider-thumb {
 #appearance-ui[style*="display: none"] {
     background: transparent !important;
     pointer-events: none !important;
+}
+
+
+/* CM UI integration: keep appearance layout local, consume central theme values. */
+.categoryBtn,
+.item-block,
+.settings,
+.appearance-music-toggle {
+    border-color: var(--cm-border-soft);
+}
+
+.categoryBtn.active,
+.categoryBtn:hover {
+    border-color: var(--cm-primary);
+    background: rgba(var(--cm-primary-rgb), 0.10);
 }

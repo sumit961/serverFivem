@@ -1,26 +1,76 @@
 -- cm-spawn/client/main.lua
+-- Production-ready spawn client. Handles spawn selector UI, pre-spawn climate handoff,
+-- final teleport/camera reveal, and HUD/minimap restore.
 
 local spawnCam = nil
 local isInSpawn = false
 local pendingAppearance = nil
+local RESOURCE = 'CM-SPAWN'
+local HudStateCache = {}
+local LastHudVisible = nil
+local ClimatePagePreparedUntil = 0
 
-local function setCmHudVisible(visible)
-    DisplayRadar(visible == true)
-    LocalPlayer.state:set('cmHudHidden', visible ~= true, true)
-    TriggerEvent('cm-hud:client:setVisible', visible == true)
-    TriggerEvent('cm-hud:client:toggle', visible == true)
-    TriggerEvent('cm-hud:client:hide', visible ~= true)
+local function setLocalState(name, value, replicated)
+    local state = LocalPlayer and LocalPlayer.state
+    if not state then return end
+    if state[name] ~= value then
+        state:set(name, value, replicated == true)
+    end
+end
+
+local function cfg(key, fallback)
+    if Config and Config[key] ~= nil then return Config[key] end
+    return fallback
+end
+
+local function dprint(message)
+    if cfg('Debug', false) or cfg('VerboseLogs', false) then
+        print(('[%s] %s'):format(RESOURCE, tostring(message)))
+    end
+end
+
+local function setHudState(name, value, force)
+    value = value == true
+    if not force and HudStateCache[name] == value then return end
+    HudStateCache[name] = value
+
     if GetResourceState('cm-hud') == 'started' then
-        pcall(function() exports['cm-hud']:SetVisible(visible == true) end)
-        pcall(function() exports['cm-hud']:ToggleHud(visible == true) end)
-        pcall(function() exports['cm-hud']:HideHud(visible ~= true) end)
+        pcall(function() exports['cm-hud']:SetHudState(name, value) end)
+        pcall(function() exports['cm-hud']:SetState(name, value) end)
+    end
+
+    TriggerEvent('cm-hud:client:setState', name, value)
+    TriggerEvent('cm-hud:client:SetState', name, value)
+end
+
+local function setCmHudVisible(visible, reason, force)
+    visible = visible == true
+    DisplayRadar(visible)
+    setLocalState('cmHudHidden', not visible, true)
+
+    if visible then
+        setHudState('spawning', false, force)
+        setHudState('spawnSelector', false, force)
+    else
+        setHudState('spawning', true, force)
+    end
+
+    if not force and LastHudVisible == visible then return end
+    LastHudVisible = visible
+
+    TriggerEvent('cm-hud:client:setVisible', visible)
+    TriggerEvent('cm-hud:client:SetVisible', visible)
+    TriggerEvent('cm-hud:client:setHudVisible', visible, reason or 'cm-spawn')
+
+    if GetResourceState('cm-hud') == 'started' then
+        pcall(function() exports['cm-hud']:SetVisible(visible) end)
+        pcall(function() exports['cm-hud']:SetHudVisible(visible, reason or 'cm-spawn') end)
+        pcall(function() exports['cm-hud']:ToggleHud(visible) end)
     end
 end
 
 local function enablePlayerCombat(ped)
     ped = ped or PlayerPedId()
-
-    -- Re-enable normal player-to-player damage after character selector/spawn protection.
     pcall(function() NetworkSetFriendlyFireOption(true) end)
     pcall(function() SetCanAttackFriendly(ped, true, false) end)
 
@@ -45,10 +95,10 @@ end
 
 local function makePlayerVisible(ped)
     ped = ped or PlayerPedId()
-    -- Undo selector invisibility guards from cm-characters before the camera reveal.
     pcall(function() NetworkSetEntityInvisibleToNetwork(ped, false) end)
     pcall(function() SetLocalPlayerVisibleLocally(true) end)
     ResetEntityAlpha(ped)
+    SetEntityAlpha(ped, 255, false)
     SetEntityVisible(ped, true, false)
     SetEntityCollision(ped, true, true)
     SetEntityInvincible(ped, false)
@@ -88,6 +138,49 @@ local function playSkyToPlayerCamera(skyCam, landCam)
     DestroyCam(landCam, false)
 end
 
+local function requestClimateBeforeReveal(coords)
+    if GetResourceState('cm-climatime') ~= 'started' then return end
+
+    -- These events are intentionally tolerant. Current or future cm-climatime versions
+    -- can handle any of them; if missing, FiveM simply ignores the event.
+    local payload = {
+        x = coords.x,
+        y = coords.y,
+        z = coords.z,
+        h = coords.w or coords.h or coords.heading or 0.0,
+        reason = 'cm-spawn-before-reveal'
+    }
+    TriggerServerEvent('cm-climatime:server:requestPreSpawnClimate', payload)
+    TriggerEvent('cm-climatime:client:applyBeforeSpawn', payload)
+    TriggerEvent('cm-climatime:client:prepareBeforeSpawn', payload)
+    TriggerEvent('cm-climatime:client:resumeAfterCharacter')
+    Wait(cfg('PreSpawnClimateWait', 350))
+end
+
+local function preloadClimateForSpawnPage()
+    if GetResourceState('cm-climatime') ~= 'started' then return end
+
+    local now = GetGameTimer()
+    if ClimatePagePreparedUntil > now then return end
+
+    local validMs = tonumber(cfg('SpawnPageClimateValidMs', 30000)) or 30000
+    local payload = {
+        reason = 'spawn-page-preload',
+        prepareMs = tonumber(cfg('SpawnPageClimatePrepareMs', 900)) or 900,
+        validMs = validMs
+    }
+    ClimatePagePreparedUntil = now + validMs
+
+    -- Prepare climate during the black/selector transition. The selected final
+    -- location is still prepared again before reveal.
+    TriggerServerEvent('cm-climatime:server:requestPreSpawnClimate', payload)
+    TriggerEvent('cm-climatime:client:applyBeforeSpawn', payload)
+    TriggerEvent('cm-climatime:client:prepareBeforeSpawn', payload)
+
+    local waitMs = tonumber(cfg('SpawnPageClimateWait', 120)) or 0
+    if waitMs > 0 then Wait(waitMs) end
+end
+
 local function preparePlayerAtSpawn(coords, appearance)
     local ped = PlayerPedId()
     local heading = coords.w or coords.h or coords.heading or 0.0
@@ -116,12 +209,12 @@ local function preparePlayerAtSpawn(coords, appearance)
         Wait(50)
     end
 
+    requestClimateBeforeReveal(coords)
+
     if appearance then
-        print('[CM-SPAWN] Applying appearance before camera reveal...')
         TriggerEvent('cm-characters:client:applyAppearance', appearance)
         Wait(450)
     else
-        print('[CM-SPAWN] No appearance, using default')
         SetPedDefaultComponentVariation(ped)
         Wait(100)
     end
@@ -133,9 +226,6 @@ local function preparePlayerAtSpawn(coords, appearance)
     SetEntityCollision(ped, true, true)
     SetEntityInvincible(ped, true)
 
-    -- IMPORTANT: cm-characters hides the real player with local/network guards.
-    -- Reset those guards here, BEFORE the sky camera starts, so the camera lands on
-    -- an already-spawned ped instead of the ped popping in at the end.
     pcall(function() NetworkSetEntityInvisibleToNetwork(ped, false) end)
     pcall(function() SetLocalPlayerVisibleLocally(true) end)
     ResetEntityAlpha(ped)
@@ -143,7 +233,6 @@ local function preparePlayerAtSpawn(coords, appearance)
     SetEntityVisible(ped, true, false)
     ClearPedTasksImmediately(ped)
 
-    -- Give GTA one short frame window to render/stream the ped while the screen is black.
     local readyUntil = GetGameTimer() + 900
     repeat
         SetEntityCoordsNoOffset(ped, coords.x, coords.y, coords.z, false, false, false)
@@ -156,13 +245,17 @@ local function preparePlayerAtSpawn(coords, appearance)
     return ped
 end
 
--- Open spawn selector (returning players)
 RegisterNetEvent('cm-spawn:client:openSelector')
 AddEventHandler('cm-spawn:client:openSelector', function(spawns, appearance, playerInfo)
-    print('[CM-SPAWN] Opening spawn selector')
+    dprint('Opening spawn selector')
     isInSpawn = true
     pendingAppearance = appearance
-    setCmHudVisible(false)
+    setLocalState('isInSpawnSelector', true, true)
+    setLocalState('spawnSelectorOpen', true, true)
+    setLocalState('cmSpawnOpen', true, true)
+    setLocalState('cmSpawnActive', true, true)
+    setHudState('spawnSelector', true)
+    setCmHudVisible(false, 'spawn_selector')
 
     local ped = PlayerPedId()
     FreezeEntityPosition(ped, true)
@@ -177,36 +270,39 @@ AddEventHandler('cm-spawn:client:openSelector', function(spawns, appearance, pla
     SetCamActive(spawnCam, true)
     RenderScriptCams(true, true, 1000, true, true)
 
+    -- Apply synced weather/time before the player sees the spawn page.
+    preloadClimateForSpawnPage()
+
     SendNUIMessage({
         action = 'openSelector',
-        spawns = spawns,
-        player = playerInfo
+        spawns = spawns or {},
+        player = playerInfo or {}
     })
     SetNuiFocus(true, true)
 end)
 
--- Actual spawn teleport
 RegisterNetEvent('cm-spawn:client:spawn')
 AddEventHandler('cm-spawn:client:spawn', function(spawnKey, isFirstTime, coords, appearance)
-    print('[CM-SPAWN] Spawning at ' .. tostring(spawnKey))
+    dprint('Spawning at ' .. tostring(spawnKey))
+    local isDeadSpawn = spawnKey == 'dead_location'
 
-    -- Leave the private character-selector world before final spawn.
-    -- If cm-characters does not have this event, this call is harmless.
     TriggerServerEvent('cm-characters:server:leaveSelectorBucket')
     TriggerServerEvent('cm-spawn:server:resetWorldState', false)
 
     isInSpawn = false
     pendingAppearance = nil
+    setLocalState('isInSpawnSelector', false, true)
+    setLocalState('spawnSelectorOpen', false, true)
+    setLocalState('cmSpawnOpen', false, true)
     SetNuiFocus(false, false)
     SendNUIMessage({ action = 'closeSelector' })
-    setCmHudVisible(false)
+    setHudState('spawnSelector', false)
+    setCmHudVisible(false, 'spawning')
 
     cleanupSpawnCam(true)
 
     local spawnCoords = coords or vector4(-1037.0, -2737.0, 13.8, 0.0)
 
-    -- Keep the screen black while we move, load collision, and apply the real character skin.
-    -- This prevents the default Michael/free-mode blink before the sky camera starts.
     DoScreenFadeOut(250)
     Wait(300)
 
@@ -216,9 +312,7 @@ AddEventHandler('cm-spawn:client:spawn', function(spawnKey, isFirstTime, coords,
     ShutdownLoadingScreen()
     ShutdownLoadingScreenNui()
 
-    -- Player is already at the selected spawn and already visible before this camera starts.
     local skyCam, landCam = setupSkyToPlayerCamera(spawnCoords)
-    -- Final visibility pass before fade-in/camera movement.
     makePlayerVisible(ped)
     FreezeEntityPosition(ped, true)
     SetPlayerControl(PlayerId(), false, 0)
@@ -232,39 +326,72 @@ AddEventHandler('cm-spawn:client:spawn', function(spawnKey, isFirstTime, coords,
     SetEntityInvincible(ped, false)
     SetPlayerControl(PlayerId(), true, 0)
     makePlayerVisible(ped)
-    enablePlayerCombat(ped)
-    setCmHudVisible(true)
+    setHudState('spawnSelector', false)
+    setHudState('spawning', false)
+    setLocalState('cmSpawnActive', false, true)
+    setLocalState('characterFullySpawned', true, true)
+    setLocalState('cmSpawned', true, true)
+    setLocalState('isSpawned', true, true)
 
-    print('[CM-SPAWN] Spawn complete')
+    if isDeadSpawn then
+        -- We used NetworkResurrectLocalPlayer only to place the ped cleanly.
+        -- Immediately put the player back into the downed threshold so
+        -- cm-playerdata can reopen the deathscreen after spawn completion.
+        SetEntityHealth(ped, 101)
+        SetPedArmour(ped, 0)
+        SetPlayerHealthRechargeMultiplier(PlayerId(), 0.0)
+        SetPlayerHealthRechargeLimit(PlayerId(), 0.0)
+        setCmHudVisible(false, 'dead_spawn_complete')
+        DisplayRadar(false)
+    else
+        enablePlayerCombat(ped)
+        setCmHudVisible(true, 'spawn_complete')
+        DisplayRadar(true)
+    end
+
     TriggerEvent('cm-core:playerSpawned')
     TriggerEvent('cm-spawn:client:spawned')
+    TriggerEvent('cm-spawn:client:spawnComplete')
     TriggerServerEvent('cm-spawn:server:spawnComplete')
 end)
 
 RegisterNUICallback('selectSpawn', function(data, cb)
-    print('[CM-SPAWN] selectSpawn: ' .. tostring(data.spawnKey))
+    local key = data and data.spawnKey
+    if type(key) ~= 'string' then
+        cb({ ok = false })
+        return
+    end
     TriggerServerEvent('cm-characters:server:leaveSelectorBucket')
-    TriggerServerEvent('cm-spawn:server:selectSpawn', data.spawnKey)
-    cb('ok')
+    TriggerServerEvent('cm-spawn:server:selectSpawn', key)
+    cb({ ok = true })
 end)
 
-RegisterNUICallback('closeSpawn', function(data, cb)
+RegisterNUICallback('closeSpawn', function(_, cb)
+    -- Spawn selector should normally not close without a selected spawn. This is kept as
+    -- a recovery path for dev/test or tutorial skip calls.
     isInSpawn = false
+    setLocalState('isInSpawnSelector', false, true)
+    setLocalState('spawnSelectorOpen', false, true)
+    setLocalState('cmSpawnOpen', false, true)
+    setLocalState('cmSpawnActive', false, true)
     SetNuiFocus(false, false)
     SendNUIMessage({ action = 'closeSelector' })
     cleanupSpawnCam(false)
     makePlayerVisible(PlayerPedId())
     enablePlayerCombat(PlayerPedId())
     TriggerServerEvent('cm-spawn:server:resetWorldState', true)
-    setCmHudVisible(true)
-    cb('ok')
+    setHudState('spawnSelector', false)
+    setHudState('spawning', false)
+    setLocalState('cmSpawnActive', false, true)
+    setLocalState('characterFullySpawned', true, true)
+    setLocalState('cmSpawned', true, true)
+    setLocalState('isSpawned', true, true)
+    setCmHudVisible(true, 'spawn_close_recovery')
+    cb({ ok = true })
 end)
-
 
 AddEventHandler('cm-spawn:client:spawned', function()
     CreateThread(function()
-        -- Some resources/skin changes can briefly re-apply spawn protection.
-        -- Refresh combat for a short safe window only, so future admin/death scripts are not fighting this loop forever.
         local untilTime = GetGameTimer() + 15000
         while GetGameTimer() < untilTime do
             enablePlayerCombat(PlayerPedId())
@@ -273,9 +400,23 @@ AddEventHandler('cm-spawn:client:spawned', function()
     end)
 end)
 
-RegisterCommand('cmfixcombat', function()
+AddEventHandler('onResourceStop', function(resourceName)
+    if resourceName ~= GetCurrentResourceName() then return end
+    SetNuiFocus(false, false)
+    cleanupSpawnCam(true)
     makePlayerVisible(PlayerPedId())
-    enablePlayerCombat(PlayerPedId())
-    TriggerServerEvent('cm-spawn:server:resetWorldState', true)
-    print('[CM-SPAWN] Combat/world state refreshed for this player')
-end, false)
+    DisplayRadar(true)
+    setLocalState('isInSpawnSelector', false, true)
+    setLocalState('spawnSelectorOpen', false, true)
+    setLocalState('cmSpawnOpen', false, true)
+    setLocalState('cmSpawnActive', false, true)
+end)
+
+if cfg('EnableClientFixCommand', false) then
+    RegisterCommand('cmfixcombat', function()
+        makePlayerVisible(PlayerPedId())
+        enablePlayerCombat(PlayerPedId())
+        TriggerServerEvent('cm-spawn:server:resetWorldState', true)
+        print('[CM-SPAWN] Combat/world state refreshed for this player')
+    end, false)
+end

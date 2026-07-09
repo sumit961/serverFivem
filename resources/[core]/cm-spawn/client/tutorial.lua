@@ -1,39 +1,51 @@
 -- cm-spawn/client/tutorial.lua
 
 local tutorialActive = false
+local RESOURCE = 'CM-SPAWN'
+
+local function cfg(key, fallback)
+    if Config and Config[key] ~= nil then return Config[key] end
+    return fallback
+end
+
+local function dprint(message)
+    if cfg('Debug', false) or cfg('VerboseLogs', false) then
+        print(('[%s] %s'):format(RESOURCE, tostring(message)))
+    end
+end
+
 local tutorialSteps = {
     {
-        title = 'Welcome to Los Santos',
-        text = 'This is your new home. Explore the city, find work, and build your life.',
+        title = 'Welcome to Grand RP',
+        text = 'This is your new city. Learn the basics, find work, and build your story.',
         duration = 8000,
         pos = vector3(-1037.0, -2737.0, 20.0)
     },
     {
         title = 'Finding Work',
-        text = 'Visit the job center to find employment. You need money to survive.',
+        text = 'Start with beginner-friendly jobs. More tasks unlock as your level and playtime increase.',
         duration = 8000,
         pos = vector3(-260.0, -970.0, 31.0)
     },
     {
         title = 'Banking',
-        text = 'Keep your money safe at the bank. You can deposit and withdraw cash.',
+        text = 'Use cash for small purchases and keep bigger savings safe in your bank.',
         duration = 8000,
         pos = vector3(150.0, -1040.0, 29.0)
     },
     {
-        title = 'Stay Safe',
-        text = 'The city has dangerous areas. Stay alert and make allies.',
-        duration = 6000,
-        pos = vector3(0, 0, 0) -- Return to player
+        title = 'Organizations',
+        text = 'Later you can join organizations such as police, army, companies, clubs, or gangs if they exist in the city.',
+        duration = 7000,
+        pos = vector3(0, 0, 0)
     }
 }
 
 RegisterNetEvent('cm-spawn:client:startTutorial')
 AddEventHandler('cm-spawn:client:startTutorial', function()
-    print('[CM-SPAWN] Tutorial starting...')
+    dprint('Tutorial starting')
     tutorialActive = true
-    
-    -- Show first message
+
     SendNUIMessage({
         action = 'showTutorial',
         step = 1,
@@ -41,15 +53,10 @@ AddEventHandler('cm-spawn:client:startTutorial', function()
         title = tutorialSteps[1].title,
         text = tutorialSteps[1].text
     })
-    
-    -- Camera tour
-    local ped = PlayerPedId()
-    local startPos = GetEntityCoords(ped)
-    
+
     for i, step in ipairs(tutorialSteps) do
         if not tutorialActive then break end
-        
-        -- Update UI
+
         SendNUIMessage({
             action = 'updateTutorial',
             step = i,
@@ -57,8 +64,7 @@ AddEventHandler('cm-spawn:client:startTutorial', function()
             title = step.title,
             text = step.text
         })
-        
-        -- Move camera
+
         if step.pos and step.pos.x ~= 0 then
             local cam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
             SetCamCoord(cam, step.pos.x, step.pos.y, step.pos.z + 50.0)
@@ -66,37 +72,33 @@ AddEventHandler('cm-spawn:client:startTutorial', function()
             SetCamFov(cam, 60.0)
             SetCamActive(cam, true)
             RenderScriptCams(true, true, 2000, true, true)
-            
+
             Wait(step.duration)
-            
+
             RenderScriptCams(false, true, 1000, true, true)
             DestroyCam(cam, false)
         else
-            -- Last step: focus on player
             RenderScriptCams(false, false, 0, true, true)
             Wait(step.duration)
         end
     end
-    
-    -- Tutorial complete
+
     if tutorialActive then
-        SendNUIMessage({action = 'hideTutorial'})
+        SendNUIMessage({ action = 'hideTutorial' })
         TriggerServerEvent('cm-spawn:server:tutorialComplete')
         tutorialActive = false
-        print('[CM-SPAWN] Tutorial complete')
+        dprint('Tutorial complete')
     end
-    
-    -- Trigger player spawned event
+
     TriggerEvent('cm-core:playerSpawned')
 end)
 
--- Skip tutorial command
 RegisterCommand('skiptutorial', function()
     if tutorialActive then
         tutorialActive = false
-        SendNUIMessage({action = 'hideTutorial'})
+        SendNUIMessage({ action = 'hideTutorial' })
         RenderScriptCams(false, false, 0, true, true)
         TriggerServerEvent('cm-spawn:server:tutorialComplete')
-        print('[CM-SPAWN] Tutorial skipped')
+        dprint('Tutorial skipped')
     end
 end)

@@ -12,7 +12,7 @@ const loadingConfig = {
     tips: [
         'Trusted login never bypasses confirmation. You still choose Login as before entering the city.',
         'Your saved token only works when Rockstar license and device fingerprint both match.',
-        'Admins can use RBAC permissions to manage resets without giving everyone full access.',
+        'Staff account resets should be handled through cm-admin with proper permission logs.',
         'If your saved login fails, use email and password to generate a fresh trusted token.'
     ]
 };

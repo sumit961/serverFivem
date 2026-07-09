@@ -1,6 +1,31 @@
 -- cm-characters/server/slots.lua
 -- Character slot list + secure selection. Uses server-side account state only.
 
+
+-- Production-safe local logger wrapper.
+-- When Config.Debug/Config.VerboseLogs is false, normal CM-CHARACTERS debug prints are hidden.
+-- Warnings/errors still print so real problems are visible.
+local __cmCharactersPrint = print
+local function __cmCharactersShouldVerbose()
+    return Config and (Config.Debug == true or Config.VerboseLogs == true or Config.ProductionMode == false)
+end
+local function print(...)
+    if __cmCharactersShouldVerbose() then
+        return __cmCharactersPrint(...)
+    end
+
+    local first = tostring(select(1, ...) or '')
+    local isCmCharactersLog = first:find('%[CM%-CHARACTERS') ~= nil
+    if not isCmCharactersLog then
+        return __cmCharactersPrint(...)
+    end
+
+    local upper = first:upper()
+    if upper:find('ERROR', 1, true) or upper:find('WARNING', 1, true) or upper:find('FAILED', 1, true) or upper:find('DENIED', 1, true) then
+        return __cmCharactersPrint(...)
+    end
+end
+
 local function safeDecode(jsonText)
     if not jsonText or jsonText == '' then return {} end
     local ok, decoded = pcall(json.decode, jsonText)
@@ -15,6 +40,8 @@ end
 local function getCharacterRank(char)
     return char.rank_name or char.rank or char.current_rank_id or 'Civilian'
 end
+
+local selectionLocks = {}
 
 local EQUIPMENT_SLOTS = {
     'mask', 'glasses', 'headwear', 'earrings',
@@ -62,6 +89,7 @@ end
 
 RegisterNetEvent('cm-characters:server:getSlots', function(_clientAccountId)
     local src = source
+    if CMCharacters.IsRateLimited(src, 'getSlots', 8, 10) then return end
     local accountId = CMCharacters.RequireAccount(src)
     if not accountId then
         TriggerClientEvent('cm-characters:client:error', src, 'Not logged in')
@@ -69,7 +97,9 @@ RegisterNetEvent('cm-characters:server:getSlots', function(_clientAccountId)
     end
 
     local maxCharacters = CMCharacters.GetMaxCharacters(accountId)
-    print('[CM-CHARACTERS] getSlots secure accountId="' .. accountId .. '" max=' .. tostring(maxCharacters))
+    if Config and Config.EnableDevCommands == true then
+        print('[CM-CHARACTERS] getSlots secure accountId="' .. accountId .. '" max=' .. tostring(maxCharacters))
+    end
 
     local chars = CMCharacters.Query(
         'SELECT * FROM characters WHERE account_id = ? ORDER BY slot',
@@ -114,17 +144,34 @@ end)
 
 RegisterNetEvent('cm-characters:server:selectCharacter', function(charId)
     local src = source
+    if CMCharacters.IsRateLimited(src, 'selectCharacter', 4, 10) then
+        CMCharacters.Notify(src, 'Please wait before selecting again.', 'error')
+        return
+    end
+
+    if selectionLocks[src] then
+        CMCharacters.Notify(src, 'Character selection is already in progress.', 'error')
+        return
+    end
+    selectionLocks[src] = true
+
+    local function done()
+        selectionLocks[src] = nil
+    end
+
     pcall(function() SetPlayerRoutingBucket(src, 0) end)
     pcall(function() Player(src).state:set('selectorBucket', 0, true) end)
 
     charId = tostring(charId or '')
     if charId == '' then
+        done()
         TriggerClientEvent('cm-characters:client:error', src, 'Invalid character ID')
         return
     end
 
     local char, accountId, err = CMCharacters.GetOwnedCharacter(src, charId)
     if not char then
+        done()
         TriggerClientEvent('cm-characters:client:error', src, err or 'Character not found')
         return
     end
@@ -136,8 +183,13 @@ RegisterNetEvent('cm-characters:server:selectCharacter', function(charId)
 
     CMCharacters.Query('UPDATE characters SET last_seen = CURRENT_TIMESTAMP WHERE id = ?', { tostring(char.id) })
     exports['cm-core']:CacheInvalidate('char:' .. tostring(char.id))
+    exports['cm-core']:CacheInvalidate('chars:' .. tostring(accountId))
+
+    -- cm-playerdata is the runtime owner of loaded character data and cash/bank.
+    CMCharacters.SyncWithPlayerData(src, tostring(char.id), 'select_character')
 
     TriggerEvent('cm-core:characterLoaded', src, tostring(char.id))
+    TriggerEvent('cm-characters:server:characterSelected', src, tostring(char.id), accountId)
 
     TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src)
     SetTimeout(1000, function() TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src) end)
@@ -149,4 +201,10 @@ RegisterNetEvent('cm-characters:server:selectCharacter', function(charId)
         player_char_id = tostring(char.id),
         name = CMCharacters.CharacterFullName(char)
     })
+
+    done()
+end)
+
+AddEventHandler('playerDropped', function()
+    selectionLocks[source] = nil
 end)

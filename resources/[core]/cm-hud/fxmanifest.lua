@@ -2,9 +2,9 @@ fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
 
-description 'CM HUD - Visual HUD only: Native Minimap, Vehicle Speedometer, Money, Location, Notifications'
+description 'CM HUD - responsive CM UI, driver-only speedometer, no default ammo/vehicle-name popup, event-driven money HUD'
 author 'CM Framework'
-version '2.6.1-ui-only-hide-bridge'
+version '2.8.1-driver-speedo-no-vehicle-name'
 
 client_scripts {
     'client/main.lua'
@@ -30,6 +30,7 @@ files {
 }
 
 dependencies {
+    'cm-ui',
     'cm-core',
     'cm-playerdata'
 }

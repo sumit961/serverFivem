@@ -4,11 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CM Climatime</title>
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css" />
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-components.css" />
     <link rel="stylesheet" href="style.css" />
 </head>
 <body>
     <div id="app" class="hidden">
-        <div class="panel">
+        <div class="panel cm-panel cm-panel--surface">
             <aside class="sidebar">
                 <div class="brand">
                     <div class="brandIcon">☀</div>
@@ -28,7 +30,7 @@
                             <small id="locSub">Synced server-wide</small>
                         </div>
                     </div>
-                    <button id="exitBtn" class="danger full">↪ Exit</button>
+                    <button id="exitBtn" class="danger full cm-btn cm-btn--danger">↪ Exit</button>
                 </div>
             </aside>
 
@@ -71,6 +73,8 @@
                             </div>
                             <button id="saveWeatherOptions" class="primary full">Apply Manager Settings</button>
                             <div class="presetBox">
+                                <label>Dynamic Weather Profile <select id="weatherProfile"></select></label>
+                                <button id="applyProfile" class="ghost full">Apply Dynamic Profile</button>
                                 <label>Weather Event Preset <select id="eventPreset"></select></label>
                                 <button id="applyPreset" class="ghost full">Apply Preset</button>
                                 <div id="historyList" class="historyList"></div>
@@ -154,20 +158,41 @@
                     </div>
 
                     <div class="zoneLayout">
-                        <div class="card zoneForm">
+                        <div id="zoneForm" class="card zoneForm hidden">
                             <label>Zone ID <input id="zoneId" value="#auto"></label>
                             <label>Zone Name <input id="zoneName" placeholder="Example: Paleto Snow"></label>
-                            <div class="miniForm two">
-                                <label>Mode
+                            <div class="miniForm one">
+                                <label>Zone Type
                                     <select id="zoneMode">
-                                        <option value="static">Static Weather</option>
-                                        <option value="dynamic">Dynamic Weather</option>
-                                        <option value="mix">Mix Weather Pool</option>
+                                        <option value="static">All-Time Weather</option>
+                                        <option value="dynamic">Dynamic Weather Rotation</option>
+                                        <option value="mix">Mixed Weather Pool</option>
                                     </select>
                                 </label>
-                                <label>Weather <select id="zoneWeather"></select></label>
                             </div>
-                            <label>Mix Pool <input id="zonePool" placeholder="RAIN, THUNDER, FOGGY"></label>
+                            <select id="zoneWeather" class="hiddenNativeSelect" aria-hidden="true" tabindex="-1"></select>
+                            <div id="zoneSelectedWeather" class="selectedWeatherCard">Selected weather: CLEAR</div>
+                            <div id="zoneMixBuilder" class="mixBuilder">
+                                <div class="mixHeader">
+                                    <div>
+                                        <strong>Weather Chips</strong>
+                                        <small>All-Time: click one chip. Dynamic/Mix: drag or click chips into the pool. Use × to remove.</small>
+                                    </div>
+                                    <span id="zonePoolCount" class="pill">0 selected</span>
+                                </div>
+                                <div id="zoneWeatherPalette" class="weatherPalette"></div>
+                                <div id="zonePoolDrop" class="poolDrop" data-empty="Drop weather here">
+                                    <span class="dropHint">Drop weather here or click chips above</span>
+                                </div>
+                                <div class="poolQuickActions">
+                                    <button id="poolNormal" class="ghost" type="button">Normal</button>
+                                    <button id="poolRain" class="ghost" type="button">Rain</button>
+                                    <button id="poolStorm" class="ghost" type="button">Storm</button>
+                                    <button id="poolSnow" class="ghost" type="button">Snow</button>
+                                    <button id="poolClear" class="danger" type="button">Clear Pool</button>
+                                </div>
+                                <input id="zonePool" type="hidden" value="CLEAR, CLOUDS, OVERCAST, RAIN">
+                            </div>
                             <div class="miniForm three coords">
                                 <label>X <input id="zoneX" type="number" step="0.01" value="0"></label>
                                 <label>Y <input id="zoneY" type="number" step="0.01" value="0"></label>
@@ -175,7 +200,7 @@
                             </div>
                             <div class="miniForm two">
                                 <label>Radius <input id="zoneRadius" type="number" min="10" max="5000" value="200"></label>
-                                <label>Duration min <input id="zoneDuration" type="number" min="1" max="240" value="20"></label>
+                                <label id="zoneDurationWrap">Rotation min <input id="zoneDuration" type="number" min="1" max="240" value="20"></label>
                             </div>
                             <label>Priority <input id="zonePriority" type="number" min="0" max="100" value="0"></label>
                             <div class="miniForm two">
@@ -189,9 +214,16 @@
                             <div class="zoneMapHeader">
                                 <div>
                                     <span class="mapTag">GTA Interactive Zone Map</span>
-                                    <p class="muted">Click the map to choose the zone center. Drag the marker, scroll to zoom, then set weather and radius.</p>
+                                    <p class="muted">Click the map to open a new zone form, drag the blue marker, drag ↔ to resize, or press Use My Position.</p>
                                 </div>
                                 <strong id="zoneMapCoords">X 0.00 Y 0.00</strong>
+                            </div>
+                            <div class="zoneMapToolbar">
+                                <button id="mapZoomIn" class="ghost" type="button">＋ Zoom</button>
+                                <button id="mapZoomOut" class="ghost" type="button">－ Zoom</button>
+                                <button id="mapNewZone" class="primary" type="button">＋ New Zone</button>
+                                <button id="mapFocusForm" class="ghost" type="button">⌖ Focus Zone</button>
+                                <button id="mapUsePlayer" class="primary" type="button">Use My Position</button>
                             </div>
                             <div class="zoneMapShell">
                                 <div id="zoneMap" class="zoneMap"></div>
@@ -205,6 +237,7 @@
         </div>
         <div id="toast" class="toast hidden"></div>
     </div>
+    <script src="nui://cm-ui/web/cm-ui.js"></script>
     <script type="module" src="leaflet-loader.js"></script>
     <script src="app.js"></script>
 </body>

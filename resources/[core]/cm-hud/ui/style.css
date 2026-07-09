@@ -1499,7 +1499,6 @@ body.hud-hidden #hud-notify {
     border: none !important;
     box-shadow: none !important;
     padding: 0;
-    backdrop-filter: none;
 }
 
 .server-header-container { text-align: right; }
@@ -3218,3 +3217,356 @@ body.cm-compact-mode .voice-radio-keys {
 .vcs-status span svg { width: 100%; height: 100%; }
 .vcs-status span.on { color: var(--vcs-accent); filter: drop-shadow(0 0 4px var(--vcs-accent)); }
 .vcs-status span.warn { color: #ff5b5b; filter: drop-shadow(0 0 4px #ff5b5b); }
+
+
+/* ===================================================================== */
+/* V2.7.0 — CM UI defaults, big notifications, responsive voice/radio UI */
+/* ===================================================================== */
+:root {
+    --cm-user-scale: 1.35;
+    --cm-location-offset-x: -7px;
+    --cm-location-offset-y: -112px;
+}
+
+#hud-top-right,
+#hud-bottom-left,
+#hud-bottom-right,
+#hud-left-keys,
+#hud-voice-radio,
+#hud-notify {
+    will-change: transform, opacity;
+}
+
+/* Location follows the Lua native-minimap anchor. Offsets are applied in Lua settings, not hardcoded here. */
+#hud-bottom-left {
+    left: var(--cm-location-left) !important;
+    bottom: var(--cm-location-bottom) !important;
+    right: auto !important;
+    top: auto !important;
+    transform: scale(var(--cm-user-scale, 1.35)) !important;
+    transform-origin: bottom left !important;
+    max-width: min(390px, calc(100vw - var(--cm-location-left) - 24px)) !important;
+}
+
+.location-box,
+.location-no-bg {
+    min-width: clamp(160px, 13vw, 260px) !important;
+    max-width: min(360px, 40vw) !important;
+}
+
+/* Right-middle mic/family/org radio indicators. */
+#hud-voice-radio {
+    position: fixed;
+    top: 50%;
+    right: clamp(16px, 2.0vw, 34px);
+    transform: translateY(-50%) scale(var(--cm-user-scale));
+    transform-origin: right center;
+    z-index: 260;
+    pointer-events: none;
+}
+
+.voice-radio-keys {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: clamp(8px, 1.1vh, 13px);
+}
+
+.voice-radio-keys .vr-key {
+    display: grid;
+    grid-template-columns: 30px 24px auto;
+    align-items: center;
+    justify-content: end;
+    gap: 7px;
+    min-width: 112px;
+    color: rgba(238, 249, 255, 0.72);
+    font-family: 'Nekst', 'Nunito', 'Segoe UI', Arial, sans-serif;
+    font-weight: 800;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.95);
+    opacity: 0.74;
+    transition: opacity 120ms ease, transform 120ms ease, color 120ms ease;
+}
+
+.voice-radio-keys .key-circle {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255,255,255,0.34);
+    background: rgba(0, 0, 0, 0.34);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.45);
+    color: rgba(255,255,255,0.82);
+    font-size: 12px;
+    line-height: 1;
+}
+
+.voice-radio-keys .vr-icon {
+    font-size: 17px;
+    line-height: 1;
+    text-align: center;
+    opacity: 0.88;
+}
+
+.voice-radio-keys .vr-label {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    opacity: 0.78;
+}
+
+.voice-radio-keys .vr-key.active {
+    --vr-color: var(--cm-accent, #31e6ff);
+    color: #fff;
+    opacity: 1;
+    transform: translateX(-4px) scale(1.035);
+}
+.voice-radio-keys .vr-key.family.active { --vr-color: #2effa5; }
+.voice-radio-keys .vr-key.org.active { --vr-color: #31e6ff; }
+.voice-radio-keys .vr-key.voice.active { --vr-color: #31e6ff; }
+
+.voice-radio-keys .vr-key.active .key-circle {
+    color: #041018;
+    background: var(--vr-color);
+    border-color: rgba(255,255,255,0.78);
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.14), 0 0 18px var(--vr-color), 0 4px 14px rgba(0,0,0,0.52);
+}
+.voice-radio-keys .vr-key.active .vr-icon,
+.voice-radio-keys .vr-key.active .vr-label {
+    color: var(--vr-color);
+    filter: drop-shadow(0 0 8px var(--vr-color));
+}
+
+/* Big clean notification inspired by the screenshot, colored by notify type. */
+#hud-notify {
+    position: fixed !important;
+    top: clamp(96px, 13vh, 170px) !important;
+    left: 50% !important;
+    right: auto !important;
+    width: clamp(360px, 32vw, 560px) !important;
+    transform: translateX(-50%) !important;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    z-index: 900;
+    pointer-events: none;
+}
+
+.notify-item {
+    --nt-color: var(--cm-accent, #31e6ff);
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    min-height: 92px;
+    padding: 0 !important;
+    display: block !important;
+    text-align: left;
+    animation: cmNotifyIn 180ms ease-out backwards !important;
+}
+
+.notify-item.hide {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.98);
+    transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.notify-accent,
+.notify-icon {
+    display: none !important;
+}
+
+.notify-content {
+    padding: 0 !important;
+}
+
+.notify-title {
+    color: var(--nt-color, var(--cm-accent)) !important;
+    font-family: 'Nekst', 'Nunito', 'Segoe UI', Arial, sans-serif;
+    font-weight: 1000;
+    font-size: clamp(30px, 2.35vw, 48px) !important;
+    line-height: 0.94;
+    letter-spacing: 0.045em !important;
+    text-transform: uppercase;
+    text-shadow: 0 2px 5px rgba(0,0,0,0.85), 0 0 12px rgba(0,0,0,0.32);
+}
+
+.notify-progress-track {
+    width: min(72%, 340px) !important;
+    height: 5px !important;
+    border-radius: 999px !important;
+    margin: 16px 0 0 clamp(8px, 1.2vw, 26px) !important;
+    background: rgba(255,255,255,0.50) !important;
+    overflow: hidden;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.36);
+}
+
+.notify-progress-fill {
+    height: 100%;
+    width: 100%;
+    border-radius: 999px !important;
+    background: #fff !important;
+    animation: ntDrain 4200ms linear forwards !important;
+}
+
+.notify-text {
+    color: rgba(255,255,255,0.94) !important;
+    font-family: 'Nunito', 'Segoe UI', Arial, sans-serif;
+    font-size: clamp(14px, 1.05vw, 18px) !important;
+    font-weight: 700 !important;
+    line-height: 1.25 !important;
+    margin: 12px 0 0 0 !important;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.86);
+}
+
+.notify-item.success { --nt-color: #2effa5; }
+.notify-item.error { --nt-color: #ff5b5b; }
+.notify-item.warning { --nt-color: #ffc02e; }
+.notify-item.info { --nt-color: #31e6ff; }
+
+@keyframes cmNotifyIn {
+    from { opacity: 0; transform: translateY(-12px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 1366px) {
+    #hud-notify { width: clamp(330px, 38vw, 500px) !important; }
+    .notify-title { font-size: clamp(28px, 3vw, 42px) !important; }
+    #hud-bottom-left { max-width: 330px !important; }
+}
+
+@media (max-height: 760px) {
+    #hud-notify { top: 78px !important; }
+    #hud-voice-radio { right: 14px; }
+    .voice-radio-keys { gap: 7px; }
+    .voice-radio-keys .vr-label { display: none; }
+    .voice-radio-keys .vr-key { min-width: 64px; grid-template-columns: 28px 22px; }
+}
+
+
+/* ===================================================================== */
+/* V2.8.0 — responsive fit, label-free voice/radio keys, clean ammo HUD  */
+/* ===================================================================== */
+:root {
+    --cm-screen-fit-scale: 1;
+    --cm-effective-scale: calc(var(--cm-user-scale, 1.35) * var(--cm-screen-fit-scale));
+    --cm-edge-pad: clamp(10px, 1.45vw, 26px);
+}
+
+#hud-top-right {
+    top: var(--cm-edge-pad) !important;
+    right: var(--cm-edge-pad) !important;
+    transform: scale(var(--cm-effective-scale)) !important;
+    transform-origin: top right !important;
+    max-width: min(360px, 38vw) !important;
+}
+
+#hud-left-keys {
+    transform: scale(var(--cm-effective-scale)) !important;
+    transform-origin: left center !important;
+}
+
+#hud-bottom-left {
+    transform: scale(var(--cm-effective-scale)) !important;
+    transform-origin: bottom left !important;
+    max-width: min(390px, calc(100vw - var(--cm-location-left, 30px) - 20px)) !important;
+}
+
+#hud-bottom-right {
+    transform: scale(var(--cm-effective-scale)) !important;
+    transform-origin: bottom right !important;
+}
+
+#hud-voice-radio {
+    right: clamp(8px, 1.6vw, 30px) !important;
+    transform: translateY(-50%) scale(var(--cm-effective-scale)) !important;
+    transform-origin: right center !important;
+}
+
+.voice-radio-keys {
+    gap: clamp(7px, 0.95vh, 12px) !important;
+}
+
+.voice-radio-keys .vr-key {
+    grid-template-columns: clamp(24px, 1.8vw, 30px) clamp(19px, 1.5vw, 24px) !important;
+    min-width: 0 !important;
+    width: auto !important;
+    gap: clamp(5px, .55vw, 8px) !important;
+}
+
+.voice-radio-keys .vr-label {
+    display: none !important;
+}
+
+.voice-radio-keys .key-circle {
+    width: clamp(23px, 1.8vw, 28px) !important;
+    height: clamp(23px, 1.8vw, 28px) !important;
+    font-size: clamp(10px, .75vw, 12px) !important;
+}
+
+.voice-radio-keys .vr-icon {
+    font-size: clamp(14px, 1.05vw, 17px) !important;
+}
+
+#hud-notify {
+    width: clamp(280px, 34vw, 560px) !important;
+    top: clamp(70px, 12vh, 160px) !important;
+}
+
+.notify-title {
+    font-size: clamp(25px, 2.2vw, 46px) !important;
+}
+
+.notify-text {
+    font-size: clamp(14px, 1.05vw, 18px) !important;
+}
+
+.server-brand {
+    font-size: clamp(18px, 1.55vw, 26px) !important;
+}
+
+.money-cash-new {
+    font-size: clamp(22px, 1.95vw, 32px) !important;
+}
+
+.money-bank-new,
+.server-stats {
+    font-size: clamp(11px, .85vw, 16px) !important;
+}
+
+@media (max-width: 1366px), (max-height: 780px) {
+    :root {
+        --cm-screen-fit-scale: .82;
+        --cm-edge-pad: clamp(8px, 1.0vw, 16px);
+    }
+    #hud-notify {
+        top: clamp(58px, 9vh, 110px) !important;
+    }
+    .level-ribbon {
+        width: 36px !important;
+        height: 48px !important;
+        font-size: 18px !important;
+    }
+}
+
+@media (max-width: 1100px), (max-height: 650px) {
+    :root {
+        --cm-screen-fit-scale: .72;
+    }
+    #hud-voice-radio {
+        right: 8px !important;
+    }
+    #hud-notify {
+        width: min(300px, calc(100vw - 28px)) !important;
+    }
+}
+
+@media (min-width: 2300px) and (min-height: 1200px) {
+    :root {
+        --cm-screen-fit-scale: 1;
+    }
+}
+

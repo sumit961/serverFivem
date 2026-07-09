@@ -2,14 +2,25 @@ local function log(message)
     print(('[CM-ITEMS] %s'):format(message))
 end
 
+local function removeFirstPackedArg(args)
+    for i = 1, args.n - 1 do
+        args[i] = args[i + 1]
+    end
+    args[args.n] = nil
+    args.n = args.n - 1
+    return args
+end
+
 local function normalizeExportArgs(...)
-    local args = { ... }
+    -- table.pack preserves nil arguments by storing the real argument count in args.n.
+    -- A plain { ... } + table.unpack(args) truncates everything after the first nil.
+    local args = table.pack(...)
 
     -- FiveM Lua exports can be called as either dot or colon style.
     -- Older code removed ANY table passed as arg #1, but that breaks exports
     -- that intentionally receive a table, for example SaveClothingCatalogEntry(entry).
     -- Only strip arg #1 when it looks like the exports self-table, not a real payload.
-    if type(args[1]) == 'table' and #args > 1 then
+    if type(args[1]) == 'table' and args.n > 1 then
         local first = args[1]
         local looksLikeClothingEntry = first.gender ~= nil
             or first.componentIndex ~= nil
@@ -25,7 +36,7 @@ local function normalizeExportArgs(...)
             or first.updatedBy ~= nil
 
         if not looksLikeClothingEntry and not looksLikeMetadataOpts then
-            table.remove(args, 1)
+            removeFirstPackedArg(args)
         end
     end
 
@@ -36,7 +47,7 @@ local function exportSafe(fn)
     return function(...)
         local args = normalizeExportArgs(...)
         local ok, result, extra = pcall(function()
-            return fn(table.unpack(args))
+            return fn(table.unpack(args, 1, args.n))
         end)
 
         if not ok then
@@ -618,6 +629,18 @@ exports('DeleteClothingCatalogEntry', exportSafe(function(gender, componentType,
 end))
 
 --========================================================
+-- Admin preview helpers
+--========================================================
+local function hasItemsAdminPermission(src)
+    src = tonumber(src) or 0
+    if src == 0 then return true end
+    return IsPlayerAceAllowed(src, 'cm.items.admin')
+        or IsPlayerAceAllowed(src, 'command.cmitempreview')
+        or IsPlayerAceAllowed(src, 'command.cmitemsui')
+        or IsPlayerAceAllowed(src, 'command.giveitem')
+end
+
+--========================================================
 -- Admin preview: give selected item to inventory for testing
 -- All users can use this while admin system is not implemented yet.
 --========================================================
@@ -632,11 +655,9 @@ local function tryInventoryExport(resourceName, exportName, src, itemName, amoun
     -- cm-items had correctly built bagLevel/image metadata.
     local meta = metadata or {}
     local ok, result, extra = pcall(function()
-        -- Send metadata in BOTH arg #4 and arg #5.
-        -- Some older cm-inventory builds accidentally read metadata from the 5th argument,
-        -- while the current build reads it from the 4th argument. Duplicating it makes
-        -- clothadmin preview-give safe during mixed resource updates and prevents plain bags.
-        return exports[resourceName][exportName](src, itemName, amount, meta, meta, 'cm-items_preview_give')
+        -- Metadata belongs in arg #4 only. Arg #5 is slot/reason in many inventories;
+        -- passing a table there breaks strict inventory systems like ox_inventory.
+        return exports[resourceName][exportName](src, itemName, amount, meta, nil, 'cm-items_preview_give')
     end)
     if ok and result ~= false and result ~= nil then
         if itemName == 'clothing_bags' then
@@ -754,4 +775,41 @@ RegisterNetEvent('cm-items:server:previewGiveItem', function(requestId, row)
 
     local ok, err = addPreviewItemToInventory(src, itemName, 1, metadata or {})
     TriggerClientEvent('cm-items:client:previewGiveResult', src, requestId, ok == true, err, itemName)
+end)
+
+RegisterNetEvent('cm-items:server:previewDeleteItem', function(requestId, row)
+    local src = source
+    row = type(row) == 'table' and row or {}
+
+    if not hasItemsAdminPermission(src) then
+        TriggerClientEvent('cm-items:client:previewDeleteResult', src, requestId, false, 'No permission. Add ACE: add_ace group.admin cm.items.admin allow')
+        return
+    end
+
+    local ok, err = false, 'unsupported_row'
+    local deletedName = row.name
+
+    if row.kind == 'catalog' then
+        ok, err = CMItems.DeleteClothingCatalogEntry(
+            row.gender,
+            row.componentType or row.component_type or 'component',
+            row.componentIndex or row.component_index,
+            row.drawableId or row.drawable_id,
+            row.textureId or row.texture_id
+        )
+        deletedName = row.label or row.name or 'clothing catalog item'
+        if ok then syncCatalog() end
+    elseif row.kind == 'item' then
+        local name = CMItems.NormalizeName and CMItems.NormalizeName(row.name) or tostring(row.name or '')
+        if name == '' then
+            ok, err = false, 'invalid_name'
+        elseif CMItems.CatalogItems and CMItems.CatalogItems[name] and CMItems.DeleteCatalogItem then
+            ok, err = CMItems.DeleteCatalogItem(name)
+            deletedName = name
+        else
+            ok, err = false, 'static_item_not_deleted_remove_from_shared_items_lua'
+        end
+    end
+
+    TriggerClientEvent('cm-items:client:previewDeleteResult', src, requestId, ok == true, ok and 'deleted' or err, deletedName)
 end)

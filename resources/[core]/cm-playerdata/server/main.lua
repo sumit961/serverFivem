@@ -1,5 +1,7 @@
 -- cm-playerdata/server/main.lua
--- Stable v1.3-safe upgrade for your existing CM framework. No hunger/thirst/stress.
+-- Foundation clean upgrade for CM Framework. No hunger/thirst/stress.
+-- Owns loaded character state, visible database character ID, cash/bank, vitals, death state, and player identity interactions.
+-- Admin UI/tools stay in cm-admin. Prices/payout rules stay in cm-economy.
 -- Uses oxmysql directly to avoid cm-core export call-style issues.
 
 local Config = CMPlayerData.Config
@@ -7,6 +9,7 @@ local PlayerData = {}
 local PendingHandshakes = {} -- [targetSrc] = { from = src, expires = ms }
 local PendingTreatments = {} -- [treaterSrc] = { target = src, startedAt = ms, duration = ms }
 local LastEventUse = {}
+local ExtensionInteractionActions = {} -- [actionId] = { event = serverEventName, allowDeadTarget = bool, deadOnly = bool }
 
 local function Debug(msg)
     if Config.Debug then
@@ -19,7 +22,7 @@ local function Log(level, message, metadata)
     local ok = pcall(function()
         exports['cm-core']:Log('cm-playerdata', level, message, metadata)
     end)
-    if not ok then
+    if not ok and (Config.Debug == true or level == 'warn' or level == 'error') then
         print(('[CM-PLAYERDATA] %s: %s'):format(level or 'info', message or ''))
     end
 end
@@ -50,9 +53,65 @@ local function ClearRateLimits(src)
     end
 end
 
-local function HasAce(src, ace)
+local function NormalizeInteractionActionId(value)
+    if value == nil then return nil end
+    local id = tostring(value):lower():gsub('%s+', '_')
+    id = id:gsub('[^%w_:%.-]', '')
+    if id == '' then return nil end
+    return id
+end
+
+local function RegisterInteractionAction(meta)
+    if type(meta) ~= 'table' then return false, 'invalid_meta' end
+
+    local id = NormalizeInteractionActionId(meta.id or meta.action)
+    local eventName = meta.event and tostring(meta.event) or ''
+    if not id then return false, 'invalid_action_id' end
+    if eventName == '' then return false, 'missing_server_event' end
+
+    ExtensionInteractionActions[id] = {
+        id = id,
+        event = eventName,
+        allowDeadTarget = meta.allowDeadTarget == true,
+        deadOnly = meta.deadOnly == true,
+        resource = meta.resource and tostring(meta.resource) or 'unknown'
+    }
+
+    return true
+end
+
+local function UnregisterInteractionAction(action)
+    local id = NormalizeInteractionActionId(action)
+    if not id then return false end
+    ExtensionInteractionActions[id] = nil
+    return true
+end
+
+exports('RegisterInteractionAction', RegisterInteractionAction)
+exports('UnregisterInteractionAction', UnregisterInteractionAction)
+
+AddEventHandler('cm-playerdata:server:registerInteractionAction', function(meta)
+    RegisterInteractionAction(meta)
+end)
+
+AddEventHandler('cm-playerdata:server:unregisterInteractionAction', function(action)
+    UnregisterInteractionAction(action)
+end)
+
+local function HasAdminPermission(src, permission)
+    src = tonumber(src) or 0
     if src <= 0 then return true end
-    return IsPlayerAceAllowed(src, ace) == true
+
+    -- cm-admin owns all staff permissions. Keep ACE as a last-resort dev fallback
+    -- only for existing servers that have not finished moving tools into cm-admin.
+    if GetResourceState('cm-admin') == 'started' then
+        local ok, allowed = pcall(function()
+            return exports['cm-admin']:HasPermission(src, permission)
+        end)
+        if ok then return allowed == true end
+    end
+
+    return IsPlayerAceAllowed(src, permission) == true
 end
 
 local function GetServerPedHealth(src)
@@ -73,6 +132,77 @@ local function DecodeJson(value)
     if not value or value == '' then return nil end
     local ok, decoded = pcall(json.decode, value)
     return ok and decoded or nil
+end
+
+local function NowMs()
+    return (os.time() * 1000) + math.floor((GetGameTimer() or 0) % 1000)
+end
+
+
+local function NormalizeCoords(value)
+    if not value then return nil end
+    if type(value) == 'string' then
+        value = DecodeJson(value)
+    end
+    if type(value) ~= 'table' then return nil end
+
+    local x = tonumber(value.x or value[1])
+    local y = tonumber(value.y or value[2])
+    local z = tonumber(value.z or value[3])
+    local h = tonumber(value.h or value.heading or value.w or value[4]) or 0.0
+    if not x or not y or not z then return nil end
+
+    return {
+        x = math.floor(x * 100) / 100,
+        y = math.floor(y * 100) / 100,
+        z = math.floor(z * 100) / 100,
+        h = math.floor(h * 100) / 100
+    }
+end
+
+local function GetPedCoordsTable(src)
+    local ped = GetPlayerPed(src)
+    if not ped or ped == 0 then return nil end
+
+    local ok, coords = pcall(GetEntityCoords, ped)
+    if not ok or not coords then return nil end
+
+    local heading = 0.0
+    pcall(function() heading = GetEntityHeading(ped) or 0.0 end)
+
+    return NormalizeCoords({ x = coords.x, y = coords.y, z = coords.z, h = heading })
+end
+
+local function GetDeadLocation(data)
+    if not data or data.isDead ~= true then return nil end
+    -- Use the saved body/death location first. lastPosition is normal gameplay
+    -- location and can be updated by spawn/selector recovery; deathLocation is
+    -- the authoritative RP downed body position after reconnect.
+    return NormalizeCoords(data.deathLocation)
+        or NormalizeCoords(data.lastPosition)
+        or NormalizeCoords(Config.Respawn and Config.Respawn.HospitalSpawn)
+end
+
+local function GetHealthFromPercent(percent)
+    percent = tonumber(percent) or 20
+    percent = Clamp(percent, 1, 100)
+
+    -- GTA/FiveM peds are effectively dead around 100 HP. Treat percent as
+    -- percent of usable health above the downed threshold, so 20% becomes a
+    -- weak but alive value instead of a native-dead value like 40.
+    local aliveMin = (Config.Vitals and Config.Vitals.DamageThreshold or 101) + 1
+    local maxHealth = (Config.Vitals and Config.Vitals.MaxHealth) or 200
+    if aliveMin >= maxHealth then return maxHealth end
+
+    return math.floor(aliveMin + ((maxHealth - aliveMin) * (percent / 100)))
+end
+
+local function GetRespawnHealth()
+    local respawn = Config.Respawn or {}
+    if respawn.Health then
+        return Clamp(respawn.Health, (Config.Vitals.DamageThreshold or 101) + 1, Config.Vitals.MaxHealth or 200)
+    end
+    return GetHealthFromPercent(respawn.HealthPercent or 20)
 end
 
 local function BuildDisplayName(firstName, lastName)
@@ -113,6 +243,10 @@ local function EnsureSchema()
         "ALTER TABLE characters ADD COLUMN IF NOT EXISTS armor INT DEFAULT 0",
         "ALTER TABLE characters ADD COLUMN IF NOT EXISTS is_dead TINYINT(1) DEFAULT 0",
         "ALTER TABLE characters ADD COLUMN IF NOT EXISTS death_count INT DEFAULT 0",
+        "ALTER TABLE characters ADD COLUMN IF NOT EXISTS death_deadline_at BIGINT NULL",
+        "ALTER TABLE characters ADD COLUMN IF NOT EXISTS death_location LONGTEXT NULL",
+        "ALTER TABLE characters ADD COLUMN IF NOT EXISTS ambulance_called TINYINT(1) DEFAULT 0",
+        "ALTER TABLE characters ADD COLUMN IF NOT EXISTS death_reason VARCHAR(100) NULL",
         "ALTER TABLE characters ADD COLUMN IF NOT EXISTS last_position LONGTEXT NULL",
         "ALTER TABLE characters ADD COLUMN IF NOT EXISTS metadata LONGTEXT NULL"
     }
@@ -137,6 +271,29 @@ local function EnsureSchema()
         ]])
     end)
 
+    -- Transaction log for cash/bank changes. cm-playerdata owns balances;
+    -- cm-economy decides prices/payouts and calls these exports.
+    pcall(function()
+        MySQL.query.await([[
+            CREATE TABLE IF NOT EXISTS economy_transactions (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                character_id INT NULL,
+                account_type VARCHAR(30) NOT NULL,
+                amount BIGINT NOT NULL,
+                action VARCHAR(30) NOT NULL,
+                reason VARCHAR(100) NOT NULL,
+                resource_name VARCHAR(100) NULL,
+                balance_before BIGINT NOT NULL DEFAULT 0,
+                balance_after BIGINT NOT NULL DEFAULT 0,
+                metadata LONGTEXT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_character_account (character_id, account_type),
+                INDEX idx_reason (reason),
+                INDEX idx_created_at (created_at)
+            )
+        ]])
+    end)
+
     Debug('Schema checked')
 end
 
@@ -148,6 +305,116 @@ local function Audit(src, action, data)
             { charId, action, EncodeJson(data or {}) }
         )
     end)
+end
+
+local ValidMoneyAccounts = { cash = true, bank = true }
+
+local function NormalizeAccount(account)
+    account = tostring(account or 'cash'):lower()
+    if account == 'money' then account = 'cash' end
+    if account == 'wallet' then account = 'cash' end
+    if account == 'account' then account = 'bank' end
+    if not ValidMoneyAccounts[account] then return nil end
+    return account
+end
+
+local function NormalizeAmount(amount)
+    amount = tonumber(amount)
+    if not amount then return nil end
+    amount = math.floor(amount)
+    if amount <= 0 then return nil end
+    -- Prevent accidental overflow/cheat values from one call. Economy/admin can split if truly needed.
+    if amount > ((Config.Money and Config.Money.MaxSingleChange) or 1000000000) then return nil end
+    return amount
+end
+
+local function GetCallingResourceName()
+    local invoking = GetInvokingResource and GetInvokingResource() or nil
+    if invoking and invoking ~= '' then return invoking end
+    return GetCurrentResourceName()
+end
+
+local function RecordMoneyTransaction(src, account, delta, action, reason, before, after, metadata)
+    local charId = GetCharId(src)
+    if not charId then return end
+
+    local tx = {
+        account = account,
+        amount = delta,
+        action = action,
+        reason = reason,
+        before = before,
+        after = after,
+        resource = GetCallingResourceName(),
+        metadata = metadata or {}
+    }
+
+    pcall(function()
+        MySQL.insert.await([[
+            INSERT INTO economy_transactions
+                (character_id, account_type, amount, action, reason, resource_name, balance_before, balance_after, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ]], {
+            charId,
+            account,
+            delta,
+            action,
+            tostring(reason or action):sub(1, 100),
+            tx.resource,
+            before or 0,
+            after or 0,
+            EncodeJson(metadata or {})
+        })
+    end)
+
+    Audit(src, 'money_' .. action, tx)
+end
+
+local function SaveMoneyOnly(src, reason)
+    local data = PlayerData[src]
+    if not data or not data.loaded then return false end
+
+    local ok, err = pcall(function()
+        MySQL.update.await('UPDATE characters SET cash = ?, bank = ? WHERE id = ?', {
+            tonumber(data.cash) or 0,
+            tonumber(data.bank) or 0,
+            data.charId
+        })
+    end)
+
+    if not ok then
+        Log('error', 'Money save failed', { src = src, reason = reason, error = tostring(err) })
+        return false
+    end
+
+    return true
+end
+
+local function ClonePlayerData(data)
+    if not data then return nil end
+    return {
+        src = data.src,
+        source = data.src,
+        charId = data.charId,
+        characterId = data.charId,
+        firstName = data.firstName,
+        lastName = data.lastName,
+        fullName = BuildDisplayName(data.firstName, data.lastName),
+        cash = data.cash,
+        bank = data.bank,
+        health = data.health,
+        armor = data.armor,
+        isDead = data.isDead,
+        deathCount = data.deathCount,
+        deathRemainingMs = data.deathDeadline and math.max(0, data.deathDeadline - GetGameTimer()) or nil,
+        deathDeadlineAt = data.deathDeadlineAt,
+        ambulanceCalled = data.ambulanceCalled == true,
+        deathReason = data.deathReason,
+        deathLocation = DecodeJson(EncodeJson(data.deathLocation)) or data.deathLocation,
+        lastPosition = DecodeJson(EncodeJson(data.lastPosition)) or data.lastPosition,
+        metadata = DecodeJson(EncodeJson(data.metadata)) or data.metadata,
+        loaded = data.loaded == true
+    }
 end
 
 local function ApplyState(src)
@@ -169,18 +436,27 @@ local function ApplyState(src)
     SetState(src, 'health', data.health)
     SetState(src, 'armor', data.armor)
     SetState(src, 'isDead', data.isDead)
+    SetState(src, 'deathRemainingMs', data.deathDeadline and math.max(0, data.deathDeadline - GetGameTimer()) or nil)
+    SetState(src, 'deathLocation', data.isDead and NormalizeCoords(data.deathLocation) or nil)
     SetState(src, 'playerDataLoaded', true)
     SetState(src, 'identityReady', true)
 end
+
+local ScheduleBleedOut
 
 local function NotifyLoaded(src)
     local data = PlayerData[src]
     if not data then return end
 
     ApplyState(src)
-    TriggerEvent('cm-playerdata:server:loaded', src, data)
-    TriggerClientEvent('cm-playerdata:client:loaded', src, data)
-    TriggerEvent('cm-playerdata:server:readyForSpawn', src, data)
+    local safeData = ClonePlayerData(data)
+
+    -- New clean events. Legacy events are kept for existing resources.
+    TriggerEvent('cm-playerdata:server:characterLoaded', src, safeData)
+    TriggerClientEvent('cm-playerdata:client:characterLoaded', src, safeData)
+    TriggerEvent('cm-playerdata:server:loaded', src, safeData)
+    TriggerClientEvent('cm-playerdata:client:loaded', src, safeData)
+    TriggerEvent('cm-playerdata:server:readyForSpawn', src, safeData)
 end
 
 local function LoadPlayerData(src)
@@ -191,7 +467,7 @@ local function LoadPlayerData(src)
     end
 
     local row = MySQL.single.await([[
-        SELECT first_name, last_name, cash, bank, health, armor, is_dead, death_count, last_position, metadata
+        SELECT first_name, last_name, cash, bank, health, armor, is_dead, death_count, death_deadline_at, death_location, ambulance_called, death_reason, last_position, metadata
         FROM characters
         WHERE id = ?
         LIMIT 1
@@ -204,6 +480,43 @@ local function LoadPlayerData(src)
 
     local defaults = Config.Defaults
 
+    if PlayerData[src] and PlayerData[src].loaded and tonumber(PlayerData[src].charId) ~= tonumber(charId) then
+        -- Character switched while this resource stayed alive. The old record will
+        -- be saved by the normal save loop/drop hook if needed; replace cache now.
+        PlayerData[src] = nil
+    end
+
+    local isDead = (tonumber(row.is_dead) or 0) == 1
+    local deathDeadlineAt = tonumber(row.death_deadline_at)
+    local deathDeadline = nil
+    local dirtyAfterLoad = false
+
+    if isDead then
+        local now = NowMs()
+        local bleedMs = (Config.Respawn and Config.Respawn.BleedOutTime) or 120000
+        local minRejoin = (Config.Respawn and Config.Respawn.MinimumRejoinBleedOut) or 15000
+
+        if not deathDeadlineAt or deathDeadlineAt <= 0 then
+            deathDeadlineAt = now + bleedMs
+            dirtyAfterLoad = true
+        end
+
+        local remaining = deathDeadlineAt - now
+        if remaining <= 0 then
+            -- They were dead long enough while offline. Let the client finish
+            -- spawn, show the death state briefly, then the server respawns them.
+            remaining = 1500
+            deathDeadlineAt = now + remaining
+            dirtyAfterLoad = true
+        elseif remaining < minRejoin then
+            remaining = minRejoin
+            deathDeadlineAt = now + remaining
+            dirtyAfterLoad = true
+        end
+
+        deathDeadline = GetGameTimer() + remaining
+    end
+
     PlayerData[src] = {
         src = src,
         charId = charId,
@@ -213,24 +526,42 @@ local function LoadPlayerData(src)
         cash = tonumber(row.cash) or defaults.cash,
         bank = tonumber(row.bank) or defaults.bank,
 
-        health = Clamp(row.health or defaults.health, 0, Config.Vitals.MaxHealth),
+        health = isDead and (Config.Vitals.DamageThreshold or 101) or Clamp(row.health or defaults.health, 0, Config.Vitals.MaxHealth),
         armor = Clamp(row.armor or defaults.armor, 0, Config.Vitals.MaxArmor),
 
-        isDead = (tonumber(row.is_dead) or 0) == 1,
+        isDead = isDead,
         deathCount = tonumber(row.death_count) or defaults.death_count,
-        lastPosition = DecodeJson(row.last_position),
+        deathDeadline = deathDeadline,
+        deathDeadlineAt = deathDeadlineAt,
+        ambulanceCalled = (tonumber(row.ambulance_called) or 0) == 1,
+        deathReason = row.death_reason,
+        deathLocation = NormalizeCoords(DecodeJson(row.death_location)),
+        lastPosition = NormalizeCoords(DecodeJson(row.last_position)),
         metadata = DecodeJson(row.metadata) or {},
 
         loaded = true,
-        dirty = false,
+        dirty = dirtyAfterLoad,
         lastVitalsSync = GetGameTimer()
     }
+
+    if PlayerData[src].isDead and not PlayerData[src].deathLocation then
+        PlayerData[src].deathLocation = NormalizeCoords(PlayerData[src].lastPosition) or NormalizeCoords(Config.Respawn and Config.Respawn.HospitalSpawn)
+        PlayerData[src].dirty = true
+    end
 
     Debug(('Loaded src=%s char=%s HP=%s dead=%s'):format(
         src, charId, PlayerData[src].health, tostring(PlayerData[src].isDead)
     ))
 
     NotifyLoaded(src)
+
+    if PlayerData[src].isDead and PlayerData[src].deathDeadline then
+        ScheduleBleedOut(src)
+        if PlayerData[src].dirty then
+            SavePlayerData(src, 'dead_rejoin_deadline_restore')
+        end
+    end
+
     return true
 end
 
@@ -247,6 +578,10 @@ local function SavePlayerData(src, reason)
                 armor = ?,
                 is_dead = ?,
                 death_count = ?,
+                death_deadline_at = ?,
+                death_location = ?,
+                ambulance_called = ?,
+                death_reason = ?,
                 last_position = ?,
                 metadata = ?
             WHERE id = ?
@@ -257,6 +592,10 @@ local function SavePlayerData(src, reason)
             data.armor,
             data.isDead and 1 or 0,
             data.deathCount,
+            data.deathDeadlineAt,
+            EncodeJson(data.deathLocation),
+            data.ambulanceCalled and 1 or 0,
+            data.deathReason,
             EncodeJson(data.lastPosition),
             EncodeJson(data.metadata or {}),
             data.charId
@@ -288,6 +627,15 @@ local function SavePositionOnly(src)
 end
 
 local function ClearPlayerData(src)
+    local oldData = PlayerData[src]
+    if oldData then
+        local safeData = ClonePlayerData(oldData)
+        TriggerEvent('cm-playerdata:server:characterUnloaded', src, safeData)
+        TriggerClientEvent('cm-playerdata:client:characterUnloaded', src, safeData)
+        TriggerEvent('cm-playerdata:server:unloaded', src, safeData)
+        TriggerClientEvent('cm-playerdata:client:unloaded', src, safeData)
+    end
+
     PlayerData[src] = nil
     pcall(function()
         local state = Player(src).state
@@ -296,6 +644,7 @@ local function ClearPlayerData(src)
         state:set('health', nil, true)
         state:set('armor', nil, true)
         state:set('isDead', nil, true)
+        state:set('deathRemainingMs', nil, true)
         state:set('playerDataLoaded', nil, true)
         state:set('identityReady', nil, true)
         state:set('charId', nil, true)
@@ -308,34 +657,98 @@ local function ClearPlayerData(src)
     ClearRateLimits(src)
 end
 
-local function SetMoney(src, account, value, reason)
-    local data = PlayerData[src]
-    if not data or (account ~= 'cash' and account ~= 'bank') then return false end
+local function SetMoney(src, account, value, reason, metadata)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    account = NormalizeAccount(account)
+    if not data or not data.loaded or not account then return false end
 
-    data[account] = math.max(0, math.floor(tonumber(value) or 0))
+    local before = tonumber(data[account]) or 0
+    local after = math.max(0, math.floor(tonumber(value) or 0))
+    local delta = after - before
+    if before == after then return true end
+
+    data[account] = after
     data.dirty = true
 
     SetState(src, account, data[account])
     PushUpdate(src, account, data[account])
-    Audit(src, 'set_' .. account, { amount = data[account], reason = reason })
+    TriggerEvent('cm-playerdata:server:moneyChanged', src, account, before, after, reason or 'set_money')
+    TriggerClientEvent('cm-playerdata:client:moneyChanged', src, account, before, after, reason or 'set_money')
+
+    RecordMoneyTransaction(src, account, delta, 'set', reason or 'set_money', before, after, metadata)
+    -- Persisted by the async batch saver (data.dirty). No blocking write here.
     return true
 end
 
-local function AddMoney(src, account, amount, reason)
-    local data = PlayerData[src]
-    amount = math.floor(tonumber(amount) or 0)
-    if not data or amount <= 0 then return false end
-    if account ~= 'cash' and account ~= 'bank' then return false end
-    return SetMoney(src, account, data[account] + amount, reason or 'add_money')
+local function AddMoney(src, account, amount, reason, metadata)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    account = NormalizeAccount(account)
+    amount = NormalizeAmount(amount)
+    if not data or not data.loaded or not account or not amount then return false end
+
+    local before = tonumber(data[account]) or 0
+    local after = before + amount
+
+    data[account] = after
+    data.dirty = true
+
+    SetState(src, account, after)
+    PushUpdate(src, account, after)
+    TriggerEvent('cm-playerdata:server:moneyChanged', src, account, before, after, reason or 'add_money')
+    TriggerClientEvent('cm-playerdata:client:moneyChanged', src, account, before, after, reason or 'add_money')
+
+    RecordMoneyTransaction(src, account, amount, 'add', reason or 'add_money', before, after, metadata)
+    -- Persisted by the async batch saver (data.dirty). No blocking write here.
+    return true
 end
 
-local function RemoveMoney(src, account, amount, reason)
-    local data = PlayerData[src]
-    amount = math.floor(tonumber(amount) or 0)
-    if not data or amount <= 0 then return false end
-    if account ~= 'cash' and account ~= 'bank' then return false end
-    if data[account] < amount then return false end
-    return SetMoney(src, account, data[account] - amount, reason or 'remove_money')
+local function RemoveMoney(src, account, amount, reason, metadata)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    account = NormalizeAccount(account)
+    amount = NormalizeAmount(amount)
+    if not data or not data.loaded or not account or not amount then return false end
+
+    local before = tonumber(data[account]) or 0
+    if before < amount then return false end
+    local after = before - amount
+
+    data[account] = after
+    data.dirty = true
+
+    SetState(src, account, after)
+    PushUpdate(src, account, after)
+    TriggerEvent('cm-playerdata:server:moneyChanged', src, account, before, after, reason or 'remove_money')
+    TriggerClientEvent('cm-playerdata:client:moneyChanged', src, account, before, after, reason or 'remove_money')
+
+    RecordMoneyTransaction(src, account, -amount, 'remove', reason or 'remove_money', before, after, metadata)
+    -- Persisted by the async batch saver (data.dirty). No blocking write here.
+    return true
+end
+
+local function CanAfford(src, account, amount)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    account = NormalizeAccount(account)
+    amount = NormalizeAmount(amount)
+    if not data or not data.loaded or not account or not amount then return false end
+    return (tonumber(data[account]) or 0) >= amount
+end
+
+local function TransferMoney(src, fromAccount, toAccount, amount, reason, metadata)
+    fromAccount = NormalizeAccount(fromAccount)
+    toAccount = NormalizeAccount(toAccount)
+    amount = NormalizeAmount(amount)
+    if not fromAccount or not toAccount or not amount or fromAccount == toAccount then return false end
+    if not CanAfford(src, fromAccount, amount) then return false end
+    if not RemoveMoney(src, fromAccount, amount, reason or 'transfer_out', metadata) then return false end
+    if not AddMoney(src, toAccount, amount, reason or 'transfer_in', metadata) then
+        AddMoney(src, fromAccount, amount, 'transfer_refund', { originalReason = reason })
+        return false
+    end
+    return true
 end
 
 local function SetDead(src, isDead, reason)
@@ -344,9 +757,23 @@ local function SetDead(src, isDead, reason)
 
     data.isDead = isDead == true
     if data.isDead then
-        data.health = 0
+        data.health = Config.Vitals.DamageThreshold or 101
         data.armor = 0
         data.deathCount = (data.deathCount or 0) + 1
+        data.deathReason = reason or 'death'
+        -- Save the real death/body location immediately. If the player reconnects
+        -- while dead, cm-spawn must return them here no matter which spawn card
+        -- they click, then cm-playerdata shows the death screen after spawn.
+        local deathCoords = GetPedCoordsTable(src) or NormalizeCoords(data.deathLocation) or NormalizeCoords(data.lastPosition)
+        data.deathLocation = deathCoords
+        data.lastPosition = deathCoords
+    else
+        data.deathLocation = nil
+        data.deathDeadline = nil
+        data.deathDeadlineAt = nil
+        data.ambulanceCalled = false
+        data.dieChosen = false
+        data.deathReason = nil
     end
     data.dirty = true
 
@@ -364,7 +791,7 @@ AddEventHandler('onResourceStart', function(resourceName)
     if resourceName ~= GetCurrentResourceName() then return end
     Wait(500)
     EnsureSchema()
-    Log('info', 'CM PlayerData v1.6 started')
+    Log('info', 'CM PlayerData v1.8.5 started')
 
     -- Restart resilience: if this resource was live-restarted with players
     -- online, rebuild their state from the database instead of leaving them broken.
@@ -413,6 +840,50 @@ RegisterNetEvent('cm-playerdata:server:load', function()
     LoadPlayerData(source)
 end)
 
+-- Clean server-side handoff event for cm-characters/cm-spawn.
+-- charId may be passed by a trusted server event, or already set in the player's state bag.
+AddEventHandler('cm-playerdata:server:loadCharacter', function(src, charId)
+    src = tonumber(src)
+    if not src then return end
+    charId = tonumber(charId)
+    if charId then
+        pcall(function()
+            local state = Player(src).state
+            state:set('charId', charId, true)
+            state:set('characterId', charId, true)
+            state:set('rpId', charId, true)
+        end)
+    end
+    LoadPlayerData(src)
+end)
+
+-- Compatibility event names used by some CM resources.
+AddEventHandler('cm-characters:server:characterSelected', function(src, charId)
+    TriggerEvent('cm-playerdata:server:loadCharacter', src, charId)
+end)
+
+-- Mark this event name net-safe because cm-spawn clients trigger it to the
+-- cm-spawn resource. Do not trust it inside playerdata; the authoritative
+-- internal completion event is cm-spawn:server:spawned below.
+RegisterNetEvent('cm-spawn:server:spawnComplete', function()
+    -- no-op on purpose
+end)
+
+AddEventHandler('cm-spawn:server:spawned', function(src, charId)
+    src = tonumber(src) or source
+    if src and not (PlayerData[src] and PlayerData[src].loaded) then
+        if charId then
+            pcall(function()
+                local state = Player(src).state
+                state:set('charId', tonumber(charId), true)
+                state:set('characterId', tonumber(charId), true)
+                state:set('rpId', tonumber(charId), true)
+            end)
+        end
+        LoadPlayerData(src)
+    end
+end)
+
 AddEventHandler('playerDropped', function()
     local src = source
     SavePlayerData(src, 'drop')
@@ -429,6 +900,10 @@ RegisterNetEvent('cm-playerdata:server:updatePosition', function(coords)
     if not RateLimit(src, 'position', 1000) then return end
     local data = PlayerData[src]
     if not data or type(coords) ~= 'table' then return end
+    -- Never overwrite the saved body/death location while the character is dead.
+    -- cm-spawn may temporarily resurrect/move the ped for placement, but the RP
+    -- death location must remain the place where SetDead captured it.
+    if data.isDead == true then return end
 
     local x, y, z, h = tonumber(coords.x), tonumber(coords.y), tonumber(coords.z), tonumber(coords.h)
     if not x or not y or not z then return end
@@ -475,12 +950,7 @@ RegisterNetEvent('cm-playerdata:server:updatePosition', function(coords)
     data.lastPosSample = { x = x, y = y, z = z }
     data.lastPosSampleTime = os.clock()
 
-    data.lastPosition = {
-        x = math.floor(x * 100) / 100,
-        y = math.floor(y * 100) / 100,
-        z = math.floor(z * 100) / 100,
-        h = math.floor((h or 0.0) * 100) / 100
-    }
+    data.lastPosition = NormalizeCoords({ x = x, y = y, z = z, h = h })
 end)
 
 RegisterNetEvent('cm-playerdata:server:syncVitals', function(clientHealth, clientArmor)
@@ -579,7 +1049,7 @@ end
 
 -- Bleed-out: when the deadline passes and the player is still dead, they respawn
 -- at the hospital automatically. Calling an ambulance pushes the deadline back.
-local function ScheduleBleedOut(src)
+ScheduleBleedOut = function(src)
     local data = PlayerData[src]
     if not data or not data.deathDeadline then return end
 
@@ -639,8 +1109,11 @@ RegisterNetEvent('cm-playerdata:server:playerDied', function(killerSrc, weaponHa
     -- Bleed-out clock: base window, extendable once by calling an ambulance.
     local bleedMs = (Config.Respawn and Config.Respawn.BleedOutTime) or 120000
     data.deathDeadline = GetGameTimer() + bleedMs
+    data.deathDeadlineAt = NowMs() + bleedMs
     data.ambulanceCalled = false
+    data.dieChosen = false
     ScheduleBleedOut(src)
+    SavePlayerData(src, 'death_deadline')
 
     local killedBy = GetKilledByInfo(src, killerSrc)
 
@@ -665,25 +1138,46 @@ RegisterNetEvent('cm-playerdata:server:playerDied', function(killerSrc, weaponHa
     TriggerClientEvent('cm-playerdata:client:playerDied', src, killerSrc, weaponHash, killedBy, bleedMs)
 end)
 
-RegisterNetEvent('cm-playerdata:server:callAmbulance', function()
-    local src = source
-    if not RateLimit(src, 'ambulance', 2000) then return end
+local function RequestAmbulance(src, reason, metadata)
+    src = tonumber(src)
+    if not src then return false, 'invalid_source' end
+    if not RateLimit(src, 'ambulance', 2000) then return false, 'rate_limited' end
 
     local data = PlayerData[src]
-    if not data or not data.isDead or not data.deathDeadline then return end
-    if data.ambulanceCalled then return end
+    if not data or not data.isDead or not data.deathDeadline then return false, 'not_dead' end
+    if data.ambulanceCalled then return false, 'already_called' end
 
     data.ambulanceCalled = true
     local extra = (Config.Respawn and Config.Respawn.AmbulanceExtraTime) or 120000
     data.deathDeadline = data.deathDeadline + extra
+    data.deathDeadlineAt = (data.deathDeadlineAt or NowMs()) + extra
+    data.dirty = true
     ScheduleBleedOut(src)
+    SavePlayerData(src, 'ambulance_called')
 
-    Audit(src, 'ambulance_called', { extra_ms = extra })
-    -- Bridge for the future EMS resource: dispatch, blips, job notifications.
+    local payload = metadata or {}
+    payload.extra_ms = extra
+    payload.reason = reason or 'player_called'
+    Audit(src, 'ambulance_called', payload)
+
+    -- Bridge for the future EMS/doctor resource: dispatch, blips, job notifications.
     TriggerEvent('cm-playerdata:server:ambulanceCalled', src, data.lastPosition)
+    TriggerEvent('cm-playerdata:server:ambulanceRequested', src, {
+        characterId = data.charId,
+        name = BuildDisplayName(data.firstName, data.lastName),
+        coords = data.lastPosition,
+        remainingMs = math.max(0, data.deathDeadline - GetGameTimer()),
+        reason = reason or 'player_called',
+        metadata = metadata or {}
+    })
 
     local remaining = data.deathDeadline - GetGameTimer()
     TriggerClientEvent('cm-playerdata:client:ambulanceConfirmed', src, remaining)
+    return true, remaining
+end
+
+RegisterNetEvent('cm-playerdata:server:callAmbulance', function()
+    RequestAmbulance(source, 'player_called')
 end)
 
 RegisterNetEvent('cm-playerdata:server:chooseDie', function()
@@ -695,6 +1189,8 @@ RegisterNetEvent('cm-playerdata:server:chooseDie', function()
 
     -- Per design: no time change, the death screen stays until bleed-out ends.
     data.dieChosen = true
+    data.dirty = true
+    SavePlayerData(src, 'death_give_up')
     Audit(src, 'death_give_up', {})
 end)
 
@@ -703,6 +1199,27 @@ RegisterNetEvent('cm-playerdata:server:requestRespawn', function()
     if not RateLimit(src, 'respawn', 2000) then return end
     local data = PlayerData[src]
     if not data or not data.isDead then return end
+
+    -- Client can request respawn when its UI reaches 00:00, but the server
+    -- remains authoritative. Ignore early client-triggered respawn attempts.
+    if data.deathDeadline and GetGameTimer() + 1000 < data.deathDeadline then
+        return
+    end
+
+    exports['cm-playerdata']:Respawn(src)
+end)
+
+-- The unconscious body was finished off (extra damage drained the finishing
+-- buffer). Straight to hospital respawn, no bleed-out wait.
+RegisterNetEvent('cm-playerdata:server:finishedOff', function()
+    local src = source
+    if not RateLimit(src, 'finished_off', 1000) then return end
+    local data = PlayerData[src]
+    if not data or not data.isDead then return end
+
+    data.deathDeadline = nil
+    data.deathDeadlineAt = nil
+    Audit(src, 'finished_off', {})
     exports['cm-playerdata']:Respawn(src)
 end)
 
@@ -727,6 +1244,27 @@ local function GetPlayerDistance(src, targetSrc)
 
     return #(coords - targetCoords)
 end
+
+local function IsServerPlayerInVehicle(src)
+    src = tonumber(src)
+    if not src then return false end
+
+    local ped = GetPlayerPed(src)
+    if not ped or ped == 0 then return false end
+
+    local inVehicle = false
+    pcall(function()
+        if type(IsPedInAnyVehicle) == 'function' then
+            inVehicle = IsPedInAnyVehicle(ped, false) == true
+        elseif type(GetVehiclePedIsIn) == 'function' then
+            local veh = GetVehiclePedIsIn(ped, false)
+            inVehicle = veh ~= nil and veh ~= 0
+        end
+    end)
+
+    return inVehicle == true
+end
+
 
 local function NotifyPlayer(src, message, msgType)
     TriggerClientEvent('cm-playerdata:client:interactionNotify', src, message, msgType or 'inform')
@@ -905,13 +1443,13 @@ local function PushIdentityUpdate(viewerSrc, targetSrc)
     TriggerClientEvent('cm-playerdata:client:identityUpdate', viewerSrc, BuildIdentityForViewer(viewerSrc, targetSrc))
 end
 
-local function ValidatePlayerInteraction(src, targetSrc, rateKey)
+local function ValidatePlayerInteraction(src, targetSrc, rateKey, rateMs)
     targetSrc = tonumber(targetSrc)
     if not targetSrc or targetSrc <= 0 or src == targetSrc then
         return false, nil, 'Invalid target.'
     end
 
-    if not RateLimit(src, rateKey or 'player_interaction', 750) then
+    if not RateLimit(src, rateKey or 'player_interaction', tonumber(rateMs) or 750) then
         return false, targetSrc, 'Please slow down.'
     end
 
@@ -937,6 +1475,10 @@ local function ValidatePlayerInteraction(src, targetSrc, rateKey)
         return false, targetSrc, 'Target player is too far away.'
     end
 
+    if Config.Interactions and Config.Interactions.BlockInteractionWhenTargetInVehicle ~= false and IsServerPlayerInVehicle(targetSrc) then
+        return false, targetSrc, 'Use the vehicle interaction menu for players inside vehicles.'
+    end
+
     return true, targetSrc, nil
 end
 
@@ -953,6 +1495,79 @@ local function GetPublicPlayerLabel(src)
     return 'Character ID Loading'
 end
 
+
+local function SanitizeExtensionPayload(payload)
+    if type(payload) ~= 'table' then return {} end
+    local cleaned = {}
+    local count = 0
+
+    for key, value in pairs(payload) do
+        if count >= 20 then break end
+        if type(key) == 'string' and #key <= 48 then
+            local vt = type(value)
+            if vt == 'string' then
+                cleaned[key] = value:sub(1, 160)
+                count = count + 1
+            elseif vt == 'number' or vt == 'boolean' then
+                cleaned[key] = value
+                count = count + 1
+            end
+        end
+    end
+
+    return cleaned
+end
+
+exports('GetCharacterId', function(src)
+    return GetPublicCharacterId(src)
+end)
+
+exports('ValidateInteractionTarget', function(src, targetSrc, rateKey, rateMs)
+    return ValidatePlayerInteraction(tonumber(src), targetSrc, rateKey or 'export_validate_interaction', rateMs)
+end)
+
+RegisterNetEvent('cm-playerdata:server:extensionInteraction', function(targetSrc, action, payload)
+    local src = source
+    local actionId = NormalizeInteractionActionId(action)
+    if not actionId then
+        NotifyPlayer(src, 'Invalid interaction action.', 'error')
+        return
+    end
+
+    local registered = ExtensionInteractionActions[actionId]
+    if not registered then
+        NotifyPlayer(src, 'That menu action is not connected yet.', 'error')
+        return
+    end
+
+    local ok, target, errorMessage = ValidatePlayerInteraction(src, targetSrc, 'ext_' .. actionId, 750)
+    if not ok then
+        NotifyPlayer(src, errorMessage or 'Interaction failed.', 'error')
+        return
+    end
+
+    if PlayerData[target].isDead and not registered.allowDeadTarget then
+        NotifyPlayer(src, 'That player is unconscious. This action is not available.', 'error')
+        return
+    end
+
+    if registered.deadOnly and not PlayerData[target].isDead then
+        NotifyPlayer(src, 'This action is only available on an unconscious player.', 'error')
+        return
+    end
+
+    local safePayload = SanitizeExtensionPayload(payload)
+    local context = {
+        source = src,
+        target = target,
+        sourceCharacterId = GetPublicCharacterId(src),
+        targetCharacterId = GetPublicCharacterId(target),
+        distance = GetPlayerDistance(src, target)
+    }
+
+    TriggerEvent(registered.event, src, target, actionId, safePayload, context)
+    TriggerEvent('cm-playerdata:server:extensionInteractionSelected', src, target, actionId, safePayload, context)
+end)
 
 RegisterNetEvent('cm-playerdata:server:requestIdentityBatch', function(ids)
     local src = source
@@ -1152,24 +1767,33 @@ RegisterNetEvent('cm-playerdata:server:treatComplete', function(finished)
         end)
     end
 
-    -- Street patch: back up at partial health. Full revive stays EMS/admin only.
-    local percent = medCfg.StreetPatchHealthPercent or 30
-    local health = math.floor(Config.Vitals.MaxHealth * (percent / 100))
+    -- Street patch: fully revive in place ("back from death"). Set
+    -- Medical.PatchFullHeal = false to fall back to the old weak partial revive.
+    local fullPatch = medCfg.PatchFullHeal ~= false
+    local health = fullPatch and (Config.Vitals.MaxHealth or 200)
+        or GetHealthFromPercent(medCfg.StreetPatchHealthPercent or 30)
 
     targetData.isDead = false
     targetData.health = health
     targetData.armor = 0
     targetData.deathDeadline = nil
+    targetData.deathDeadlineAt = nil
     targetData.ambulanceCalled = false
+    targetData.dieChosen = false
+    targetData.deathReason = nil
     targetData.dirty = true
 
     ApplyState(target)
     SavePlayerData(target, 'street_patch')
-    TriggerClientEvent('cm-playerdata:client:revivePartial', target, health)
+    if fullPatch then
+        TriggerClientEvent('cm-playerdata:client:revive', target)
+    else
+        TriggerClientEvent('cm-playerdata:client:revivePartial', target, health)
+    end
 
     NotifyPlayer(src, ('You patched up %s.'):format(GetPublicPlayerLabel(target)), 'success')
-    NotifyPlayer(target, ('%s patched you up. You are weak: find proper medical care.'):format(GetPublicPlayerLabel(src)), 'success')
-    Audit(src, 'treat_success', { target_character_id = GetPublicCharacterId(target), health = health })
+    NotifyPlayer(target, ('%s patched you up. You are back on your feet.'):format(GetPublicPlayerLabel(src)), 'success')
+    Audit(src, 'treat_success', { target_character_id = GetPublicCharacterId(target), health = health, full = fullPatch })
 end)
 
 RegisterNetEvent('cm-playerdata:server:handshakeResponse', function(accepted)
@@ -1256,11 +1880,29 @@ exports('Load', LoadPlayerData)
 exports('Save', SavePlayerData)
 
 exports('GetPlayerData', function(src)
-    return PlayerData[src]
+    return ClonePlayerData(PlayerData[tonumber(src)])
+end)
+
+exports('GetCharacterData', function(src)
+    return ClonePlayerData(PlayerData[tonumber(src)])
+end)
+
+exports('GetRawPlayerData', function(src)
+    -- Internal/server-only compatibility export. Prefer GetPlayerData/GetCharacterData.
+    return PlayerData[tonumber(src)]
 end)
 
 exports('GetCharId', function(src)
     return GetCharId(src)
+end)
+
+exports('GetCharacterId', function(src)
+    return GetCharId(src)
+end)
+
+exports('GetCharacterFullName', function(src)
+    local data = PlayerData[tonumber(src)]
+    return data and BuildDisplayName(data.firstName, data.lastName) or nil
 end)
 
 exports('GetSourceByCharId', function(charId)
@@ -1275,25 +1917,43 @@ exports('GetSourceByCharId', function(charId)
 end)
 
 exports('IsLoaded', function(src)
+    src = tonumber(src)
+    return PlayerData[src] and PlayerData[src].loaded == true or false
+end)
+
+exports('IsCharacterLoaded', function(src)
+    src = tonumber(src)
     return PlayerData[src] and PlayerData[src].loaded == true or false
 end)
 
 exports('GetCash', function(src)
+    src = tonumber(src)
     return PlayerData[src] and PlayerData[src].cash or 0
 end)
 
 exports('GetBank', function(src)
+    src = tonumber(src)
     return PlayerData[src] and PlayerData[src].bank or 0
 end)
 
 exports('GetMoney', function(src, account)
-    if not PlayerData[src] then return 0 end
+    src = tonumber(src)
+    account = NormalizeAccount(account)
+    if not src or not account or not PlayerData[src] then return 0 end
     return PlayerData[src][account] or 0
+end)
+
+exports('GetAccounts', function(src)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    return { cash = data and data.cash or 0, bank = data and data.bank or 0 }
 end)
 
 exports('SetMoney', SetMoney)
 exports('AddMoney', AddMoney)
 exports('RemoveMoney', RemoveMoney)
+exports('CanAfford', CanAfford)
+exports('TransferMoney', TransferMoney)
 
 exports('AddCash', function(src, amount, reason)
     return AddMoney(src, 'cash', amount, reason or 'add_cash')
@@ -1335,7 +1995,147 @@ exports('GetDeathCount', function(src)
     return PlayerData[src] and PlayerData[src].deathCount or 0
 end)
 
+exports('GetDeathInfo', function(src)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    if not data then return nil end
+    return {
+        isDead = data.isDead == true,
+        deathCount = data.deathCount or 0,
+        remainingMs = data.deathDeadline and math.max(0, data.deathDeadline - GetGameTimer()) or nil,
+        ambulanceCalled = data.ambulanceCalled == true,
+        reason = data.deathReason,
+        lastPosition = NormalizeCoords(data.lastPosition),
+        deathLocation = NormalizeCoords(data.deathLocation),
+        spawnOverride = data.isDead and GetDeadLocation(data) or nil
+    }
+end)
+
+exports('GetDeathSpawn', function(src)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    return GetDeadLocation(data)
+end)
+
+exports('GetSpawnOverride', function(src, requestedSpawnKey)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    if not data or data.loaded ~= true or data.isDead ~= true then return nil end
+
+    local coords = GetDeadLocation(data)
+    if not coords then return nil end
+
+    return {
+        forced = true,
+        reason = 'dead_character',
+        key = 'dead_location',
+        requestedKey = requestedSpawnKey,
+        label = 'LAST BODY LOCATION',
+        description = 'You are still down. You will return to where you died.',
+        coords = coords,
+        isDead = true,
+        remainingMs = data.deathDeadline and math.max(0, data.deathDeadline - GetGameTimer()) or nil
+    }
+end)
+
+exports('RequestAmbulance', RequestAmbulance)
+exports('CallAmbulance', RequestAmbulance)
+
 exports('SetDead', SetDead)
+
+exports('SetHealth', function(src, health, reason)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    if not data or not data.loaded then return false end
+    data.health = Clamp(health or Config.Vitals.MaxHealth, 0, Config.Vitals.MaxHealth)
+    data.dirty = true
+    SetState(src, 'health', data.health)
+    TriggerClientEvent('cm-playerdata:client:setHealth', src, data.health)
+    Audit(src, 'set_health', { health = data.health, reason = reason })
+    return true
+end)
+
+exports('SetArmor', function(src, armor, reason)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    if not data or not data.loaded then return false end
+    data.armor = Clamp(armor or 0, 0, Config.Vitals.MaxArmor)
+    data.dirty = true
+    SetState(src, 'armor', data.armor)
+    PushUpdate(src, 'armor', data.armor)
+    Audit(src, 'set_armor', { armor = data.armor, reason = reason })
+    return true
+end)
+
+exports('Heal', function(src, amountOrPercent, reason)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    if not data or not data.loaded then return false end
+
+    local amount = tonumber(amountOrPercent) or 0
+    local targetHealth
+    if amount > 0 and amount <= 100 then
+        targetHealth = GetHealthFromPercent(amount)
+    else
+        targetHealth = Clamp((data.health or Config.Vitals.MaxHealth) + amount, (Config.Vitals.DamageThreshold or 101) + 1, Config.Vitals.MaxHealth)
+    end
+
+    -- Healing an unconscious player brings them back from death, in place: no
+    -- teleport, no hospital. Full heal -> full revive; a partial heal gets them
+    -- up weak at the same spot.
+    if data.isDead then
+        data.isDead = false
+        data.health = targetHealth
+        data.armor = 0
+        data.deathDeadline = nil
+        data.deathDeadlineAt = nil
+        data.ambulanceCalled = false
+        data.dieChosen = false
+        data.deathReason = nil
+        data.dirty = true
+
+        ApplyState(src)
+        SavePlayerData(src, reason or 'heal_revive')
+        if targetHealth >= (Config.Vitals.MaxHealth or 200) then
+            TriggerClientEvent('cm-playerdata:client:revive', src)
+        else
+            TriggerClientEvent('cm-playerdata:client:revivePartial', src, targetHealth)
+        end
+        Audit(src, 'heal_revive', { health = targetHealth, reason = reason })
+        return true
+    end
+
+    data.health = targetHealth
+    data.dirty = true
+    SetState(src, 'health', data.health)
+    SavePlayerData(src, reason or 'heal')
+    TriggerClientEvent('cm-playerdata:client:setHealth', src, data.health)
+    Audit(src, 'heal', { health = data.health, reason = reason })
+    return true
+end)
+
+exports('RevivePartial', function(src, percent, reason)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    if not data or not data.loaded then return false end
+
+    local health = GetHealthFromPercent(percent or (Config.Medical and Config.Medical.StreetPatchHealthPercent) or 30)
+    data.isDead = false
+    data.health = health
+    data.armor = 0
+    data.deathDeadline = nil
+    data.deathDeadlineAt = nil
+    data.ambulanceCalled = false
+    data.dieChosen = false
+    data.deathReason = nil
+    data.dirty = true
+
+    ApplyState(src)
+    SavePlayerData(src, reason or 'revive_partial')
+    TriggerClientEvent('cm-playerdata:client:revivePartial', src, health)
+    Audit(src, 'revive_partial', { health = health, reason = reason })
+    return true
+end)
 
 exports('Revive', function(src)
     local data = PlayerData[src]
@@ -1344,6 +2144,11 @@ exports('Revive', function(src)
     data.isDead = false
     data.health = Config.Vitals.MaxHealth
     data.armor = 0
+    data.deathDeadline = nil
+    data.deathDeadlineAt = nil
+    data.ambulanceCalled = false
+    data.dieChosen = false
+    data.deathReason = nil
     data.dirty = true
 
     ApplyState(src)
@@ -1360,30 +2165,112 @@ exports('Respawn', function(src, spawnCoords, cost)
     cost = tonumber(cost or Config.Respawn.Cost) or 0
 
     if cost > 0 then
-        if data.bank >= cost then
+        local bankBalance = tonumber(data.bank) or 0
+        local cashBalance = tonumber(data.cash) or 0
+        if bankBalance >= cost then
             RemoveMoney(src, 'bank', cost, 'hospital_respawn')
+        elseif bankBalance + cashBalance >= cost then
+            if bankBalance > 0 then RemoveMoney(src, 'bank', bankBalance, 'hospital_respawn') end
+            local remaining = cost - bankBalance
+            if remaining > 0 then RemoveMoney(src, 'cash', remaining, 'hospital_respawn') end
         else
-            local remaining = cost - data.bank
-            if data.bank > 0 then RemoveMoney(src, 'bank', data.bank, 'hospital_respawn') end
-            if remaining > 0 then
-                data.cash = math.max(0, data.cash - remaining)
-                data.dirty = true
-                SetState(src, 'cash', data.cash)
-                PushUpdate(src, 'cash', data.cash)
-                Audit(src, 'remove_cash', { amount = remaining, reason = 'hospital_respawn' })
-            end
+            -- Beginner-friendly: if they cannot afford hospital, take what exists and still respawn.
+            if bankBalance > 0 then RemoveMoney(src, 'bank', bankBalance, 'hospital_respawn_partial') end
+            if cashBalance > 0 then RemoveMoney(src, 'cash', cashBalance, 'hospital_respawn_partial') end
         end
     end
 
     data.isDead = false
-    data.health = Config.Vitals.MaxHealth
+    data.health = GetRespawnHealth()
     data.armor = 0
+    data.deathDeadline = nil
+    data.deathDeadlineAt = nil
+    data.ambulanceCalled = false
+    data.dieChosen = false
+    data.deathReason = nil
     data.dirty = true
 
     ApplyState(src)
     SavePlayerData(src, 'respawn')
-    TriggerClientEvent('cm-playerdata:client:respawn', src, spawnCoords)
+    Audit(src, 'hospital_respawn', { health = data.health, cost = cost })
+    TriggerClientEvent('cm-playerdata:client:respawn', src, spawnCoords, data.health)
     return true
+end)
+
+-- Admin preview exports for cm-admin. These are read-only and permission-gated.
+local function CanReadLogs(adminSrc)
+    return HasAdminPermission(adminSrc, 'logs.view') or HasAdminPermission(adminSrc, 'playerdata.logs.view')
+end
+
+exports('AdminGetAuditLogs', function(adminSrc, characterId, action, limit)
+    adminSrc = tonumber(adminSrc) or 0
+    if not CanReadLogs(adminSrc) then return {} end
+
+    limit = Clamp(limit or 50, 1, 200)
+    local where = {}
+    local params = {}
+
+    if characterId then
+        where[#where + 1] = 'character_id = ?'
+        params[#params + 1] = tostring(characterId)
+    end
+    if action and tostring(action) ~= '' then
+        where[#where + 1] = 'action = ?'
+        params[#params + 1] = tostring(action)
+    end
+
+    local sql = 'SELECT id, character_id, action, data, created_at FROM playerdata_audit'
+    if #where > 0 then sql = sql .. ' WHERE ' .. table.concat(where, ' AND ') end
+    sql = sql .. ' ORDER BY id DESC LIMIT ?'
+    params[#params + 1] = limit
+
+    return MySQL.query.await(sql, params) or {}
+end)
+
+exports('AdminGetMoneyTransactions', function(adminSrc, characterId, limit)
+    adminSrc = tonumber(adminSrc) or 0
+    if not CanReadLogs(adminSrc) then return {} end
+
+    limit = Clamp(limit or 50, 1, 200)
+    local params = {}
+    local sql = [[
+        SELECT id, character_id, account_type, amount, action, reason, resource_name,
+               balance_before, balance_after, metadata, created_at
+        FROM economy_transactions
+    ]]
+
+    if characterId then
+        sql = sql .. ' WHERE character_id = ?'
+        params[#params + 1] = tonumber(characterId)
+    end
+
+    sql = sql .. ' ORDER BY id DESC LIMIT ?'
+    params[#params + 1] = limit
+
+    return MySQL.query.await(sql, params) or {}
+end)
+
+exports('AdminGetDeathLogs', function(adminSrc, characterId, limit)
+    adminSrc = tonumber(adminSrc) or 0
+    if not CanReadLogs(adminSrc) then return {} end
+
+    limit = Clamp(limit or 50, 1, 200)
+    local params = {}
+    local sql = [[
+        SELECT id, character_id, action, data, created_at
+        FROM playerdata_audit
+        WHERE action IN ('death', 'death_detail', 'kill_detail', 'ambulance_called', 'death_give_up', 'hospital_respawn', 'revive', 'revive_partial', 'treat_success')
+    ]]
+
+    if characterId then
+        sql = sql .. ' AND character_id = ?'
+        params[#params + 1] = tostring(characterId)
+    end
+
+    sql = sql .. ' ORDER BY id DESC LIMIT ?'
+    params[#params + 1] = limit
+
+    return MySQL.query.await(sql, params) or {}
 end)
 
 -- ============================================================
@@ -1411,34 +2298,3 @@ CreateThread(function()
         end
     end
 end)
-
-RegisterCommand('cash', function(src, args)
-    if src <= 0 then
-        print('[CM-PLAYERDATA] Use in F8: cash 5000')
-        return
-    end
-
-    if not HasAce(src, 'cm-playerdata.cash') then
-        TriggerClientEvent('ox_lib:notify', src, {
-            type = 'error',
-            description = 'You do not have permission to use this command.'
-        })
-        return
-    end
-
-    local amount = tonumber(args[1]) or 5000
-    local ok = exports['cm-playerdata']:AddCash(src, amount, 'dev_cash_command')
-
-    if ok then
-        print(('[CM-PLAYERDATA] Added $%s cash to player %s'):format(amount, src))
-        TriggerClientEvent('ox_lib:notify', src, {
-            type = 'success',
-            description = ('Added $%s cash'):format(amount)
-        })
-    else
-        TriggerClientEvent('ox_lib:notify', src, {
-            type = 'error',
-            description = 'Cash add failed. PlayerData not loaded.'
-        })
-    end
-end, false)

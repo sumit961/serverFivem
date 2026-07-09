@@ -20,8 +20,30 @@ Config.Admin = {
 
 Config.UI = {
     Brand = 'Climatime',
-    -- cyan keeps your CM blue/cyan theme. Change to '#aaff00' if you want the lime color from the screenshots.
-    Accent = '#00e5ff'
+    -- cyan keeps your CM blue/cyan theme. Change here or in cm-ui to update the whole visual style.
+    Accent = '#00e5ff',
+    Size = 'large'
+}
+
+
+Config.Map = {
+    -- Calibrated GTA map bounds shared with cm-admin map calibration.
+    Bounds = {
+        minX = -3900,
+        maxX = 4619,
+        minY = -4764,
+        maxY = 7510
+    }
+}
+
+-- Notifications are silent in normal gameplay. Weather/time changes should not
+-- spam GTA feed notifications for players. Admin feedback is shown inside the
+-- Climatime NUI panel when it is open.
+Config.Notifications = {
+    UseGtaFeed = false,
+    UiToasts = true,
+    WeatherChangeToasts = false,
+    AdminActionToasts = true
 }
 
 
@@ -55,6 +77,10 @@ Config.PreSpawnPrepare = {
     RainRampSeconds = 1.2,
     PrepareMs = 2600,
     ValidMs = 25000,
+    -- Guards to prevent duplicate spawn preloads from overflowing reliable events.
+    ClientThrottleMs = 900,
+    ServerRequestThrottleMs = 1500,
+    ServerClientPrepareNudge = false,
     Debug = false
 }
 
@@ -280,7 +306,7 @@ Config.Weather = {
     TransitionSeconds = 20,
     InstantChange = false,
     SmoothChange = true,
-    NotifyPlayers = true,
+    NotifyPlayers = false,
 
     -- More common weather will be repeated more often in random rotation.
     DynamicPool = {
@@ -311,8 +337,15 @@ Config.Weather = {
 Config.Zones = {
     Enabled = true,
     DefaultRadius = 200.0,
-    CheckIntervalMs = 1000,
+    CheckIntervalMs = 1200,
     TransitionSeconds = 10,
     DynamicDurationMinutes = 20,
     MaxRadius = 5000.0
+}
+
+
+Config.Sync = Config.Sync or {
+    LatentThresholdBytes = 65536,
+    LatentBps = 25000,
+    RequestThrottleMs = 750
 }

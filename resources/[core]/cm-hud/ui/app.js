@@ -19,6 +19,10 @@ const HUD_MODULES = {
         id: 'hud-left-keys',
         render: renderLeftKeys
     },
+    voiceRadio: {
+        id: 'hud-voice-radio',
+        render: renderVoiceRadio
+    },
     death: {
         id: 'hud-death',
         render: renderDeath
@@ -77,8 +81,8 @@ let state = {
     
     // Keys (for visual feedback)
     keys: {
-        N: false, M: false, K: false, I: false,
-        L: false, SIX: false, CURSOR: false
+        N: false, O: false, U: false, M: false, K: false, I: false,
+        L: false, Z: false, X: false, SIX: false, CURSOR: false
     },
 
     mouseOpen: false,
@@ -99,10 +103,10 @@ const HUD_DEFAULT_SETTINGS = {
     speedoStyle: 1,
     speedUnit: 'KM/H',
     theme: 'cyan',
-    uiScale: 1,
+    uiScale: 1.35,
     speedoScale: 1,
-    locationOffsetX: 0,
-    locationOffsetY: 0,
+    locationOffsetX: -7,
+    locationOffsetY: -112,
     speedoOffsetX: 0,
     speedoOffsetY: 0,
     showTopRight: true,
@@ -419,10 +423,28 @@ function renderTopRight() {
             <div class="money-cash-new">$${formatMoney(state.cash)}</div>
             <div class="money-bank-new">🏦 $${formatMoney(state.bank)}</div>
         </div>
+    `;
+}
 
-        <div class="voice-radio-keys">
-            <div class="vr-key"><span class="key-circle">N</span> 🎤</div>
-            <div class="vr-key"><span class="key-circle">O</span> 📻</div>
+
+function renderVoiceRadio() {
+    const el = document.getElementById(HUD_MODULES.voiceRadio.id);
+    if (!el) return;
+
+    const items = [
+        { key: 'N', icon: '🎤', className: 'voice' },
+        { key: 'O', icon: '📻', className: 'family' },
+        { key: 'U', icon: '📡', className: 'org' }
+    ];
+
+    el.innerHTML = `
+        <div class="voice-radio-keys" aria-label="Voice and radio indicators">
+            ${items.map(item => `
+                <div class="vr-key ${item.className} ${state.keys[item.key] ? 'active' : ''}" data-key="${item.key}">
+                    <span class="key-circle">${item.key}</span>
+                    <span class="vr-icon">${item.icon}</span>
+                </div>
+            `).join('')}
         </div>
     `;
 }
@@ -1344,8 +1366,8 @@ window.addEventListener('message', function(event) {
 
             
         case 'keyState':
-            if (data.key) state.keys[data.key] = data.active;
-            updateModule('bottomRight');
+            if (data.key) state.keys[String(data.key).toUpperCase()] = data.active === true;
+            updateModule('voiceRadio');
             break;
             
         case 'showModule':
@@ -1379,7 +1401,7 @@ function stopDeathTimer() {
 }
 
 // ========== NOTIFICATIONS ==========
-const MAX_NOTIFICATIONS = 5;
+const MAX_NOTIFICATIONS = 3;
 
 function addNotification(text, type = 'info') {
     const container = document.getElementById('hud-notify');
@@ -1390,10 +1412,10 @@ function addNotification(text, type = 'info') {
     }
 
     const themes = {
-        success: { label: 'SUCCESS', color: '#2effa5', icon: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.3L19 7.5"/></svg>' },
-        error:   { label: 'ERROR',   color: '#ff5b5b', icon: '<svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg>' },
-        warning: { label: 'WARNING', color: '#ffc02e', icon: '<svg viewBox="0 0 24 24"><path d="M12 4L2.8 19.5h18.4L12 4z"/><path d="M12 10v4.2M12 17.2v.1"/></svg>' },
-        info:    { label: 'INFO',    color: '#31e6ff', icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M12 11v5M12 8v.1"/></svg>' }
+        success: { label: 'NOTIFICATION', color: '#2effa5', icon: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.3L19 7.5"/></svg>' },
+        error:   { label: 'NOTIFICATION', color: '#ff5b5b', icon: '<svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg>' },
+        warning: { label: 'NOTIFICATION', color: '#ffc02e', icon: '<svg viewBox="0 0 24 24"><path d="M12 4L2.8 19.5h18.4L12 4z"/><path d="M12 10v4.2M12 17.2v.1"/></svg>' },
+        info:    { label: 'NOTIFICATION', color: '#31e6ff', icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M12 11v5M12 8v.1"/></svg>' }
     };
     const safeType = themes[type] ? type : 'info';
     const theme = themes[safeType];

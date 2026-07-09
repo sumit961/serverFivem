@@ -3,6 +3,8 @@ Config = Config or {}
 Config.Debug = false
 Config.Framework = 'cm-core'
 Config.Inventory = 'cm-inventory'
+Config.WeaponsResource = 'cm-weapons'
+Config.ItemsResource = 'cm-items'
 
 -- Command for admin catalog management.
 Config.AdminCommand = 'gunadmin'
@@ -132,6 +134,9 @@ Config.Shops = {
     }
 }
 
+-- Legacy seed kept only for old installs. v1.2+ does not create weapons/ammo here.
+-- Gun and ammo definitions are managed in cm-weapons (/cmweaponadmin).
+-- Gun store only stores price/stock/visibility in cm_gun_catalog.
 -- Catalog seed. Admin can enable/disable, change price, label, and image from /gunadmin.
 -- IMPORTANT: cm-inventory or cm-items must know these item names. A patch file is included in install/.
 Config.DefaultCatalog = {

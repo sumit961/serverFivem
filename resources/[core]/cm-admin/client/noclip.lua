@@ -2,6 +2,7 @@ local noclip = false
 local noclipEntity = 0
 local lastGoodGround = nil
 local oldAlpha = nil
+local oldVisible = true
 local oldInvincible = false
 
 local function notify(msg, msgType)
@@ -15,6 +16,19 @@ end
 RegisterNetEvent('cm-admin:client:notify', function(msg, msgType)
     notify(msg, msgType)
 end)
+
+local lastReportedNoclipState = nil
+
+local function reportNoclipState(enabled)
+    enabled = enabled == true
+    if lastReportedNoclipState == enabled then return end
+    lastReportedNoclipState = enabled
+    if LocalPlayer and LocalPlayer.state then
+        -- Local hide is immediate; server also validates and replicates it to others.
+        pcall(function() LocalPlayer.state:set('cm_admin_noclip', enabled, false) end)
+    end
+    TriggerServerEvent('cm-admin:server:setNoclipState', enabled)
+end
 
 local function getControlEntity()
     local ped = PlayerPedId()
@@ -46,6 +60,7 @@ local function restoreEntity(entity)
     ActivatePhysics(entity)
     FreezeEntityPosition(entity, false)
     ResetEntityAlpha(entity)
+    SetEntityVisible(entity, true, false)
     SetEntityInvincible(entity, false)
     SetEntityVelocity(entity, 0.0, 0.0, 0.0)
 
@@ -88,7 +103,14 @@ local function applyNoclipState(entity)
 
     if Config.MakeInvisible then
         oldAlpha = GetEntityAlpha(entity)
-        SetEntityAlpha(entity, 120, false)
+        oldVisible = IsEntityVisible(entity)
+        SetEntityAlpha(entity, 0, false)
+        SetEntityVisible(entity, false, false)
+        local ped = PlayerPedId()
+        if entity ~= ped then
+            SetEntityAlpha(ped, 0, false)
+            SetEntityVisible(ped, false, false)
+        end
     end
 
     if not IsEntityAVehicle(entity) then
@@ -169,12 +191,14 @@ end
 local function disableNoclip()
     if not noclip then return end
     noclip = false
+    reportNoclipState(false)
 
     local entity = (noclipEntity ~= 0 and DoesEntityExist(noclipEntity)) and noclipEntity or getControlEntity()
     standEntitySafely(entity)
 
     noclipEntity = 0
     oldAlpha = nil
+    oldVisible = true
     notify('Noclip disabled. Player placed on safe ground.', 'inform')
 end
 
@@ -188,6 +212,7 @@ local function enableNoclip()
     oldInvincible = GetPlayerInvincible(PlayerId())
     lastGoodGround = groundAt(GetEntityCoords(entity)) or GetEntityCoords(entity)
     applyNoclipState(entity)
+    reportNoclipState(true)
     notify('Noclip enabled. F2 again to disable.', 'success')
 end
 
@@ -283,7 +308,10 @@ end)
 
 -- Utility actions: triggered by the server after permission checks.
 RegisterNetEvent('cm-admin:client:unstuck', function()
-    if noclip then noclip = false end
+    if noclip then
+        noclip = false
+        reportNoclipState(false)
+    end
     local entity = getControlEntity()
     standEntitySafely(entity)
     notify('Placed on safe standing ground.', 'success')
@@ -322,5 +350,9 @@ RegisterNetEvent('cm-admin:client:safeTeleport', function()
 end)
 
 RegisterNetEvent('cm-admin:client:disableNoclip', function()
-    if noclip then disableNoclip() end
+    if noclip then
+        disableNoclip()
+    else
+        reportNoclipState(false)
+    end
 end)

@@ -1,5 +1,5 @@
 -- cm-playerdata/client/main.lua
--- v1.7 Medical Layer.
+-- v1.8 Foundation clean: local cache aliases + money/character loaded events.
 --   * NUI death screen: bleed-out timer, killed-by line, [1] Call Ambulance / [2] Give Up
 --   * Ambulance: +extra bleed time, overlay swaps to a mini timer, lying pose changes
 --   * Death cam: slow orbit around the body + grayscale screen effect
@@ -15,6 +15,11 @@ local deathPending = false
 local ambulanceCalled = false
 local dieChosen = false
 local deathCam = nil
+local pendingDeathData = nil
+local hasSpawnCompleted = false
+local localDeathDeadline = 0
+local respawnRequestSent = false
+local finishedOffSent = false
 local lastHealth = 200
 local lastArmor = 0
 local lastVitalsSync = 0
@@ -24,6 +29,49 @@ local function Debug(msg)
     if Config.Debug then
         print('[CM-PLAYERDATA-CLIENT] ' .. tostring(msg))
     end
+end
+
+local function GetHealthFromPercent(percent)
+    percent = tonumber(percent) or 20
+    if percent < 1 then percent = 1 end
+    if percent > 100 then percent = 100 end
+
+    local aliveMin = (Config.Vitals.DamageThreshold or 101) + 1
+    local maxHealth = Config.Vitals.MaxHealth or 200
+    if aliveMin >= maxHealth then return maxHealth end
+    return math.floor(aliveMin + ((maxHealth - aliveMin) * (percent / 100)))
+end
+
+local function GetRespawnHealth()
+    local respawn = Config.Respawn or {}
+    if respawn.Health then return tonumber(respawn.Health) or Config.Vitals.MaxHealth end
+    return GetHealthFromPercent(respawn.HealthPercent or 20)
+end
+
+-- Health an unconscious body carries: the downed floor plus a small finishing
+-- buffer (UnconsciousHealthPercent of max). Depleting the buffer = finished.
+local function GetUnconsciousHealth()
+    local threshold = Config.Vitals.DamageThreshold or 101
+    local maxHp = Config.Vitals.MaxHealth or 200
+    local pct = tonumber(Config.Vitals.UnconsciousHealthPercent) or 10
+    if pct < 0 then pct = 0 end
+    local hp = threshold + math.floor(maxHp * (pct / 100))
+    if hp > maxHp then hp = maxHp end
+    if hp < threshold then hp = threshold end
+    return hp
+end
+
+local function SpawnUiActive()
+    if not LocalPlayer or not LocalPlayer.state then return true end
+    local state = LocalPlayer.state
+    return state.isInCharacterSelector == true
+        or state.characterSelectorOpen == true
+        or state.isInSpawnSelector == true
+        or state.spawnSelectorOpen == true
+        or state.cmSpawnOpen == true
+        or state.cmSpawnActive == true
+        or state.spawnSelector == true
+        or state.spawning == true
 end
 
 -- ---------------------------------------------------------------------------
@@ -118,14 +166,53 @@ end
 -- ---------------------------------------------------------------------------
 -- Death state
 -- ---------------------------------------------------------------------------
-function EnterDeathState(killedBy, bleedMs)
+local function StartPendingDeathState()
+    if not pendingDeathData or isDead then return end
+    if not hasSpawnCompleted or SpawnUiActive() then return end
+
+    local payload = pendingDeathData
+    pendingDeathData = nil
+    EnterDeathState(payload.killedBy, payload.bleedMs, payload.ambulanceCalled)
+end
+
+-- While unconscious, watch the finishing buffer. Once the body has taken enough
+-- extra damage to drop back to (or below) the downed floor, the player is
+-- "finished" and is sent straight to hospital respawn, skipping the bleed-out.
+local function StartDownedFinishMonitor()
+    finishedOffSent = false
+    CreateThread(function()
+        local threshold = Config.Vitals.DamageThreshold or 101
+        local armed = false
+        while isDead do
+            Wait(50)
+            local ped = PlayerPedId()
+            local hp = GetEntityHealth(ped)
+            if not armed then
+                -- Arm only once the unconscious buffer is confirmed in place, so a
+                -- one-frame stale read can never false-trigger a finish.
+                if hp > threshold then armed = true end
+            elseif (hp <= threshold or IsEntityDead(ped)) and not finishedOffSent and not respawnRequestSent then
+                finishedOffSent = true
+                respawnRequestSent = true
+                TriggerServerEvent('cm-playerdata:server:finishedOff')
+                break
+            end
+        end
+    end)
+end
+
+function EnterDeathState(killedBy, bleedMs, alreadyAmbulanceCalled)
     if isDead then return end
     isDead = true
-    ambulanceCalled = false
+    ambulanceCalled = alreadyAmbulanceCalled == true
     dieChosen = false
+    respawnRequestSent = false
+    finishedOffSent = false
+    localDeathDeadline = GetGameTimer() + (tonumber(bleedMs) or ((Config.Respawn and Config.Respawn.BleedOutTime) or 120000))
 
     local ped = PlayerPedId()
-    SetEntityHealth(ped, Config.Vitals.DamageThreshold)
+    local unconsciousHealth = GetUnconsciousHealth()
+    SetEntityHealth(ped, unconsciousHealth)
     SetPlayerHealthRechargeMultiplier(PlayerId(), 0.0)
     SetPlayerHealthRechargeLimit(PlayerId(), 0.0)
 
@@ -133,6 +220,7 @@ function EnterDeathState(killedBy, bleedMs)
     StartDeathEffect()
     StartDeathCam()
     ManageLyingBody()
+    StartDownedFinishMonitor()
 
     SendNUIMessage({
         action = 'openDeathScreen',
@@ -152,13 +240,36 @@ function EnterDeathState(killedBy, bleedMs)
         end
     end)
 
-    lastHealth = Config.Vitals.DamageThreshold
+    -- Client-side watchdog. The server is still authoritative, but this avoids
+    -- a dead UI stuck at 00:00 if a rejoin/resource restart lost a timer.
+    CreateThread(function()
+        while isDead do
+            Wait(1000)
+            if localDeathDeadline > 0 and GetGameTimer() >= localDeathDeadline and not respawnRequestSent then
+                respawnRequestSent = true
+                TriggerServerEvent('cm-playerdata:server:requestRespawn')
+            end
+        end
+    end)
+
+    if ambulanceCalled then
+        SetNuiFocus(false, false)
+        SendNUIMessage({
+            action = 'ambulanceMode',
+            remainingMs = math.max(0, localDeathDeadline - GetGameTimer())
+        })
+    end
+
+    lastHealth = unconsciousHealth
 end
 
 local function CleanupDeathState()
     isDead = false
+    finishedOffSent = false
     ambulanceCalled = false
     dieChosen = false
+    respawnRequestSent = false
+    localDeathDeadline = 0
     SetNuiFocus(false, false)
     StopDeathCam()
     StopDeathEffect()
@@ -182,20 +293,55 @@ local function ApplyLoadedData(data)
     SetPlayerHealthRechargeLimit(PlayerId(), 0.0)
 
     local ped = PlayerPedId()
-    SetEntityHealth(ped, lastHealth)
+    if PlayerData.isDead then
+        SetEntityHealth(ped, GetUnconsciousHealth())
+    else
+        SetEntityHealth(ped, lastHealth)
+    end
     SetPedArmour(ped, lastArmor)
 
     if PlayerData.isDead then
-        EnterDeathState(nil, (Config.Respawn and Config.Respawn.BleedOutTime) or 120000)
+        pendingDeathData = {
+            killedBy = nil,
+            bleedMs = tonumber(PlayerData.deathRemainingMs) or ((Config.Respawn and Config.Respawn.BleedOutTime) or 120000),
+            ambulanceCalled = PlayerData.ambulanceCalled == true
+        }
+        SetTimeout(1200, StartPendingDeathState)
     else
+        pendingDeathData = nil
         ExitDeathState()
     end
 end
 
 RegisterNetEvent('cm-playerdata:client:loaded', ApplyLoadedData)
+RegisterNetEvent('cm-playerdata:client:characterLoaded', ApplyLoadedData)
+
+RegisterNetEvent('cm-playerdata:client:unloaded', function()
+    PlayerData = {}
+    pendingDeathData = nil
+    hasSpawnCompleted = false
+    lastHealth = Config.Vitals.MaxHealth
+    lastArmor = 0
+    ExitDeathState()
+end)
+RegisterNetEvent('cm-playerdata:client:characterUnloaded', function()
+    PlayerData = {}
+    pendingDeathData = nil
+    hasSpawnCompleted = false
+    lastHealth = Config.Vitals.MaxHealth
+    lastArmor = 0
+    ExitDeathState()
+end)
 
 RegisterNetEvent('cm-playerdata:client:update', function(key, value)
     PlayerData[key] = value
+end)
+
+RegisterNetEvent('cm-playerdata:client:moneyChanged', function(account, before, after, reason)
+    account = tostring(account or '')
+    if account == 'cash' or account == 'bank' then
+        PlayerData[account] = tonumber(after) or 0
+    end
 end)
 
 RegisterNetEvent('cm-playerdata:client:setHealth', function(health)
@@ -243,6 +389,7 @@ end
 -- and how long the bleed-out is.
 RegisterNetEvent('cm-playerdata:client:playerDied', function(killerSrc, weaponHash, killedBy, bleedMs)
     deathPending = false
+    pendingDeathData = nil
     EnterDeathState(killedBy, bleedMs)
 end)
 
@@ -301,6 +448,8 @@ end)
 RegisterNetEvent('cm-playerdata:client:ambulanceConfirmed', function(newRemainingMs)
     if not isDead then return end
     ambulanceCalled = true
+    respawnRequestSent = false
+    localDeathDeadline = GetGameTimer() + (tonumber(newRemainingMs) or 0)
     SetNuiFocus(false, false)
     SendNUIMessage({
         action = 'ambulanceMode',
@@ -326,14 +475,15 @@ end)
 RegisterNetEvent('cm-playerdata:client:revivePartial', function(health)
     ExitDeathState()
     local ped = PlayerPedId()
-    health = tonumber(health) or math.floor(Config.Vitals.MaxHealth * 0.3)
+    health = tonumber(health) or GetHealthFromPercent(30)
     SetEntityHealth(ped, health)
     ClearPedTasksImmediately(ped)
     lastHealth = health
 end)
 
-RegisterNetEvent('cm-playerdata:client:respawn', function(spawn)
+RegisterNetEvent('cm-playerdata:client:respawn', function(spawn, respawnHealth)
     isSpawning = true
+    pendingDeathData = nil
     ExitDeathState()
 
     spawn = spawn or Config.Respawn.HospitalSpawn
@@ -346,9 +496,9 @@ RegisterNetEvent('cm-playerdata:client:respawn', function(spawn)
     SetEntityCoordsNoOffset(ped, spawn.x, spawn.y, spawn.z, false, false, false)
     SetEntityHeading(ped, spawn.h or 0.0)
 
-    lastHealth = Config.Vitals.MaxHealth
+    lastHealth = tonumber(respawnHealth) or GetRespawnHealth()
     lastArmor = 0
-    SetEntityHealth(ped, Config.Vitals.MaxHealth)
+    SetEntityHealth(ped, lastHealth)
     SetPedArmour(ped, 0)
 
     ClearPedBloodDamage(ped)
@@ -361,6 +511,50 @@ RegisterNetEvent('cm-playerdata:client:respawn', function(spawn)
     Wait(1000)
     DoScreenFadeIn(500)
     isSpawning = false
+end)
+
+
+RegisterNetEvent('cm-spawn:client:spawnComplete', function()
+    hasSpawnCompleted = true
+    SetTimeout(1000, StartPendingDeathState)
+end)
+
+RegisterNetEvent('cm-spawn:client:spawned', function()
+    hasSpawnCompleted = true
+    SetTimeout(1000, StartPendingDeathState)
+end)
+
+RegisterNetEvent('cm-spawn:client:openSelector', function()
+    hasSpawnCompleted = false
+end)
+
+-- Recovery net for players who are dead but not yet showing the death screen.
+-- After a resource/server restart, hasSpawnCompleted resets to false and the
+-- spawn resource may not re-emit spawnComplete, so StartPendingDeathState keeps
+-- bailing out and the player is stuck in a broken half-dead state. This thread
+-- forces the layout back up. It also rebuilds pendingDeathData from the loaded
+-- data if it was lost, so a dead player is always re-shown their death screen.
+CreateThread(function()
+    while true do
+        Wait(1500)
+
+        local dataSaysDead = type(PlayerData) == 'table' and PlayerData.isDead == true
+        if not isDead and (pendingDeathData or dataSaysDead) then
+            if LocalPlayer.state.playerDataLoaded == true and not SpawnUiActive() then
+                if not pendingDeathData and dataSaysDead then
+                    pendingDeathData = {
+                        killedBy = nil,
+                        bleedMs = tonumber(PlayerData.deathRemainingMs) or ((Config.Respawn and Config.Respawn.BleedOutTime) or 120000),
+                        ambulanceCalled = PlayerData.ambulanceCalled == true
+                    }
+                end
+                hasSpawnCompleted = true
+                StartPendingDeathState()
+            end
+        else
+            Wait(3000)
+        end
+    end
 end)
 
 -- ---------------------------------------------------------------------------
@@ -422,12 +616,12 @@ CreateThread(function()
             end
 
             local now = GetGameTimer()
-            if now - lastVitalsSync >= Config.Vitals.HealthSyncInterval then
+            if now - lastVitalsSync >= (Config.Vitals.HealthSyncInterval or 4000) then
                 lastVitalsSync = now
                 TriggerServerEvent('cm-playerdata:server:syncVitals', currentHealth, currentArmor)
             end
 
-            if now - lastPositionSync >= Config.Vitals.PositionSyncInterval then
+            if now - lastPositionSync >= (Config.Vitals.PositionSyncInterval or 6000) then
                 lastPositionSync = now
                 local coords = GetEntityCoords(ped)
                 TriggerServerEvent('cm-playerdata:server:updatePosition', {
@@ -460,10 +654,41 @@ RegisterNUICallback('deathDie', function(_, cb)
     end
 end)
 
+RegisterNUICallback('deathExpired', function(_, cb)
+    cb({})
+    if isDead and not respawnRequestSent then
+        respawnRequestSent = true
+        TriggerServerEvent('cm-playerdata:server:requestRespawn')
+    end
+end)
+
 RegisterCommand('pdstatus', function()
-    print(('[CM-PLAYERDATA] HP=%s Armor=%s Dead=%s'):format(
+    if Config.Debug ~= true then return end
+    print(('[CM-PLAYERDATA] CharID=%s Cash=%s Bank=%s HP=%s Armor=%s Dead=%s'):format(
+        tostring(PlayerData.charId or PlayerData.characterId),
+        tostring(PlayerData.cash),
+        tostring(PlayerData.bank),
         tostring(PlayerData.health),
         tostring(PlayerData.armor),
         tostring(isDead)
     ))
 end, false)
+
+exports('GetLocalCharacterId', function()
+    return tonumber(PlayerData.charId or PlayerData.characterId or (LocalPlayer and LocalPlayer.state and (LocalPlayer.state.charId or LocalPlayer.state.characterId)))
+end)
+
+exports('GetLocalPlayerData', function()
+    return PlayerData
+end)
+
+exports('GetLocalMoney', function(account)
+    account = tostring(account or 'cash'):lower()
+    if account == 'money' or account == 'wallet' then account = 'cash' end
+    if account == 'account' then account = 'bank' end
+    return tonumber(PlayerData[account]) or 0
+end)
+
+exports('IsCharacterLoaded', function()
+    return LocalPlayer and LocalPlayer.state and LocalPlayer.state.playerDataLoaded == true or false
+end)

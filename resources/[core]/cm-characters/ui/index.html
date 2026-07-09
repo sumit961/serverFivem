@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CM Characters</title>
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css" />
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-components.css" />
     <link rel="stylesheet" href="style.css" />
     <link rel="stylesheet" href="appearance/style.css" />
 </head>
@@ -30,29 +32,29 @@
             </section>
 
             <section class="selector-layout">
-                <div class="character-list" id="character-list"></div>
+                <div class="character-list cm-scrollbar" id="character-list"></div>
 
                 <div class="stage-window" id="stage-window" aria-hidden="true"></div>
 
-                <aside class="details-panel" id="details-panel">
+                <aside class="details-panel cm-panel" id="details-panel">
                     <p class="details-kicker">Character Details</p>
                     <h2 id="details-name">Select a character</h2>
                     <p id="details-id" class="details-id">Pick one of your saved characters to view stats.</p>
 
                     <div class="stats-grid">
-                        <div class="stat-card">
+                        <div class="stat-card cm-card">
                             <span>Cash</span>
                             <strong id="details-cash">$0</strong>
                         </div>
-                        <div class="stat-card">
+                        <div class="stat-card cm-card">
                             <span>Bank</span>
                             <strong id="details-bank">$0</strong>
                         </div>
-                        <div class="stat-card">
+                        <div class="stat-card cm-card">
                             <span>Level</span>
                             <strong id="details-level">1</strong>
                         </div>
-                        <div class="stat-card">
+                        <div class="stat-card cm-card">
                             <span>Rank</span>
                             <strong id="details-rank">Civilian</strong>
                         </div>
@@ -64,42 +66,42 @@
                         <div><span>Created</span><strong id="details-created">N/A</strong></div>
                     </div>
 
-                    <button class="primary-btn" id="play-btn" disabled>Enter City</button>
+                    <button class="primary-btn cm-btn" id="play-btn" disabled>Enter City</button>
                     <p class="small-note">Selecting a card focuses the preview ped and shows these details.</p>
                 </aside>
             </section>
 
-            <button class="music-toggle" id="music-toggle" type="button">Music: Off</button>
+            <button class="music-toggle cm-btn cm-btn-secondary cm-btn-sm" id="music-toggle" type="button">Music: Off</button>
             <div id="error-msg" class="toast"></div>
         </main>
 
 
 
         <section id="editor-screen" class="scene-editor hidden">
-            <button class="editor-free-preview" id="editor-free-preview" type="button">Hide editor / preview</button>
-            <div class="editor-card" id="editor-card">
+            <button class="editor-free-preview cm-btn cm-btn-secondary cm-btn-sm" id="editor-free-preview" type="button">Hide editor / preview</button>
+            <div class="editor-card cm-panel cm-scrollbar" id="editor-card">
                 <div class="editor-head">
                     <div>
                         <p class="eyebrow">Selector Scene Editor</p>
                         <h1>Scene Setup</h1>
                         <p class="subtitle">Small side panel. Use Hide Editor to see the full character preview.</p>
                     </div>
-                    <button class="editor-close" id="editor-close" type="button">×</button>
+                    <button class="editor-close cm-btn cm-btn-ghost cm-icon-btn" id="editor-close" type="button">×</button>
                 </div>
 
                 <div class="editor-grid">
-                    <section class="editor-section">
+                    <section class="editor-section cm-card">
                         <h3>Quick Capture</h3>
-                        <button class="secondary-btn editor-action" data-action="setPlayerFromCurrent">Use my current position as character finish</button>
-                        <button class="secondary-btn editor-action" data-action="setWalkStartFromCurrent">Use my current position as walk start</button>
-                        <button class="secondary-btn editor-action" data-action="setStreamFromCurrent">Use my current position as stream location</button>
-                        <button class="secondary-btn editor-action" data-action="setCamFromView">Use current camera view</button>
+                        <button class="secondary-btn cm-btn cm-btn-secondary editor-action" data-action="setPlayerFromCurrent">Use my current position as character finish</button>
+                        <button class="secondary-btn cm-btn cm-btn-secondary editor-action" data-action="setWalkStartFromCurrent">Use my current position as walk start</button>
+                        <button class="secondary-btn cm-btn cm-btn-secondary editor-action" data-action="setStreamFromCurrent">Use my current position as stream location</button>
+                        <button class="secondary-btn cm-btn cm-btn-secondary editor-action" data-action="setCamFromView">Use current camera view</button>
                     </section>
 
-                    <section class="editor-section">
+                    <section class="editor-section cm-card">
                         <h3>Camera</h3>
                         <label>FOV <strong id="editor-fov-value">34</strong></label>
-                        <input type="range" min="15" max="75" step="1" id="editor-fov" />
+                        <input type="range" min="15" max="75" step="1" id="editor-fov" class="cm-range" />
                         <div class="nudge-row" data-target="camera">
                             <button data-axis="x" data-delta="-0.25">X-</button><button data-axis="x" data-delta="0.25">X+</button>
                             <button data-axis="y" data-delta="-0.25">Y-</button><button data-axis="y" data-delta="0.25">Y+</button>
@@ -107,7 +109,7 @@
                         </div>
                     </section>
 
-                    <section class="editor-section">
+                    <section class="editor-section cm-card">
                         <h3>Character Finish</h3>
                         <div class="nudge-row" data-target="walkFinish">
                             <button data-axis="x" data-delta="-0.25">X-</button><button data-axis="x" data-delta="0.25">X+</button>
@@ -117,7 +119,7 @@
                         </div>
                     </section>
 
-                    <section class="editor-section">
+                    <section class="editor-section cm-card">
                         <h3>Walk Start</h3>
                         <div class="nudge-row" data-target="walkStart">
                             <button data-axis="x" data-delta="-0.25">X-</button><button data-axis="x" data-delta="0.25">X+</button>
@@ -127,41 +129,41 @@
                         </div>
                     </section>
 
-                    <section class="editor-section">
+                    <section class="editor-section cm-card">
                         <h3>World</h3>
                         <label>Weather</label>
-                        <select id="editor-weather">
+                        <select id="editor-weather" class="cm-select">
                             <option>EXTRASUNNY</option><option>CLEAR</option><option>CLOUDS</option><option>OVERCAST</option>
                             <option>RAIN</option><option>THUNDER</option><option>FOGGY</option><option>SMOG</option><option>SNOWLIGHT</option>
                         </select>
                         <label>Hour</label>
-                        <input type="range" min="0" max="23" step="1" id="editor-hour" />
+                        <input type="range" min="0" max="23" step="1" id="editor-hour" class="cm-range" />
                         <label>Minute</label>
-                        <input type="range" min="0" max="59" step="1" id="editor-minute" />
+                        <input type="range" min="0" max="59" step="1" id="editor-minute" class="cm-range" />
                         <p class="editor-current" id="editor-time-value">12:00</p>
                     </section>
 
-                    <section class="editor-section">
+                    <section class="editor-section cm-card">
                         <h3>Animation</h3>
                         <label>Preset</label>
-                        <select id="editor-anim-preset">
+                        <select id="editor-anim-preset" class="cm-select">
                             <option value="idle">Street idle</option>
                             <option value="lean">Lean</option>
                             <option value="armscrossed">Arms crossed</option>
                             <option value="guard">Guard idle</option>
                         </select>
-                        <button class="secondary-btn editor-action" data-action="applyAnimPreset">Apply animation preset</button>
+                        <button class="secondary-btn cm-btn cm-btn-secondary editor-action" data-action="applyAnimPreset">Apply animation preset</button>
                     </section>
                 </div>
 
                 <pre id="editor-json" class="editor-json">Loading...</pre>
 
                 <div class="editor-actions">
-                    <button class="secondary-btn editor-action" data-action="showPlayerPreview">Show My Character</button>
-                    <button class="secondary-btn editor-action" data-action="freeCamera">Free Camera Mode</button>
-                    <button class="secondary-btn editor-action" data-action="preview">Preview Selected Slot</button>
-                    <button class="secondary-btn editor-action" data-action="resetDraft">Reset draft</button>
-                    <button class="primary-btn" id="editor-save" type="button">Save Scene</button>
+                    <button class="secondary-btn cm-btn cm-btn-secondary editor-action" data-action="showPlayerPreview">Show My Character</button>
+                    <button class="secondary-btn cm-btn cm-btn-secondary editor-action" data-action="freeCamera">Free Camera Mode</button>
+                    <button class="secondary-btn cm-btn cm-btn-secondary editor-action" data-action="preview">Preview Selected Slot</button>
+                    <button class="secondary-btn cm-btn cm-btn-secondary editor-action" data-action="resetDraft">Reset draft</button>
+                    <button class="primary-btn cm-btn" id="editor-save" type="button">Save Scene</button>
                 </div>
 
                 <div id="editor-toast" class="toast inline-toast"></div>
@@ -170,48 +172,48 @@
 
 
         <section id="admin-screen" class="admin-screen hidden">
-            <div class="admin-card">
+            <div class="admin-card cm-window">
                 <div class="admin-head">
                     <div>
                         <p class="eyebrow">Character Admin</p>
                         <h1>Admin Panel</h1>
                         <p class="subtitle">Search characters, rename, move slots, reset appearance, and refresh online state.</p>
                     </div>
-                    <button class="editor-close" id="admin-close" type="button">×</button>
+                    <button class="editor-close cm-btn cm-btn-ghost cm-icon-btn" id="admin-close" type="button">×</button>
                 </div>
 
                 <div class="admin-tools">
-                    <input type="text" id="admin-search" placeholder="Search name, character ID, or account ID" />
-                    <button class="primary-btn" id="admin-search-btn" type="button">Search</button>
+                    <input type="text" id="admin-search" class="cm-input" placeholder="Search name, character ID, or account ID" />
+                    <button class="primary-btn cm-btn" id="admin-search-btn" type="button">Search</button>
                 </div>
 
                 <div class="admin-layout">
-                    <div class="admin-results" id="admin-results"></div>
+                    <div class="admin-results cm-scrollbar" id="admin-results"></div>
 
-                    <aside class="admin-detail">
+                    <aside class="admin-detail cm-panel cm-scrollbar">
                         <h2 id="admin-selected-name">Select a character</h2>
                         <p id="admin-selected-meta">No character selected.</p>
 
                         <label>First name</label>
-                        <input type="text" id="admin-first-name" maxlength="20" />
+                        <input type="text" id="admin-first-name" class="cm-input" maxlength="20" />
                         <label>Last name</label>
-                        <input type="text" id="admin-last-name" maxlength="20" />
-                        <button class="secondary-btn admin-action" data-admin-action="rename" type="button">Rename Character</button>
+                        <input type="text" id="admin-last-name" class="cm-input" maxlength="20" />
+                        <button class="secondary-btn cm-btn cm-btn-secondary admin-action" data-admin-action="rename" type="button">Rename Character</button>
 
                         <label>Move to slot</label>
-                        <input type="number" id="admin-slot" min="1" max="20" />
-                        <button class="secondary-btn admin-action" data-admin-action="setSlot" type="button">Update Slot</button>
+                        <input type="number" id="admin-slot" class="cm-input" min="1" max="20" />
+                        <button class="secondary-btn cm-btn cm-btn-secondary admin-action" data-admin-action="setSlot" type="button">Update Slot</button>
 
                         <div class="admin-divider"></div>
-                        <button class="secondary-btn admin-action" data-admin-action="refreshState" type="button">Refresh Online State</button>
-                        <button class="secondary-btn admin-action" data-admin-action="giveStarterClothes" type="button">Give Starter Clothes</button>
-                        <button class="danger-btn admin-action" data-admin-action="resetAppearance" type="button">Reset Appearance</button>
+                        <button class="secondary-btn cm-btn cm-btn-secondary admin-action" data-admin-action="refreshState" type="button">Refresh Online State</button>
+                        <button class="secondary-btn cm-btn cm-btn-secondary admin-action" data-admin-action="giveStarterClothes" type="button">Give Starter Clothes</button>
+                        <button class="danger-btn cm-btn cm-btn-danger admin-action" data-admin-action="resetAppearance" type="button">Reset Appearance</button>
 
                         <div class="admin-divider"></div>
                         <h3>Account Slots</h3>
-                        <input type="text" id="admin-account-id" placeholder="Account ID" />
-                        <input type="number" id="admin-max-slots" min="1" max="20" placeholder="Max slots" />
-                        <button class="secondary-btn admin-action" data-admin-action="setAccountSlots" type="button">Set Account Slots</button>
+                        <input type="text" id="admin-account-id" class="cm-input" placeholder="Account ID" />
+                        <input type="number" id="admin-max-slots" class="cm-input" min="1" max="20" placeholder="Max slots" />
+                        <button class="secondary-btn cm-btn cm-btn-secondary admin-action" data-admin-action="setAccountSlots" type="button">Set Account Slots</button>
                     </aside>
                 </div>
 
@@ -220,28 +222,28 @@
         </section>
 
         <section id="creator-screen" class="creator-modal hidden">
-            <div class="creator-card">
+            <div class="creator-card cm-panel">
                 <p class="eyebrow">New identity</p>
                 <h1>Create Character</h1>
                 <p class="subtitle">Create a basic identity first. You will customize body, hair, and starter clothes next.</p>
 
                 <label>First name</label>
-                <input type="text" id="first-name" placeholder="First Name" maxlength="20" />
+                <input type="text" id="first-name" class="cm-input" placeholder="First Name" maxlength="20" />
 
                 <label>Last name</label>
-                <input type="text" id="last-name" placeholder="Last Name" maxlength="20" />
+                <input type="text" id="last-name" class="cm-input" placeholder="Last Name" maxlength="20" />
 
                 <label>Date of birth</label>
-                <input type="date" id="dob" />
+                <input type="date" id="dob" class="cm-input" />
 
                 <label>Gender</label>
-                <select id="gender">
+                <select id="gender" class="cm-select">
                     <option value="male">Male</option>
                     <option value="female">Female</option>
                 </select>
 
-                <button class="primary-btn" onclick="createCharacter()">Create & Customize</button>
-                <button class="secondary-btn" onclick="showSlots()">Back</button>
+                <button class="primary-btn cm-btn" onclick="createCharacter()">Create & Customize</button>
+                <button class="secondary-btn cm-btn cm-btn-secondary" onclick="showSlots()">Back</button>
                 <div id="creator-error" class="toast inline-toast"></div>
             </div>
         </section>
@@ -257,14 +259,14 @@
                 <span id="creation-loading-text">Preparing character preview...</span>
                 <strong id="creation-loading-percent">0%</strong>
             </div>
-            <div class="loading-track">
-                <div id="creation-loading-bar" class="loading-bar"></div>
+            <div class="loading-track cm-progress">
+                <div id="creation-loading-bar" class="loading-bar cm-progress-bar"></div>
             </div>
         </div>
     </div>
 
     <div id="appearance-ui" style="display: none;">
-        <button class="appearance-music-toggle" id="appearance-music-toggle" type="button">Music: On</button>
+        <button class="appearance-music-toggle cm-btn cm-btn-secondary cm-btn-sm" id="appearance-music-toggle" type="button">Music: On</button>
         <div class="background">
             <div class="categories"></div>
             <div class="header">
@@ -305,8 +307,9 @@
         </div>
     </div>
 
+    <script src="nui://cm-ui/web/cm-ui.js"></script>
     <script src="app.js"></script>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="vendor/cm-miniquery.js"></script>
     <script src="appearance/translation.js"></script>
     <script src="appearance/app.js"></script>
 </body>

@@ -65,9 +65,7 @@ local migrations = {
     [9] = [[
         ALTER TABLE accounts ADD COLUMN IF NOT EXISTS account_slot TINYINT NOT NULL DEFAULT 1 AFTER social_club_id;
     ]],
-    [10] = [[
-        ALTER TABLE accounts ADD UNIQUE IF NOT EXISTS unique_social_slot (social_club_id, account_slot);
-    ]],
+    [10] = [[-- handled by migrationHandlers[10] ]],
     [11] = [[CREATE TABLE IF NOT EXISTS money_ledger (
         id INT AUTO_INCREMENT PRIMARY KEY,
         character_id VARCHAR(50) NULL,
@@ -92,6 +90,20 @@ local migrations = {
         ALTER TABLE characters ADD COLUMN IF NOT EXISTS metadata JSON NULL;
     ]],
     }
+
+local migrationHandlers = {
+    [10] = function()
+        local exists = MySQL.scalar.await([[
+            SELECT COUNT(1) FROM information_schema.statistics
+            WHERE table_schema = DATABASE()
+              AND table_name = 'accounts'
+              AND index_name = 'unique_social_slot'
+        ]]) or 0
+        if tonumber(exists) == 0 then
+            MySQL.query.await('ALTER TABLE accounts ADD UNIQUE KEY unique_social_slot (social_club_id, account_slot)')
+        end
+    end,
+}
 
 function SeedRanks()
     local count = MySQL.scalar.await('SELECT COUNT(*) FROM ranks')
@@ -118,7 +130,11 @@ local function RunMigrations()
         local query = migrations[version]
         if query then
             local ok, err = pcall(function()
-                MySQL.query.await(query)
+                if migrationHandlers[version] then
+                    migrationHandlers[version]()
+                elseif type(query) == 'string' and query:match('%S') and not query:match('^%s*%-%-') then
+                    MySQL.query.await(query)
+                end
                 MySQL.query.await('INSERT INTO schema_migrations (version) VALUES (?)', {version})
             end)
             if ok then
@@ -137,9 +153,42 @@ local function RunMigrations()
 end
 
 CreateThread(function()
-    Wait(2000)
-    RunMigrations()
+    -- FiveM starts resources in order, but other resources can still call cm-core exports
+    -- before cm-core has completed its async database migrations. Wait for oxmysql,
+    -- then initialize as early as possible. Query exports below also wait for dbReady.
+    while GetResourceState('oxmysql') ~= 'started' do
+        Wait(100)
+    end
+
+    local ok, err = pcall(RunMigrations)
+    if not ok then
+        dbReady = false
+        print('[CM-CORE] Database initialization FAILED: ' .. tostring(err))
+    end
 end)
+
+local lastDbNotReadyWarning = 0
+
+local function WaitForDBReady(timeoutMs)
+    if dbReady then return true end
+
+    timeoutMs = timeoutMs or 15000
+    local startedAt = GetGameTimer()
+
+    while not dbReady and (GetGameTimer() - startedAt) < timeoutMs do
+        Wait(50)
+    end
+
+    if dbReady then return true end
+
+    local now = GetGameTimer()
+    if now - lastDbNotReadyWarning > 5000 then
+        lastDbNotReadyWarning = now
+        print(('[CM-CORE] DB not ready after %dms wait'):format(timeoutMs))
+    end
+
+    return false
+end
 
 local function NormalizeQueryArgs(a, b, c)
     -- Supports every common CFX export call shape:
@@ -177,7 +226,7 @@ local function NormalizeQueryArgs(a, b, c)
 end
 
 exports('Query', function(a, b, c)
-    if not dbReady then print("[CM-CORE] DB not ready"); return nil end
+    if not WaitForDBReady() then return nil end
     local query, params = NormalizeQueryArgs(a, b, c)
     if type(query) ~= 'string' then
         print(('[CM-CORE] Query expected string, got %s'):format(type(query)))
@@ -186,14 +235,14 @@ exports('Query', function(a, b, c)
     local start = GetGameTimer()
     local result = MySQL.query.await(query, params)
     local elapsed = GetGameTimer() - start
-    if elapsed > (configCache and configCache.Database.slowQueryThreshold or 100) then
+    if elapsed > (exports['cm-core']:GetConfig('Database', 'slowQueryThreshold') or 150) then
         print(("[CM-CORE] SLOW QUERY (%dms): %s"):format(elapsed, query:sub(1, 100)))
     end
     return result
 end)
 
 exports('Scalar', function(a, b, c)
-    if not dbReady then return nil end
+    if not WaitForDBReady() then return nil end
     local query, params = NormalizeQueryArgs(a, b, c)
     if type(query) ~= 'string' then
         print(('[CM-CORE] Scalar expected string, got %s'):format(type(query)))
@@ -203,7 +252,7 @@ exports('Scalar', function(a, b, c)
 end)
 
 exports('Single', function(a, b, c)
-    if not dbReady then return nil end
+    if not WaitForDBReady() then return nil end
     local query, params = NormalizeQueryArgs(a, b, c)
     if type(query) ~= 'string' then
         print(('[CM-CORE] Single expected string, got %s'):format(type(query)))
@@ -213,7 +262,7 @@ exports('Single', function(a, b, c)
 end)
 
 exports('Update', function(a, b, c)
-    if not dbReady then return nil end
+    if not WaitForDBReady() then return nil end
     local query, params = NormalizeQueryArgs(a, b, c)
     if type(query) ~= 'string' then
         print(('[CM-CORE] Update expected string, got %s'):format(type(query)))
@@ -223,7 +272,7 @@ exports('Update', function(a, b, c)
 end)
 
 exports('Insert', function(a, b, c)
-    if not dbReady then return nil end
+    if not WaitForDBReady() then return nil end
     local query, params = NormalizeQueryArgs(a, b, c)
     if type(query) ~= 'string' then
         print(('[CM-CORE] Insert expected string, got %s'):format(type(query)))
@@ -233,7 +282,7 @@ exports('Insert', function(a, b, c)
 end)
 
 exports('Transaction', function(a, b)
-    if not dbReady then return false end
+    if not WaitForDBReady() then return false end
     local queries = type(a) == 'table' and type(b) == 'table' and b or a
     return MySQL.transaction.await(queries)
 end)

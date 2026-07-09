@@ -1,0 +1,21 @@
+/* Minimal icon helpers. Font Awesome can still be loaded by individual resources if they need it. */
+.cm-icon {
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--cm-primary);
+}
+
+.cm-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--cm-primary);
+    box-shadow: var(--cm-glow);
+}
+
+.cm-dot-success { background: var(--cm-success); }
+.cm-dot-warning { background: var(--cm-warning); }
+.cm-dot-danger { background: var(--cm-danger); }

@@ -13,46 +13,59 @@ resources/[core]/cm-gunstore
 ```cfg
 ensure oxmysql
 ensure cm-core
+ensure cm-playerdata
+ensure cm-items
 ensure cm-inventory
+ensure cm-weapons
 ensure cm-gunstore
 ```
 
-## 3. Inventory item support
+## 3. Weapon/ammo source
 
-The store gives weapons and ammo as inventory items. `cm-inventory` or `cm-items` must know these item names.
+`cm-gunstore` v1.2 does **not** create gun or ammo items.
 
-This resource includes:
+Create and edit gun/ammo definitions in:
 
 ```text
-install/cm-inventory-gun-items-patch.lua
+/cmweaponadmin
 ```
 
-Merge that patch into your inventory config, or add equivalent item definitions into `cm-items`.
-
-## 4. Admin command
+Then open:
 
 ```text
 /gunadmin
 ```
 
-Admin can:
-- enable/disable weapon/ammo items
-- set price
-- set label
-- set image path
-- edit description
+Use gun store admin only to choose what is sold, and set:
+
+- price
+- stock
+- store on/off
+- optional store image/description override
+
+## 4. Inventory item support
+
+`cm-weapons` syncs weapons and ammo into `cm-items`.
+`cm-gunstore` only gives those item names to `cm-inventory` when a player buys them.
+
+Armor/vest items can still be created in `cm-gunstore` because they are store items, not weapon rules.
 
 ## 5. Player shop
 
 Players press `E` at configured gun stores. Purchases go to inventory.
 
-Weapons are not directly given to GTA weapon wheel. The item must be used/equipped from inventory.
+Weapons are not directly given to GTA weapon wheel. The item must be used/equipped from inventory/`cm-weapons`.
 
-## 6. Permissions later
-
-For production, lock admin:
+## 6. Permissions
 
 ```cfg
 add_ace group.admin cm.gunstore.admin allow
+add_ace group.admin cm.weapons.admin allow
+add_ace group.admin cm.items.admin allow
 add_principal identifier.fivem:YOUR_ID group.admin
 ```
+
+
+## Playerdata wallet
+
+Purchases now use `cm-playerdata` wallet exports only. Gun store removes `cash` or `bank` with `RemoveMoney`, gives the inventory item, and refunds with `AddMoney` if inventory fails.

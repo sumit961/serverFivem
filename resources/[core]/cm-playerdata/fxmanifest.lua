@@ -2,9 +2,9 @@ fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
 
-description 'CM Player Data v1.6: vitals, death+kill logging, movement logs, identity hex menu, handshake consent, gameplay rules'
+description 'CM Player Data: character ID, cash/bank owner, vitals, death, identity labels and interactions'
 author 'CM Framework'
-version '1.8.0'
+version '1.9.14-interaction-arbiter-export'
 
 shared_scripts {
     'config.lua'
@@ -26,14 +26,14 @@ ui_page 'ui/index.html'
 files {
     'ui/index.html',
     'ui/style.css',
-    'ui/main.js',
-    'ui/fonts/Nunito.ttf'
+    'ui/main.js'
 }
 
--- Hard dependency kept only for the @oxmysql file import.
+-- Hard dependencies kept for the @oxmysql import and shared cm-ui NUI theme.
 -- cm-core/cm-characters are intentionally NOT hard dependencies anymore:
 -- restarting them no longer force-stops this resource. Startup order is
 -- guaranteed by the ensure order in server.cfg.
 dependencies {
-    'oxmysql'
+    'oxmysql',
+    'cm-ui'
 }

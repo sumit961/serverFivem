@@ -3,11 +3,12 @@ game 'gta5'
 lua54 'yes'
 
 author 'cm-dev'
-description 'CM Spawn - Spawn selector and tutorial system'
-version '1.0.0'
+description 'CM Spawn - production-ready spawn selector, tutorial, and organization-ready spawn flow'
+version '1.2.0-cm-ui-performance-climate'
 
 shared_scripts {
     '@cm-core/shared/config.lua',
+    'config.lua',
 }
 
 client_scripts {
@@ -31,7 +32,8 @@ files {
 }
 
 dependencies {
+    'cm-ui',
     'cm-core',
     'cm-characters',
-    'cm-playerdata', -- ensures cm-playerdata loads first (owns position saving)
+    'cm-playerdata',
 }

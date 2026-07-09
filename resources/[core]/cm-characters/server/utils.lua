@@ -1,7 +1,34 @@
 -- cm-characters/server/utils.lua
 -- Shared server-side helpers for trust, validation, slots, permissions, and character state.
 
+
+-- Production-safe local logger wrapper.
+-- When Config.Debug/Config.VerboseLogs is false, normal CM-CHARACTERS debug prints are hidden.
+-- Warnings/errors still print so real problems are visible.
+local __cmCharactersPrint = print
+local function __cmCharactersShouldVerbose()
+    return Config and (Config.Debug == true or Config.VerboseLogs == true or Config.ProductionMode == false)
+end
+local function print(...)
+    if __cmCharactersShouldVerbose() then
+        return __cmCharactersPrint(...)
+    end
+
+    local first = tostring(select(1, ...) or '')
+    local isCmCharactersLog = first:find('%[CM%-CHARACTERS') ~= nil
+    if not isCmCharactersLog then
+        return __cmCharactersPrint(...)
+    end
+
+    local upper = first:upper()
+    if upper:find('ERROR', 1, true) or upper:find('WARNING', 1, true) or upper:find('FAILED', 1, true) or upper:find('DENIED', 1, true) then
+        return __cmCharactersPrint(...)
+    end
+end
+
 CMCharacters = CMCharacters or {}
+
+local cmCharacterRateLimits = {}
 
 local function safeCoreQuery(sql, params)
     local ok, result = pcall(function()
@@ -38,6 +65,15 @@ function CMCharacters.Notify(src, message, msgType)
         return
     end
 
+    local sent = false
+    if GetResourceState('cm-core') == 'started' then
+        sent = pcall(function()
+            exports['cm-core']:Notify(src, tostring(message), msgType or 'info', 5000)
+        end)
+    end
+
+    if sent then return end
+
     if GetResourceState('cm-hud') == 'started' then
         TriggerClientEvent('cm-hud:client:notify', src, tostring(message), msgType or 'info')
     else
@@ -67,10 +103,21 @@ function CMCharacters.RequireAccount(src)
 end
 
 function CMCharacters.HasPermission(src, permission)
+    src = tonumber(src)
     if src == 0 then return true end
+    if not src or src <= 0 then return false end
     permission = tostring(permission or '')
     if permission == '' then return false end
 
+    -- cm-admin is the real staff permission owner. cm-characters never owns ranks/admin UI.
+    if GetResourceState('cm-admin') == 'started' then
+        local ok, allowed = pcall(function()
+            return exports['cm-admin']:HasPermission(src, permission)
+        end)
+        if ok and allowed == true then return true end
+    end
+
+    -- ACE fallback for early dev servers or before cm-admin is fully migrated.
     local checks = {
         permission,
         'cm.characters.admin',
@@ -82,20 +129,57 @@ function CMCharacters.HasPermission(src, permission)
         if IsPlayerAceAllowed(src, ace) then return true end
     end
 
-    if GetResourceState('cm-auth') == 'started' then
-        for _, perm in ipairs(checks) do
-            local ok, allowed = pcall(function()
-                return exports['cm-auth']:HasPermission(src, perm)
-            end)
-            if ok and allowed == true then return true end
-        end
-    end
-
     return false
 end
 
+
 function CMCharacters.IsAdmin(src)
     return CMCharacters.HasPermission(src, 'characters.admin')
+end
+
+function CMCharacters.IsRateLimited(src, key, defaultLimit, defaultSeconds)
+    src = tonumber(src)
+    if not src or src <= 0 then return false end
+
+    key = tostring(key or 'default')
+    local rlConfig = Config and Config.RateLimits and Config.RateLimits[key] or {}
+    local limit = tonumber(rlConfig.limit or defaultLimit) or 5
+    local seconds = tonumber(rlConfig.seconds or defaultSeconds) or 10
+
+    if GetResourceState('cm-core') == 'started' then
+        local ok, limited = pcall(function()
+            return exports['cm-core']:IsRateLimited(src, 'cm-characters:' .. key, limit, seconds)
+        end)
+        if ok then return limited == true end
+    end
+
+    local now = os.time()
+    local bucketKey = tostring(src) .. ':' .. key
+    local bucket = cmCharacterRateLimits[bucketKey]
+    if not bucket or now >= bucket.resetAt then
+        cmCharacterRateLimits[bucketKey] = { count = 1, resetAt = now + seconds }
+        return false
+    end
+
+    bucket.count = bucket.count + 1
+    return bucket.count > limit
+end
+
+function CMCharacters.SyncWithPlayerData(src, charId, reason)
+    src = tonumber(src)
+    if not src or src <= 0 then return false end
+    if GetResourceState('cm-playerdata') ~= 'started' then return false end
+
+    local ok = pcall(function()
+        -- cm-playerdata reads Player(src).state.charId, so set character state first.
+        exports['cm-playerdata']:Load(src)
+    end)
+
+    if ok then
+        TriggerEvent('cm-playerdata:server:characterLoaded', src, tostring(charId or ''), reason or 'cm-characters')
+    end
+
+    return ok == true
 end
 
 function CMCharacters.GetMaxCharacters(accountId)
@@ -246,6 +330,13 @@ function CMCharacters.LogAdmin(src, action, data)
     data = type(data) == 'table' and data or {}
     data.admin_src = src
     data.action = action
+
+    if GetResourceState('cm-admin') == 'started' then
+        pcall(function()
+            exports['cm-admin']:LogAdminAction(src, tostring(action), data)
+        end)
+    end
+
     pcall(function()
         exports['cm-core']:Log('cm-characters-admin', 'info', tostring(action), data)
     end)

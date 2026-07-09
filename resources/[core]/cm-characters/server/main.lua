@@ -2,6 +2,31 @@
 -- Safe exports for permanent character IDs.
 -- Player(source) is only the temporary FiveM session ID; characters.id is the permanent RP ID.
 
+
+-- Production-safe local logger wrapper.
+-- When Config.Debug/Config.VerboseLogs is false, normal CM-CHARACTERS debug prints are hidden.
+-- Warnings/errors still print so real problems are visible.
+local __cmCharactersPrint = print
+local function __cmCharactersShouldVerbose()
+    return Config and (Config.Debug == true or Config.VerboseLogs == true or Config.ProductionMode == false)
+end
+local function print(...)
+    if __cmCharactersShouldVerbose() then
+        return __cmCharactersPrint(...)
+    end
+
+    local first = tostring(select(1, ...) or '')
+    local isCmCharactersLog = first:find('%[CM%-CHARACTERS') ~= nil
+    if not isCmCharactersLog then
+        return __cmCharactersPrint(...)
+    end
+
+    local upper = first:upper()
+    if upper:find('ERROR', 1, true) or upper:find('WARNING', 1, true) or upper:find('FAILED', 1, true) or upper:find('DENIED', 1, true) then
+        return __cmCharactersPrint(...)
+    end
+end
+
 local function getStateCharId(src)
     src = tonumber(src)
     if not src or src <= 0 then return nil end
@@ -178,18 +203,10 @@ end
 
 local function canEditSelectorScene(src)
     if src == 0 then return true end
+    if Config and Config.EnableSelectorSceneEditor == false then return false end
 
-    local okPerm, allowed = pcall(function()
-        if GetResourceState('cm-auth') == 'started' then
-            return exports['cm-auth']:HasPermission(src, Config.EditorPermission or 'characters.selector.edit')
-        end
-        return false
-    end)
-    if okPerm and allowed == true then return true end
-
-    if CMCharacters.HasPermission(src, Config.EditorPermission or 'characters.selector.edit') then return true end
-
-    return false
+    -- Staff permission lives in cm-admin. ACE is only a fallback inside CMCharacters.HasPermission.
+    return CMCharacters.HasPermission(src, Config.EditorPermission or 'characters.selector.edit')
 end
 
 RegisterNetEvent('cm-characters:server:requestSelectorSceneConfig', function()
@@ -199,6 +216,10 @@ end)
 
 RegisterNetEvent('cm-characters:server:saveSelectorSceneConfig', function(data)
     local src = source
+    if CMCharacters.IsRateLimited(src, 'saveSelectorScene', 4, 30) then
+        CMCharacters.Notify(src, 'Please slow down.', 'error')
+        return
+    end
     if not canEditSelectorScene(src) then
         TriggerClientEvent('cm-characters:client:selectorSceneSaved', src, false, 'No permission to save selector scene.')
         return
@@ -219,6 +240,7 @@ end)
 
 RegisterNetEvent('cm-characters:server:requestOpenSelectorSceneEditor', function()
     local src = source
+    if CMCharacters.IsRateLimited(src, 'openSelectorSceneEditor', 6, 30) then return end
     if not canEditSelectorScene(src) then
         CMCharacters.Notify(src, 'No permission to use selector scene editor.', 'error')
         return
@@ -254,7 +276,9 @@ RegisterNetEvent('cm-characters:server:enterSelectorBucket', function()
     Player(src).state:set('isInCharacterSelector', true, true)
     Player(src).state:set('characterFullySpawned', false, true)
     Player(src).state:set('skipPositionSave', true, true)
-    print(('[CM-CHARACTERS] selector bucket set: src=%s bucket=%s'):format(src, bucket))
+    if Config and Config.EnableDevCommands == true then
+        print(('[CM-CHARACTERS] selector bucket set: src=%s bucket=%s'):format(src, bucket))
+    end
 end)
 
 RegisterNetEvent('cm-characters:server:leaveSelectorBucket', function()
@@ -262,7 +286,9 @@ RegisterNetEvent('cm-characters:server:leaveSelectorBucket', function()
     SetPlayerRoutingBucket(src, 0)
     Player(src).state:set('selectorBucket', 0, true)
     Player(src).state:set('isInCharacterSelector', false, true)
-    print(('[CM-CHARACTERS] selector bucket reset: src=%s bucket=0'):format(src))
+    if Config and Config.EnableDevCommands == true then
+        print(('[CM-CHARACTERS] selector bucket reset: src=%s bucket=0'):format(src))
+    end
 end)
 
 AddEventHandler('playerDropped', function()

@@ -3,8 +3,8 @@ game 'gta5'
 
 name 'cm-gunstore'
 author 'CM / ChatGPT'
-description 'Inventory-based gun and ammo store with admin catalog, built to match nv_cloth purchase-to-inventory flow.'
-version '1.0.0'
+description 'Gun/ammo selling store that reads fixed weapon/ammo definitions from cm-weapons.'
+version '1.6.0'
 lua54 'yes'
 
 ui_page 'web/index.html'
@@ -36,8 +36,10 @@ server_scripts {
 
 dependencies {
     'cm-core',
+    'cm-playerdata',
     'cm-inventory',
-    'oxmysql'
+    'oxmysql',
+    'cm-weapons'
     -- Optional for armor admin photo capture: screenshot-basic
 }
 

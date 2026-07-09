@@ -339,6 +339,11 @@ local function restoreRealPedAfterCapture(playerPed, originalCoords, originalHea
   else
     FreezeEntityPosition(playerPed, false)
   end
+
+  -- Undo the capture-time statue settings so the player moves normally again.
+  SetPedCanRagdoll(playerPed, true)
+  SetEntityInvincible(playerPed, false)
+  ClearPedTasksImmediately(playerPed)
 end
 
 -- Components hidden by default, with the value used to hide each one.
@@ -366,8 +371,9 @@ local function applyGhostCaptureBase(ped, payload)
   -- Supporting body parts to KEEP for this category (so items that sit on the
   -- body don't float). Config-driven: shoes keep legs, watches keep arms, etc.
   local keep = (Config.IconCapture and Config.IconCapture.keepBody and Config.IconCapture.keepBody[category]) or {}
-  -- Force pure item capture for outerwear, pants and bags even if an older config still keeps body parts.
-  if category == 'torso' or category == 'pants' or category == 'bags' then
+  -- Force pure item capture for shirts, outerwear, pants and bags even if an
+  -- older config still keeps body parts.
+  if category == 'torso' or category == 'tshirt' or category == 'pants' or category == 'bags' then
     keep = {}
   end
 
@@ -535,6 +541,20 @@ local function runScreenshotForSession(session)
     SetPedComponentVariation(playerPed, 2, -1, 0, 0)
   end
 
+  -- Re-strip the body and re-apply the prop right before the shot. This fixes the
+  -- case where the ped ended up still "dressed" (body + shirt showing) for an
+  -- accessory — anything that re-dressed the ped between setup and capture is
+  -- overridden here so only the prop remains.
+  if session.propReassert and DoesEntityExist(playerPed) then
+    local pr = session.propReassert
+    -- Hide the body layers that would otherwise show behind a prop.
+    for _, idx in ipairs({ 1, 3, 4, 5, 6, 7, 8, 9, 10, 11 }) do
+      SetPedComponentVariation(playerPed, idx, -1, 0, 0)
+    end
+    ClearPedProp(playerPed, pr.index)
+    SetPedPropIndex(playerPed, pr.index, pr.drawable, pr.texture, true)
+  end
+
   exports['screenshot-basic']:requestScreenshot({ encoding = 'png' }, function(imageData)
     stopNoHeadCaptureFlag()
     stopCleanCaptureLighting()
@@ -672,12 +692,39 @@ local function prepareCaptureSession(payload)
 
   startCleanCaptureLighting()
 
-  SetEntityCoordsNoOffset(playerPed, captureCoords.x, captureCoords.y, captureCoords.z + zOffset + groundLift, false, false, false)
+  local baseZ = captureCoords.z + zOffset + groundLift
+  SetEntityCoordsNoOffset(playerPed, captureCoords.x, captureCoords.y, baseZ, false, false, false)
   SetEntityHeading(playerPed, pedHeading)
   FreezeEntityPosition(playerPed, true)
   SetPedAoBlobRendering(playerPed, false)
 
+  -- Make the ped a completely still statue for the shot: no idle sway, no
+  -- breathing, no hand/finger movement, no ragdoll. Applies to auto AND manual.
+  SetEntityInvincible(playerPed, true)
+  SetPedCanRagdoll(playerPed, false)
+  ClearPedTasksImmediately(playerPed)
+  FreezeEntityPosition(playerPed, true)
+
   applyGhostCaptureBase(playerPed, payload)
+
+  -- Diagnostic: log what the ped looks like after stripping, so accessory/body
+  -- issues are visible in F8. cat 11 = top, 8 = undershirt; both should be -1 for
+  -- a clean item/prop shot. Prop index shows if the accessory actually attached.
+  do
+    local c = tostring(category)
+    print(('[nv_cloth] After ghost strip cat=%s top(11)=%d under(8)=%d legs(4)=%d feet(6)=%d'):format(
+      c,
+      GetPedDrawableVariation(playerPed, 11),
+      GetPedDrawableVariation(playerPed, 8),
+      GetPedDrawableVariation(playerPed, 4),
+      GetPedDrawableVariation(playerPed, 6)))
+    local catDef = categories[c]
+    if catDef and catDef.type == 'prop' then
+      print(('[nv_cloth]   prop %d drawable=%d (payload draw=%s tex=%s)'):format(
+        catDef.index, GetPedPropIndex(playerPed, catDef.index),
+        tostring(payload.drawableId), tostring(payload.textureId)))
+    end
+  end
 
   -- Decide head hiding:
   --  - Head props (hat/glasses/earrings/mask): head MESH is already hidden by the
@@ -748,6 +795,8 @@ local function prepareCaptureSession(payload)
     -- invisible head (without flag 166, which would hide the prop).
     headProp = categoryAttachesToHead(category) and not categoryNeedsVisibleHead(category),
     originalModel = originalModel,
+    baseX = captureCoords.x, baseY = captureCoords.y, baseZ = baseZ,
+    liftOffset = 0.0,
   }
 end
 
@@ -785,6 +834,32 @@ RegisterNUICallback('captureInventoryIcon', function(data, cb)
     -- Manual pose mode: don't shoot yet. Hand rotation control to the admin and
     -- wait for confirmManualShot / cancelManualShot from the NUI.
     manualSession = session
+    manualSession.poseHoldActive = true
+
+    -- Pose-hold thread: every frame, lock the ped to its base position + current
+    -- lift, keep it frozen, and clear any tasks so it stays a rigid mannequin with
+    -- NO hand/body animation. This also guarantees the lift can't snap back.
+    CreateThread(function()
+      local ped = manualSession and manualSession.playerPed
+      if ped and DoesEntityExist(ped) then
+        SetEntityInvincible(ped, true)
+        SetPedCanRagdoll(ped, false)
+        ClearPedTasksImmediately(ped)
+      end
+      local tick = 0
+      while manualSession and manualSession.poseHoldActive and ped and DoesEntityExist(ped) do
+        local bx = tonumber(manualSession.baseX) or GetEntityCoords(ped).x
+        local by = tonumber(manualSession.baseY) or GetEntityCoords(ped).y
+        local bz = (tonumber(manualSession.baseZ) or GetEntityCoords(ped).z) + (tonumber(manualSession.liftOffset) or 0.0)
+        SetEntityCoordsNoOffset(ped, bx, by, bz, false, false, false)
+        FreezeEntityPosition(ped, true)
+        -- Re-assert a still, animation-free pose every ~250ms (not every frame, to
+        -- avoid T-pose flicker) so the ped stays a rigid mannequin while posing.
+        tick = tick + 1
+        if tick % 25 == 0 then ClearPedTasksImmediately(ped) end
+        Wait(10)
+      end
+    end)
 
     -- Keep the NUI visible AND let mouse/keys through so the admin can drag-rotate
     -- the ped and click the on-screen Confirm/Cancel controls.
@@ -830,8 +905,8 @@ end)
 
 -- Nudge the posed ped vertically during manual capture (e.g. lift shoes off the
 -- floor). delta in metres. The ped is frozen, so SetEntityCoords alone won't stick
--- reliably — unfreeze, move, refreeze. Track the total lift on the session so it
--- survives any re-place and is preserved through the screenshot.
+-- reliably — unfreeze, move, refreeze. The camera target is raised by the same
+-- amount so the item stays centered in frame while clearing the ground.
 RegisterNUICallback('manualPoseLift', function(data, cb)
   if not manualSession then cb({ success = false, error = 'no_manual_session' }); return end
   local ped = manualSession.playerPed
@@ -843,11 +918,20 @@ RegisterNUICallback('manualPoseLift', function(data, cb)
   if delta < -1.0 then delta = -1.0 end
 
   manualSession.liftOffset = (tonumber(manualSession.liftOffset) or 0.0) + delta
+  -- The pose-hold thread (started in prepareCaptureSession's manual branch) keeps
+  -- re-placing the ped at baseZ + liftOffset every frame, so it can't snap back.
+  -- Do an immediate placement too for instant feedback.
+  local bx = tonumber(manualSession.baseX) or GetEntityCoords(ped).x
+  local by = tonumber(manualSession.baseY) or GetEntityCoords(ped).y
+  local bz = (tonumber(manualSession.baseZ) or GetEntityCoords(ped).z) + manualSession.liftOffset
+  CreateThread(function()
+    FreezeEntityPosition(ped, false)
+    SetEntityCoordsNoOffset(ped, bx, by, bz, false, false, false)
+    Wait(0)
+    SetEntityCoordsNoOffset(ped, bx, by, bz, false, false, false)
+    FreezeEntityPosition(ped, true)
+  end)
 
-  local c = GetEntityCoords(ped)
-  FreezeEntityPosition(ped, false)
-  SetEntityCoordsNoOffset(ped, c.x, c.y, c.z + delta, false, false, false)
-  FreezeEntityPosition(ped, true)
   cb({ success = true, lift = manualSession.liftOffset })
 end)
 
@@ -868,6 +952,7 @@ end)
 RegisterNUICallback('confirmManualShot', function(_, cb)
   if not manualSession then cb({ success = false, error = 'no_manual_session' }); return end
   local session = manualSession
+  session.poseHoldActive = false
   manualSession = nil
 
   -- Snapshot the pose so it can be replayed for the other textures of this item.
@@ -891,6 +976,7 @@ end)
 RegisterNUICallback('cancelManualShot', function(_, cb)
   if not manualSession then cb({ success = true }); return end
   local session = manualSession
+  session.poseHoldActive = false
   manualSession = nil
 
   stopNoHeadCaptureFlag()

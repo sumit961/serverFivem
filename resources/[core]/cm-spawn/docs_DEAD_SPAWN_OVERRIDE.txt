@@ -1,0 +1,15 @@
+CM Spawn v1.1.1 - Dead Spawn Override
+
+Rule:
+If cm-playerdata says the character is dead, cm-spawn shows the selector but forces any clicked spawn option to the last/death location.
+
+Spawn-side check:
+- Call exports['cm-playerdata']:GetSpawnOverride(src, spawnKey)
+- If it returns coords, use that instead of normal spawn keys.
+- Never send hospital/hotel/org spawn while player is still dead.
+
+UI:
+A red notice appears on the spawn page when the player is dead:
+"You are still down. Any spawn choice will return you to your last body location."
+
+This keeps RP consistent and stops players escaping death by reconnecting.

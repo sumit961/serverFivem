@@ -1,0 +1,43 @@
+CREATE TABLE IF NOT EXISTS cm_weapon_ammo (
+    item_name VARCHAR(80) NOT NULL PRIMARY KEY,
+    label VARCHAR(120) NOT NULL,
+    ammo_key VARCHAR(40) NOT NULL DEFAULT 'pistol',
+    pickup_hash BIGINT NOT NULL DEFAULT 0,
+    drop_model VARCHAR(80) NULL,
+    pack_size INT NOT NULL DEFAULT 1,
+    price INT NOT NULL DEFAULT 0,
+    weight INT NOT NULL DEFAULT 0,
+    stack TINYINT(1) NOT NULL DEFAULT 1,
+    enabled TINYINT(1) NOT NULL DEFAULT 1,
+    image VARCHAR(255) NULL,
+    description TEXT NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_ammo_key (ammo_key),
+    INDEX idx_enabled (enabled)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS cm_weapon_catalog (
+    item_name VARCHAR(80) NOT NULL PRIMARY KEY,
+    label VARCHAR(120) NOT NULL,
+    weapon_hash VARCHAR(80) NOT NULL,
+    weapon_hash_number BIGINT NOT NULL DEFAULT 0,
+    group_key VARCHAR(40) NOT NULL DEFAULT 'pistol',
+    ammo_item VARCHAR(80) NOT NULL,
+    damage INT NOT NULL DEFAULT 0,
+    magazine_size INT NOT NULL DEFAULT 0,
+    recoil DECIMAL(10,3) NOT NULL DEFAULT 0.000,
+    durability INT NOT NULL DEFAULT 100,
+    price INT NOT NULL DEFAULT 0,
+    weight INT NOT NULL DEFAULT 0,
+    enabled TINYINT(1) NOT NULL DEFAULT 1,
+    image VARCHAR(255) NULL,
+    description TEXT NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_group_key (group_key),
+    INDEX idx_ammo_item (ammo_item),
+    INDEX idx_enabled (enabled)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

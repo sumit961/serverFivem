@@ -64,6 +64,8 @@ end))
 --========================================================
 -- Clothing catalog client sync
 --========================================================
+local previewOpen = false
+local buildPreviewPayload
 
 RegisterNetEvent('cm-items:client:setClothingCatalog', function(catalog)
     CMItems.SetClothingCatalog(catalog or { male = {}, female = {} })
@@ -72,9 +74,28 @@ RegisterNetEvent('cm-items:client:setClothingCatalog', function(catalog)
     end
 end)
 
+RegisterNetEvent('cm-items:client:setItemsCatalog', function(catalogItems)
+    CMItems.Items = CMItems.Items or {}
+    for name in pairs(CMItems.CatalogItems or {}) do
+        CMItems.Items[name] = nil
+    end
+
+    CMItems.CatalogItems = catalogItems or {}
+    for name, def in pairs(CMItems.CatalogItems) do
+        CMItems.Items[name] = def
+    end
+    if previewOpen then
+        SendNUIMessage({ type = 'openItemPreview', payload = buildPreviewPayload() })
+    end
+    if CMItems.Config and CMItems.Config.Debug then
+        print('[CM-ITEMS] Item catalog synced to client')
+    end
+end)
+
 CreateThread(function()
     Wait(2000)
     TriggerServerEvent('cm-items:server:requestCatalogSync')
+    TriggerServerEvent('cm-items:server:requestItemsCatalogSync')
 end)
 
 exports('GetClothingCatalogEntry', exportSafe(function(gender, componentType, componentIndex, drawableId, textureId)
@@ -90,7 +111,6 @@ end))
 -- Admin Item Preview UI
 -- /cmitempreview or /cmitemsui shows all cm-items definitions and clothing catalog rows with images.
 --========================================================
-local previewOpen = false
 
 local function imageUrlForItem(image)
     image = tostring(image or '')
@@ -139,6 +159,8 @@ local function flattenCatalog()
                                     undershirtTexture = entry.undershirtTexture or entry.undershirt_texture,
                                     sleeveStyle = entry.sleeveStyle or entry.sleeve_style,
                                     bagLevel = entry.bagLevel or entry.bag_level,
+                                    source = 'clothing_catalog',
+                                    deletable = true,
                                 }
                             end
                             if type(entryWrap.default) == 'table' then addEntry(-1, entryWrap.default) end
@@ -161,7 +183,7 @@ local function flattenCatalog()
     return rows
 end
 
-local function buildPreviewPayload()
+function buildPreviewPayload()
     local items = {}
     for name, item in pairs(CMItems.GetAllItems and CMItems.GetAllItems() or {}) do
         items[#items + 1] = {
@@ -178,6 +200,8 @@ local function buildPreviewPayload()
             description = item.description or '',
             equipmentSlot = item.equipmentSlot or item.equipSlot or '',
             worldModel = CMItems.GetItemWorldModel and CMItems.GetItemWorldModel(name) or item.worldModel or '',
+            source = (CMItems.CatalogItems and CMItems.CatalogItems[name]) and 'catalog' or 'static',
+            deletable = (CMItems.CatalogItems and CMItems.CatalogItems[name]) ~= nil,
         }
     end
     table.sort(items, function(a, b) return (a.category .. a.name) < (b.category .. b.name) end)
@@ -215,11 +239,19 @@ end)
 local previewCallbacks = {}
 local previewRequestId = 0
 
-RegisterNUICallback('previewGiveItem', function(data, cb)
+local function nextPreviewRequest(cb)
     previewRequestId = previewRequestId + 1
     local requestId = tostring(previewRequestId)
     previewCallbacks[requestId] = cb
-    TriggerServerEvent('cm-items:server:previewGiveItem', requestId, data or {})
+    return requestId
+end
+
+RegisterNUICallback('previewGiveItem', function(data, cb)
+    TriggerServerEvent('cm-items:server:previewGiveItem', nextPreviewRequest(cb), data or {})
+end)
+
+RegisterNUICallback('previewDeleteItem', function(data, cb)
+    TriggerServerEvent('cm-items:server:previewDeleteItem', nextPreviewRequest(cb), data or {})
 end)
 
 RegisterNetEvent('cm-items:client:previewGiveResult', function(requestId, success, message, itemName)
@@ -230,6 +262,25 @@ RegisterNetEvent('cm-items:client:previewGiveResult', function(requestId, succes
     end
 
     local text = success and ('Added %s to inventory'):format(tostring(itemName or 'item')) or tostring(message or 'Could not add item')
+    if lib and lib.notify then
+        lib.notify({ title = 'CM Items', description = text, type = success and 'success' or 'error' })
+    else
+        print(('[CM-ITEMS] %s'):format(text))
+    end
+end)
+
+RegisterNetEvent('cm-items:client:previewDeleteResult', function(requestId, success, message, itemName)
+    local cb = previewCallbacks[tostring(requestId)]
+    previewCallbacks[tostring(requestId)] = nil
+    if cb then
+        cb({ success = success == true, message = message, itemName = itemName })
+    end
+
+    local text = success and ('Deleted %s from registry'):format(tostring(itemName or 'item')) or tostring(message or 'Could not delete item')
+    if success then
+        SendNUIMessage({ type = 'openItemPreview', payload = buildPreviewPayload() })
+    end
+
     if lib and lib.notify then
         lib.notify({ title = 'CM Items', description = text, type = success and 'success' or 'error' })
     else

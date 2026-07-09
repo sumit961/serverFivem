@@ -1,5 +1,5 @@
 -- cm-admin/server/main.lua
--- v2.5: character-ID based /admin mode + F11 NUI menu + DB ranks/permissions/logs + cash tools.
+-- v2.6.4: character-ID based /admin mode + F11 NUI menu + role-based map/logs/permissions/dev tools/map calibration.
 -- Security rule: the client can request actions, but the server checks every permission.
 
 local AdminMode = {}
@@ -17,6 +17,59 @@ local function jdec(value, fallback)
     local ok, decoded = pcall(json.decode, value)
     if ok and decoded then return decoded end
     return fallback or {}
+end
+
+local SavedMapBounds = nil
+
+local function normalizeMapBounds(bounds)
+    if type(bounds) ~= 'table' then return nil end
+    local minX = tonumber(bounds.minX)
+    local maxX = tonumber(bounds.maxX)
+    local minY = tonumber(bounds.minY)
+    local maxY = tonumber(bounds.maxY)
+    if not minX or not maxX or not minY or not maxY then return nil end
+    if maxX <= minX or maxY <= minY then return nil end
+    if math.abs(minX) > 20000 or math.abs(maxX) > 20000 or math.abs(minY) > 20000 or math.abs(maxY) > 20000 then return nil end
+    return {
+        minX = math.floor(minX + 0.5),
+        maxX = math.floor(maxX + 0.5),
+        minY = math.floor(minY + 0.5),
+        maxY = math.floor(maxY + 0.5)
+    }
+end
+
+local function configuredMapBounds()
+    return normalizeMapBounds(Config.Map and Config.Map.Bounds) or { minX = -4000, maxX = 4500, minY = -4300, maxY = 8000 }
+end
+
+local function mapBoundsFile()
+    return (Config.Map and Config.Map.SavedBoundsFile) or 'data/map_bounds.json'
+end
+
+local function loadSavedMapBounds()
+    if Config.Map and Config.Map.UseSavedBounds == false then
+        SavedMapBounds = nil
+        return nil
+    end
+    local raw = LoadResourceFile(GetCurrentResourceName(), mapBoundsFile())
+    SavedMapBounds = normalizeMapBounds(jdec(raw, nil))
+    return SavedMapBounds
+end
+
+local function effectiveMapBounds()
+    if Config.Map and Config.Map.UseSavedBounds ~= false then
+        if not SavedMapBounds then loadSavedMapBounds() end
+        if SavedMapBounds then return SavedMapBounds, 'saved' end
+    end
+    return configuredMapBounds(), 'config'
+end
+
+local function saveMapBounds(bounds)
+    bounds = normalizeMapBounds(bounds)
+    if not bounds then return false, 'Invalid map bounds.' end
+    SavedMapBounds = bounds
+    local ok = SaveResourceFile(GetCurrentResourceName(), mapBoundsFile(), json.encode(bounds, { indent = true }), -1)
+    return ok == true, ok == true and nil or 'Could not save map bounds file.'
 end
 
 local function notify(src, msg, msgType)
@@ -284,8 +337,40 @@ end
 
 local giveCashToOnlinePlayer
 
+local function inferLogCategory(action, details)
+    if type(details) == 'table' and details.category then return tostring(details.category) end
+    action = tostring(action or ''):lower()
+    if action:find('money') or action:find('cash') or action:find('bank') or action:find('economy') then return 'economy' end
+    if action:find('inventory') or action:find('item') then return 'inventory' end
+    if action:find('vehicle') or action:find('car') or action:find('plate') then return 'vehicles' end
+    if action:find('dev') or action:find('tool') or action:find('climatime') then return 'dev' end
+    if action:find('player') or action:find('freeze') or action:find('heal') or action:find('kick') or action:find('teleport') or action:find('noclip') or action:find('unstuck') then return 'players' end
+    if action:find('rank') or action:find('admin') or action:find('menu') then return 'admin' end
+    return 'system'
+end
+
+local function canViewLogCategory(src, category)
+    category = tostring(category or 'system')
+    if src <= 0 then return true end
+    if not hasPermission(src, 'logs.view') then return false end
+    if hasPermission(src, 'logs.all') then return true end
+    return hasPermission(src, 'logs.' .. category)
+end
+
+local function getLogCategoriesForUi(src)
+    local out = {}
+    for _, category in ipairs(Config.LogCategories or {}) do
+        if canViewLogCategory(src, category.id) then
+            out[#out + 1] = { id = category.id, label = category.label or category.id, permission = category.permission }
+        end
+    end
+    return out
+end
+
 local function logAction(src, action, data, targetIdentifier, targetName)
     data = data or {}
+    local category = inferLogCategory(action, data)
+    data.category = data.category or category
     local identifier = 'console'
     local name = 'console'
 
@@ -296,7 +381,9 @@ local function logAction(src, action, data, targetIdentifier, targetName)
         data.actorCharacterId = data.actorCharacterId or normalizeCharacterId(char.id)
     end
 
-    print(('[CM-ADMIN] %s (%s) -> %s %s'):format(name, src or 0, action, next(data) and jenc(data) or ''))
+    if Config.QuietConsoleLogs ~= true then
+        print(('[CM-ADMIN] %s (%s) -> %s %s'):format(name, src or 0, action, next(data) and jenc(data) or ''))
+    end
     TriggerEvent('cm-admin:server:actionLogged', src, action, data)
 
     safeUpdate([[INSERT INTO cm_admin_logs (identifier, source, admin_name, action, target_identifier, target_name, details_json)
@@ -381,7 +468,7 @@ local function ensureSchema()
     end
 
     BootReady = true
-    print('[CM-ADMIN] v2.5 character-id schema ready')
+    if Config.QuietConsoleLogs ~= true then print('[CM-ADMIN] v2.6 character-id schema ready') end
 end
 
 CreateThread(function()
@@ -457,16 +544,57 @@ getStateCharacterId = function(src)
 end
 
 getCharacterInfo = function(src)
-    local charId = getStateCharacterId(src)
-    local name = CharacterCache[src] and CharacterCache[src].name or nil
+    local charId = nil
+    local name = nil
 
-    -- Identity is statebag-driven (cm-characters sets it on character select).
-    -- The characters table has no license column, so there is no DB fallback:
-    -- if this is nil the player simply hasn't picked a character yet.
+    -- Prefer cm-playerdata because it owns the selected character state and the
+    -- same first/last name used by normal overhead player labels.
+    if GetResourceState('cm-playerdata') == 'started' then
+        pcall(function()
+            if exports['cm-playerdata'] and exports['cm-playerdata'].GetCharacterId then
+                charId = exports['cm-playerdata']:GetCharacterId(src)
+            end
+        end)
+        pcall(function()
+            if exports['cm-playerdata'] and exports['cm-playerdata'].GetCharacterFullName then
+                name = exports['cm-playerdata']:GetCharacterFullName(src)
+            end
+        end)
+    end
 
+    charId = charId or getStateCharacterId(src)
+    name = name or (CharacterCache[src] and CharacterCache[src].name or nil)
+
+    -- Identity is statebag-driven/playerdata-driven. If this is nil the player
+    -- simply has not fully selected/loaded a character yet.
     return { id = charId, name = name }
 end
 
+local function setAdminState(src, enabled, profile)
+    if not src or src <= 0 then return end
+    local p = Player(src)
+    if not p or not p.state then return end
+
+    if enabled then
+        local char = getCharacterInfo(src)
+        local rank = profile and profile.rank or nil
+        local displayName = char.name or (profile and profile.name) or GetPlayerName(src) or ('Character ' .. tostring(char.id or '?'))
+        local tag = {
+            active = true,
+            name = displayName,
+            characterId = normalizeCharacterId(char.id or (profile and profile.characterId)),
+            rank = rank and (rank.label or rank.name) or 'Admin',
+            noclip = false
+        }
+        pcall(function() p.state:set('cm_admin_mode', true, true) end)
+        pcall(function() p.state:set('cm_admin_noclip', false, true) end)
+        pcall(function() p.state:set('cm_admin_tag', tag, true) end)
+    else
+        pcall(function() p.state:set('cm_admin_mode', false, true) end)
+        pcall(function() p.state:set('cm_admin_noclip', false, true) end)
+        pcall(function() p.state:set('cm_admin_tag', nil, true) end)
+    end
+end
 
 local function cacheSelectedCharacter(src, payload, maybeName)
     src = tonumber(src)
@@ -492,6 +620,9 @@ local function cacheSelectedCharacter(src, payload, maybeName)
 
     CharacterCache[src] = { id = charId, name = charName }
     pcall(function() Player(src).state:set('cm_admin_charId', charId, true) end)
+    if AdminMode[src] then
+        setAdminState(src, true, getAdminProfile(src))
+    end
 end
 
 -- Optional bridge event for your cm-characters/cm-spawn resource.
@@ -554,6 +685,8 @@ local function getPlayerSummary(target)
         end
     end
 
+    local adminProfile = AdminMode[target] and getAdminProfile(target) or nil
+
     return {
         id = target,
         name = GetPlayerName(target),
@@ -565,6 +698,7 @@ local function getPlayerSummary(target)
         cash = tonumber(cash),
         bank = tonumber(bank),
         adminMode = AdminMode[target] == true,
+        adminRank = adminProfile and adminProfile.rank and (adminProfile.rank.label or adminProfile.rank.name) or nil,
         coords = { x = math.floor(coords.x * 100) / 100, y = math.floor(coords.y * 100) / 100, z = math.floor(coords.z * 100) / 100 }
     }
 end
@@ -644,26 +778,33 @@ local function getAdminsForUi()
     return admins
 end
 
-local function getLogsForUi(limit)
+local function getLogsForUi(limit, viewerSrc)
     limit = tonumber(limit) or 80
     if limit < 1 then limit = 80 end
-    if limit > 200 then limit = 200 end
+    if limit > 300 then limit = 300 end
 
     local logs = {}
-    local ok, rows = safeQuery(('SELECT id, identifier, source, admin_name, action, target_identifier, target_name, details_json, created_at FROM cm_admin_logs ORDER BY id DESC LIMIT %d'):format(limit), {})
+    local fetchLimit = math.min(limit * 3, 600)
+    local ok, rows = safeQuery(('SELECT id, identifier, source, admin_name, action, target_identifier, target_name, details_json, created_at FROM cm_admin_logs ORDER BY id DESC LIMIT %d'):format(fetchLimit), {})
     if ok then
         for _, row in ipairs(rows) do
-            logs[#logs + 1] = {
-                id = row.id,
-                identifier = row.identifier,
-                source = row.source,
-                adminName = row.admin_name,
-                action = row.action,
-                targetIdentifier = row.target_identifier,
-                targetName = row.target_name,
-                details = jdec(row.details_json, {}),
-                createdAt = row.created_at
-            }
+            local details = jdec(row.details_json, {})
+            local category = inferLogCategory(row.action, details)
+            if canViewLogCategory(viewerSrc or 0, category) then
+                logs[#logs + 1] = {
+                    id = row.id,
+                    identifier = row.identifier,
+                    source = row.source,
+                    adminName = row.admin_name,
+                    action = row.action,
+                    category = category,
+                    targetIdentifier = row.target_identifier,
+                    targetName = row.target_name,
+                    details = details,
+                    createdAt = row.created_at
+                }
+                if #logs >= limit then break end
+            end
         end
     end
     return logs
@@ -676,8 +817,10 @@ local AllPermissions = {
     'vehicles.view', 'vehicles.manage', 'vehicle_inventory.view',
     'admins.view', 'admins.manage',
     'ranks.view', 'ranks.manage',
-    'logs.view',
-    'noclip', 'teleport', 'tools.heal'
+    'logs.view', 'logs.all', 'logs.admin', 'logs.players', 'logs.economy', 'logs.inventory', 'logs.vehicles', 'logs.dev', 'logs.system',
+    'map.view', 'map.vehicles', 'map.admins', 'map.teleport', 'map.calibrate', 'gps.teleport',
+    'noclip', 'teleport', 'tools.heal',
+    'dev.view', 'dev.tools', 'dev.clothing', 'dev.vehicles', 'dev.weapons', 'dev.climatime', 'dev.hud'
 }
 
 local function currentAdminUi(src)
@@ -705,10 +848,15 @@ local function buildMenuPayload(src)
         admins = {},
         ranks = {},
         logs = {},
+        logCategories = {},
         server = {
             name = GetConvar('sv_hostname', 'CM Server'),
             maxClients = GetConvarInt('sv_maxclients', 48),
-            resource = GetCurrentResourceName()
+            resource = GetCurrentResourceName(),
+            mapBounds = effectiveMapBounds(),
+            mapBoundsSource = select(2, effectiveMapBounds()),
+            mapConfigBounds = configuredMapBounds(),
+            mapAllowUiSave = Config.Map and Config.Map.AllowUiBoundsSave ~= false or false
         }
     }
 
@@ -716,7 +864,7 @@ local function buildMenuPayload(src)
     if CMDevTools then payload.devTools = CMDevTools.forPlayer(src) end
     if hasPermission(src, 'admins.view') then payload.admins = getAdminsForUi() end
     if hasPermission(src, 'ranks.view') then payload.ranks = getRanksForUi() end
-    if hasPermission(src, 'logs.view') then payload.logs = getLogsForUi(80) end
+    if hasPermission(src, 'logs.view') then payload.logs = getLogsForUi(80, src); payload.logCategories = getLogCategoriesForUi(src) end
 
     return payload
 end
@@ -750,6 +898,8 @@ RegisterCommand(Config.AdminToggleCommand or 'admin', function(src)
 
     ensureBootstrapAdmin(src)
     AdminMode[src] = not AdminMode[src]
+
+    setAdminState(src, AdminMode[src], profile)
 
     if AdminMode[src] then
         notify(src, ('Admin mode enabled: %s'):format(profile.rank.label), 'success')
@@ -802,6 +952,35 @@ RegisterNetEvent('cm-admin:server:requestNoclipToggle', function()
     requestToggle(source)
 end)
 
+RegisterNetEvent('cm-admin:server:setNoclipState', function(enabled)
+    local src = source
+    enabled = enabled == true
+    if not AdminMode[src] then enabled = false end
+    if enabled and not hasPermission(src, 'noclip') then enabled = false end
+
+    local p = Player(src)
+    if not p or not p.state then return end
+
+    pcall(function() p.state:set('cm_admin_noclip', enabled, true) end)
+
+    local tag = p.state.cm_admin_tag
+    if type(tag) == 'table' then
+        tag.noclip = enabled
+        if AdminMode[src] and tag.active == true then
+            -- Refresh name/id from cm-playerdata in case the admin tag was created
+            -- before playerdata finished hydrating the selected character.
+            local char = getCharacterInfo(src)
+            if char and char.name and char.name ~= '' and char.name ~= 'Unknown' then
+                tag.name = char.name
+            end
+            if char and char.id then
+                tag.characterId = normalizeCharacterId(char.id)
+            end
+            pcall(function() p.state:set('cm_admin_tag', tag, true) end)
+        end
+    end
+end)
+
 RegisterCommand('cmgivecash', function(src, args)
     if src <= 0 then return end
     if not AdminMode[src] then
@@ -819,6 +998,18 @@ RegisterCommand('cmgivecash', function(src, args)
     local ok, message = giveCashToOnlinePlayer(src, target, amount, reason ~= '' and reason or 'Admin command cash grant')
     notify(src, message, ok and 'success' or 'error')
     if ok then refreshMenu(src) end
+end, false)
+
+RegisterCommand('cmtp', function(src)
+    if src <= 0 then return end
+    if not hasAnyPermission(src, { 'gps.teleport', 'teleport', 'players.teleport' }) then
+        notify(src, 'Type /admin first or your rank has no GPS teleport permission.', 'error')
+        logAction(src, 'gps_teleport_denied')
+        return
+    end
+    if onCooldown(src, 'gpsTeleportCommand', 2000) then return end
+    logAction(src, 'gps_teleport_command', { category = 'players' })
+    TriggerClientEvent('cm-admin:client:teleportToWaypoint', src)
 end, false)
 
 RegisterCommand('cmunstuck', function(src)
@@ -919,27 +1110,50 @@ giveCashToOnlinePlayer = function(src, target, amount, reason)
     end
 
     local bridge = Config.DatabaseBridge or {}
-    local addQuery = bridge.AddCashQuery or 'UPDATE characters SET cash = GREATEST(0, COALESCE(cash, 0) + ?) WHERE id = ?'
-    local updateOk, affected = safeUpdate(addQuery, { amount, tostring(player.characterId) })
-    if not updateOk then
-        print(('[CM-ADMIN] Give cash DB error: %s'):format(tostring(affected)))
-        return false, 'Could not update character cash in database.'
-    end
-    if type(affected) == 'number' and affected < 1 then
-        return false, 'No character money row was updated.'
-    end
 
+    -- cm-playerdata is the authoritative owner of cash/bank for ONLINE players.
+    -- It keeps an in-memory cache and periodically saves it to the DB, so writing
+    -- straight to the DB here would be silently overwritten by that save loop and
+    -- would never update the HUD. Always go through its export when it can serve
+    -- this player; only fall back to a raw DB write when it cannot (offline/edge).
     local newCash, newBank = nil, nil
-    if bridge.MoneyQuery then
-        local ok, row = safeSingle(bridge.MoneyQuery, { tostring(player.characterId) })
-        if ok and row then
-            newCash = tonumber(row.cash)
-            newBank = tonumber(row.bank)
+    local usedExport = false
+    if GetResourceState('cm-playerdata') == 'started' then
+        local ok, applied = pcall(function()
+            return exports['cm-playerdata']:AddCash(target, amount, reason)
+        end)
+        if ok and applied == true then
+            usedExport = true
+            local okC, cash = pcall(function() return exports['cm-playerdata']:GetCash(target) end)
+            local okB, bank = pcall(function() return exports['cm-playerdata']:GetBank(target) end)
+            if okC then newCash = tonumber(cash) end
+            if okB then newBank = tonumber(bank) end
         end
     end
-    if newCash == nil then newCash = (tonumber(player.cash) or 0) + amount end
 
-    setOnlineCashState(target, newCash, newBank)
+    if not usedExport then
+        -- Fallback: player not loaded in cm-playerdata. Write the DB directly.
+        local addQuery = bridge.AddCashQuery or 'UPDATE characters SET cash = GREATEST(0, COALESCE(cash, 0) + ?) WHERE id = ?'
+        local updateOk, affected = safeUpdate(addQuery, { amount, tostring(player.characterId) })
+        if not updateOk then
+            print(('[CM-ADMIN] Give cash DB error: %s'):format(tostring(affected)))
+            return false, 'Could not update character cash in database.'
+        end
+        if type(affected) == 'number' and affected < 1 then
+            return false, 'No character money row was updated.'
+        end
+
+        if bridge.MoneyQuery then
+            local ok, row = safeSingle(bridge.MoneyQuery, { tostring(player.characterId) })
+            if ok and row then
+                newCash = tonumber(row.cash)
+                newBank = tonumber(row.bank)
+            end
+        end
+        setOnlineCashState(target, newCash, newBank)
+    end
+
+    if newCash == nil then newCash = (tonumber(player.cash) or 0) + amount end
     TriggerClientEvent('cm-admin:client:notify', target, ('You received $%s cash from admin.'):format(formatMoney(amount)), 'success')
 
     logAction(src, 'money_give_cash', {
@@ -1048,13 +1262,49 @@ RegisterNetEvent('cm-admin:server:nuiAction', function(payload)
     end
 
     -- ------------------------------------------------------------------
+    -- Live map calibration. Lets owner/admin tune map bounds from UI, preview
+    -- immediately, then save the same values to data/map_bounds.json.
+    -- ------------------------------------------------------------------
+    if action == 'saveMapBounds' then
+        if not hasAnyPermission(src, { 'map.calibrate', 'ranks.manage', 'dev.tools', '*' }) then
+            return notify(src, 'No permission: map.calibrate', 'error')
+        end
+        if Config.Map and Config.Map.AllowUiBoundsSave == false then
+            return notify(src, 'UI map bounds saving is disabled in config.', 'error')
+        end
+        if onActionCooldown(src, 'saveMapBounds', 1500) then return end
+        local ok, err = saveMapBounds(data.bounds or data)
+        if not ok then return notify(src, err or 'Could not save map bounds.', 'error') end
+        notify(src, 'Admin map bounds saved.', 'success')
+        logAction(src, 'map_bounds_save', { category = 'system', bounds = SavedMapBounds })
+        refreshMenu(src)
+        return
+    end
+
+    if action == 'resetMapBounds' then
+        if not hasAnyPermission(src, { 'map.calibrate', 'ranks.manage', 'dev.tools', '*' }) then
+            return notify(src, 'No permission: map.calibrate', 'error')
+        end
+        if onActionCooldown(src, 'resetMapBounds', 1500) then return end
+        local defaults = configuredMapBounds()
+        local ok, err = saveMapBounds(defaults)
+        if not ok then return notify(src, err or 'Could not reset map bounds.', 'error') end
+        notify(src, 'Admin map bounds reset to config values.', 'success')
+        logAction(src, 'map_bounds_reset', { category = 'system', bounds = defaults })
+        refreshMenu(src)
+        return
+    end
+
+    -- ------------------------------------------------------------------
     -- Live map: players (and optionally spawned vehicles) with coordinates.
     -- ------------------------------------------------------------------
     if action == 'mapData' then
-        if not hasPermission(src, 'players.view') then return end
-        if onActionCooldown(src, 'mapData', 900) then return end
+        if not (hasPermission(src, 'map.view') or hasPermission(src, 'players.view')) then return end
+        local refreshMs = (Config.Map and tonumber(Config.Map.RefreshMs)) or 1500
+        if onActionCooldown(src, 'mapData', math.max(900, refreshMs - 100)) then return end
 
         local mapPlayers = {}
+        local canSeeAdminsOnMap = hasPermission(src, 'map.admins') or hasPermission(src, 'admins.view')
         for _, playerSrc in ipairs(GetPlayers()) do
             local target = tonumber(playerSrc)
             local ped = GetPlayerPed(target)
@@ -1065,29 +1315,99 @@ RegisterNetEvent('cm-admin:server:nuiAction', function(payload)
                     id = target,
                     name = GetPlayerName(target),
                     characterId = char.id,
-                    x = math.floor(coords.x), y = math.floor(coords.y),
+                    characterName = char.name,
+                    adminMode = canSeeAdminsOnMap and AdminMode[target] == true or false,
+                    x = math.floor(coords.x), y = math.floor(coords.y), z = math.floor(coords.z),
                     self = target == src
                 }
             end
         end
 
         local mapVehicles = nil
-        if data.vehicles == true and hasPermission(src, 'vehicles.view') then
+        if data.vehicles == true and (hasPermission(src, 'map.vehicles') or hasPermission(src, 'vehicles.view')) then
             mapVehicles = {}
             local maxVeh = (Config.Map and Config.Map.MaxVehicles) or 300
             for _, veh in ipairs(GetAllVehicles()) do
                 if #mapVehicles >= maxVeh then break end
                 if DoesEntityExist(veh) then
                     local coords = GetEntityCoords(veh)
+                    local netId = 0
+                    pcall(function() netId = NetworkGetNetworkIdFromEntity(veh) end)
                     mapVehicles[#mapVehicles + 1] = {
+                        netId = netId,
                         plate = GetVehicleNumberPlateText(veh),
-                        x = math.floor(coords.x), y = math.floor(coords.y)
+                        model = GetEntityModel(veh),
+                        x = math.floor(coords.x), y = math.floor(coords.y), z = math.floor(coords.z)
                     }
                 end
             end
         end
 
         TriggerClientEvent('cm-admin:client:mapData', src, { players = mapPlayers, vehicles = mapVehicles })
+        return
+    end
+
+
+    if action == 'mapTeleportToCoords' then
+        if not hasAnyPermission(src, { 'map.teleport', 'gps.teleport', 'teleport', 'players.teleport' }) then
+            return notify(src, 'No permission: map.teleport', 'error')
+        end
+        if onActionCooldown(src, 'mapTeleportToCoords', 1200) then return end
+        local x, y, z = tonumber(data.x), tonumber(data.y), tonumber(data.z)
+        if not x or not y then return notify(src, 'Invalid map coordinates.', 'error') end
+        z = tonumber(z) or 40.0
+        if math.abs(x) > 10000 or math.abs(y) > 10000 or z < -300 or z > 2000 then
+            return notify(src, 'Map coordinates out of range.', 'error')
+        end
+        TriggerClientEvent('cm-admin:client:teleportToCoords', src, { x = x, y = y, z = z + 1.0 })
+        logAction(src, 'map_teleport', { category = 'players', x = x, y = y, z = z })
+        return
+    end
+
+    if action == 'vehicleMapAction' then
+        local vehicleAction = tostring(data.vehicleAction or '')
+        local netId = tonumber(data.netId) or 0
+        local plate = tostring(data.plate or ''):upper():gsub('^%s+', ''):gsub('%s+$', '')
+        local veh = 0
+        if netId > 0 then
+            pcall(function() veh = NetworkGetEntityFromNetworkId(netId) end)
+        end
+        if (not veh or veh == 0 or not DoesEntityExist(veh)) and plate ~= '' then
+            for _, candidate in ipairs(GetAllVehicles()) do
+                if DoesEntityExist(candidate) and tostring(GetVehicleNumberPlateText(candidate) or ''):upper():gsub('^%s+', ''):gsub('%s+$', '') == plate then
+                    veh = candidate
+                    break
+                end
+            end
+        end
+        if not veh or veh == 0 or not DoesEntityExist(veh) then return notify(src, 'Vehicle not found/streamed.', 'error') end
+        local coords = GetEntityCoords(veh)
+
+        if vehicleAction == 'goto' then
+            if not hasAnyPermission(src, { 'map.teleport', 'vehicles.view', 'players.teleport' }) then return notify(src, 'No permission: map.teleport', 'error') end
+            TriggerClientEvent('cm-admin:client:teleportToCoords', src, { x = coords.x, y = coords.y, z = coords.z + 1.0 })
+        elseif vehicleAction == 'delete' then
+            if not hasPermission(src, 'vehicles.manage') then return notify(src, 'No permission: vehicles.manage', 'error') end
+            DeleteEntity(veh)
+            notify(src, 'Vehicle deleted.', 'success')
+        elseif vehicleAction == 'repair' then
+            if not hasPermission(src, 'vehicles.manage') then return notify(src, 'No permission: vehicles.manage', 'error') end
+            TriggerClientEvent('cm-admin:client:repairVehicleNet', src, netId, plate)
+            notify(src, 'Repair request sent. Vehicle must be streamed on your client.', 'info')
+        else
+            return notify(src, 'Unknown vehicle map action.', 'error')
+        end
+        logAction(src, 'map_vehicle_' .. vehicleAction, { category = 'vehicles', netId = netId, plate = plate, x = coords.x, y = coords.y, z = coords.z }, plate ~= '' and ('vehicle:' .. plate) or nil, plate ~= '' and plate or nil)
+        return
+    end
+
+    if action == 'gpsTeleport' then
+        if not hasAnyPermission(src, { 'gps.teleport', 'teleport', 'players.teleport' }) then
+            return notify(src, 'No permission: gps.teleport', 'error')
+        end
+        if onActionCooldown(src, 'gpsTeleport', 2000) then return end
+        logAction(src, 'gps_teleport_request', { category = 'players' })
+        TriggerClientEvent('cm-admin:client:teleportToWaypoint', src)
         return
     end
 
@@ -1268,7 +1588,7 @@ RegisterNetEvent('cm-admin:server:nuiAction', function(payload)
 
     if action == 'viewLogs' then
         if not hasPermission(src, 'logs.view') then return notify(src, 'No permission: logs.view', 'error') end
-        sendDetail(src, 'logs', { logs = getLogsForUi(200) })
+        sendDetail(src, 'logs', { logs = getLogsForUi(200, src), categories = getLogCategoriesForUi(src) })
         return
     end
 
@@ -1281,3 +1601,18 @@ exports('HasPermission', function(src, permission)
 end)
 
 
+
+
+-- Generic audit log bridge for future resources.
+-- Server-side usage:
+--   exports['cm-admin']:AddLog(source, 'family_invite', { category = 'players', familyId = 1 }, targetIdentifier, targetName)
+-- or:
+--   TriggerEvent('cm-admin:server:addLog', source, 'org_created', { category = 'system' })
+exports('AddLog', function(src, action, data, targetIdentifier, targetName)
+    logAction(tonumber(src) or 0, tostring(action or 'external_log'), type(data) == 'table' and data or {}, targetIdentifier, targetName)
+    return true
+end)
+
+AddEventHandler('cm-admin:server:addLog', function(src, action, data, targetIdentifier, targetName)
+    logAction(tonumber(src) or 0, tostring(action or 'external_log'), type(data) == 'table' and data or {}, targetIdentifier, targetName)
+end)

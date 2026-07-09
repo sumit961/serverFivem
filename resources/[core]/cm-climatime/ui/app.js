@@ -6,15 +6,17 @@ let ui = { Accent: '#00e5ff', Brand: 'Climatime' };
 let receivedAt = Date.now();
 let localScheduleItems = [];
 let editingZoneId = null;
+let selectedZonePool = ['CLEAR', 'CLOUDS', 'OVERCAST', 'RAIN'];
+const DEFAULT_WEATHER_VALUES = ['EXTRASUNNY', 'CLEAR', 'NEUTRAL', 'CLOUDS', 'OVERCAST', 'CLEARING', 'RAIN', 'THUNDER', 'FOGGY', 'SMOG', 'SNOW', 'SNOWLIGHT', 'BLIZZARD', 'XMAS', 'HALLOWEEN'];
 
 // Local/offline GTA map coordinate system.
 // NUI cannot read GTA V's pause-map texture directly, so this uses local image layers.
 // It will use the stitched custom GTA map first, then fallback to gta-map-local.png.
 const GTA_MAP = {
-    MIN_X: -4500,
-    MAX_X: 4500,
-    MIN_Y: -4500,
-    MAX_Y: 8500,
+    MIN_X: -3900,
+    MAX_X: 4619,
+    MIN_Y: -4764,
+    MAX_Y: 7510,
     DEFAULT_CENTER: [1500, 0], // [Y, X]
     DEFAULT_ZOOM: -2,
     MIN_ZOOM: -4,
@@ -40,10 +42,29 @@ const GTA_MAP = {
     IMAGE_SOURCES: ['assets/gta-map-local.png']
 };
 
+
+function applyMapConfig(mapConfig = {}) {
+    const bounds = mapConfig.Bounds || mapConfig.bounds || {};
+    const minX = Number(bounds.minX ?? bounds.MinX);
+    const maxX = Number(bounds.maxX ?? bounds.MaxX);
+    const minY = Number(bounds.minY ?? bounds.MinY);
+    const maxY = Number(bounds.maxY ?? bounds.MaxY);
+    if (Number.isFinite(minX)) GTA_MAP.MIN_X = minX;
+    if (Number.isFinite(maxX)) GTA_MAP.MAX_X = maxX;
+    if (Number.isFinite(minY)) GTA_MAP.MIN_Y = minY;
+    if (Number.isFinite(maxY)) GTA_MAP.MAX_Y = maxY;
+    if (zoneMap && window.L) {
+        const boundsArray = getZoneMapBounds();
+        zoneMap.setMaxBounds(boundsArray);
+    }
+}
+
 let zoneMap = null;
 let zoneMapLayer = null;
 let zoneSelectedLayer = null;
 let zoneMapReady = false;
+let zoneMapUpdateQueued = false;
+let lastMapMoveAt = 0;
 
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -54,6 +75,11 @@ function post(name, data = {}) {
         headers: { 'Content-Type': 'application/json; charset=UTF-8' },
         body: JSON.stringify(data)
     }).then(r => r.json()).catch(() => ({}));
+}
+
+function isAppVisible() {
+    const app = $('app');
+    return !!app && !app.classList.contains('hidden');
 }
 
 function canEdit() {
@@ -93,6 +119,212 @@ function currentMinutesFromState() {
 
 function weatherMeta(value) {
     return weatherTypes.find(w => w.value === value) || { value, label: value || 'Unknown', icon: '☁' };
+}
+
+function isValidWeather(value) {
+    value = String(value || '').toUpperCase().trim();
+    if (!value) return false;
+    if (weatherTypes.length) return weatherTypes.some(w => w.value === value);
+    return DEFAULT_WEATHER_VALUES.includes(value);
+}
+
+function normalizeWeatherPool(input, fallback = ['CLEAR', 'CLOUDS', 'OVERCAST', 'RAIN']) {
+    const raw = Array.isArray(input)
+        ? input
+        : String(input || '').split(',');
+    const out = [];
+    raw.forEach(item => {
+        const weather = String(item || '').toUpperCase().trim();
+        if (weather && isValidWeather(weather) && !out.includes(weather)) out.push(weather);
+    });
+    if (!out.length && fallback) return normalizeWeatherPool(fallback, null);
+    return out;
+}
+
+function syncZonePoolInput() {
+    const input = $('zonePool');
+    if (input) input.value = selectedZonePool.join(', ');
+    const count = $('zonePoolCount');
+    if (count) count.textContent = `${selectedZonePool.length} selected`;
+}
+
+
+function showZoneForm(open = true) {
+    const form = $('zoneForm');
+    if (form) form.classList.toggle('hidden', open !== true);
+}
+
+function updateSelectedZoneWeatherDisplay() {
+    const selected = $('zoneSelectedWeather');
+    const select = $('zoneWeather');
+    if (!selected || !select) return;
+    const weather = String(select.value || selectedZonePool[0] || 'CLEAR').toUpperCase();
+    const meta = weatherMeta(weather);
+    selected.innerHTML = `<span>${meta.icon || '☁'}</span><b>All-time weather</b><strong>${escapeHtml(meta.label || weather)}</strong><small>Click a chip below to change this weather.</small>`;
+}
+
+function setZoneWeather(weather) {
+    weather = String(weather || '').toUpperCase().trim();
+    if (!isValidWeather(weather)) return;
+    const select = $('zoneWeather');
+    if (select) select.value = weather;
+    if (($('zoneMode')?.value || 'static') === 'static') {
+        selectedZonePool = [weather];
+        syncZonePoolInput();
+    }
+    renderWeatherPalette();
+    renderMixPool();
+    updateSelectedZoneWeatherDisplay();
+    scheduleZoneMapUpdate();
+}
+
+function beginNewZoneAt(x, y) {
+    const form = $('zoneForm');
+    if (!form || form.classList.contains('hidden')) {
+        clearZoneForm({ keepOpen: true });
+    }
+    showZoneForm(true);
+    setZoneFormCoords(x, y);
+    centerZoneMap(x, y, { keepZoom: true });
+    scheduleZoneMapUpdate();
+}
+
+function setZonePool(pool, options = {}) {
+    selectedZonePool = normalizeWeatherPool(pool, options.allowEmpty ? null : ['CLEAR']);
+    syncZonePoolInput();
+    renderMixPool();
+    renderWeatherPalette();
+}
+
+function addZonePoolWeather(weather) {
+    weather = String(weather || '').toUpperCase().trim();
+    if (!isValidWeather(weather)) return;
+    if (!selectedZonePool.includes(weather)) selectedZonePool.push(weather);
+    if ($('zoneMode') && $('zoneMode').value === 'static') $('zoneMode').value = 'mix';
+    syncZonePoolInput();
+    renderMixPool();
+    renderWeatherPalette();
+    syncZoneModeUI();
+}
+
+function removeZonePoolWeather(weather) {
+    weather = String(weather || '').toUpperCase().trim();
+    selectedZonePool = selectedZonePool.filter(w => w !== weather);
+    syncZonePoolInput();
+    renderMixPool();
+    renderWeatherPalette();
+}
+
+function createWeatherChip(weather, selected = false) {
+    const meta = weatherMeta(weather);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `weatherChip ${selected ? 'selected' : ''}`;
+    btn.draggable = true;
+    btn.dataset.weather = meta.value;
+    btn.innerHTML = `<span>${meta.icon || '☁'}</span><b>${escapeHtml(meta.label || meta.value)}</b>`;
+    btn.addEventListener('click', () => {
+        if (($('zoneMode')?.value || 'static') === 'static') setZoneWeather(meta.value);
+        else addZonePoolWeather(meta.value);
+    });
+    btn.addEventListener('dragstart', (event) => {
+        event.dataTransfer.setData('text/weather', meta.value);
+        event.dataTransfer.setData('text/plain', meta.value);
+        btn.classList.add('dragging');
+    });
+    btn.addEventListener('dragend', () => btn.classList.remove('dragging'));
+    return btn;
+}
+
+function renderWeatherPalette() {
+    const wrap = $('zoneWeatherPalette');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const activeWeather = $('zoneWeather')?.value;
+    const staticMode = ($('zoneMode')?.value || 'static') === 'static';
+    weatherTypes.forEach(w => wrap.appendChild(createWeatherChip(w.value, staticMode ? activeWeather === w.value : selectedZonePool.includes(w.value))));
+}
+
+function renderMixPool() {
+    const drop = $('zonePoolDrop');
+    if (!drop) return;
+    drop.innerHTML = '';
+    if (!selectedZonePool.length) {
+        const empty = document.createElement('span');
+        empty.className = 'dropHint';
+        empty.textContent = 'Drop weather here or click chips above';
+        drop.appendChild(empty);
+        drop.classList.add('empty');
+        syncZonePoolInput();
+        return;
+    }
+    drop.classList.remove('empty');
+    selectedZonePool.forEach(weather => {
+        const meta = weatherMeta(weather);
+        const chip = document.createElement('div');
+        chip.className = 'poolChip';
+        chip.dataset.weather = weather;
+        chip.innerHTML = `<span>${meta.icon || '☁'}</span><b>${escapeHtml(meta.label || weather)}</b><button type="button" aria-label="Remove ${escapeHtml(weather)}">×</button>`;
+        chip.querySelector('button').addEventListener('click', () => removeZonePoolWeather(weather));
+        drop.appendChild(chip);
+    });
+    syncZonePoolInput();
+}
+
+function setupMixDropZone() {
+    const drop = $('zonePoolDrop');
+    if (!drop || drop.dataset.ready === 'true') return;
+    drop.dataset.ready = 'true';
+    ['dragenter', 'dragover'].forEach(name => {
+        drop.addEventListener(name, (event) => {
+            event.preventDefault();
+            drop.classList.add('dragOver');
+        });
+    });
+    ['dragleave', 'drop'].forEach(name => {
+        drop.addEventListener(name, () => drop.classList.remove('dragOver'));
+    });
+    drop.addEventListener('drop', (event) => {
+        event.preventDefault();
+        const weather = event.dataTransfer.getData('text/weather') || event.dataTransfer.getData('text/plain');
+        addZonePoolWeather(weather);
+    });
+}
+
+function syncZoneModeUI() {
+    const mode = $('zoneMode')?.value || 'static';
+    const builder = $('zoneMixBuilder');
+    if (builder) builder.classList.toggle('disabled', mode === 'static');
+    const duration = $('zoneDurationWrap');
+    if (duration) duration.classList.toggle('hidden', mode === 'static');
+    updateSelectedZoneWeatherDisplay();
+    renderWeatherPalette();
+    return mode;
+}
+
+function buildMixWeatherUI() {
+    setupMixDropZone();
+    renderWeatherPalette();
+    renderMixPool();
+    syncZoneModeUI();
+}
+
+function fillProfileSelect() {
+    const select = $('weatherProfile');
+    if (!select) return;
+    const profiles = ui.WeatherProfiles || {};
+    const current = state?.weather?.profile || 'normal';
+    select.innerHTML = '';
+    Object.entries(profiles).forEach(([key, profile]) => {
+        const opt = document.createElement('option');
+        opt.value = key;
+        opt.textContent = profile.label || key;
+        select.appendChild(opt);
+    });
+    if (!select.children.length) {
+        const opt = document.createElement('option'); opt.value = 'normal'; opt.textContent = 'Normal'; select.appendChild(opt);
+    }
+    if ([...select.options].some(o => o.value === current)) select.value = current;
 }
 
 function secondsToText(unix) {
@@ -155,6 +387,7 @@ function fillPresetSelect() {
 function fillAllSelects() {
     ['scheduleWeather', 'zoneWeather'].forEach(id => fillWeatherSelect($(id)));
     fillPresetSelect();
+    fillProfileSelect();
 }
 
 function buildWeatherGrid() {
@@ -178,7 +411,7 @@ function setTab(tab) {
         weather: ['Forecast', 'Current conditions and weather management controls.'],
         time: ['Time Manager', 'Configure the in-game time using real-life time or a custom value.'],
         schedule: ['Schedule Presets', 'Create weather rotation presets with custom durations.'],
-        zones: ['Weather Zones', 'Click the map to select a zone, drag center or radius handle, then save.']
+        zones: ['Weather Zones', 'Create local weather with visual static, dynamic, or mixed pools.']
     };
     $('breadcrumb').textContent = `Climatime › ${tab[0].toUpperCase()}${tab.slice(1)}`;
     $('pageTitle').textContent = titles[tab][0];
@@ -305,14 +538,16 @@ function renderZones() {
     zones.forEach(zone => {
         const meta = weatherMeta(zone.currentWeather || zone.weather);
         const players = state?.zoneDebug?.counts?.[zone.id] || 0;
+        const pool = normalizeWeatherPool(zone.pool || [], null);
+        const poolText = pool.length ? ` • Pool ${pool.slice(0, 4).join(', ')}${pool.length > 4 ? ' +' + (pool.length - 4) : ''}` : '';
         const el = document.createElement('div');
         el.className = `zoneItem ${editingZoneId === zone.id ? 'active' : ''}`;
         el.innerHTML = `
             <div class="zoneItemTop">
                 <strong>${escapeHtml(zone.name || zone.id)}</strong>
-                <small>${zone.enabled === false ? 'OFF' : 'ON'} • ${zone.mode || 'static'}</small>
+                <small>${zone.enabled === false ? 'OFF' : 'ON'} • ${zone.mode === 'static' ? 'all-time' : (zone.mode || 'static')}</small>
             </div>
-            <small>${meta.icon || '☁'} ${meta.label || zone.weather} • Radius ${Math.round(zone.radius || 0)} • Priority ${zone.priority || 0} • Players ${players} • X ${Number(zone.x).toFixed(1)} Y ${Number(zone.y).toFixed(1)}</small>
+            <small>${meta.icon || '☁'} ${meta.label || zone.weather}${poolText} • Radius ${Math.round(zone.radius || 0)} • Priority ${zone.priority || 0} • Players ${players} • X ${Number(zone.x).toFixed(1)} Y ${Number(zone.y).toFixed(1)}</small>
             <div class="zoneActions">
                 <button class="ghost focus">Map</button>
                 <button class="ghost edit">Edit</button>
@@ -333,18 +568,20 @@ function escapeHtml(value) {
 }
 
 function fillZoneForm(zone) {
+    showZoneForm(true);
     editingZoneId = zone.id;
     $('zoneId').value = zone.id || '#auto';
     $('zoneName').value = zone.name || '';
     $('zoneMode').value = zone.mode || 'static';
     $('zoneWeather').value = zone.weather || zone.currentWeather || 'CLEAR';
-    $('zonePool').value = (zone.pool || []).join(', ');
+    setZonePool(zone.mode === 'static' ? [($('zoneWeather').value || 'CLEAR')] : (zone.pool || ['CLEAR', 'CLOUDS', 'OVERCAST', 'RAIN']));
     $('zoneX').value = Number(zone.x || 0).toFixed(2);
     $('zoneY').value = Number(zone.y || 0).toFixed(2);
     $('zoneZ').value = Number(zone.z || 0).toFixed(2);
     $('zoneRadius').value = zone.radius || 200;
     $('zoneDuration').value = zone.durationMinutes || 20;
     if ($('zonePriority')) $('zonePriority').value = zone.priority || 0;
+    buildMixWeatherUI();
     setTab('zones');
     setTimeout(() => {
         centerZoneMap(zone.x, zone.y);
@@ -352,30 +589,33 @@ function fillZoneForm(zone) {
     }, 100);
 }
 
-function clearZoneForm() {
+function clearZoneForm(options = {}) {
     editingZoneId = null;
     $('zoneId').value = '#auto';
     $('zoneName').value = '';
     $('zoneMode').value = 'static';
     $('zoneWeather').value = weatherTypes[0]?.value || 'CLEAR';
-    $('zonePool').value = 'CLEAR, CLOUDS, OVERCAST, RAIN';
+    setZonePool(['CLEAR', 'CLOUDS', 'OVERCAST', 'RAIN']);
     $('zoneX').value = 0;
     $('zoneY').value = 0;
     $('zoneZ').value = 0;
     $('zoneRadius').value = 200;
     $('zoneDuration').value = 20;
     if ($('zonePriority')) $('zonePriority').value = 0;
+    buildMixWeatherUI();
+    updateSelectedZoneWeatherDisplay();
+    if (!options.keepOpen) showZoneForm(false);
     renderZones();
     updateZoneMap();
 }
 
 function readZoneForm() {
-    const pool = $('zonePool').value.split(',').map(x => x.trim().toUpperCase()).filter(Boolean);
+    const pool = normalizeWeatherPool(selectedZonePool, ['CLEAR']);
     return {
         id: $('zoneId').value.trim() || '#auto',
         name: $('zoneName').value.trim() || 'Weather Zone',
         mode: $('zoneMode').value,
-        weather: $('zoneWeather').value,
+        weather: $('zoneWeather').value || pool[0] || 'CLEAR',
         pool,
         x: Number($('zoneX').value || 0),
         y: Number($('zoneY').value || 0),
@@ -406,6 +646,7 @@ function updateUI() {
     updateTimeForm();
     updateScheduleUI();
     updateZonesUI();
+    buildMixWeatherUI();
     applyPermissions();
 }
 
@@ -541,8 +782,11 @@ function initZoneMap() {
         maxBounds: bounds,
         maxBoundsViscosity: 0.7,
         preferCanvas: true,
-        doubleClickZoom: false,
-        boxZoom: false
+        doubleClickZoom: true,
+        boxZoom: false,
+        scrollWheelZoom: true,
+        wheelDebounceTime: 80,
+        wheelPxPerZoomLevel: 90
     });
 
     loadZoneBaseMap(L, bounds);
@@ -553,8 +797,16 @@ function initZoneMap() {
 
     zoneMap.on('click', (event) => {
         const [x, y] = toGameCoords(event.latlng.lat, event.latlng.lng);
-        setZoneFormCoords(x, y);
-        updateZoneMap();
+        beginNewZoneAt(x, y);
+    });
+
+    zoneMap.on('mousemove', (event) => {
+        const now = Date.now();
+        if (now - lastMapMoveAt < 120) return;
+        lastMapMoveAt = now;
+        const [x, y] = toGameCoords(event.latlng.lat, event.latlng.lng);
+        const hint = $('zoneMapHint');
+        if (hint) hint.textContent = `Map X ${x.toFixed(0)} Y ${y.toFixed(0)} • click to set center • drag ↔ for radius`;
     });
 
     zoneMapReady = true;
@@ -615,7 +867,17 @@ function updateCoordsReadout(x, y, radius) {
     $('zoneMapCoords').textContent = `X ${Number(x).toFixed(2)} Y ${Number(y).toFixed(2)} • R ${Math.round(radius)}`;
 }
 
+function scheduleZoneMapUpdate() {
+    if (zoneMapUpdateQueued) return;
+    zoneMapUpdateQueued = true;
+    requestAnimationFrame(() => {
+        zoneMapUpdateQueued = false;
+        updateZoneMap();
+    });
+}
+
 function updateZoneMap() {
+    zoneMapUpdateQueued = false;
     if (!zoneMapReady || !zoneMap || !window.L) {
         initZoneMap();
         return;
@@ -727,11 +989,12 @@ function updateZoneMap() {
     });
 }
 
-function centerZoneMap(x, y) {
+function centerZoneMap(x, y, options = {}) {
     initZoneMap();
     if (!zoneMap) return;
     const [lat, lng] = toMapCoords(x, y);
-    zoneMap.setView([lat, lng], Math.max(zoneMap.getZoom(), GTA_MAP.DEFAULT_ZOOM + 1), { animate: true });
+    const zoom = options.keepZoom ? zoneMap.getZoom() : Math.max(zoneMap.getZoom(), GTA_MAP.DEFAULT_ZOOM + 1);
+    zoneMap.setView([lat, lng], zoom, { animate: true });
     invalidateZoneMap();
 }
 
@@ -746,6 +1009,7 @@ window.addEventListener('message', (event) => {
         state = data.state;
         weatherTypes = data.weatherTypes || weatherTypes;
         ui = data.ui || ui;
+        applyMapConfig(ui.Map || {});
         receivedAt = Date.now();
         $('app').classList.remove('hidden');
         updateUI();
@@ -756,6 +1020,7 @@ window.addEventListener('message', (event) => {
         state = data.state;
         weatherTypes = data.weatherTypes || weatherTypes;
         ui = data.ui || ui;
+        applyMapConfig(ui.Map || {});
         receivedAt = Date.now();
         updateUI();
     }
@@ -794,6 +1059,7 @@ $('saveWeatherOptions').addEventListener('click', () => {
     });
 });
 $('resetWeather').addEventListener('click', () => adminAction('resetWeather'));
+if ($('applyProfile')) $('applyProfile').addEventListener('click', () => adminAction('setProfile', { profile: $('weatherProfile').value }));
 if ($('applyPreset')) $('applyPreset').addEventListener('click', () => adminAction('applyPreset', { preset: $('eventPreset').value }));
 if ($('undoWeather')) $('undoWeather').addEventListener('click', () => adminAction('undo'));
 if ($('smoothToggle')) $('smoothToggle').addEventListener('change', () => { $('instantToggle').checked = !$('smoothToggle').checked; });
@@ -844,6 +1110,7 @@ $('scheduleActive').addEventListener('change', () => {
 
 $('zonesEnabled').addEventListener('change', () => adminAction('toggleZones', { enabled: $('zonesEnabled').checked }));
 $('getPos').addEventListener('click', async () => {
+    showZoneForm(true);
     const pos = await post('getPosition');
     if (pos && pos.ok) {
         $('zoneX').value = pos.x;
@@ -858,16 +1125,34 @@ $('getPos').addEventListener('click', async () => {
 });
 $('saveZone').addEventListener('click', () => adminAction('saveZone', { zone: readZoneForm() }));
 $('cancelZone').addEventListener('click', clearZoneForm);
+if ($('poolNormal')) $('poolNormal').addEventListener('click', () => setZonePool(['CLEAR', 'CLOUDS', 'OVERCAST', 'FOGGY']));
+if ($('poolRain')) $('poolRain').addEventListener('click', () => setZonePool(['CLOUDS', 'OVERCAST', 'RAIN', 'CLEARING']));
+if ($('poolStorm')) $('poolStorm').addEventListener('click', () => setZonePool(['OVERCAST', 'RAIN', 'THUNDER', 'CLEARING']));
+if ($('poolSnow')) $('poolSnow').addEventListener('click', () => setZonePool(['SNOWLIGHT', 'SNOW', 'BLIZZARD', 'XMAS']));
+if ($('poolClear')) $('poolClear').addEventListener('click', () => setZonePool([], { allowEmpty: true }));
+if ($('zoneMode')) $('zoneMode').addEventListener('change', syncZoneModeUI);
+
+
+if ($('mapNewZone')) $('mapNewZone').addEventListener('click', () => {
+    showZoneForm(true);
+    const center = zoneMap ? zoneMap.getCenter() : { lat: 0, lng: 0 };
+    const [x, y] = toGameCoords(center.lat, center.lng);
+    beginNewZoneAt(x, y);
+});
+if ($('mapZoomIn')) $('mapZoomIn').addEventListener('click', () => { if (zoneMap) zoneMap.zoomIn(); });
+if ($('mapZoomOut')) $('mapZoomOut').addEventListener('click', () => { if (zoneMap) zoneMap.zoomOut(); });
+if ($('mapFocusForm')) $('mapFocusForm').addEventListener('click', () => centerZoneMap(Number($('zoneX').value || 0), Number($('zoneY').value || 0)));
+if ($('mapUsePlayer')) $('mapUsePlayer').addEventListener('click', () => $('getPos').click());
 
 ['zoneX', 'zoneY', 'zoneRadius', 'zoneWeather', 'zoneName'].forEach(id => {
     const el = $(id);
-    if (el) el.addEventListener('input', updateZoneMap);
-    if (el) el.addEventListener('change', updateZoneMap);
+    if (el) el.addEventListener('input', scheduleZoneMapUpdate);
+    if (el) el.addEventListener('change', scheduleZoneMapUpdate);
 });
 
-setInterval(updateTimeUI, 1000);
+setInterval(() => { if (isAppVisible()) updateTimeUI(); }, 1000);
 setInterval(() => {
-    if (state) {
+    if (isAppVisible() && state) {
         $('nextChange').textContent = state.schedule?.active ? secondsToText(state.schedule.nextChangeAt) : secondsToText(state.weather?.nextChangeAt);
     }
 }, 1000);

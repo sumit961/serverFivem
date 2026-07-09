@@ -1,76 +1,89 @@
-CM.State = {
+CM = CM or {}
+CM.State = CM.State or {
     OnlinePlayers = {},
     Sessions = {},
     Registries = {},
 }
 
+local function shallowCopy(tbl)
+    local copy = {}
+    if type(tbl) ~= 'table' then return copy end
+    for k, v in pairs(tbl) do copy[k] = v end
+    return copy
+end
+
 exports('RegisterState', function(resourceName, initialData)
-    CM.State.Registries[resourceName] = initialData or {}
+    if type(resourceName) ~= 'string' then return nil end
+    CM.State.Registries[resourceName] = type(initialData) == 'table' and shallowCopy(initialData) or {}
     return CM.State.Registries[resourceName]
 end)
 
 exports('GetState', function(resourceName)
+    if type(resourceName) ~= 'string' then return nil end
     if not CM.State.Registries[resourceName] then return nil end
-    local copy = {}
-    for k, v in pairs(CM.State.Registries[resourceName]) do copy[k] = v end
-    return copy
+    return shallowCopy(CM.State.Registries[resourceName])
 end)
 
 exports('UpdateState', function(resourceName, key, value)
+    if type(resourceName) ~= 'string' or key == nil then return false end
     if not CM.State.Registries[resourceName] then return false end
+
     local old = CM.State.Registries[resourceName][key]
     CM.State.Registries[resourceName][key] = value
+
     TriggerEvent('cm-core:stateChanged', resourceName, key, value, old)
     TriggerClientEvent('cm-core:client:stateUpdate', -1, resourceName, key, value)
     return true
 end)
 
 exports('SubscribeState', function(resourceName, callback)
+    if type(resourceName) ~= 'string' or type(callback) ~= 'function' then return false end
     AddEventHandler('cm-core:stateChanged', function(res, key, newVal, oldVal)
         if res == resourceName then callback(key, newVal, oldVal) end
     end)
+    return true
 end)
 
+-- Compatibility event for old resources. New resources should use cm-playerdata events.
 AddEventHandler('cm-core:characterLoaded', function(src, charId)
-    local char = nil
-    if exports['cm-characters'] then
-        char = exports['cm-characters']:GetCharacterById(charId)
-    end
-    
+    src = tonumber(src)
+    if not src or not charId then return end
+
     CM.State.OnlinePlayers[charId] = {
-        src = src, charId = charId,
-        name = char and (char.first_name .. " " .. char.last_name) or "Unknown",
-        rankId = char and char.current_rank_id or 1,
+        src = src,
+        charId = charId,
+        name = 'Unknown',
         joinedAt = os.time(),
     }
-    
-    CM.State.Sessions[src] = {charId = charId, connectTime = os.time()}
-    
-    local ps = Player(src).state
-    ps:set('charId', charId, true)
-    ps:set('isLoggedIn', true, true)
-    ps:set('isDead', false, true)
+    CM.State.Sessions[src] = { charId = charId, connectTime = os.time() }
+
+    pcall(function()
+        Player(src).state:set('charId', charId, true)
+        Player(src).state:set('isLoggedIn', true, true)
+        Player(src).state:set('isDead', false, true)
+    end)
 end)
 
-AddEventHandler('playerDropped', function(reason)
+AddEventHandler('playerDropped', function()
     local src = source
-    local charId = Player(src).state.charId
-    
-    if charId and CM.State.OnlinePlayers[charId] then
-        CM.State.OnlinePlayers[charId] = nil
-    end
-    if CM.State.Sessions[src] then
-        CM.State.Sessions[src] = nil
-    end
-    
-    local ps = Player(src).state
-    ps:set('charId', nil, true)
-    ps:set('isLoggedIn', false, true)
+    local charId
+    pcall(function() charId = Player(src).state.charId end)
+
+    if charId then CM.State.OnlinePlayers[charId] = nil end
+    CM.State.Sessions[src] = nil
 end)
 
-exports('IsPlayerOnline', function(charId) return CM.State.OnlinePlayers[charId] ~= nil end)
-exports('GetOnlinePlayer', function(charId) return CM.State.OnlinePlayers[charId] end)
-exports('GetOnlineCount', function()
+exports('IsPlayerOnline', function(charId)
+    if not charId then return false end
+    return CM.State.OnlinePlayers[charId] ~= nil or exports['cm-core']:GetOnlinePlayer(charId) ~= nil
+end)
+
+exports('GetOnlinePlayerByCharId', function(charId)
+    if not charId then return nil end
+    return CM.State.OnlinePlayers[charId]
+end)
+
+exports('GetStateOnlineCount', function()
     local c = 0
     for _ in pairs(CM.State.OnlinePlayers) do c = c + 1 end
     return c

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1b2038"/><stop offset="1" stop-color="#05070c"/></linearGradient>
+    <radialGradient id="r" cx="50%" cy="35%" r="65%"><stop offset="0" stop-color="#ffffff" stop-opacity=".16"/><stop offset="1" stop-color="#000000" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1200" height="800" fill="url(#g)"/>
+  <rect width="1200" height="800" fill="url(#r)"/>
+  <g opacity=".28" fill="none" stroke="#fff" stroke-width="2">
+    <path d="M0 610 C180 560 280 680 430 620 S710 500 900 585 1090 690 1200 620"/>
+    <path d="M0 680 C170 630 340 735 510 682 S780 610 960 690 1115 730 1200 700"/>
+  </g>
+  <text x="70" y="710" font-family="Arial, sans-serif" font-size="86" font-weight="900" fill="#fff" opacity=".2" letter-spacing="8">GANG</text>
+</svg>

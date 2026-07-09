@@ -251,7 +251,8 @@ Config.IconCapture = {
         -- Pure item capture for outerwear, pants and bags: do NOT keep the mannequin body.
         -- This leaves only the target clothing visible after the head-hide / ghost pass.
         torso    = { },
-        tshirt   = { [3] = 0, [4] = 0, [6] = 0 },
+        -- T-shirt: capture like outerwear — item only, no mannequin body.
+        tshirt   = { },
         armor    = { [3] = 0, [4] = 0, [6] = 0, [8] = 0 },
         pants    = { },
         bags     = { },
@@ -267,7 +268,12 @@ Config.IconCapture = {
         -- alone. On the rare model where -1 leaves a bare-arm fallback, the tight
         -- watch camera (captureCameras.watches) still crops the stub out.
         watches  = { },
-        chains   = { [3] = 0, [8] = 0 }, -- keep upper body so necklaces/chains are visible
+        -- Chains / necklaces (component 7) sit on the upper chest. Keep a BARE
+        -- torso skin so the chain has a neck/chest to rest on, but HIDE the
+        -- undershirt/shirt (8) and top (11) so no shirt covers it. If your torso
+        -- drawable 0 still shows a shirt on your build, try a different nude value
+        -- here (e.g. [3] = 15) — it's the bare-skin torso drawable.
+        chains   = { [3] = 0 },
         -- Hats, glasses and earrings attach to the HEAD BONE, which still exists
         -- even when the head mesh is invisible. So we hide the head (head not kept)
         -- and the prop renders alone, floating where the head would be — no head in

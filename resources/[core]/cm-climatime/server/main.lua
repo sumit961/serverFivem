@@ -105,6 +105,8 @@ end
 local state = defaultState()
 local playerPaused = {}
 local playerZones = {}
+local lastStateSendAt = {}
+local lastPreSpawnRequestAt = {}
 
 local function sanitizeWeatherPool(pool, fallback)
     local cleaned = {}
@@ -151,6 +153,7 @@ local function sanitizeState(raw)
         base.time.freeze = raw.time.freeze == true
         base.time.hour = clamp(raw.time.hour, 0, 23)
         base.time.minute = clamp(raw.time.minute, 0, 59)
+        base.time.speed = clamp(raw.time.speed or base.time.speed, 0.1, 60)
         base.time.baseUnix = tonumber(raw.time.baseUnix) or os.time()
     end
 
@@ -216,7 +219,21 @@ local function sanitizeState(raw)
         if type(raw.history.items) == 'table' then
             for i, item in ipairs(raw.history.items) do
                 if i > base.history.max then break end
-                base.history.items[#base.history.items + 1] = item
+                if type(item) == 'table' then
+                    base.history.items[#base.history.items + 1] = {
+                        id = tostring(item.id or makeId('hist')),
+                        action = tostring(item.action or 'unknown'),
+                        admin = tostring(item.admin or 'unknown'),
+                        at = tonumber(item.at) or os.time(),
+                        data = type(item.data) == 'table' and item.data or {},
+                        before = type(item.before) == 'table' and {
+                            weather = item.before.weather,
+                            time = item.before.time,
+                            schedule = item.before.schedule,
+                            zones = item.before.zones
+                        } or nil
+                    }
+                end
             end
         end
     end
@@ -347,35 +364,116 @@ local function computeTemperature(weather, hour)
 end
 
 local function rebaseManualTime()
-    if state.time.mode == 'realtime' or state.time.freeze then return end
-    local h, m = getCurrentTimeForState()
-    state.time.hour = h
-    state.time.minute = m
-    state.time.baseUnix = os.time()
+    if state.time.mode == 'realtime' or state.time.freeze then return false end
+
+    local speed = tonumber(state.time.speed) or 1
+    if speed <= 0 then return false end
+
+    local baseUnix = tonumber(state.time.baseUnix) or os.time()
+    local elapsedSeconds = os.time() - baseUnix
+    if elapsedSeconds <= 0 then return false end
+
+    -- Convert only full in-game minutes. Fractional remainders remain anchored
+    -- to baseUnix so slow speeds like 0.5x do not freeze and 1.5x does not
+    -- drift behind client-side predictive clocks.
+    local addMinutes = math.floor((elapsedSeconds / 60) * speed)
+    if addMinutes <= 0 then return false end
+
+    local baseMinutes = ((tonumber(state.time.hour) or 0) * 60) + (tonumber(state.time.minute) or 0)
+    local total = (baseMinutes + addMinutes) % 1440
+
+    state.time.hour = math.floor(total / 60)
+    state.time.minute = total % 60
+
+    local consumedSeconds = math.floor((addMinutes * 60) / speed)
+    state.time.baseUnix = baseUnix + math.max(1, consumedSeconds)
+    return true
+end
+
+
+local function compactCopy(value, depth)
+    depth = (tonumber(depth) or 0) + 1
+    if depth > 8 then return nil end
+    if type(value) ~= 'table' then return value end
+    local out = {}
+    for k, v in pairs(value) do
+        -- Raw history contains undo snapshots and can grow very large. Public
+        -- clients/admin UI use historyPublic instead.
+        if k ~= 'history' and k ~= 'before' then
+            out[k] = compactCopy(v, depth)
+        end
+    end
+    return out
 end
 
 local function publicState()
+    -- Build a compact snapshot instead of returning the live `state` table.
+    -- Returning the live table leaked raw history undo snapshots into every sync;
+    -- after a few admin edits this could exceed 1MB and hitch the server.
     local h, m = getCurrentTimeForState()
-    state.serverUnix = os.time()
+    local now = os.time()
+
     if state.time.mode == 'realtime' then
         state.time.hour = h
         state.time.minute = m
     end
-    state.zoneDebug = { counts = zoneCounts(), updatedAt = os.time() }
-    state.temperature = { c = computeTemperature(state.weather.current, h), unit = 'C' }
-    state.historyPublic = compactHistory()
-    local snapshot = state
-    snapshot.time.displayHour = h
-    snapshot.time.displayMinute = m
-    return snapshot
+
+    return {
+        version = state.version or 1,
+        serverUnix = now,
+        weather = compactCopy(state.weather or {}),
+        time = (function()
+            local out = compactCopy(state.time or {})
+            out.displayHour = h
+            out.displayMinute = m
+            return out
+        end)(),
+        schedule = compactCopy(state.schedule or { active = false, items = {} }),
+        zones = compactCopy(state.zones or { enabled = true, items = {} }),
+        runtime = compactCopy(state.runtime or {}),
+        zoneDebug = { counts = zoneCounts(), updatedAt = now },
+        temperature = { c = computeTemperature(state.weather and state.weather.current or Config.Weather.Start, h), unit = 'C' },
+        historyPublic = compactHistory()
+    }
+end
+
+local function sendSync(target, payload)
+    payload = payload or publicState()
+    local encoded = json.encode(payload) or '{}'
+    local bytes = #encoded
+    if bytes > (Config.Sync and Config.Sync.LatentThresholdBytes or 65536) then
+        -- Latent events avoid a single huge network burst if an admin has many zones.
+        TriggerLatentClientEvent('cm-climatime:client:sync', target, Config.Sync and Config.Sync.LatentBps or 25000, payload)
+    else
+        TriggerClientEvent('cm-climatime:client:sync', target, payload)
+    end
 end
 
 local function broadcast()
-    TriggerClientEvent('cm-climatime:client:sync', -1, publicState())
+    sendSync(-1, publicState())
 end
 
-local function sendTo(src)
-    TriggerClientEvent('cm-climatime:client:sync', src, publicState())
+local function nowMs()
+    if type(GetGameTimer) == 'function' then return GetGameTimer() end
+    return math.floor(os.clock() * 1000)
+end
+
+local function sendTo(src, opts)
+    opts = type(opts) == 'table' and opts or {}
+    src = tonumber(src) or 0
+    if src <= 0 then return false end
+
+    local throttleMs = tonumber(opts.throttleMs) or tonumber(Config.Sync and Config.Sync.RequestThrottleMs) or 750
+    if opts.force ~= true and throttleMs > 0 then
+        local now = nowMs()
+        if lastStateSendAt[src] and (now - lastStateSendAt[src]) < throttleMs then
+            return false
+        end
+        lastStateSendAt[src] = now
+    end
+
+    sendSync(src, publicState())
+    return true
 end
 
 
@@ -398,11 +496,20 @@ local function historyMeta(src, action, data, before)
     }
 end
 
+local function buildUndoSnapshot()
+    -- Only store the parts needed for admin undo. Never store history inside
+    -- history, otherwise payload size grows exponentially over time.
+    return {
+        weather = deepCopy(state.weather or {}),
+        time = deepCopy(state.time or {}),
+        schedule = deepCopy(state.schedule or {}),
+        zones = deepCopy(state.zones or {})
+    }
+end
+
 local function pushHistory(src, action, data)
     state.history = state.history or { items = {}, max = 20 }
-    local before = deepCopy(state)
-    before.history = deepCopy(state.history)
-    local item = historyMeta(src, action, data, before)
+    local item = historyMeta(src, action, data, buildUndoSnapshot())
     table.insert(state.history.items, 1, item)
     local max = tonumber(state.history.max) or 20
     while #state.history.items > max do table.remove(state.history.items) end
@@ -724,6 +831,7 @@ local function normalizeZone(data)
     if id == '' or id == '#auto' then id = makeId('zone') end
 
     local mode = tostring(data.mode or 'static')
+    if mode == 'alltime' then mode = 'static' end
     if mode ~= 'static' and mode ~= 'dynamic' and mode ~= 'mix' then mode = 'static' end
 
     local weather = upperWeather(data.weather) or state.weather.current or Config.Weather.Start
@@ -760,6 +868,30 @@ RegisterNetEvent('cm-climatime:server:syncMe', function()
     sendTo(source)
 end)
 
+RegisterNetEvent('cm-climatime:server:requestPreSpawnClimate', function(payload)
+    local src = source
+    local cfg = Config.PreSpawnPrepare or {}
+    local throttleMs = tonumber(cfg.ServerRequestThrottleMs) or 1500
+    local now = nowMs()
+
+    -- cm-spawn can ask for climate while opening the spawn page and again before
+    -- final reveal. Rate-limit this server path so a bad loop cannot overflow the
+    -- reliable event queue during login/spawn.
+    if lastPreSpawnRequestAt[src] and (now - lastPreSpawnRequestAt[src]) < throttleMs then
+        return
+    end
+    lastPreSpawnRequestAt[src] = now
+
+    sendTo(src, { force = true })
+
+    -- Disabled by default for current cm-spawn because it already triggers the
+    -- local client pre-spawn event. Enabling this for old spawn resources still
+    -- remains rate-limited by the guard above.
+    if cfg.ServerClientPrepareNudge == true then
+        TriggerClientEvent('cm-climatime:client:prepareBeforeSpawn', src, type(payload) == 'table' and payload or { reason = 'server-pre-spawn-request' })
+    end
+end)
+
 RegisterNetEvent('cm-climatime:server:setPlayerPaused', function(paused, reason)
     local src = source
     playerPaused[src] = paused == true and tostring(reason or 'external') or nil
@@ -773,6 +905,8 @@ end)
 AddEventHandler('playerDropped', function()
     playerPaused[source] = nil
     playerZones[source] = nil
+    lastStateSendAt[source] = nil
+    lastPreSpawnRequestAt[source] = nil
 end)
 
 local function openAdminFor(src)
@@ -783,6 +917,8 @@ local function openAdminFor(src)
     local ui = deepCopy(Config.UI or {})
     ui.Permissions = { view = true, edit = canEdit(src) }
     ui.EventPresets = Config.EventPresets or {}
+    ui.WeatherProfiles = Config.WeatherProfiles or {}
+    ui.Map = Config.Map or {}
     TriggerClientEvent('cm-climatime:client:openAdmin', src, publicState(), Config.Weather.AllTypes, ui)
 end
 
@@ -846,7 +982,7 @@ ApplyAdminAction = function(src, action, data)
     if action == 'undo' then
         local hist = state.history and state.history.items and table.remove(state.history.items, 1) or nil
         if hist and hist.before then
-            state = hist.before
+            state = sanitizeState(hist.before)
             state.history = state.history or { items = {}, max = 20 }
             saveState()
             broadcast()
@@ -896,13 +1032,14 @@ ApplyAdminAction = function(src, action, data)
         return
 
     elseif action == 'setTimeSpeed' then
-        state.time.speed = math.max(1, math.min(60, tonumber(data.speed) or 1))
         if state.time.mode ~= 'realtime' then
-            -- Rebase so the speed change applies from now, not retroactively.
+            -- Rebase using the OLD speed first so the new speed applies from now,
+            -- not retroactively.
             local h, m = getCurrentTimeForState()
             state.time.hour, state.time.minute = h, m
             state.time.baseUnix = os.time()
         end
+        state.time.speed = math.max(0.1, math.min(60, tonumber(data.speed) or 1))
         saveState()
         broadcast()
         notifyAdmin(src, ('Time speed x%s'):format(state.time.speed))
@@ -1129,6 +1266,9 @@ CreateThread(function()
     math.randomseed(os.time())
     ensureSchema()
     loadState()
+    -- Save once after sanitizeState() so old oversized history snapshots are
+    -- compacted in DB/file and future restarts stay fast.
+    pcall(saveState)
     Wait(1000)
     broadcast()
 
@@ -1142,8 +1282,9 @@ CreateThread(function()
         -- resumes near the right time (read path stays drift-free in between).
         if os.time() - lastRebase >= 60 then
             lastRebase = os.time()
-            rebaseManualTime()
-            saveState()
+            if rebaseManualTime() then
+                saveState()
+            end
         end
 
         if os.time() - lastSync >= (Config.Time.SyncIntervalSeconds or 30) then

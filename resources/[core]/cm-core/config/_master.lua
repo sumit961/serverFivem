@@ -2,61 +2,51 @@ CM = CM or {}
 
 CM.Config = {
     Server = {
-        name = "Grand RP Style Server",
-        maxPlayers = 128,
-        whitelistEnabled = false,
-        queueEnabled = true,
-        devMode = true,
+        name = GetConvar('sv_hostname', 'Grand RP by Sumit_Yadav'),
+        maxPlayers = tonumber(GetConvar('sv_maxclients', '128')) or 128,
+        whitelistEnabled = GetConvar('cm_whitelist', 'false') == 'true',
+        queueEnabled = GetConvar('cm_queue', 'true') == 'true',
+        devMode = GetConvar('cm_dev_mode', 'false') == 'true',
+    },
+
+    Core = {
+        -- Temporary bridge only. Real cash/bank ownership should live in cm-playerdata.
+        legacyMoneyBridge = GetConvar('cm_core_legacy_money', 'true') == 'true',
+        auditToDatabase = true,
+        stateDebug = false,
     },
 
     Database = {
-        host = "localhost",
-        port = 3306,
-        user = "root",
-        password = "your_mysql_password",
-        database = "grandrp",
-        maxConnections = 10,
-        slowQueryThreshold = 100,
+        slowQueryThreshold = tonumber(GetConvar('cm_slow_query_ms', '150')) or 150,
     },
 
     Characters = {
         maxPerAccount = 2,
         minNameLength = 2,
         maxNameLength = 20,
-        blockedNames = {"admin", "owner", "mod", "staff", "support", "nigger", "faggot", "hitler"},
-        namePattern = "^[A-Za-z%-%s]+$",
+        blockedNames = {'admin', 'owner', 'mod', 'staff', 'support', 'hitler'},
+        namePattern = '^[A-Za-z%-%s]+$',
     },
 
     Spawn = {
         defaultPosition = {x = -1037.0, y = -2737.0, z = 13.8, heading = 0.0},
         defaultDimension = 0,
-        hotelInterior = "v_motel_mp",
-        tutorialFreezeTime = 3000,
     },
 
+    -- Legacy caps for compatibility wrappers only. Real balance logic should move to cm-playerdata.
     Economy = {
         startingCash = 500,
         startingBank = 2000,
-        maxCash = 999999,
-        maxBank = 99999999,
-    },
-
-    Rank = {
-        xpPer15Min = 10,
-        xpSources = {
-            playtime = 10,
-            tutorial = {min = 50, max = 500},
-            job = {min = 25, max = 100},
-            gang = {min = 10, max = 50},
-        },
+        maxCash = 999999999,
+        maxBank = 9999999999,
     },
 
     Logging = {
-        level = "debug",
-        discordWebhook = "",
-        logToDatabase = true,
-        logToFile = true,
-        logPath = "logs/",
+        level = GetConvar('cm_log_level', 'info'),
+        discordWebhook = GetConvar('cm_discord_webhook', ''),
+        logToDatabase = GetConvar('cm_log_database', 'true') == 'true',
+        logToFile = GetConvar('cm_log_file', 'false') == 'true',
+        logPath = GetConvar('cm_log_path', 'logs/'),
     },
 
     Security = {

@@ -1,5 +1,30 @@
 -- cm-characters/server/appearance.lua
 
+
+-- Production-safe local logger wrapper.
+-- When Config.Debug/Config.VerboseLogs is false, normal CM-CHARACTERS debug prints are hidden.
+-- Warnings/errors still print so real problems are visible.
+local __cmCharactersPrint = print
+local function __cmCharactersShouldVerbose()
+    return Config and (Config.Debug == true or Config.VerboseLogs == true or Config.ProductionMode == false)
+end
+local function print(...)
+    if __cmCharactersShouldVerbose() then
+        return __cmCharactersPrint(...)
+    end
+
+    local first = tostring(select(1, ...) or '')
+    local isCmCharactersLog = first:find('%[CM%-CHARACTERS') ~= nil
+    if not isCmCharactersLog then
+        return __cmCharactersPrint(...)
+    end
+
+    local upper = first:upper()
+    if upper:find('ERROR', 1, true) or upper:find('WARNING', 1, true) or upper:find('FAILED', 1, true) or upper:find('DENIED', 1, true) then
+        return __cmCharactersPrint(...)
+    end
+end
+
 -- ClockMate clothing inventory starter support
 local CM_NAKED_BASE = {
     male = {
@@ -191,6 +216,10 @@ end
 
 RegisterNetEvent('cm-characters:server:saveAppearance', function(charId, appearanceData)
     local src = source
+    if CMCharacters.IsRateLimited(src, 'saveAppearance', 3, 30) then
+        failAppearanceSave(src, 'Please wait before saving again.')
+        return
+    end
 
     if type(appearanceData) ~= 'table' then
         failAppearanceSave(src, 'Invalid appearance data')
@@ -207,6 +236,7 @@ RegisterNetEvent('cm-characters:server:saveAppearance', function(charId, appeara
     -- cm-inventory resolves owner from Player(src).state.charId.
     -- During first character creation this state may not exist yet, so set it BEFORE AddItem.
     CMCharacters.SetCharacterState(src, char)
+    CMCharacters.SyncWithPlayerData(src, tostring(char.id), 'save_appearance')
 
     -- Give starter clothing items only the first time this character saves appearance.
     -- Otherwise every later SaveAppearance/equip would duplicate starter clothes.
@@ -242,6 +272,7 @@ RegisterNetEvent('cm-characters:server:saveAppearance', function(charId, appeara
 
     -- Refresh state with saved character details.
     CMCharacters.SetCharacterState(src, char)
+    CMCharacters.SyncWithPlayerData(src, tostring(char.id), 'appearance_saved')
 
     if alreadyHasAppearance then
         TriggerClientEvent('cm-characters:client:applyAppearance', src, baseAppearance)
@@ -267,6 +298,7 @@ end)
 
 RegisterNetEvent('cm-characters:server:saveCurrentAppearance', function(appearanceData)
     local src = source
+    if CMCharacters.IsRateLimited(src, 'saveCurrentAppearance', 6, 60) then return end
     local charId = Player(src).state.charId or Player(src).state.characterId
     if not charId then
         CMCharacters.Notify(src, 'No active character to save appearance.', 'error')
@@ -306,7 +338,11 @@ end)
 
 RegisterNetEvent('cm-characters:server:debugGiveStarterClothes', function(appearanceData)
     local src = source
-    if not CMCharacters.IsAdmin(src) then
+    if not (Config and Config.EnableDevCommands == true) then
+        CMCharacters.Notify(src, 'Starter clothing debug tools are disabled in production.', 'error')
+        return
+    end
+    if not CMCharacters.HasPermission(src, 'characters.debug.starterclothes') then
         CMCharacters.Notify(src, 'No permission to use starter clothing debug tools.', 'error')
         return
     end

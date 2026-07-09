@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clothing Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css?v=glass-v7-keepbody" />
+</head>
+<body>
+  <main id="app" class="hidden">
+
+    <!-- ═══ LEFT PANEL ═══ -->
+    <section class="left-panel" id="leftPanel">
+
+      <!-- Brand header -->
+      <div class="brand" id="brandBlock">
+        <div class="brand-logo">
+          <span class="brand-name" id="brandName">CLOTHING</span>
+          <span class="brand-name brand-name--admin hidden" id="brandAdmin">ADMIN</span>
+        </div>
+        <div class="brand-sub" id="brandSub">STUDIO</div>
+        <div class="brand-note hidden" id="brandNote">CREATE ITEMS · CAPTURE IMAGES · SAVE TEXTURES</div>
+      </div>
+
+      <!-- Store: payment tabs -->
+      <div class="pay-tabs" id="payTabs">
+        <button class="pay-tab active" data-pay="bank">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="9,22 9,12 15,12 15,22" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          BANK
+        </button>
+        <button class="pay-tab" data-pay="cash">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2" stroke="currentColor" stroke-width="2"/></svg>
+          CASH
+        </button>
+      </div>
+
+      <!-- Store filters -->
+      <div id="filterPanel" class="filter-panel">
+        <input id="searchInput" class="filter-input" type="text" placeholder="Search name / drawable / price…" autocomplete="off" />
+        <div class="filter-grid">
+          <select id="genderFilter" class="filter-select">
+            <option value="all">All genders</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+          </select>
+          <input id="drawableFilter" class="filter-input" type="number" placeholder="Drawable" min="0" step="1" />
+          <input id="minPriceFilter" class="filter-input" type="number" placeholder="Min $" min="0" step="1" />
+          <input id="maxPriceFilter" class="filter-input" type="number" placeholder="Max $" min="0" step="1" />
+        </div>
+        <button id="clearFiltersBtn" class="filter-clear" type="button">CLEAR FILTERS</button>
+      </div>
+
+      <!-- Categories section -->
+      <div id="categories" class="categories"></div>
+
+      <!-- Controls hint -->
+      <div class="controls-hint" id="controlsHint">
+        <div class="hint-row">
+          <div class="hint-icons"><span class="hint-key">↑</span><span class="hint-key">↓</span></div>
+          <span class="hint-desc">Arrows to switch items</span>
+        </div>
+        <div class="hint-row">
+          <div class="hint-icons"><span class="hint-key">A</span><span class="hint-key">D</span></div>
+          <span class="hint-desc">Rotate character</span>
+        </div>
+        <div class="hint-row">
+          <span class="hint-drag">🖱</span>
+          <span class="hint-desc">Use mouse to zoom camera</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ RIGHT PANEL (floating bottom-right) ═══ -->
+    <section class="right-panel" id="rightPanel">
+
+      <!-- Panel eyebrow -->
+      <div class="rp-eyebrow" id="rpEyebrow">CLOTHING STORE</div>
+      <div class="mode-note" id="modeNote">Preview outfits, switch colors, add items to cart, then checkout.</div>
+
+      <!-- Item name + price row -->
+      <div class="rp-header">
+        <button class="fav-btn hidden" id="favBtn" type="button" aria-pressed="false" title="Add to favourites">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5l2.6 5.27 5.82.85-4.21 4.1.99 5.79L12 17.77 6.8 19.5l.99-5.79-4.21-4.1 5.82-.85z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="rp-item-name" id="itemName">Select clothing</div>
+        <div class="rp-price"><span id="price">0</span><span class="rp-currency">$</span></div>
+      </div>
+
+      <!-- Option + Color selectors (column layout) -->
+      <div class="selector-grid">
+        <div class="selector-col">
+          <span class="sel-label">Option</span>
+          <div class="sel-row">
+            <button class="sel-arrow" id="prevItem">‹</button>
+            <span class="sel-value" id="itemIndex">—</span>
+            <button class="sel-arrow" id="nextItem">›</button>
+          </div>
+        </div>
+        <div class="selector-col">
+          <span class="sel-label">Color</span>
+          <div class="sel-row">
+            <button class="sel-arrow" id="prevTexture">‹</button>
+            <span class="sel-value" id="textureIndex">—</span>
+            <button class="sel-arrow" id="nextTexture">›</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── ADMIN CONTROLS (hidden for normal store) ── -->
+      <div id="adminBlock" class="admin-block hidden">
+
+        <div class="section-label" style="margin-top:14px;">ITEM SETUP</div>
+        <div class="field-group">
+          <input type="text" id="customItemName" class="field-input" placeholder="Custom name…" autocomplete="off" />
+          <input type="number" id="customItemPrice" class="field-input" placeholder="Price ($)" min="0" step="1" />
+          <select id="itemDestination" class="field-select">
+            <option value="store">Public Store</option>
+            <option value="hidden">Hidden / Event Only</option>
+          </select>
+          <select id="pricePreset" class="field-select">
+            <option value="">Price preset: manual/default</option>
+            <option value="economy">Economy by category</option>
+            <option value="standard">Standard by category</option>
+            <option value="premium">Premium by category</option>
+            <option value="luxury">Luxury by category</option>
+          </select>
+        </div>
+
+        <div class="section-label" style="margin-top:14px;">RESTRICTIONS</div>
+        <div class="restriction-grid">
+          <input type="text" id="requiredJob" class="field-input" placeholder="Job allowed, e.g. police" autocomplete="off" />
+          <input type="text" id="requiredGang" class="field-input" placeholder="Gang/Org allowed" autocomplete="off" />
+          <input type="text" id="requiredFamily" class="field-input" placeholder="Family allowed" autocomplete="off" />
+        </div>
+        <div class="capture-note">Leave blank for public clothing. Use comma for multiple values.</div>
+
+        <div id="adminItemState" class="item-state-note hidden"></div>
+        <div id="missingImageWarning" class="missing-image-warning hidden">Missing image: capture icon before enabling this item in public store.</div>
+
+        <div id="fitHelper" class="fit-helper hidden">
+          <div class="section-label" style="margin-top:14px;">TORSO FIT</div>
+          <div class="fit-card">
+            <div class="fit-title" id="fitHelperTitle">Arms / Fit helper</div>
+            <div class="fit-text" id="fitHelperText">Select a torso first, then tune arms here without resetting the rest of the preview.</div>
+            <div class="fit-actions">
+              <button id="openArmsFitBtn" type="button" class="mini-action">OPEN ARMS / FIT</button>
+              <button id="backToTorsoBtn" type="button" class="mini-action mini-action--ghost">BACK TO TORSO</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bag level -->
+        <div id="bagLevelControls" class="bag-level hidden">
+          <div class="section-label" style="margin-top:14px;">BAG LEVEL</div>
+          <select id="bagLevel" class="field-select">
+            <option value="1">Level 1</option>
+            <option value="2">Level 2</option>
+            <option value="3">Level 3</option>
+            <option value="4">Level 4</option>
+          </select>
+        </div>
+
+        <!-- Capture controls -->
+        <div id="adminCaptureControls" class="capture-controls hidden">
+          <div class="section-label" style="margin-top:14px;">IMAGE & CAPTURE</div>
+          <div class="capture-grid2">
+            <label class="field-label">
+              Angle
+              <select id="captureAngle" class="field-select">
+                <option value="auto">Auto</option>
+                <option value="front">Front</option>
+                <option value="current">Current</option>
+                <option value="back">Back</option>
+                <option value="left">Left</option>
+                <option value="right">Right</option>
+              </select>
+            </label>
+            <label class="field-label">
+              Z Offset
+              <input type="number" id="captureZOffset" class="field-input" step="0.05" value="0.00" />
+            </label>
+          </div>
+          <label class="field-label" style="margin-top:8px;">
+            Backdrop Color
+            <select id="captureBackground" class="field-select">
+              <option value="green">Green (prop)</option>
+              <option value="blue">Blue</option>
+              <option value="magenta">Magenta</option>
+              <option value="white">White</option>
+              <option value="black">Black</option>
+            </select>
+          </label>
+          <label id="previewWallWrap" class="check-row">
+            <input type="checkbox" id="previewWall" />
+            Preview capture wall while browsing
+          </label>
+          <div class="capture-note">Wall stays hidden until capture unless preview is enabled.</div>
+
+          <label id="manualModeWrap" class="check-row">
+            <input type="checkbox" id="manualMode" />
+            Manual pose &amp; shoot (accessories + shoes)
+          </label>
+          <div class="capture-note" id="manualModeNote">When on, single captures of hat / glasses / earrings / watches / chains / shoes let you rotate the ped and lift it before shooting, then crop.</div>
+
+          <label id="sharedGenderWrap" class="check-row hidden">
+            <input type="checkbox" id="sharedGender" checked />
+            Shared male/female image
+          </label>
+
+          <div class="section-label" style="margin-top:14px;">TEXTURE STATUS</div>
+          <div id="textureStatus" class="texture-status"></div>
+
+          <!-- Per-category crop: set the crop once, it auto-applies to every future
+               capture of the same category until you change or clear it. -->
+          <div class="section-label" style="margin-top:14px;">CROP SECTION · <span id="cropPanelCat">—</span></div>
+          <div id="cropSection" class="crop-section">
+            <div class="crop-section-status" id="cropSectionStatus">No saved crop for this category. Auto-crop is used.</div>
+            <div class="crop-section-actions">
+              <button id="setCropBtn" type="button" class="mini-action">SET CROP FOR THIS CATEGORY</button>
+              <button id="clearCropBtn" type="button" class="mini-action mini-action--ghost">CLEAR SAVED CROP</button>
+            </div>
+            <div class="crop-section-note">Set the crop once per category. Every future capture of this category auto-crops the same way until you change or clear it.</div>
+          </div>
+
+          <div id="bulkProgress" class="bulk-progress hidden"></div>
+          <img id="capturePreview" class="capture-preview hidden" alt="Captured preview" />
+
+          <div id="cropEditorModal" class="crop-editor-modal hidden">
+            <div class="crop-editor-card">
+              <div class="crop-editor-head">
+                <strong>Set crop for <span id="cropEditorCat">this category</span></strong>
+                <span>Trim extra empty area. This crop is saved and reused for every capture of this category.</span>
+              </div>
+              <canvas id="cropEditorPreview" class="crop-editor-preview" width="512" height="512"></canvas>
+              <div class="crop-editor-grid">
+                <label>Left <span id="cropTrimLeftVal">0%</span><input id="cropTrimLeft" type="range" min="0" max="45" step="1" value="0"></label>
+                <label>Top <span id="cropTrimTopVal">0%</span><input id="cropTrimTop" type="range" min="0" max="45" step="1" value="0"></label>
+                <label>Right <span id="cropTrimRightVal">0%</span><input id="cropTrimRight" type="range" min="0" max="45" step="1" value="0"></label>
+                <label>Bottom <span id="cropTrimBottomVal">0%</span><input id="cropTrimBottom" type="range" min="0" max="45" step="1" value="0"></label>
+              </div>
+              <div class="crop-editor-actions">
+                <button id="cropResetBtn" type="button" class="mini-action mini-action--ghost">RESET</button>
+                <button id="cropCancelBtn" type="button" class="mini-action mini-action--ghost">CANCEL</button>
+                <button id="cropUseAutoBtn" type="button" class="mini-action">USE AUTO (NO SAVE)</button>
+                <button id="cropSaveBtn" type="button" class="mini-action">SAVE CROP FOR CATEGORY</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="bulk-btns">
+            <button id="saveMissingBtn" class="bulk-btn">SAVE MISSING IMAGES</button>
+            <button id="saveAllBtn" class="bulk-btn">SAVE ALL IMAGES</button>
+            <button id="cancelBulkBtn" class="bulk-btn bulk-btn--danger hidden">CANCEL</button>
+          </div>
+
+          <div class="section-label" style="margin-top:14px;">WHOLE CATEGORY</div>
+          <div class="capture-note">Loops every item in the current category, auto-names, auto-prices, and routes store vs add-on for you. Blank captures are flagged to re-shoot.</div>
+          <div class="bulk-btns">
+            <button id="catMissingBtn" class="bulk-btn">CAPTURE CATEGORY · MISSING</button>
+            <button id="catAllBtn" class="bulk-btn">CAPTURE CATEGORY · ALL</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── CART PREVIEW ── -->
+      <div id="cartPanel" class="cart-panel hidden">
+        <div class="cart-head">
+          <span>Cart Preview</span>
+          <button id="clearCartBtn" type="button">CLEAR</button>
+        </div>
+        <div id="cartList" class="cart-list"></div>
+        <div class="cart-total"><span>Total</span><strong id="cartTotal">$0</strong></div>
+      </div>
+
+      <!-- ── ACTION BUTTONS ── -->
+      <div class="action-area">
+        <button id="buyBtn" class="btn btn--primary" disabled>ADD TO CART</button>
+        <button id="checkoutBtn" class="btn btn--green hidden">CHECKOUT · $0</button>
+        <button id="captureIconBtn" class="btn btn--capture hidden">CAPTURE ICON + SAVE</button>
+        <button id="closeBtn" class="btn btn--close">CLOSE  ESC</button>
+      </div>
+      <div id="purchaseStatus" class="purchase-status hidden">Items will go to inventory first. Wear them later from inventory.</div>
+    </section>
+
+    <!-- Checkout confirmation -->
+    <div id="checkoutModal" class="modal-overlay hidden">
+      <div class="confirm-card">
+        <div class="confirm-kicker">CONFIRM PURCHASE</div>
+        <h3 id="confirmTitle">Buy clothing?</h3>
+        <p id="confirmText">Items go to inventory first. Wear them from your bag.</p>
+        <div id="confirmItems" class="confirm-items"></div>
+        <div class="confirm-actions">
+          <button id="confirmCashBtn" class="btn btn--primary" type="button">PAY CASH</button>
+          <button id="confirmBankBtn" class="btn btn--green" type="button">PAY BANK</button>
+          <button id="confirmCancelBtn" class="btn btn--close" type="button">CANCEL</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Global capture status toast -->
+    <div id="captureStatus" class="capture-toast hidden">Processing icon…</div>
+
+    <!-- Manual pose bar: shown while posing the ped before a manual shot.
+         The panel is dimmed so the admin can see the ped in the game view. -->
+    <div id="poseBar" class="pose-bar hidden">
+      <div class="pose-bar-title">Pose <span id="poseBarCat">item</span> — rotate to the angle you want, then Confirm</div>
+      <div class="pose-bar-row">
+        <button id="poseRotLeftBig" class="pose-btn" title="Rotate left 45°">⟲ 45</button>
+        <button id="poseRotLeft" class="pose-btn" title="Rotate left 15°">⟲ 15</button>
+        <button id="poseRotRight" class="pose-btn" title="Rotate right 15°">15 ⟳</button>
+        <button id="poseRotRightBig" class="pose-btn" title="Rotate right 45°">45 ⟳</button>
+      </div>
+      <div class="pose-bar-row">
+        <span class="pose-lbl">Turn</span>
+        <input id="poseHeading" type="range" min="0" max="359" step="1" value="0" />
+        <span class="pose-val" id="poseHeadingVal">0°</span>
+      </div>
+      <div class="pose-bar-row">
+        <span class="pose-lbl">Lift</span>
+        <button id="poseLiftDown" class="pose-btn" title="Lower 5cm">▼</button>
+        <button id="poseLiftUp" class="pose-btn" title="Raise 5cm">▲</button>
+        <span class="pose-hint">Raise shoes so they don't sink into the floor</span>
+      </div>
+      <div class="pose-bar-row pose-bar-actions">
+        <button id="poseCancel" class="pose-btn pose-btn--ghost">CANCEL</button>
+        <button id="poseConfirm" class="pose-btn pose-btn--go">CONFIRM &amp; SHOOT</button>
+      </div>
+      <div class="pose-drag-hint">Drag anywhere to spin the ped · <b>W/S</b> zoom · <b>A/D</b> orbit · <b>R/F</b> camera up/down · <b>Q/E</b> lens · <b>Enter</b> shoot · <b>Esc</b> cancel</div>
+    </div>
+
+    <!-- Empty store notice -->
+    <div id="emptyNotice" class="empty-notice hidden">
+      No clothing has been added to this store yet.<br />
+      Use <strong>/clothingadmin</strong> to enable items.
+    </div>
+
+  </main>
+  <script src="app.js?v=manual-pose-v3"></script>
+</body>
+</html>

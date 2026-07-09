@@ -33,9 +33,16 @@ function resourceUrl(path) {
 }
 
 function showToast(message, type = 'error') {
+    const finalMessage = message || 'Something went wrong.';
+
+    if (window.CMUI && typeof window.CMUI.toast === 'function') {
+        window.CMUI.toast(finalMessage, type, 4200);
+        return;
+    }
+
     if (!toast) return;
     clearTimeout(toastTimer);
-    toast.textContent = message || 'Something went wrong.';
+    toast.textContent = finalMessage;
     toast.className = `toast show ${type}`;
     toastTimer = setTimeout(() => {
         toast.className = 'toast';
