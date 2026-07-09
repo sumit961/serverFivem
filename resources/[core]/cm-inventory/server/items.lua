@@ -101,20 +101,33 @@ local function normalizeStackMetadata(metadata)
     -- normal stackable items into separate slots. Real unique fields such as serial,
     -- durability, drawableId, textureId, gender, bagLevel, etc. are intentionally kept.
     local ignoredDefaults = {
+        -- Generated/display-only fields. These should not stop normal stackable
+        -- items like ammo, water, food, and materials from merging.
         createdAt = true,
+        created_at = true,
+        updatedAt = true,
+        updated_at = true,
         itemType = true,
+        item_type = true,
         rarity = true,
-        type = true
+        quality = true,
+        type = true,
+        category = true,
+        categoryType = true,
+        category_type = true,
+        label = true,
+        description = true,
+        image = true,
+        icon = true
     }
 
     for k, v in pairs(metadata) do
         if v ~= nil and v ~= '' then
             local key = tostring(k)
-            local lowerValue = tostring(v):lower()
-            local isIgnored = ignoredDefaults[key] and (
-                lowerValue == 'normal' or lowerValue == 'misc' or lowerValue:match('^%d%d%d%d%-%d%d%-%d%dt') ~= nil
-            )
-            if not isIgnored then
+            -- Keep real unique gameplay metadata such as serial, durability, tint,
+            -- components, drawable/texture, gender, bagLevel, ammo, etc. Only remove
+            -- fields that are safe display/bookkeeping fields for stack comparison.
+            if not ignoredDefaults[key] then
                 normalized[key] = v
             end
         end
@@ -123,18 +136,119 @@ local function normalizeStackMetadata(metadata)
     return normalized
 end
 
-local function stackMetadataSignature(metadata)
+local function isClothingStackCandidate(itemName)
+    itemName = tostring(itemName or ''):lower()
+    -- Bags can change capacity, so keep bag items one-per-slot. Normal clothing can stack
+    -- only when the actual wearable appearance is identical.
+    return itemName:find('clothing_', 1, true) == 1 and itemName ~= 'clothing_bags'
+end
+
+local function stackSlotIsEquipment(slot)
+    for _, s in ipairs(Config.Slots.equipment or {}) do
+        if tostring(s) == tostring(slot) then return true end
+    end
+    return false
+end
+
+local function normalizeComparableValue(value)
+    if type(value) == 'number' then return value end
+    if type(value) == 'string' then
+        local n = tonumber(value)
+        if n ~= nil then return n end
+        return value:lower()
+    end
+    return value
+end
+
+local function firstMetadataValue(metadata, keys)
+    for _, key in ipairs(keys) do
+        local value = metadata[key]
+        if value ~= nil and value ~= '' then
+            return normalizeComparableValue(value)
+        end
+    end
+    return nil
+end
+
+local function normalizeClothingStackMetadata(itemName, metadata)
+    metadata = type(metadata) == 'table' and metadata or {}
+    local normalized = {}
+
+    local category = firstMetadataValue(metadata, {
+        'categoryType', 'category_type', 'category', 'clothingCategory', 'clothing_category', 'slot', 'equipSlot', 'equipmentSlot'
+    })
+    if not category or category == '' or category == 'clothing' then
+        category = tostring(itemName or ''):lower():gsub('^clothing_', '')
+    end
+    normalized.category = category
+
+    local groups = {
+        component = { 'component', 'componentId', 'component_id', 'componentIndex', 'component_index', 'comp', 'compId' },
+        prop = { 'prop', 'propId', 'prop_id', 'propIndex', 'prop_index', 'isProp', 'is_prop' },
+        drawable = { 'drawable', 'drawableId', 'drawable_id', 'drawableIndex', 'drawable_index' },
+        texture = { 'texture', 'textureId', 'texture_id', 'textureIndex', 'texture_index' },
+        palette = { 'palette', 'paletteId', 'palette_id', 'paletteIndex', 'palette_index' },
+        gender = { 'gender', 'sex', 'pedGender', 'ped_gender', 'model', 'pedModel', 'ped_model' },
+        collection = { 'collection', 'dlc', 'dlcName', 'dlc_name' },
+        arms = { 'arms', 'armsDrawable', 'arms_drawable', 'armsComponent', 'arms_component' },
+        armsTexture = { 'armsTexture', 'arms_texture' },
+        undershirt = { 'undershirt', 'undershirtDrawable', 'undershirt_drawable', 'tshirtDrawable', 'tshirt_drawable' },
+        undershirtTexture = { 'undershirtTexture', 'undershirt_texture', 'tshirtTexture', 'tshirt_texture' },
+        torso = { 'torso', 'torsoDrawable', 'torso_drawable' },
+        torsoTexture = { 'torsoTexture', 'torso_texture' }
+    }
+
+    local hasAppearanceKey = false
+    for canonical, keys in pairs(groups) do
+        local value = firstMetadataValue(metadata, keys)
+        if value ~= nil then
+            normalized[canonical] = value
+            if canonical == 'component' or canonical == 'prop' or canonical == 'drawable' or canonical == 'texture' then
+                hasAppearanceKey = true
+            end
+        end
+    end
+
+    -- Some clothing admin/export tools store the wearable data as nested tables. Keep
+    -- those stable tables, but still ignore random row ids, capture time, price, etc.
+    for _, key in ipairs({ 'components', 'props', 'appearance', 'variations', 'linkedTorso', 'linked_torso' }) do
+        if type(metadata[key]) == 'table' then
+            normalized[key] = metadata[key]
+            hasAppearanceKey = true
+        end
+    end
+
+    -- If this is a clothing item but has no wearable metadata, fall back to the normal
+    -- stack signature so unusual custom items do not merge incorrectly.
+    if not hasAppearanceKey then
+        return normalizeStackMetadata(metadata)
+    end
+
+    return normalized
+end
+
+local function stackMetadataSignature(itemName, metadata)
+    if isClothingStackCandidate(itemName) then
+        return stableEncode(normalizeClothingStackMetadata(itemName, metadata))
+    end
     return stableEncode(normalizeStackMetadata(metadata))
 end
 
 local function rowsCanStack(a, b)
     if not a or not b then return false end
-    if tostring(a.item_name or ''):lower() ~= tostring(b.item_name or ''):lower() then return false end
 
-    local def = getItemDef(a.item_name)
-    if not def or def.stack == false or def.unique == true then return false end
+    local itemName = tostring(a.item_name or ''):lower()
+    if itemName ~= tostring(b.item_name or ''):lower() then return false end
 
-    return stackMetadataSignature(decode(a.metadata)) == stackMetadataSignature(decode(b.metadata))
+    local clothingStack = isClothingStackCandidate(itemName)
+    if clothingStack and (stackSlotIsEquipment(a.slot) or stackSlotIsEquipment(b.slot)) then return false end
+
+    local def = getItemDef(itemName)
+    if not def then return false end
+    if not clothingStack and (def.stack == false or def.unique == true) then return false end
+    if clothingStack and def.unique == true then return false end
+
+    return stackMetadataSignature(itemName, decode(a.metadata)) == stackMetadataSignature(itemName, decode(b.metadata))
 end
 
 local function rowCanStackWithMetadata(row, itemName, metadata)
@@ -142,10 +256,15 @@ local function rowCanStackWithMetadata(row, itemName, metadata)
     itemName = tostring(itemName or ''):lower()
     if tostring(row.item_name or ''):lower() ~= itemName then return false end
 
-    local def = getItemDef(itemName)
-    if not def or def.stack == false or def.unique == true then return false end
+    local clothingStack = isClothingStackCandidate(itemName)
+    if clothingStack and stackSlotIsEquipment(row.slot) then return false end
 
-    return stackMetadataSignature(decode(row.metadata)) == stackMetadataSignature(metadata)
+    local def = getItemDef(itemName)
+    if not def then return false end
+    if not clothingStack and (def.stack == false or def.unique == true) then return false end
+    if clothingStack and def.unique == true then return false end
+
+    return stackMetadataSignature(itemName, decode(row.metadata)) == stackMetadataSignature(itemName, metadata)
 end
 
 local function isInventoryItem(itemName)

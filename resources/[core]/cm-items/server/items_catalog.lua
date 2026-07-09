@@ -212,12 +212,21 @@ function CMItems.SaveCatalogItem(def)
     -- Merge into in-memory registry immediately so GetItem/inventory see it now.
     row.metadata = meta
     local def2 = rowToDef(row)
+    -- A per-item image override (set from the item preview) always wins.
+    if CMItems.ItemImages and CMItems.ItemImages[name] and CMItems.ItemImages[name] ~= '' then
+        def2.image = CMItems.ItemImages[name]
+        def2.icon = def2.image
+        image = def2.image
+    end
     CMItems.CatalogItems[name] = def2
     CMItems.Items = CMItems.Items or {}
     CMItems.Items[name] = def2
 
     dbg(('SaveCatalogItem name=%s category=%s image=%s'):format(name, row.category, tostring(image)))
     syncItemsCatalog()
+    -- Let other resources (e.g. cm-itemactions) react to a new/updated item,
+    -- such as registering it as usable without any code changes there.
+    TriggerEvent('cm-items:server:catalogItemSaved', name, def2)
     return true, { name = name, image = image }
 end
 
@@ -261,6 +270,89 @@ function CMItems.DeleteCatalogItem(name)
 end
 
 -- ============================================================
+-- Per-item IMAGE override.
+-- Lets an admin set an item's image once (from the item preview) and have it
+-- used everywhere. Works for ANY item -- static or catalog -- because overrides
+-- live in their own table and are applied on top of the merged registry.
+-- ============================================================
+CMItems.ItemImages = CMItems.ItemImages or {}
+
+local function ensureImageTable()
+    if not hasDB() then return false end
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS cm_item_images (
+            name VARCHAR(80) NOT NULL PRIMARY KEY,
+            image VARCHAR(255) NOT NULL,
+            updated_by VARCHAR(100) NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+    ]])
+    return true
+end
+
+local function applyImageOverride(name)
+    local image = CMItems.ItemImages[name]
+    if not image or image == '' then return end
+    CMItems.Items = CMItems.Items or {}
+    if CMItems.Items[name] then
+        CMItems.Items[name].image = image
+        CMItems.Items[name].icon = image
+    end
+    if CMItems.CatalogItems[name] then
+        CMItems.CatalogItems[name].image = image
+        CMItems.CatalogItems[name].icon = image
+    end
+end
+
+local function applyAllImageOverrides()
+    for name in pairs(CMItems.ItemImages) do applyImageOverride(name) end
+end
+
+function CMItems.LoadItemImages()
+    if not ensureImageTable() then return end
+    local rows = MySQL.query.await('SELECT name, image FROM cm_item_images') or {}
+    CMItems.ItemImages = {}
+    for _, row in ipairs(rows) do
+        CMItems.ItemImages[normalizeName(row.name)] = row.image
+    end
+    dbg(('LoadItemImages loaded %s overrides'):format(#rows))
+end
+
+-- Save a base64 image for an item and make it the item's image everywhere.
+function CMItems.SetItemImage(name, dataUri, updatedBy)
+    name = normalizeName(name)
+    if name == '' then return false, 'invalid_name' end
+    if not ensureImageTable() then return false, 'image_table_unavailable' end
+
+    local saved, err = CMItems.SaveCatalogImage(name, dataUri)
+    if not saved then return false, tostring(err or 'image_save_failed') end
+
+    MySQL.query.await([[
+        INSERT INTO cm_item_images (name, image, updated_by) VALUES (?, ?, ?)
+        ON DUPLICATE KEY UPDATE image = VALUES(image), updated_by = VALUES(updated_by)
+    ]], { name, saved, tostring(updatedBy or 'system'):sub(1, 100) })
+
+    CMItems.ItemImages[name] = saved
+    applyImageOverride(name)
+    dbg(('SetItemImage name=%s image=%s'):format(name, saved))
+    syncItemsCatalog()
+    return true, { name = name, image = saved }
+end
+
+function CMItems.ClearItemImage(name)
+    name = normalizeName(name)
+    if name == '' then return false, 'invalid_name' end
+    if not ensureImageTable() then return false, 'image_table_unavailable' end
+    MySQL.query.await('DELETE FROM cm_item_images WHERE name = ?', { name })
+    CMItems.ItemImages[name] = nil
+    syncItemsCatalog()
+    return true
+end
+
+exports('SetItemImage', function(name, dataUri, updatedBy) return CMItems.SetItemImage(name, dataUri, updatedBy) end)
+exports('ClearItemImage', function(name) return CMItems.ClearItemImage(name) end)
+
+-- ============================================================
 -- Loader: pull all catalog rows into memory on start.
 -- ============================================================
 function CMItems.ReloadItemsCatalog()
@@ -278,7 +370,11 @@ function CMItems.ReloadItemsCatalog()
         CMItems.CatalogItems[def.name] = def
         CMItems.Items[def.name] = def
     end
+    -- Image overrides win over both static and catalog images.
+    CMItems.LoadItemImages()
+    applyAllImageOverrides()
     syncItemsCatalog()
+    TriggerEvent('cm-items:server:catalogReloaded')
     dbg(('ReloadItemsCatalog loaded %s catalog items'):format(#rows))
 end
 

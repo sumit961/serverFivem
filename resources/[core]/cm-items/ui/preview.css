@@ -10,7 +10,25 @@ input,select,button{border:1px solid rgba(255,255,255,.14);background:#171b25;co
 input{width:310px}
 button{cursor:pointer;font-weight:700}
 button:hover{background:#242b39}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.tab{padding:7px 12px;border-radius:999px;background:#141a26;border:1px solid rgba(255,255,255,.1);color:#c4cde0;font-size:12px;font-weight:700;cursor:pointer}
+.tab:hover{background:#1e2636}
+.tab.active{background:#0a3346;border-color:#0aa6d6;color:#e9fbff}
 .stats{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.img{padding:6px 8px;border-radius:8px;font-size:11px;line-height:1;border:1px solid #46a06a;background:#173026;color:#dcf8e6;min-width:36px}
+.prop{padding:6px 8px;border-radius:8px;font-size:11px;line-height:1;border:1px solid #6a5cff;background:#231f45;color:#e6e2ff;min-width:40px}
+.prop.set{border-color:#8b7bff;background:#2c2666}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:20}
+.modal-card{width:min(440px,92vw);background:#121722;border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:20px;box-shadow:0 20px 80px rgba(0,0,0,.7)}
+.modal-card h2{margin:0 0 4px;font-size:20px}
+.modal-sub{margin:0 0 14px;color:#8bd4ff;font-weight:700;font-size:13px}
+.modal-card label{display:block;font-size:12px;color:#aeb7c7;margin-bottom:12px}
+.modal-card label input{width:100%;margin-top:5px}
+.modal-row{display:flex;gap:12px}
+.modal-row label{flex:1}
+.modal-hint{font-size:11px;color:#8790a2;margin:0 0 16px;line-height:1.4}
+.modal-actions{display:flex;gap:8px;align-items:center}
+.modal-actions .spacer{flex:1}
 .pill{background:#111722;border:1px solid rgba(255,255,255,.08);padding:8px 10px;border-radius:999px;color:#cfd7e6}
 .grid{height:calc(100% - 118px);overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:12px;padding-right:5px;align-items:start}
 .card{position:relative;background:#121722;border:1px solid rgba(255,255,255,.08);border-radius:14px;overflow:hidden;min-height:278px;display:flex;flex-direction:column}

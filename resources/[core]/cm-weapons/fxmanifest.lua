@@ -5,7 +5,7 @@ lua54 'yes'
 name 'cm-weapons'
 author 'Sumit Yadav / CM Framework'
 description 'Central CM weapon and ammo registry. Saves weapons/ammo, syncs to cm-items, exposes pickup hashes and weapon rules.'
-version '1.1.1'
+version '1.3.1'
 
 ui_page 'web/index.html'
 
@@ -27,6 +27,7 @@ files {
     'web/index.html',
     'web/style.css',
     'web/app.js',
+    'web/images/*.svg',
     'web/images/custom/*.png',
     'web/images/custom/*.jpg',
     'web/images/custom/*.jpeg',

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CM Items Preview</title>
-  <link rel="stylesheet" href="preview.css?v=1.3.1" />
+  <link rel="stylesheet" href="preview.css?v=1.4.0" />
 </head>
 <body>
   <main id="app" class="hidden">
@@ -24,9 +24,37 @@
         <button id="close">Close ESC</button>
       </div>
     </header>
+    <nav class="tabs" id="tabs"></nav>
     <section class="stats" id="stats"></section>
     <section class="grid" id="grid"></section>
   </main>
-  <script src="preview.js?v=1.3.1"></script>
+
+  <div id="propModal" class="modal hidden">
+    <div class="modal-card">
+      <h2>Drop Prop</h2>
+      <p class="modal-sub" id="propItemName"></p>
+      <label>Prop model
+        <input id="propModel" type="text" placeholder="prop_cs_cardbox_01" />
+      </label>
+      <div class="modal-row">
+        <label>Z offset
+          <input id="propZOffset" type="number" step="0.05" value="0" />
+        </label>
+        <label>Heading
+          <input id="propHeading" type="number" step="5" value="0" />
+        </label>
+      </div>
+      <p class="modal-hint">GTA can't scale props at runtime, so size is controlled by choosing the model + z-offset/heading. Clothing shares one prop for all clothes.</p>
+      <div class="modal-actions">
+        <button id="propSpawn" class="give">Spawn test</button>
+        <button id="propReset" class="delete">Reset to default</button>
+        <span class="spacer"></span>
+        <button id="propCancel">Cancel</button>
+        <button id="propSave" class="give">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="preview.js?v=1.4.0"></script>
 </body>
 </html>

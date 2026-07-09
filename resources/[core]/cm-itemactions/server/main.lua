@@ -174,6 +174,121 @@ CreateThread(function()
     end
 end)
 
+-- ============================================================
+-- Data-driven item actions.
+-- Behaviour lives in the item's catalog metadata (cm-items), so admins can add
+-- a new usable item from a store/admin UI with an `action` block and it just
+-- works -- no code edits here. Example catalog metadata:
+--   metadata = { action = { type = 'consume', anim = 'drink', heal = 15,
+--                           message = 'You drank an energy drink.' } }
+-- ============================================================
+
+local function toBool(value, default)
+    if value == nil then return default end
+    return value == true or value == 1 or value == '1' or value == 'true'
+end
+
+-- Action-type handlers. Signature: (src, def, action, item) -> result table.
+-- Other resources can add their own types via exports RegisterActionType.
+local Handlers = {}
+
+-- Custom events receive (src, item, action) so client handlers that read the
+-- item stack (e.g. id_card -> item.metadata) keep working.
+Handlers.consume = function(src, def, a, item)
+    if tonumber(a.heal) then TriggerClientEvent('cm-itemactions:client:heal', src, tonumber(a.heal)) end
+    if a.anim then TriggerClientEvent('cm-itemactions:client:playActionAnim', src, a.anim, tonumber(a.duration) or 900) end
+    if a.client_event then TriggerClientEvent(a.client_event, src, item or {}, a) end
+    if a.server_event then TriggerEvent(a.server_event, src, item or {}, a) end
+    local remove = toBool(a.consume, true) and (math.max(1, math.floor(tonumber(a.amount) or 1))) or 0
+    return result(true, remove, a.message or ('You used ' .. ((def and def.label) or 'the item') .. '.'))
+end
+
+Handlers.heal = function(src, def, a)
+    TriggerClientEvent('cm-itemactions:client:heal', src, tonumber(a.amount) or 25)
+    return result(true, toBool(a.consume, true) and 1 or 0, a.message or 'You used a healing item.')
+end
+
+Handlers.anim = function(src, def, a)
+    TriggerClientEvent('cm-itemactions:client:playActionAnim', src, a.anim or 'use', tonumber(a.duration) or 900)
+    return result(true, toBool(a.consume, true) and 1 or 0, a.message)
+end
+
+Handlers.event = function(src, def, a, item)
+    if a.server_event then TriggerEvent(a.server_event, src, item or {}, a) end
+    if a.client_event then TriggerClientEvent(a.client_event, src, item or {}, a) end
+    return result(true, toBool(a.consume, false) and 1 or 0, a.message)
+end
+
+Handlers.notify = function(src, def, a)
+    return result(true, toBool(a.consume, false) and 1 or 0, a.message or 'You used the item.')
+end
+
+exports('RegisterActionType', function(actionType, fn)
+    actionType = tostring(actionType or ''):lower()
+    if actionType == '' or type(fn) ~= 'function' then return false end
+    Handlers[actionType] = fn
+    return true
+end)
+
+-- ============================================================
+-- Code-defined item functions (the primary model).
+-- The behaviour of an item lives in CODE, in the resource that owns the mechanic:
+--   cm-playerdata  -> heal / revive items
+--   a vehicle res  -> repair kit
+--   a fuel res     -> jerry can
+-- Each of those calls, once, at startup:
+--   exports['cm-itemactions']:RegisterItem('medkit', function(src, item, name)
+--       ... do the work ...
+--       return { success = true, remove = 1, message = 'You used a medkit.' }
+--   end)
+-- Items with no registered function (and no built-in below) cannot be used.
+-- ============================================================
+local ItemHandlers = {}
+
+exports('RegisterItem', function(itemName, handler)
+    itemName = tostring(itemName or ''):lower()
+    if itemName == '' or type(handler) ~= 'function' then return false end
+    ItemHandlers[itemName] = handler
+    -- Make sure the inventory routes this item's "use" to us.
+    pcall(function()
+        if GetResourceState('cm-inventory') == 'started' then
+            exports['cm-inventory']:RegisterUseableItem(itemName, GetCurrentResourceName(), 'UseItem')
+        end
+    end)
+    return true
+end)
+
+exports('UnregisterItem', function(itemName)
+    itemName = tostring(itemName or ''):lower()
+    if itemName == '' then return false end
+    ItemHandlers[itemName] = nil
+    return true
+end)
+
+-- Legacy built-in items kept working exactly as before, expressed as data so the
+-- dispatch path is uniform. Used only when a catalog item has no action defined.
+local LegacyActions = {
+    bandage   = { type = 'heal', amount = 25,  message = 'You used a bandage.' },
+    medkit    = { type = 'heal', amount = 100, message = 'You used a medkit.' },
+    water     = { type = 'consume', anim = 'use', message = 'You drank water.' },
+    sandwich  = { type = 'consume', anim = 'use', message = 'You ate a sandwich.' },
+    repairkit = { type = 'consume', client_event = 'cm-itemactions:client:repairVehicle', message = 'You used a repair kit.' },
+    lockpick  = { type = 'consume', client_event = 'cm-itemactions:client:lockpickStart', message = 'You used a lockpick.' },
+    id_card   = { type = 'event',   client_event = 'cm-itemactions:client:showIdCard', consume = false, message = 'You checked your ID card.' },
+}
+
+-- Items whose "use" is intentionally handled elsewhere (equip flow), not consumed.
+local function equipOnlyMessage(itemName)
+    if itemName:find('weapon_', 1, true) == 1 or itemName == 'weapon' then
+        return 'Use the weapon from your inventory to equip it.'
+    elseif itemName:find('ammo_', 1, true) == 1 or itemName == 'ammo' then
+        return 'Move ammo to the ammo slot. It is consumed only when you shoot.'
+    elseif itemName == 'armor' or itemName == 'bodyarmor' then
+        return 'Use armor from your inventory to equip it into the body armor slot.'
+    end
+    return nil
+end
+
 exports('UseItem', function(a, b, c, d)
     -- Normalize all common FiveM export call shapes.
     -- Expected/recommended: UseItem(itemName, src, item)
@@ -222,80 +337,93 @@ exports('UseItem', function(a, b, c, d)
         return result(false, 0, 'Invalid item.')
     end
 
+    -- Clothing keeps its dedicated swap flow.
     if isClothingItem(itemName) then
         return startClothingSwap(src, itemName, item or {})
     end
 
-    if itemName == 'weapon_pistol' then
-        return result(false, 0, 'Use weapon from inventory to equip it.')
+    -- Weapon/ammo/armor are equipped, not "used" -- keep the informative message.
+    local equipMsg = equipOnlyMessage(itemName)
+    if equipMsg then
+        return result(false, 0, equipMsg)
     end
 
-    if itemName == 'bandage' then
-        TriggerClientEvent('cm-itemactions:client:heal', src, 25)
-        return result(true, 1, 'You used a bandage.')
+    -- 1) Code-defined function registered by a domain resource (the main path).
+    local handler = ItemHandlers[itemName]
+    if handler then
+        local ok, res = pcall(handler, src, item, itemName)
+        if ok and type(res) == 'table' then return res end
+        if ok and res == true then return result(true, 1) end
+        if ok and res == false then return result(false, 0, 'You cannot use this item right now.') end
+        print(('[CM-ITEMACTIONS] item handler error for %s: %s'):format(itemName, tostring(res)))
+        return result(false, 0, 'This item could not be used right now.')
     end
 
-    if itemName == 'medkit' then
-        TriggerClientEvent('cm-itemactions:client:heal', src, 100)
-        return result(true, 1, 'You used a medkit.')
+    -- 2) Built-in items defined in code (in this resource). Move these into the
+    --    owning resource with RegisterItem whenever you want; that overrides here.
+    local action = LegacyActions[itemName]
+    if type(action) == 'table' then
+        local h = Handlers[tostring(action.type or ''):lower()]
+        if h then
+            local ok, res = pcall(h, src, nil, action, item)
+            if ok and type(res) == 'table' then return res end
+        end
     end
 
-    if itemName == 'armor' then
-        return result(false, 0, 'Use armor from inventory to equip it into the body armor slot.')
-    end
-
-    if itemName == 'water' then
-        -- No hunger/thirst system. This is only an RP consume action.
-        TriggerClientEvent('cm-itemactions:client:playActionAnim', src, 'use', 900)
-        return result(true, 1, 'You drank water.')
-    end
-
-    if itemName == 'sandwich' then
-        -- No hunger system. This is only an RP consume action.
-        TriggerClientEvent('cm-itemactions:client:playActionAnim', src, 'use', 900)
-        return result(true, 1, 'You ate a sandwich.')
-    end
-
-    if itemName == 'repairkit' then
-        TriggerClientEvent('cm-itemactions:client:repairVehicle', src)
-        return result(true, 1, 'You used a repair kit.')
-    end
-
-    if itemName == 'lockpick' then
-        TriggerClientEvent('cm-itemactions:client:lockpickStart', src)
-        return result(true, 1, 'You used a lockpick.')
-    end
-
-    if itemName == 'ammo_9mm' then
-        return result(false, 0, 'Use ammo to move it into the ammo slot. It is consumed from inventory only when you shoot.')
-    end
-
-    if itemName == 'id_card' then
-        TriggerClientEvent('cm-itemactions:client:showIdCard', src, item or {})
-        return result(true, 0, 'You checked your ID card.')
-    end
-
-    return result(false, 0, 'No item action exists for ' .. itemName)
+    -- 3) No function anywhere -> it just sits in the inventory.
+    return result(false, 0, 'You cannot use this item.')
 end)
 
-local function registerAll()
-    local items = {
-        'weapon_pistol',
-        'bandage',
-        'medkit',
-        'armor',
-        'water',
-        'sandwich',
-        'repairkit',
-        'lockpick',
-        'id_card',
-        'ammo_9mm'
-    }
+-- Legacy built-ins that must always be usable even before the catalog loads.
+local BaseUsable = {
+    'weapon_pistol', 'bandage', 'medkit', 'armor', 'water',
+    'sandwich', 'repairkit', 'lockpick', 'id_card',
+    -- Fixed cm-weapons ammo items. These are equip-only/use-to-move items;
+    -- inventory consumes one round only when a weapon fires.
+    'ammo_9mm', 'ammo_44magnum', 'ammo_9x19_smg', 'ammo_556nato',
+    'ammo_762nato', 'ammo_12gauge', 'ammo_308win'
+}
 
-    for _, itemName in ipairs(items) do
+-- Register every item that is flagged usable, from both the static definitions
+-- and the dynamic cm-items catalog, so newly created store items become usable
+-- without editing this resource.
+local function registerAll()
+    for _, itemName in ipairs(BaseUsable) do
         registerUsable(itemName)
     end
+    -- Items whose behaviour was registered in code by a domain resource.
+    for name in pairs(ItemHandlers) do
+        registerUsable(name)
+    end
+
+    if GetResourceState('cm-items') ~= 'started' then return end
+    local items
+    local ok = pcall(function() items = exports['cm-items']:GetAllItems() end)
+    if not ok or type(items) ~= 'table' then return end
+
+    for name, def in pairs(items) do
+        if type(def) == 'table' and def.usable == true then
+            registerUsable(name)
+        end
+    end
 end
+
+-- Register a single item on demand when the catalog changes at runtime.
+local function registerOne(name)
+    name = tostring(name or ''):lower()
+    if name == '' then return end
+    registerUsable(name)
+end
+
+-- cm-items fires these when an admin/store creates or reloads catalog items.
+AddEventHandler('cm-items:server:catalogItemSaved', function(name, def)
+    if type(def) == 'table' and def.usable == false then return end
+    registerOne(name)
+end)
+
+AddEventHandler('cm-items:server:catalogReloaded', function()
+    CreateThread(function() Wait(250); registerAll() end)
+end)
 
 RegisterNetEvent('cm-itemactions:server:saveAppearance', function()
     local src = source

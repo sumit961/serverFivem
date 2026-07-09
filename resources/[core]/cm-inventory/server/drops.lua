@@ -154,7 +154,7 @@ local function ConsumeEquippedWeaponAmmoInternal(src)
     if requiredAmmo == '' then return false, 'Weapon ammo type is missing.' end
 
     local ammoRow = getItemAt(ownerType, ownerId, ammoSlot)
-    if not ammoRow or tostring(ammoRow.item_name or ''):lower() ~= requiredAmmo then
+    if not ammoRow or canonicalAmmoItem(ammoRow.item_name) ~= canonicalAmmoItem(requiredAmmo) then
         return false, ('%s is not in ammo slot.'):format(requiredAmmo)
     end
 
@@ -212,7 +212,7 @@ end
 local function GiveItemInternal(src, slot, amount)
     if Config.Give and Config.Give.enabled == false then return false, 'Giving items is disabled.' end
 
-    amount = tonumber(amount) or 1
+    amount = math.floor(tonumber(amount) or 1)
     if amount < 1 then return false, 'Invalid amount.' end
 
     local ownerType, ownerId = getOwner(src)
@@ -396,7 +396,8 @@ local function ClearTestReceiverInternal(src)
     return true
 end
 
-local function getDropPropModel(item)
+-- Config fallback used only when cm-items cannot resolve the prop.
+local function getConfigPropModel(item)
     local dropsCfg = Config.Drops or {}
     local propModels = dropsCfg.PropModels or {}
     local category = tostring((item and (item.category or item.type)) or 'misc'):lower()
@@ -409,8 +410,22 @@ local function getDropPropModel(item)
     return dropsCfg.defaultProp or 'prop_paper_bag_small'
 end
 
+-- cm-items owns the per-item drop prop (model + z-offset + heading). Ask it first
+-- so props set from the item preview UI apply everywhere; fall back to config.
+local function getDropProp(item)
+    local name = tostring((item and (item.item_name or item.name)) or ''):lower()
+    if name ~= '' and GetResourceState('cm-items') == 'started' then
+        local ok, prop = pcall(function() return exports['cm-items']:GetItemDropProp(name) end)
+        if ok and type(prop) == 'table' and prop.model and prop.model ~= '' then
+            return { model = prop.model, zOffset = tonumber(prop.zOffset) or 0.0, heading = tonumber(prop.heading) or 0.0 }
+        end
+    end
+    return { model = getConfigPropModel(item), zOffset = 0.0, heading = 0.0 }
+end
+
 local function dropToPayload(row)
     local item = rowToItem(row)
+    local prop = getDropProp(item)
     return {
         id = tonumber(row.id),
         item_name = row.item_name,
@@ -422,7 +437,9 @@ local function dropToPayload(row)
         weight = tonumber(item.weight) or 0,
         category = item.category or item.type or 'misc',
         metadata = item.metadata or {},
-        propModel = getDropPropModel(item),
+        propModel = prop.model,
+        propZOffset = prop.zOffset,
+        propHeading = prop.heading,
         expiresAt = row.expires_at,
         coords = { x = tonumber(row.x), y = tonumber(row.y), z = tonumber(row.z) }
     }
@@ -635,7 +652,7 @@ RegisterNetEvent('cm-inventory:server:moveItem', function(data)
     local ok, reason = MoveItemSmart(src, fromSlot, toSlot)
     if ok then
         dprint(('moveItem success for player %s: %s -> %s'):format(src, fromSlot, toSlot))
-        notify(src, 'Item moved.', 'success')
+        -- Quiet success: dragging/merging/swap should not spam notifications.
     else
         dprint(('moveItem failed for player %s: %s -> %s reason=%s'):format(src, fromSlot, toSlot, tostring(reason)))
         if Config.Debug then

@@ -19,6 +19,7 @@ server_scripts {
     '@oxmysql/lib/MySQL.lua',
     'server/main.lua',
     'server/items_catalog.lua',
+    'server/item_props.lua',
     'server/image_upload.lua'
 }
 

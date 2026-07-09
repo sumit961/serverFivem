@@ -189,10 +189,18 @@ local function ensureDropProp(drop)
         local hash = loadDropModel(drop.propModel)
         if not hash then return end
 
-        local obj = CreateObject(hash, x, y, z, false, false, false)
+        local zOffset = tonumber(drop.propZOffset) or 0.0
+        local obj = CreateObject(hash, x, y, z + zOffset, false, false, false)
         if obj and obj ~= 0 then
             SetEntityAsMissionEntity(obj, true, true)
-            PlaceObjectOnGroundProperly(obj)
+            if tonumber(drop.propHeading) then
+                SetEntityHeading(obj, tonumber(drop.propHeading))
+            end
+            -- With no z-offset, sit the prop on the ground; a deliberate offset
+            -- (e.g. a floating/raised prop) is respected instead.
+            if zOffset == 0.0 then
+                PlaceObjectOnGroundProperly(obj)
+            end
             FreezeEntityPosition(obj, true)
             SetEntityCollision(obj, true, true)
             SetEntityAlpha(obj, 235, false)
@@ -746,17 +754,29 @@ local function tryOpenVehicleTrunkBeforeInventory()
     return ok and opened == true
 end
 
-RegisterCommand('inventory', function()
-    if isOpen then closeInventory() return end
-    if tryOpenVehicleTrunkBeforeInventory() then return end
+local function openNormalInventoryFallback()
     TriggerServerEvent('cm-inventory:server:openInventory')
-end, false)
+end
 
-RegisterCommand('inv', function()
+local function openInventoryCommand()
     if isOpen then closeInventory() return end
-    if tryOpenVehicleTrunkBeforeInventory() then return end
-    TriggerServerEvent('cm-inventory:server:openInventory')
-end, false)
+
+    if tryOpenVehicleTrunkBeforeInventory() then
+        -- Some external systems consume the key press when the player is not owner /
+        -- not allowed, but do not actually open storage. Fall back to normal player
+        -- inventory so pressing I always opens something useful.
+        CreateThread(function()
+            Wait(750)
+            if not isOpen then openNormalInventoryFallback() end
+        end)
+        return
+    end
+
+    openNormalInventoryFallback()
+end
+
+RegisterCommand('inventory', openInventoryCommand, false)
+RegisterCommand('inv', openInventoryCommand, false)
 
 RegisterKeyMapping('inventory', 'Open inventory', 'keyboard', Config.OpenKey or 'I')
 

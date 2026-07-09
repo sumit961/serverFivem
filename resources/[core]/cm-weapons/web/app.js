@@ -182,14 +182,14 @@ function selectWeapon(itemName) {
   renderWeaponList();
 }
 
-function newAmmo() {
+function newAmmo() { showNotice('Fixed catalog: add or edit ammo in shared/defaults.lua.'); return; 
   state.selectedAmmo = null;
   fillForm($('#ammoForm'), { itemName: '', label: '', ammoKey: 'pistol', pickupHash: '', packSize: 30, weight: 10, sortOrder: 0, enabled: true, stack: true });
   updatePickupHash();
   renderAmmoList();
 }
 
-function newWeapon() {
+function newWeapon() { showNotice('Fixed catalog: add or edit weapons in shared/defaults.lua.'); return; 
   state.selectedWeapon = null;
   fillForm($('#weaponForm'), { itemName: '', label: '', weaponHash: '', group: 'pistol', ammoItem: '', damage: 25, magazineSize: 12, weight: 1000, sortOrder: 0, enabled: true });
   renderWeaponList();
@@ -237,7 +237,7 @@ $('#ammoForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const data = await formToObjWithImage(e.currentTarget);
   post('saveAmmo', data);
-  showNotice(data.imageData ? 'Saving ammo and uploading image...' : 'Saving ammo...');
+  showNotice(data.imageData ? 'Uploading ammo image...' : 'Saving ammo image/path only...');
 });
 
 $('#weaponForm').addEventListener('submit', async (e) => {
@@ -245,7 +245,7 @@ $('#weaponForm').addEventListener('submit', async (e) => {
   const data = await formToObjWithImage(e.currentTarget);
   if (!data.ammoItem) return showNotice('Select ammo used by this gun first.');
   post('saveWeapon', data);
-  showNotice(data.imageData ? 'Saving weapon and uploading image...' : 'Saving weapon...');
+  showNotice(data.imageData ? 'Uploading weapon image...' : 'Saving weapon image/path only...');
 });
 
 $('#deleteAmmo').addEventListener('click', () => {

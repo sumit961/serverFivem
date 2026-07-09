@@ -4,7 +4,7 @@ game 'gta5'
 name 'cm-gunstore'
 author 'CM / ChatGPT'
 description 'Gun/ammo selling store that reads fixed weapon/ammo definitions from cm-weapons.'
-version '1.6.0'
+version '1.8.1'
 lua54 'yes'
 
 ui_page 'web/index.html'
@@ -38,6 +38,7 @@ dependencies {
     'cm-core',
     'cm-playerdata',
     'cm-inventory',
+    'cm-items',
     'oxmysql',
     'cm-weapons'
     -- Optional for armor admin photo capture: screenshot-basic

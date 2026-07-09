@@ -92,10 +92,21 @@ RegisterNetEvent('cm-items:client:setItemsCatalog', function(catalogItems)
     end
 end)
 
+-- Per-item drop-prop overrides, synced from the server for the preview UI.
+CMItems.ItemProps = CMItems.ItemProps or {}
+
+RegisterNetEvent('cm-items:client:setItemProps', function(props)
+    CMItems.ItemProps = props or {}
+    if previewOpen then
+        SendNUIMessage({ type = 'openItemPreview', payload = buildPreviewPayload() })
+    end
+end)
+
 CreateThread(function()
     Wait(2000)
     TriggerServerEvent('cm-items:server:requestCatalogSync')
     TriggerServerEvent('cm-items:server:requestItemsCatalogSync')
+    TriggerServerEvent('cm-items:server:requestItemPropsSync')
 end)
 
 exports('GetClothingCatalogEntry', exportSafe(function(gender, componentType, componentIndex, drawableId, textureId)
@@ -183,14 +194,37 @@ local function flattenCatalog()
     return rows
 end
 
+-- Resolve the effective drop prop for the UI (mirrors the server resolver, but
+-- only needs override -> category default because the item's own worldModel is
+-- passed in). Clothing intentionally shares one prop.
+local function effectivePropForItem(name, category, itemWorldModel)
+    local override = CMItems.ItemProps and CMItems.ItemProps[name]
+    if override and override.model and override.model ~= '' then
+        return { model = override.model, zOffset = tonumber(override.zOffset) or 0.0, heading = tonumber(override.heading) or 0.0, override = true }
+    end
+    if type(itemWorldModel) == 'string' and itemWorldModel ~= '' then
+        return { model = itemWorldModel, zOffset = 0.0, heading = 0.0, override = false }
+    end
+    local models = (CMItems.Config and CMItems.Config.WorldModels) or {}
+    category = tostring(category or 'misc'):lower()
+    if tostring(name):find('clothing_', 1, true) == 1 then category = 'clothing' end
+    if tostring(name):find('weapon_', 1, true) == 1 then category = 'weapon' end
+    if tostring(name):find('ammo_', 1, true) == 1 then category = 'ammo' end
+    return { model = models[category] or models.default or 'prop_cs_cardbox_01', zOffset = 0.0, heading = 0.0, override = false }
+end
+
 function buildPreviewPayload()
     local items = {}
     for name, item in pairs(CMItems.GetAllItems and CMItems.GetAllItems() or {}) do
+        local category = item.category or item.type or 'misc'
+        local itemWorldModel = (CMItems.GetItemWorldModel and CMItems.GetItemWorldModel(name)) or item.worldModel or ''
+        local prop = effectivePropForItem(name, category, item.worldModel)
         items[#items + 1] = {
             kind = 'item',
             name = name,
             label = item.label or name,
-            category = item.category or item.type or 'misc',
+            category = category,
+            itemType = item.itemType or item.type or 'normal',
             weight = tonumber(item.weight) or 0,
             stack = item.stack ~= false,
             usable = item.usable == true,
@@ -199,7 +233,11 @@ function buildPreviewPayload()
             image = imageUrlForItem(item.image or item.icon),
             description = item.description or '',
             equipmentSlot = item.equipmentSlot or item.equipSlot or '',
-            worldModel = CMItems.GetItemWorldModel and CMItems.GetItemWorldModel(name) or item.worldModel or '',
+            worldModel = itemWorldModel,
+            propModel = prop.model,
+            propZOffset = prop.zOffset,
+            propHeading = prop.heading,
+            propOverride = prop.override,
             source = (CMItems.CatalogItems and CMItems.CatalogItems[name]) and 'catalog' or 'static',
             deletable = (CMItems.CatalogItems and CMItems.CatalogItems[name]) ~= nil,
         }
@@ -252,6 +290,76 @@ end)
 
 RegisterNUICallback('previewDeleteItem', function(data, cb)
     TriggerServerEvent('cm-items:server:previewDeleteItem', nextPreviewRequest(cb), data or {})
+end)
+
+RegisterNUICallback('previewSetProp', function(data, cb)
+    TriggerServerEvent('cm-items:server:previewSetProp', nextPreviewRequest(cb), data or {})
+end)
+
+RegisterNUICallback('previewClearProp', function(data, cb)
+    TriggerServerEvent('cm-items:server:previewClearProp', nextPreviewRequest(cb), data or {})
+end)
+
+RegisterNUICallback('previewSetImage', function(data, cb)
+    TriggerServerEvent('cm-items:server:previewSetImage', nextPreviewRequest(cb), data or {})
+end)
+
+RegisterNetEvent('cm-items:client:previewImageResult', function(requestId, success, message, itemName)
+    local cb = previewCallbacks[tostring(requestId)]
+    previewCallbacks[tostring(requestId)] = nil
+    if cb then cb({ success = success == true, message = message, itemName = itemName }) end
+    if success and previewOpen then
+        SendNUIMessage({ type = 'openItemPreview', payload = buildPreviewPayload() })
+    end
+    if lib and lib.notify then
+        lib.notify({ title = 'CM Items', description = tostring(message or ''), type = success and 'success' or 'error' })
+    end
+end)
+
+-- Local spawn test: preview the prop (with z-offset/heading) in front of the
+-- player for a few seconds. Client-only, no persistence.
+local testProp = nil
+RegisterNUICallback('previewSpawnProp', function(data, cb)
+    data = data or {}
+    local model = tostring(data.model or '')
+    if model == '' then cb({ success = false, message = 'No model' }); return end
+
+    CreateThread(function()
+        if testProp and DoesEntityExist(testProp) then DeleteEntity(testProp); testProp = nil end
+        local hash = joaat(model)
+        RequestModel(hash)
+        local tries = 0
+        while not HasModelLoaded(hash) and tries < 100 do Wait(20); tries = tries + 1 end
+        if not HasModelLoaded(hash) then return end
+
+        local ped = PlayerPedId()
+        local fwd = GetEntityForwardVector(ped)
+        local pos = GetEntityCoords(ped) + (fwd * 1.2)
+        local z = pos.z - 0.9 + (tonumber(data.zOffset) or 0.0)
+        testProp = CreateObject(hash, pos.x, pos.y, z, false, false, false)
+        if testProp and testProp ~= 0 then
+            SetEntityHeading(testProp, GetEntityHeading(ped) + (tonumber(data.heading) or 0.0))
+            PlaceObjectOnGroundProperly(testProp)
+            FreezeEntityPosition(testProp, true)
+            SetEntityAlpha(testProp, 200, false)
+        end
+        SetModelAsNoLongerNeeded(hash)
+        Wait(6000)
+        if testProp and DoesEntityExist(testProp) then DeleteEntity(testProp); testProp = nil end
+    end)
+    cb({ success = true })
+end)
+
+RegisterNetEvent('cm-items:client:previewPropResult', function(requestId, success, message, itemName)
+    local cb = previewCallbacks[tostring(requestId)]
+    previewCallbacks[tostring(requestId)] = nil
+    if cb then cb({ success = success == true, message = message, itemName = itemName }) end
+    if success and previewOpen then
+        SendNUIMessage({ type = 'openItemPreview', payload = buildPreviewPayload() })
+    end
+    if lib and lib.notify then
+        lib.notify({ title = 'CM Items', description = tostring(message or ''), type = success and 'success' or 'error' })
+    end
 end)
 
 RegisterNetEvent('cm-items:client:previewGiveResult', function(requestId, success, message, itemName)

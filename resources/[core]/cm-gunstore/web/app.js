@@ -29,7 +29,9 @@ const state = {
   ammoPicker: [],
   ammoGroups: [],
   ammoGroup: 'pistol',
-  ammoSearch: ''
+  ammoSearch: '',
+  selectedName: '',
+  ammoQty: 1
 };
 
 function resName() { return typeof GetParentResourceName === 'function' ? GetParentResourceName() : 'cm-gunstore'; }
@@ -48,13 +50,84 @@ function imgSrc(value) {
 }
 
 function typeLabel(row) {
-  if (row.item_type === 'ammo') return `${row.pack_size || 1} Rounds${row.ammo_key ? ` • ${row.ammo_key}` : ''}`;
+  if (row.item_type === 'ammo') return `${row.ammo_key ? row.ammo_key.toUpperCase() + ' • ' : ''}Per round`; 
   if (row.item_type === 'armor') return `${row.armor_value || row.armorValue || 0} Armor`;
   const dmg = Number(row.damage || 0);
   return `${row.ammo_item ? `Uses ${row.ammo_item}` : 'Weapon'}${dmg ? ` • ${dmg} Damage` : ''}`;
 }
 function itemAccent(row) { return row.item_type === 'ammo' ? 'ammo' : row.item_type === 'armor' ? 'armor' : 'weapon'; }
 function visibleRows() { return state.catalog.filter(row => (state.filter === 'all' || row.item_type === state.filter) && (state.mode === 'admin' || row.enabled !== false)); }
+
+function getSelectedRow(rows = visibleRows()) {
+  if (!rows.length) return null;
+  let row = rows.find(x => x.item_name === state.selectedName);
+  if (!row) { row = rows[0]; state.selectedName = row.item_name; }
+  return row;
+}
+
+function groupLabel(row) {
+  if (row.item_type === 'ammo') return 'Ammunition';
+  if (row.item_type === 'armor') return 'Armor';
+  const raw = String(row.group || row.group_key || row.weapon_group || '').toLowerCase();
+  if (raw === 'smg') return 'Submachine Guns';
+  if (raw === 'rifle') return 'Assault Rifles';
+  if (raw === 'shotgun') return 'Shotguns';
+  if (raw === 'sniper') return 'Sniper Rifles';
+  if (raw === 'machinegun' || raw === 'mg') return 'Machine Guns';
+  return 'Pistols';
+}
+
+function statBars(value, max = 100) {
+  const lit = Math.max(1, Math.min(7, Math.round((Number(value) || 0) / max * 7)));
+  return Array.from({length: 7}, (_, i) => `<span class="bar ${i < lit ? 'on' : ''}"></span>`).join('');
+}
+
+function storeList(rows) {
+  const groups = [];
+  const seen = {};
+  rows.forEach(row => { const g = groupLabel(row); if (!seen[g]) { seen[g] = []; groups.push(g); } seen[g].push(row); });
+  return groups.map(g => `<section class="shop-group"><button class="shop-group-head">${escapeHtml(g)} <span>⌄</span></button><div class="shop-group-list">${seen[g].map(row => `
+    <button class="shop-list-item ${row.item_name === state.selectedName ? 'active' : ''}" data-select="${escapeAttr(row.item_name)}">
+      <img src="${imgSrc(row.image)}" onerror="this.style.opacity=.18" />
+      <span>${escapeHtml(row.label)}</span>
+      <strong>${money(row.price)}</strong>
+    </button>`).join('')}</div></section>`).join('');
+}
+
+function storeDetail(row) {
+  if (!row) return '<section class="shop-detail empty">No item selected</section>';
+  const isAmmo = row.item_type === 'ammo';
+  const isArmor = row.item_type === 'armor';
+  const qty = Math.max(1, Number(state.ammoQty) || 1);
+  const total = isAmmo ? (Number(row.price) || 0) * qty : Number(row.price) || 0;
+  const statOne = isArmor ? Number(row.armor_value || row.armorValue || 0) : Number(row.damage || 0);
+  const statTwo = isAmmo ? Number(row.pack_size || 1) : isArmor ? 35 : Number(row.magazine_size || row.magazineSize || 0);
+  return `<section class="shop-detail">
+    <p class="shop-kicker">${isAmmo ? 'Ammo Information' : isArmor ? 'Armor Information' : 'Weapon Information'}</p>
+    <h2>${escapeHtml(row.label)}</h2>
+    <div class="detail-image"><img src="${imgSrc(row.image)}" onerror="this.style.opacity=.18" /></div>
+    <div class="detail-price">${money(row.price)}${isAmmo ? '<small>/ round</small>' : ''}</div>
+    <div class="stat-row"><span>${isAmmo ? 'Rounds' : isArmor ? 'Protection' : 'Damage'}</span><div>${statBars(statOne, isArmor ? 100 : 160)}</div></div>
+    <div class="stat-row"><span>${isAmmo ? 'Pack Size' : isArmor ? 'Weight' : 'Magazine'}</span><div>${statBars(statTwo, isAmmo ? 10 : 100)}</div></div>
+    ${!isAmmo && !isArmor ? `<div class="stat-row"><span>Range</span><div>${statBars(row.group === 'sniper' ? 90 : row.group === 'shotgun' ? 25 : row.group === 'rifle' ? 70 : 45, 100)}</div></div>` : ''}
+    <p class="detail-desc">${escapeHtml(row.description || 'Inventory item.')}</p>
+    ${isAmmo ? `<div class="ammo-buy-panel"><span>Ammunition</span><div class="qty"><button data-qty="-1">−</button><input id="ammoQty" value="${qty}" inputmode="numeric" /><button data-qty="1">+</button></div><strong>${money(total)}</strong></div>` : ''}
+    <div class="buy-row">
+      <button class="buy cash" data-buy="cash" data-name="${escapeAttr(row.item_name)}">Buy Cash</button>
+      <button class="buy" data-buy="bank" data-name="${escapeAttr(row.item_name)}">Buy Bank</button>
+    </div>
+  </section>`;
+}
+
+function storeView() {
+  const rows = visibleRows();
+  const selected = getSelectedRow(rows);
+  return `<section class="shop-ui">
+    <aside class="shop-left"><div class="shop-title"><p>CM Ammu-Nation</p><h2>Catalog</h2></div>${storeList(rows)}</aside>
+    <section class="shop-center">${selected ? `<div class="hero-card"><img src="${imgSrc(selected.image)}" onerror="this.style.opacity=.18" /><h3>${escapeHtml(selected.label)}</h3><p>${escapeHtml(typeLabel(selected))}</p></div>` : ''}</section>
+    ${storeDetail(selected)}
+  </section>`;
+}
 
 function statusBadge(status) {
   if (status === 'store') return '<span class="wstatus on">In Store</span>';
@@ -69,11 +142,11 @@ function weaponCard(w) {
     <div class="whead"><h4>${escapeHtml(w.label)}</h4>${statusBadge(w.status)}</div>
     <code class="whash">${escapeHtml(w.item_name || '')}</code>
     <div class="wfields">
-      <label><span>Price</span><input data-wfield="price" type="number" min="0" value="${Number(w.price)||0}"></label>
+      <label><span>Config Price</span><input data-wfield="price" type="number" min="0" value="${Number(w.price)||0}" disabled></label>
       <label><span>Stock</span><input data-wfield="stock" type="number" value="${Number(w.stock ?? -1)}"></label>
       <label><span>Damage</span><input value="${Number(w.damage)||0}" disabled></label>
       <label><span>Ammo</span><input value="${escapeAttr(w.ammo_item || w.ammo || '')}" disabled></label>
-      <p class="ammo-damage-note wide">Weapon and ammo rules come from cm-weapons. Gun store only saves price, stock and store visibility.</p>
+      <p class="ammo-damage-note wide">Price comes from shared/config.lua. Gun admin only saves stock and Store/Hidden.</p>
       <label class="wtoggle"><input data-wfield="enabled" type="checkbox" ${w.status==='store'?'checked':''}><span>In Store</span></label>
     </div>
     <div class="wbuttons">
@@ -90,11 +163,11 @@ function ammoCard(a) {
     <div class="whead"><h4>${escapeHtml(a.label)}</h4>${statusBadge(a.status)}</div>
     <code class="whash">${escapeHtml(a.item_name || '')}</code>
     <div class="wfields">
-      <label><span>Price</span><input data-afield="price" type="number" min="0" value="${Number(a.price)||0}"></label>
+      <label><span>Config Price</span><input data-afield="price" type="number" min="0" value="${Number(a.price)||0}" disabled></label>
       <label><span>Stock</span><input data-afield="stock" type="number" value="${Number(a.stock ?? -1)}"></label>
       <label><span>Pack Size</span><input value="${Number(a.pack_size)||1}" disabled></label>
       <label><span>Pickup Hash</span><input value="${escapeAttr(a.pickup_hash || '')}" disabled></label>
-      <p class="ammo-damage-note wide">Ammo name, pack size and pickup hash come from cm-weapons. Use /cmweaponadmin to edit them.</p>
+      <p class="ammo-damage-note wide">Ammo and price are config-controlled. Gun admin only saves stock and Store/Hidden.</p>
       <label class="wtoggle"><input data-afield="enabled" type="checkbox" ${a.status==='store'?'checked':''}><span>In Store</span></label>
     </div>
     <div class="wbuttons">
@@ -112,18 +185,18 @@ function pickerSearch(list, group, search, groupKey = 'group') {
 }
 
 function weaponPickerView() {
-  const groups = state.weaponGroups.length ? state.weaponGroups : ['pistol','smg','rifle','shotgun','sniper','heavy'];
+  const groups = state.weaponGroups.length ? state.weaponGroups : ['pistol','smg','rifle','shotgun','sniper','machinegun'];
   if (!groups.includes(state.weaponGroup)) state.weaponGroup = groups[0] || 'pistol';
   const tabs = groups.map(g => `<button class="wgroup ${state.weaponGroup === g ? 'active' : ''}" data-wgroup="${escapeAttr(g)}">${escapeHtml(g).toUpperCase()}</button>`).join('');
   const items = pickerSearch(state.weaponPicker, state.weaponGroup, state.weaponSearch);
   return `<section class="weapon-picker">
     <div class="wp-head">
-      <div><p class="eyebrow">ALL SERVER WEAPONS</p><h2>Set weapon store price and visibility</h2></div>
+      <div><p class="eyebrow">ALL SERVER WEAPONS</p><h2>Set weapon stock and visibility</h2></div>
       <input id="weaponSearch" class="wp-search" placeholder="Search weapons..." value="${escapeAttr(state.weaponSearch)}">
     </div>
     <div class="wgroups">${tabs}</div>
     <div class="wgrid">${items.map(weaponCard).join('') || '<div class="empty">No weapons found. Create weapons in /cmweaponadmin first.</div>'}</div>
-    <p class="creator-note">Gun admin lists every weapon from cm-weapons. It only controls sale price, stock and In Store/Hidden.</p>
+    <p class="creator-note">Gun admin lists every weapon from cm-weapons. Prices come from shared/config.lua; this admin only controls stock and In Store/Hidden.</p>
   </section>`;
 }
 
@@ -134,12 +207,12 @@ function ammoPickerView() {
   const items = pickerSearch(state.ammoPicker, state.ammoGroup, state.ammoSearch);
   return `<section class="weapon-picker">
     <div class="wp-head">
-      <div><p class="eyebrow">ALL SERVER AMMO</p><h2>Set ammo store price and visibility</h2></div>
+      <div><p class="eyebrow">ALL SERVER AMMO</p><h2>Set ammo stock and visibility</h2></div>
       <input id="ammoSearch" class="wp-search" placeholder="Search ammo..." value="${escapeAttr(state.ammoSearch)}">
     </div>
     <div class="wgroups">${tabs}</div>
     <div class="wgrid">${items.map(ammoCard).join('') || '<div class="empty">No ammo found. Create ammo in /cmweaponadmin first.</div>'}</div>
-    <p class="creator-note">Gun admin lists every ammo item from cm-weapons. It only controls sale price, stock and In Store/Hidden.</p>
+    <p class="creator-note">Gun admin lists every ammo item from cm-weapons. Prices come from shared/config.lua; this admin only controls stock and In Store/Hidden.</p>
   </section>`;
 }
 
@@ -190,16 +263,16 @@ function adminRow(row) {
   if (row.item_type === 'weapon' || row.item_type === 'ammo') {
     return `<article class="admin-item${row.enabled ? '' : ' disabled'}" data-name="${itemName}" data-type="${escapeAttr(row.item_type)}">
       <div class="admin-preview"><span class="admin-type">${escapeHtml(row.item_type)}</span><img src="${imgSrc(row.image)}" alt="${escapeAttr(row.label)}"><small>${escapeHtml(row.item_name)}</small></div>
-      <div class="admin-summary"><h3>${escapeHtml(row.label)}</h3><div class="meta"><span>${escapeHtml(typeLabel(row))}</span><strong>${money(row.price)}</strong></div><p class="desc">Source: cm-weapons</p><span class="status ${row.enabled ? 'on' : 'off'}">${row.enabled ? 'Store' : 'Hidden'}</span></div>
+      <div class="admin-summary"><h3>${escapeHtml(row.label)}</h3><div class="meta"><span>${escapeHtml(typeLabel(row))}</span><strong>${money(row.price)}</strong></div><p class="desc">Source: cm-weapons + config price</p><span class="status ${row.enabled ? 'on' : 'off'}">${row.enabled ? 'Store' : 'Hidden'}</span></div>
       <div class="admin-fields">
         <label><span>Label</span><input value="${escapeAttr(row.label)}" disabled /></label>
-        <label><span>Price</span><input data-field="price" data-name="${itemName}" type="number" min="0" value="${Number(row.price) || 0}" /></label>
+        <label><span>Config Price</span><input data-field="price" data-name="${itemName}" type="number" min="0" value="${Number(row.price) || 0}" disabled /></label>
         <label><span>Stock</span><input data-field="stock" data-name="${itemName}" type="number" value="${Number(row.stock ?? -1)}" /></label>
         ${row.item_type === 'weapon'
           ? `<label><span>Damage</span><input value="${Number(row.damage) || 0}" disabled /></label><label><span>Ammo</span><input value="${escapeAttr(row.ammo_item || '')}" disabled /></label>`
           : `<label><span>Pack Size</span><input value="${Number(row.pack_size) || 1}" disabled /></label><label><span>Pickup Hash</span><input value="${escapeAttr(row.pickup_hash || '')}" disabled /></label>`}
-        <label class="wide"><span>Store Image Override</span><input data-field="image" data-name="${itemName}" value="${escapeAttr(row.image)}" /></label>
-        <label class="wide"><span>Store Description Override</span><textarea data-field="description" data-name="${itemName}">${escapeHtml(row.description || '')}</textarea></label>
+        <label class="wide"><span>Image from /cmweaponadmin</span><input data-field="image" data-name="${itemName}" value="${escapeAttr(row.image)}" disabled /></label>
+        <label class="wide"><span>Description from cm-weapons config</span><textarea data-field="description" data-name="${itemName}" disabled>${escapeHtml(row.description || '')}</textarea></label>
       </div>
       <div class="admin-actions"><label class="admin-toggle"><input data-field="enabled" data-name="${itemName}" type="checkbox" ${row.enabled ? 'checked' : ''}/><span>Store</span></label><button class="save" data-save="${itemName}">Save Store</button><button class="delete" data-delete="${itemName}">Remove Store</button></div>
     </article>`;
@@ -210,7 +283,7 @@ function adminRow(row) {
     <div class="admin-summary"><h3>${escapeHtml(row.label)}</h3><div class="meta"><span>${escapeHtml(typeLabel(row))}</span><strong>${money(row.price)}</strong></div><p class="desc">${escapeHtml(row.description || '')}</p><span class="status ${row.enabled ? 'on' : 'off'}">${row.enabled ? 'Store' : 'Hidden'}</span></div>
     <div class="admin-fields">
       <label><span>Label</span><input data-field="label" data-name="${itemName}" value="${escapeAttr(row.label)}" /></label>
-      <label><span>Price</span><input data-field="price" data-name="${itemName}" type="number" min="0" value="${Number(row.price) || 0}" /></label>
+      <label><span>Config Price</span><input data-field="price" data-name="${itemName}" type="number" min="0" value="${Number(row.price) || 0}" disabled /></label>
       <label><span>Armor</span><input data-field="armor_value" data-name="${itemName}" type="number" min="0" max="100" value="${Number(row.armor_value || row.armorValue) || 0}" /></label>
       <label><span>Component</span><input data-field="component_id" data-name="${itemName}" type="number" value="${Number(row.component_id || row.componentId || 9)}" /></label>
       <label><span>Drawable</span><input data-field="drawable_id" data-name="${itemName}" type="number" value="${row.drawable_id ?? row.drawableId ?? ''}" /></label>
@@ -230,8 +303,10 @@ function render() {
   titleEl.textContent = admin ? 'Gun Store Admin' : 'Gun Store';
   modeLabel.textContent = admin ? 'STORE ADMIN' : 'STORE';
   app.classList.toggle('admin-mode', admin);
+  app.classList.toggle('store-mode', !admin);
   document.querySelectorAll('.tab').forEach(btn => btn.classList.toggle('active', btn.dataset.filter === state.filter));
 
+  if (!admin) { itemsEl.innerHTML = storeView(); return; }
   if (admin && state.filter === 'weapon') { itemsEl.innerHTML = weaponPickerView(); return; }
   if (admin && state.filter === 'ammo') { itemsEl.innerHTML = ammoPickerView(); return; }
 
@@ -241,7 +316,7 @@ function render() {
 }
 
 function setInteraction(data = {}) { if (!data.show) { interactionPrompt.classList.add('hidden'); return; } interactionKey.textContent = data.key || 'E'; interactionName.textContent = data.clerkName || 'Gun Store Clerk'; interactionTitle.textContent = data.title || 'Talk to Clerk'; interactionSubtitle.textContent = data.subtitle || 'Browse weapons, ammo, and armor'; interactionPrompt.classList.remove('hidden'); }
-function open(data) { interactionPrompt.classList.add('hidden'); state.mode = data.mode || 'store'; state.catalog = Array.isArray(data.catalog) ? data.catalog : []; state.busy = false; npcDialog.classList.add('hidden'); if (state.mode === 'admin' && state.filter === 'all') state.filter = 'weapon'; app.classList.remove('hidden'); render(); if (state.mode === 'admin' && state.filter === 'weapon') post('adminRequestWeaponPicker', {}); if (state.mode === 'admin' && state.filter === 'ammo') post('adminRequestAmmoPicker', {}); }
+function open(data) { interactionPrompt.classList.add('hidden'); state.mode = data.mode || 'store'; state.catalog = Array.isArray(data.catalog) ? data.catalog : []; state.busy = false; state.ammoQty = 1; if (state.mode !== 'admin') state.filter = 'all'; if (!state.catalog.some(x => x.item_name === state.selectedName)) state.selectedName = ''; npcDialog.classList.add('hidden'); if (state.mode === 'admin' && state.filter === 'all') state.filter = 'weapon'; app.classList.remove('hidden'); render(); if (state.mode === 'admin' && state.filter === 'weapon') post('adminRequestWeaponPicker', {}); if (state.mode === 'admin' && state.filter === 'ammo') post('adminRequestAmmoPicker', {}); }
 function openDialog(data = {}) { interactionPrompt.classList.add('hidden'); state.mode = 'dialog'; state.busy = false; app.classList.add('hidden'); app.classList.remove('admin-mode'); dialogName.textContent = data.clerkName || 'Gun Store Clerk'; dialogTitle.textContent = data.title || 'How can I help you today?'; dialogStoreBtn.textContent = data.optionStore || 'Show me what you have got'; dialogCloseBtn.textContent = data.optionClose || 'No thanks'; npcDialog.classList.remove('hidden'); }
 function close() { interactionPrompt.classList.add('hidden'); npcDialog.classList.add('hidden'); app.classList.add('hidden'); app.classList.remove('admin-mode'); state.busy = false; }
 
@@ -394,7 +469,9 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  const buy = e.target.closest('[data-buy]'); if (buy && !state.busy) { state.busy = true; post('buyItem', { item_name: buy.dataset.name, method: buy.dataset.buy }); return; }
+  const select = e.target.closest('[data-select]'); if (select) { state.selectedName = select.dataset.select || ''; state.ammoQty = 1; render(); return; }
+  const qtyBtn = e.target.closest('[data-qty]'); if (qtyBtn) { state.ammoQty = Math.max(1, Math.min(999, (Number(state.ammoQty) || 1) + Number(qtyBtn.dataset.qty || 0))); render(); return; }
+  const buy = e.target.closest('[data-buy]'); if (buy && !state.busy) { state.busy = true; const row = state.catalog.find(x => x.item_name === buy.dataset.name) || {}; const qtyEl = document.getElementById('ammoQty'); const quantity = row.item_type === 'ammo' ? Math.max(1, Math.min(999, Number(qtyEl?.value || state.ammoQty || 1))) : 1; post('buyItem', { item_name: buy.dataset.name, method: buy.dataset.buy, quantity }); return; }
   const save = e.target.closest('[data-save]'); if (save) { const data = rowData(save.dataset.save); if (data) post('adminSaveItem', data); return; }
   const del = e.target.closest('[data-delete]'); if (del) { const name = del.dataset.delete || ''; if (name && confirm(`Remove ${name} from this gun store? Weapon/ammo stays in cm-weapons.`)) post('adminDeleteItem', { item_name: name }); return; }
   if (e.target.id === 'createStoreBtn') { createArmorData(true); return; }
@@ -412,6 +489,9 @@ document.addEventListener('input', (e) => {
     state.ammoSearch = e.target.value || '';
     const grid = document.querySelector('.wgrid');
     if (grid) grid.innerHTML = pickerSearch(state.ammoPicker, state.ammoGroup, state.ammoSearch).map(ammoCard).join('') || '<div class="empty">No ammo match</div>';
+  }
+  if (e.target.id === 'ammoQty') {
+    state.ammoQty = Math.max(1, Math.min(999, Number(e.target.value || 1)));
   }
 });
 

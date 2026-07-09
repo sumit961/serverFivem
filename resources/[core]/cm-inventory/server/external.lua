@@ -228,6 +228,14 @@ local function OpenExternalInventoryInternal(src, context)
     src = tonumber(src)
     if not src or src <= 0 then return false, 'Invalid player.' end
 
+    -- If another resource checks owner/permission and explicitly denies the
+    -- storage, do not leave the player with nothing. Open their normal inventory.
+    if type(context) == 'table' and (context.allowed == false or context.canOpen == false or context.can_open == false or context.isAllowed == false) then
+        ActiveExternalInventories[src] = nil
+        sendInventory(src, true)
+        return false, 'External inventory access denied.'
+    end
+
     local ctx, err = sanitizeExternalContext(src, context)
     if not ctx then return false, err end
 

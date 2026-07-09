@@ -267,6 +267,20 @@ local function MoveItemInternal(src, fromSlot, toSlot)
     if not bagOk then return false, bagErr end
 
     if not dest then
+        -- Clothing stacks are allowed in backpack/pocket slots, but equipment slots must
+        -- only ever hold one physical clothing item. When equipping from a stack, split
+        -- one item into the target equipment slot and keep the rest in the source slot.
+        if isEquipmentSlot(toSlot) and isClothingItemName(source.item_name) and (tonumber(source.quantity) or 1) > 1 then
+            MySQL.update.await('UPDATE inventory_items SET quantity = quantity - 1 WHERE id = ?', { source.id })
+            MySQL.insert.await([[INSERT INTO inventory_items (owner_type, owner_id, slot, item_name, quantity, metadata)
+                VALUES (?, ?, ?, ?, ?, ?)]], { ownerType, tostring(ownerId), toSlot, source.item_name, 1, source.metadata or '{}' })
+            audit(ownerId, 'equip_split_clothing', source.item_name, 1, fromSlot, toSlot, 'move_split_to_equipment', decode(source.metadata))
+            syncEquipmentSlot(src, fromSlot)
+            syncEquipmentSlot(src, toSlot)
+            saveAppearance(src)
+            return true
+        end
+
         MySQL.update.await('UPDATE inventory_items SET slot = ? WHERE id = ?', { toSlot, source.id })
         audit(ownerId, 'move', source.item_name, source.quantity, fromSlot, toSlot, 'move', {})
         syncEquipmentSlot(src, fromSlot)
@@ -277,6 +291,10 @@ local function MoveItemInternal(src, fromSlot, toSlot)
             saveAppearance(src)
         end
         return true
+    end
+
+    if isEquipmentSlot(toSlot) and isClothingItemName(source.item_name) and (tonumber(source.quantity) or 1) > 1 then
+        return false, 'Remove the equipped clothing first, then equip one item from this stack.'
     end
 
     local destItem = rowToItem(dest)
@@ -461,15 +479,18 @@ local function isArmorItemName(itemName)
 end
 
 
+local canonicalAmmoItem
+
 local function findFirstAmmoStack(ownerType, ownerId, ammoName, includeAmmoSlot)
     ammoName = tostring(ammoName or ''):lower()
     if ammoName == '' then return nil end
+    local requiredCanonical = canonicalAmmoItem and canonicalAmmoItem(ammoName) or ammoName
 
     local ammoSlot = (Config.Ammo and Config.Ammo.slot) or 'ammo'
 
     if includeAmmoSlot then
         local row = getItemAt(ownerType, ownerId, ammoSlot)
-        if row and tostring(row.item_name or ''):lower() == ammoName and (tonumber(row.quantity) or 0) > 0 then
+        if row and (canonicalAmmoItem and canonicalAmmoItem(row.item_name) or tostring(row.item_name or ''):lower()) == requiredCanonical and (tonumber(row.quantity) or 0) > 0 then
             return row
         end
     end
@@ -479,9 +500,49 @@ local function findFirstAmmoStack(ownerType, ownerId, ammoName, includeAmmoSlot)
     for _, slot in ipairs(allSlots()) do
         if slot ~= 'weapon' and (includeAmmoSlot or slot ~= ammoSlot) then
             local row = getItemAt(ownerType, ownerId, slot)
-            if row and tostring(row.item_name or ''):lower() == ammoName and (tonumber(row.quantity) or 0) > 0 then
+            if row and (canonicalAmmoItem and canonicalAmmoItem(row.item_name) or tostring(row.item_name or ''):lower()) == requiredCanonical and (tonumber(row.quantity) or 0) > 0 then
                 return row
             end
+        end
+    end
+
+    return nil
+end
+
+canonicalAmmoItem = function(ammoName)
+    ammoName = tostring(ammoName or ''):lower()
+    if ammoName == '' then return '' end
+    local aliases = Config.Ammo and Config.Ammo.LegacyAliases or {}
+    return aliases[ammoName] or ammoName
+end
+
+local function getCMWeaponAmmoItem(weaponName, metadata)
+    if GetResourceState('cm-weapons') ~= 'started' then return nil end
+
+    local candidates = {}
+    local function addCandidate(v)
+        v = tostring(v or '')
+        if v ~= '' then candidates[#candidates + 1] = v end
+    end
+
+    addCandidate(weaponName)
+    metadata = type(metadata) == 'table' and metadata or {}
+    addCandidate(metadata.weaponHash or metadata.weapon_hash)
+    addCandidate(metadata.weaponName or metadata.weapon_name)
+
+    for _, candidate in ipairs(candidates) do
+        local ok, ammo = pcall(function()
+            return exports['cm-weapons']:GetWeaponAmmoItem(candidate)
+        end)
+        if ok and ammo and tostring(ammo) ~= '' then
+            return canonicalAmmoItem(ammo)
+        end
+
+        ok, ammo = pcall(function()
+            return exports['cm-weapons'].GetWeaponAmmoItem(candidate)
+        end)
+        if ok and ammo and tostring(ammo) ~= '' then
+            return canonicalAmmoItem(ammo)
         end
     end
 
@@ -492,19 +553,27 @@ local function inferAmmoForWeapon(weaponName, metadata)
     weaponName = tostring(weaponName or ''):lower()
     metadata = type(metadata) == 'table' and metadata or {}
 
+    -- cm-weapons is the single source of truth. This prevents stale metadata or old
+    -- inventory config from making guns request ammo_556/ammo_762/ammo_shotgun.
+    local cmAmmo = getCMWeaponAmmoItem(weaponName, metadata)
+    if cmAmmo and cmAmmo ~= '' then return cmAmmo end
+
     local explicit = metadata.ammo or metadata.ammoItem or metadata.ammo_item or metadata.ammoType or metadata.ammo_type or metadata.caliber
     explicit = explicit and tostring(explicit):lower() or ''
     if explicit ~= '' then
-        if explicit:find('^ammo_') then return explicit end
+        if explicit:find('^ammo_') then return canonicalAmmoItem(explicit) end
         explicit = explicit:gsub('%s+', '_'):gsub('[^%w_]', '')
-        if explicit ~= '' then return 'ammo_' .. explicit end
+        if explicit ~= '' then return canonicalAmmoItem('ammo_' .. explicit) end
     end
 
-    -- Safe fallbacks. Custom gun-store weapons should put ammo/ammoItem in metadata.
-    if weaponName:find('shotgun', 1, true) then return 'ammo_shotgun' end
-    if weaponName:find('sniper', 1, true) or weaponName:find('marksman', 1, true) then return 'ammo_762' end
-    if weaponName:find('rifle', 1, true) or weaponName:find('carbine', 1, true) or weaponName:find('bullpup', 1, true) or weaponName:find('compactrifle', 1, true) then return 'ammo_556' end
-    if weaponName:find('smg', 1, true) or weaponName:find('pistol', 1, true) then return 'ammo_9mm' end
+    -- Safe fallbacks matching the fixed 7-ammo cm-weapons design.
+    if weaponName:find('revolver', 1, true) or weaponName:find('doubleaction', 1, true) or weaponName:find('navyrevolver', 1, true) then return 'ammo_44magnum' end
+    if weaponName:find('shotgun', 1, true) then return 'ammo_12gauge' end
+    if weaponName:find('sniper', 1, true) or weaponName:find('marksman', 1, true) or weaponName:find('precisionrifle', 1, true) then return 'ammo_308win' end
+    if weaponName:find('combatmg', 1, true) or weaponName:find('weapon_mg', 1, true) or weaponName:find('gusenberg', 1, true) or weaponName:find('minigun', 1, true) then return 'ammo_762nato' end
+    if weaponName:find('smg', 1, true) or weaponName:find('combatpdw', 1, true) or weaponName:find('machinepistol', 1, true) or weaponName:find('tecpistol', 1, true) then return 'ammo_9x19_smg' end
+    if weaponName:find('rifle', 1, true) or weaponName:find('carbine', 1, true) or weaponName:find('bullpup', 1, true) or weaponName:find('compactrifle', 1, true) then return 'ammo_556nato' end
+    if weaponName:find('pistol', 1, true) then return 'ammo_9mm' end
     return 'ammo_9mm'
 end
 
@@ -513,13 +582,20 @@ local function getEquippedWeaponAmmoConfig(ownerType, ownerId)
     if not weaponRow then return nil, nil, 'No weapon equipped.' end
 
     local weaponName = tostring(weaponRow.item_name or ''):lower()
-    local weaponCfg = Config.Ammo and Config.Ammo.weapons and Config.Ammo.weapons[weaponName]
-    if weaponCfg then return weaponCfg, weaponName, nil end
-
     local metadata = decode(weaponRow.metadata)
+
+    local cmAmmo = getCMWeaponAmmoItem(weaponName, metadata)
+    if cmAmmo and cmAmmo ~= '' then return { ammo = cmAmmo }, weaponName, nil end
+
+    local weaponCfg = Config.Ammo and Config.Ammo.weapons and Config.Ammo.weapons[weaponName]
+    if weaponCfg then
+        weaponCfg.ammo = canonicalAmmoItem(weaponCfg.ammo)
+        return weaponCfg, weaponName, nil
+    end
+
     local inferredAmmo = inferAmmoForWeapon(weaponName, metadata)
     if inferredAmmo and inferredAmmo ~= '' then
-        return { ammo = inferredAmmo }, weaponName, nil
+        return { ammo = canonicalAmmoItem(inferredAmmo) }, weaponName, nil
     end
 
     return nil, weaponName, 'This weapon has no ammo config.'
@@ -543,7 +619,7 @@ syncCurrentWeaponAmmo = function(src)
     local ammoRow = getItemAt(ownerType, ownerId, ammoSlot)
     local count = 0
 
-    if requiredAmmo ~= '' and ammoRow and tostring(ammoRow.item_name or ''):lower() == requiredAmmo then
+    if requiredAmmo ~= '' and ammoRow and canonicalAmmoItem(ammoRow.item_name) == canonicalAmmoItem(requiredAmmo) then
         count = math.max(0, tonumber(ammoRow.quantity) or 0)
     end
 
@@ -566,9 +642,9 @@ local function EnsureAmmoSlotForWeaponInternal(src)
     if requiredAmmo == '' then return false, 'Weapon ammo type is missing.' end
 
     local ammoAtSlot = getItemAt(ownerType, ownerId, ammoSlot)
-    if ammoAtSlot and tostring(ammoAtSlot.item_name or ''):lower() == requiredAmmo and (tonumber(ammoAtSlot.quantity) or 0) > 0 then
+    if ammoAtSlot and canonicalAmmoItem(ammoAtSlot.item_name) == canonicalAmmoItem(requiredAmmo) and (tonumber(ammoAtSlot.quantity) or 0) > 0 then
         if syncCurrentWeaponAmmo then syncCurrentWeaponAmmo(src) end
-        return true, ('%s is already in ammo slot.'):format(requiredAmmo), ammoAtSlot
+        return true, ('%s is already in ammo slot.'):format(tostring(ammoAtSlot.item_name or requiredAmmo)), ammoAtSlot
     end
 
     local found = findFirstAmmoStack(ownerType, ownerId, requiredAmmo, false)

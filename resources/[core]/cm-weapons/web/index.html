@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CM Weapons Admin</title>
-  <link rel="stylesheet" href="style.css?v=110" />
+  <title>CM Weapons Fixed Catalog</title>
+  <link rel="stylesheet" href="style.css?v=130" />
 </head>
 <body>
   <main id="app" class="hidden">
@@ -42,27 +42,27 @@
               <div id="ammoList" class="cards smallCards"></div>
             </div>
             <form id="ammoForm" class="editor">
-              <div class="blockTitle">Ammo Settings</div>
+              <div class="blockTitle">Ammo Image Settings</div>
               <div class="grid2">
-                <label>Item Name<input name="itemName" placeholder="ammo_9mm" required /></label>
-                <label>Label<input name="label" placeholder="9mm Ammo" required /></label>
-                <label>Ammo Type<select name="ammoKey" id="ammoKeySelect"></select></label>
+                <label>Item Name<input name="itemName" placeholder="ammo_9mm" required readonly /></label>
+                <label>Label<input name="label" placeholder="9mm Ammo" required readonly /></label>
+                <label>Ammo Type<select name="ammoKey" id="ammoKeySelect" disabled></select></label>
                 <label>Pickup Hash<input name="pickupHash" readonly /></label>
-                <label>Pack Size<input name="packSize" type="number" min="1" value="30" /></label>
-                <label>Weight / round<input name="weight" type="number" min="0" value="10" /></label>
-                <label>Sort Order<input name="sortOrder" type="number" value="0" /></label>
+                <label>Pack Size<input name="packSize" type="number" min="1" value="1" readonly /></label>
+                <label>Weight / round<input name="weight" type="number" min="0" value="10" readonly /></label>
+                <label>Sort Order<input name="sortOrder" type="number" value="0" readonly /></label>
               </div>
               <label>Image Path / URL<input name="image" placeholder="nui://cm-weapons/web/images/custom/ammo_9mm.png or https://..." /></label>
               <label class="wide file-line">Upload Ammo Image<input id="ammoImageFile" name="imageFile" type="file" accept="image/png,image/jpeg,image/webp" /></label>
-              <label>Description<textarea name="description" placeholder="Short description"></textarea></label>
+              <label>Description<textarea name="description" placeholder="Short description" readonly></textarea></label>
               <div class="checks">
-                <label class="check"><input name="enabled" type="checkbox" checked /> Enabled item</label>
-                <label class="check"><input name="stack" type="checkbox" checked /> Stack in inventory</label>
+                <label class="check"><input name="enabled" type="checkbox" checked disabled /> Enabled item</label>
+                <label class="check"><input name="stack" type="checkbox" checked disabled /> Stack in inventory</label>
               </div>
               <div class="actions stickyActions">
-                <button type="button" id="newAmmo" class="ghost">New</button>
-                <button type="submit" class="primary">Save Ammo</button>
-                <button type="button" id="deleteAmmo" class="danger">Delete</button>
+                <button type="button" id="newAmmo" class="ghost" disabled>Config Only</button>
+                <button type="submit" class="primary">Save Ammo Image</button>
+                <button type="button" id="deleteAmmo" class="danger" disabled>No Delete</button>
               </div>
             </form>
           </div>
@@ -75,32 +75,32 @@
               <div id="weaponList" class="cards"></div>
             </div>
             <form id="weaponForm" class="editor">
-              <div class="blockTitle">Weapon Settings</div>
+              <div class="blockTitle">Weapon Image Settings</div>
               <div class="pickerRow">
                 <select id="defaultWeaponPicker"><option value="">Pick from fixed GTA weapon list...</option></select>
                 <button type="button" id="fillWeapon" class="ghost">Use</button>
               </div>
               <div class="grid2">
-                <label>Item Name<input name="itemName" placeholder="weapon_pistol" required /></label>
-                <label>Label<input name="label" placeholder="Pistol" required /></label>
-                <label>Weapon Hash<input name="weaponHash" placeholder="WEAPON_PISTOL" required /></label>
-                <label>Group<input name="group" placeholder="pistol / rifle / shotgun" /></label>
-                <label>Ammo Used<select name="ammoItem" id="weaponAmmoSelect"></select></label>
-                <label>Damage / Bullet<input name="damage" type="number" min="0" value="25" /></label>
-                <label>Magazine Size<input name="magazineSize" type="number" min="0" value="12" /></label>
-                <label>Weight<input name="weight" type="number" min="0" value="1000" /></label>
-                <label>Sort Order<input name="sortOrder" type="number" value="0" /></label>
+                <label>Item Name<input name="itemName" placeholder="weapon_pistol" required readonly /></label>
+                <label>Label<input name="label" placeholder="Pistol" required readonly /></label>
+                <label>Weapon Hash<input name="weaponHash" placeholder="WEAPON_PISTOL" required readonly /></label>
+                <label>Group<input name="group" placeholder="pistol / rifle / shotgun" readonly /></label>
+                <label>Ammo Used<select name="ammoItem" id="weaponAmmoSelect" disabled></select></label>
+                <label>Damage / Bullet<input name="damage" type="number" min="0" value="25" readonly /></label>
+                <label>Magazine Size<input name="magazineSize" type="number" min="0" value="12" readonly /></label>
+                <label>Weight<input name="weight" type="number" min="0" value="1000" readonly /></label>
+                <label>Sort Order<input name="sortOrder" type="number" value="0" readonly /></label>
               </div>
               <label>Image Path / URL<input name="image" placeholder="https://docs-backend.fivem.net/weapons/WEAPON_PISTOL.png" /></label>
               <label class="wide file-line">Upload Weapon Image<input id="weaponImageFile" name="imageFile" type="file" accept="image/png,image/jpeg,image/webp" /></label>
-              <label>Description<textarea name="description" placeholder="Short description"></textarea></label>
+              <label>Description<textarea name="description" placeholder="Short description" readonly></textarea></label>
               <div class="checks">
-                <label class="check"><input name="enabled" type="checkbox" checked /> Enabled item</label>
+                <label class="check"><input name="enabled" type="checkbox" checked disabled /> Enabled item</label>
               </div>
               <div class="actions stickyActions">
-                <button type="button" id="newWeapon" class="ghost">New</button>
-                <button type="submit" class="primary">Save Weapon</button>
-                <button type="button" id="deleteWeapon" class="danger">Delete</button>
+                <button type="button" id="newWeapon" class="ghost" disabled>Config Only</button>
+                <button type="submit" class="primary">Save Weapon Image</button>
+                <button type="button" id="deleteWeapon" class="danger" disabled>No Delete</button>
               </div>
             </form>
           </div>
@@ -108,6 +108,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=110"></script>
+  <script src="app.js?v=130"></script>
 </body>
 </html>

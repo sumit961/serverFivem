@@ -1,7 +1,7 @@
 CMInventory = CMInventory or {}
 
 CMInventory.Config = {
-    Debug = true,
+    Debug = false,
     OpenKey = 'I',
 
     OwnerType = 'character',
@@ -228,3 +228,116 @@ CMInventory.Config = {
         bag_level4 = { label = 'Elite Backpack', category = 'bag', equipmentSlot = 'bag', bagLevel = 4, itemType = 'unique', rarity = 'unique', weight = 1800, stack = false, usable = true, image = 'placeholder.png', description = 'Level 4 bag. All slots and maximum capacity.' }
     }
 }
+
+
+
+-- ============================================================
+-- CM Weapons ammo sync patch v4.3.0
+-- cm-weapons is the source of truth; this fallback keeps inventory
+-- using the same 7 fixed ammo items even if cm-weapons is restarting.
+-- ============================================================
+do
+    local C = CMInventory.Config
+    C.Ammo = C.Ammo or {}
+    C.Ammo.enabled = true
+    C.Ammo.slot = C.Ammo.slot or 'ammo'
+    C.Ammo.weapons = {
+        weapon_pistol = { ammo = 'ammo_9mm' },
+        weapon_pistol_mk2 = { ammo = 'ammo_9mm' },
+        weapon_combatpistol = { ammo = 'ammo_9mm' },
+        weapon_appistol = { ammo = 'ammo_9mm' },
+        weapon_pistol50 = { ammo = 'ammo_9mm' },
+        weapon_snspistol = { ammo = 'ammo_9mm' },
+        weapon_snspistol_mk2 = { ammo = 'ammo_9mm' },
+        weapon_heavypistol = { ammo = 'ammo_9mm' },
+        weapon_vintagepistol = { ammo = 'ammo_9mm' },
+        weapon_ceramicpistol = { ammo = 'ammo_9mm' },
+        weapon_marksmanpistol = { ammo = 'ammo_9mm' },
+        weapon_revolver = { ammo = 'ammo_44magnum' },
+        weapon_revolver_mk2 = { ammo = 'ammo_44magnum' },
+        weapon_doubleaction = { ammo = 'ammo_44magnum' },
+        weapon_navyrevolver = { ammo = 'ammo_44magnum' },
+        weapon_gadgetpistol = { ammo = 'ammo_9mm' },
+        weapon_pistolxm3 = { ammo = 'ammo_9mm' },
+        weapon_microsmg = { ammo = 'ammo_9x19_smg' },
+        weapon_smg = { ammo = 'ammo_9x19_smg' },
+        weapon_smg_mk2 = { ammo = 'ammo_9x19_smg' },
+        weapon_assaultsmg = { ammo = 'ammo_9x19_smg' },
+        weapon_combatpdw = { ammo = 'ammo_9x19_smg' },
+        weapon_machinepistol = { ammo = 'ammo_9x19_smg' },
+        weapon_minismg = { ammo = 'ammo_9x19_smg' },
+        weapon_tecpistol = { ammo = 'ammo_9x19_smg' },
+        weapon_assaultrifle = { ammo = 'ammo_556nato' },
+        weapon_assaultrifle_mk2 = { ammo = 'ammo_556nato' },
+        weapon_carbinerifle = { ammo = 'ammo_556nato' },
+        weapon_carbinerifle_mk2 = { ammo = 'ammo_556nato' },
+        weapon_advancedrifle = { ammo = 'ammo_556nato' },
+        weapon_specialcarbine = { ammo = 'ammo_556nato' },
+        weapon_specialcarbine_mk2 = { ammo = 'ammo_556nato' },
+        weapon_bullpuprifle = { ammo = 'ammo_556nato' },
+        weapon_bullpuprifle_mk2 = { ammo = 'ammo_556nato' },
+        weapon_compactrifle = { ammo = 'ammo_556nato' },
+        weapon_militaryrifle = { ammo = 'ammo_556nato' },
+        weapon_heavyrifle = { ammo = 'ammo_556nato' },
+        weapon_battlerifle = { ammo = 'ammo_556nato' },
+        weapon_tacticalrifle = { ammo = 'ammo_556nato' },
+        weapon_pumpshotgun = { ammo = 'ammo_12gauge' },
+        weapon_pumpshotgun_mk2 = { ammo = 'ammo_12gauge' },
+        weapon_sawnoffshotgun = { ammo = 'ammo_12gauge' },
+        weapon_assaultshotgun = { ammo = 'ammo_12gauge' },
+        weapon_bullpupshotgun = { ammo = 'ammo_12gauge' },
+        weapon_heavyshotgun = { ammo = 'ammo_12gauge' },
+        weapon_dbshotgun = { ammo = 'ammo_12gauge' },
+        weapon_autoshotgun = { ammo = 'ammo_12gauge' },
+        weapon_combatshotgun = { ammo = 'ammo_12gauge' },
+        weapon_sniperrifle = { ammo = 'ammo_308win' },
+        weapon_heavysniper = { ammo = 'ammo_308win' },
+        weapon_heavysniper_mk2 = { ammo = 'ammo_308win' },
+        weapon_marksmanrifle = { ammo = 'ammo_308win' },
+        weapon_marksmanrifle_mk2 = { ammo = 'ammo_308win' },
+        weapon_precisionrifle = { ammo = 'ammo_308win' },
+        weapon_mg = { ammo = 'ammo_762nato' },
+        weapon_combatmg = { ammo = 'ammo_762nato' },
+        weapon_combatmg_mk2 = { ammo = 'ammo_762nato' },
+        weapon_gusenberg = { ammo = 'ammo_762nato' },
+        weapon_minigun = { ammo = 'ammo_762nato' },
+    }
+    C.Ammo.LegacyAliases = {
+        ammo_556 = 'ammo_556nato',
+        ammo_762 = 'ammo_308win',
+        ammo_shotgun = 'ammo_12gauge',
+        ammo_smg = 'ammo_9x19_smg',
+        ammo_revolver = 'ammo_44magnum'
+    }
+    C.DefaultImages = C.DefaultImages or {}
+    C.DefaultImages.ammo_9mm = C.DefaultImages.ammo_9mm or 'ammo_9mm.png'
+    C.DefaultImages.ammo_44magnum = C.DefaultImages.ammo_44magnum or 'ammo_9mm.png'
+    C.DefaultImages.ammo_9x19_smg = C.DefaultImages.ammo_9x19_smg or 'ammo_9mm.png'
+    C.DefaultImages.ammo_556nato = C.DefaultImages.ammo_556nato or 'ammo_9mm.png'
+    C.DefaultImages.ammo_762nato = C.DefaultImages.ammo_762nato or 'ammo_9mm.png'
+    C.DefaultImages.ammo_12gauge = C.DefaultImages.ammo_12gauge or 'ammo_9mm.png'
+    C.DefaultImages.ammo_308win = C.DefaultImages.ammo_308win or 'ammo_9mm.png'
+    C.FallbackItems = C.FallbackItems or {}
+    C.FallbackItems.ammo_9mm = { label = '9mm Parabellum', category = 'ammo', equipmentSlot = 'ammo', itemType = 'normal', rarity = 'normal', weight = 8, stack = true, usable = true, image = 'ammo_9mm.png', description = 'Standard pistol round used by every regular pistol on CM.' }
+    C.FallbackItems.ammo_44magnum = { label = '.44 Magnum Revolver Round', category = 'ammo', equipmentSlot = 'ammo', itemType = 'normal', rarity = 'normal', weight = 16, stack = true, usable = true, image = 'ammo_9mm.png', description = 'High-power revolver round used by heavy revolvers only.' }
+    C.FallbackItems.ammo_9x19_smg = { label = '9x19mm SMG Round', category = 'ammo', equipmentSlot = 'ammo', itemType = 'normal', rarity = 'normal', weight = 9, stack = true, usable = true, image = 'ammo_9mm.png', description = 'Submachine-gun round used by every SMG class weapon.' }
+    C.FallbackItems.ammo_556nato = { label = '5.56 NATO Rifle Round', category = 'ammo', equipmentSlot = 'ammo', itemType = 'normal', rarity = 'normal', weight = 13, stack = true, usable = true, image = 'ammo_9mm.png', description = 'Rifle round used by every assault and carbine rifle.' }
+    C.FallbackItems.ammo_762nato = { label = '7.62 NATO MG Belt Round', category = 'ammo', equipmentSlot = 'ammo', itemType = 'normal', rarity = 'normal', weight = 18, stack = true, usable = true, image = 'ammo_9mm.png', description = 'Machine-gun round used by MG class weapons.' }
+    C.FallbackItems.ammo_12gauge = { label = '12 Gauge Shotgun Shell', category = 'ammo', equipmentSlot = 'ammo', itemType = 'normal', rarity = 'normal', weight = 20, stack = true, usable = true, image = 'ammo_9mm.png', description = 'Shotgun shell used by every shotgun.' }
+    C.FallbackItems.ammo_308win = { label = '.308 Winchester Sniper Round', category = 'ammo', equipmentSlot = 'ammo', itemType = 'normal', rarity = 'normal', weight = 28, stack = true, usable = true, image = 'ammo_9mm.png', description = 'Sniper round used by every sniper and marksman rifle.' }
+    C.Use = C.Use or {}; C.Use.cooldowns = C.Use.cooldowns or {}; C.Use.progress = C.Use.progress or {}
+    C.Use.cooldowns.ammo_9mm = C.Use.cooldowns.ammo_9mm or 650
+    C.Use.progress.ammo_9mm = C.Use.progress.ammo_9mm or { ms = 650, label = 'Preparing ammo...' }
+    C.Use.cooldowns.ammo_44magnum = C.Use.cooldowns.ammo_44magnum or 650
+    C.Use.progress.ammo_44magnum = C.Use.progress.ammo_44magnum or { ms = 650, label = 'Preparing ammo...' }
+    C.Use.cooldowns.ammo_9x19_smg = C.Use.cooldowns.ammo_9x19_smg or 650
+    C.Use.progress.ammo_9x19_smg = C.Use.progress.ammo_9x19_smg or { ms = 650, label = 'Preparing ammo...' }
+    C.Use.cooldowns.ammo_556nato = C.Use.cooldowns.ammo_556nato or 650
+    C.Use.progress.ammo_556nato = C.Use.progress.ammo_556nato or { ms = 650, label = 'Preparing ammo...' }
+    C.Use.cooldowns.ammo_762nato = C.Use.cooldowns.ammo_762nato or 650
+    C.Use.progress.ammo_762nato = C.Use.progress.ammo_762nato or { ms = 650, label = 'Preparing ammo...' }
+    C.Use.cooldowns.ammo_12gauge = C.Use.cooldowns.ammo_12gauge or 650
+    C.Use.progress.ammo_12gauge = C.Use.progress.ammo_12gauge or { ms = 650, label = 'Preparing ammo...' }
+    C.Use.cooldowns.ammo_308win = C.Use.cooldowns.ammo_308win or 650
+    C.Use.progress.ammo_308win = C.Use.progress.ammo_308win or { ms = 650, label = 'Preparing ammo...' }
+end

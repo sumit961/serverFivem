@@ -1,5 +1,6 @@
 local RESOURCE = GetCurrentResourceName()
 local DB_READY = false
+local syncConfigCatalog
 
 local function dbg(msg)
     if Config.Debug then print(('[%s] %s'):format(RESOURCE, tostring(msg))) end
@@ -39,6 +40,101 @@ local function normalizeItemName(value)
     value = tostring(value or ''):lower():gsub('%s+', '_'):gsub('[^a-z0-9_%-%.]', '_'):gsub('_+', '_')
     value = value:gsub('^_+', ''):gsub('_+$', '')
     return value:sub(1, 80)
+end
+
+local function configStoreEntry(itemName)
+    itemName = normalizeItemName(itemName)
+    if itemName == '' then return nil end
+    for _, entry in ipairs(Config.StoreCatalog or {}) do
+        if normalizeItemName(entry.itemName or entry.item_name) == itemName then return entry end
+    end
+    return nil
+end
+
+local function configPrice(itemName, fallback)
+    local entry = configStoreEntry(itemName)
+    if entry and entry.price ~= nil then return math.max(0, math.floor(tonumber(entry.price) or 0)) end
+    return math.max(0, math.floor(tonumber(fallback) or 0))
+end
+
+local function configSortOrder(itemName, fallback)
+    local entry = configStoreEntry(itemName)
+    if entry and entry.sortOrder ~= nil then return math.floor(tonumber(entry.sortOrder) or 0) end
+    if entry and entry.sort_order ~= nil then return math.floor(tonumber(entry.sort_order) or 0) end
+    return math.floor(tonumber(fallback) or 0)
+end
+
+local function configDefaultEnabled(itemName, fallback)
+    local entry = configStoreEntry(itemName)
+    if entry and entry.enabled ~= nil then return boolInt(entry.enabled) == 1 end
+    return fallback == true
+end
+
+local function configDefaultStock(itemName, fallback)
+    local entry = configStoreEntry(itemName)
+    if entry and entry.stock ~= nil then return math.floor(tonumber(entry.stock) or -1) end
+    return math.floor(tonumber(fallback) or -1)
+end
+
+
+local allWeapons, allAmmo
+
+local function findWeaponDefFromAll(itemName)
+    itemName = normalizeItemName(itemName)
+    if itemName == '' then return nil end
+    for _, w in ipairs(allWeapons(true) or {}) do
+        if normalizeItemName(w.itemName or w.item_name) == itemName
+            or normalizeItemName(w.weaponHash or w.weapon_hash) == itemName then
+            return w
+        end
+    end
+    -- Last-resort local reference fallback. cm-weapons should still be the source of truth,
+    -- but this prevents an empty player store if cm-weapons cache is still warming up.
+    for _, w in ipairs(Config.WeaponCatalog or {}) do
+        local hash = tostring(w.hash or w.weaponHash or w.weapon_hash or ''):upper()
+        if normalizeItemName(hash) == itemName then
+            return {
+                itemName = itemName,
+                item_name = itemName,
+                label = tostring(w.label or itemName),
+                weaponHash = hash,
+                weapon_hash = hash,
+                group = tostring(w.group or 'pistol'):lower(),
+                group_key = tostring(w.group or 'pistol'):lower(),
+                ammoItem = normalizeItemName(w.ammo or w.ammoItem or w.ammo_item),
+                ammo_item = normalizeItemName(w.ammo or w.ammoItem or w.ammo_item),
+                damage = tonumber(w.damage) or 0,
+                magazineSize = tonumber(w.magazineSize or w.magazine_size) or 0,
+                magazine_size = tonumber(w.magazineSize or w.magazine_size) or 0,
+                weight = tonumber(w.weight) or 0,
+                image = tostring(w.image or ''),
+                description = tostring(w.description or '')
+            }
+        end
+    end
+    return nil
+end
+
+local function findAmmoDefFromAll(itemName)
+    itemName = normalizeItemName(itemName)
+    if itemName == '' then return nil end
+    for _, a in ipairs(allAmmo(true) or {}) do
+        if normalizeItemName(a.itemName or a.item_name) == itemName then return a end
+    end
+    return nil
+end
+
+local function applyConfigStore(row)
+    row = row or {}
+    local entry = configStoreEntry(row.item_name or row.itemName)
+    if entry then
+        row.price = configPrice(row.item_name, row.price)
+        row.config_price = true
+        row.sort_order = configSortOrder(row.item_name, row.sort_order)
+    elseif Config.PriceMode == 'config' and (row.item_type == 'weapon' or row.item_type == 'ammo' or row.item_type == 'armor') then
+        row.config_price = false
+    end
+    return row
 end
 
 local function rowToPublic(row)
@@ -200,14 +296,40 @@ local function fallbackAmmoDefFromPicker(data)
     }
 end
 
-local function allWeapons(includeDisabled)
+function allWeapons(includeDisabled)
     local rows = weaponExport('GetAllWeapons', includeDisabled == true)
     return type(rows) == 'table' and rows or {}
 end
 
-local function allAmmo(includeDisabled)
+function allAmmo(includeDisabled)
     local rows = weaponExport('GetAllAmmo', includeDisabled == true)
     return type(rows) == 'table' and rows or {}
+end
+
+local function mapDefinitions(rows, itemKeys, hashKey)
+    local map = {}
+    for _, row in ipairs(rows or {}) do
+        for _, keyName in ipairs(itemKeys or {}) do
+            local key = normalizeItemName(row[keyName])
+            if key ~= '' then map[key] = row end
+        end
+        if hashKey then
+            local hash = tostring(row[hashKey] or ''):upper()
+            if hash ~= '' then map[hash] = row end
+        end
+    end
+    return map
+end
+
+local function buildDefinitionMaps()
+    local weaponRows = allWeapons(true)
+    local ammoRows = allAmmo(true)
+    return {
+        weapons = mapDefinitions(weaponRows, { 'itemName', 'item_name' }, 'weaponHash'),
+        ammo = mapDefinitions(ammoRows, { 'itemName', 'item_name' }),
+        weaponRows = weaponRows,
+        ammoRows = ammoRows
+    }
 end
 
 local function cmWeaponsRequired(src)
@@ -298,30 +420,35 @@ end
 
 local function getCatalog(includeDisabled)
     if not DB_READY then ensureDatabase() end
+    if syncConfigCatalog then syncConfigCatalog(false) end
     local where = includeDisabled and '' or 'WHERE enabled = 1'
     local rows = MySQL.query.await(('SELECT * FROM cm_gun_catalog %s ORDER BY sort_order ASC, item_type ASC, label ASC'):format(where), {}) or {}
+    local defs = buildDefinitionMaps()
     local result = {}
     for _, row in ipairs(rows) do
         local public = rowToPublic(row)
         if public.item_type == 'weapon' then
-            public = mergeWeaponRow(public, getWeaponDef(public.item_name ~= '' and public.item_name or public.weapon_hash))
+            local def = defs.weapons[public.item_name] or defs.weapons[tostring(public.weapon_hash or ''):upper()]
+            public = mergeWeaponRow(public, def)
         elseif public.item_type == 'ammo' then
-            public = mergeAmmoRow(public, getAmmoDef(public.item_name))
+            public = mergeAmmoRow(public, defs.ammo[public.item_name])
         end
+        public = applyConfigStore(public)
         result[#result + 1] = public
     end
     return result
 end
 
 local function getCatalogRowByName(itemName)
+    if syncConfigCatalog then syncConfigCatalog(false) end
     itemName = normalizeItemName(itemName)
     if itemName == '' then return nil end
     local rows = MySQL.query.await('SELECT * FROM cm_gun_catalog WHERE LOWER(item_name) = ? LIMIT 1', { itemName }) or {}
     if not rows[1] then return nil end
     local public = rowToPublic(rows[1])
-    if public.item_type == 'weapon' then return mergeWeaponRow(public, getWeaponDef(public.item_name ~= '' and public.item_name or public.weapon_hash)) end
-    if public.item_type == 'ammo' then return mergeAmmoRow(public, getAmmoDef(public.item_name)) end
-    return public
+    if public.item_type == 'weapon' then return applyConfigStore(mergeWeaponRow(public, getWeaponDef(public.item_name ~= '' and public.item_name or public.weapon_hash))) end
+    if public.item_type == 'ammo' then return applyConfigStore(mergeAmmoRow(public, getAmmoDef(public.item_name))) end
+    return applyConfigStore(public)
 end
 
 local function inventorySuccess(result)
@@ -465,6 +592,28 @@ local function refundMoney(src, account, amount, reason)
     end)
 
     return ok and result == true
+end
+
+local function reserveStock(itemName, units)
+    itemName = normalizeItemName(itemName)
+    units = math.max(1, math.floor(tonumber(units) or 1))
+    if itemName == '' then return false end
+    local affected = MySQL.update.await(
+        'UPDATE cm_gun_catalog SET stock = stock - ? WHERE LOWER(item_name) = ? AND stock >= ?',
+        { units, itemName, units }
+    )
+    return affected and affected > 0
+end
+
+local function releaseStock(itemName, units)
+    itemName = normalizeItemName(itemName)
+    units = math.max(1, math.floor(tonumber(units) or 1))
+    if itemName == '' then return false end
+    MySQL.update.await(
+        'UPDATE cm_gun_catalog SET stock = stock + ? WHERE LOWER(item_name) = ? AND stock >= 0',
+        { units, itemName }
+    )
+    return true
 end
 
 -- One in-flight purchase per player. Prevents buy-spam from racing the stock
@@ -623,7 +772,7 @@ local function buildWeaponPicker()
             ammo = normalizeItemName(w.ammoItem or w.ammo_item),
             ammo_item = normalizeItemName(w.ammoItem or w.ammo_item),
             image = (shop and shop.image ~= '' and shop.image) or tostring(w.image or ''),
-            price = shop and tonumber(shop.price) or 0,
+            price = configPrice(itemName, shop and tonumber(shop.price) or 0),
             damage = tonumber(w.damage) or 0,
             magazine_size = tonumber(w.magazineSize or w.magazine_size) or 0,
             stock = shop and tonumber(shop.stock) or -1,
@@ -655,7 +804,7 @@ local function buildAmmoPicker()
             drop_model = tostring(a.dropModel or a.drop_model or ''),
             pack_size = tonumber(a.packSize or a.pack_size) or 1,
             image = (shop and shop.image ~= '' and shop.image) or tostring(a.image or ''),
-            price = shop and tonumber(shop.price) or 0,
+            price = configPrice(itemName, shop and tonumber(shop.price) or 0),
             stock = shop and tonumber(shop.stock) or -1,
             enabled = shop and shop.enabled or false,
             description = (shop and shop.description ~= '' and shop.description) or tostring(a.description or ''),
@@ -689,9 +838,13 @@ local function saveStoreEntry(src, itemType, sourceRow, data)
     local itemName = normalizeItemName(sourceRow.itemName or sourceRow.item_name)
     if itemName == '' then return false, 'bad_item_name' end
 
-    local price = math.max(0, math.floor(tonumber(data.price) or 0))
-    local stock = math.floor(tonumber(data.stock) or -1)
-    local enabled = boolInt(data.enabled)
+    local cfg = configStoreEntry(itemName)
+    if Config.RequireStoreConfigPrice == true and not cfg then
+        return false, 'missing_config_price_add_item_to_Config.StoreCatalog'
+    end
+    local price = configPrice(itemName, data.price)
+    local stock = math.floor(tonumber(data.stock) or configDefaultStock(itemName, -1))
+    local enabled = data.enabled ~= nil and boolInt(data.enabled) or boolInt(configDefaultEnabled(itemName, false))
     local image = tostring(data.image or sourceRow.image or ''):sub(1, 255)
     local description = tostring(data.description or sourceRow.description or ''):sub(1, 255)
     local label = tostring(sourceRow.label or itemName):sub(1, 120)
@@ -790,34 +943,57 @@ local function processPurchase(src, data)
         return
     end
 
-    local amount = row.item_type == 'ammo' and math.max(1, tonumber(row.pack_size) or 1) or 1
-    if tonumber(row.stock) and tonumber(row.stock) == 0 then
+    local quantity = math.max(1, math.floor(tonumber(data.quantity or data.amount) or 1))
+    if row.item_type == 'ammo' then
+        local qCfg = Config.AmmoQuantity or {}
+        quantity = math.max(tonumber(qCfg.min) or 1, math.min(tonumber(qCfg.max) or 999, quantity))
+    else
+        quantity = 1
+    end
+
+    -- Ammo amount is rounds added to inventory. Because cm-weapons ammo packSize is 1,
+    -- players can buy exactly 1 round or any quantity up to Config.AmmoQuantity.max.
+    local inventoryAmount = row.item_type == 'ammo' and (math.max(1, tonumber(row.pack_size) or 1) * quantity) or 1
+    local stockUnits = row.item_type == 'ammo' and quantity or 1
+    local limitedStock = tonumber(row.stock) and tonumber(row.stock) >= 0
+
+    if limitedStock and tonumber(row.stock) == 0 then
         notify(src, 'This item is out of stock.', 'error')
         TriggerClientEvent('cm-gunstore:client:purchaseResult', src, false)
         return
     end
-    local total = math.max(0, math.floor(tonumber(row.price) or 0))
+
+    local reserved = false
+    if limitedStock then
+        reserved = reserveStock(itemName, stockUnits)
+        if not reserved then
+            notify(src, 'This item is out of stock.', 'error')
+            TriggerClientEvent('cm-gunstore:client:purchaseResult', src, false)
+            return
+        end
+    end
+
+    local unitPrice = configPrice(itemName, row.price)
+    local total = math.max(0, math.floor(unitPrice * quantity))
     local paid, payErr = removeMoney(src, account, total, 'gunstore_buy_' .. itemName)
     if not paid then
+        if reserved then releaseStock(itemName, stockUnits) end
         notify(src, tostring(payErr or 'You do not have enough money.'), 'error')
         TriggerClientEvent('cm-gunstore:client:purchaseResult', src, false)
         return
     end
 
     local metadata = buildMetadata(src, row)
-    local added, err = addInventoryItem(src, row.item_name, amount, metadata)
+    local added, err = addInventoryItem(src, row.item_name, inventoryAmount, metadata)
     if not added then
         refundMoney(src, account, total, 'gunstore_refund_' .. itemName)
+        if reserved then releaseStock(itemName, stockUnits) end
         notify(src, ('Could not add item to inventory: %s. Money refunded.'):format(tostring(err)), 'error')
         TriggerClientEvent('cm-gunstore:client:purchaseResult', src, false)
         return
     end
 
-    if tonumber(row.stock) and tonumber(row.stock) > 0 then
-        MySQL.update.await('UPDATE cm_gun_catalog SET stock = GREATEST(stock - ?, 0) WHERE LOWER(item_name) = ?', { amount, itemName })
-    end
-
-    notify(src, ('Purchased %s. Check your inventory.'):format(row.label), 'success')
+    notify(src, ('Purchased %s%s. Check your inventory.'):format(row.label, quantity > 1 and (' x' .. quantity) or ''), 'success')
     TriggerClientEvent('cm-gunstore:client:purchaseResult', src, true)
 end
 
@@ -879,13 +1055,18 @@ local function saveDataImage(dataUri, itemName)
     local file = ('web/images/custom/%s_%s.%s'):format(safe, os.time(), ext)
     local decoded = base64Decode(encoded)
     if not decoded or #decoded < 32 then return nil, 'empty_image_data' end
-    SaveResourceFile(RESOURCE, file, decoded, #decoded)
+    local ok = SaveResourceFile(RESOURCE, file, decoded, #decoded)
+    if not ok then return nil, 'save_failed' end
     return ('nui://%s/%s'):format(RESOURCE, file)
 end
 
 local function syncArmorToCmItems(src, itemName, label, image, description, armorValue, componentId, drawableId, textureId, gender, imageData)
     if GetResourceState(itemsResource()) ~= 'started' then
-        notify(src, 'Warning: cm-items is not started, so armor was saved only in gun store.', 'error')
+        if tonumber(src or 0) > 0 then
+            notify(src, 'Warning: cm-items is not started, so armor was saved only in gun store.', 'error')
+        else
+            dbg('cm-items is not started; skipped armor sync during config catalog sync')
+        end
         return image
     end
 
@@ -915,14 +1096,139 @@ local function syncArmorToCmItems(src, itemName, label, image, description, armo
     if (not image or image == '') and tostring(imageData or '') ~= '' then def.imageData = imageData
     elseif image and image ~= '' then def.image = image end
 
-    local okDef, resOrErr = exports[itemsResource()]:SaveCatalogItem(def)
-    if okDef and type(resOrErr) == 'table' and resOrErr.image then image = resOrErr.image
-    elseif not okDef then
-        dbg(('cm-items SaveCatalogItem armor failed: %s'):format(tostring(resOrErr)))
-        notify(src, ('Warning: could not register armor in cm-items (%s).'):format(tostring(resOrErr)), 'error')
+    local okCall, okDef, resOrErr = pcall(function()
+        return exports[itemsResource()]:SaveCatalogItem(def)
+    end)
+    if okCall and okDef and type(resOrErr) == 'table' and resOrErr.image then
+        image = resOrErr.image
+    elseif not okCall or not okDef then
+        local err = okCall and resOrErr or okDef
+        dbg(('cm-items SaveCatalogItem armor failed: %s'):format(tostring(err)))
+        notify(src, ('Warning: could not register armor in cm-items (%s).'):format(tostring(err)), 'error')
     end
     return image
 end
+
+
+local SyncCatalogBusy = false
+local LastConfigSync = 0
+
+syncConfigCatalog = function(force)
+    if not DB_READY then return false end
+    local now = os.time()
+    if force ~= true and (now - LastConfigSync) < 5 then return true end
+    if SyncCatalogBusy then return false end
+    SyncCatalogBusy = true
+
+    local ok, err = pcall(function()
+        for _, entry in ipairs(Config.StoreCatalog or {}) do
+            local itemName = normalizeItemName(entry.itemName or entry.item_name)
+            if itemName ~= '' then
+                local itemType = tostring(entry.itemType or entry.item_type or ''):lower()
+                local def = nil
+                if itemType == 'ammo' then
+                    def = getAmmoDef(itemName) or findAmmoDefFromAll(itemName)
+                elseif itemType == 'weapon' then
+                    def = getWeaponDef(itemName) or findWeaponDefFromAll(itemName)
+                elseif itemType == 'armor' then
+                    -- handled below
+                else
+                    def = getAmmoDef(itemName) or findAmmoDefFromAll(itemName)
+                    if def then
+                        itemType = 'ammo'
+                    else
+                        def = getWeaponDef(itemName) or findWeaponDefFromAll(itemName)
+                        if def then itemType = 'weapon' end
+                    end
+                    if itemName == normalizeItemName((Config.DefaultArmor or {}).itemName) then itemType = 'armor' end
+                end
+
+                local price = configPrice(itemName, entry.price)
+                local stock = math.floor(tonumber(entry.stock) or -1)
+                local enabled = boolInt(entry.enabled ~= nil and entry.enabled or false)
+                local sortOrder = configSortOrder(itemName, entry.sortOrder or entry.sort_order or 999)
+
+                if itemType == 'weapon' and def then
+                    MySQL.insert.await([[
+                        INSERT INTO cm_gun_catalog
+                            (item_name, item_type, label, weapon_hash, ammo_item, ammo_key, pickup_hash, drop_model, pack_size, armor_value, damage, magazine_size, stock, price, enabled, image, description, sort_order)
+                        VALUES (?, 'weapon', ?, ?, ?, '', 0, '', 1, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE
+                            item_type = 'weapon', label = VALUES(label), weapon_hash = VALUES(weapon_hash), ammo_item = VALUES(ammo_item),
+                            damage = VALUES(damage), magazine_size = VALUES(magazine_size), stock = VALUES(stock), enabled = VALUES(enabled), price = VALUES(price), sort_order = VALUES(sort_order),
+                            image = CASE WHEN image IS NULL OR image = '' THEN VALUES(image) ELSE image END,
+                            description = VALUES(description)
+                    ]], { itemName, tostring(def.label or itemName), tostring(def.weaponHash or def.weapon_hash or ''), normalizeItemName(def.ammoItem or def.ammo_item), tonumber(def.damage) or 0, tonumber(def.magazineSize or def.magazine_size) or 0, stock, price, enabled, tostring(def.image or ''), tostring(def.description or ''), sortOrder })
+                elseif itemType == 'ammo' and def then
+                    MySQL.insert.await([[
+                        INSERT INTO cm_gun_catalog
+                            (item_name, item_type, label, weapon_hash, ammo_item, ammo_key, pickup_hash, drop_model, pack_size, armor_value, damage, magazine_size, stock, price, enabled, image, description, sort_order)
+                        VALUES (?, 'ammo', ?, '', '', ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE
+                            item_type = 'ammo', label = VALUES(label), ammo_key = VALUES(ammo_key), pickup_hash = VALUES(pickup_hash),
+                            drop_model = VALUES(drop_model), pack_size = VALUES(pack_size), stock = VALUES(stock), enabled = VALUES(enabled), price = VALUES(price), sort_order = VALUES(sort_order),
+                            image = CASE WHEN image IS NULL OR image = '' THEN VALUES(image) ELSE image END,
+                            description = VALUES(description)
+                    ]], { itemName, tostring(def.label or itemName), tostring(def.ammoKey or def.ammo_key or ''), tonumber(def.pickupHash or def.pickup_hash) or 0, tostring(def.dropModel or def.drop_model or ''), math.max(1, tonumber(def.packSize or def.pack_size) or 1), stock, price, enabled, tostring(def.image or ''), tostring(def.description or ''), sortOrder })
+                elseif itemType == 'armor' then
+                    local armor = Config.DefaultArmor or {}
+                    local label = tostring(armor.label or entry.label or 'Armor Vest')
+                    local armorValue = math.max(0, math.min(100, math.floor(tonumber(armor.armorValue or armor.armor_value) or 50)))
+                    local image = tostring(armor.image or entry.image or 'images/armor_light.svg')
+                    local description = tostring(armor.description or entry.description or 'Standard body armor vest.')
+                    local componentId = math.floor(tonumber(armor.componentId or armor.component_id) or 9)
+                    local drawableId = armor.drawableId or armor.drawable_id
+                    drawableId = drawableId ~= nil and math.floor(tonumber(drawableId) or -1) or nil
+                    if drawableId and drawableId < 0 then drawableId = nil end
+                    local textureId = math.max(0, math.floor(tonumber(armor.textureId or armor.texture_id) or 0))
+                    local gender = tostring(armor.gender or 'both'):lower():sub(1, 12)
+                    if gender ~= 'male' and gender ~= 'female' and gender ~= 'both' then gender = 'both' end
+
+                    image = syncArmorToCmItems(0, itemName, label, image, description, armorValue, componentId, drawableId, textureId, gender, nil)
+                    MySQL.insert.await([[
+                        INSERT INTO cm_gun_catalog
+                            (item_name, item_type, label, weapon_hash, ammo_item, pack_size, armor_value, damage, magazine_size, stock, price, enabled, image, description, sort_order, component_id, drawable_id, texture_id, gender)
+                        VALUES (?, 'armor', ?, '', '', 1, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE
+                            item_type = 'armor', label = VALUES(label), armor_value = VALUES(armor_value), stock = VALUES(stock), enabled = VALUES(enabled), price = VALUES(price), sort_order = VALUES(sort_order),
+                            image = CASE WHEN image IS NULL OR image = '' THEN VALUES(image) ELSE image END,
+                            description = VALUES(description), component_id = VALUES(component_id), drawable_id = VALUES(drawable_id), texture_id = VALUES(texture_id), gender = VALUES(gender)
+                    ]], { itemName, label, armorValue, stock, price, enabled, image, description, sortOrder, componentId, drawableId, textureId, gender })
+                    registerUsableThroughItemActions(itemName, 'armor')
+                end
+            end
+        end
+
+        if Config.StrictStoreCatalog == true then
+            local names = {}
+            for _, entry in ipairs(Config.StoreCatalog or {}) do
+                local n = normalizeItemName(entry.itemName or entry.item_name)
+                if n ~= '' then names[#names + 1] = n end
+            end
+            if #names > 0 then
+                local qs = {}
+                for _ = 1, #names do qs[#qs + 1] = '?' end
+                MySQL.update.await(('UPDATE cm_gun_catalog SET enabled = 0 WHERE item_name NOT IN (%s)'):format(table.concat(qs, ',')), names)
+            end
+        end
+    end)
+
+    LastConfigSync = now
+    SyncCatalogBusy = false
+    if not ok then print(('[%s] config catalog sync failed: %s'):format(RESOURCE, tostring(err))) end
+    return ok
+end
+
+CreateThread(function()
+    while not DB_READY do Wait(250) end
+    if Config.SyncConfigCatalogOnStart ~= false then
+        for _ = 1, 20 do
+            if GetResourceState(weaponsResource()) == 'started' then break end
+            Wait(500)
+        end
+        syncConfigCatalog(true)
+    end
+end)
 
 RegisterNetEvent('cm-gunstore:server:adminCreateItem', function(data, explicitSrc)
     local src = explicitSrc or source
@@ -1040,11 +1346,12 @@ RegisterNetEvent('cm-gunstore:server:adminSaveItem', function(data)
     local description = tostring(data.description or existing.description or ''):sub(1, 255)
 
     if itemType == 'weapon' or itemType == 'ammo' then
-        -- Do not edit the source item definition here. Price/stock/store visibility are the only gun-store-owned fields.
-        MySQL.update.await('UPDATE cm_gun_catalog SET price = ?, enabled = ?, stock = ?, image = ?, description = ? WHERE LOWER(item_name) = ?', {
-            price, enabled, stock, image, description, itemName
+        -- Price/image/description are config/cm-weapons owned. Gun admin can only set store visibility and stock.
+        price = configPrice(itemName, existing.price)
+        MySQL.update.await('UPDATE cm_gun_catalog SET price = ?, enabled = ?, stock = ? WHERE LOWER(item_name) = ?', {
+            price, enabled, stock, itemName
         })
-        notify(src, ('Saved store settings for %s.'):format(existing.label or itemName), 'success')
+        notify(src, ('Saved stock/visibility for %s. Price is loaded from config.'):format(existing.label or itemName), 'success')
         TriggerClientEvent('cm-gunstore:client:openCatalog', src, 'admin', getCatalog(true))
         return
     end
@@ -1070,6 +1377,21 @@ RegisterNetEvent('cm-gunstore:server:adminSaveItem', function(data)
     notify(src, ('Saved %s.'):format(label), 'success')
     TriggerClientEvent('cm-gunstore:client:openCatalog', src, 'admin', getCatalog(true))
 end)
+
+
+RegisterCommand('gunstoresync', function(src)
+    if src ~= 0 and not isAdmin(src) then return notify(src, 'You do not have permission to sync gun store.', 'error') end
+    local ok = syncConfigCatalog(true)
+    local rows = getCatalog(true)
+    local counts = { weapon = 0, ammo = 0, armor = 0, enabled = 0 }
+    for _, row in ipairs(rows or {}) do
+        local t = tostring(row.item_type or ''):lower()
+        if counts[t] ~= nil then counts[t] = counts[t] + 1 end
+        if row.enabled == true then counts.enabled = counts.enabled + 1 end
+    end
+    notify(src, ok and ('Gun store synced from config | weapons=%s ammo=%s armor=%s enabled=%s'):format(counts.weapon, counts.ammo, counts.armor, counts.enabled) or 'Gun store sync failed. Check server console.', ok and 'success' or 'error')
+    if src ~= 0 then TriggerClientEvent('cm-gunstore:client:openCatalog', src, 'admin', rows) end
+end, false)
 
 RegisterCommand(Config.AdminCommand or 'gunadmin', function(src)
     if src == 0 then

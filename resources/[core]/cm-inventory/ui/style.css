@@ -2687,3 +2687,195 @@ body,
     background: rgba(69,236,255,.10);
     color: #45ecff;
 }
+
+
+/* =========================================================
+   CM INVENTORY USER UPDATE v12
+   Bigger full-screen slots + clean drag/move UX.
+   This block is last so it wins over old compact/debug patches.
+   ========================================================= */
+:root {
+    --slot: clamp(88px, min(8vw, 11.6vh), 120px) !important;
+    --gear-slot: calc(var(--slot) * .80) !important;
+    --quick-slot: calc(var(--slot) * .86) !important;
+    --gap: clamp(8px, .85vw, 12px) !important;
+    --layout-gap: clamp(8px, .8vw, 14px) !important;
+}
+
+.inventory-layout {
+    column-gap: var(--layout-gap) !important;
+    gap: var(--layout-gap) !important;
+}
+
+.bag-column {
+    margin-left: var(--gap) !important;
+}
+
+.character-column.equipment-column {
+    margin-left: calc(var(--slot) * .72) !important;
+}
+
+.slot,
+.slot.external {
+    width: var(--slot) !important;
+    height: var(--slot) !important;
+    border-radius: 16px !important;
+}
+
+.slot.quick {
+    width: var(--quick-slot) !important;
+    height: var(--quick-slot) !important;
+}
+
+.slot.equipment {
+    width: var(--gear-slot) !important;
+    height: var(--gear-slot) !important;
+}
+
+.slot-row,
+.slot-grid {
+    grid-template-columns: repeat(6, var(--slot)) !important;
+    gap: var(--gap) !important;
+}
+
+.slot-grid {
+    grid-template-rows: repeat(5, var(--slot)) !important;
+}
+
+.fast-slots,
+.gear-grid,
+.external-grid {
+    gap: var(--gap) !important;
+}
+
+.gear-grid:not(.external-grid) {
+    grid-template-columns: repeat(3, var(--gear-slot)) !important;
+    grid-auto-rows: var(--gear-slot) !important;
+}
+
+.external-grid,
+.gear-grid.external-grid {
+    grid-template-columns: repeat(6, var(--slot)) !important;
+    grid-template-rows: repeat(5, var(--slot)) !important;
+    grid-auto-rows: var(--slot) !important;
+    width: calc((var(--slot) * 6) + (var(--gap) * 5)) !important;
+    max-width: calc((var(--slot) * 6) + (var(--gap) * 5)) !important;
+    max-height: calc((var(--slot) * 5) + (var(--gap) * 4)) !important;
+}
+
+.item img {
+    width: 72% !important;
+    height: 68% !important;
+}
+
+.item-name {
+    font-size: clamp(9px, .62vw, 12px) !important;
+}
+
+.item-weight {
+    font-size: clamp(7px, .48vw, 10px) !important;
+}
+
+.qty {
+    font-size: clamp(13px, .9vw, 17px) !important;
+}
+
+.context-actions.compact {
+    grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)) !important;
+}
+
+@media (max-width: 1366px), (max-height: 820px) {
+    :root {
+        --slot: clamp(72px, min(7.4vw, 10.8vh), 92px) !important;
+        --gear-slot: calc(var(--slot) * .78) !important;
+        --quick-slot: calc(var(--slot) * .82) !important;
+        --gap: 7px !important;
+        --layout-gap: 7px !important;
+    }
+    .inventory-layout {
+        left: 12px !important;
+        top: 53% !important;
+    }
+    .character-column.equipment-column {
+        margin-left: calc(var(--slot) * .60) !important;
+    }
+}
+
+/* =========================================================
+   CM INVENTORY CLOTHING STACK + LARGER SLOT PATCH v13
+   - Larger full-screen slots.
+   - Keeps laptop safety so the 6x5 backpack still fits.
+   ========================================================= */
+:root {
+    --slot: clamp(96px, min(8.8vw, 12.2vh), 136px) !important;
+    --gear-slot: calc(var(--slot) * .80) !important;
+    --quick-slot: calc(var(--slot) * .86) !important;
+    --gap: clamp(9px, .92vw, 14px) !important;
+    --layout-gap: clamp(8px, .85vw, 14px) !important;
+}
+
+.slot,
+.slot.external {
+    width: var(--slot) !important;
+    height: var(--slot) !important;
+    border-radius: 18px !important;
+}
+
+.slot.quick {
+    width: var(--quick-slot) !important;
+    height: var(--quick-slot) !important;
+}
+
+.slot.equipment {
+    width: var(--gear-slot) !important;
+    height: var(--gear-slot) !important;
+}
+
+.slot-row,
+.slot-grid {
+    grid-template-columns: repeat(6, var(--slot)) !important;
+    gap: var(--gap) !important;
+}
+
+.slot-grid {
+    grid-template-rows: repeat(5, var(--slot)) !important;
+}
+
+.fast-slots,
+.gear-grid,
+.external-grid {
+    gap: var(--gap) !important;
+}
+
+.external-grid,
+.gear-grid.external-grid {
+    grid-template-columns: repeat(6, var(--slot)) !important;
+    grid-template-rows: repeat(5, var(--slot)) !important;
+    grid-auto-rows: var(--slot) !important;
+    width: calc((var(--slot) * 6) + (var(--gap) * 5)) !important;
+    max-width: calc((var(--slot) * 6) + (var(--gap) * 5)) !important;
+    max-height: calc((var(--slot) * 5) + (var(--gap) * 4)) !important;
+}
+
+.item img {
+    width: 74% !important;
+    height: 70% !important;
+}
+
+.item-name {
+    font-size: clamp(10px, .70vw, 13px) !important;
+}
+
+.qty {
+    font-size: clamp(14px, 1vw, 18px) !important;
+}
+
+@media (max-width: 1366px), (max-height: 820px) {
+    :root {
+        --slot: clamp(78px, min(7.8vw, 11.4vh), 102px) !important;
+        --gear-slot: calc(var(--slot) * .78) !important;
+        --quick-slot: calc(var(--slot) * .82) !important;
+        --gap: 8px !important;
+        --layout-gap: 8px !important;
+    }
+}

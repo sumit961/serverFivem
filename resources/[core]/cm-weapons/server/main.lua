@@ -1,5 +1,7 @@
 local RESOURCE = GetCurrentResourceName()
 local DB_READY = false
+local CACHE_READY = false
+local LAST_CACHE_LOAD = 0
 
 CMWeapons = CMWeapons or {
     Ammo = {},
@@ -227,7 +229,58 @@ local function ensureDatabase()
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]])
 
+    -- Upgrade-safe columns for older installs. Duplicate-column errors are ignored.
+    local alters = {
+        'ALTER TABLE cm_weapon_ammo ADD COLUMN pickup_hash BIGINT NOT NULL DEFAULT 0 AFTER ammo_key',
+        'ALTER TABLE cm_weapon_ammo ADD COLUMN drop_model VARCHAR(80) NULL AFTER pickup_hash',
+        'ALTER TABLE cm_weapon_ammo ADD COLUMN pack_size INT NOT NULL DEFAULT 1 AFTER drop_model',
+        'ALTER TABLE cm_weapon_ammo ADD COLUMN price INT NOT NULL DEFAULT 0 AFTER pack_size', -- legacy/unused by store
+        'ALTER TABLE cm_weapon_ammo ADD COLUMN weight INT NOT NULL DEFAULT 0 AFTER price',
+        'ALTER TABLE cm_weapon_ammo ADD COLUMN stack TINYINT(1) NOT NULL DEFAULT 1 AFTER weight',
+        'ALTER TABLE cm_weapon_ammo ADD COLUMN enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER stack',
+        'ALTER TABLE cm_weapon_ammo ADD COLUMN image VARCHAR(255) NULL AFTER enabled',
+        'ALTER TABLE cm_weapon_ammo ADD COLUMN description TEXT NULL AFTER image',
+        'ALTER TABLE cm_weapon_ammo ADD COLUMN sort_order INT NOT NULL DEFAULT 0 AFTER description',
+        'ALTER TABLE cm_weapon_catalog ADD COLUMN weapon_hash_number BIGINT NOT NULL DEFAULT 0 AFTER weapon_hash',
+        "ALTER TABLE cm_weapon_catalog ADD COLUMN group_key VARCHAR(40) NOT NULL DEFAULT 'pistol' AFTER weapon_hash_number",
+        "ALTER TABLE cm_weapon_catalog ADD COLUMN ammo_item VARCHAR(80) NOT NULL DEFAULT '' AFTER group_key",
+        'ALTER TABLE cm_weapon_catalog ADD COLUMN damage INT NOT NULL DEFAULT 0 AFTER ammo_item',
+        'ALTER TABLE cm_weapon_catalog ADD COLUMN magazine_size INT NOT NULL DEFAULT 0 AFTER damage',
+        'ALTER TABLE cm_weapon_catalog ADD COLUMN recoil DECIMAL(10,3) NOT NULL DEFAULT 0.000 AFTER magazine_size',
+        'ALTER TABLE cm_weapon_catalog ADD COLUMN durability INT NOT NULL DEFAULT 100 AFTER recoil',
+        'ALTER TABLE cm_weapon_catalog ADD COLUMN price INT NOT NULL DEFAULT 0 AFTER durability', -- legacy/unused by store
+        'ALTER TABLE cm_weapon_catalog ADD COLUMN weight INT NOT NULL DEFAULT 0 AFTER price',
+        'ALTER TABLE cm_weapon_catalog ADD COLUMN enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER weight',
+        'ALTER TABLE cm_weapon_catalog ADD COLUMN image VARCHAR(255) NULL AFTER enabled',
+        'ALTER TABLE cm_weapon_catalog ADD COLUMN description TEXT NULL AFTER image',
+        'ALTER TABLE cm_weapon_catalog ADD COLUMN sort_order INT NOT NULL DEFAULT 0 AFTER description'
+    }
+    for _, query in ipairs(alters) do pcall(function() MySQL.query.await(query) end) end
+    pcall(function() MySQL.query.await('CREATE INDEX idx_cm_weapon_ammo_key ON cm_weapon_ammo (ammo_key)') end)
+    pcall(function() MySQL.query.await('CREATE INDEX idx_cm_weapon_ammo_enabled ON cm_weapon_ammo (enabled)') end)
+    pcall(function() MySQL.query.await('CREATE INDEX idx_cm_weapon_catalog_group ON cm_weapon_catalog (group_key)') end)
+    pcall(function() MySQL.query.await('CREATE INDEX idx_cm_weapon_catalog_ammo ON cm_weapon_catalog (ammo_item)') end)
+    pcall(function() MySQL.query.await('CREATE INDEX idx_cm_weapon_catalog_enabled ON cm_weapon_catalog (enabled)') end)
+
     DB_READY = true
+end
+
+local function fixedAmmoMap()
+    local map = {}
+    for _, ammo in ipairs(Config.DefaultAmmo or {}) do
+        local name = normalizeItemName(ammo.itemName or ammo.item_name)
+        if name ~= '' then map[name] = ammo end
+    end
+    return map
+end
+
+local function fixedWeaponMap()
+    local map = {}
+    for _, weapon in ipairs(Config.DefaultWeapons or {}) do
+        local name = normalizeItemName(weapon.itemName or weapon.item_name)
+        if name ~= '' then map[name] = weapon end
+    end
+    return map
 end
 
 local function insertDefaultAmmo(ammo, index)
@@ -248,10 +301,23 @@ local function insertDefaultAmmo(ammo, index)
     })
     if row.itemName == '' then return end
     MySQL.query.await([[
-        INSERT IGNORE INTO cm_weapon_ammo
+        INSERT INTO cm_weapon_ammo
             (item_name, label, ammo_key, pickup_hash, drop_model, pack_size, price, weight, stack, enabled, image, description, sort_order)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ]], { row.itemName, row.label, row.ammoKey, row.pickupHash, row.dropModel, row.packSize, row.price, row.weight, boolInt(row.stack, true), boolInt(row.enabled, true), row.image, row.description, row.sortOrder })
+        ON DUPLICATE KEY UPDATE
+            label = VALUES(label),
+            ammo_key = VALUES(ammo_key),
+            pickup_hash = VALUES(pickup_hash),
+            drop_model = VALUES(drop_model),
+            pack_size = VALUES(pack_size),
+            price = 0,
+            weight = VALUES(weight),
+            stack = VALUES(stack),
+            enabled = VALUES(enabled),
+            image = CASE WHEN image IS NULL OR image = '' THEN VALUES(image) ELSE image END,
+            description = VALUES(description),
+            sort_order = VALUES(sort_order)
+    ]], { row.itemName, row.label, row.ammoKey, row.pickupHash, row.dropModel, row.packSize, 0, row.weight, boolInt(row.stack, true), boolInt(row.enabled, true), row.image, row.description, row.sortOrder })
 end
 
 local function insertDefaultWeapon(weapon, index)
@@ -265,7 +331,7 @@ local function insertDefaultWeapon(weapon, index)
         magazineSize = weapon.magazineSize,
         recoil = weapon.recoil,
         durability = weapon.durability or 100,
-        price = weapon.price,
+        price = 0,
         weight = weapon.weight,
         enabled = weapon.enabled ~= false,
         image = weapon.image or '',
@@ -274,16 +340,47 @@ local function insertDefaultWeapon(weapon, index)
     })
     if row.itemName == '' or row.weaponHash == '' then return end
     MySQL.query.await([[
-        INSERT IGNORE INTO cm_weapon_catalog
+        INSERT INTO cm_weapon_catalog
             (item_name, label, weapon_hash, weapon_hash_number, group_key, ammo_item, damage, magazine_size, recoil, durability, price, weight, enabled, image, description, sort_order)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ]], { row.itemName, row.label, row.weaponHash, row.weaponHashNumber, row.group, row.ammoItem, row.damage, row.magazineSize, row.recoil, row.durability, row.price, row.weight, boolInt(row.enabled, true), row.image, row.description, row.sortOrder })
+        ON DUPLICATE KEY UPDATE
+            label = VALUES(label),
+            weapon_hash = VALUES(weapon_hash),
+            weapon_hash_number = VALUES(weapon_hash_number),
+            group_key = VALUES(group_key),
+            ammo_item = VALUES(ammo_item),
+            damage = VALUES(damage),
+            magazine_size = VALUES(magazine_size),
+            recoil = VALUES(recoil),
+            durability = VALUES(durability),
+            price = 0,
+            weight = VALUES(weight),
+            enabled = VALUES(enabled),
+            image = CASE WHEN image IS NULL OR image = '' THEN VALUES(image) ELSE image END,
+            description = VALUES(description),
+            sort_order = VALUES(sort_order)
+    ]], { row.itemName, row.label, row.weaponHash, row.weaponHashNumber, row.group, row.ammoItem, row.damage, row.magazineSize, row.recoil, row.durability, 0, row.weight, boolInt(row.enabled, true), row.image, row.description, row.sortOrder })
 end
 
 local function seedDefaults()
     if not Config.SeedDefaults then return end
     for i, ammo in ipairs(Config.DefaultAmmo or {}) do insertDefaultAmmo(ammo, i) end
     for i, weapon in ipairs(Config.DefaultWeapons or {}) do insertDefaultWeapon(weapon, i) end
+
+    -- Keep old/deprecated rows out of exports and admin pickers without deleting player items.
+    if Config.StrictFixedCatalog == true then
+        local ammoNames, weaponNames = {}, {}
+        for _, ammo in ipairs(Config.DefaultAmmo or {}) do ammoNames[#ammoNames + 1] = normalizeItemName(ammo.itemName) end
+        for _, weapon in ipairs(Config.DefaultWeapons or {}) do weaponNames[#weaponNames + 1] = normalizeItemName(weapon.itemName) end
+        if #ammoNames > 0 then
+            local qs = {}; for _ = 1, #ammoNames do qs[#qs + 1] = '?' end
+            MySQL.update.await(('UPDATE cm_weapon_ammo SET enabled = 0 WHERE item_name NOT IN (%s)'):format(table.concat(qs, ',')), ammoNames)
+        end
+        if #weaponNames > 0 then
+            local qs = {}; for _ = 1, #weaponNames do qs[#qs + 1] = '?' end
+            MySQL.update.await(('UPDATE cm_weapon_catalog SET enabled = 0 WHERE item_name NOT IN (%s)'):format(table.concat(qs, ',')), weaponNames)
+        end
+    end
 end
 
 local function sortByOrderLabel(a, b)
@@ -299,10 +396,13 @@ local function loadAll()
     CMWeapons.AmmoList = {}
     CMWeapons.WeaponList = {}
 
+    local fixedAmmo = fixedAmmoMap()
+    local fixedWeapons = fixedWeaponMap()
+
     local ammoRows = MySQL.query.await('SELECT * FROM cm_weapon_ammo ORDER BY sort_order ASC, label ASC', {}) or {}
     for _, dbRow in ipairs(ammoRows) do
         local row = rowToAmmo(dbRow)
-        if row.itemName ~= '' then
+        if row.itemName ~= '' and (Config.StrictFixedCatalog ~= true or fixedAmmo[row.itemName] ~= nil) then
             CMWeapons.Ammo[row.itemName] = row
             CMWeapons.AmmoList[#CMWeapons.AmmoList + 1] = row
         end
@@ -311,14 +411,66 @@ local function loadAll()
     local weaponRows = MySQL.query.await('SELECT * FROM cm_weapon_catalog ORDER BY sort_order ASC, group_key ASC, label ASC', {}) or {}
     for _, dbRow in ipairs(weaponRows) do
         local row = rowToWeapon(dbRow)
-        if row.itemName ~= '' then
+        if row.itemName ~= '' and (Config.StrictFixedCatalog ~= true or fixedWeapons[row.itemName] ~= nil) then
             CMWeapons.Weapons[row.itemName] = row
             CMWeapons.WeaponList[#CMWeapons.WeaponList + 1] = row
         end
     end
 
+    -- Self-heal the export cache from shared/defaults.lua if DB rows are missing.
+    -- This prevents dependent resources from seeing an ammo-only catalog during a warm-up
+    -- or after an older DB migration failed to seed weapon rows.
+    if Config.StrictFixedCatalog == true then
+        for i, ammo in ipairs(Config.DefaultAmmo or {}) do
+            local row = rowToAmmo({
+                itemName = ammo.itemName,
+                label = ammo.label,
+                ammoKey = ammo.ammoKey,
+                pickupHash = ammo.pickupHash or getPickupHashForAmmoKey(ammo.ammoKey),
+                dropModel = ammo.dropModel or getDropModelForAmmoKey(ammo.ammoKey),
+                packSize = ammo.packSize,
+                price = 0,
+                weight = ammo.weight,
+                stack = ammo.stack ~= false,
+                enabled = ammo.enabled ~= false,
+                image = ammo.image or '',
+                description = ammo.description or '',
+                sortOrder = ammo.sortOrder or i
+            })
+            if row.itemName ~= '' and not CMWeapons.Ammo[row.itemName] then
+                CMWeapons.Ammo[row.itemName] = row
+                CMWeapons.AmmoList[#CMWeapons.AmmoList + 1] = row
+            end
+        end
+        for i, weapon in ipairs(Config.DefaultWeapons or {}) do
+            local row = rowToWeapon({
+                itemName = weapon.itemName,
+                label = weapon.label,
+                weaponHash = weapon.weaponHash,
+                group = weapon.group,
+                ammoItem = weapon.ammoItem,
+                damage = weapon.damage,
+                magazineSize = weapon.magazineSize,
+                recoil = weapon.recoil,
+                durability = weapon.durability or 100,
+                price = 0,
+                weight = weapon.weight,
+                enabled = weapon.enabled ~= false,
+                image = weapon.image or '',
+                description = weapon.description or '',
+                sortOrder = weapon.sortOrder or i
+            })
+            if row.itemName ~= '' and not CMWeapons.Weapons[row.itemName] then
+                CMWeapons.Weapons[row.itemName] = row
+                CMWeapons.WeaponList[#CMWeapons.WeaponList + 1] = row
+            end
+        end
+    end
+
     table.sort(CMWeapons.AmmoList, sortByOrderLabel)
     table.sort(CMWeapons.WeaponList, sortByOrderLabel)
+    CACHE_READY = true
+    LAST_CACHE_LOAD = GetGameTimer and GetGameTimer() or os.time() * 1000
     return CMWeapons.AmmoList, CMWeapons.WeaponList
 end
 
@@ -429,100 +581,73 @@ local function broadcastAdminData(target)
     TriggerClientEvent('cm-weapons:client:adminData', target or -1, payload)
 end
 
-local function saveAmmo(data, src)
-    data = type(data) == 'table' and data or {}
-    local row = rowToAmmo({
-        itemName = data.itemName or data.item_name,
-        label = data.label,
-        ammoKey = data.ammoKey or data.ammo_key,
-        pickupHash = data.pickupHash or data.pickup_hash or getPickupHashForAmmoKey(data.ammoKey or data.ammo_key),
-        dropModel = data.dropModel or data.drop_model or getDropModelForAmmoKey(data.ammoKey or data.ammo_key),
-        packSize = data.packSize or data.pack_size,
-        price = data.price,
-        weight = data.weight,
-        stack = data.stack ~= false,
-        enabled = data.enabled ~= false,
-        image = data.image,
-        description = data.description,
-        sortOrder = data.sortOrder or data.sort_order
-    })
-
-    if row.itemName == '' then return false, 'bad_item_name' end
-    if tostring(data.imageData or data.image_data or '') ~= '' then
-        local savedImage, imageErr = saveDataImage(data.imageData or data.image_data, row.itemName, 'ammo')
-        if savedImage then row.image = savedImage else return false, imageErr or 'image_save_failed' end
+local function getFixedAmmoDefault(itemName)
+    itemName = normalizeItemName(itemName)
+    if itemName == '' then return nil end
+    for _, ammo in ipairs(Config.DefaultAmmo or {}) do
+        if normalizeItemName(ammo.itemName or ammo.item_name) == itemName then return ammo end
     end
-    if row.label == '' then row.label = row.itemName end
-    if row.ammoKey == '' then return false, 'bad_ammo_key' end
-    row.pickupHash = tonumber(row.pickupHash) or getPickupHashForAmmoKey(row.ammoKey)
-    if row.pickupHash == 0 then return false, 'bad_pickup_hash' end
+    return nil
+end
 
-    MySQL.query.await([[
-        INSERT INTO cm_weapon_ammo
-            (item_name, label, ammo_key, pickup_hash, drop_model, pack_size, price, weight, stack, enabled, image, description, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-            label = VALUES(label), ammo_key = VALUES(ammo_key), pickup_hash = VALUES(pickup_hash), drop_model = VALUES(drop_model),
-            pack_size = VALUES(pack_size), price = VALUES(price), weight = VALUES(weight), stack = VALUES(stack), enabled = VALUES(enabled),
-            image = VALUES(image), description = VALUES(description), sort_order = VALUES(sort_order)
-    ]], { row.itemName, row.label, row.ammoKey, row.pickupHash, row.dropModel, row.packSize, row.price, row.weight, boolInt(row.stack, true), boolInt(row.enabled, true), row.image, row.description, row.sortOrder })
+local function getFixedWeaponDefault(itemName)
+    itemName = normalizeItemName(itemName)
+    if itemName == '' then return nil end
+    for _, weapon in ipairs(Config.DefaultWeapons or {}) do
+        if normalizeItemName(weapon.itemName or weapon.item_name) == itemName then return weapon end
+    end
+    return nil
+end
+
+local function updateImageOnly(kind, itemName, image, imageData, src)
+    itemName = normalizeItemName(itemName)
+    if itemName == '' then return false, 'bad_item_name' end
+
+    local savedImage = nil
+    if tostring(imageData or '') ~= '' then
+        local folder = kind == 'ammo' and 'ammo' or 'weapon'
+        local err
+        savedImage, err = saveDataImage(imageData, itemName, folder)
+        if not savedImage then return false, err or 'image_save_failed' end
+    elseif Config.AllowAdminImagePath == true and tostring(image or '') ~= '' then
+        savedImage = tostring(image or ''):sub(1, 255)
+    else
+        return false, 'no_image_selected'
+    end
+
+    if kind == 'ammo' then
+        if not getFixedAmmoDefault(itemName) then return false, 'fixed_ammo_only_edit_config_first' end
+        MySQL.update.await('UPDATE cm_weapon_ammo SET image = ? WHERE item_name = ?', { savedImage, itemName })
+    else
+        if not getFixedWeaponDefault(itemName) then return false, 'fixed_weapon_only_edit_config_first' end
+        MySQL.update.await('UPDATE cm_weapon_catalog SET image = ? WHERE item_name = ?', { savedImage, itemName })
+    end
 
     loadAll()
-    syncAmmoToCmItems(row)
-    -- linked weapons need updated ammoKey/pickupHash metadata in cm-items
-    for _, weapon in ipairs(CMWeapons.WeaponList or {}) do
-        if weapon.ammoItem == row.itemName then syncWeaponToCmItems(weapon) end
+    if kind == 'ammo' and CMWeapons.Ammo[itemName] then
+        syncAmmoToCmItems(CMWeapons.Ammo[itemName])
+        for _, weapon in ipairs(CMWeapons.WeaponList or {}) do
+            if weapon.ammoItem == itemName then syncWeaponToCmItems(weapon) end
+        end
+    elseif kind == 'weapon' and CMWeapons.Weapons[itemName] then
+        syncWeaponToCmItems(CMWeapons.Weapons[itemName])
     end
     broadcastAdminData(src or -1)
     return true
 end
 
+local function saveAmmo(data, src)
+    data = type(data) == 'table' and data or {}
+    local itemName = normalizeItemName(data.itemName or data.item_name)
+    if not getFixedAmmoDefault(itemName) then return false, 'fixed_ammo_only_edit_shared_defaults' end
+    return updateImageOnly('ammo', itemName, data.image, data.imageData or data.image_data, src)
+end
+
 local function saveWeapon(data, src)
     data = type(data) == 'table' and data or {}
-    local row = rowToWeapon({
-        itemName = data.itemName or data.item_name,
-        label = data.label,
-        weaponHash = data.weaponHash or data.weapon_hash,
-        group = data.group or data.group_key,
-        ammoItem = data.ammoItem or data.ammo_item,
-        damage = data.damage,
-        magazineSize = data.magazineSize or data.magazine_size,
-        recoil = data.recoil,
-        durability = data.durability,
-        price = data.price,
-        weight = data.weight,
-        enabled = data.enabled ~= false,
-        image = data.image,
-        description = data.description,
-        sortOrder = data.sortOrder or data.sort_order
-    })
-
-    if row.itemName == '' then return false, 'bad_item_name' end
-    if tostring(data.imageData or data.image_data or '') ~= '' then
-        local savedImage, imageErr = saveDataImage(data.imageData or data.image_data, row.itemName, 'weapon')
-        if savedImage then row.image = savedImage else return false, imageErr or 'image_save_failed' end
-    end
-    if row.label == '' then row.label = row.itemName end
-    if row.weaponHash == '' or row.weaponHash:sub(1, 7) ~= 'WEAPON_' then return false, 'bad_weapon_hash' end
-    if row.ammoItem == '' then return false, 'select_ammo_item' end
-    if not CMWeapons.Ammo[row.ammoItem] then return false, 'ammo_item_not_found' end
-
-    row.weaponHashNumber = weaponHashNumber(row.weaponHash)
-
-    MySQL.query.await([[
-        INSERT INTO cm_weapon_catalog
-            (item_name, label, weapon_hash, weapon_hash_number, group_key, ammo_item, damage, magazine_size, recoil, durability, price, weight, enabled, image, description, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-            label = VALUES(label), weapon_hash = VALUES(weapon_hash), weapon_hash_number = VALUES(weapon_hash_number), group_key = VALUES(group_key),
-            ammo_item = VALUES(ammo_item), damage = VALUES(damage), magazine_size = VALUES(magazine_size), recoil = VALUES(recoil), durability = VALUES(durability),
-            price = VALUES(price), weight = VALUES(weight), enabled = VALUES(enabled), image = VALUES(image), description = VALUES(description), sort_order = VALUES(sort_order)
-    ]], { row.itemName, row.label, row.weaponHash, row.weaponHashNumber, row.group, row.ammoItem, row.damage, row.magazineSize, row.recoil, row.durability, row.price, row.weight, boolInt(row.enabled, true), row.image, row.description, row.sortOrder })
-
-    loadAll()
-    syncWeaponToCmItems(row)
-    broadcastAdminData(src or -1)
-    return true
+    local itemName = normalizeItemName(data.itemName or data.item_name)
+    if not getFixedWeaponDefault(itemName) then return false, 'fixed_weapon_only_edit_shared_defaults' end
+    return updateImageOnly('weapon', itemName, data.image, data.imageData or data.image_data, src)
 end
 
 local function deleteFromCmItems(itemName)
@@ -536,6 +661,7 @@ end
 local function deleteWeapon(itemName)
     itemName = normalizeItemName(itemName)
     if itemName == '' then return false, 'bad_item_name' end
+    if Config.FixedCatalogOnly == true then return false, 'fixed_catalog_delete_disabled_edit_config' end
     MySQL.query.await('DELETE FROM cm_weapon_catalog WHERE item_name = ?', { itemName })
     deleteFromCmItems(itemName)
     loadAll()
@@ -545,6 +671,7 @@ end
 local function deleteAmmo(itemName, force)
     itemName = normalizeItemName(itemName)
     if itemName == '' then return false, 'bad_item_name' end
+    if Config.FixedCatalogOnly == true then return false, 'fixed_catalog_delete_disabled_edit_config' end
     local users = MySQL.query.await('SELECT item_name, label FROM cm_weapon_catalog WHERE ammo_item = ? LIMIT 10', { itemName }) or {}
     if #users > 0 and not force then
         return false, ('ammo_is_used_by_%s_weapon(s)'):format(#users)
@@ -595,14 +722,14 @@ RegisterNetEvent('cm-weapons:server:saveAmmo', function(data)
     local src = source
     if not isAdmin(src) then return notify(src, 'No permission.', 'error') end
     local ok, err = saveAmmo(data, src)
-    notify(src, ok and 'Ammo saved and synced to cm-items.' or ('Ammo save failed: ' .. tostring(err)), ok and 'success' or 'error')
+    notify(src, ok and 'Ammo image updated and synced to cm-items.' or ('Ammo save failed: ' .. tostring(err)), ok and 'success' or 'error')
 end)
 
 RegisterNetEvent('cm-weapons:server:saveWeapon', function(data)
     local src = source
     if not isAdmin(src) then return notify(src, 'No permission.', 'error') end
     local ok, err = saveWeapon(data, src)
-    notify(src, ok and 'Weapon saved and synced to cm-items.' or ('Weapon save failed: ' .. tostring(err)), ok and 'success' or 'error')
+    notify(src, ok and 'Weapon image updated and synced to cm-items.' or ('Weapon save failed: ' .. tostring(err)), ok and 'success' or 'error')
 end)
 
 RegisterNetEvent('cm-weapons:server:deleteAmmo', function(itemName, force)
@@ -636,30 +763,13 @@ RegisterNetEvent('cm-weapons:server:saveImage', function(data)
     data = type(data) == 'table' and data or {}
     local itemName = normalizeItemName(data.itemName or data.item_name)
     local kind = tostring(data.kind or data.itemType or data.item_type or ''):lower()
-    if itemName == '' then return notify(src, 'Select or save the item name first.', 'error') end
+    if itemName == '' then return notify(src, 'Select an item first.', 'error') end
     if kind ~= 'ammo' and kind ~= 'weapon' then
         if CMWeapons.Ammo[itemName] then kind = 'ammo' elseif CMWeapons.Weapons[itemName] then kind = 'weapon' end
     end
-    if kind ~= 'ammo' and kind ~= 'weapon' then return notify(src, 'Item was not found in cm-weapons yet. Save it first, then upload image.', 'error') end
-    local saved, err = saveDataImage(data.imageData or data.image_data, itemName, kind)
-    if not saved then return notify(src, ('Image save failed: %s'):format(tostring(err or 'unknown')), 'error') end
-
-    if kind == 'ammo' then
-        MySQL.update.await('UPDATE cm_weapon_ammo SET image = ? WHERE item_name = ?', { saved, itemName })
-    else
-        MySQL.update.await('UPDATE cm_weapon_catalog SET image = ? WHERE item_name = ?', { saved, itemName })
-    end
-    loadAll()
-    if kind == 'ammo' and CMWeapons.Ammo[itemName] then
-        syncAmmoToCmItems(CMWeapons.Ammo[itemName])
-        for _, weapon in ipairs(CMWeapons.WeaponList or {}) do
-            if weapon.ammoItem == itemName then syncWeaponToCmItems(weapon) end
-        end
-    elseif kind == 'weapon' and CMWeapons.Weapons[itemName] then
-        syncWeaponToCmItems(CMWeapons.Weapons[itemName])
-    end
-    broadcastAdminData(src)
-    notify(src, 'Image uploaded and synced to cm-items.', 'success')
+    if kind ~= 'ammo' and kind ~= 'weapon' then return notify(src, 'Item not found in fixed cm-weapons catalog.', 'error') end
+    local ok, err = updateImageOnly(kind, itemName, data.image, data.imageData or data.image_data, src)
+    notify(src, ok and 'Image updated and synced to cm-items.' or ('Image update failed: ' .. tostring(err)), ok and 'success' or 'error')
 end)
 
 RegisterNetEvent('cm-weapons:server:syncAllToCmItems', function()
@@ -690,9 +800,19 @@ end, false)
 
 -- Exports for cm-gunstore, cm-inventory, cm-itemactions, police evidence, black market, etc.
 -- Keep these fresh because /gunadmin can call immediately after /cmweaponadmin saves a new row.
-local function refreshForExport()
-    if not DB_READY then ensureDatabase() end
-    loadAll()
+local function refreshForExport(force)
+    if not DB_READY then
+        ensureDatabase()
+        if Config.SeedDefaults then seedDefaults() end
+        loadAll()
+        return
+    end
+
+    local now = GetGameTimer and GetGameTimer() or os.time() * 1000
+    local maxAge = tonumber(Config.ExportCacheMs) or 2500
+    if force == true or CACHE_READY ~= true or (now - (LAST_CACHE_LOAD or 0)) >= maxAge then
+        loadAll()
+    end
 end
 
 exports('GetAllAmmo', function(includeDisabled)
@@ -754,15 +874,41 @@ exports('GetWeapon', function(itemNameOrHash)
     return findWeapon(itemNameOrHash)
 end)
 
+exports('DoesAmmoExist', function(itemName, includeDisabled)
+    refreshForExport()
+    local ammo = findAmmo(itemName)
+    if not ammo then return false end
+    if includeDisabled == false and ammo.enabled ~= true then return false end
+    return true
+end)
+
+exports('DoesWeaponExist', function(itemNameOrHash, includeDisabled)
+    refreshForExport()
+    local weapon = findWeapon(itemNameOrHash)
+    if not weapon then return false end
+    if includeDisabled == false and weapon.enabled ~= true then return false end
+    return true
+end)
+
+exports('IsAmmoItem', function(itemName)
+    refreshForExport()
+    return findAmmo(itemName) ~= nil
+end)
+
+exports('IsWeaponItem', function(itemNameOrHash)
+    refreshForExport()
+    return findWeapon(itemNameOrHash) ~= nil
+end)
+
 exports('GetAmmoPickupHash', function(itemName)
     refreshForExport()
-    local ammo = CMWeapons.Ammo[normalizeItemName(itemName)]
+    local ammo = findAmmo(itemName)
     return ammo and ammo.pickupHash or nil
 end)
 
 exports('GetAmmoDropData', function(itemName)
     refreshForExport()
-    local ammo = CMWeapons.Ammo[normalizeItemName(itemName)]
+    local ammo = findAmmo(itemName)
     if not ammo then return nil end
     return { pickupHash = ammo.pickupHash, ammoKey = ammo.ammoKey, dropModel = ammo.dropModel, packSize = ammo.packSize }
 end)
@@ -802,7 +948,7 @@ exports('DeleteWeapon', function(itemName)
 end)
 
 exports('SyncAllToCmItems', function()
-    loadAll()
+    refreshForExport(true)
     return syncAllToCmItems()
 end)
 

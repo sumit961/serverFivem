@@ -123,7 +123,7 @@ function post(path, body) {
 }
 
 
-const INVENTORY_DEBUG = true;
+const INVENTORY_DEBUG = false;
 function debugLog(tag, payload = {}) {
   if (!INVENTORY_DEBUG) return;
   const safePayload = payload || {};
@@ -667,7 +667,6 @@ function finishDrag(x, y) {
     toIndex,
     uiDebug: debugPayload
   };
-  showToast(`[DEBUG] ${fromSlot} → ${toSlot} | ext=${fromIndex !== null}->${toIndex !== null}`, 'info');
   debugLog('postMoveItem', movePayload);
   post('moveItem', movePayload).catch(() => {
     showToast('Move request failed.', 'error');
@@ -859,7 +858,6 @@ function showContext(item, x, y) {
   const category = String(item.category || 'misc').toUpperCase();
   const qty = Number(item.quantity || 1);
   const splitButton = qty > 1 ? '<button data-action="split"><span class="icon">↔</span>DIVIDE</button>' : '';
-  const dropAllButton = qty > 1 ? '<button data-action="dropall"><span class="icon">⇩</span>DROP ALL</button>' : '';
   contextEl.innerHTML = `
     <div class="context-head rarity-${escapeHtml(rarity)}">
       <div class="context-title">${escapeHtml(itemLabel(item))}</div>
@@ -870,21 +868,13 @@ function showContext(item, x, y) {
     <div class="context-actions compact">
       <button data-action="use"><span class="icon">↩</span>USE</button>
       ${splitButton}
+      <button data-action="give"><span class="icon">⇢</span>GIVE</button>
       <button data-action="drop"><span class="icon">⌄</span>DROP</button>
-      ${dropAllButton}
     </div>
   `;
   contextEl.querySelector('[data-action="use"]').onclick = () => { post('useItem', { slot: item.slot }); closeContext(); };
-  contextEl.querySelector('[data-action="drop"]').onclick = () => {
-    if (qty <= 1) {
-      post('dropItem', { slot: item.slot, amount: 1 });
-      closeContext();
-      return;
-    }
-    openDrop(item);
-  };
-  const dropAll = contextEl.querySelector('[data-action="dropall"]');
-  if (dropAll) dropAll.onclick = () => { post('dropItem', { slot: item.slot, amount: qty }); closeContext(); };
+  contextEl.querySelector('[data-action="give"]').onclick = () => openGive(item);
+  contextEl.querySelector('[data-action="drop"]').onclick = () => openDrop(item);
   const split = contextEl.querySelector('[data-action="split"]');
   if (split) split.onclick = () => openSplit(item);
 
@@ -1113,6 +1103,16 @@ document.addEventListener('keydown', (e) => {
   if (key === 'escape' || key === 'i') post('close', {});
 });
 
+
+function readModalAmount(inputEl) {
+  const max = Math.max(1, Number(inputEl?.max || 1) || 1);
+  let amount = Math.floor(Number(inputEl?.value || 1) || 1);
+  if (amount < 1) amount = 1;
+  if (amount > max) amount = max;
+  if (inputEl) inputEl.value = amount;
+  return amount;
+}
+
 document.getElementById('close-btn').onclick = () => post('close', {});
 document.getElementById('split-cancel').onclick = () => splitModal.classList.add('hidden');
 document.getElementById('split-confirm').onclick = () => {
@@ -1120,7 +1120,7 @@ document.getElementById('split-confirm').onclick = () => {
   post('splitItem', {
     fromSlot: state.splitSource.slot,
     toSlot: state.splitTarget,
-    amount: Number(splitAmount.value) || 1
+    amount: readModalAmount(splitAmount)
   });
   splitModal.classList.add('hidden');
 };
@@ -1130,7 +1130,7 @@ document.getElementById('give-confirm').onclick = () => {
   if (!state.giveSource) return;
   post('giveItem', {
     slot: state.giveSource.slot,
-    amount: Number(giveAmount.value) || 1
+    amount: readModalAmount(giveAmount)
   });
   giveModal.classList.add('hidden');
 };
@@ -1141,7 +1141,7 @@ document.getElementById('drop-confirm').onclick = () => {
   if (!state.dropSource) return;
   post('dropItem', {
     slot: state.dropSource.slot,
-    amount: Number(dropAmount.value) || 1
+    amount: readModalAmount(dropAmount)
   });
   dropModal.classList.add('hidden');
 };

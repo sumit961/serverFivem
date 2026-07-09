@@ -3,8 +3,8 @@ game 'gta5'
 lua54 'yes'
 
 author 'CM Development'
-description 'CM Item Actions v2.6: usable item and clothing animations'
-version '2.6.0'
+description 'CM Item Actions v2.7: fixed ammo use registration'
+version '2.7.0'
 
 dependencies {
     'cm-inventory'

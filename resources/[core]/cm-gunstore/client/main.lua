@@ -611,13 +611,15 @@ AddEventHandler('onClientResourceStart', function(resourceName)
     end
 end)
 
-RegisterCommand('guntargetdebug', function()
-    print(('[cm-gunstore] target %s'):format(targetDebugState()))
-    for index, shop in ipairs(Config.Shops or {}) do
-        print(('[cm-gunstore] npc index=%s exists=%s targetRegistered=%s zoneRegistered=%s'):format(index, tostring(shop._ped and DoesEntityExist(shop._ped)), tostring(shop._ped and targetRegistered[shop._ped] == true), tostring(targetZones[index] ~= nil)))
-    end
-    registerAllPedTargets()
-end, false)
+if Config.EnableDebugCommand == true then
+    RegisterCommand(Config.DebugCommand or 'guntargetdebug', function()
+        print(('[cm-gunstore] target %s'):format(targetDebugState()))
+        for index, shop in ipairs(Config.Shops or {}) do
+            print(('[cm-gunstore] npc index=%s exists=%s targetRegistered=%s zoneRegistered=%s'):format(index, tostring(shop._ped and DoesEntityExist(shop._ped)), tostring(shop._ped and targetRegistered[shop._ped] == true), tostring(targetZones[index] ~= nil)))
+        end
+        registerAllPedTargets()
+    end, false)
+end
 
 CreateThread(function()
     -- If ox_target starts after this resource, keep trying for a short time.

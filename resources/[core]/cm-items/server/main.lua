@@ -813,3 +813,75 @@ RegisterNetEvent('cm-items:server:previewDeleteItem', function(requestId, row)
 
     TriggerClientEvent('cm-items:client:previewDeleteResult', src, requestId, ok == true, ok and 'deleted' or err, deletedName)
 end)
+
+--========================================================
+-- Admin preview: set / clear the DROP PROP for an item.
+-- Prop overrides live in cm-items (item_props.lua) and apply to any item.
+--========================================================
+RegisterNetEvent('cm-items:server:previewSetProp', function(requestId, data)
+    local src = source
+    data = type(data) == 'table' and data or {}
+
+    if not hasItemsAdminPermission(src) then
+        TriggerClientEvent('cm-items:client:previewPropResult', src, requestId, false, 'No permission. Add ACE: add_ace group.admin cm.items.admin allow')
+        return
+    end
+
+    local name = CMItems.NormalizeName and CMItems.NormalizeName(data.name) or tostring(data.name or '')
+    if name == '' then
+        TriggerClientEvent('cm-items:client:previewPropResult', src, requestId, false, 'Invalid item name.')
+        return
+    end
+
+    local ok, err = CMItems.SaveItemProp({
+        name = name,
+        model = data.model,
+        zOffset = data.zOffset,
+        heading = data.heading,
+        updatedBy = ('preview:%s'):format(src),
+    })
+
+    TriggerClientEvent('cm-items:client:previewPropResult', src, requestId, ok == true, ok and 'Prop saved' or ('Could not save prop: ' .. tostring(err)), name)
+end)
+
+RegisterNetEvent('cm-items:server:previewClearProp', function(requestId, data)
+    local src = source
+    data = type(data) == 'table' and data or {}
+
+    if not hasItemsAdminPermission(src) then
+        TriggerClientEvent('cm-items:client:previewPropResult', src, requestId, false, 'No permission.')
+        return
+    end
+
+    local name = CMItems.NormalizeName and CMItems.NormalizeName(data.name) or tostring(data.name or '')
+    if name == '' then
+        TriggerClientEvent('cm-items:client:previewPropResult', src, requestId, false, 'Invalid item name.')
+        return
+    end
+
+    local ok, err = CMItems.DeleteItemProp(name)
+    TriggerClientEvent('cm-items:client:previewPropResult', src, requestId, ok == true, ok and 'Prop reset to default' or ('Could not reset prop: ' .. tostring(err)), name)
+end)
+
+--========================================================
+-- Admin preview: set the IMAGE for an item (used everywhere).
+--========================================================
+RegisterNetEvent('cm-items:server:previewSetImage', function(requestId, data)
+    local src = source
+    data = type(data) == 'table' and data or {}
+
+    if not hasItemsAdminPermission(src) then
+        TriggerClientEvent('cm-items:client:previewImageResult', src, requestId, false, 'No permission. Add ACE: add_ace group.admin cm.items.admin allow')
+        return
+    end
+
+    local name = CMItems.NormalizeName and CMItems.NormalizeName(data.name) or tostring(data.name or '')
+    if name == '' or type(data.imageData) ~= 'string' or data.imageData == '' then
+        TriggerClientEvent('cm-items:client:previewImageResult', src, requestId, false, 'Invalid item or image.')
+        return
+    end
+
+    local ok, res = CMItems.SetItemImage(name, data.imageData, ('preview:%s'):format(src))
+    TriggerClientEvent('cm-items:client:previewImageResult', src, requestId, ok == true,
+        ok and 'Image updated' or ('Could not save image: ' .. tostring(res)), name)
+end)
