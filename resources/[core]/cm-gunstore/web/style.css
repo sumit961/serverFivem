@@ -993,8 +993,43 @@ body.capture-flash::after {
     letter-spacing: .10em;
     font-size: clamp(12px, .82vw, 16px);
     font-weight: 900;
+    cursor: pointer;
+    transition: background .15s ease, border-color .15s ease, color .15s ease;
 }
-.shop-group-list { display: grid; gap: 3px; margin-top: 4px; }
+.shop-group-head:hover { background: rgba(70,236,255,.08); border-color: rgba(70,236,255,.34); color: #eaffff; }
+.shop-group-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shop-group-meta { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.shop-group-count {
+    min-width: 24px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(70,236,255,.14);
+    border: 1px solid rgba(70,236,255,.30);
+    color: var(--aqua);
+    font-size: clamp(10px, .72vw, 12px);
+    letter-spacing: .04em;
+    text-align: center;
+}
+.shop-group-chevron {
+    display: inline-block;
+    font-size: 15px;
+    line-height: 1;
+    transition: transform .2s ease;
+}
+.shop-group.collapsed .shop-group-chevron { transform: rotate(-90deg); }
+.shop-group.collapsed .shop-group-head { color: rgba(235,248,255,.6); }
+.shop-group-list {
+    display: grid;
+    gap: 3px;
+    margin-top: 4px;
+    overflow: hidden;
+}
+.shop-group.collapsed .shop-group-list {
+    max-height: 0;
+    margin-top: 0;
+    opacity: 0;
+    pointer-events: none;
+}
 .shop-list-item {
     width: 100%;
     min-height: 80px;
@@ -1191,3 +1226,174 @@ body.capture-flash::after {
     .shop-list-item strong { grid-column: 2; width: fit-content; }
     .stat-row { grid-template-columns: 1fr; gap: 7px; }
 }
+
+/* ============================================================
+   v1.9.0 -- ammo-per-weapon store flow
+   The player store drops the standalone ammo column; ammo attaches to the
+   selected weapon instead. These styles extend the existing cyan-glass
+   "Elite Clean" system (same tokens, same accent language).
+   ============================================================ */
+
+/* Hide the admin-only Ammo tab while a player browses the store. */
+#app.store-mode .admin-only-tab { display: none !important; }
+
+/* "Add ammunition" block on the weapon detail panel */
+.ammo-addon {
+    width: 100%;
+    margin: 4px 0 18px;
+    border: 1px solid rgba(70, 236, 255, .22);
+    background: linear-gradient(180deg, rgba(12, 37, 56, .55), rgba(9, 24, 36, .40));
+    border-radius: 12px;
+    overflow: hidden;
+    text-align: left;
+    transition: border-color .16s ease, background .16s ease;
+}
+.ammo-addon.on { border-color: rgba(70, 236, 255, .5); background: linear-gradient(180deg, rgba(19, 60, 84, .62), rgba(10, 30, 44, .46)); }
+.ammo-addon.pending,
+.ammo-addon.none {
+    padding: 14px 16px;
+    color: rgba(255, 255, 255, .55);
+    font-size: clamp(11px, .85vw, 13px);
+    font-weight: 700;
+    letter-spacing: .02em;
+}
+.ammo-addon-toggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    cursor: pointer;
+    user-select: none;
+}
+.ammo-addon-toggle input { width: 20px; height: 20px; accent-color: var(--aqua); cursor: pointer; }
+.ammo-addon-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.ammo-addon-head img {
+    width: 42px; height: 42px; object-fit: contain;
+    background: rgba(0, 0, 0, .22); border-radius: 8px; padding: 4px;
+    filter: drop-shadow(0 8px 12px rgba(0, 0, 0, .4));
+}
+.ammo-addon-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ammo-addon-copy strong {
+    color: rgba(235, 248, 255, .95);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    font-size: clamp(12px, .9vw, 15px);
+}
+.ammo-addon-copy small { color: rgba(255, 255, 255, .58); font-size: clamp(10px, .8vw, 12px); }
+.ammo-addon-body {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 0 16px 16px;
+    max-height: 90px;
+    opacity: 1;
+    transition: max-height .18s ease, opacity .18s ease, padding .18s ease;
+}
+.ammo-addon-body.collapsed { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; overflow: hidden; }
+.ammo-addon-body .qty { display: flex; align-items: center; gap: 6px; }
+.ammo-addon-body .qty button {
+    min-width: 40px; height: 38px; padding: 0 6px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .10);
+    border: 1px solid rgba(255, 255, 255, .14);
+    color: rgba(255, 255, 255, .92);
+    font-weight: 900; font-size: 14px; cursor: pointer;
+    transition: filter .12s ease, transform .1s ease;
+}
+.ammo-addon-body .qty button:hover { filter: brightness(1.2); }
+.ammo-addon-body .qty button:active { transform: scale(.95); }
+.ammo-addon-body .qty input {
+    width: 68px; height: 38px; text-align: center;
+    border-radius: 8px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--text); font-weight: 900; font-size: 15px; outline: none;
+}
+.ammo-addon-body .qty input:focus { border-color: var(--line-strong); }
+.ammo-addon-total {
+    color: var(--aqua);
+    font-weight: 900;
+    font-size: clamp(15px, 1.2vw, 20px);
+    letter-spacing: .02em;
+    white-space: nowrap;
+}
+
+/* Running total row above the buy buttons */
+.detail-total {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 0 14px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, .05);
+    border: 1px solid rgba(190, 230, 255, .14);
+}
+.detail-total span {
+    color: rgba(255, 255, 255, .70);
+    text-transform: uppercase;
+    letter-spacing: .18em;
+    font-size: clamp(10px, .8vw, 12px);
+    font-weight: 900;
+}
+.detail-total strong {
+    color: #fff;
+    font-size: clamp(20px, 1.7vw, 30px);
+    font-weight: 1000;
+    letter-spacing: -.01em;
+}
+
+/* ============================================================
+   v1.9.1 -- standalone ammo detail + collapsible catalog dropdowns
+   ============================================================ */
+
+/* Non-bar stat value (e.g. ammo caliber text) */
+.stat-text {
+    color: rgba(235, 248, 255, .92);
+    font-weight: 900;
+    letter-spacing: .06em;
+    font-size: clamp(12px, .9vw, 15px);
+}
+
+/* Ammo detail: rounds stepper row */
+.ammo-buy {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin: 8px 0 14px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(12, 37, 56, .55), rgba(9, 24, 36, .40));
+    border: 1px solid rgba(70, 236, 255, .22);
+}
+.ammo-buy-label {
+    color: rgba(255, 255, 255, .78);
+    text-transform: uppercase;
+    letter-spacing: .14em;
+    font-size: clamp(10px, .8vw, 13px);
+    font-weight: 900;
+}
+.ammo-buy .qty { display: flex; align-items: center; gap: 6px; }
+.ammo-buy .qty button {
+    min-width: 40px; height: 40px; padding: 0 6px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .10);
+    border: 1px solid rgba(255, 255, 255, .14);
+    color: rgba(255, 255, 255, .92);
+    font-weight: 900; font-size: 14px; cursor: pointer;
+    transition: filter .12s ease, transform .1s ease;
+}
+.ammo-buy .qty button:hover { filter: brightness(1.2); }
+.ammo-buy .qty button:active { transform: scale(.95); }
+.ammo-buy .qty input {
+    width: 72px; height: 40px; text-align: center;
+    border-radius: 8px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--text); font-weight: 900; font-size: 16px; outline: none;
+}
+.ammo-buy .qty input:focus { border-color: var(--line-strong); }

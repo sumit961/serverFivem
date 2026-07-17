@@ -9,6 +9,22 @@
 <body>
   <div id="toast" class="toast hidden"></div>
 
+  <!-- Service progress (refuel / repair). Shown while the menu is closed. -->
+  <div id="svcProgress" class="svc-progress hidden">
+    <div class="svc-card">
+      <div class="svc-top">
+        <div class="svc-icon" id="svcIcon">⛽</div>
+        <div class="svc-text">
+          <div class="svc-title" id="svcTitle">Refueling</div>
+          <div class="svc-sub" id="svcSub">Hold still…</div>
+        </div>
+        <div class="svc-pct"><span id="svcPct">0</span>%</div>
+      </div>
+      <div class="svc-bar"><div class="svc-bar-fill" id="svcFill"></div></div>
+      <div class="svc-cancel">Press <b>ESC</b> to cancel</div>
+    </div>
+  </div>
+
   <section id="vehicleMenu" class="vehicle-menu hidden">
     <div class="menu-shade"></div>
     <div id="radialActions" class="radial-actions"></div>
@@ -43,34 +59,79 @@
 
   <section id="vehicleInfoScreen" class="vehicle-info-screen hidden">
     <div class="info-backdrop"></div>
-    <button id="infoBack" class="back-btn info-back">BACK</button>
-    <button id="infoClose" class="menu-close info-close">×</button>
-    <div class="state-card">
-      <div class="state-head">
-        <span>TRANSPORT INFORMATION</span>
-        <h1 id="infoVehicleName">Vehicle</h1>
-        <p id="infoContext">Outside vehicle · looking at vehicle</p>
+    <aside class="vehicle-info-panel">
+      <div class="info-toolbar">
+        <button id="infoBack" class="back-btn info-back">BACK</button>
+        <button id="infoClose" class="menu-close info-close">×</button>
       </div>
-      <div class="state-grid">
-        <div><span>Owner Name</span><b id="infoOwnerName">Unknown</b></div>
-        <div><span>Number Plate</span><b id="infoPlate">Unknown</b></div>
-        <div><span>Insurance Days</span><b id="infoInsuranceDays">0 Days</b></div>
-        <div><span>State Value</span><b id="infoStateValue">$0</b></div>
-        <div><span>State Buy Price</span><b id="infoSellValue">$0</b></div>
-        <div><span>Vehicle ID</span><b id="infoVehicleId">Unknown</b></div>
-        <div><span>Access</span><b id="infoAccess">No key</b></div>
-        <div><span>Lock</span><b id="infoLock">Unknown</b></div>
-        <div><span>Fuel</span><b id="infoFuel">100%</b></div>
-        <div><span>Trunk</span><b id="infoTrunk">0 slots</b></div>
-        <div><span>Body</span><b id="infoBody">100%</b></div>
-        <div><span>Engine</span><b id="infoEngine">100%</b></div>
-        <div><span>Odometer</span><b id="infoMileage">0.0 km</b></div>
-        <div><span>Mileage Wear</span><b id="infoMileagePenalty">No mileage data</b></div>
-        <div><span>Racing Harness</span><b id="infoHarness">Not installed</b></div>
+
+      <header class="info-hero">
+        <div class="info-kicker">CM VEHICLE RECORD</div>
+        <div class="info-title-row">
+          <img id="infoVehicleImage" class="info-vehicle-image hidden" alt="Vehicle">
+          <div class="info-title-copy">
+            <h1 id="infoVehicleName">Vehicle</h1>
+            <p id="infoContext">Outside vehicle · looking at vehicle</p>
+          </div>
+          <div class="plate-chip" id="infoPlate">NO PLATE</div>
+        </div>
+        <div class="status-row">
+          <span id="infoAccessChip" class="status-chip">NO KEY</span>
+          <span id="infoLockChip" class="status-chip">UNKNOWN</span>
+          <span id="infoHarnessChip" class="status-chip">STANDARD BELT</span>
+        </div>
+      </header>
+
+      <div class="info-scroll">
+        <section class="info-section">
+          <div class="section-title">Ownership & value</div>
+          <div class="overview-grid">
+            <div class="overview-card wide"><span>Registered Owner</span><b id="infoOwnerName">Unknown</b></div>
+            <div id="infoFamilyCard" class="overview-card wide hidden"><span>Family Garage Access</span><b id="infoFamilyName">Not shared</b></div>
+            <div class="overview-card"><span>Insurance</span><b id="infoInsuranceDays">0 Days</b></div>
+            <div class="overview-card"><span>Vehicle ID</span><b id="infoVehicleId">Unknown</b></div>
+            <div class="overview-card"><span>Government Value</span><b id="infoStateValue">$0</b></div>
+            <div class="overview-card accent"><span>State Purchase Offer</span><b id="infoSellValue">$0</b></div>
+          </div>
+        </section>
+
+        <section class="info-section">
+          <div class="section-title">Live condition</div>
+          <div class="condition-list">
+            <div class="condition-row"><div><span>Fuel</span><b id="infoFuel">100%</b></div><div class="condition-track"><i id="infoFuelBar"></i></div></div>
+            <div class="condition-row"><div><span>Engine</span><b id="infoEngine">100%</b></div><div class="condition-track"><i id="infoEngineBar"></i></div></div>
+            <div class="condition-row"><div><span>Body</span><b id="infoBody">100%</b></div><div class="condition-track"><i id="infoBodyBar"></i></div></div>
+            <div class="condition-row"><div><span>Fuel Tank</span><b id="infoTank">100%</b></div><div class="condition-track"><i id="infoTankBar"></i></div></div>
+            <div class="condition-row"><div><span>Cleanliness</span><b id="infoDirt">Clean</b></div><div class="condition-track"><i id="infoDirtBar"></i></div></div>
+          </div>
+        </section>
+
+        <section class="info-section">
+          <div class="section-title">Vehicle specifications</div>
+          <div class="spec-grid">
+            <div><span>Trunk Capacity</span><b id="infoTrunk">0 slots</b></div>
+            <div><span>Odometer</span><b id="infoMileage">0.0 km</b></div>
+            <div><span>Estimated Top Speed</span><b id="infoTopSpeed">-</b></div>
+            <div><span>Mileage Condition</span><b id="infoMileagePenalty">No mileage data</b></div>
+          </div>
+          <div class="legacy-values" aria-hidden="true">
+            <span id="infoAccess"></span><span id="infoLock"></span><span id="infoHarness"></span>
+          </div>
+        </section>
+
+        <section class="info-section">
+          <div class="section-title">Installed parts</div>
+          <div class="parts-grid" id="infoParts">
+            <div class="parts-empty">No upgrades fitted.</div>
+          </div>
+        </section>
       </div>
-      <button id="sellStateBtn" data-action="sellState" class="sell-state-btn">SELL CAR TO STATE FOR 30%</button>
-      <p class="sell-note">This removes the vehicle and pays 30% of the state value.</p>
-    </div>
+
+      <footer class="info-footer">
+        <button id="sellStateBtn" data-action="sellState" class="sell-state-btn">SELL CAR TO STATE FOR 30%</button>
+        <p class="sell-note">Permanent action · trunk contents and ownership record will be removed.</p>
+      </footer>
+    </aside>
   </section>
 
   <!-- Vehicle trunk item inventory removed. Storage UI now lives only in cm-inventory. -->

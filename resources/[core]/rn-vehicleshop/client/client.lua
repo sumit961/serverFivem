@@ -20,6 +20,7 @@ local interactionSuppressUntil = 0
 local openRequestPending = false
 local lastShopPayload = nil
 local testDriveChargeToken = nil
+local testDriveReturnMode = 'store'
 local isRotatingMouseDown = false
 local appearanceCleanupToken = 0
 
@@ -255,6 +256,47 @@ local function loadModel(model)
     return HasModelLoaded(hash) and hash or nil
 end
 
+local function loadVehicleModel(model)
+    local hash = type(model) == 'number' and model or joaat(tostring(model or ''))
+    if hash == 0 or not IsModelInCdimage(hash) or not IsModelAVehicle(hash) then return nil end
+    RequestModel(hash)
+    local timeout = GetGameTimer() + 8000
+    while not HasModelLoaded(hash) and GetGameTimer() < timeout do Wait(0) end
+    if not HasModelLoaded(hash) or not IsModelAVehicle(hash) then return nil end
+    return hash
+end
+
+local function clampInt(value, minValue, maxValue, fallback)
+    value = math.floor(tonumber(value) or fallback)
+    if value < minValue then value = minValue end
+    if value > maxValue then value = maxValue end
+    return value
+end
+
+local function vehicleDefaults(model)
+    model = tostring(model or ''):lower():gsub('%s+', '')
+    local defaults = Config.VehicleDefaults or {}
+    return defaults[model] or defaults[tostring(joaat(model))] or {}
+end
+
+local function applyConfiguredVehicleDefaults(vehicle, model)
+    if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then return end
+    local cfg = vehicleDefaults(model)
+    if cfg.livery ~= nil and cfg.livery ~= 'auto' then
+        local livery = math.floor(tonumber(cfg.livery) or -1)
+        pcall(function() SetVehicleLivery(vehicle, livery) end)
+        pcall(function() SetVehicleMod(vehicle, 48, livery, false) end)
+    end
+    if type(cfg.extras) == 'table' then
+        for extraId, enabled in pairs(cfg.extras) do
+            extraId = tonumber(extraId)
+            if extraId and DoesExtraExist(vehicle, extraId) then
+                pcall(function() SetVehicleExtra(vehicle, extraId, enabled == true and 0 or 1) end)
+            end
+        end
+    end
+end
+
 -- Teleport the player to coords, waiting for collision so they never spawn in the
 -- sky or fall through the map, then settle onto the real ground height.
 local function safeTeleport(x, y, z, heading)
@@ -312,21 +354,30 @@ local function getPreviewStudio(mode)
     return Config.Showroom or {}
 end
 
-local function applyStudioEnvironment(mode)
+local function applyStudioEnvironment(mode, hardReset)
     local studio = getPreviewStudio(mode)
     local env = studio.Environment
     if not env then return end
     NetworkOverrideClockTime(tonumber(env.hour) or 12, tonumber(env.minute) or 0, tonumber(env.second) or 0)
     if env.weather and env.weather ~= '' then
-        ClearOverrideWeather()
-        ClearWeatherTypePersist()
-        SetWeatherTypeNowPersist(env.weather)
-        SetWeatherTypeNow(env.weather)
-        SetWeatherTypePersist(env.weather)
+        if hardReset ~= false then
+            ClearOverrideWeather()
+            ClearWeatherTypePersist()
+            SetWeatherTypeNowPersist(env.weather)
+            SetWeatherTypeNow(env.weather)
+        else
+            -- Soft persistence does not clear/reapply the weather every few frames,
+            -- preventing the visible flash/blink caused by the old 350 ms loop.
+            SetWeatherTypePersist(env.weather)
+        end
     end
-    if env.timecycle and env.timecycle ~= '' then
-        SetTimecycleModifier(env.timecycle)
-        SetTimecycleModifierStrength(tonumber(env.timecycleStrength) or 0.0)
+    if hardReset ~= false then
+        if env.timecycle and env.timecycle ~= '' then
+            SetTimecycleModifier(env.timecycle)
+            SetTimecycleModifierStrength(tonumber(env.timecycleStrength) or 0.0)
+        else
+            ClearTimecycleModifier()
+        end
     end
 end
 
@@ -334,9 +385,23 @@ local function restoreWorldEnvironment()
     ClearTimecycleModifier()
     ClearOverrideWeather()
     ClearWeatherTypePersist()
-    -- Restore the world clock after showroom/capture overrides.
     pcall(function() NetworkClearClockTimeOverride() end)
 end
+
+-- Reassert only the persistent clock/weather state at a low frequency. This is
+-- enough to resist periodic climate sync without repeatedly clearing the screen.
+CreateThread(function()
+    while true do
+        local captureActive = IsVehicleShopCaptureActive and IsVehicleShopCaptureActive()
+        if inShop and previewMode == 'admin' and not captureActive then
+            applyStudioEnvironment('admin', false)
+            local env = (getPreviewStudio('admin') or {}).Environment or {}
+            Wait(math.max(2500, tonumber(env.reassertMs) or 5000))
+        else
+            Wait(1000)
+        end
+    end
+end)
 
 function GetVehicleShopCaptureStudio()
     return getPreviewStudio('admin')
@@ -484,7 +549,7 @@ local function whenStarted()
 end
 
 
-local function resetVehicleToDefaultStock(vehicle, keepColor)
+local function resetVehicleToDefaultStock(vehicle, keepColor, model)
     if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then return end
 
     -- Keep dealership previews and test-drive cars stock/default.
@@ -529,13 +594,8 @@ local function resetVehicleToDefaultStock(vehicle, keepColor)
     pcall(function() SetVehicleMod(vehicle, 48, -1, false) end)
     pcall(function() RemoveVehicleMod(vehicle, 48) end)
 
-    -- Extras can contain decals / body-kit pieces on add-on vehicles. Disable
-    -- them for showroom stock previews.
-    for extraId = 0, 14 do
-        if DoesExtraExist(vehicle, extraId) then
-            pcall(function() SetVehicleExtra(vehicle, extraId, 1) end) -- 1 = disabled
-        end
-    end
+    -- Do not globally disable extras. Add-on vehicles often use extras for essential
+    -- body panels. Only Config.VehicleDefaults[model].extras is applied below.
 
     pcall(function() SetVehicleWindowTint(vehicle, 0) end)
     pcall(function() SetVehicleWheelType(vehicle, 0) end)
@@ -552,9 +612,10 @@ local function resetVehicleToDefaultStock(vehicle, keepColor)
         pcall(function() SetVehicleCustomPrimaryColour(vehicle, 255, 255, 255) end)
         pcall(function() SetVehicleCustomSecondaryColour(vehicle, 255, 255, 255) end)
     end
+    applyConfiguredVehicleDefaults(vehicle, model)
 end
 
-local function forceStockAppearancePasses(vehicle, keepColor, makeVisibleAfter)
+local function forceStockAppearancePasses(vehicle, keepColor, makeVisibleAfter, model)
     if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then return end
 
     -- Cancel older delayed passes for the current showroom preview. This prevents a
@@ -565,7 +626,7 @@ local function forceStockAppearancePasses(vehicle, keepColor, makeVisibleAfter)
     -- First pass now, then absolute-timed delayed passes. High-poly add-on
     -- streams can apply modkits / texture dictionaries after 1 second, so this
     -- catches late-loading liveries without blocking the client thread.
-    resetVehicleToDefaultStock(vehicle, keepColor)
+    resetVehicleToDefaultStock(vehicle, keepColor, model)
 
     CreateThread(function()
         local delays = { 0, 75, 175, 350, 700, 1000, 1500, 2000 }
@@ -579,7 +640,7 @@ local function forceStockAppearancePasses(vehicle, keepColor, makeVisibleAfter)
             if token ~= appearanceCleanupToken then return end
             if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then return end
 
-            resetVehicleToDefaultStock(vehicle, keepColor)
+            resetVehicleToDefaultStock(vehicle, keepColor, model)
 
             -- Keep the car hidden through the early modkit/livery reset frames so
             -- players do not see the "random colour/livery then white" flicker.
@@ -598,12 +659,12 @@ local function forceStockAppearancePasses(vehicle, keepColor, makeVisibleAfter)
     end)
 end
 
-function ResetVehicleShopVehicleToDefaultStock(vehicle, keepColor)
-    resetVehicleToDefaultStock(vehicle, keepColor == true)
+function ResetVehicleShopVehicleToDefaultStock(vehicle, keepColor, model)
+    resetVehicleToDefaultStock(vehicle, keepColor == true, model)
 end
 
-function ForceVehicleShopStockAppearancePasses(vehicle, keepColor, makeVisibleAfter)
-    forceStockAppearancePasses(vehicle, keepColor == true, makeVisibleAfter == true)
+function ForceVehicleShopStockAppearancePasses(vehicle, keepColor, makeVisibleAfter, model)
+    forceStockAppearancePasses(vehicle, keepColor == true, makeVisibleAfter == true, model)
 end
 
 local function settleVehicleOnGround(vehicle, x, y, z, heading, freezeAfter, collisionAfter)
@@ -667,8 +728,8 @@ local function spawnPreviewVehicle(model)
     model = tostring(model or '')
     if model == '' then return nil end
     deletePreviewVehicle()
-    local hash = loadModel(model)
-    if not hash then return nil end
+    local hash = loadVehicleModel(model)
+    if not hash then notify(('Invalid or unavailable vehicle model: %s'):format(model), 'error') return nil end
     local studio = getPreviewStudio(previewMode)
     local c = studio.vehicle or vector4(Config.Location.x + 5.0, Config.Location.y + 5.0, Config.Location.z, 0.0)
     newVehicle = CreateVehicle(hash, c.x, c.y, c.z + 0.75, c.w or 0.0, false, false)
@@ -680,7 +741,7 @@ local function spawnPreviewVehicle(model)
     SetEntityVisible(newVehicle, false, false)
 
     settleVehicleOnGround(newVehicle, c.x, c.y, c.z, c.w or 0.0, true, false)
-    forceStockAppearancePasses(newVehicle, false, true)
+    forceStockAppearancePasses(newVehicle, false, true, model)
     SetModelAsNoLongerNeeded(hash)
     spawnVehicle = true
     if SetCapturedPreviewVehicle then SetCapturedPreviewVehicle(newVehicle) end
@@ -760,7 +821,7 @@ local function changeCam(mode)
     SetLocalPlayerInvisibleLocally(true)
     SetEntityCollision(ped, false, false)
 
-    applyStudioEnvironment(mode)
+    applyStudioEnvironment(mode, true)
 
     if not DoesCamExist(cam) then cam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true) end
     SetCamActive(cam, true)
@@ -802,7 +863,7 @@ local function closeShopBase()
     TriggerEvent('change:time', false)
     restoreWorldEnvironment()
     RenderScriptCams(false, false, 1, true, true)
-    DestroyAllCams(true)
+    if cam and DoesCamExist(cam) then DestroyCam(cam, true) end
     cam = nil
     interactionSuppressUntil = GetGameTimer() + 900
     inShop = false
@@ -896,22 +957,23 @@ local function returnFromTestDrive(reason)
     SetLocalPlayerInvisibleLocally(true)
     SetEntityCollision(ped, false, false)
     FreezeEntityPosition(ped, true)
-    changeCam('store')
-    if lastPreviewDetails and lastPreviewDetails.model then
-        spawnPreviewVehicle(lastPreviewDetails.model)
-        SendNUIMessage({ action = 'testDriveReturned', details = lastPreviewDetails, reason = reason or 'finished' })
+    local returnMode = testDriveReturnMode
+    TriggerServerEvent('rn-vehicleshop:server:testDriveEnded', reason or 'finished', returnMode)
+    if returnMode == 'admin' then
+        changeCam('admin')
+        if lastPreviewDetails and lastPreviewDetails.model then spawnPreviewVehicle(lastPreviewDetails.model) end
+        SendNUIMessage({ action = 'adminReturned', details = lastPreviewDetails or {}, reason = reason or 'finished' })
     else
-        local payload = lastShopPayload or {}
-        SendNUIMessage({
-            action = 'open',
-            vehicles = payload.vehicles or {},
-            buttons = {},
-            daily = payload.daily or {},
-            colors = Config.Colors,
-            buyer = payload.buyer or 'Customer',
-            testDrive = Config.TestDrive
-        })
+        changeCam('store')
+        if lastPreviewDetails and lastPreviewDetails.model then
+            spawnPreviewVehicle(lastPreviewDetails.model)
+            SendNUIMessage({ action = 'testDriveReturned', details = lastPreviewDetails, reason = reason or 'finished' })
+        else
+            local payload = lastShopPayload or {}
+            SendNUIMessage({ action = 'open', vehicles = payload.vehicles or {}, buttons = {}, daily = payload.daily or {}, balance = payload.daily and payload.daily.balance or nil, colors = Config.Colors, buyer = payload.buyer or 'Customer', testDrive = Config.TestDrive })
+        end
     end
+    testDriveReturnMode = 'store'
     SetNuiFocus(true, true)
     DoScreenFadeIn(500)
 end
@@ -1043,8 +1105,17 @@ RegisterNUICallback('testDrive', function(data, cb)
     cb('ok')
 end)
 
-RegisterNetEvent('rn-vehicleshop:client:startTestDrive', function(vehDetails, timer, chargeToken)
+RegisterNetEvent('rn-vehicleshop:client:balanceUpdate', function(balance, reason)
+    SendNUIMessage({ action = 'balanceUpdate', balance = balance or { cash = 0, bank = 0 }, reason = reason or 'update' })
+end)
+
+RegisterNetEvent('rn-vehicleshop:client:testDriveResult', function(success, code, message, extra)
+    SendNUIMessage({ action = 'testDriveResult', success = success == true, code = code, message = message, extra = extra or {} })
+end)
+
+RegisterNetEvent('rn-vehicleshop:client:startTestDrive', function(vehDetails, timer, chargeToken, returnMode)
     vehDetails = type(vehDetails) == 'table' and vehDetails or {}
+    testDriveReturnMode = returnMode == 'admin' and 'admin' or 'store'
     testDriveChargeToken = chargeToken
     local model = tostring(vehDetails.model or ''):lower():gsub('%s+', '')
     if model == '' then
@@ -1073,7 +1144,7 @@ RegisterNetEvent('rn-vehicleshop:client:startTestDrive', function(vehDetails, ti
     if cam and DoesCamExist(cam) then DestroyCam(cam, false) end
     cam = nil
 
-    local modelHash = loadModel(model)
+    local modelHash = loadVehicleModel(model)
     if not modelHash then
         notify('Could not load test vehicle.', 'error')
         testDriveActive = true
@@ -1121,7 +1192,7 @@ RegisterNetEvent('rn-vehicleshop:client:startTestDrive', function(vehDetails, ti
     SetEntityCollision(testDriveVehicle, true, true)
     SetEntityHeading(testDriveVehicle, heading)
     settleVehicleOnGround(testDriveVehicle, coords.x, coords.y, coords.z, heading, false, true)
-    resetVehicleToDefaultStock(testDriveVehicle)
+    resetVehicleToDefaultStock(testDriveVehicle, false, model)
 
     local testPlate = ('TEST%04d'):format(GetPlayerServerId(PlayerId()) % 10000)
     SetVehicleNumberPlateText(testDriveVehicle, testPlate)
@@ -1157,12 +1228,14 @@ RegisterNetEvent('rn-vehicleshop:client:startTestDrive', function(vehDetails, ti
         pcall(function() TriggerEvent(eventName, testDriveVehicle) end)
     end
 
-    SetVehicleColours(testDriveVehicle, tonumber(vehDetails.gtaColor) or 111, tonumber(vehDetails.gtaColor) or 111)
-    if vehDetails.r and vehDetails.g and vehDetails.b then
-        SetVehicleCustomPrimaryColour(testDriveVehicle, tonumber(vehDetails.r) or 255, tonumber(vehDetails.g) or 255, tonumber(vehDetails.b) or 255)
-        SetVehicleCustomSecondaryColour(testDriveVehicle, tonumber(vehDetails.r) or 255, tonumber(vehDetails.g) or 255, tonumber(vehDetails.b) or 255)
-    end
-    forceStockAppearancePasses(testDriveVehicle, true, false)
+    local gtaColor = clampInt(vehDetails.gtaColor, 0, 160, 111)
+    local r = clampInt(vehDetails.r, 0, 255, 255)
+    local g = clampInt(vehDetails.g, 0, 255, 255)
+    local b = clampInt(vehDetails.b, 0, 255, 255)
+    SetVehicleColours(testDriveVehicle, gtaColor, gtaColor)
+    SetVehicleCustomPrimaryColour(testDriveVehicle, r, g, b)
+    SetVehicleCustomSecondaryColour(testDriveVehicle, r, g, b)
+    forceStockAppearancePasses(testDriveVehicle, true, false, model)
 
     local warpUntil = GetGameTimer() + 3500
     repeat
@@ -1177,10 +1250,8 @@ RegisterNetEvent('rn-vehicleshop:client:startTestDrive', function(vehDetails, ti
     end
 
     SetModelAsNoLongerNeeded(modelHash)
-    if testDriveChargeToken then
-        TriggerServerEvent('rn-vehicleshop:server:testDriveStarted', testDriveChargeToken)
-        testDriveChargeToken = nil
-    end
+    TriggerServerEvent('rn-vehicleshop:server:testDriveStarted', testDriveChargeToken)
+    testDriveChargeToken = nil
     testDriveActive = true
     local startedAt = GetGameTimer()
     local endAt = startedAt + (duration * 1000)
@@ -1244,7 +1315,7 @@ RegisterNUICallback('changeColor', function(data, cb)
         local r = tonumber(data.colorR) or 255
         local g = tonumber(data.colorG) or 255
         local b = tonumber(data.colorB) or 255
-        forceStockAppearancePasses(newVehicle, true, false)
+        forceStockAppearancePasses(newVehicle, true, false, lastPreviewDetails and lastPreviewDetails.model)
         SetVehicleCustomPrimaryColour(newVehicle, r, g, b)
         SetVehicleCustomSecondaryColour(newVehicle, r, g, b)
         CreateThread(function()
@@ -1279,18 +1350,51 @@ RegisterNetEvent('rn-vehicleshop:client:requestAdmin', function()
     TriggerServerEvent('rn-vehicleshop:server:openAdmin')
 end)
 
-RegisterNetEvent('rn-vehicleshop:client:openAdmin', function(sourceList, catalog)
+local vehicleClassLabels = {
+    [0] = 'Compacts', [1] = 'Sedans', [2] = 'SUV', [3] = 'Coupes', [4] = 'Muscle',
+    [5] = 'Sports Classics', [6] = 'Sports', [7] = 'Super', [8] = 'Motorcycles',
+    [9] = 'Off Road', [10] = 'Industrial', [11] = 'Utility', [12] = 'Vans',
+    [13] = 'Bicycles', [14] = 'Boats', [15] = 'Helicopters', [16] = 'Planes',
+    [17] = 'Service', [18] = 'Emergency', [19] = 'Military', [20] = 'Commercial', [21] = 'Rail'
+}
+
+local function enrichAdminSourceVehicles(sourceList)
+    local out = {}
+    for _, row in ipairs(type(sourceList) == 'table' and sourceList or {}) do
+        if type(row) == 'table' then
+            local model = tostring(row.model or ''):lower():gsub('%s+', '')
+            local hash = model ~= '' and joaat(model) or 0
+            row.clientValid = hash ~= 0 and IsModelInCdimage(hash) and IsModelAVehicle(hash)
+            if row.clientValid and row.autoDiscovered == true then
+                local displayCode = GetDisplayNameFromVehicleModel(hash)
+                local translated = displayCode and GetLabelText(displayCode) or nil
+                if translated and translated ~= '' and translated ~= 'NULL' and translated ~= 'CARNOTFOUND' then
+                    row.label = translated
+                elseif row.gameName and row.gameName ~= '' then
+                    local gameTranslated = GetLabelText(tostring(row.gameName))
+                    if gameTranslated and gameTranslated ~= '' and gameTranslated ~= 'NULL' then row.label = gameTranslated end
+                end
+                local classId = GetVehicleClassFromName(hash)
+                if vehicleClassLabels[classId] then row.category = vehicleClassLabels[classId] end
+            end
+            out[#out + 1] = row
+        end
+    end
+    return out
+end
+
+RegisterNetEvent('rn-vehicleshop:client:openAdmin', function(sourceList, catalog, discoveryInfo)
     -- Put the admin into the showroom camera view so the Capture Image button
     -- always has a cleanly framed car against the backdrop, even when /vehicleadmin
     -- is run from elsewhere on the map.
     if not inShop or previewMode ~= 'admin' then changeCam('admin') end
     SetNuiFocus(true, true)
     beginHudStoreLock('vehicle_admin')
-    SendNUIMessage({ action = 'adminOpen', sourceVehicles = sourceList or {}, catalog = catalog or {} })
+    SendNUIMessage({ action = 'adminOpen', sourceVehicles = enrichAdminSourceVehicles(sourceList), catalog = catalog or {}, discovery = discoveryInfo or {} })
 end)
 
-RegisterNetEvent('rn-vehicleshop:client:adminData', function(sourceList, catalog)
-    SendNUIMessage({ action = 'adminData', sourceVehicles = sourceList or {}, catalog = catalog or {} })
+RegisterNetEvent('rn-vehicleshop:client:adminData', function(sourceList, catalog, discoveryInfo)
+    SendNUIMessage({ action = 'adminData', sourceVehicles = enrichAdminSourceVehicles(sourceList), catalog = catalog or {}, discovery = discoveryInfo or {} })
 end)
 
 -- Server told us this car must be photographed before it can be enabled.
@@ -1309,23 +1413,39 @@ RegisterNUICallback('adminPreviewVehicle', function(data, cb)
     local model = tostring(data.model or '')
     if model ~= '' then
         previewMode = 'admin'
-        local hash = spawnPreviewVehicle(model)
-        if hash then
-            local vehicleInfo = {
-                speed = string.format('%.0f', GetVehicleMaxSpeed(newVehicle) * 3.6),
-                acceleration = string.format('%.1f', GetVehicleModelAcceleration(hash) * 10),
-                braking = string.format('%.1f', GetVehicleModelMaxBraking(hash) * 10),
-                traction = string.format('%.1f', GetVehicleModelMaxTraction(hash) * 10)
-            }
-            SendNUIMessage({ action = 'updateInfo', vehicleInfo = vehicleInfo })
+        local requestedHash = joaat(model)
+        local hash
+        if newVehicle and DoesEntityExist(newVehicle) and GetEntityModel(newVehicle) == requestedHash then
+            hash = requestedHash
+        else
+            hash = spawnPreviewVehicle(model)
         end
+        if hash then sendPreviewStats(hash) end
     end
+    cb('ok')
+end)
+
+RegisterNUICallback('adminTestVehicle', function(data, cb)
+    data = type(data) == 'table' and data or {}
+    local model = tostring(data.model or ''):lower():gsub('%s+', '')
+    local hash = joaat(model)
+    if model == '' or hash == 0 or not IsModelInCdimage(hash) or not IsModelAVehicle(hash) then
+        notify('Invalid or unavailable vehicle model.', 'error')
+        cb('invalid_model')
+        return
+    end
+    TriggerServerEvent('rn-vehicleshop:server:adminTestDriveRequest', data)
     cb('ok')
 end)
 
 RegisterNUICallback('adminDisableVehicle', function(data, cb)
     data = type(data) == 'table' and data or {}
     TriggerServerEvent('rn-vehicleshop:server:disableAdminVehicle', data.model)
+    cb('ok')
+end)
+
+RegisterNUICallback('adminRescanVehicles', function(_, cb)
+    TriggerServerEvent('rn-vehicleshop:server:rescanVehicles')
     cb('ok')
 end)
 
@@ -1523,7 +1643,8 @@ AddEventHandler('onResourceStop', function(res)
         returnCoords = nil
         SetNuiFocus(false, false)
         RenderScriptCams(false, false, 1, true, true)
-        DestroyAllCams(true)
+        if cam and DoesCamExist(cam) then DestroyCam(cam, true) end
+        cam = nil
         setShopState(false)
         endHudStoreLock()
         forceRestoreHud('resource_stop')

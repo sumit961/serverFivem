@@ -12,6 +12,69 @@ CMVehicles.Client.Seatbelt = false
 CMVehicles.Client.Cruise = false
 CMVehicles.Client.LastSavedMileageDelta = 0.0
 
+
+-- Only networked vehicles belong to cm-vehicles. Local-only vehicles are often
+-- showroom/garage previews created by another resource. Calling network natives
+-- on those entities prints "no net object" warnings and can open unusable menus.
+--- Ask the entity for its network id. Nothing else.
+---
+--- NetworkGetEntityIsNetworked LIES about server-created entities. A car the
+--- SERVER spawned -- a cm-house garage display car, a parking retrieve -- can
+--- report `false` on the client while holding a perfectly valid network id.
+---
+--- Gating the netId lookup behind that native meant the id was never even
+--- REQUESTED for those cars: the loop spun for its whole timeout and gave up,
+--- and the player was told "this is a local display vehicle and cannot be
+--- driven" about a real, owned, networked car sitting right in front of them.
+---
+--- Asking for the id IS the test. A genuinely local entity -- a showroom prop,
+--- a placement marker -- has none, so those are still correctly rejected.
+--- Set true to have every garage/parking spawn print whether its saved
+--- condition actually landed on the vehicle. A car that reads 100% in the menu
+--- while visibly crumpled means the write went nowhere.
+CMVehicles.Client.DebugCondition = false
+
+local function readNetId(vehicle)
+    local ok, netId = pcall(NetworkGetNetworkIdFromEntity, vehicle)
+    netId = ok and tonumber(netId) or nil
+    if netId and netId > 0 then return netId end
+    return nil
+end
+
+function CMVehicles.Client.IsNetworkVehicle(vehicle)
+    if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) or not IsEntityAVehicle(vehicle) then
+        return false
+    end
+
+    if readNetId(vehicle) then return true end
+
+    -- Nothing came back yet. Fall back to the native for an entity that has not
+    -- been assigned an id at all.
+    local ok, networked = pcall(NetworkGetEntityIsNetworked, vehicle)
+    return ok and networked == true
+end
+
+function CMVehicles.Client.SafeNetId(vehicle, timeoutMs)
+    if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) or not IsEntityAVehicle(vehicle) then
+        return nil
+    end
+
+    -- Usually there immediately.
+    local netId = readNetId(vehicle)
+    if netId then return netId end
+
+    -- A car that has only just streamed in may need a moment. Your retry loop
+    -- was the right instinct -- it was only ever asking the wrong question.
+    local deadline = GetGameTimer() + math.max(0, tonumber(timeoutMs) or 350)
+    while GetGameTimer() < deadline do
+        Wait(0)
+        netId = readNetId(vehicle)
+        if netId then return netId end
+    end
+
+    return nil
+end
+
 local function notify(msg)
     BeginTextCommandThefeedPost('STRING')
     AddTextComponentSubstringPlayerName(msg or '')
@@ -70,7 +133,7 @@ function CMVehicles.Client.GetCachedVehicles(force)
         local vehicles = {}
         for i = 1, #pool do
             local veh = pool[i]
-            if veh and veh ~= 0 and DoesEntityExist(veh) then
+            if CMVehicles.Client.IsNetworkVehicle(veh) then
                 vehicles[#vehicles + 1] = veh
             end
         end
@@ -230,6 +293,273 @@ exports('HasRacingHarness', function(vehicle)
     return CMVehicles.Client.HasRacingHarness(vehicle)
 end)
 
+-- ────────────────────────────────────────────────────────────────────
+--  REFUEL / REPAIR / WASH  (future-proof service hooks)
+--  A petrol pump prop, a gas-can item, a repair kit, a mechanic job, or a
+--  car wash can all call these WITHOUT editing cm-vehicles later. Each helper
+--  resolves the target vehicle, applies the change locally for instant feel,
+--  and tells the server to persist it.
+-- ────────────────────────────────────────────────────────────────────
+
+local function resolveServiceVehicle(vehicle)
+    vehicle = tonumber(vehicle) or vehicle
+    if CMVehicles.Client.IsNetworkVehicle(vehicle) then return vehicle end
+    local ped = PlayerPedId()
+    local inside = GetVehiclePedIsIn(ped, false)
+    if inside and inside ~= 0 then
+        return CMVehicles.Client.IsNetworkVehicle(inside) and inside or nil
+    end
+    return CMVehicles.Client.GetActionVehicle(true)
+end
+
+-- Add fuel. amount = percent to add (nil = gas can default). Returns new fuel %.
+function CMVehicles.Client.AddFuel(vehicle, amount)
+    vehicle = resolveServiceVehicle(vehicle)
+    if not vehicle or vehicle == 0 then return nil, 'No vehicle nearby.' end
+    local svc = Config.Service or {}
+    amount = tonumber(amount) or tonumber(svc.gasCanRefillAmount) or 25.0
+    local maxFuel = tonumber(svc.maxFuel) or 100.0
+    local current = CMVehicles.Client.GetVehicleFuel(vehicle)
+    local newFuel = math.min(maxFuel, current + amount)
+    CMVehicles.Client.SetVehicleFuel(vehicle, newFuel)
+    local plate = CMVehicles.Client.VehiclePlate(vehicle)
+    TriggerServerEvent('cm-vehicles:server:persistService', plate, { fuel = newFuel }, (CMVehicles.Client.SafeNetId(vehicle) or 0))
+    return newFuel
+end
+
+-- Set fuel to an exact percent (used by timed pump fills).
+function CMVehicles.Client.SetFuelExact(vehicle, percent)
+    vehicle = resolveServiceVehicle(vehicle)
+    if not vehicle or vehicle == 0 then return nil, 'No vehicle nearby.' end
+    local maxFuel = tonumber(Config.Service and Config.Service.maxFuel) or 100.0
+    local newFuel = math.max(0.0, math.min(maxFuel, tonumber(percent) or 0.0))
+    CMVehicles.Client.SetVehicleFuel(vehicle, newFuel)
+    TriggerServerEvent('cm-vehicles:server:persistService', CMVehicles.Client.VehiclePlate(vehicle), { fuel = newFuel }, (CMVehicles.Client.SafeNetId(vehicle) or 0))
+    return newFuel
+end
+
+-- Repair. opts = { engine = number|nil, body = number|nil, full = bool }.
+--   full = true  -> mechanic-grade full rebuild (engine + body + tank + deformation)
+--   otherwise    -> REPAIR KIT: bodywork only. Fixes dents, glass, doors, tyres
+--                   and lights. Does NOT rebuild the engine and does NOT clean
+--                   the car (dirt is a car-wash job).
+function CMVehicles.Client.RepairVehicle(vehicle, opts)
+    vehicle = resolveServiceVehicle(vehicle)
+    if not vehicle or vehicle == 0 then return false, 'No vehicle nearby.' end
+    opts = opts or {}
+    local svc = Config.Service or {}
+    local kit = svc.RepairKit or {}
+
+    local engineNew, bodyNew
+
+    if opts.full == true then
+        -- Mechanic: everything, including engine + tank.
+        local dirt = GetVehicleDirtLevel(vehicle) or 0.0
+        SetVehicleFixed(vehicle)
+        SetVehicleDeformationFixed(vehicle)
+        SetVehicleEngineHealth(vehicle, 1000.0)
+        SetVehicleBodyHealth(vehicle, 1000.0)
+        SetVehiclePetrolTankHealth(vehicle, 1000.0)
+        -- SetVehicleFixed also washes the car. A repair is not a wash, so put
+        -- the dirt back unless the caller explicitly asked to clean it.
+        if opts.clean ~= true then SetVehicleDirtLevel(vehicle, dirt + 0.0) end
+        engineNew, bodyNew = 1000.0, 1000.0
+    else
+        -- ── REPAIR KIT: bodywork only ──
+        local engineBefore = GetVehicleEngineHealth(vehicle) or 0.0
+        local tankBefore   = GetVehiclePetrolTankHealth(vehicle) or 0.0
+        local dirtBefore   = GetVehicleDirtLevel(vehicle) or 0.0
+
+        local addBody = tonumber(opts.body) or tonumber(kit.bodyAmount) or 1000.0
+        bodyNew = math.min(1000.0, (GetVehicleBodyHealth(vehicle) or 0.0) + addBody)
+
+        -- SetVehicleFixed is the only native that reliably repairs the VISUAL
+        -- damage (broken glass, hanging doors, torn bumpers). Health numbers
+        -- alone never fix those. So we fix everything, then restore the parts a
+        -- kit is not supposed to repair.
+        if kit.fixDeformation ~= false or kit.fixWindows ~= false or kit.fixDoors ~= false then
+            SetVehicleFixed(vehicle)
+            SetVehicleDeformationFixed(vehicle)
+        end
+
+        SetVehicleBodyHealth(vehicle, bodyNew)
+
+        -- Engine is NOT repaired by a kit -> put it back where it was.
+        if kit.fixEngine == true then
+            local addEngine = tonumber(opts.engine) or tonumber(svc.repairKitEngineAmount) or 350.0
+            engineNew = math.min(1000.0, engineBefore + addEngine)
+        else
+            engineNew = engineBefore
+        end
+        SetVehicleEngineHealth(vehicle, engineNew)
+
+        -- Tank is NOT repaired by a kit.
+        if kit.fixTank ~= true then
+            SetVehiclePetrolTankHealth(vehicle, tankBefore)
+        end
+
+        -- A kit does NOT clean the car. SetVehicleFixed washed it, so re-dirty.
+        if kit.fixDirt ~= true then
+            SetVehicleDirtLevel(vehicle, dirtBefore + 0.0)
+        end
+
+        -- Tyres + lights (SetVehicleFixed already handles these, but be explicit
+        -- so they still work if deformation fixing is turned off in config).
+        if kit.fixTyres ~= false then
+            for i = 0, 7 do
+                if IsVehicleTyreBurst(vehicle, i, false) or IsVehicleTyreBurst(vehicle, i, true) then
+                    SetVehicleTyreFixed(vehicle, i)
+                end
+            end
+        end
+        if kit.fixLights ~= false then
+            SetVehicleLights(vehicle, 0)
+        end
+        if kit.fixWindows ~= false then
+            for i = 0, 7 do FixVehicleWindow(vehicle, i) end
+        end
+        if kit.fixDoors ~= false then
+            for i = 0, 5 do
+                if IsVehicleDoorDamaged(vehicle, i) then SetVehicleDoorBroken(vehicle, i, false) end
+            end
+        end
+    end
+
+    TriggerServerEvent('cm-vehicles:server:persistService', CMVehicles.Client.VehiclePlate(vehicle), {
+        engineHealth = engineNew, bodyHealth = bodyNew
+    }, (CMVehicles.Client.SafeNetId(vehicle) or 0))
+    return true, { engineHealth = engineNew, bodyHealth = bodyNew }
+end
+
+-- Wash. Resets dirt to configured clean value.
+function CMVehicles.Client.WashVehicle(vehicle)
+    vehicle = resolveServiceVehicle(vehicle)
+    if not vehicle or vehicle == 0 then return false, 'No vehicle nearby.' end
+    local cleanTo = tonumber(Config.Service and Config.Service.washResetsDirtTo) or 0.0
+    SetVehicleDirtLevel(vehicle, cleanTo + 0.0)
+    TriggerServerEvent('cm-vehicles:server:persistService', CMVehicles.Client.VehiclePlate(vehicle), { dirtLevel = cleanTo }, (CMVehicles.Client.SafeNetId(vehicle) or 0))
+    return true
+end
+
+-- Read the current cosmetic state off a vehicle into a mods table, and persist it.
+-- A tuning shop can call exports['cm-vehicles']:SaveVehicleMods(veh) after applying
+-- changes, or pass its own mods table.
+function CMVehicles.Client.SaveVehicleMods(vehicle, modsOverride)
+    vehicle = resolveServiceVehicle(vehicle)
+    if not vehicle or vehicle == 0 then return false, 'No vehicle nearby.' end
+    local mods = type(modsOverride) == 'table' and modsOverride or nil
+    if not mods then
+        SetVehicleModKit(vehicle, 0)
+        local p, s = GetVehicleColours(vehicle)
+        local pearl, wheelCol = GetVehicleExtraColours(vehicle)
+        mods = {
+            primaryColor = p, secondaryColor = s, pearlColor = pearl, wheelColor = wheelCol,
+            wheelType = GetVehicleWheelType(vehicle),
+            windowTint = GetVehicleWindowTint(vehicle),
+            plateIndex = GetVehicleNumberPlateTextIndex(vehicle),
+            livery = GetVehicleLivery(vehicle),
+            mods = {}, extras = {}
+        }
+        for t = 0, 49 do
+            local idx = GetVehicleMod(vehicle, t)
+            if idx and idx ~= -1 then mods.mods[tostring(t)] = idx end
+        end
+        for e = 0, 20 do
+            if DoesExtraExist(vehicle, e) then mods.extras[tostring(e)] = IsVehicleExtraTurnedOn(vehicle, e) == 1 end
+        end
+        mods.turbo = IsToggleModOn(vehicle, 18) == true
+        mods.xenon = IsToggleModOn(vehicle, 22) == true
+        -- Synthetic tyre level (no GTA mod slot exists for it).
+        mods.tyreLevel = CMVehicles.Client.GetTyreLevel(vehicle)
+        mods.bulletproofTyres = GetVehicleTyresCanBurst(vehicle) == false
+    end
+    CMVehicles.Client.Notify('Vehicle modifications must be committed by the tuning server after payment.')
+    return false, 'Server-authorized tuning is required.'
+end
+exports('SaveVehicleMods', function(vehicle, mods) return CMVehicles.Client.SaveVehicleMods(vehicle, mods) end)
+
+exports('AddFuel', function(vehicle, amount) return CMVehicles.Client.AddFuel(vehicle, amount) end)
+exports('SetFuelExact', function(vehicle, percent) return CMVehicles.Client.SetFuelExact(vehicle, percent) end)
+exports('RepairVehicle', function(vehicle, opts) return CMVehicles.Client.RepairVehicle(vehicle, opts) end)
+exports('WashVehicle', function(vehicle) return CMVehicles.Client.WashVehicle(vehicle) end)
+exports('GetVehicleFuel', function(vehicle)
+    vehicle = tonumber(vehicle) or vehicle
+    if not vehicle or vehicle == 0 then vehicle = GetVehiclePedIsIn(PlayerPedId(), false) end
+    return CMVehicles.Client.GetVehicleFuel(vehicle)
+end)
+
+-- ────────────────────────────────────────────────────────────────────
+--  cm-hud LIVE FEED
+--  Publishes one state bag other resources (cm-hud especially) can read:
+--    LocalPlayer.state.cmVehicleHud = {
+--      inVehicle, isDriver, fuel, lowFuel, engineHealth, engineOn,
+--      seatbelt, seatbeltWarn, cruise, harness, speedKmh
+--    }
+--  cm-hud never needs a hard dependency; it just reads the bag if present.
+-- ────────────────────────────────────────────────────────────────────
+CreateThread(function()
+    local hudCfg = Config.Hud or {}
+    if hudCfg.enabled == false then return end
+    local interval = tonumber(hudCfg.updateIntervalMs) or 250
+    local lowFuelPct = tonumber(Config.Fuel and Config.Fuel.lowFuelWarnPercent) or 15.0
+    local lastPayloadOff = false
+
+    while true do
+        Wait(interval)
+        local ped = PlayerPedId()
+        local veh = GetVehiclePedIsIn(ped, false)
+        if veh ~= 0 then
+            local isDriver = GetPedInVehicleSeat(veh, -1) == ped
+            local fuel = CMVehicles.Client.GetVehicleFuel(veh)
+            local engineOn = false
+            pcall(function() engineOn = GetIsVehicleEngineRunning(veh) == true end)
+            local payload = {
+                inVehicle = true,
+                isDriver = isDriver,
+                fuel = math.floor((fuel * 10) + 0.5) / 10,
+                lowFuel = fuel <= lowFuelPct,
+                engineHealth = math.floor(GetVehicleEngineHealth(veh) or 0.0),
+                engineOn = engineOn,
+                seatbelt = CMVehicles.Client.Seatbelt == true,
+                seatbeltWarn = CMVehicles.Client.SeatbeltWarn == true,
+                cruise = CMVehicles.Client.Cruise == true,
+                harness = CMVehicles.Client.HasRacingHarness(veh) == true,
+                speedKmh = math.floor((GetEntitySpeed(veh) or 0.0) * 3.6 + 0.5)
+            }
+            pcall(function() LocalPlayer.state:set('cmVehicleHud', payload, false) end)
+            lastPayloadOff = false
+        elseif not lastPayloadOff then
+            pcall(function() LocalPlayer.state:set('cmVehicleHud', { inVehicle = false }, false) end)
+            lastPayloadOff = true
+        end
+    end
+end)
+
+-- ────────────────────────────────────────────────────────────────────
+--  DIRT ACCUMULATION
+--  Slowly dirties a driven vehicle so the wash export has a purpose.
+--  Uses the existing dirt_level column via the save loop (GetVehicleDirtLevel).
+-- ────────────────────────────────────────────────────────────────────
+CreateThread(function()
+    local dirtCfg = Config.Dirt or {}
+    if dirtCfg.enabled == false then return end
+    local interval = tonumber(dirtCfg.accumulateIntervalMs) or 30000
+    local maxDirt = tonumber(dirtCfg.maxDirt) or 15.0
+    while true do
+        Wait(interval)
+        local ped = PlayerPedId()
+        local veh = GetVehiclePedIsIn(ped, false)
+        if veh ~= 0 and GetPedInVehicleSeat(veh, -1) == ped then
+            local moving = (GetEntitySpeed(veh) or 0.0) * 3.6 > 3.0
+            local add = moving and (tonumber(dirtCfg.perTickWhileDriving) or 0.35) or (tonumber(dirtCfg.perTickIdle) or 0.05)
+            local current = 0.0
+            pcall(function() current = GetVehicleDirtLevel(veh) or 0.0 end)
+            local newDirt = math.min(maxDirt, current + add)
+            pcall(function() SetVehicleDirtLevel(veh, newDirt + 0.0) end)
+        end
+    end
+end)
+
 function CMVehicles.Client.GetMileagePenaltyText(mileage)
     mileage = tonumber(mileage) or 0.0
     if mileage < 5000.0 then return 'No mileage penalty yet. Next: 5,000 km.' end
@@ -240,6 +570,7 @@ function CMVehicles.Client.GetMileagePenaltyText(mileage)
 end
 
 function CMVehicles.Client.HasControl(entity, timeoutMs)
+    if not CMVehicles.Client.IsNetworkVehicle(entity) then return false end
     timeoutMs = timeoutMs or 1500
     NetworkRequestControlOfEntity(entity)
     local timeout = GetGameTimer() + timeoutMs
@@ -286,7 +617,7 @@ function CMVehicles.Client.GetLookedAtVehicle(maxDistance)
     -- but still only succeeds when the player is actually looking at the vehicle.
     local ray = StartShapeTestCapsule(camCoords.x, camCoords.y, camCoords.z, dest.x, dest.y, dest.z, capsuleRadius, 10, ped, 7)
     local _, hit, _, _, ent = GetShapeTestResult(ray)
-    if hit == 1 and ent and ent ~= 0 and IsEntityAVehicle(ent) then
+    if hit == 1 and ent and ent ~= 0 and CMVehicles.Client.IsNetworkVehicle(ent) then
         local dist = CMVehicles.Client.GetVehicleInteractionDistance(ent, pedCoords)
         if dist <= actionDistance then
             return ent, dist
@@ -367,7 +698,7 @@ function CMVehicles.Client.GetVehicleContext(vehicle, outside)
         inVehicle = inVehicle == true,
         isDriver = inVehicle == true and GetPedInVehicleSeat(vehicle, -1) == ped,
         plate = CMVehicles.Client.VehiclePlate(vehicle),
-        netId = NetworkGetNetworkIdFromEntity(vehicle),
+        netId = CMVehicles.Client.SafeNetId(vehicle) or 0,
         vehicleId = CMVehicles.Client.VehicleId(vehicle)
     }
 end

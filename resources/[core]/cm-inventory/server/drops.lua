@@ -495,6 +495,10 @@ createWorldDrop = function(src, row, amount)
 end
 
 local function PickupDropInternal(src, dropId)
+    if isPlayerDeadState(src) or isPlayerInVehicleState(src) then
+        return false, nil, true
+    end
+
     dropId = tonumber(dropId)
     if not dropId then return false, 'Invalid drop.' end
 
@@ -527,8 +531,66 @@ end
 
 RegisterNetEvent('cm-inventory:server:openInventory', function()
     local src = source
+    if isPlayerDeadState(src) then return end
     CloseExternalInventoryInternal(src)
     sendInventorySmart(src, true)
+end)
+
+RegisterNetEvent('cm-inventory:server:resolveVehicleTrunkOpen', function(rawPlate, rawNetId)
+    local src = source
+    if isPlayerDeadState(src) then return end
+
+    local function openNormalSilently()
+        CloseExternalInventoryInternal(src)
+        sendInventory(src, true)
+    end
+
+    if GetResourceState('cm-vehicles') ~= 'started' or isPlayerInVehicleState(src) then
+        openNormalSilently()
+        return
+    end
+
+    local plate = tostring(rawPlate or ''):gsub('^%s+', ''):gsub('%s+$', ''):upper()
+    local netId = tonumber(rawNetId)
+    if plate == '' or not netId then
+        openNormalSilently()
+        return
+    end
+
+    local vehicle = NetworkGetEntityFromNetworkId(netId)
+    local ped = GetPlayerPed(src)
+    if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) or not ped or ped == 0 then
+        openNormalSilently()
+        return
+    end
+
+    local playerCoords = GetEntityCoords(ped)
+    local vehicleCoords = GetEntityCoords(vehicle)
+    if #(playerCoords - vehicleCoords) > 7.0 then
+        openNormalSilently()
+        return
+    end
+
+    local actualPlate = tostring(GetVehicleNumberPlateText(vehicle) or ''):gsub('^%s+', ''):gsub('%s+$', ''):upper()
+    local statePlate = nil
+    local okState, stateValue = pcall(function() return Entity(vehicle).state.cmPlate end)
+    if okState then statePlate = tostring(stateValue or ''):gsub('^%s+', ''):gsub('%s+$', ''):upper() end
+    if plate ~= actualPlate and (statePlate == '' or plate ~= statePlate) then
+        openNormalSilently()
+        return
+    end
+
+    local owns = false
+    local okOwn = pcall(function()
+        owns = exports['cm-vehicles']:PlayerOwnsVehicle(src, plate) == true
+    end)
+
+    if not okOwn or not owns then
+        openNormalSilently()
+        return
+    end
+
+    TriggerClientEvent('cm-inventory:client:openConfirmedVehicleTrunk', src)
 end)
 
 RegisterNetEvent('cm-inventory:server:closeInventory', function()
@@ -549,13 +611,13 @@ end)
 
 RegisterNetEvent('cm-inventory:server:pickupDrop', function(dropId)
     local src = source
-    local ok, reason = PickupDropInternal(src, dropId)
+    local ok, reason, silent = PickupDropInternal(src, dropId)
     if ok then
         TriggerClientEvent('cm-inventory:client:playInventoryAnim', src, 'pickup')
         notify(src, 'Picked up item.', 'success')
         sendInventorySmart(src)
     else
-        notify(src, reason or 'Could not pick up drop.', 'error')
+        if not silent then notify(src, reason or 'Could not pick up drop.', 'error') end
         sendDrops(src)
     end
 end)
@@ -602,6 +664,7 @@ end)
 
 RegisterNetEvent('cm-inventory:server:moveItem', function(data)
     local src = source
+    if isPlayerDeadState(src) then return end
     data = type(data) == 'table' and data or {}
 
     local function truthy(v)
@@ -653,6 +716,17 @@ RegisterNetEvent('cm-inventory:server:moveItem', function(data)
     if ok then
         dprint(('moveItem success for player %s: %s -> %s'):format(src, fromSlot, toSlot))
         -- Quiet success: dragging/merging/swap should not spam notifications.
+
+        -- Tier 2 (#6): unequipping a gun (weapon slot -> normal inventory slot)
+        -- pulls its ammo out of the ammo slot too, if there's inventory space.
+        -- followAmmoToInventory is defined in server/tier2.lua (same chunk) and
+        -- is available at runtime. Only trigger when the WEAPON slot was emptied
+        -- into a non-equipment slot.
+        local ammoSlot = (Config.Ammo and Config.Ammo.slot) or 'ammo'
+        if fromSlot == 'weapon' and toSlot ~= 'weapon' and toSlot ~= ammoSlot
+            and type(followAmmoToInventory) == 'function' then
+            followAmmoToInventory(src)
+        end
     else
         dprint(('moveItem failed for player %s: %s -> %s reason=%s'):format(src, fromSlot, toSlot, tostring(reason)))
         if Config.Debug then
@@ -666,6 +740,7 @@ end)
 
 RegisterNetEvent('cm-inventory:server:splitItem', function(data)
     local src = source
+    if isPlayerDeadState(src) then return end
     data = type(data) == 'table' and data or {}
     local ok, reason = SplitItemInternal(src, tostring(data.fromSlot or ''), tostring(data.toSlot or ''), tonumber(data.amount) or 0)
     if not ok then notify(src, reason or 'Split failed.', 'error') end

@@ -4,14 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CM Items Preview</title>
-  <link rel="stylesheet" href="preview.css?v=1.4.0" />
+  <link rel="stylesheet" href="preview.css?v=1.5.0" />
 </head>
 <body>
   <main id="app" class="hidden">
     <header>
       <div>
-        <h1>CM Items Preview</h1>
-        <p>All registered server items and saved clothing catalog images.</p>
+        <h1>CM Items</h1>
+        <div class="accent-line"></div>
+        <p>Central item registry — right-click any item for actions.</p>
       </div>
       <div class="actions">
         <input id="search" type="text" placeholder="Search item, category, drawable..." />
@@ -20,14 +21,17 @@
           <option value="items">Items</option>
           <option value="catalog">Clothing Catalog</option>
         </select>
-        <button id="refresh">Refresh</button>
-        <button id="close">Close ESC</button>
+        <button id="refresh" class="btn btn-ghost">Refresh</button>
+        <button id="close" class="btn btn-primary">Close · ESC</button>
       </div>
     </header>
     <nav class="tabs" id="tabs"></nav>
     <section class="stats" id="stats"></section>
     <section class="grid" id="grid"></section>
   </main>
+
+  <!-- Right-click context menu (built dynamically) -->
+  <div id="ctxMenu" class="ctx hidden"></div>
 
   <div id="propModal" class="modal hidden">
     <div class="modal-card">
@@ -46,15 +50,15 @@
       </div>
       <p class="modal-hint">GTA can't scale props at runtime, so size is controlled by choosing the model + z-offset/heading. Clothing shares one prop for all clothes.</p>
       <div class="modal-actions">
-        <button id="propSpawn" class="give">Spawn test</button>
-        <button id="propReset" class="delete">Reset to default</button>
+        <button id="propSpawn" class="btn btn-ghost">Spawn test</button>
+        <button id="propReset" class="btn btn-danger">Reset</button>
         <span class="spacer"></span>
-        <button id="propCancel">Cancel</button>
-        <button id="propSave" class="give">Save</button>
+        <button id="propCancel" class="btn btn-ghost">Cancel</button>
+        <button id="propSave" class="btn btn-primary">Save</button>
       </div>
     </div>
   </div>
 
-  <script src="preview.js?v=1.4.0"></script>
+  <script src="preview.js?v=1.5.0"></script>
 </body>
 </html>

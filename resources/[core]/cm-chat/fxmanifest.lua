@@ -4,7 +4,7 @@ lua54 'yes'
 
 description 'CM Chat - modular cyan RP chat with configurable channel colors'
 author 'CM Framework'
-version '1.3.0'
+version '1.4.0'
 
 shared_script 'config.lua'
 

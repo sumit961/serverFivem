@@ -203,6 +203,11 @@ end
 
 function EnterDeathState(killedBy, bleedMs, alreadyAmbulanceCalled)
     if isDead then return end
+
+    -- Close inventory before the death screen takes NUI focus. This also hides
+    -- drop pickup cards immediately at the unconscious transition.
+    TriggerEvent('cm-inventory:client:forceCloseForDeath')
+
     isDead = true
     ambulanceCalled = alreadyAmbulanceCalled == true
     dieChosen = false
@@ -393,6 +398,16 @@ RegisterNetEvent('cm-playerdata:client:playerDied', function(killerSrc, weaponHa
     EnterDeathState(killedBy, bleedMs)
 end)
 
+RegisterNetEvent('cm-playerdata:client:restoreDeathFocus', function()
+    if not isDead then return end
+    if ambulanceCalled then
+        SetNuiFocus(false, false)
+    else
+        SetNuiFocusKeepInput(false)
+        SetNuiFocus(true, true)
+    end
+end)
+
 -- ---------------------------------------------------------------------------
 -- Engine death interception. Massive damage (headshot/explosion) can zero the
 -- ped's health between vitals checks: the ped truly dies and GTA starts its
@@ -464,7 +479,8 @@ end)
 RegisterNetEvent('cm-playerdata:client:revive', function()
     ExitDeathState()
     local ped = PlayerPedId()
-    SetEntityHealth(ped, Config.Vitals.MaxHealth)
+    lastHealth = Config.Vitals.MaxHealth
+    SetEntityHealth(ped, lastHealth)
     SetPedArmour(ped, 0)
     ClearPedBloodDamage(ped)
     ResetPedVisibleDamage(ped)
@@ -594,6 +610,16 @@ end)
 -- ---------------------------------------------------------------------------
 -- Vitals + position sync
 -- ---------------------------------------------------------------------------
+-- GTA or another resource may re-enable native health recharge after model/spawn
+-- changes. Reassert this continuously; all valid healing remains server-driven.
+CreateThread(function()
+    while true do
+        SetPlayerHealthRechargeMultiplier(PlayerId(), 0.0)
+        SetPlayerHealthRechargeLimit(PlayerId(), 0.0)
+        Wait(1000)
+    end
+end)
+
 CreateThread(function()
     while true do
         Wait(500)
@@ -612,7 +638,12 @@ CreateThread(function()
                     lastHealth = currentHealth
                 end
             elseif currentHealth > lastHealth then
-                lastHealth = currentHealth
+                -- Never accept GTA passive regeneration or another client-side
+                -- health increase. Legitimate healing must come through the
+                -- authoritative cm-playerdata SetHealth/Heal/revive exports,
+                -- whose client events update lastHealth before this loop runs.
+                SetEntityHealth(ped, lastHealth)
+                currentHealth = lastHealth
             end
 
             local now = GetGameTimer()

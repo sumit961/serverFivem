@@ -239,6 +239,37 @@ Config.IconCapture = {
         shoes = 0.35,
     },
 
+
+    -- ── Streamed grey support body for accessory/icon capture ─────────────────
+    -- These use the stream files you added:
+    --   head_000_r.ydd / head_diff_000_a_whi.ytd
+    --   uppr_015_r.ydd / uppr_diff_015_a_whi.ytd
+    --   lowr_015_r.ydd / lowr_diff_015_a_whi.ytd
+    -- Only accessories + lower-body categories use them. T-shirts / torso keep
+    -- the old pure-item logic unchanged.
+    supportModels = {
+        -- These streamed files are female-only. Male capture deliberately has no
+        -- support model entry and therefore falls back to the previous logic.
+        female = {
+            categories = {
+                hat      = { head = { drawable = 0, texture = 0, hair = -1 } },
+                glasses  = { head = { drawable = 0, texture = 0, hair = -1 } },
+                earrings = { head = { drawable = 0, texture = 0, hair = -1 } },
+                mask     = { head = { drawable = 0, texture = 0, hair = -1 } },
+
+                watches  = { [3] = { drawable = 15, texture = 0 } },
+                chains   = { [3] = { drawable = 15, texture = 0 } },
+                bags     = { [3] = { drawable = 15, texture = 0 } },
+
+                pants    = { [4] = { drawable = 15, texture = 0 } },
+                shoes    = { [4] = { drawable = 15, texture = 0 } },
+            }
+        },
+        male = {
+            categories = {}
+        }
+    },
+
     -- ── Keep supporting body parts visible per category ──────────────────
     -- Items that sit ON the body (shoes on a foot, watch on a wrist) look wrong
     -- floating in empty space. For those, keep the supporting component visible
@@ -251,7 +282,8 @@ Config.IconCapture = {
         -- Pure item capture for outerwear, pants and bags: do NOT keep the mannequin body.
         -- This leaves only the target clothing visible after the head-hide / ghost pass.
         torso    = { },
-        tshirt   = { [3] = 0, [4] = 0, [6] = 0 },
+        -- T-shirt: capture like outerwear — item only, no mannequin body.
+        tshirt   = { },
         armor    = { [3] = 0, [4] = 0, [6] = 0, [8] = 0 },
         pants    = { },
         bags     = { },
@@ -267,7 +299,12 @@ Config.IconCapture = {
         -- alone. On the rare model where -1 leaves a bare-arm fallback, the tight
         -- watch camera (captureCameras.watches) still crops the stub out.
         watches  = { },
-        chains   = { [3] = 0, [8] = 0 }, -- keep upper body so necklaces/chains are visible
+        -- Chains / necklaces (component 7) sit on the upper chest. Keep a BARE
+        -- torso skin so the chain has a neck/chest to rest on, but HIDE the
+        -- undershirt/shirt (8) and top (11) so no shirt covers it. If your torso
+        -- drawable 0 still shows a shirt on your build, try a different nude value
+        -- here (e.g. [3] = 15) — it's the bare-skin torso drawable.
+        chains   = { [3] = 0 },
         -- Hats, glasses and earrings attach to the HEAD BONE, which still exists
         -- even when the head mesh is invisible. So we hide the head (head not kept)
         -- and the prop renders alone, floating where the head would be — no head in

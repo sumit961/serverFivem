@@ -3,6 +3,7 @@
 
 RegisterNetEvent('cm-inventory:server:dropItem', function(data)
     local src = source
+    if isPlayerDeadState(src) then return end
     data = type(data) == 'table' and data or {}
     local ok, reason = DropItemInternal(src, tostring(data.slot or ''), tonumber(data.amount) or 1)
     if not ok then notify(src, reason or 'Drop failed.', 'error') end
@@ -60,6 +61,7 @@ end
 
 RegisterNetEvent('cm-inventory:server:useItem', function(data)
     local src = source
+    if isPlayerDeadState(src) then return end
     data = type(data) == 'table' and data or {}
     local ok, reason = UseItemWithProgress(src, tostring(data.slot or ''))
     if not ok then notify(src, reason or 'Use failed.', 'error') end
@@ -127,6 +129,7 @@ end
 
 RegisterNetEvent('cm-inventory:server:quickAccessHotkey', function(data)
     local src = source
+    if isPlayerDeadState(src) then return end
     data = type(data) == 'table' and data or {}
     local ok, reason = QuickAccessHotkeyInternal(src, data.index or data.slotIndex or data.hotkey, data.weaponInHand == true)
     if not ok then notify(src, reason or 'Fast access failed.', 'error') end
@@ -135,6 +138,7 @@ end)
 
 RegisterNetEvent('cm-inventory:server:reloadWeapon', function()
     local src = source
+    if isPlayerDeadState(src) then return end
     local ok, reason = ReloadWeaponInternal(src)
     if ok then
         notify(src, reason or 'Weapon reloaded.', 'success')
@@ -146,6 +150,7 @@ end)
 
 RegisterNetEvent('cm-inventory:server:weaponShot', function()
     local src = source
+    if isPlayerDeadState(src) then return end
     local ok, reason = ConsumeEquippedWeaponAmmoInternal(src)
     if not ok then
         TriggerClientEvent('cm-inventory:client:noInventoryAmmo', src, reason or 'No ammo available.')
@@ -156,6 +161,7 @@ end)
 
 RegisterNetEvent('cm-inventory:server:giveItem', function(data)
     local src = source
+    if isPlayerDeadState(src) then return end
     data = type(data) == 'table' and data or {}
     local ok, reason = GiveItemInternal(src, tostring(data.slot or ''), tonumber(data.amount) or 1)
     if not ok then

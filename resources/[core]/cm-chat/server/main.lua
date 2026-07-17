@@ -85,6 +85,25 @@ local function readStateValue(src, keys)
     return nil
 end
 
+local function getCmFamilyState(src)
+    src = tonumber(src)
+    if not src or src <= 0 or not Player then return nil end
+    local ok, state = pcall(function() return Player(src).state.cmFamily end)
+    if not ok or type(state) ~= 'table' or state.active == false then return nil end
+    local familyId = tonumber(state.id or state.familyId or state.family_id)
+    if not familyId then return nil end
+    return {
+        id = familyId,
+        name = cleanText(state.name or state.familyName or 'Family', 60),
+        tag = cleanText(state.tag or 'FAMILY', 12),
+        color = cleanColor(state.color, '#72ff8c'),
+        rankName = cleanText(state.rankName or 'Member', 32),
+        title = cleanText(state.customTitle or '', 32),
+        tier = tonumber(state.tier) or 0,
+        permissions = type(state.permissions) == 'table' and state.permissions or {},
+    }
+end
+
 local function extractCharacterIdFromAny(...)
     local args = { ... }
     for _, value in ipairs(args) do
@@ -185,19 +204,35 @@ end)
 
 local function getGroupValue(src, groupName)
     groupName = tostring(groupName or ''):lower()
+
+    -- Family membership is never accepted from the public manual-group event.
+    -- Only cm-family's replicated server state can enable this channel.
+    if groupName == 'family' then
+        local family = getCmFamilyState(src)
+        return family and tostring(family.id) or nil
+    end
+
     local manual = PlayerGroups[src] and PlayerGroups[src][groupName]
-    if type(manual) == 'table' then return manual.value end
-    if manual then return manual end
+    if type(manual) == 'table' and manual.value then return manual.value end
+    if manual and type(manual) ~= 'table' then return manual end
 
     local keys = Config.GroupStateKeys and Config.GroupStateKeys[groupName]
     if keys then
-        return cleanGroupValue(readStateValue(src, keys))
+        local value = readStateValue(src, keys)
+        if type(value) == 'table' then
+            value = value.id or value.value or value.groupId or value.group_id or value.name
+        end
+        return cleanGroupValue(value)
     end
     return nil
 end
 
 local function getGroupColor(src, groupName, fallback)
     groupName = tostring(groupName or ''):lower()
+    if groupName == 'family' then
+        local family = getCmFamilyState(src)
+        if family then return family.color end
+    end
     local manual = PlayerGroups[src] and PlayerGroups[src][groupName]
     if type(manual) == 'table' and manual.color then
         return cleanColor(manual.color, fallback or '#31e6ff')
@@ -559,6 +594,25 @@ local function sendPlayerMessage(src, channelId, text, formatOverride)
         end
     end
 
+    -- Family chat authority lives in cm-family. The selected FAMILY tab and
+    -- /f command must share the same permission, cooldown and recipient rules.
+    if channelId == 'family' then
+        if GetResourceState('cm-family') ~= 'started' then
+            sendSystemMessage(src, 'Family chat is unavailable right now.', 'error')
+            return
+        end
+        local ok, accepted, reason = pcall(function()
+            return exports['cm-family']:SendFamilyChat(src, text)
+        end)
+        if not ok then
+            print(('[CM-CHAT] cm-family SendFamilyChat failed: %s'):format(tostring(accepted)))
+            sendSystemMessage(src, 'Family chat could not send the message.', 'error')
+        elseif accepted == false and reason then
+            sendSystemMessage(src, tostring(reason):gsub('_', ' '), 'error')
+        end
+        return
+    end
+
     getActiveCharacter(src, function(active)
         if not active or not active.id then
             sendSystemMessage(src, 'Character is not loaded yet. Select your character first.', 'warning')
@@ -589,6 +643,68 @@ local function sendPlayerMessage(src, channelId, text, formatOverride)
         logChat(src, active, channelId, text, targetsMeta)
     end)
 end
+
+-- Internal server-only integration from cm-family. This event is intentionally
+-- not registered as a network event, so clients cannot forge family messages.
+AddEventHandler('cm-chat:server:familyMessage', function(data, suppliedRecipients)
+    if type(data) ~= 'table' then return end
+
+    local authorSource = tonumber(data.source)
+    local familyId = tonumber(data.familyId or data.family_id)
+    local message = cleanText(data.message, Config.MaxMessageLength or 180)
+    if not authorSource or authorSource <= 0 or not familyId or message == '' then return end
+
+    local authorFamily = getCmFamilyState(authorSource)
+    if not authorFamily or tonumber(authorFamily.id) ~= familyId then
+        print(('[CM-CHAT] rejected family message with invalid author state (source=%s family=%s)')
+            :format(tostring(authorSource), tostring(familyId)))
+        return
+    end
+
+    local payload = {
+        channel = 'family',
+        channelLabel = 'FAMILY',
+        channelColor = cleanColor(data.color or authorFamily.color, '#72ff8c'),
+        author = cleanText(data.name or GetPlayerName(authorSource) or 'Unknown', 60),
+        id = tonumber(data.characterId) or 0,
+        text = message,
+        type = 'family',
+        format = 'family',
+        time = os.date('%H:%M'),
+        familyId = familyId,
+        familyName = cleanText(data.familyName or authorFamily.name, 60),
+        familyTag = cleanText(data.tag or authorFamily.tag or 'FAMILY', 12),
+        rankName = cleanText(data.rankName or authorFamily.rankName or 'Member', 32),
+        memberTitle = cleanText(data.title or authorFamily.title or '', 32),
+    }
+
+    local recipients = {}
+    local seen = {}
+    -- Rebuild recipients from authoritative replicated family state. Never trust
+    -- an arbitrary target list supplied by another resource.
+    for _, playerId in ipairs(GetPlayers()) do
+        local target = tonumber(playerId)
+        local targetFamily = getCmFamilyState(target)
+        if target and targetFamily and tonumber(targetFamily.id) == familyId and not seen[target] then
+            recipients[#recipients + 1] = target
+            seen[target] = true
+        end
+    end
+
+    if #recipients == 0 then return end
+    sendPayloadToTargets(recipients, payload)
+    logChat(authorSource, { id = payload.id, name = payload.author }, 'family', message, {
+        familyId = familyId,
+        familyTag = payload.familyTag,
+        rankName = payload.rankName,
+        recipients = #recipients,
+    })
+end)
+
+AddEventHandler('cm-chat:server:refreshPlayerChannels', function(target)
+    target = tonumber(target)
+    if target and target > 0 and GetPlayerName(target) then sendChannels(target) end
+end)
 
 RegisterNetEvent('cm-chat:server:sendChatMessage', function(channel, text)
     sendPlayerMessage(source, channel, text)
@@ -685,7 +801,7 @@ CreateThread(function()
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )]], {})
     end
-    print('[CM-CHAT] Loaded modular cyan RP chat with configurable channel colors')
+    print('[CM-CHAT] Loaded modular cyan RP chat with authoritative family channel integration')
 end)
 
 -- ===========================================================================

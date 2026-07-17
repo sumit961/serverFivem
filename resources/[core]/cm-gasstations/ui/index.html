@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CM Gas Station</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="interaction" class="interaction hidden" aria-hidden="true">
+    <div class="interaction-key" id="interactionKey">E</div>
+    <div class="interaction-copy">
+      <span class="interaction-title" id="interactionTitle">FUEL STATION</span>
+      <strong id="interactionLabel">Refuel vehicle &amp; open store</strong>
+      <small id="interactionHint">Vehicle is secured while ordering</small>
+    </div>
+  </div>
+
+  <div id="gas-root" class="gas-root hidden" aria-hidden="true">
+    <div class="screen-shade"></div>
+
+    <main class="gas-panel" role="dialog" aria-modal="true" aria-labelledby="stationName">
+      <header class="panel-header">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 48 48"><path d="M13 7h17a5 5 0 0 1 5 5v26H9V11a4 4 0 0 1 4-4Zm1 6v9h16v-9H14Zm2 15h12v5H16v-5Z"/><path d="M35 16h3l4 5v13a3 3 0 0 1-6 0V23l-3-3 2-4Z"/></svg>
+        </div>
+        <div class="heading-copy">
+          <span class="eyebrow">CM FUEL NETWORK</span>
+          <h1 id="stationName">Xero Gas</h1>
+          <p id="stationMode">Secure refuelling and vehicle supplies</p>
+        </div>
+        <button class="icon-button" id="btnClose" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </header>
+
+      <section id="vehicleCard" class="vehicle-card">
+        <div class="vehicle-meta">
+          <span class="section-label">SELECTED VEHICLE</span>
+          <div class="vehicle-name-row">
+            <div>
+              <h2 id="vehicleName">Vehicle</h2>
+              <span class="plate" id="vehiclePlate">NO PLATE</span>
+            </div>
+            <span class="status-badge"><i></i> SECURED</span>
+          </div>
+        </div>
+
+        <div class="fuel-overview">
+          <div class="fuel-ring" id="fuelRing">
+            <div class="fuel-ring-inner">
+              <span id="targetFuelValue">0</span><small>%</small>
+              <em>TARGET</em>
+            </div>
+          </div>
+          <div class="fuel-details">
+            <div class="fuel-stat-row">
+              <span>Current fuel</span>
+              <b><span id="currentFuelValue">0</span>%</b>
+            </div>
+            <div class="fuel-stat-row">
+              <span>Fuel added</span>
+              <b class="accent">+<span id="fuelAddedValue">0</span>%</b>
+            </div>
+            <div class="fuel-stat-row">
+              <span>Fuel cost</span>
+              <b>$<span id="fuelCost">0</span></b>
+            </div>
+          </div>
+        </div>
+
+        <div class="fuel-control">
+          <div class="range-labels"><span id="rangeMinLabel">0%</span><span>100%</span></div>
+          <input id="fuelRange" type="range" min="0" max="100" value="0" step="1" aria-label="Target fuel percentage">
+          <div class="quick-grid">
+            <button type="button" data-fuel-add="10">+10%</button>
+            <button type="button" data-fuel-add="25">+25%</button>
+            <button type="button" data-fuel-add="50">+50%</button>
+            <button type="button" data-fuel-full="true">Fill tank</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="storeOnlyCard" class="store-only-card hidden">
+        <div class="store-only-icon">
+          <svg viewBox="0 0 24 24"><path d="M4 10h16l-1-5H5l-1 5Zm1 0v9h14v-9M9 19v-5h6v5"/></svg>
+        </div>
+        <div>
+          <span class="section-label">STORE MODE</span>
+          <h2>No vehicle selected</h2>
+          <p>Purchase supplies now and use them later from your inventory.</p>
+        </div>
+      </section>
+
+      <section class="store-section">
+        <div class="section-heading">
+          <div>
+            <span class="section-label">VEHICLE SUPPLIES</span>
+            <h2>Station store</h2>
+          </div>
+          <span class="cash-pill">Cash <b>$<span id="cashValue">0</span></b></span>
+        </div>
+
+        <div class="product-list">
+          <article class="product-row">
+            <div class="product-icon">
+              <svg viewBox="0 0 24 24"><path d="M8 3h8v3h2v15H6V6h2V3Zm2 0v3h4V3h-4Zm-1 7h6m-3-3v6"/></svg>
+            </div>
+            <div class="product-copy">
+              <h3>Repair kit</h3>
+              <p>Bodywork, windows and tyres</p>
+              <span>$<b id="repairUnitPrice">0</b> each</span>
+            </div>
+            <div class="quantity" data-product="kits">
+              <button type="button" data-direction="-1" aria-label="Remove repair kit">−</button>
+              <strong id="kitsQuantity">0</strong>
+              <button type="button" data-direction="1" aria-label="Add repair kit">+</button>
+            </div>
+          </article>
+
+          <article class="product-row">
+            <div class="product-icon">
+              <svg viewBox="0 0 24 24"><path d="M8 3h8v4l2 2v12H6V9l2-2V3Zm2 2v3h4V5h-4Zm0 8h4m-2-2v4"/></svg>
+            </div>
+            <div class="product-copy">
+              <h3>Jerry can</h3>
+              <p>Portable emergency fuel</p>
+              <span>$<b id="fuelCanUnitPrice">0</b> each</span>
+            </div>
+            <div class="quantity" data-product="cans">
+              <button type="button" data-direction="-1" aria-label="Remove jerry can">−</button>
+              <strong id="cansQuantity">0</strong>
+              <button type="button" data-direction="1" aria-label="Add jerry can">+</button>
+            </div>
+          </article>
+
+          <article class="product-row">
+            <div class="product-icon">
+              <svg viewBox="0 0 24 24"><path d="M5 8h14l-1 12H6L5 8Zm3 0V5a4 4 0 0 1 8 0v3M9 13h6"/></svg>
+            </div>
+            <div class="product-copy">
+              <h3>Wash kit</h3>
+              <p>Clean dirt and road grime</p>
+              <span>$<b id="washUnitPrice">0</b> each</span>
+            </div>
+            <div class="quantity" data-product="washes">
+              <button type="button" data-direction="-1" aria-label="Remove wash kit">−</button>
+              <strong id="washesQuantity">0</strong>
+              <button type="button" data-direction="1" aria-label="Add wash kit">+</button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <footer class="checkout">
+        <div class="checkout-total">
+          <span>ORDER TOTAL</span>
+          <strong>$<span id="grandTotal">0</span></strong>
+          <small id="checkoutHint">Cash payment</small>
+        </div>
+        <button id="btnOrder" class="primary-button" type="button">
+          <span id="orderButtonText">Place order</span>
+          <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>
+        </button>
+      </footer>
+
+      <div id="toast" class="toast hidden" role="status">
+        <span class="toast-dot"></span>
+        <p id="toastMessage"></p>
+      </div>
+
+      <div class="key-hint"><kbd>ESC</kbd><span>Close station</span></div>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

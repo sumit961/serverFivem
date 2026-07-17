@@ -7,6 +7,10 @@ local captureSerial = 0
 local currentPreviewVehicle = nil
 local backdropProp = nil
 
+function IsVehicleShopCaptureActive()
+    return pendingCapture ~= nil
+end
+
 local function uiToast(message)
     if not message or message == '' then return end
     SendNUIMessage({ action = 'toast', message = tostring(message) })
@@ -32,21 +36,61 @@ local function vectorComponent(v, key, index, default)
     return tonumber(v[key] or v[index]) or default
 end
 
-local function applyEntityScale(entity, scale)
+-- Scale an entity by rebuilding its matrix.
+--
+-- IMPORTANT: SetEntityMatrix OVERWRITES rotation, so it must be the LAST thing
+-- applied and it must carry the rotation itself. The previous version called
+-- SetEntityRotation and then SetEntityMatrix with a left-handed `right` vector
+-- derived from the forward vector, which silently threw the heading away and
+-- mirrored the prop.
+--
+-- We now build the basis from the entity's rotation (pitch/roll/yaw) directly and
+-- scale each axis independently, so the backdrop can be made ARBITRARILY LARGE
+-- (e.g. scale 8-12) and still face the camera correctly.
+local function applyEntityScale(entity, scale, scaleX, scaleY, scaleZ)
     if not entity or entity == 0 or not DoesEntityExist(entity) then return end
-    scale = tonumber(scale) or 1.0
-    if math.abs(scale - 1.0) < 0.001 then return end
 
-    local forward = GetEntityForwardVector(entity)
-    local right = vector3(forward.y, -forward.x, 0.0)
-    local up = vector3(0.0, 0.0, 1.0)
+    scale = tonumber(scale) or 1.0
+    local sx = tonumber(scaleX) or scale
+    local sy = tonumber(scaleY) or scale
+    local sz = tonumber(scaleZ) or scale
+    if math.abs(sx - 1.0) < 0.001 and math.abs(sy - 1.0) < 0.001 and math.abs(sz - 1.0) < 0.001 then
+        return
+    end
+
+    local rot = GetEntityRotation(entity, 2)   -- ZXY, degrees
     local pos = GetEntityCoords(entity)
+
+    local rx = math.rad(rot.x)   -- pitch
+    local ry = math.rad(rot.y)   -- roll
+    local rz = math.rad(rot.z)   -- yaw
+
+    local cx, sxr = math.cos(rx), math.sin(rx)
+    local cy, syr = math.cos(ry), math.sin(ry)
+    local cz, szr = math.cos(rz), math.sin(rz)
+
+    -- Standard ZXY rotation basis (right, forward, up), each axis scaled.
+    local right   = vector3(
+        (cy * cz + syr * sxr * szr),
+        (cy * szr - syr * sxr * cz),
+        (-syr * cx)
+    )
+    local forward = vector3(
+        (-cx * szr),
+        (cx * cz),
+        sxr
+    )
+    local up      = vector3(
+        (syr * cz - cy * sxr * szr),
+        (syr * szr + cy * sxr * cz),
+        (cy * cx)
+    )
 
     SetEntityMatrix(
         entity,
-        forward.x * scale, forward.y * scale, forward.z * scale,
-        right.x * scale, right.y * scale, right.z * scale,
-        up.x * scale, up.y * scale, up.z * scale,
+        forward.x * sy, forward.y * sy, forward.z * sy,
+        right.x   * sx, right.y   * sx, right.z   * sx,
+        up.x      * sz, up.y      * sz, up.z      * sz,
         pos.x, pos.y, pos.z
     )
 end
@@ -66,19 +110,73 @@ local function getCaptureStudio()
     return Config.VehicleAdminStudio or Config.Showroom or {}
 end
 
-local function applyCaptureEnvironment()
+-- Force a bright, flat, shadowless stage for the capture.
+--
+-- Two bugs used to live here:
+--   1. SetTimecycleModifierStrength was fed env.timecycleStrength, which the
+--      config sets to 0.0 -- i.e. the modifier was applied and then immediately
+--      nullified, so it did nothing at all.
+--   2. Weather/time were set ONCE. GTA (and cm-climatime) then fight it back, so
+--      by the time the screenshot fires the stage can be dim again. It has to be
+--      re-asserted every frame while capturing.
+--
+-- A dim stage is exactly what breaks the chroma key: the upper half of the (now
+-- very large) backdrop falls into shadow, those pixels drop below `minGreen`,
+-- and the key skips them -- which is the dark-green band left in the image.
+local captureEnvHold = false
+
+local function pushCaptureEnvironment()
     local studio = getCaptureStudio()
     local env = studio.Environment or {}
+
     NetworkOverrideClockTime(tonumber(env.hour) or 12, tonumber(env.minute) or 0, tonumber(env.second) or 0)
+
+    local weather = env.weather or 'EXTRASUNNY'
     ClearOverrideWeather()
     ClearWeatherTypePersist()
-    SetWeatherTypeNowPersist(env.weather or 'EXTRASUNNY')
-    SetWeatherTypeNow(env.weather or 'EXTRASUNNY')
-    SetWeatherTypePersist(env.weather or 'EXTRASUNNY')
-    if env.timecycle and env.timecycle ~= '' then
-        SetTimecycleModifier(env.timecycle)
-        SetTimecycleModifierStrength(tonumber(env.timecycleStrength) or 0.0)
+    SetWeatherTypeNowPersist(weather)
+    SetWeatherTypeNow(weather)
+    SetWeatherTypePersist(weather)
+    SetForceVehicleTrails(false)
+    SetForcePedFootstepsTracks(false)
+
+    -- Flat, even light. Strength must be > 0 or the modifier does nothing.
+    local tc = env.timecycle
+    if tc and tc ~= '' then
+        SetTimecycleModifier(tc)
+        SetTimecycleModifierStrength(tonumber(env.timecycleStrength) or 1.0)
     end
+
+    -- Kill the things that darken the backdrop.
+    SetArtificialLightsState(false)
+    if env.noShadows ~= false then
+        pcall(function() CascadeShadowsEnableEntityTracker(false) end)
+        pcall(function() SetRainLevel(0.0) end)
+    end
+end
+
+local function applyCaptureEnvironment()
+    pushCaptureEnvironment()
+
+    -- Hold it. Other resources (cm-climatime) will otherwise stomp the weather
+    -- back mid-capture and the stage goes dim again.
+    if captureEnvHold then return end
+    captureEnvHold = true
+    CreateThread(function()
+        while captureEnvHold do
+            Wait(200)
+            pushCaptureEnvironment()
+        end
+    end)
+end
+
+local function releaseCaptureEnvironment()
+    captureEnvHold = false
+    ClearTimecycleModifier()
+    ClearOverrideWeather()
+    ClearWeatherTypePersist()
+    pcall(function() NetworkClearClockTimeOverride() end)
+    pcall(function() SetArtificialLightsState(false) end)
 end
 
 local function spawnBackdrop()
@@ -96,12 +194,21 @@ local function spawnBackdrop()
     local fixed = cfg.fixedCoords or cfg.coords or (studio and studio.backdrop)
     local x, y, z, heading
 
+    -- zLift MUST apply in both branches. It used to be added only in the `else`
+    -- branch, so any config with fixedCoords (which is the normal setup) silently
+    -- ignored zLift: the prop always spawned at the raw fixed height and the
+    -- tuned value was thrown away.
+    local zLift = tonumber(cfg.zLift) or 0.0
+
     if fixed and fixed.x and fixed.y and fixed.z then
-        x, y, z = fixed.x, fixed.y, fixed.z
+        x, y = fixed.x, fixed.y
+        z = fixed.z + zLift
         heading = tonumber(fixed.w) or tonumber(cfg.heading) or 0.0
     else
         local v = (studio and studio.vehicle) or vector4(Config.Location.x, Config.Location.y, Config.Location.z, 0.0)
-        x, y, z, heading = v.x, v.y, v.z + (tonumber(cfg.zLift) or 0.62), v.w or 0.0
+        x, y = v.x, v.y
+        z = v.z + zLift
+        heading = v.w or 0.0
     end
 
     local obj = CreateObjectNoOffset(hash, x, y, z, false, false, false)
@@ -124,7 +231,17 @@ local function spawnBackdrop()
     local ry = vectorComponent(rot, 'y', 2, 0.0)
     local rz = (heading + (tonumber(cfg.headingOffset) or 0.0) + vectorComponent(rot, 'z', 3, 0.0)) % 360.0
     SetEntityRotation(obj, rx, ry, rz, 2, true)
-    applyEntityScale(obj, tonumber(cfg.scale) or 1.0)
+
+    -- Scale LAST (SetEntityMatrix overwrites rotation, so it must carry it).
+    -- scale = uniform; scaleX/Y/Z override individual axes so the backdrop can be
+    -- stretched wide + tall to completely fill the camera frame.
+    applyEntityScale(
+        obj,
+        tonumber(cfg.scale) or 1.0,
+        tonumber(cfg.scaleX),
+        tonumber(cfg.scaleY),
+        tonumber(cfg.scaleZ)
+    )
     return true
 end
 
@@ -187,6 +304,8 @@ RegisterNUICallback('captureVehicleImage', function(data, cb)
         if pendingCapture and pendingCapture.serial == serial then
             pendingCapture = nil
             clearBackdrop()
+            releaseCaptureEnvironment()
+            setCaptureHudVisible(false)
             SetNuiFocus(true, true)
             SendNUIMessage({ action = 'prepareVehicleCapture', value = false })
             SendNUIMessage({ action = 'adminFocus', value = true })
@@ -200,9 +319,9 @@ RegisterNUICallback('captureVehicleImage', function(data, cb)
     -- remove dirt, ensure the vehicle is visible, and give streamed add-on
     -- textures/collision a short grace period before screenshot-basic fires.
     if ForceVehicleShopStockAppearancePasses then
-        ForceVehicleShopStockAppearancePasses(veh, false, false)
+        ForceVehicleShopStockAppearancePasses(veh, false, false, model)
     elseif ResetVehicleShopVehicleToDefaultStock then
-        ResetVehicleShopVehicleToDefaultStock(veh, false)
+        ResetVehicleShopVehicleToDefaultStock(veh, false, model)
     end
     SetVehicleDirtLevel(veh, 0.0)
     SetVehicleLights(veh, 2)
@@ -210,12 +329,24 @@ RegisterNUICallback('captureVehicleImage', function(data, cb)
     FreezeEntityPosition(veh, false)
     SetEntityCollision(veh, true, true)
     pcall(function() SetVehicleOnGroundProperly(veh) end)
+
+    -- Lift the car slightly so the tyres sit ON TOP of the green floor. If the
+    -- wheels sink into the backdrop plane they get keyed out with the green and
+    -- the car is saved with its tyres cut off.
+    local vLift = tonumber(Config.ImageCapture and Config.ImageCapture.vehicleZLift) or 0.0
+    if vLift ~= 0.0 then
+        local vc = GetEntityCoords(veh)
+        SetEntityCoordsNoOffset(veh, vc.x, vc.y, vc.z + vLift, false, false, false)
+    end
+
     FreezeEntityPosition(veh, true)
     SetEntityAlpha(veh, 255, false)
     SetEntityVisible(veh, true, false)
 
     if not spawnBackdrop() then
         pendingCapture = nil
+        clearBackdrop()
+        releaseCaptureEnvironment()
         SendNUIMessage({ action = 'prepareVehicleCapture', value = false })
         SendNUIMessage({ action = 'adminFocus', value = true })
         SetNuiFocus(true, true)
@@ -234,6 +365,7 @@ RegisterNUICallback('captureVehicleImage', function(data, cb)
         if not veh or not DoesEntityExist(veh) then
             pendingCapture = nil
             clearBackdrop()
+            releaseCaptureEnvironment()
             SendNUIMessage({ action = 'prepareVehicleCapture', value = false })
             SendNUIMessage({ action = 'adminFocus', value = true })
             SetNuiFocus(true, true)
@@ -241,7 +373,7 @@ RegisterNUICallback('captureVehicleImage', function(data, cb)
             cb({ ok = false, error = 'vehicle_missing' })
             return
         end
-        if ResetVehicleShopVehicleToDefaultStock then ResetVehicleShopVehicleToDefaultStock(veh, false) end
+        if ResetVehicleShopVehicleToDefaultStock then ResetVehicleShopVehicleToDefaultStock(veh, false, model) end
         SetEntityAlpha(veh, 255, false)
         SetEntityVisible(veh, true, false)
         Wait(100)
@@ -249,6 +381,7 @@ RegisterNUICallback('captureVehicleImage', function(data, cb)
 
     exports['screenshot-basic']:requestScreenshot({ encoding = 'png' }, function(imageData)
         clearBackdrop()
+        releaseCaptureEnvironment()
         SetNuiFocus(true, true)
         SendNUIMessage({ action = 'prepareVehicleCapture', value = false })
         SendNUIMessage({ action = 'adminFocus', value = false })
@@ -305,6 +438,10 @@ end)
 
 RegisterNUICallback('cancelVehicleImage', function(_, cb)
     pendingCapture = nil
+    clearBackdrop()
+    releaseCaptureEnvironment()
+    setCaptureHudVisible(false)
+    SendNUIMessage({ action = 'prepareVehicleCapture', value = false })
     SendNUIMessage({ action = 'adminFocus', value = true })
     cb('ok')
 end)
@@ -318,9 +455,16 @@ RegisterNetEvent('rn-vehicleshop:client:vehicleImageSaved', function(success, pa
     end
 end)
 
+-- Runtime green-screen tuning commands were removed for production.
+-- Capture cleanup still runs when the resource stops.
 AddEventHandler('onResourceStop', function(res)
     if res ~= GetCurrentResourceName() then return end
+    captureSerial = captureSerial + 1
     pendingCapture = nil
     currentPreviewVehicle = nil
     clearBackdrop()
+    releaseCaptureEnvironment()
+    setCaptureHudVisible(true)
+    SendNUIMessage({ action = 'prepareVehicleCapture', value = false })
+    SendNUIMessage({ action = 'adminFocus', value = true })
 end)

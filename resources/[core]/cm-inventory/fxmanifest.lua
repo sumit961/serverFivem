@@ -3,8 +3,8 @@ game 'gta5'
 lua54 'yes'
 
 author 'CM Development'
-description 'CM Inventory v4.3 - cm-weapons fixed ammo sync'
-version '4.3.0'
+description 'CM Inventory v4.3.2 - unconscious/death and trunk access fixes'
+version '4.3.2'
 
 dependencies {
     'oxmysql',

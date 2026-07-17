@@ -6,7 +6,9 @@ local syncCurrentWeaponAmmo
 local function findStackTarget(ownerType, ownerId, itemName, metadata, preferredSlot)
     itemName = tostring(itemName or ''):lower()
     local def = getItemDef(itemName)
-    if not def or def.stack == false or def.unique == true then return nil end
+    if not def then return nil end
+    local clothingStack = isClothingStackCandidate(itemName)
+    if not clothingStack and (def.stack == false or def.unique == true) then return nil end
 
     if preferredSlot then
         local existingAtPreferred = getItemAt(ownerType, ownerId, preferredSlot)

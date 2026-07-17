@@ -90,17 +90,65 @@ Config.DefaultRanks = {
         permissions = { '*' }
     },
     head_admin = {
-        label = 'Head Admin', level = 80,
-        permissions = {
-            'menu.open', 'players.view', 'players.manage', 'players.teleport', 'players.freeze', 'players.kick', 'money.manage',
-            'inventory.view', 'vehicles.view', 'vehicles.manage', 'vehicle_inventory.view',
-            'admins.view', 'admins.manage', 'ranks.view', 'ranks.manage',
-            'logs.view', 'logs.all', 'logs.admin', 'logs.players', 'logs.economy', 'logs.inventory', 'logs.vehicles', 'logs.dev', 'logs.system',
-            'map.view', 'map.vehicles', 'map.admins', 'gps.teleport',
-            'noclip', 'teleport', 'tools.heal',
-            'dev.view', 'dev.tools', 'dev.clothing', 'dev.vehicles', 'dev.weapons', 'dev.climatime', 'dev.hud'
-        }
-    },
+    label = 'Head Admin',
+    level = 80,
+    permissions = {
+        'menu.open',
+        'players.view',
+        'players.manage',
+        'players.teleport',
+        'players.freeze',
+        'players.kick',
+        'money.manage',
+
+        'inventory.view',
+        'vehicles.view',
+        'vehicles.manage',
+        'vehicle_inventory.view',
+
+        'admins.view',
+        'admins.manage',
+        'ranks.view',
+        'ranks.manage',
+
+        'logs.view',
+        'logs.all',
+        'logs.admin',
+        'logs.players',
+        'logs.economy',
+        'logs.inventory',
+        'logs.vehicles',
+        'logs.dev',
+        'logs.system',
+
+        'map.view',
+        'map.vehicles',
+        'map.admins',
+        'gps.teleport',
+
+        'noclip',
+        'teleport',
+        'tools.heal',
+
+        'dev.view',
+        'dev.tools',
+        'dev.clothing',
+        'dev.vehicles',
+        'dev.weapons',
+        'dev.climatime',
+        'dev.hud',
+
+        -- CM House permissions
+        'house.admin.open',
+        'house.create',
+        'house.admin.properties',
+        'house.admin.interiors',
+        'house.admin.garages',
+        'house.admin.pricing',
+        'house.admin.photos',
+        'house.admin.recovery'
+    }
+},
     senior_admin = {
         label = 'Senior Admin', level = 70,
         permissions = {

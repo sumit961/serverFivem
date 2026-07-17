@@ -53,7 +53,7 @@ Config.CharacterLastNameColumn = 'last_name'
 -- Group state keys. Other resources can either set Player(source).state.familyId/orgId/clubId
 -- OR call exports['cm-chat']:SetPlayerChatGroup(source, 'family', familyId, 'green')
 Config.GroupStateKeys = {
-    family = { 'familyId', 'family_id', 'family', 'familyName', 'family_name' },
+    family = { 'cmFamily', 'familyId', 'family_id', 'family', 'familyName', 'family_name' },
     org    = { 'orgId', 'org_id', 'organisationId', 'organizationId', 'organization_id', 'org', 'organisation', 'organization' },
     club   = { 'clubId', 'club_id', 'club', 'clubName', 'club_name' }
 }
@@ -85,7 +85,7 @@ Config.Channels = {
 
     family = {
         id = 'family', label = 'FAMILY', type = 'group', group = 'family',
-        color = '#72ff8c', format = 'group'
+        color = '#72ff8c', format = 'family'
     },
 
     org = {

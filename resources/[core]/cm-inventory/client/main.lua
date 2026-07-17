@@ -1,10 +1,21 @@
 local Config = CMInventory.Config
 local isOpen = false
+local deathBlocked = false
 local Drops = {}
 local DropProps = {}
 local selectedDropIndex = 1
 local lastDropUiKey = nil
 local playInventoryAnim
+
+local function isDeadOrUnconscious()
+    if deathBlocked then return true end
+    return LocalPlayer and LocalPlayer.state and LocalPlayer.state.isDead == true or false
+end
+
+local function isPlayerInsideVehicle()
+    local ped = PlayerPedId()
+    return ped ~= 0 and IsPedInAnyVehicle(ped, false)
+end
 
 local function cdebug(message)
     if not Config.Debug then return end
@@ -53,6 +64,7 @@ local function showGameAndCustomHud()
 end
 
 local function openInventory(payload)
+    if isDeadOrUnconscious() then return false end
     isOpen = true
 
     -- Inventory NUI focus + hide native and custom HUD while inventory is open.
@@ -62,18 +74,32 @@ local function openInventory(payload)
 
     nui('open', payload or {})
     TriggerServerEvent('cm-inventory:server:requestDrops')
+    return true
 end
 
-local function closeInventory()
+local function closeInventory(forDeath)
     isOpen = false
 
-    -- Restore NUI focus + native/custom HUD when inventory closes.
+    -- Release this NUI. During unconscious state the death screen owns focus/HUD,
+    -- so never re-show the game HUD from the inventory close path.
     SetNuiFocus(false, false)
     SetNuiFocusKeepInput(false)
-    showGameAndCustomHud()
+    if forDeath == true or isDeadOrUnconscious() then
+        hideGameAndCustomHud()
+    else
+        showGameAndCustomHud()
+    end
 
     TriggerServerEvent('cm-inventory:server:closeInventory')
     nui('close', {})
+
+    -- If a late replicated state update forced this close after the death screen
+    -- already opened, let cm-playerdata immediately reclaim its focus.
+    if forDeath == true or isDeadOrUnconscious() then
+        SetTimeout(0, function()
+            TriggerEvent('cm-playerdata:client:restoreDeathFocus')
+        end)
+    end
 end
 
 
@@ -130,7 +156,7 @@ AddEventHandler('onResourceStop', function(resourceName)
     if resourceName ~= GetCurrentResourceName() then return end
     SetNuiFocus(false, false)
     SetNuiFocusKeepInput(false)
-    showGameAndCustomHud()
+    if isDeadOrUnconscious() then hideGameAndCustomHud() else showGameAndCustomHud() end
     nui('nearDrops', { visible = false, drops = {} })
     for id in pairs(DropProps or {}) do
         deleteDropProp(id)
@@ -138,7 +164,34 @@ AddEventHandler('onResourceStop', function(resourceName)
 end)
 
 RegisterNetEvent('cm-inventory:client:open', function(payload)
+    if isDeadOrUnconscious() then return end
     openInventory(payload)
+end)
+
+RegisterNetEvent('cm-inventory:client:forceCloseForDeath', function()
+    deathBlocked = true
+    selectedDropIndex = 1
+    lastDropUiKey = nil
+    nui('nearDrops', { visible = false, drops = {} })
+    if isOpen then closeInventory(true) end
+end)
+
+RegisterNetEvent('cm-playerdata:client:revive', function()
+    deathBlocked = false
+end)
+RegisterNetEvent('cm-playerdata:client:revivePartial', function()
+    deathBlocked = false
+end)
+RegisterNetEvent('cm-playerdata:client:respawn', function()
+    deathBlocked = false
+end)
+RegisterNetEvent('cm-playerdata:client:loaded', function(data)
+    deathBlocked = type(data) == 'table' and data.isDead == true or false
+    if deathBlocked and isOpen then closeInventory(true) end
+end)
+RegisterNetEvent('cm-playerdata:client:characterLoaded', function(data)
+    deathBlocked = type(data) == 'table' and data.isDead == true or false
+    if deathBlocked and isOpen then closeInventory(true) end
 end)
 
 
@@ -213,22 +266,55 @@ end
 local function syncDropProps(drops)
     local active = {}
     for _, drop in ipairs(drops or {}) do
-        if drop and drop.id then
-            active[tonumber(drop.id)] = true
-            ensureDropProp(drop)
-        end
+        if drop and drop.id then active[tonumber(drop.id)] = true end
     end
 
+    -- Props are streamed by distance below. This event only removes deleted or
+    -- expired drops immediately, instead of spawning every server drop globally.
     for id in pairs(DropProps) do
-        if not active[tonumber(id)] then
-            deleteDropProp(id)
-        end
+        if not active[tonumber(id)] then deleteDropProp(id) end
     end
 end
 
 RegisterNetEvent('cm-inventory:client:updateDrops', function(drops)
     Drops = type(drops) == 'table' and drops or {}
     syncDropProps(Drops)
+end)
+
+-- Distance-stream ground props to avoid creating up to the full server drop list
+-- on every client. A small hysteresis prevents spawn/delete churn at the edge.
+CreateThread(function()
+    while true do
+        Wait(1000)
+        local ped = PlayerPedId()
+        if ped ~= 0 and Drops and #Drops > 0 then
+            local playerCoords = GetEntityCoords(ped)
+            local streamDistance = tonumber((Config.Drops or {}).propStreamDistance) or 55.0
+            local despawnDistance = math.max(streamDistance + 10.0, tonumber((Config.Drops or {}).propDespawnDistance) or 70.0)
+            local active = {}
+
+            for _, drop in ipairs(Drops) do
+                local id = tonumber(drop and drop.id)
+                if id then
+                    active[id] = true
+                    local c = drop.coords or {}
+                    local coords = vector3(tonumber(c.x) or 0.0, tonumber(c.y) or 0.0, tonumber(c.z) or 0.0)
+                    local distance = #(playerCoords - coords)
+                    if distance <= streamDistance then
+                        ensureDropProp(drop)
+                    elseif distance > despawnDistance and DropProps[id] then
+                        deleteDropProp(id)
+                    end
+                end
+            end
+
+            for id in pairs(DropProps) do
+                if not active[tonumber(id)] then deleteDropProp(id) end
+            end
+        elseif next(DropProps) then
+            for id in pairs(DropProps) do deleteDropProp(id) end
+        end
+    end
 end)
 
 RegisterNetEvent('cm-inventory:client:notify', function(message, typeName)
@@ -715,13 +801,15 @@ RegisterNetEvent('cm-inventory:client:setEquipment', function(payload)
 end)
 
 local function requestEquipmentRefreshBurst()
-    -- Any spawn/appearance script can reset freemode components back to the saved base/naked JSON.
-    -- Requesting equipment several times lets inventory clothing always win after character creation,
-    -- normal spawn, model reloads, or cm-spawn applying appearance slightly late.
+    -- Appearance resources may apply components late. Use absolute delays (not
+    -- cumulative waits) and fewer refreshes to keep clothing reliable without
+    -- unnecessary server/database work for more than ten seconds after spawn.
     CreateThread(function()
-        local waits = { 0, 250, 750, 1500, 3000, 5000 }
-        for _, ms in ipairs(waits) do
-            if ms > 0 then Wait(ms) end
+        local delays = { 0, 300, 900, 2000, 4500 }
+        local startedAt = GetGameTimer()
+        for _, delay in ipairs(delays) do
+            local remaining = delay - (GetGameTimer() - startedAt)
+            if remaining > 0 then Wait(remaining) end
             TriggerServerEvent('cm-inventory:server:requestEquipment')
         end
     end)
@@ -746,29 +834,72 @@ AddEventHandler('onClientResourceStart', function(resourceName)
 end)
 
 
-local function tryOpenVehicleTrunkBeforeInventory()
-    if GetResourceState('cm-vehicles') ~= 'started' then return false end
-    local ok, opened = pcall(function()
-        return exports['cm-vehicles']:TryOpenNearbyTrunkInventory()
-    end)
-    return ok and opened == true
+local function normalizePlate(value)
+    return tostring(value or ''):gsub('^%s+', ''):gsub('%s+$', ''):upper()
+end
+
+local function getNearbyOpenTrunkCandidate()
+    if GetResourceState('cm-vehicles') ~= 'started' or isPlayerInsideVehicle() then return nil end
+
+    local ped = PlayerPedId()
+    local playerCoords = GetEntityCoords(ped)
+    local best = nil
+    local bestDistance = 9999.0
+
+    for _, vehicle in ipairs(GetGamePool('CVehicle')) do
+        if DoesEntityExist(vehicle) and GetVehicleDoorAngleRatio(vehicle, 5) > 0.05 then
+            local trunkCoords = GetEntityCoords(vehicle)
+            local bone = GetEntityBoneIndexByName(vehicle, 'boot')
+            if bone and bone ~= -1 then
+                trunkCoords = GetWorldPositionOfEntityBone(vehicle, bone)
+            end
+
+            local distance = #(playerCoords - trunkCoords)
+            if distance <= 4.5 and distance < bestDistance then
+                local state = Entity(vehicle).state
+                local plate = normalizePlate(state and state.cmPlate or GetVehicleNumberPlateText(vehicle))
+                if plate ~= '' then
+                    best = {
+                        plate = plate,
+                        netId = NetworkGetNetworkIdFromEntity(vehicle)
+                    }
+                    bestDistance = distance
+                end
+            end
+        end
+    end
+
+    return best
 end
 
 local function openNormalInventoryFallback()
+    if isDeadOrUnconscious() then return end
     TriggerServerEvent('cm-inventory:server:openInventory')
 end
 
+RegisterNetEvent('cm-inventory:client:openConfirmedVehicleTrunk', function()
+    if isDeadOrUnconscious() then return end
+
+    local opened = false
+    if GetResourceState('cm-vehicles') == 'started' then
+        local ok, result = pcall(function()
+            return exports['cm-vehicles']:TryOpenNearbyTrunkInventory()
+        end)
+        opened = ok and result == true
+    end
+
+    if not opened then openNormalInventoryFallback() end
+end)
+
 local function openInventoryCommand()
+    if isDeadOrUnconscious() then return end
     if isOpen then closeInventory() return end
 
-    if tryOpenVehicleTrunkBeforeInventory() then
-        -- Some external systems consume the key press when the player is not owner /
-        -- not allowed, but do not actually open storage. Fall back to normal player
-        -- inventory so pressing I always opens something useful.
-        CreateThread(function()
-            Wait(750)
-            if not isOpen then openNormalInventoryFallback() end
-        end)
+    local candidate = getNearbyOpenTrunkCandidate()
+    if candidate then
+        -- Server checks owner + distance first. Non-owners silently receive their
+        -- normal player inventory, so cm-vehicles never emits an ownership error.
+        TriggerServerEvent('cm-inventory:server:resolveVehicleTrunkOpen', candidate.plate, candidate.netId)
         return
     end
 
@@ -794,6 +925,7 @@ RegisterCommand('testgive', function(_, args)
 end, false)
 
 RegisterCommand('pickupdrop', function()
+    if isDeadOrUnconscious() or isPlayerInsideVehicle() then return end
     local drop, dist = getClosestDrop()
     if drop and dist <= ((Config.Drops and Config.Drops.pickupDistance) or 2.0) then
         TriggerServerEvent('cm-inventory:server:pickupDrop', drop.id)
@@ -868,6 +1000,25 @@ RegisterNUICallback('giveItem', function(data, cb)
     cb({ ok = true })
 end)
 
+-- Tier 2: give flow with target name/list + confirmation.
+-- Step 1: ask the server who is nearby for this slot.
+RegisterNUICallback('requestGive', function(data, cb)
+    TriggerServerEvent('cm-inventory:server:requestGive', data or {})
+    cb({ ok = true })
+end)
+
+-- Step 2: player picked/confirmed a target in the NUI.
+RegisterNUICallback('confirmGive', function(data, cb)
+    TriggerServerEvent('cm-inventory:server:confirmGive', data or {})
+    cb({ ok = true })
+end)
+
+-- Server tells us who is nearby -> hand the list to the NUI to show a confirm
+-- (single) or a picker (multiple).
+RegisterNetEvent('cm-inventory:client:giveTargets', function(payload)
+    SendNUIMessage({ action = 'giveTargets', data = payload or {} })
+end)
+
 RegisterNUICallback('reloadWeapon', function(_, cb)
     TriggerEvent('cm-inventory:client:notify', 'Manual reload is disabled. Ammo is used from inventory when you shoot.', 'info')
     cb({ ok = true })
@@ -902,32 +1053,31 @@ local function isInventoryWeaponInHand()
     return selected == equippedWeaponHash and selected ~= GetHashKey('WEAPON_UNARMED')
 end
 
--- Remove GTA V weapon wheel / native weapon slot scrolling.
--- CM weapons are controlled only by inventory gun slot + fast access keys.
+-- Remove GTA V weapon wheel / native weapon switching and reserve keys 1-5
+-- exclusively for CM fast-access slots. These controls must be disabled every
+-- frame; polling them at 100-150ms can miss IsControlJustPressed and allows GTA
+-- to select a native weapon before CM handles the key.
 CreateThread(function()
-    local blocked = {37, 14, 15, 16, 17, 45, 157, 158, 159, 160, 161, 162, 163, 164, 165}
+    local fastControls = {157, 158, 160, 164, 165} -- keyboard 1-5
+    local blockedControls = {
+        37,       -- weapon wheel / TAB
+        14, 15,  -- weapon wheel next/previous
+        16, 17,  -- select next/previous weapon
+        45,       -- native reload
+        157, 158, 159, 160, 161, 162, 163, 164, 165 -- native weapon slots 1-9
+    }
+
     while true do
         if not isOpen then
-            pcall(function() BlockWeaponWheelThisFrame() end)
-            HideHudComponentThisFrame(19) -- weapon wheel
-            HideHudComponentThisFrame(20) -- weapon stats
-            for _, control in ipairs(blocked) do
+            for _, control in ipairs(blockedControls) do
                 DisableControlAction(0, control, true)
             end
-            Wait(0)
-        else
-            Wait(250)
-        end
-    end
-end)
+            pcall(function() BlockWeaponWheelThisFrame() end)
+            HideHudComponentThisFrame(19)
+            HideHudComponentThisFrame(20)
 
--- Quick access keys 1-5 while inventory is closed.
-CreateThread(function()
-    local controls = {157, 158, 160, 164, 165}
-    while true do
-        if not isOpen then
-            for index, control in ipairs(controls) do
-                if IsDisabledControlJustPressed(0, control) or IsControlJustPressed(0, control) then
+            for index, control in ipairs(fastControls) do
+                if IsDisabledControlJustPressed(0, control) then
                     TriggerServerEvent('cm-inventory:server:quickAccessHotkey', {
                         index = index,
                         weaponInHand = isInventoryWeaponInHand()
@@ -936,11 +1086,31 @@ CreateThread(function()
             end
             Wait(0)
         else
-            Wait(300)
+            Wait(100)
         end
     end
 end)
 
+-- Replicated unconscious state fallback. The authoritative drop is called by
+-- cm-playerdata on SetDead(true); this only recovers safely if resources restart.
+local deathReported = false
+CreateThread(function()
+    while true do
+        local dead = isDeadOrUnconscious()
+        if dead then
+            deathBlocked = true
+            if isOpen then closeInventory(true) end
+            if not deathReported then
+                deathReported = true
+                TriggerServerEvent('cm-inventory:server:playerDied')
+            end
+        else
+            deathBlocked = false
+            deathReported = false
+        end
+        Wait(dead and 250 or 500)
+    end
+end)
 
 
 -- Keep equipped armor durability synced to the bodyarmor item metadata.
@@ -962,17 +1132,6 @@ CreateThread(function()
             Wait(1200)
         end
     end
-end)
-
-AddEventHandler('onClientResourceStart', function(resourceName)
-    if resourceName ~= GetCurrentResourceName() then return end
-    Wait(2500)
-    TriggerServerEvent('cm-inventory:server:requestEquipment')
-end)
-
-AddEventHandler('playerSpawned', function()
-    Wait(2500)
-    TriggerServerEvent('cm-inventory:server:requestEquipment')
 end)
 
 -- Ground drops: real prop + on-screen pickup card.
@@ -1017,7 +1176,7 @@ end
 
 local function sendDropPickupUi(list, selected)
     list = type(list) == 'table' and list or {}
-    if #list == 0 or isOpen then
+    if #list == 0 or isOpen or isDeadOrUnconscious() or isPlayerInsideVehicle() then
         if lastDropUiKey ~= 'hidden' then
             nui('nearDrops', { visible = false, drops = {} })
             lastDropUiKey = 'hidden'
@@ -1054,7 +1213,7 @@ CreateThread(function()
 
     while true do
         local sleep = 1000
-        if not isOpen and Drops and #Drops > 0 then
+        if not isOpen and not isDeadOrUnconscious() and not isPlayerInsideVehicle() and Drops and #Drops > 0 then
             local ped = PlayerPedId()
             local coords = GetEntityCoords(ped)
             local markerDistance = (Config.Drops and Config.Drops.markerDistance) or 18.0

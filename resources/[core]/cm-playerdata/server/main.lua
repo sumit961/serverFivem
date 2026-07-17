@@ -751,6 +751,22 @@ local function TransferMoney(src, fromAccount, toAccount, amount, reason, metada
     return true
 end
 
+local function SyncInventoryDeathState(src, dead)
+    if GetResourceState('cm-inventory') ~= 'started' then return end
+
+    local ok, err = pcall(function()
+        if dead then
+            exports['cm-inventory']:DropEquippedWeaponsOnDeath(src)
+        else
+            exports['cm-inventory']:ResetDeathDropState(src)
+        end
+    end)
+
+    if not ok then
+        Log('warn', 'Inventory death-state sync failed', { src = src, dead = dead == true, error = tostring(err) })
+    end
+end
+
 local function SetDead(src, isDead, reason)
     local data = PlayerData[src]
     if not data then return false end
@@ -778,6 +794,7 @@ local function SetDead(src, isDead, reason)
     data.dirty = true
 
     ApplyState(src)
+    SyncInventoryDeathState(src, data.isDead)
     Audit(src, data.isDead and 'death' or 'revive', { reason = reason })
     SavePlayerData(src, reason or (data.isDead and 'death' or 'revive'))
     return true
@@ -966,7 +983,7 @@ RegisterNetEvent('cm-playerdata:server:syncVitals', function(clientHealth, clien
 
     -- The client may report damage quickly, but never trust a huge healing jump from the client.
     -- Healing/revive should come from server exports so jobs/admin/hospital scripts stay authoritative.
-    local maxPassiveHeal = Config.Vitals.MaxPassiveHealDelta or 5
+    local maxPassiveHeal = math.max(0, tonumber(Config.Vitals.MaxPassiveHealDelta) or 0)
     if nextHealth > previousHealth + maxPassiveHeal then
         nextHealth = previousHealth
     end
@@ -1784,6 +1801,7 @@ RegisterNetEvent('cm-playerdata:server:treatComplete', function(finished)
     targetData.dirty = true
 
     ApplyState(target)
+    SyncInventoryDeathState(target, false)
     SavePlayerData(target, 'street_patch')
     if fullPatch then
         TriggerClientEvent('cm-playerdata:client:revive', target)
@@ -1862,13 +1880,21 @@ exports('SetOrganization', function(src, orgId, orgName)
     return true
 end)
 
-exports('SetFamily', function(src, familyId, familyName)
-    local data = PlayerData[src]
+exports('SetFamily', function(src, familyId, familyName, identity)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
     if not data then return false end
     data.metadata = data.metadata or {}
     data.metadata.family_id = familyId
     data.metadata.family = familyName or familyId
+    data.metadata.family_identity = type(identity) == 'table' and identity or nil
     data.dirty = true
+
+    -- cm-family is authoritative, but playerdata mirrors the sanitized identity
+    -- in a replicated state bag so overhead labels and the G menu need no DB polling.
+    local replicated = type(identity) == 'table' and identity or false
+    Player(src).state:set('cmFamily', replicated, true)
+    TriggerClientEvent('cm-playerdata:client:familyIdentityChanged', src)
     return true
 end)
 
@@ -2095,6 +2121,7 @@ exports('Heal', function(src, amountOrPercent, reason)
         data.dirty = true
 
         ApplyState(src)
+        SyncInventoryDeathState(src, false)
         SavePlayerData(src, reason or 'heal_revive')
         if targetHealth >= (Config.Vitals.MaxHealth or 200) then
             TriggerClientEvent('cm-playerdata:client:revive', src)
@@ -2131,6 +2158,7 @@ exports('RevivePartial', function(src, percent, reason)
     data.dirty = true
 
     ApplyState(src)
+    SyncInventoryDeathState(src, false)
     SavePlayerData(src, reason or 'revive_partial')
     TriggerClientEvent('cm-playerdata:client:revivePartial', src, health)
     Audit(src, 'revive_partial', { health = health, reason = reason })
@@ -2152,6 +2180,7 @@ exports('Revive', function(src)
     data.dirty = true
 
     ApplyState(src)
+    SyncInventoryDeathState(src, false)
     SavePlayerData(src, 'revive')
     TriggerClientEvent('cm-playerdata:client:revive', src)
     return true
@@ -2191,6 +2220,7 @@ exports('Respawn', function(src, spawnCoords, cost)
     data.dirty = true
 
     ApplyState(src)
+    SyncInventoryDeathState(src, false)
     SavePlayerData(src, 'respawn')
     Audit(src, 'hospital_respawn', { health = data.health, cost = cost })
     TriggerClientEvent('cm-playerdata:client:respawn', src, spawnCoords, data.health)

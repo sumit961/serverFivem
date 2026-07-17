@@ -95,22 +95,30 @@ end)
 -- Damage is stored per gun in cm-weapons; enable this only after testing your server balance.
 CreateThread(function()
     while true do
+        local sleep = 1000
         if Config.UseClientDamageModifier and next(weaponDamageRules) ~= nil then
             local ped = PlayerPedId()
-            local selected = GetSelectedPedWeapon(ped)
-            local damage = weaponDamageRules[selected]
-            if damage and damage > 0 then
-                local mult = damage / (tonumber(Config.DamageModifierBase) or 30.0)
-                if SetWeaponDamageModifierThisFrame then
-                    SetWeaponDamageModifierThisFrame(selected, mult)
-                elseif SetWeaponDamageModifier then
-                    SetWeaponDamageModifier(selected, mult)
+            -- Only spend a per-frame native when the player is actually armed;
+            -- an unarmed player (the common case) keeps the loop asleep at 500ms.
+            if IsPedArmed(ped, 7) then
+                local selected = GetSelectedPedWeapon(ped)
+                local damage = weaponDamageRules[selected]
+                if damage and damage > 0 then
+                    local mult = damage / (tonumber(Config.DamageModifierBase) or 30.0)
+                    if SetWeaponDamageModifierThisFrame then
+                        SetWeaponDamageModifierThisFrame(selected, mult)
+                    elseif SetWeaponDamageModifier then
+                        SetWeaponDamageModifier(selected, mult)
+                    end
+                    sleep = 0 -- ThisFrame variant must run every frame while armed
+                else
+                    sleep = 300
                 end
+            else
+                sleep = 500
             end
-            Wait(0)
-        else
-            Wait(1000)
         end
+        Wait(sleep)
     end
 end)
 

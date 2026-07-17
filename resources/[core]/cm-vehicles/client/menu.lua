@@ -78,7 +78,7 @@ local function getMenuVehicleFromData(data)
     if not veh or veh == 0 then veh = CMVehicles.Client.GetActionVehicle(true) end
     if veh and veh ~= 0 then
         plate = CMVehicles.Client.VehiclePlate(veh)
-        netId = NetworkGetNetworkIdFromEntity(veh)
+        netId = CMVehicles.Client.SafeNetId(veh)
     end
     return veh, plate, netId
 end
@@ -162,6 +162,53 @@ RegisterNetEvent('cm-vehicles:client:setVehicleState', function(plate, netId, st
     end
 end)
 
+
+-- ════════════════════════════════════════════════════════════════════
+--  INSTALLED PARTS
+--  Reads the upgrade level of every performance + visual slot straight off the
+--  car, so the info screen always reflects what is actually fitted (no DB lag).
+--  Level is 1-based for display: GTA index -1 = stock, 0 = level 1, and so on.
+-- ════════════════════════════════════════════════════════════════════
+-- Only the four upgrade paths the player actually cares about.
+local PART_SLOTS = {
+    { modType = 11, label = 'Engine',       perf = true },
+    { modType = 15, label = 'Suspension',   perf = true },
+    { modType = 13, label = 'Transmission', perf = true },
+}
+
+function CMVehicles.Client.ReadInstalledParts(veh)
+    if not veh or veh == 0 or not DoesEntityExist(veh) then return {} end
+    SetVehicleModKit(veh, 0)
+
+    local out = {}
+
+    for _, def in ipairs(PART_SLOTS) do
+        local max = GetNumVehicleMods(veh, def.modType) or 0
+        local idx = GetVehicleMod(veh, def.modType)
+        idx = (idx == nil) and -1 or idx
+        local level = (idx < 0) and 0 or (idx + 1)
+
+        out[#out + 1] = {
+            label = def.label,
+            level = level,
+            max = (max > 0) and max or 4,
+            text = (level == 0) and 'Stock' or ('Level %d'):format(level),
+        }
+    end
+
+    -- Tyres are a synthetic level (GTA has no tyre mod slot), stored in the
+    -- saved mods and mirrored on the cmTyreLevel state bag.
+    local tyre = CMVehicles.Client.GetTyreLevel and CMVehicles.Client.GetTyreLevel(veh) or 0
+    out[#out + 1] = {
+        label = 'Tyres',
+        level = tyre,
+        max = 4,
+        text = (tyre == 0) and 'Stock' or ('Level %d'):format(tyre),
+    }
+
+    return out
+end
+
 RegisterNetEvent('cm-vehicles:client:openMenu', function(info)
     info = type(info) == 'table' and info or {}
     info.context = CMVehicles.Client.CurrentMenuContext or {}
@@ -174,11 +221,28 @@ RegisterNetEvent('cm-vehicles:client:openMenu', function(info)
     if (not veh or veh == 0 or not DoesEntityExist(veh)) and info.plate then veh = CMVehicles.Client.FindVehicleByPlate(info.plate) end
     if veh and veh ~= 0 and DoesEntityExist(veh) then
         info.fuel = math.floor(((CMVehicles.Client.GetVehicleFuel(veh) or 100.0) * 10) + 0.5) / 10
-        info.engineHealth = GetVehicleEngineHealth(veh)
-        info.bodyHealth = GetVehicleBodyHealth(veh)
-        info.tankHealth = GetVehiclePetrolTankHealth(veh)
+        local state = Entity(veh).state
+        local nativeEngine = tonumber(GetVehicleEngineHealth(veh)) or 0.0
+        local nativeBody = tonumber(GetVehicleBodyHealth(veh)) or 0.0
+        local nativeTank = tonumber(GetVehiclePetrolTankHealth(veh)) or 0.0
+        -- During garage stream-in the native can briefly be zero. Show the
+        -- authoritative saved state instead of flashing a false 0% condition.
+        info.engineHealth = nativeEngine > 0.0 and nativeEngine
+            or tonumber(state.cmEngineHealth) or tonumber(info.engineHealth) or 1000.0
+        info.bodyHealth = nativeBody > 0.0 and nativeBody
+            or tonumber(state.cmBodyHealth) or tonumber(info.bodyHealth) or 1000.0
+        info.tankHealth = nativeTank > 0.0 and nativeTank
+            or tonumber(state.cmTankHealth) or tonumber(info.tankHealth) or 1000.0
+        info.dirtLevel = GetVehicleDirtLevel(veh)
         info.mileage = CMVehicles.Client.GetVehicleMileage(veh)
         info.racingHarness = CMVehicles.Client.HasRacingHarness(veh)
+        info.parts = CMVehicles.Client.ReadInstalledParts(veh)
+        -- Current vs stock top speed, so the player can see what tuning bought.
+        local base = (GetVehicleEstimatedMaxSpeed(veh) or 0.0)
+        local mul = CMVehicles.Client.GetTuningMultiplier(veh)
+        if mul > 0 then base = base / mul end
+        info.topSpeedStock = math.floor(base * 3.6 + 0.5)
+        info.topSpeed = math.floor(base * mul * 3.6 + 0.5)
     else
         -- Entity can be missing on this client near OneSync/routing-bucket boundaries.
         -- Keep the menu stable by falling back to safe DB payload defaults instead of reading a 0 entity.
@@ -241,7 +305,8 @@ RegisterCommand('veh_menu', function()
     end
 
     local plate = CMVehicles.Client.VehiclePlate(veh)
-    local netId = NetworkGetNetworkIdFromEntity(veh)
+    local netId = CMVehicles.Client.SafeNetId(veh)
+    if not netId then return CMVehicles.Client.Notify('This vehicle is not a networked CM vehicle.') end
     TriggerServerEvent('cm-vehicles:server:registerNetVehicle', plate, netId)
     TriggerServerEvent('cm-vehicles:server:requestInfo', plate, netId)
 end, false)
@@ -251,7 +316,8 @@ RegisterCommand('veh_lock', function()
     local veh = CMVehicles.Client.GetActionVehicle(true)
     if not veh or veh == 0 then return CMVehicles.Client.Notify('No vehicle nearby.') end
     local plate = CMVehicles.Client.VehiclePlate(veh)
-    local netId = NetworkGetNetworkIdFromEntity(veh)
+    local netId = CMVehicles.Client.SafeNetId(veh)
+    if not netId then return CMVehicles.Client.Notify('This vehicle is not a networked CM vehicle.') end
     TriggerServerEvent('cm-vehicles:server:registerNetVehicle', plate, netId)
     TriggerServerEvent('cm-vehicles:server:toggleLock', plate, netId)
 end, false)
@@ -260,7 +326,9 @@ RegisterKeyMapping('veh_lock', 'Lock/unlock vehicle', 'keyboard', Config.Control
 RegisterCommand('vehtrunk', function()
     local veh = CMVehicles.Client.GetActionVehicle(true)
     if not veh or veh == 0 then return CMVehicles.Client.Notify('No vehicle nearby.') end
-    TriggerServerEvent('cm-vehicles:server:toggleTrunkDoor', CMVehicles.Client.VehiclePlate(veh), NetworkGetNetworkIdFromEntity(veh))
+    local netId = CMVehicles.Client.SafeNetId(veh)
+    if not netId then return CMVehicles.Client.Notify('This vehicle is not a networked CM vehicle.') end
+    TriggerServerEvent('cm-vehicles:server:toggleTrunkDoor', CMVehicles.Client.VehiclePlate(veh), netId)
 end, false)
 
 RegisterCommand('vehmenu', function() ExecuteCommand('veh_menu') end, false)
@@ -315,8 +383,38 @@ RegisterNUICallback('vehicleAction', function(data, cb)
             local enabled = not IsVehicleNeonLightEnabled(veh, 0)
             local neons = {}
             for i = 0, 3 do SetVehicleNeonLightEnabled(veh, i, enabled); neons[i + 1] = enabled end
-            TriggerServerEvent('cm-vehicles:server:saveState', CMVehicles.Client.VehicleId(veh), { neons = neons, metadata = { neons = neons } })
+            TriggerServerEvent('cm-vehicles:server:saveState', CMVehicles.Client.VehicleId(veh), { netId = (CMVehicles.Client.SafeNetId(veh) or 0), neons = neons })
         end
+    elseif action == 'refuel' then
+        -- Uses a jerry can from the player's inventory. The server checks they
+        -- actually have one, consumes it, then tells us to apply the fuel.
+        if inVehicle then
+            CMVehicles.Client.Notify('Get out of the vehicle to refuel it.')
+        elseif not veh or veh == 0 then
+            CMVehicles.Client.Notify('No vehicle nearby.')
+        else
+            TriggerServerEvent('cm-vehicles:server:useServiceItem', 'refuel', plate, netId)
+        end
+    elseif action == 'repair' then
+        -- Uses a repair kit from the player's inventory.
+        if inVehicle then
+            CMVehicles.Client.Notify('Get out of the vehicle to repair it.')
+        elseif not veh or veh == 0 then
+            CMVehicles.Client.Notify('No vehicle nearby.')
+        else
+            TriggerServerEvent('cm-vehicles:server:useServiceItem', 'repair', plate, netId)
+        end
+    elseif action == 'wash' then
+        -- Uses a wash kit from the player's inventory (sponge + bucket).
+        if inVehicle then
+            CMVehicles.Client.Notify('Get out of the vehicle to wash it.')
+        elseif not veh or veh == 0 then
+            CMVehicles.Client.Notify('No vehicle nearby.')
+        else
+            TriggerServerEvent('cm-vehicles:server:useServiceItem', 'wash', plate, netId)
+        end
+    elseif action == 'charge' then
+        CMVehicles.Client.Notify('Charging is only available at an EV charger.')
     elseif action == 'sellState' then
         TriggerServerEvent('cm-vehicles:server:sellToState', plate, netId)
     elseif action == 'drift' then
@@ -352,7 +450,7 @@ local function tryOpenNearbyTrunkInventory()
     if not veh or veh == 0 then return false end
     local plate = CMVehicles.Client.VehiclePlate(veh)
     if plate == '' then return false end
-    TriggerServerEvent('cm-vehicles:server:openSharedTrunkInventory', plate, NetworkGetNetworkIdFromEntity(veh))
+    TriggerServerEvent('cm-vehicles:server:openSharedTrunkInventory', plate, (CMVehicles.Client.SafeNetId(veh) or 0))
     return true
 end
 
@@ -408,4 +506,233 @@ CreateThread(function()
         PublishVehicleInteractDist(vehTargetDist)
         Wait(sleep)
     end
+end)
+
+-- ────────────────────────────────────────────────────────────────────
+--  SERVICE ITEMS FROM THE G MENU (jerry can / repair kit)
+--  Flow: G menu -> server validates + consumes the item -> server tells us to
+--  apply the effect here. The item is the single source of truth, so this
+--  reuses the exact same items sold at the gas station.
+-- ────────────────────────────────────────────────────────────────────
+-- Server confirmed the player HAS the item (not consumed yet). Run the timed
+-- animation + progress bar. Only if it completes do we ask the server to
+-- consume the item and apply the effect. Cancelling costs the player nothing.
+RegisterNetEvent('cm-vehicles:client:beginServiceItem', function(kind, netId, token)
+    local veh = 0
+    if netId and netId ~= 0 and NetworkDoesNetworkIdExist(netId) then
+        veh = NetworkGetEntityFromNetworkId(netId)
+    end
+    if veh == 0 then
+        veh = CMVehicles.Client.GetActionVehicle and CMVehicles.Client.GetActionVehicle(true) or 0
+    end
+    if not veh or veh == 0 or not DoesEntityExist(veh) then
+        CMVehicles.Client.Notify('Vehicle is no longer nearby.')
+        return
+    end
+
+    -- Timed animation + progress bar.
+    local ok = CMVehicles.Client.RunServiceProgress(kind, veh, nil)
+    if not ok then return end   -- cancelled: item NOT consumed
+
+    -- Ask the server to actually consume the item now.
+    TriggerServerEvent('cm-vehicles:server:confirmServiceItem', kind, token, VehToNetSafe(veh))
+end)
+
+function VehToNetSafe(veh)
+    if not veh or veh == 0 then return 0 end
+    local ok, n = pcall(function() return (CMVehicles.Client.SafeNetId(veh) or 0) end)
+    return ok and n or 0
+end
+
+-- Server consumed the item -> apply the effect.
+RegisterNetEvent('cm-vehicles:client:applyServiceItem', function(kind, netId, patch)
+    local veh = 0
+    if netId and netId ~= 0 and NetworkDoesNetworkIdExist(netId) then
+        veh = NetworkGetEntityFromNetworkId(netId)
+    end
+    if veh == 0 then veh = CMVehicles.Client.GetActionVehicle and CMVehicles.Client.GetActionVehicle(true) or 0 end
+    if not veh or veh == 0 or not DoesEntityExist(veh) then return end
+    patch = type(patch) == 'table' and patch or {}
+
+    if kind == 'refuel' then
+        local fuel = tonumber(patch.fuel) or CMVehicles.Client.GetVehicleFuel(veh)
+        CMVehicles.Client.SetVehicleFuel(veh, fuel)
+        CMVehicles.Client.Notify(('Refueled. Tank at %d%%.'):format(math.floor(fuel + 0.5)))
+    elseif kind == 'repair' then
+        local engineBefore = GetVehicleEngineHealth(veh)
+        local tankBefore = GetVehiclePetrolTankHealth(veh)
+        local dirtBefore = GetVehicleDirtLevel(veh)
+        SetVehicleFixed(veh)
+        SetVehicleDeformationFixed(veh)
+        SetVehicleBodyHealth(veh, tonumber(patch.bodyHealth) or 1000.0)
+        SetVehicleEngineHealth(veh, engineBefore)
+        SetVehiclePetrolTankHealth(veh, tankBefore)
+        SetVehicleDirtLevel(veh, dirtBefore)
+        CMVehicles.Client.Notify('Bodywork repaired. Engine still needs a mechanic.')
+    elseif kind == 'wash' then
+        SetVehicleDirtLevel(veh, tonumber(patch.dirtLevel) or 0.0)
+        CMVehicles.Client.Notify('Vehicle washed.')
+    end
+end)
+
+-- ────────────────────────────────────────────────────────────────────
+--  SERVICE PROGRESS + ANIMATION (refuel / repair)
+--  Shows a timed progress bar, plays the matching animation with a held prop,
+--  and cancels if the player moves away, gets in a car, or presses ESC.
+--  Returns true only if the full duration completed.
+-- ────────────────────────────────────────────────────────────────────
+local svcBusy = false
+
+local function loadAnimDict(dict)
+    if not dict or dict == '' then return false end
+    if HasAnimDictLoaded(dict) then return true end
+    RequestAnimDict(dict)
+    local tries = 0
+    while not HasAnimDictLoaded(dict) and tries < 100 do
+        Wait(10); tries = tries + 1
+    end
+    return HasAnimDictLoaded(dict)
+end
+
+local function attachProp(ped, model, bone, off, rot)
+    if not model or model == '' then return nil end
+    local hash = GetHashKey(model)
+    RequestModel(hash)
+    local tries = 0
+    while not HasModelLoaded(hash) and tries < 100 do
+        Wait(10); tries = tries + 1
+    end
+    if not HasModelLoaded(hash) then return nil end
+
+    local coords = GetEntityCoords(ped)
+    local obj = CreateObject(hash, coords.x, coords.y, coords.z + 0.2, true, true, true)
+    AttachEntityToEntity(obj, ped, GetPedBoneIndex(ped, bone or 57005),
+        off.x, off.y, off.z, rot.x, rot.y, rot.z, true, true, false, true, 1, true)
+    SetModelAsNoLongerNeeded(hash)
+    return obj
+end
+
+-- kind = 'refuel' | 'repair'
+function CMVehicles.Client.RunServiceProgress(kind, vehicle, durationMs)
+    if svcBusy then
+        CMVehicles.Client.Notify('You are already busy.')
+        return false
+    end
+    svcBusy = true
+
+    local svc = Config.Service or {}
+    local anim = svc.Anim or {}
+    local ped = PlayerPedId()
+
+    local isRepair = (kind == 'repair')
+    local isWash   = (kind == 'wash')
+
+    local dict, clip, propModel, defaultMs
+    if isRepair then
+        dict      = anim.repairDict or 'mini@repair'
+        clip      = anim.repairClip or 'fixing_a_ped'
+        propModel = anim.propRepair or 'prop_tool_wrench'
+        defaultMs = tonumber(svc.repairDurationMs) or 12000
+    elseif isWash then
+        dict      = anim.washDict or 'timetable@floyd@clean_kitchen@base'
+        clip      = anim.washClip or 'base'
+        propModel = anim.propWash or 'prop_sponge_01'
+        defaultMs = tonumber(svc.washDurationMs) or 10000
+    else
+        dict      = anim.refuelDict or 'weapon@w_sp_jerrycan'
+        clip      = anim.refuelClip or 'fire'
+        propModel = anim.propJerryCan or 'w_am_jerrycan'
+        defaultMs = tonumber(svc.refuelDurationMs) or 8000
+    end
+
+    durationMs = tonumber(durationMs) or defaultMs
+
+    -- Face the vehicle, then play the anim.
+    if vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) then
+        TaskTurnPedToFaceEntity(ped, vehicle, 800)
+        Wait(400)
+    end
+
+    local prop
+    if loadAnimDict(dict) then
+        TaskPlayAnim(ped, dict, clip, 3.0, -3.0, -1, (isRepair or isWash) and 1 or 49, 0, false, false, false)
+    end
+    if isRepair then
+        prop = attachProp(ped, propModel, 28422, vector3(0.09, 0.03, -0.02), vector3(-78.0, 13.0, 28.0))
+    elseif isWash then
+        prop = attachProp(ped, propModel, 57005, vector3(0.12, 0.02, -0.01), vector3(-50.0, 0.0, 0.0))
+    else
+        prop = attachProp(ped, propModel, 57005, vector3(0.35, 0.02, -0.02), vector3(-130.0, -50.0, 0.0))
+    end
+
+    local title = isRepair and 'Repairing bodywork' or (isWash and 'Washing vehicle' or 'Refueling')
+    local sub   = isRepair and 'Panel beating, glass and doors…'
+        or (isWash and 'Scrubbing off the dirt…' or 'Pouring the jerry can…')
+    SendNUIMessage({ action = 'svcStart', kind = kind, title = title, sub = sub })
+
+    local startAt = GetGameTimer()
+    local startCoords = GetEntityCoords(ped)
+    local completed = true
+
+    while true do
+        Wait(90)
+        local now = GetGameTimer()
+        local elapsed = now - startAt
+        if elapsed >= durationMs then break end
+
+        SendNUIMessage({ action = 'svcUpdate', pct = (elapsed / durationMs) * 100.0 })
+
+        local pedNow = PlayerPedId()
+
+        -- Cancel conditions
+        if IsPedInAnyVehicle(pedNow, false) then
+            completed = false; break
+        end
+        if #(GetEntityCoords(pedNow) - startCoords) > 3.0 then
+            CMVehicles.Client.Notify('You moved away. Cancelled.')
+            completed = false; break
+        end
+        if IsControlJustReleased(0, 322) then -- ESC
+            CMVehicles.Client.Notify('Cancelled.')
+            completed = false; break
+        end
+        if vehicle and vehicle ~= 0 and not DoesEntityExist(vehicle) then
+            completed = false; break
+        end
+
+        -- Keep the anim alive if something interrupted it.
+        if not IsEntityPlayingAnim(pedNow, dict, clip, 3) then
+            TaskPlayAnim(pedNow, dict, clip, 3.0, -3.0, -1, (isRepair or isWash) and 1 or 49, 0, false, false, false)
+        end
+    end
+
+    -- Cleanup
+    SendNUIMessage({ action = 'svcStop' })
+    ClearPedTasks(PlayerPedId())
+    if prop and DoesEntityExist(prop) then
+        DetachEntity(prop, true, true)
+        DeleteEntity(prop)
+    end
+    RemoveAnimDict(dict)
+
+    svcBusy = false
+    return completed
+end
+
+-- Exposed so other resources (cm-gasstations item use, a future mechanic job)
+-- get the same timed animation + progress bar without duplicating it.
+exports('RunServiceProgress', function(kind, vehicle, durationMs)
+    return CMVehicles.Client.RunServiceProgress(kind, vehicle, durationMs)
+end)
+
+-- Manual progress-bar control for resources that drive their own timer (e.g. a
+-- drive-in car wash, where the player stays in the car and there is no ped anim).
+exports('ShowServiceProgress', function(kind, title, sub)
+    SendNUIMessage({ action = 'svcStart', kind = kind or 'wash', title = title, sub = sub })
+end)
+exports('UpdateServiceProgress', function(pct)
+    SendNUIMessage({ action = 'svcUpdate', pct = tonumber(pct) or 0 })
+end)
+exports('HideServiceProgress', function()
+    SendNUIMessage({ action = 'svcStop' })
 end)

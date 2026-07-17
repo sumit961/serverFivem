@@ -159,7 +159,12 @@ function addMessage(message) {
         id: message.id || 0,
         text: sanitizeText(message.text || ''),
         format: message.format || message.type || ch.format || 'rp',
-        time: message.time || ''
+        time: message.time || '',
+        familyId: message.familyId || null,
+        familyName: sanitizeText(message.familyName || ''),
+        familyTag: sanitizeText(message.familyTag || ''),
+        rankName: sanitizeText(message.rankName || ''),
+        memberTitle: sanitizeText(message.memberTitle || '')
     };
 
     state.messages.push(msg);
@@ -178,6 +183,11 @@ function buildPrefix(msg) {
     if (msg.format === 'do') return 'Scene:';
     if (msg.format === 'me') return `${author} (${id})`;
     if (msg.format === 'try') return `${author} (${id}) tries:`;
+    if (msg.format === 'family') {
+        const tag = escapeHtml(msg.familyTag || 'FAMILY');
+        const role = escapeHtml(msg.memberTitle || msg.rankName || 'Member');
+        return `[${tag}] [${role}] ${author} (${id}):`;
+    }
     return `${author} (${id}) said:`;
 }
 

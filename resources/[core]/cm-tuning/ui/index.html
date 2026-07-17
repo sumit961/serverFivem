@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CM Tuning</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="interaction" class="interaction hidden" aria-hidden="true">
+    <div class="interaction-key" id="interactionKey">E</div>
+    <div class="interaction-copy">
+      <span class="interaction-title" id="interactionTitle">CM MOTORWORKS</span>
+      <strong id="interactionLabel">Open tuning shop</strong>
+      <small id="interactionHint">Vehicle is secured while customising</small>
+    </div>
+  </div>
+
+  <div id="root" class="tuning-root hidden" aria-hidden="true">
+    <div class="screen-shade"></div>
+    <main class="tuning-panel" role="dialog" aria-modal="true" aria-labelledby="shopTitle">
+      <header class="panel-header">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="m14.7 6.3 3-3 3 3-3 3m-8.4 8.4-3 3-3-3 3-3M8 16l8-8M4 8h5M15 16h5"/></svg>
+        </div>
+        <div class="heading-copy">
+          <span class="eyebrow">CM MOTORWORKS</span>
+          <h1 id="shopTitle">Tuning</h1>
+          <p id="shopSub">Secure vehicle customisation</p>
+        </div>
+        <button class="icon-button" id="btnClose" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </header>
+
+      <section class="vehicle-strip">
+        <div>
+          <span class="section-label">SELECTED VEHICLE</span>
+          <div class="vehicle-line">
+            <h2 id="vehicleName">Vehicle</h2>
+            <span class="plate" id="vehiclePlate">NO PLATE</span>
+          </div>
+        </div>
+        <span class="status-badge"><i></i> SECURED</span>
+      </section>
+
+      <section class="workspace">
+        <aside class="category-column">
+          <div class="category-heading">UPGRADES</div>
+          <div id="categoryList" class="category-list"></div>
+          <div class="camera-block">
+            <span class="category-heading">CAMERA</span>
+            <div id="cameraList" class="camera-list"></div>
+          </div>
+        </aside>
+
+        <section class="content-column">
+          <header class="content-header">
+            <div>
+              <span class="section-label">CUSTOMISATION</span>
+              <h2 id="paneTitle">Engine</h2>
+              <p id="paneSub">Select an upgrade</p>
+            </div>
+          </header>
+          <div id="paneBody" class="pane-body"></div>
+        </section>
+      </section>
+
+      <footer class="checkout">
+        <div class="payment-block">
+          <span class="section-label">PAYMENT</span>
+          <div id="paymentOptions" class="payment-options"></div>
+        </div>
+        <div class="checkout-total">
+          <span>ORDER TOTAL</span>
+          <strong id="totalValue">$0</strong>
+          <small id="checkoutHint">Server-verified price</small>
+        </div>
+        <button id="btnBuy" class="primary-button" type="button" disabled>
+          <span id="buyText">Save changes</span>
+          <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>
+        </button>
+      </footer>
+
+      <div id="toast" class="toast hidden" role="status">
+        <span class="toast-dot"></span>
+        <p id="toastMessage"></p>
+      </div>
+
+      <div class="key-hint"><kbd>Q</kbd><kbd>E</kbd><span>Rotate camera</span><kbd>ESC</kbd><span>Cancel</span></div>
+
+      <div id="processing" class="processing hidden" aria-hidden="true">
+        <div class="spinner"></div>
+        <strong id="processingText">Processing...</strong>
+      </div>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

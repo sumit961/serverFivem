@@ -1,6 +1,19 @@
+-- cm-gunstore/server/main.lua
+-- Refactored & hardened. Behaviour is unchanged for players; the differences are:
+--   * shared helpers come from CMGun (shared/util.lua) instead of local copies
+--   * every state-changing net event verifies `source` server-side and never
+--     trusts a client-supplied player id
+--   * buys are rate-limited per player (debounce) on top of the existing lock
+--   * new GetWeaponAmmo export + requestWeaponAmmo event power the
+--     "buy ammo with the weapon" store flow (no separate ammo column)
+
 local RESOURCE = GetCurrentResourceName()
 local DB_READY = false
 local syncConfigCatalog
+
+-- localized shared helpers (faster than repeated global CMGun.x lookups)
+local normalizeItemName = CMGun.normalizeItemName
+local boolInt           = CMGun.boolInt
 
 local function dbg(msg)
     if Config.Debug then print(('[%s] %s'):format(RESOURCE, tostring(msg))) end
@@ -14,34 +27,21 @@ local function notify(src, msg, typ)
     TriggerClientEvent('cm-hud:client:notify', src, tostring(msg or ''), typ or 'info')
 end
 
-local function weaponsResource()
-    return Config.WeaponsResource or 'cm-weapons'
-end
+local function weaponsResource() return Config.WeaponsResource or 'cm-weapons' end
+local function itemsResource()   return Config.ItemsResource or 'cm-items' end
 
-local function itemsResource()
-    return Config.ItemsResource or 'cm-items'
-end
-
+-- Ace-gated admin check. The bare `command` ace is deliberately NOT a fallback:
+-- it is granted very broadly on many servers, so using it would let ordinary
+-- players edit prices/stock/catalog.
 local function isAdmin(src)
     if src == 0 then return true end
-    -- Only the gunstore-admin ace or the specific admin command ace grant access.
-    -- The bare 'command' ace is granted very broadly on many servers, so it must
-    -- NOT be a fallback here or ordinary players could edit prices/stock/catalog.
     return IsPlayerAceAllowed(src, Config.AdminAce or 'cm.gunstore.admin')
         or IsPlayerAceAllowed(src, 'command.' .. (Config.AdminCommand or 'gunadmin'))
 end
 
-local function boolInt(value)
-    if value == true or value == 1 or value == '1' or value == 'true' or value == 'yes' or value == 'on' then return 1 end
-    return 0
-end
-
-local function normalizeItemName(value)
-    value = tostring(value or ''):lower():gsub('%s+', '_'):gsub('[^a-z0-9_%-%.]', '_'):gsub('_+', '_')
-    value = value:gsub('^_+', ''):gsub('_+$', '')
-    return value:sub(1, 80)
-end
-
+-- ============================================================
+-- Config catalog lookups (price/stock/visibility are config-owned)
+-- ============================================================
 local function configStoreEntry(itemName)
     itemName = normalizeItemName(itemName)
     if itemName == '' then return nil end
@@ -76,7 +76,6 @@ local function configDefaultStock(itemName, fallback)
     return math.floor(tonumber(fallback) or -1)
 end
 
-
 local allWeapons, allAmmo
 
 local function findWeaponDefFromAll(itemName)
@@ -88,21 +87,19 @@ local function findWeaponDefFromAll(itemName)
             return w
         end
     end
-    -- Last-resort local reference fallback. cm-weapons should still be the source of truth,
-    -- but this prevents an empty player store if cm-weapons cache is still warming up.
+    -- Last-resort local reference so the player store is never empty while the
+    -- cm-weapons cache warms up.
     for _, w in ipairs(Config.WeaponCatalog or {}) do
         local hash = tostring(w.hash or w.weaponHash or w.weapon_hash or ''):upper()
         if normalizeItemName(hash) == itemName then
+            local ammo = normalizeItemName(w.ammo or w.ammoItem or w.ammo_item)
+            local group = tostring(w.group or 'pistol'):lower()
             return {
-                itemName = itemName,
-                item_name = itemName,
+                itemName = itemName, item_name = itemName,
                 label = tostring(w.label or itemName),
-                weaponHash = hash,
-                weapon_hash = hash,
-                group = tostring(w.group or 'pistol'):lower(),
-                group_key = tostring(w.group or 'pistol'):lower(),
-                ammoItem = normalizeItemName(w.ammo or w.ammoItem or w.ammo_item),
-                ammo_item = normalizeItemName(w.ammo or w.ammoItem or w.ammo_item),
+                weaponHash = hash, weapon_hash = hash,
+                group = group, group_key = group,
+                ammoItem = ammo, ammo_item = ammo,
                 damage = tonumber(w.damage) or 0,
                 magazineSize = tonumber(w.magazineSize or w.magazine_size) or 0,
                 magazine_size = tonumber(w.magazineSize or w.magazine_size) or 0,
@@ -206,6 +203,8 @@ local function ensureDatabase()
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]])
 
+    -- Column adds for servers upgrading from an older schema. Wrapped in pcall
+    -- so re-running (columns already present) is a no-op.
     local alters = {
         'ALTER TABLE cm_gun_catalog ADD COLUMN ammo_key VARCHAR(40) NULL AFTER ammo_item',
         'ALTER TABLE cm_gun_catalog ADD COLUMN pickup_hash BIGINT NOT NULL DEFAULT 0 AFTER ammo_key',
@@ -223,13 +222,15 @@ local function ensureDatabase()
     pcall(function() MySQL.query.await('CREATE INDEX idx_cm_gun_catalog_type ON cm_gun_catalog (item_type)') end)
     pcall(function() MySQL.query.await('CREATE INDEX idx_cm_gun_catalog_enabled ON cm_gun_catalog (enabled)') end)
 
-    -- v1.2: gun/ammo definitions are managed by cm-weapons. cm_gun_catalog now stores only shop price/stock/visibility.
     DB_READY = true
     print(('[%s] store catalog ready | weapon/ammo source = %s'):format(RESOURCE, weaponsResource()))
 end
 
 CreateThread(ensureDatabase)
 
+-- ============================================================
+-- cm-weapons bridge (weapon/ammo definitions live there)
+-- ============================================================
 local function weaponExport(name, ...)
     local res = weaponsResource()
     if GetResourceState(res) ~= 'started' then return nil, 'cm-weapons_not_started' end
@@ -264,7 +265,8 @@ local function fallbackWeaponDefFromPicker(data)
         itemName = itemName, item_name = itemName,
         label = tostring(data.label or itemName),
         weaponHash = weaponHash, weapon_hash = weaponHash,
-        group = tostring(data.group or data.group_key or 'pistol'):lower(), group_key = tostring(data.group or data.group_key or 'pistol'):lower(),
+        group = tostring(data.group or data.group_key or 'pistol'):lower(),
+        group_key = tostring(data.group or data.group_key or 'pistol'):lower(),
         ammoItem = ammoItem, ammo_item = ammoItem,
         damage = math.max(0, math.floor(tonumber(data.damage) or 0)),
         magazineSize = math.max(0, math.floor(tonumber(data.magazineSize or data.magazine_size) or 0)),
@@ -361,6 +363,21 @@ local function hasAmmoSnapshot(shop)
         and (tostring(shop.ammo_key or shop.ammoKey or '') ~= '' or tonumber(shop.pickup_hash or shop.pickupHash) ~= nil)
 end
 
+-- Image priority for weapon/ammo rows.
+-- cm-weapons is the source of truth for weapon/ammo art, so its image wins over
+-- the gun store's cached copy -- UNLESS an admin deliberately uploaded a custom
+-- override into the gun store (a 'nui://' path), which we keep. A plain default
+-- like 'images/ammo_556nato.svg' always yields to the cm-weapons image so a newly
+-- uploaded /cmweaponadmin image actually shows up on store items and purchases.
+local function preferredDefImage(storeImage, defImage)
+    storeImage = tostring(storeImage or '')
+    defImage = tostring(defImage or '')
+    local storeIsCustom = storeImage:sub(1, 6) == 'nui://'
+    if storeIsCustom and storeImage ~= '' then return storeImage end
+    if defImage ~= '' then return defImage end
+    return storeImage
+end
+
 local function mergeWeaponRow(shop, def)
     shop = rowToPublic(shop or {})
     def = type(def) == 'table' and def or nil
@@ -372,14 +389,12 @@ local function mergeWeaponRow(shop, def)
         shop.ammo_item = normalizeItemName(def.ammoItem or def.ammo_item or shop.ammo_item)
         shop.damage = math.max(0, math.floor(tonumber(def.damage) or 0))
         shop.magazine_size = math.max(0, math.floor(tonumber(def.magazineSize or def.magazine_size) or 0))
-        shop.image = shop.image ~= '' and shop.image or tostring(def.image or '')
+        shop.image = preferredDefImage(shop.image, def.image)
         shop.description = shop.description ~= '' and shop.description or tostring(def.description or '')
         shop.group = tostring(def.group or def.group_key or 'pistol')
         shop.weight = tonumber(def.weight) or nil
         shop.source = 'cm-weapons'
     elseif hasWeaponSnapshot(shop) then
-        -- The store row was already created from cm-weapons and contains a safe snapshot.
-        -- Do not block purchases just because the export/cache lookup missed during buy.
         shop.item_type = 'weapon'
         shop.snapshot_source_missing = true
         shop.source = 'cm-gunstore_snapshot'
@@ -402,12 +417,11 @@ local function mergeAmmoRow(shop, def)
         shop.drop_model = tostring(def.dropModel or def.drop_model or shop.drop_model or '')
         shop.pack_size = math.max(1, math.floor(tonumber(def.packSize or def.pack_size) or shop.pack_size or 1))
         shop.damage = 0
-        shop.image = shop.image ~= '' and shop.image or tostring(def.image or '')
+        shop.image = preferredDefImage(shop.image, def.image)
         shop.description = shop.description ~= '' and shop.description or tostring(def.description or '')
         shop.weight = tonumber(def.weight) or nil
         shop.source = 'cm-weapons'
     elseif hasAmmoSnapshot(shop) then
-        -- Same safe snapshot fallback for ammo already saved into the store catalog.
         shop.item_type = 'ammo'
         shop.snapshot_source_missing = true
         shop.source = 'cm-gunstore_snapshot'
@@ -451,6 +465,9 @@ local function getCatalogRowByName(itemName)
     return applyConfigStore(public)
 end
 
+-- ============================================================
+-- Inventory / money integration
+-- ============================================================
 local function inventorySuccess(result)
     if result == true then return true end
     if type(result) == 'number' then return result > 0 end
@@ -465,15 +482,12 @@ local function registerUsableThroughItemActions(itemName, itemType)
     itemName = normalizeItemName(itemName)
     if itemName == '' or GetResourceState(Config.Inventory or 'cm-inventory') ~= 'started' then return end
     itemType = tostring(itemType or ''):lower()
-
     if itemType == 'armor' then
         pcall(function()
             exports[Config.Inventory or 'cm-inventory']:RegisterUseableItem(itemName, 'cm-gunstore', 'UseVest')
         end)
         return
     end
-
-    -- Weapon and ammo use/equip should be handled by cm-weapons/cm-itemactions.
     pcall(function()
         exports[Config.Inventory or 'cm-inventory']:RegisterUseableItem(itemName, 'cm-itemactions', 'UseItem')
     end)
@@ -505,7 +519,6 @@ local function addInventoryItem(src, itemName, amount, metadata)
     if GetResourceState(Config.Inventory or 'cm-inventory') ~= 'started' then
         return false, 'Inventory is not available.'
     end
-
     metadata = type(metadata) == 'table' and metadata or {}
     metadata.inventoryOnly = true
     metadata.equipped = false
@@ -522,14 +535,12 @@ local function addInventoryItem(src, itemName, amount, metadata)
         function() return inv:AddItem(src, itemName, amount, metadata) end,
         function() return inv:AddItem(src, itemName, amount, false, metadata, 'cm_gunstore_purchase') end,
     }
-
     local lastErr = nil
     for _, fn in ipairs(attempts) do
         local ok, result, reason = pcall(fn)
         if ok and inventorySuccess(result) then return true end
         lastErr = reason or result or lastErr
     end
-
     return false, tostring(lastErr or 'inventory_full_or_unknown_item')
 end
 
@@ -547,53 +558,36 @@ end
 local function removeMoney(src, account, amount, reason)
     amount = math.floor(tonumber(amount) or 0)
     if amount <= 0 then return true end
-
     account = normalizeMoneyAccount(account)
     reason = tostring(reason or 'cm_gunstore_purchase')
-
     if not playerdataMoneyAvailable() then
         return false, 'cm-playerdata wallet is not available.'
     end
-
     local pd = exports['cm-playerdata']
-
-    -- Optional fast check. RemoveMoney is still the trusted final check.
-    local canOk, canPay = pcall(function()
-        return pd:CanAfford(src, account, amount)
-    end)
+    local canOk, canPay = pcall(function() return pd:CanAfford(src, account, amount) end)
     if canOk and canPay == false then
         return false, ('Not enough %s.'):format(account)
     end
-
-    local ok, result = pcall(function()
-        return pd:RemoveMoney(src, account, amount, reason)
-    end)
-
-    if ok and result == true then
-        return true
-    end
-
+    local ok, result = pcall(function() return pd:RemoveMoney(src, account, amount, reason) end)
+    if ok and result == true then return true end
     return false, ('Not enough %s.'):format(account)
 end
 
 local function refundMoney(src, account, amount, reason)
     amount = math.floor(tonumber(amount) or 0)
     if amount <= 0 then return false end
-
     account = normalizeMoneyAccount(account)
     reason = tostring(reason or 'cm_gunstore_refund')
-
-    if not playerdataMoneyAvailable() then
-        return false
-    end
-
+    if not playerdataMoneyAvailable() then return false end
     local ok, result = pcall(function()
         return exports['cm-playerdata']:AddMoney(src, account, amount, reason)
     end)
-
     return ok and result == true
 end
 
+-- ============================================================
+-- Stock: atomic decrement/increment so concurrent buys cannot oversell.
+-- ============================================================
 local function reserveStock(itemName, units)
     itemName = normalizeItemName(itemName)
     units = math.max(1, math.floor(tonumber(units) or 1))
@@ -616,17 +610,23 @@ local function releaseStock(itemName, units)
     return true
 end
 
--- One in-flight purchase per player. Prevents buy-spam from racing the stock
--- check against the stock decrement (buying past a limited stock) or double-
--- charging while the money/inventory exports yield.
+-- One in-flight purchase per player + a short per-player cooldown so buy-spam
+-- cannot race the stock check against the decrement or double-charge while the
+-- money/inventory exports yield.
 local PurchaseLock = {}
+local LastBuyAt = {}
 
 AddEventHandler('playerDropped', function()
-    if source then PurchaseLock[source] = nil end
+    local src = source
+    if src then
+        PurchaseLock[src] = nil
+        LastBuyAt[src] = nil
+    end
 end)
 
 -- Require the player to actually be standing at a gun store instead of
--- triggering the buy event from anywhere on the map.
+-- triggering the buy event from anywhere on the map. Uses cheap squared-distance
+-- math (#(a-b)) rather than Vdist.
 local function isNearShop(src)
     if not Config.Shops or #Config.Shops == 0 then return true end
     local ped = GetPlayerPed(src)
@@ -652,21 +652,73 @@ local function makeSerial(src)
     return ('CMW-%s-%s-%04d'):format(os.date('!%Y%m%d%H%M%S'), tostring(src), math.random(0, 9999))
 end
 
+-- Ammo is a STACKABLE item, so cm-inventory renders its icon from the cm-items
+-- base definition, not from per-purchase metadata. If the gun store has an image
+-- for this ammo that the base cm-items entry is missing (or that differs), push
+-- it so the inventory icon matches what the store shows. cm-weapons owns the
+-- ammo definition; this only fills in / corrects the image, nothing else.
+local ammoImageSynced = {}
+local function ensureAmmoImageInCmItems(row)
+    if not row or row.item_type ~= 'ammo' then return end
+    local itemName = normalizeItemName(row.item_name)
+    local image = tostring(row.image or '')
+    if itemName == '' or image == '' then return end
+    if GetResourceState(itemsResource()) ~= 'started' then return end
+
+    -- Only attempt once per item per resource lifetime unless the image changed.
+    if ammoImageSynced[itemName] == image then return end
+
+    -- Compare against the current cm-items base image; skip if already identical.
+    local baseImage = nil
+    pcall(function()
+        local getter = exports[itemsResource()].GetCatalogItem
+        if getter then
+            local def = exports[itemsResource()]:GetCatalogItem(itemName)
+            if type(def) == 'table' then baseImage = tostring(def.image or def.icon or '') end
+        end
+    end)
+    if baseImage == image then
+        ammoImageSynced[itemName] = image
+        return
+    end
+
+    local ammoDef = getAmmoDef(itemName) or {}
+    pcall(function()
+        exports[itemsResource()]:SaveCatalogItem({
+            name = itemName,
+            label = tostring(row.label or ammoDef.label or itemName),
+            category = 'ammo',
+            itemType = 'ammo',
+            image = image,
+            stack = true,
+            usable = true,
+            weight = tonumber(ammoDef.weight) or nil,
+            description = tostring(row.description or ammoDef.description or ('Ammo: ' .. itemName)),
+            metadata = {
+                source = 'cm-gunstore',
+                itemType = 'ammo',
+                ammoKey = row.ammo_key or ammoDef.ammoKey or ammoDef.ammo_key,
+                pickupHash = row.pickup_hash or ammoDef.pickupHash or ammoDef.pickup_hash,
+                dropModel = row.drop_model or ammoDef.dropModel or ammoDef.drop_model,
+                packSize = row.pack_size or ammoDef.packSize or ammoDef.pack_size,
+            },
+            createdBy = 'cm-gunstore',
+        })
+    end)
+    ammoImageSynced[itemName] = image
+    dbg(('ensured cm-items ammo image for %s -> %s'):format(itemName, image))
+end
+
 local function buildMetadata(src, row)
     row = row or {}
     local now = os.date('!%Y-%m-%dT%H:%M:%SZ')
     local meta = {
-        label = row.label,
-        image = row.image,
-        icon = row.image,
-        description = row.description,
-        purchasedAt = now,
-        boughtFrom = 'cm-gunstore',
+        label = row.label, image = row.image, icon = row.image,
+        img = row.image, imageUrl = row.image, -- extra keys some inventories read
+        description = row.description, purchasedAt = now, boughtFrom = 'cm-gunstore',
         catalogId = tonumber(row.id) or nil,
         snapshot = {
-            label = row.label,
-            image = row.image,
-            description = row.description,
+            label = row.label, image = row.image, description = row.description,
             itemType = row.item_type,
             armorValue = tonumber(row.armor_value or row.armorValue) or nil,
             damage = tonumber(row.damage) or 0,
@@ -676,32 +728,22 @@ local function buildMetadata(src, row)
             gender = row.gender
         }
     }
-
     if row.item_type == 'ammo' then
         local ammo = getAmmoDef(row.item_name)
-        meta.category = 'ammo'
-        meta.categoryType = 'ammo'
-        meta.itemType = 'normal'
-        meta.rarity = 'normal'
-        meta.ammoType = row.item_name
-        meta.ammoKey = row.ammo_key
-        meta.pickupHash = row.pickup_hash
-        meta.dropModel = row.drop_model
-        meta.packSize = row.pack_size
-        meta.stack = true
+        -- keep the cm-items base icon in sync so the stacked inventory item shows the image
+        ensureAmmoImageInCmItems(row)
+        meta.category = 'ammo'; meta.categoryType = 'ammo'; meta.itemType = 'normal'; meta.rarity = 'normal'
+        meta.ammoType = row.item_name; meta.ammoKey = row.ammo_key; meta.pickupHash = row.pickup_hash
+        meta.dropModel = row.drop_model; meta.packSize = row.pack_size; meta.stack = true
         if ammo then
             meta.ammoKey = ammo.ammoKey or ammo.ammo_key or meta.ammoKey
             meta.pickupHash = ammo.pickupHash or ammo.pickup_hash or meta.pickupHash
             meta.dropModel = ammo.dropModel or ammo.drop_model or meta.dropModel
         end
     elseif row.item_type == 'armor' then
-        meta.category = 'armor'
-        meta.categoryType = 'armor'
-        meta.itemType = 'normal'
-        meta.rarity = 'rare'
+        meta.category = 'armor'; meta.categoryType = 'armor'; meta.itemType = 'normal'; meta.rarity = 'rare'
         meta.armorValue = tonumber(row.armor_value or row.armorValue) or 0
-        meta.stack = false
-        meta.usable = true
+        meta.stack = false; meta.usable = true
         meta.isWearableVest = tonumber(row.drawable_id or row.drawableId) ~= nil
         meta.componentType = 'component'
         meta.componentIndex = tonumber(row.component_id or row.componentId) or 9
@@ -713,25 +755,60 @@ local function buildMetadata(src, row)
         meta.gender = row.gender or 'both'
     else
         local weapon = getWeaponDef(row.item_name ~= '' and row.item_name or row.weapon_hash)
-        meta.category = 'weapon'
-        meta.categoryType = 'weapon'
-        meta.itemType = 'unique'
-        meta.rarity = 'unique'
+        meta.category = 'weapon'; meta.categoryType = 'weapon'; meta.itemType = 'unique'; meta.rarity = 'unique'
         meta.weaponHash = row.weapon_hash
         meta.weaponHashNumber = weapon and (weapon.weaponHashNumber or weapon.weapon_hash_number) or nil
-        meta.weaponName = row.item_name
-        meta.ammoType = row.ammo_item
-        meta.ammoItem = row.ammo_item
-        meta.damage = row.damage
-        meta.magazineSize = row.magazine_size
+        meta.weaponName = row.item_name; meta.ammoType = row.ammo_item; meta.ammoItem = row.ammo_item
+        meta.damage = row.damage; meta.magazineSize = row.magazine_size
         meta.serial = makeSerial(src)
         meta.durability = weapon and (weapon.durability or 100) or 100
         meta.stack = false
     end
-
     return meta
 end
 
+-- ============================================================
+-- NEW: resolve the ammo a weapon uses, and whether that ammo is buyable here.
+-- Powers the "Add ammunition" panel on the weapon detail so we do not need a
+-- separate ammo column in the store.
+-- ============================================================
+local function resolveWeaponAmmo(weaponItemName)
+    weaponItemName = normalizeItemName(weaponItemName)
+    if weaponItemName == '' then return nil end
+
+    -- 1) get the weapon's linked ammo item from cm-weapons (source of truth)
+    local ammoName = normalizeItemName((weaponExport('GetWeaponAmmoItem', weaponItemName)) or '')
+    if ammoName == '' then
+        local wdef = getWeaponDef(weaponItemName) or findWeaponDefFromAll(weaponItemName)
+        ammoName = wdef and normalizeItemName(wdef.ammoItem or wdef.ammo_item) or ''
+    end
+    if ammoName == '' then return nil end
+
+    -- 2) find the store row for that ammo so the player pays the store price.
+    local storeRow = getCatalogRowByName(ammoName)
+    local def = getAmmoDef(ammoName) or findAmmoDefFromAll(ammoName)
+    if not storeRow and not def then return nil end
+
+    local label = (storeRow and storeRow.label) or (def and (def.label or def.item_name)) or ammoName
+    local image = (storeRow and storeRow.image ~= '' and storeRow.image)
+        or (def and def.image) or ''
+    local price = configPrice(ammoName, storeRow and storeRow.price or (def and def.price) or 0)
+    local buyable = storeRow ~= nil and storeRow.enabled == true
+    local packSize = math.max(1, tonumber((storeRow and storeRow.pack_size) or (def and (def.packSize or def.pack_size)) or 1))
+
+    return {
+        item_name = ammoName,
+        label = label,
+        image = image,
+        price = price,
+        pack_size = packSize,
+        buyable = buyable, -- false if ammo exists but is set Hidden in the store
+    }
+end
+
+-- ============================================================
+-- Catalog request (player + admin)
+-- ============================================================
 RegisterNetEvent('cm-gunstore:server:requestCatalog', function(mode)
     local src = source
     mode = tostring(mode or 'store')
@@ -740,11 +817,15 @@ RegisterNetEvent('cm-gunstore:server:requestCatalog', function(mode)
         notify(src, 'You do not have permission to manage gun store catalog.', 'error')
         return
     end
-    if not cmWeaponsRequired(src) then
-        TriggerClientEvent('cm-gunstore:client:openCatalog', src, mode, getCatalog(admin))
-        return
-    end
     TriggerClientEvent('cm-gunstore:client:openCatalog', src, mode, getCatalog(admin))
+end)
+
+-- NEW: player asks for the ammo linked to a weapon they selected in the store.
+RegisterNetEvent('cm-gunstore:server:requestWeaponAmmo', function(weaponItemName)
+    local src = source
+    if type(weaponItemName) ~= 'string' then return end
+    local ammo = resolveWeaponAmmo(weaponItemName)
+    TriggerClientEvent('cm-gunstore:client:weaponAmmo', src, normalizeItemName(weaponItemName), ammo)
 end)
 
 local function uniqueAppend(list, seen, value)
@@ -766,9 +847,7 @@ local function buildWeaponPicker()
         list[#list + 1] = {
             hash = tostring(w.weaponHash or w.weapon_hash or ''),
             weapon_hash = tostring(w.weaponHash or w.weapon_hash or ''),
-            item_name = itemName,
-            label = tostring(w.label or itemName),
-            group = group,
+            item_name = itemName, label = tostring(w.label or itemName), group = group,
             ammo = normalizeItemName(w.ammoItem or w.ammo_item),
             ammo_item = normalizeItemName(w.ammoItem or w.ammo_item),
             image = (shop and shop.image ~= '' and shop.image) or tostring(w.image or ''),
@@ -796,10 +875,7 @@ local function buildAmmoPicker()
         uniqueAppend(groupList, seenGroups, group)
         local status = shop and (shop.enabled and 'store' or 'hidden') or 'made'
         list[#list + 1] = {
-            item_name = itemName,
-            label = tostring(a.label or itemName),
-            group = group,
-            ammo_key = group,
+            item_name = itemName, label = tostring(a.label or itemName), group = group, ammo_key = group,
             pickup_hash = tonumber(a.pickupHash or a.pickup_hash) or 0,
             drop_model = tostring(a.dropModel or a.drop_model or ''),
             pack_size = tonumber(a.packSize or a.pack_size) or 1,
@@ -832,6 +908,9 @@ RegisterNetEvent('cm-gunstore:server:requestAmmoPicker', function()
     TriggerClientEvent('cm-gunstore:client:ammoPicker', src, list, groups)
 end)
 
+-- ============================================================
+-- Purchase flow
+-- ============================================================
 local function saveStoreEntry(src, itemType, sourceRow, data)
     data = type(data) == 'table' and data or {}
     itemType = tostring(itemType or ''):lower()
@@ -848,14 +927,7 @@ local function saveStoreEntry(src, itemType, sourceRow, data)
     local image = tostring(data.image or sourceRow.image or ''):sub(1, 255)
     local description = tostring(data.description or sourceRow.description or ''):sub(1, 255)
     local label = tostring(sourceRow.label or itemName):sub(1, 120)
-    local weaponHash = ''
-    local ammoItem = ''
-    local ammoKey = ''
-    local pickupHash = 0
-    local dropModel = ''
-    local packSize = 1
-    local damage = 0
-    local magazineSize = 0
+    local weaponHash, ammoItem, ammoKey, pickupHash, dropModel, packSize, damage, magazineSize = '', '', '', 0, '', 1, 0, 0
 
     if itemType == 'weapon' then
         weaponHash = tostring(sourceRow.weaponHash or sourceRow.weapon_hash or ''):upper():sub(1, 80)
@@ -921,6 +993,54 @@ RegisterNetEvent('cm-gunstore:server:createAmmoFromPicker', function(data)
     TriggerClientEvent('cm-gunstore:client:ammoPicker', src, list, groups)
 end)
 
+-- Charge for one catalog row and deliver it. Returns ok, err, and a rollback fn
+-- that undoes stock reservation + money for this leg so the caller can unwind a
+-- multi-item purchase (weapon + ammo) if a later leg fails.
+local function chargeAndDeliver(src, row, account, quantity)
+    quantity = math.max(1, math.floor(tonumber(quantity) or 1))
+    local stockUnits = row.item_type == 'ammo' and quantity or 1
+    local limitedStock = tonumber(row.stock) and tonumber(row.stock) >= 0
+
+    if limitedStock and tonumber(row.stock) == 0 then
+        return false, ('%s is out of stock.'):format(row.label or row.item_name), nil
+    end
+
+    local reserved = false
+    if limitedStock then
+        reserved = reserveStock(row.item_name, stockUnits)
+        if not reserved then
+            return false, ('%s is out of stock.'):format(row.label or row.item_name), nil
+        end
+    end
+
+    local unitPrice = configPrice(row.item_name, row.price)
+    local total = math.max(0, math.floor(unitPrice * quantity))
+    local paid, payErr = removeMoney(src, account, total, 'gunstore_buy_' .. row.item_name)
+    if not paid then
+        if reserved then releaseStock(row.item_name, stockUnits) end
+        return false, tostring(payErr or 'You do not have enough money.'), nil
+    end
+
+    local inventoryAmount = row.item_type == 'ammo' and (math.max(1, tonumber(row.pack_size) or 1) * quantity) or 1
+    local metadata = buildMetadata(src, row)
+    local added, invErr = addInventoryItem(src, row.item_name, inventoryAmount, metadata)
+    if not added then
+        refundMoney(src, account, total, 'gunstore_refund_' .. row.item_name)
+        if reserved then releaseStock(row.item_name, stockUnits) end
+        return false, ('Could not add %s to inventory: %s.'):format(row.label or row.item_name, tostring(invErr)), nil
+    end
+
+    local rollback = function()
+        refundMoney(src, account, total, 'gunstore_rollback_' .. row.item_name)
+        if reserved then releaseStock(row.item_name, stockUnits) end
+        -- best-effort inventory removal if the inventory supports it
+        pcall(function()
+            exports[Config.Inventory or 'cm-inventory']:RemoveItem(src, row.item_name, inventoryAmount)
+        end)
+    end
+    return true, nil, rollback
+end
+
 local function processPurchase(src, data)
     local itemName = normalizeItemName(data.item_name)
     local method = tostring(data.method or 'bank'):lower() == 'cash' and 'cash' or 'bank'
@@ -943,6 +1063,7 @@ local function processPurchase(src, data)
         return
     end
 
+    -- Quantity is only meaningful for ammo; weapons are always 1.
     local quantity = math.max(1, math.floor(tonumber(data.quantity or data.amount) or 1))
     if row.item_type == 'ammo' then
         local qCfg = Config.AmmoQuantity or {}
@@ -951,45 +1072,45 @@ local function processPurchase(src, data)
         quantity = 1
     end
 
-    -- Ammo amount is rounds added to inventory. Because cm-weapons ammo packSize is 1,
-    -- players can buy exactly 1 round or any quantity up to Config.AmmoQuantity.max.
-    local inventoryAmount = row.item_type == 'ammo' and (math.max(1, tonumber(row.pack_size) or 1) * quantity) or 1
-    local stockUnits = row.item_type == 'ammo' and quantity or 1
-    local limitedStock = tonumber(row.stock) and tonumber(row.stock) >= 0
-
-    if limitedStock and tonumber(row.stock) == 0 then
-        notify(src, 'This item is out of stock.', 'error')
-        TriggerClientEvent('cm-gunstore:client:purchaseResult', src, false)
-        return
-    end
-
-    local reserved = false
-    if limitedStock then
-        reserved = reserveStock(itemName, stockUnits)
-        if not reserved then
-            notify(src, 'This item is out of stock.', 'error')
-            TriggerClientEvent('cm-gunstore:client:purchaseResult', src, false)
-            return
+    -- Optional ammo add-on when buying a weapon (the "buy ammo with the gun" flow).
+    -- Validated fully server-side: we re-resolve the weapon's real ammo and the
+    -- store price; the client only supplies the requested round count.
+    local ammoAddon = nil
+    if row.item_type == 'weapon' and Config.WeaponAmmo and Config.WeaponAmmo.offerAmmoWithWeapon ~= false then
+        local wantRounds = math.floor(tonumber(data.ammo_rounds or data.ammoRounds) or 0)
+        if wantRounds > 0 then
+            local maxRounds = math.max(1, tonumber(Config.WeaponAmmo.maxBundleRounds) or 999)
+            wantRounds = math.min(wantRounds, maxRounds)
+            local resolved = resolveWeaponAmmo(row.item_name)
+            if resolved and resolved.buyable then
+                local ammoRow = getCatalogRowByName(resolved.item_name)
+                if ammoRow and ammoRow.enabled == true then
+                    ammoAddon = { row = ammoRow, rounds = wantRounds }
+                end
+            end
         end
     end
 
-    local unitPrice = configPrice(itemName, row.price)
-    local total = math.max(0, math.floor(unitPrice * quantity))
-    local paid, payErr = removeMoney(src, account, total, 'gunstore_buy_' .. itemName)
-    if not paid then
-        if reserved then releaseStock(itemName, stockUnits) end
-        notify(src, tostring(payErr or 'You do not have enough money.'), 'error')
+    -- Leg 1: the main item (weapon/ammo/armor)
+    local okMain, errMain, rollbackMain = chargeAndDeliver(src, row, account, quantity)
+    if not okMain then
+        notify(src, errMain, 'error')
         TriggerClientEvent('cm-gunstore:client:purchaseResult', src, false)
         return
     end
 
-    local metadata = buildMetadata(src, row)
-    local added, err = addInventoryItem(src, row.item_name, inventoryAmount, metadata)
-    if not added then
-        refundMoney(src, account, total, 'gunstore_refund_' .. itemName)
-        if reserved then releaseStock(itemName, stockUnits) end
-        notify(src, ('Could not add item to inventory: %s. Money refunded.'):format(tostring(err)), 'error')
-        TriggerClientEvent('cm-gunstore:client:purchaseResult', src, false)
+    -- Leg 2: optional ammo bundle. If it fails we roll back the whole thing so
+    -- the player is never charged for a weapon-with-ammo and only gets half.
+    if ammoAddon then
+        local okAmmo, errAmmo = chargeAndDeliver(src, ammoAddon.row, account, ammoAddon.rounds)
+        if not okAmmo then
+            if rollbackMain then rollbackMain() end
+            notify(src, ('Purchase reversed: %s'):format(errAmmo), 'error')
+            TriggerClientEvent('cm-gunstore:client:purchaseResult', src, false)
+            return
+        end
+        notify(src, ('Purchased %s + %d %s. Check your inventory.'):format(row.label, ammoAddon.rounds, ammoAddon.row.label or 'rounds'), 'success')
+        TriggerClientEvent('cm-gunstore:client:purchaseResult', src, true)
         return
     end
 
@@ -1000,6 +1121,15 @@ end
 RegisterNetEvent('cm-gunstore:server:buyItem', function(data)
     local src = source
     data = type(data) == 'table' and data or {}
+
+    -- Rate limit / debounce: reject rapid repeat buys before we touch money.
+    local now = GetGameTimer()
+    local cooldown = tonumber(Config.BuyCooldownMs) or 600
+    if LastBuyAt[src] and (now - LastBuyAt[src]) < cooldown then
+        TriggerClientEvent('cm-gunstore:client:purchaseResult', src, false)
+        return
+    end
+    LastBuyAt[src] = now
 
     if PurchaseLock[src] then
         notify(src, 'Please wait for your previous purchase to finish.', 'error')
@@ -1023,26 +1153,39 @@ RegisterNetEvent('cm-gunstore:server:buyItem', function(data)
     end
 end)
 
+-- ============================================================
+-- Image saving + armor / cm-items sync
+-- ============================================================
 local function slug(value, fallback)
     value = tostring(value or ''):lower():gsub('[^%w_%-]+', '_'):gsub('_+', '_'):gsub('^_+', ''):gsub('_+$', '')
     if value == '' then value = fallback or ('item_' .. os.time()) end
     return value:sub(1, 80)
 end
 
-local base64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+-- Table-driven base64 decoder (faster & clearer than the old bit-string version).
+local b64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+local b64lookup = {}
+for i = 1, #b64chars do b64lookup[b64chars:sub(i, i)] = i - 1 end
+
 local function base64Decode(data)
-    data = tostring(data or ''):gsub('[^' .. base64chars .. '=]', '')
-    return (data:gsub('.', function(x)
-        if x == '=' then return '' end
-        local r, f = '', (base64chars:find(x, 1, true) or 1) - 1
-        for i = 6, 1, -1 do r = r .. (f % 2^i - f % 2^(i-1) > 0 and '1' or '0') end
-        return r
-    end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
-        if #x ~= 8 then return '' end
-        local c = 0
-        for i = 1, 8 do c = c + (x:sub(i,i) == '1' and 2^(8-i) or 0) end
-        return string.char(c)
-    end))
+    data = tostring(data or ''):gsub('%s', '')
+    local out, buffer, bits = {}, 0, 0
+    for i = 1, #data do
+        local c = data:sub(i, i)
+        if c ~= '=' then
+            local v = b64lookup[c]
+            if v ~= nil then
+                buffer = buffer * 64 + v
+                bits = bits + 6
+                if bits >= 8 then
+                    bits = bits - 8
+                    out[#out + 1] = string.char(math.floor(buffer / (2 ^ bits)) % 256)
+                    buffer = buffer % (2 ^ bits)
+                end
+            end
+        end
+    end
+    return table.concat(out)
 end
 
 local function saveDataImage(dataUri, itemName)
@@ -1071,27 +1214,14 @@ local function syncArmorToCmItems(src, itemName, label, image, description, armo
     end
 
     local metadata = {
-        gender = gender,
-        componentIndex = componentId,
-        componentId = componentId,
-        drawableId = drawableId,
-        textureId = textureId,
-        armorValue = armorValue
+        gender = gender, componentIndex = componentId, componentId = componentId,
+        drawableId = drawableId, textureId = textureId, armorValue = armorValue
     }
     local def = {
-        name = itemName,
-        label = label,
-        category = 'armor',
-        itemType = 'rare',
-        equipmentSlot = 'bodyarmor',
-        armorValue = armorValue,
-        weight = 2500,
-        stack = false,
-        usable = true,
-        description = description,
-        metadata = metadata,
-        enabled = true,
-        createdBy = ('cm-gunstore:%s'):format(src),
+        name = itemName, label = label, category = 'armor', itemType = 'rare',
+        equipmentSlot = 'bodyarmor', armorValue = armorValue, weight = 2500,
+        stack = false, usable = true, description = description, metadata = metadata,
+        enabled = true, createdBy = ('cm-gunstore:%s'):format(src),
     }
     if (not image or image == '') and tostring(imageData or '') ~= '' then def.imageData = imageData
     elseif image and image ~= '' then def.image = image end
@@ -1109,7 +1239,9 @@ local function syncArmorToCmItems(src, itemName, label, image, description, armo
     return image
 end
 
-
+-- ============================================================
+-- Config catalog sync (config-owned prices/stock/visibility)
+-- ============================================================
 local SyncCatalogBusy = false
 local LastConfigSync = 0
 
@@ -1134,8 +1266,7 @@ syncConfigCatalog = function(force)
                     -- handled below
                 else
                     def = getAmmoDef(itemName) or findAmmoDefFromAll(itemName)
-                    if def then
-                        itemType = 'ammo'
+                    if def then itemType = 'ammo'
                     else
                         def = getWeaponDef(itemName) or findWeaponDefFromAll(itemName)
                         if def then itemType = 'weapon' end
@@ -1156,7 +1287,7 @@ syncConfigCatalog = function(force)
                         ON DUPLICATE KEY UPDATE
                             item_type = 'weapon', label = VALUES(label), weapon_hash = VALUES(weapon_hash), ammo_item = VALUES(ammo_item),
                             damage = VALUES(damage), magazine_size = VALUES(magazine_size), stock = VALUES(stock), enabled = VALUES(enabled), price = VALUES(price), sort_order = VALUES(sort_order),
-                            image = CASE WHEN image IS NULL OR image = '' THEN VALUES(image) ELSE image END,
+                            image = CASE WHEN image IS NULL OR image = '' OR image NOT LIKE 'nui://%' THEN VALUES(image) ELSE image END,
                             description = VALUES(description)
                     ]], { itemName, tostring(def.label or itemName), tostring(def.weaponHash or def.weapon_hash or ''), normalizeItemName(def.ammoItem or def.ammo_item), tonumber(def.damage) or 0, tonumber(def.magazineSize or def.magazine_size) or 0, stock, price, enabled, tostring(def.image or ''), tostring(def.description or ''), sortOrder })
                 elseif itemType == 'ammo' and def then
@@ -1167,7 +1298,7 @@ syncConfigCatalog = function(force)
                         ON DUPLICATE KEY UPDATE
                             item_type = 'ammo', label = VALUES(label), ammo_key = VALUES(ammo_key), pickup_hash = VALUES(pickup_hash),
                             drop_model = VALUES(drop_model), pack_size = VALUES(pack_size), stock = VALUES(stock), enabled = VALUES(enabled), price = VALUES(price), sort_order = VALUES(sort_order),
-                            image = CASE WHEN image IS NULL OR image = '' THEN VALUES(image) ELSE image END,
+                            image = CASE WHEN image IS NULL OR image = '' OR image NOT LIKE 'nui://%' THEN VALUES(image) ELSE image END,
                             description = VALUES(description)
                     ]], { itemName, tostring(def.label or itemName), tostring(def.ammoKey or def.ammo_key or ''), tonumber(def.pickupHash or def.pickup_hash) or 0, tostring(def.dropModel or def.drop_model or ''), math.max(1, tonumber(def.packSize or def.pack_size) or 1), stock, price, enabled, tostring(def.image or ''), tostring(def.description or ''), sortOrder })
                 elseif itemType == 'armor' then
@@ -1230,8 +1361,11 @@ CreateThread(function()
     end
 end)
 
-RegisterNetEvent('cm-gunstore:server:adminCreateItem', function(data, explicitSrc)
-    local src = explicitSrc or source
+-- ============================================================
+-- Admin events (armor only; weapons/ammo are managed in /cmweaponadmin)
+-- ============================================================
+RegisterNetEvent('cm-gunstore:server:adminCreateItem', function(data)
+    local src = source
     if not isAdmin(src) then return notify(src, 'You do not have permission to create gun store items.', 'error') end
     data = type(data) == 'table' and data or {}
     local itemType = tostring(data.item_type or data.itemType or 'armor'):lower()
@@ -1239,7 +1373,7 @@ RegisterNetEvent('cm-gunstore:server:adminCreateItem', function(data, explicitSr
         notify(src, 'Gun and ammo creation is now managed in /cmweaponadmin. Gun store only sells them.', 'error')
         return
     end
-    if itemType ~= 'armor' then itemType = 'armor' end
+    itemType = 'armor'
 
     local label = tostring(data.label or ''):sub(1, 120)
     local itemName = normalizeItemName(data.item_name or data.itemName or label)
@@ -1272,8 +1406,7 @@ RegisterNetEvent('cm-gunstore:server:adminCreateItem', function(data, explicitSr
     MySQL.insert.await([[
         INSERT INTO cm_gun_catalog
             (item_name, item_type, label, weapon_hash, ammo_item, pack_size, armor_value, damage, magazine_size, stock, price, enabled, image, description, sort_order, component_id, drawable_id, texture_id, gender)
-        VALUES
-            (?, 'armor', ?, '', '', 1, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, 'armor', ?, '', '', 1, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
             item_type = 'armor', label = VALUES(label), armor_value = VALUES(armor_value), stock = VALUES(stock), price = VALUES(price),
             enabled = VALUES(enabled), image = VALUES(image), description = VALUES(description), sort_order = VALUES(sort_order),
@@ -1346,7 +1479,6 @@ RegisterNetEvent('cm-gunstore:server:adminSaveItem', function(data)
     local description = tostring(data.description or existing.description or ''):sub(1, 255)
 
     if itemType == 'weapon' or itemType == 'ammo' then
-        -- Price/image/description are config/cm-weapons owned. Gun admin can only set store visibility and stock.
         price = configPrice(itemName, existing.price)
         MySQL.update.await('UPDATE cm_gun_catalog SET price = ?, enabled = ?, stock = ? WHERE LOWER(item_name) = ?', {
             price, enabled, stock, itemName
@@ -1378,7 +1510,6 @@ RegisterNetEvent('cm-gunstore:server:adminSaveItem', function(data)
     TriggerClientEvent('cm-gunstore:client:openCatalog', src, 'admin', getCatalog(true))
 end)
 
-
 RegisterCommand('gunstoresync', function(src)
     if src ~= 0 and not isAdmin(src) then return notify(src, 'You do not have permission to sync gun store.', 'error') end
     local ok = syncConfigCatalog(true)
@@ -1394,38 +1525,43 @@ RegisterCommand('gunstoresync', function(src)
 end, false)
 
 RegisterCommand(Config.AdminCommand or 'gunadmin', function(src)
-    if src == 0 then
-        print('[cm-gunstore] /gunadmin can only be used in-game.')
-        return
-    end
+    if src == 0 then print('[cm-gunstore] /gunadmin can only be used in-game.'); return end
     if not isAdmin(src) then return notify(src, 'You do not have permission to use gun admin.', 'error') end
     TriggerClientEvent('cm-gunstore:client:openAdmin', src)
 end, false)
 
-exports('GetCatalog', function(includeDisabled)
-    return getCatalog(includeDisabled == true)
-end)
-
+exports('GetCatalog', function(includeDisabled) return getCatalog(includeDisabled == true) end)
 exports('IsItemEnabled', function(itemName)
     local row = getCatalogRowByName(itemName)
     return row and row.enabled == true or false
 end)
+-- Expose the weapon->ammo resolver so other resources can reuse the same logic.
+exports('GetWeaponAmmo', function(weaponItemName) return resolveWeaponAmmo(weaponItemName) end)
 
---========================================================
--- WEARABLE VEST INTEGRATION WITH nv_cloth
---========================================================
-exports('ReceiveArmorImage', function(src, payload)
-    src = tonumber(src)
+-- ============================================================
+-- Wearable vest integration with nv_cloth.
+-- SECURITY: the src is taken from `source` / the calling admin only. The old
+-- code accepted a client-supplied `src` argument on the net event, which let a
+-- crafted trigger target the armor-prefill UI of any admin. We now ignore any
+-- client-provided id entirely.
+-- ============================================================
+exports('ReceiveArmorImage', function(targetSrc, payload)
+    -- Server-to-server export call (from nv_cloth). This is trusted because
+    -- exports cannot be invoked by clients; the caller passes the admin who
+    -- started the capture. We still verify that target is actually an admin.
+    targetSrc = tonumber(targetSrc)
     payload = type(payload) == 'table' and payload or {}
-    if not src or not isAdmin(src) then return false end
-    TriggerClientEvent('cm-gunstore:client:prefillArmor', src, payload)
+    if not targetSrc or not isAdmin(targetSrc) then return false end
+    TriggerClientEvent('cm-gunstore:client:prefillArmor', targetSrc, payload)
     return true
 end)
 
-RegisterNetEvent('cm-gunstore:server:armorImageReady', function(src, payload)
-    src = tonumber(src) or source
+RegisterNetEvent('cm-gunstore:server:armorImageReady', function(payload)
+    -- Net event = the sender is a client. Only ever act on THAT client (source),
+    -- never on an id they supply. Must be an admin.
+    local src = source
     payload = type(payload) == 'table' and payload or {}
-    if not src or not isAdmin(src) then return end
+    if not isAdmin(src) then return end
     TriggerClientEvent('cm-gunstore:client:prefillArmor', src, payload)
 end)
 

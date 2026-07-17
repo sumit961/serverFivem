@@ -6,14 +6,18 @@ RegisterNetEvent('cm-vehicles:server:toggleLock', function(plate, netId)
     local src = source
     plate = CMVehicles.Server.ResolvePlate(plate, netId)
     if plate == '' then return U.Notify(src, 'Vehicle id not found yet. Try again.', 'error') end
-    if not CMVehicles.Server.HasAccess(src, plate) then return U.Notify(src, 'You do not have keys for this vehicle.', 'error') end
+    if not CMVehicles.Server.HasAccess(src, plate, 'vehicle.lock') then return U.Notify(src, 'You do not have keys for this vehicle.', 'error') end
     local near = CMVehicles.Server.ValidateNearVehicle(src, netId, (Config.Interaction.distance or 4.2) + 2.0)
     if not near then return U.Notify(src, 'You are too far from the vehicle.', 'error') end
 
     local row = CMVehicles.Server.GetVehicleByPlate(plate)
     if not row then return end
     local newLocked = row.is_locked ~= true
-    MySQL.update.await('UPDATE cm_owned_vehicles SET is_locked = ? WHERE plate = ?', { newLocked and 1 or 0, plate })
+
+    -- An admin vehicle has no row to update. Toggle it in the world only.
+    if not (CMVehicles.Admin and CMVehicles.Admin.IsAdminVehicle(plate)) then
+        MySQL.update.await('UPDATE cm_owned_vehicles SET is_locked = ? WHERE plate = ?', { newLocked and 1 or 0, plate })
+    end
 
     local finalNetId = tonumber(netId) or CMVehicles.Server.GetSpawnedNetId(plate)
     if finalNetId then
@@ -60,7 +64,7 @@ RegisterNetEvent('cm-vehicles:server:requestEngineStart', function(plate, netId)
         return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId or 0, false, 'Vehicle not found.')
     end
 
-    if not CMVehicles.Server.HasAccess(src, plate) then
+    if not CMVehicles.Server.HasAccess(src, plate, 'vehicle.engine') then
         return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId or 0, false, 'You do not have keys for this vehicle.')
     end
 
@@ -69,13 +73,63 @@ RegisterNetEvent('cm-vehicles:server:requestEngineStart', function(plate, netId)
     end
 
     local destroyedThreshold = tonumber(Config.Damage and Config.Damage.destroyedEngineHealth) or 150.0
-    if (tonumber(row.engine_health) or 1000.0) <= destroyedThreshold then
+    local effectiveHealth = tonumber(row.engine_health) or 1000.0
+    if netId and netId > 0 then
+        local entity = NetworkGetEntityFromNetworkId(netId)
+        if entity and entity ~= 0 and DoesEntityExist(entity) then
+            local state = Entity(entity).state
+            local stateVehicleId = tonumber(state.cmVehicleId)
+            if stateVehicleId and tonumber(row.id) ~= stateVehicleId then
+                return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId, false, 'Vehicle identity changed. Try again.')
+            end
+            -- Use the trusted server registry. Do not authorize the bypass
+            -- from a client-replicable state flag alone.
+            local isAdminVehicle = CMVehicles.Admin and CMVehicles.Admin.IsAdminVehicle
+                and CMVehicles.Admin.IsAdminVehicle(plate) == true
+            if not isAdminVehicle and state.cmConditionReady ~= true then
+                return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId, false,
+                    'Vehicle condition is still loading. Try again in a moment.')
+            end
+            if isAdminVehicle then
+                -- Temporary admin/placement vehicles are created from a known
+                -- healthy baseline and are never persisted. Some server builds
+                -- briefly report native health as 0 for a newly streamed
+                -- client-owned entity, so do not turn that transient into a
+                -- destroyed-engine rejection.
+                effectiveHealth = 1000.0
+            else
+                local stateHealth = tonumber(state.cmEngineHealth)
+                local okNative, nativeHealth = pcall(GetVehicleEngineHealth, entity)
+                nativeHealth = okNative and tonumber(nativeHealth) or nil
+                if state.cmConditionReady == true and nativeHealth ~= nil then
+                    effectiveHealth = math.min(effectiveHealth, nativeHealth)
+                elseif stateHealth ~= nil then
+                    effectiveHealth = math.min(effectiveHealth, stateHealth)
+                end
+                if state.cmEngineDestroyed == true then effectiveHealth = 0.0 end
+            end
+        end
+    end
+    if effectiveHealth <= destroyedThreshold then
         return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId or 0, false, 'Engine is too damaged to start. Repair it first.')
     end
 
     local near = CMVehicles.Server.ValidateNearVehicle(src, netId, 8.0)
     if not near then
         return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId or 0, false, 'You are too far from the vehicle.')
+    end
+
+    -- Approved start. Replicate the garage-driving handoff before telling the
+    -- driver to start the engine, so protection threads on every streaming client
+    -- stop freezing the same network vehicle.
+    if netId and netId > 0 then
+        local entity = NetworkGetEntityFromNetworkId(netId)
+        if entity and entity ~= 0 and DoesEntityExist(entity) then
+            local state = Entity(entity).state
+            if state.cmHouseGarageDisplay == true then
+                state:set('cmGarageDriving', true, true)
+            end
+        end
     end
 
     -- Approved start. There is intentionally no hotwire/lockpick alternative.

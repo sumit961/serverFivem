@@ -182,20 +182,17 @@ local function normalizeClothingStackMetadata(itemName, metadata)
     end
     normalized.category = category
 
+    -- IMPORTANT: only the keys that actually define the wearable appearance are
+    -- compared. Two clothing items that look identical must merge, so incidental
+    -- fields (gender/model, dlc/collection, undershirt/arms/torso linkage, and
+    -- nested appearance tables that can carry capture time / row ids / ordering
+    -- noise) are deliberately EXCLUDED from the stack signature. What defines
+    -- "the same wearable" is: category + component/prop + drawable + texture.
     local groups = {
         component = { 'component', 'componentId', 'component_id', 'componentIndex', 'component_index', 'comp', 'compId' },
         prop = { 'prop', 'propId', 'prop_id', 'propIndex', 'prop_index', 'isProp', 'is_prop' },
         drawable = { 'drawable', 'drawableId', 'drawable_id', 'drawableIndex', 'drawable_index' },
         texture = { 'texture', 'textureId', 'texture_id', 'textureIndex', 'texture_index' },
-        palette = { 'palette', 'paletteId', 'palette_id', 'paletteIndex', 'palette_index' },
-        gender = { 'gender', 'sex', 'pedGender', 'ped_gender', 'model', 'pedModel', 'ped_model' },
-        collection = { 'collection', 'dlc', 'dlcName', 'dlc_name' },
-        arms = { 'arms', 'armsDrawable', 'arms_drawable', 'armsComponent', 'arms_component' },
-        armsTexture = { 'armsTexture', 'arms_texture' },
-        undershirt = { 'undershirt', 'undershirtDrawable', 'undershirt_drawable', 'tshirtDrawable', 'tshirt_drawable' },
-        undershirtTexture = { 'undershirtTexture', 'undershirt_texture', 'tshirtTexture', 'tshirt_texture' },
-        torso = { 'torso', 'torsoDrawable', 'torso_drawable' },
-        torsoTexture = { 'torsoTexture', 'torso_texture' }
     }
 
     local hasAppearanceKey = false
@@ -203,17 +200,6 @@ local function normalizeClothingStackMetadata(itemName, metadata)
         local value = firstMetadataValue(metadata, keys)
         if value ~= nil then
             normalized[canonical] = value
-            if canonical == 'component' or canonical == 'prop' or canonical == 'drawable' or canonical == 'texture' then
-                hasAppearanceKey = true
-            end
-        end
-    end
-
-    -- Some clothing admin/export tools store the wearable data as nested tables. Keep
-    -- those stable tables, but still ignore random row ids, capture time, price, etc.
-    for _, key in ipairs({ 'components', 'props', 'appearance', 'variations', 'linkedTorso', 'linked_torso' }) do
-        if type(metadata[key]) == 'table' then
-            normalized[key] = metadata[key]
             hasAppearanceKey = true
         end
     end
@@ -246,7 +232,6 @@ local function rowsCanStack(a, b)
     local def = getItemDef(itemName)
     if not def then return false end
     if not clothingStack and (def.stack == false or def.unique == true) then return false end
-    if clothingStack and def.unique == true then return false end
 
     return stackMetadataSignature(itemName, decode(a.metadata)) == stackMetadataSignature(itemName, decode(b.metadata))
 end
@@ -262,7 +247,6 @@ local function rowCanStackWithMetadata(row, itemName, metadata)
     local def = getItemDef(itemName)
     if not def then return false end
     if not clothingStack and (def.stack == false or def.unique == true) then return false end
-    if clothingStack and def.unique == true then return false end
 
     return stackMetadataSignature(itemName, decode(row.metadata)) == stackMetadataSignature(itemName, metadata)
 end

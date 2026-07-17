@@ -1,5 +1,8 @@
 # CM Inventory External Storage API
 
+For the complete CM Inventory export/import reference, see
+[EXPORTS_AND_IMPORTS.md](EXPORTS_AND_IMPORTS.md).
+
 Use this API when another resource needs to open storage with the same inventory UI.
 Vehicle trunks, warehouses, houses, businesses, motel rooms and future systems can all use this without editing the inventory UI again.
 
@@ -10,7 +13,7 @@ local ok, err = exports['cm-inventory']:OpenExternalInventory(src, {
     ownerType = 'warehouse',      -- DB owner_type in inventory_items
     ownerId = 'warehouse_1',      -- DB owner_id in inventory_items
     slotPrefix = 'warehouse-',    -- DB slot prefix: warehouse-1, warehouse-2, ...
-    slots = 40,                   -- number of slots to show in the right panel
+    slots = 30,                   -- current UI supports up to 30 visible slots
     kind = 'warehouse',
     label = 'Warehouse Storage',
     subtitle = 'Unit 1',
@@ -47,7 +50,8 @@ It stores trunk items in the existing `inventory_items` table using:
 
 All external storage screens now use the same 6 columns x 5 rows visual board in `cm-inventory`.
 Use `displaySlots = 30` when opening an external inventory if you want the full board visible.
-The actual usable slots are still controlled by `slots`.
+The actual usable slots are still controlled by `slots`. Keep `slots <= 30` in
+the current UI so every usable storage slot remains visible and accessible.
 
 Vehicle trunk example:
 

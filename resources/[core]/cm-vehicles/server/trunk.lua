@@ -135,7 +135,7 @@ RegisterNetEvent('cm-vehicles:server:toggleTrunkDoor', function(plate, netId)
     local vehicle = CMVehicles.Server.GetVehicleByPlate(plate)
     if not vehicle then return U.Notify(src, 'Vehicle not found.', 'error') end
     if vehicle.is_locked then return U.Notify(src, 'Vehicle is locked.', 'error') end
-    if not CMVehicles.Server.HasAccess(src, plate) then return U.Notify(src, 'You do not have keys for this trunk.', 'error') end
+    if not CMVehicles.Server.HasAccess(src, plate, 'vehicle.trunk.open') then return U.Notify(src, 'You do not have keys for this trunk.', 'error') end
     if CMVehicles.Trunk.SlotCount(vehicle.trunk_level) <= 0 then return U.Notify(src, 'This vehicle has no trunk.', 'error') end
     local near = CMVehicles.Server.ValidateNearVehicle(src, netId, (Config.Interaction.trunkDistance or 4.0) + 2.0)
     if not near then return U.Notify(src, 'You are too far from the trunk.', 'error') end
@@ -158,7 +158,7 @@ RegisterNetEvent('cm-vehicles:server:openSharedTrunkInventory', function(plate, 
     local vehicle = CMVehicles.Server.GetVehicleByPlate(plate)
     if not vehicle then return U.Notify(src, 'Vehicle not found.', 'error') end
     if vehicle.is_locked then return U.Notify(src, 'Vehicle is locked.', 'error') end
-    if not CMVehicles.Server.IsOwner(src, plate) then return U.Notify(src, 'Only the vehicle owner can open this trunk inventory.', 'error') end
+    if not CMVehicles.Server.HasAccess(src, plate, 'vehicle.trunk.open') then return U.Notify(src, 'Your key or family rank cannot use this trunk.', 'error') end
 
     local slotCount = CMVehicles.Trunk.SlotCount(vehicle.trunk_level)
     if slotCount <= 0 then return U.Notify(src, 'This vehicle has no trunk storage.', 'error') end
@@ -280,7 +280,7 @@ RegisterNetEvent('cm-vehicles:server:forceOutTrunk', function(plate, netId)
     plate = CMVehicles.Server.ResolvePlate(plate, netId)
     local vehicle = CMVehicles.Server.GetVehicleByPlate(plate)
     if not vehicle then return U.Notify(src, 'Vehicle not found.', 'error') end
-    if not CMVehicles.Server.HasAccess(src, plate) then return U.Notify(src, 'You do not have keys for this vehicle.', 'error') end
+    if not CMVehicles.Server.HasAccess(src, plate, 'vehicle.trunk.open') then return U.Notify(src, 'You do not have keys for this vehicle.', 'error') end
 
     local near = CMVehicles.Server.ValidateNearVehicle(src, netId, 8.0)
     if not near then return U.Notify(src, 'Move closer to the vehicle.', 'error') end
@@ -303,8 +303,23 @@ RegisterNetEvent('cm-vehicles:server:ejectPassenger', function(plate, netId, tar
     plate = CMVehicles.Server.ResolvePlate(plate, netId)
     if not targetSrc or not GetPlayerName(targetSrc) then return U.Notify(src, 'Passenger is not online.', 'error') end
     if tonumber(targetSrc) == tonumber(src) then return U.Notify(src, 'You cannot eject yourself from this menu.', 'error') end
-    if not CMVehicles.Server.HasAccess(src, plate) then return U.Notify(src, 'You do not have keys for this vehicle.', 'error') end
-    if not CMVehicles.Server.IsDriverOfVehicle(src, netId) then return U.Notify(src, 'Only the driver can remove passengers.', 'error') end
+    local valid, row, callerVehicle = CMVehicles.Server.ResolveAndValidateVehicle(src, netId, plate, {
+        maxDistance = 6.0,
+        access = true,
+        driver = true
+    })
+    if not valid then return U.Notify(src, tostring(row), 'error') end
+
+    local targetPed = GetPlayerPed(targetSrc)
+    if not targetPed or targetPed == 0 or not DoesEntityExist(targetPed) then
+        return U.Notify(src, 'Passenger entity was not found.', 'error')
+    end
+    if GetPlayerRoutingBucket(targetSrc) ~= GetPlayerRoutingBucket(src) then
+        return U.Notify(src, 'Passenger is not in your routing bucket.', 'error')
+    end
+    if GetVehiclePedIsIn(targetPed, false) ~= callerVehicle or GetPedInVehicleSeat(callerVehicle, -1) == targetPed then
+        return U.Notify(src, 'That player is not a passenger in your vehicle.', 'error')
+    end
 
     TriggerClientEvent('cm-vehicles:client:forceLeaveVehicle', targetSrc)
     U.Notify(src, 'Passenger removed from vehicle.', 'success')

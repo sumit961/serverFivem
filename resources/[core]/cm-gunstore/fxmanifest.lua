@@ -4,7 +4,7 @@ game 'gta5'
 name 'cm-gunstore'
 author 'CM / ChatGPT'
 description 'Gun/ammo selling store that reads fixed weapon/ammo definitions from cm-weapons.'
-version '1.8.1'
+version '1.9.0'
 lua54 'yes'
 
 ui_page 'web/index.html'
@@ -21,6 +21,7 @@ files {
 }
 
 shared_scripts {
+    'shared/util.lua',
     'shared/config.lua',
     'shared/weapons.lua'
 }
@@ -48,7 +49,9 @@ dependencies {
 -- Ensure order in server.cfg: ensure ox_lib, ensure ox_target, ensure cm-gunstore.
 
 escrow_ignore {
+    'shared/util.lua',
     'shared/config.lua',
+    'shared/weapons.lua',
     'client/main.lua',
     'server/main.lua',
     'web/*',

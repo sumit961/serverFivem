@@ -5,17 +5,21 @@ Config = Config or {}
 
 Config.Debug = false
 
-Config.PaymentAccount = 'bank' -- gun store charges 'bank' by default; set to 'cash' if you prefer.
-
--- Money is handled exactly like cm-gunstore: exports['cm-core']:RemoveMoney / AddMoney.
--- Config.PaymentAccount above picks which of these accounts is charged by default.
+-- Purchases and paid test drives use the player's combined cm-playerdata funds.
+-- The order below means cash is spent first, then bank pays the remaining amount.
+Config.PaymentAccount = 'bank' -- legacy fallback only when combined funds are disabled.
+Config.Payment = {
+    UseCombinedFunds = true,
+    Priority = { 'cash', 'bank' }
+}
 Config.Accounts = {
     cash = 'cash',
     bank = 'bank'
 }
 
 -- Server-side hardening. Keep AllowUnknownAddonModels false so admins can only
--- save/capture models already listed in Config.Vehicles or already in catalog.
+-- save/capture models listed in Config.Vehicles, auto-detected from a started
+-- vehicles.meta resource, or already present in the catalog.
 Config.Security = {
     ShopDistance = 35.0,
     MaxImageBase64Bytes = 2500000, -- about 2.5 MB decoded PNG/webp
@@ -23,7 +27,34 @@ Config.Security = {
     AdminSaveCooldownMs = 1500,
     AdminDisableCooldownMs = 1000,
     ImageSaveCooldownMs = 5000,
-    AllowUnknownAddonModels = false
+    AllowUnknownAddonModels = false,
+    MaxVehiclePrice = 250000000,
+    TestDriveRequestCooldownMs = 1500
+}
+
+-- Automatically discover add-on vehicles from every started resource that contains
+-- a vehicles.meta file. Discovered models appear in /vehicleadmin immediately as
+-- hidden/not configured entries; nothing is put on sale until an admin saves it.
+Config.AutoDiscoverVehicles = {
+    enabled = true,
+    cacheSeconds = 60,
+    maxDepth = 7,
+    maxMetaFilesPerResource = 80,
+    maxVehicles = 5000,
+    -- Resource names containing one of these strings are skipped.
+    excludeResources = { 'rn-vehicleshop' },
+    -- Optional allow-list. Leave empty to scan all started resources.
+    includeResources = {}
+}
+
+-- Structured audit adapter. The resource first tries the configured cm-admin
+-- export methods and then emits EventName as a compatibility fallback.
+Config.Logging = {
+    enabled = true,
+    resource = 'cm-admin',
+    exportMethods = { 'AddLog', 'CreateLog', 'Log' },
+    eventName = 'cm-admin:server:addLog',
+    consoleFallback = true
 }
 
 -- Transparent vehicle image capture (admin only), mirrors nv_cloth screenshot-basic flow.
@@ -42,13 +73,25 @@ Config.ImageCapture = {
     background = 'green',
     crop = { x = 0.00, y = 0.00, w = 1.00, h = 1.00 },
     chroma = {
-        minGreen = 45,
-        dominance = 1.10,
-        greenMargin = 10,
-        maxRed = 190,
-        maxBlue = 190,
+        -- The backdrop is large, so parts of it sit in shadow and render much
+        -- DARKER than the lit areas. The old minGreen (45) skipped those pixels
+        -- entirely, which is what left a solid dark-green band in the image.
+        --
+        -- We now key on green DOMINANCE (is green clearly the strongest channel?)
+        -- rather than on absolute brightness, so shadowed green is removed too.
+        minGreen = 18,        -- was 45 -- catch dark, shadowed green
+        dominance = 1.06,     -- green only has to beat the others slightly
+        greenMargin = 6,      -- was 10 -- smaller gap allowed in shadow
+        maxRed = 210,
+        maxBlue = 210,
         soften = true
     },
+
+    -- Lift the car slightly off the ground for the shot so the tyres sit ON TOP
+    -- of the green floor instead of sinking into it. Without this the bottom of
+    -- each tyre is behind the backdrop plane, gets keyed out with the green, and
+    -- the car ends up with its wheels cut off.
+    vehicleZLift = 0.09,
 
     Backdrop = {
         enabled = true,
@@ -59,10 +102,23 @@ Config.ImageCapture = {
         fixedCoords = vector4(-1228.0586, -2271.1174, 16.1346, 117.3766),
         rotation = vector3(0.0, 0.0, 0.0),
 
-        -- 2x green-screen prop size applied with SetEntityMatrix.
-        scale = 2.00,
+        -- ── SIZE ──────────────────────────────────────────────────────
+        -- The backdrop must completely fill the camera frame, otherwise the
+        -- chroma pass sees world geometry at the edges and the auto-crop keeps
+        -- the background instead of cutting the car out.
+        --
+        -- `scale` is the uniform size. scaleX / scaleY / scaleZ override single
+        -- axes (X = width, Y = depth, Z = height), so you can make it very wide
+        -- and very tall without making it absurdly deep.
+        --
+        -- Production backdrop size. Runtime tuning commands are disabled.
+        scale = 8.00,
+        scaleX = 14.00,   -- width  — wide enough to cover the full frame
+        scaleY = 6.00,    -- depth
+        scaleZ = 10.00,   -- height — tall enough to cover above the car
 
-        zLift = 0.62,
+        -- Raises the whole green stage so the car sits inside the capture frame.
+        zLift = 12.562,
         collision = false
     }
 }
@@ -72,16 +128,24 @@ Config.VehicleAdminStudio = {
     enabled = true,
     player = vector4(-1238.4271, -2266.0142, 13.3036, 231.0500),
     vehicle = vector4(-1227.8779, -2271.1907, 13.3395, 242.6514),
-    camera = vector3(-1219.7456, -2268.8145, 15.2026),
-    cameraLookAt = vector3(-1248.9626, -2277.5510, 12.9446),
-    cameraFov = 50.0,
+    camera = vector3(-1219.7456, -2268.8145, 15.0500),
+    -- Point directly at the preview vehicle. The old target was over 20 metres
+    -- behind it, which made the car appear low, small and poorly exposed.
+    cameraLookAt = vector3(-1227.8779, -2271.1907, 14.0500),
+    cameraFov = 42.0,
     Environment = {
         hour = 12,
         minute = 0,
         second = 0,
         weather = 'EXTRASUNNY',
-        timecycle = 'neutral',
-        timecycleStrength = 0.0
+        -- Neutral midday lighting for the live admin preview. The client keeps
+        -- this environment active while admin is open so cm-climatime cannot turn
+        -- the studio dark between synchronization ticks.
+        timecycle = '',
+        timecycleStrength = 0.0,
+        noShadows = true,
+        -- Soft reassert only. The old 350 ms clear/set loop caused visible flicker.
+        reassertMs = 5000
     }
 }
 
@@ -90,6 +154,20 @@ Config.HUD = {
     hideWhileInStore = true,
     hideWhileInAdmin = true,
     hideWhileCapturing = true
+}
+
+-- Optional per-model stock appearance. Extras are never globally disabled;
+-- configure only the models that need a specific livery or extra state.
+-- `extras = { [1] = true, [2] = false }` where true = enabled.
+Config.VehicleDefaults = {
+    -- ['sultan'] = { livery = 0, extras = { [1] = true, [2] = false } },
+    -- ['your_addon_spawn'] = { livery = -1, extras = { [1] = true } },
+}
+
+Config.AdminTestDrive = {
+    enabled = true,
+    free = true,
+    defaultDuration = 60
 }
 
 Config.Admin = {

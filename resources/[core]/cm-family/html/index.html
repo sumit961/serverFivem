@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,400;6..144,500;6..144,600;6..144,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/family-v100.css">
+</head>
+<body>
+  <!-- Invite toast (shown outside the menu) -->
+  <div id="invite-toast" class="toast" aria-hidden="true">
+    <div class="toast__inner">
+      <span class="toast__title">Family invite</span>
+      <span class="toast__body" id="toast-body"></span>
+      <span class="toast__hint">Open <b>/family</b> to respond</span>
+    </div>
+  </div>
+
+  <!-- Root menu -->
+  <div id="root" class="root" aria-hidden="true">
+    <div class="panel">
+      <!-- Header -->
+      <header class="header">
+        <div class="brand">
+          <span class="crest" id="crest"></span>
+          <div class="brand__text">
+            <h1 id="family-name">Family</h1>
+            <span class="brand__sub" id="family-sub"></span>
+          </div>
+        </div>
+        <div class="header__right">
+          <span class="bank-chip" id="bank-chip"><span class="bank-chip__label">Bank</span><span class="bank-chip__value" id="bank-value">$0</span></span>
+          <button class="icon-btn" id="btn-close" title="Close">&times;</button>
+        </div>
+      </header>
+
+      <!-- Body: tabs + content -->
+      <div class="body">
+        <nav class="tabs" id="tabs">
+          <button class="tab active" data-tab="overview">Overview</button>
+          <button class="tab" data-tab="members">Members</button>
+          <button class="tab" data-tab="ranks">Ranks</button>
+          <button class="tab" data-tab="vehicles">Vehicles</button>
+          <button class="tab" data-tab="bank">Bank</button>
+          <button class="tab" data-tab="logs">Logs</button>
+        </nav>
+
+        <main class="content" id="content"><!-- rendered by JS --></main>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create / join screen -->
+  <div id="create" class="root" aria-hidden="true">
+    <div class="panel panel--narrow">
+      <header class="header">
+        <div class="brand"><div class="brand__text"><h1>Start a family</h1><span class="brand__sub">Choose a house to become your family home</span></div></div>
+        <button class="icon-btn" id="btn-create-close" title="Close">&times;</button>
+      </header>
+      <main class="content" id="create-content"></main>
+    </div>
+  </div>
+
+  <script src="js/family-v100.js"></script>
+</body>
+</html>

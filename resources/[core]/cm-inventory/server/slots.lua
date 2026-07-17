@@ -164,6 +164,20 @@ local function validateBagRemovalFromSlot(ownerType, ownerId, slot, row)
     return validatePostBagState(ownerType, ownerId, 0, row, nil, slot, nil)
 end
 
+local function isPlayerDeadState(src)
+    src = tonumber(src)
+    if not src or src <= 0 then return true end
+    local player = Player(src)
+    return player and player.state and player.state.isDead == true or false
+end
+
+local function isPlayerInVehicleState(src)
+    local ped = GetPlayerPed(tonumber(src) or -1)
+    if not ped or ped == 0 then return false end
+    local ok, vehicle = pcall(GetVehiclePedIsIn, ped, false)
+    return ok and vehicle and vehicle ~= 0 or false
+end
+
 local function buildInventoryPayload(src)
     local ownerType, ownerId = getOwner(src)
     if not ownerId then return nil, 'No character owner found.' end
@@ -186,6 +200,7 @@ local function buildInventoryPayload(src)
 end
 
 local function sendInventory(src, forceOpen)
+    if forceOpen == true and isPlayerDeadState(src) then return false end
     local payload, err = buildInventoryPayload(src)
     if not payload then
         TriggerClientEvent('cm-inventory:client:notify', src, err or 'Could not load inventory.', 'error')

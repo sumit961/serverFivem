@@ -1,5 +1,6 @@
 local PurchaseLocks = {}
 local TestDriveCharges = {}
+local TestDriveLocks = {}
 local ActiveShopPlayers = {}
 local CharacterCache = {}
 local RateLimits = {}
@@ -68,6 +69,7 @@ local function resetPlayerRuntime(src)
     if not src then return end
     PurchaseLocks[src] = nil
     TestDriveCharges[src] = nil
+    TestDriveLocks[src] = nil
     ActiveShopPlayers[src] = nil
     CharacterCache[src] = nil
     RateLimits[src] = nil
@@ -105,6 +107,56 @@ end
 local function notify(src, message, kind)
     TriggerClientEvent('rn-vehicleshop:client:notify', src, message or '', kind or 'info')
 end
+
+local function structuredAdminLog(category, action, src, data, level)
+    local cfg = Config.Logging or {}
+    if cfg.enabled == false then return end
+
+    src = tonumber(src) or 0
+    local payload = {
+        resource = GetCurrentResourceName(),
+        category = tostring(category or 'vehicleshop'),
+        action = tostring(action or 'event'),
+        level = tostring(level or 'info'),
+        source = src,
+        playerName = src > 0 and (GetPlayerName(src) or ('Player ' .. src)) or 'server',
+        characterId = nil,
+        timestamp = os.time(),
+        data = type(data) == 'table' and data or { value = data }
+    }
+    if src > 0 then
+        local okState, stateCharId = pcall(function()
+            local state = Player(src).state
+            return state.charId or state.characterId or state.character_id or state.citizenid
+        end)
+        if okState and stateCharId then payload.characterId = tostring(stateCharId) end
+    end
+
+    local delivered = false
+    local resource = tostring(cfg.resource or 'cm-admin')
+    if GetResourceState(resource) == 'started' then
+        for _, method in ipairs(cfg.exportMethods or { 'AddLog', 'CreateLog', 'Log' }) do
+            local ok, result = pcall(function()
+                return exports[resource][method](payload)
+            end)
+            if ok and result ~= false then
+                delivered = true
+                break
+            end
+        end
+        if not delivered and cfg.eventName and cfg.eventName ~= '' then
+            TriggerEvent(cfg.eventName, payload)
+            delivered = true
+        end
+    end
+
+    if cfg.consoleFallback == true or not delivered then
+        local okJson, jsonData = pcall(json.encode, payload.data or {})
+        print(('[rn-vehicleshop][audit] %s/%s src=%s data=%s')
+            :format(payload.category, payload.action, src, okJson and jsonData or '{}'))
+    end
+end
+
 
 local function callExport(resource, method, ...)
     if GetResourceState(resource) ~= 'started' then return false, nil end
@@ -378,63 +430,134 @@ local function resolveAccount(account)
     return account
 end
 
--- Indexing a non-existent export in FiveM THROWS ("No such export X in resource Y"),
--- so the export access AND the call must both live inside pcall. Otherwise a
--- framework that is missing one of the candidate export names crashes the whole
--- purchase thread (this was the RemoveAccountMoney crash).
-local function callMoneyExport(method, src, account, amount)
-    if GetResourceState('cm-core') ~= 'started' then return false, 'cm-core not started' end
-
-    -- Colon style: exports['cm-core']:Method(src, account, amount)
-    local ok, result = pcall(function()
-        return exports['cm-core'][method](exports['cm-core'], src, account, amount)
-    end)
-    if ok and result ~= false then return true end
-
-    -- Dot style: exports['cm-core'].Method(src, account, amount)
-    local ok2, result2 = pcall(function()
-        return exports['cm-core'][method](src, account, amount)
-    end)
-    if ok2 and result2 ~= false then return true end
-
-    local why = (not ok and tostring(result)) or (not ok2 and tostring(result2)) or 'export returned false'
-    return false, why
+-- cm-playerdata is the single money authority.
+local function pd()
+    if GetResourceState('cm-playerdata') ~= 'started' then return nil end
+    return exports['cm-playerdata']
 end
 
--- Try a list of candidate export names until one succeeds. cm-core builds differ
--- (RemoveMoney / RemoveAccountMoney / RemovePlayerMoney ...), so we probe safely.
-local function tryMoneyExports(methods, src, account, amount)
-    local lastWhy
-    for _, method in ipairs(methods) do
-        local ok, why = callMoneyExport(method, src, account, amount)
-        if ok then return true, method end
-        lastWhy = why
-    end
-    return false, lastWhy
+local function getMoney(src, account)
+    local p = pd()
+    if not p then return nil end
+    account = resolveAccount(account)
+    local ok, amount = pcall(function() return p:GetMoney(src, account) end)
+    if ok and type(amount) == 'number' then return math.max(0, math.floor(amount)) end
+    return nil
 end
 
-local function removeMoney(src, account, amount)
+local function canAfford(src, account, amount)
     amount = math.floor(tonumber(amount) or 0)
     if amount <= 0 then return true end
+    local p = pd()
+    if not p then return false end
     account = resolveAccount(account)
-    local ok, info = tryMoneyExports(
-        { 'RemoveMoney', 'RemoveAccountMoney', 'RemovePlayerMoney', 'removeMoney', 'RemoveMoneyFromAccount' },
-        src, account, amount)
-    if not ok then
-        debugPrint(('removeMoney: no working cm-core export (account=%s amount=%s). Last: %s')
-            :format(tostring(account), tostring(amount), tostring(info)))
-    end
-    return ok
+    local ok, res = pcall(function() return p:CanAfford(src, account, amount) end)
+    if ok and type(res) == 'boolean' then return res end
+    local bal = getMoney(src, account)
+    return type(bal) == 'number' and bal >= amount
 end
 
-local function refundMoney(src, account, amount)
+local function removeMoney(src, account, amount, reason)
     amount = math.floor(tonumber(amount) or 0)
-    if amount <= 0 then return false end
+    if amount <= 0 then return true end
+    local p = pd()
+    if not p then return false, 'playerdata_unavailable' end
     account = resolveAccount(account)
-    local ok = tryMoneyExports(
-        { 'AddMoney', 'AddAccountMoney', 'AddPlayerMoney', 'addMoney', 'AddMoneyToAccount' },
-        src, account, amount)
-    return ok
+    if not canAfford(src, account, amount) then return false, 'not_enough' end
+    local ok, result = pcall(function()
+        return p:RemoveMoney(src, account, amount, reason or 'vehicleshop_payment')
+    end)
+    if ok and result == true then return true end
+    return false, 'charge_failed'
+end
+
+local function refundMoney(src, account, amount, reason)
+    amount = math.floor(tonumber(amount) or 0)
+    if amount <= 0 then return true end
+    local p = pd()
+    if not p then return false end
+    account = resolveAccount(account)
+    local ok, result = pcall(function()
+        return p:AddMoney(src, account, amount, reason or 'vehicleshop_refund')
+    end)
+    return ok and result == true
+end
+
+local function paymentPriority()
+    local configured = Config.Payment and Config.Payment.Priority
+    local out, seen = {}, {}
+    for _, account in ipairs(type(configured) == 'table' and configured or { 'cash', 'bank' }) do
+        account = resolveAccount(account)
+        if (account == 'cash' or account == 'bank') and not seen[account] then
+            out[#out + 1] = account
+            seen[account] = true
+        end
+    end
+    if #out == 0 then out = { resolveAccount(Config.PaymentAccount or 'bank') } end
+    return out
+end
+
+local function getCombinedAvailable(src)
+    local total, balances = 0, {}
+    for _, account in ipairs(paymentPriority()) do
+        local amount = getMoney(src, account) or 0
+        balances[account] = amount
+        total = total + amount
+    end
+    return total, balances
+end
+
+-- Debits cash first and bank second by default. If a later debit fails, every
+-- earlier debit is refunded before the function returns.
+local function removeCombinedMoney(src, amount, reason)
+    amount = math.floor(tonumber(amount) or 0)
+    if amount <= 0 then return true, {}, nil end
+
+    if not (Config.Payment and Config.Payment.UseCombinedFunds ~= false) then
+        local account = resolveAccount(Config.PaymentAccount or 'bank')
+        local ok, err = removeMoney(src, account, amount, reason)
+        return ok, ok and { { account = account, amount = amount } } or nil, err
+    end
+
+    local available, balances = getCombinedAvailable(src)
+    if available < amount then return false, nil, 'not_enough', available end
+
+    local remaining, debits = amount, {}
+    for _, account in ipairs(paymentPriority()) do
+        if remaining <= 0 then break end
+        local take = math.min(remaining, balances[account] or 0)
+        if take > 0 then
+            local ok, err = removeMoney(src, account, take, reason)
+            if not ok then
+                for i = #debits, 1, -1 do
+                    refundMoney(src, debits[i].account, debits[i].amount, 'vehicleshop_payment_rollback')
+                end
+                return false, nil, err or 'charge_failed', available
+            end
+            debits[#debits + 1] = { account = account, amount = take }
+            remaining = remaining - take
+        end
+    end
+
+    if remaining > 0 then
+        for i = #debits, 1, -1 do
+            refundMoney(src, debits[i].account, debits[i].amount, 'vehicleshop_payment_rollback')
+        end
+        return false, nil, 'charge_failed', available
+    end
+    return true, debits, nil, available
+end
+
+local function refundCombinedMoney(src, debits, reason)
+    if type(debits) ~= 'table' then return false end
+    local allOk = true
+    for i = #debits, 1, -1 do
+        local row = debits[i]
+        if row and not refundMoney(src, row.account, row.amount, reason or 'vehicleshop_refund') then
+            allOk = false
+        end
+    end
+    return allOk
 end
 
 
@@ -491,8 +614,226 @@ local function isValidModelName(model)
     return true
 end
 
-local function getSourceVehicles()
-    if CatalogCache.sourceList and CatalogCache.sourceByModel then
+-- ============================================================================
+-- Automatic add-on vehicle discovery
+-- Scans started resources for vehicles.meta files using CfxLua's sandboxed
+-- io.readdir API. Results are cached and merged with Config.Vehicles.
+-- ============================================================================
+local VehicleDiscoveryCache = { list = nil, byModel = nil, scannedAt = 0, resources = 0, metaFiles = 0 }
+
+local function discoveryCfg()
+    return type(Config.AutoDiscoverVehicles) == 'table' and Config.AutoDiscoverVehicles or {}
+end
+
+local function clearVehicleDiscoveryCache()
+    VehicleDiscoveryCache = { list = nil, byModel = nil, scannedAt = 0, resources = 0, metaFiles = 0 }
+    CatalogCache.sourceList = nil
+    CatalogCache.sourceByModel = nil
+end
+
+local function resourceNameMatches(name, patterns)
+    if type(patterns) ~= 'table' or #patterns == 0 then return false end
+    name = tostring(name or ''):lower()
+    for _, pattern in ipairs(patterns) do
+        pattern = tostring(pattern or ''):lower()
+        if pattern ~= '' and name:find(pattern, 1, true) then return true end
+    end
+    return false
+end
+
+local function shouldScanResource(resourceName)
+    local cfg = discoveryCfg()
+    if resourceName == '' or resourceName == GetCurrentResourceName() then return false end
+    if GetResourceState(resourceName) ~= 'started' then return false end
+    if resourceNameMatches(resourceName, cfg.excludeResources) then return false end
+    if type(cfg.includeResources) == 'table' and #cfg.includeResources > 0
+        and not resourceNameMatches(resourceName, cfg.includeResources) then
+        return false
+    end
+
+    -- Avoid walking every unrelated script/UI/map resource. Vehicle packs that
+    -- register vehicles.meta declare VEHICLE_METADATA_FILE in their manifest.
+    local manifest = LoadResourceFile(resourceName, 'fxmanifest.lua')
+        or LoadResourceFile(resourceName, '__resource.lua')
+    if manifest and manifest ~= '' then
+        local upper = manifest:upper()
+        local lower = manifest:lower()
+        if not upper:find('VEHICLE_METADATA_FILE', 1, true)
+            and not lower:find('vehicles.meta', 1, true) then
+            return false
+        end
+    end
+    return true
+end
+
+local function readDir(path)
+    if not io or type(io.readdir) ~= 'function' then return nil end
+    local ok, handle = pcall(io.readdir, path)
+    if not ok or not handle then return nil end
+    local out = {}
+    local iterOk, iterErr = pcall(function()
+        for name in handle:lines() do
+            if name and name ~= '' and name ~= '.' and name ~= '..' then
+                out[#out + 1] = tostring(name)
+            end
+        end
+    end)
+    pcall(function() handle:close() end)
+    if not iterOk then
+        debugPrint(('Vehicle discovery could not read %s: %s'):format(path, tostring(iterErr)))
+        return nil
+    end
+    return out
+end
+
+local function findVehicleMetaFiles(resourceName)
+    local cfg = discoveryCfg()
+    local maxDepth = math.max(1, math.min(12, tonumber(cfg.maxDepth) or 7))
+    local maxFiles = math.max(1, math.min(250, tonumber(cfg.maxMetaFilesPerResource) or 80))
+    local found, visited = {}, {}
+
+    local function walk(relative, depth)
+        if #found >= maxFiles or depth > maxDepth then return end
+        local mount = ('@%s/%s'):format(resourceName, relative or '')
+        if visited[mount] then return end
+        visited[mount] = true
+        local entries = readDir(mount)
+        if not entries then return end
+        table.sort(entries)
+        for _, name in ipairs(entries) do
+            if #found >= maxFiles then break end
+            local rel = (relative and relative ~= '') and (relative .. '/' .. name) or name
+            local lower = name:lower()
+            if lower == 'vehicles.meta' then
+                found[#found + 1] = rel
+            elseif depth < maxDepth then
+                -- Never traverse large asset/UI folders; vehicles.meta is normally
+                -- at the resource root or under data/common/dlc folders.
+                local skipDirectory = lower == 'stream' or lower == 'ui' or lower == 'html'
+                    or lower == 'web' or lower == 'client' or lower == 'server'
+                    or lower == 'locales' or lower == 'audio' or lower == 'sounds'
+                local likelyDirectory = not skipDirectory and (not name:match('%.%w+$')
+                    or lower == 'data' or lower == 'common' or lower == 'dlc')
+                if likelyDirectory then walk(rel, depth + 1) end
+            end
+        end
+    end
+
+    walk('', 0)
+    return found
+end
+
+local xmlEntities = { amp = '&', lt = '<', gt = '>', quot = '"', apos = "'" }
+local function xmlText(value)
+    value = tostring(value or '')
+    value = value:gsub('&(%a+);', function(entity) return xmlEntities[entity] or ('&' .. entity .. ';') end)
+    return value:gsub('^%s+', ''):gsub('%s+$', '')
+end
+
+local vehicleClassNames = {
+    VC_COMPACT = 'Compacts', VC_SEDAN = 'Sedans', VC_SUV = 'SUV', VC_COUPE = 'Coupes',
+    VC_MUSCLE = 'Muscle', VC_SPORT_CLASSIC = 'Sports Classics', VC_SPORT = 'Sports',
+    VC_SUPER = 'Super', VC_MOTORCYCLE = 'Motorcycles', VC_OFF_ROAD = 'Off Road',
+    VC_INDUSTRIAL = 'Industrial', VC_UTILITY = 'Utility', VC_VAN = 'Vans',
+    VC_CYCLE = 'Bicycles', VC_BOAT = 'Boats', VC_HELICOPTER = 'Helicopters',
+    VC_PLANE = 'Planes', VC_SERVICE = 'Service', VC_EMERGENCY = 'Emergency',
+    VC_MILITARY = 'Military', VC_COMMERCIAL = 'Commercial', VC_RAIL = 'Rail'
+}
+
+local function humanizeModel(model)
+    local value = tostring(model or ''):gsub('[_%-]+', ' ')
+    value = value:gsub('(%l)(%u)', '%1 %2')
+    value = value:gsub('(%a)(%d)', '%1 %2'):gsub('(%d)(%a)', '%1 %2')
+    value = value:gsub('%s+', ' '):gsub('^%s+', ''):gsub('%s+$', '')
+    return (value:gsub("(%a)([%w']*)", function(a, b) return a:upper() .. b:lower() end))
+end
+
+local function parseVehicleMeta(resourceName, relativePath)
+    local content = LoadResourceFile(resourceName, relativePath)
+    if not content or content == '' then return {} end
+    content = content:gsub('<!%-%-.-%-%->', '')
+    local rows, seen = {}, {}
+
+    local function addBlock(block)
+        local model = normalizeModel(block:match('<modelName>%s*([^<]-)%s*</modelName>'))
+        if not isValidModelName(model) or seen[model] then return end
+        local gameName = xmlText(block:match('<gameName>%s*([^<]-)%s*</gameName>'))
+        local classCode = xmlText(block:match('<vehicleClass>%s*([^<]-)%s*</vehicleClass>')):upper()
+        local txdName = xmlText(block:match('<txdName>%s*([^<]-)%s*</txdName>'))
+        local handlingId = xmlText(block:match('<handlingId>%s*([^<]-)%s*</handlingId>'))
+        seen[model] = true
+        rows[#rows + 1] = {
+            model = model,
+            label = humanizeModel(model),
+            gameName = gameName ~= '' and gameName or nil,
+            category = vehicleClassNames[classCode] or 'Custom',
+            classCode = classCode ~= '' and classCode or nil,
+            txdName = txdName ~= '' and txdName or nil,
+            handlingId = handlingId ~= '' and handlingId or nil,
+            resource = resourceName,
+            metaFile = relativePath,
+            autoDiscovered = true,
+            price = 0,
+            trunkLevel = 1
+        }
+    end
+
+    for block in content:gmatch('<Item[^>]*>(.-)</Item>') do addBlock(block) end
+    -- Some packs use a non-standard root without Item wrappers.
+    if #rows == 0 then addBlock(content) end
+    return rows
+end
+
+local function discoverAddonVehicles(force)
+    local cfg = discoveryCfg()
+    if cfg.enabled == false then return {}, {} end
+    local now = os.time()
+    local ttl = math.max(5, tonumber(cfg.cacheSeconds) or 60)
+    if not force and VehicleDiscoveryCache.list and (now - VehicleDiscoveryCache.scannedAt) < ttl then
+        return VehicleDiscoveryCache.list, VehicleDiscoveryCache.byModel
+    end
+
+    local list, byModel = {}, {}
+    local resourceCount, metaCount = 0, 0
+    local maxVehicles = math.max(100, math.min(20000, tonumber(cfg.maxVehicles) or 5000))
+    local total = GetNumResources()
+    for index = 0, total - 1 do
+        if #list >= maxVehicles then break end
+        local resourceName = GetResourceByFindIndex(index)
+        if resourceName and shouldScanResource(resourceName) then
+            local metaFiles = findVehicleMetaFiles(resourceName)
+            if #metaFiles > 0 then resourceCount = resourceCount + 1 end
+            for _, relativePath in ipairs(metaFiles) do
+                if #list >= maxVehicles then break end
+                metaCount = metaCount + 1
+                for _, row in ipairs(parseVehicleMeta(resourceName, relativePath)) do
+                    if #list >= maxVehicles then break end
+                    if not byModel[row.model] then
+                        byModel[row.model] = row
+                        list[#list + 1] = row
+                    end
+                end
+                if metaCount % 20 == 0 then Wait(0) end
+            end
+        end
+        if index % 30 == 0 then Wait(0) end
+    end
+
+    table.sort(list, function(a, b)
+        if a.category == b.category then return a.label < b.label end
+        return a.category < b.category
+    end)
+    VehicleDiscoveryCache = {
+        list = list, byModel = byModel, scannedAt = now,
+        resources = resourceCount, metaFiles = metaCount
+    }
+    debugPrint(('Auto-discovered %d vehicles from %d started resources (%d vehicles.meta files).')
+        :format(#list, resourceCount, metaCount))
+    return list, byModel
+end
+
+local function getSourceVehicles(forceDiscovery)
+    if not forceDiscovery and CatalogCache.sourceList and CatalogCache.sourceByModel then
         return CatalogCache.sourceList, CatalogCache.sourceByModel
     end
 
@@ -507,13 +848,31 @@ local function getSourceVehicles()
                     label = tostring(vehicle.name or vehicle.label or vehicle.model),
                     category = title,
                     price = tonumber(vehicle.costs or vehicle.price) or 0,
-                    trunkLevel = clampTrunkLevel(vehicle.trunkLevel or vehicle.trunk_level)
+                    trunkLevel = clampTrunkLevel(vehicle.trunkLevel or vehicle.trunk_level),
+                    source = 'config',
+                    autoDiscovered = false
                 }
                 byModel[model] = row
                 list[#list + 1] = row
             end
         end
     end
+
+    local discovered = discoverAddonVehicles(forceDiscovery == true)
+    for _, row in ipairs(discovered or {}) do
+        local existing = byModel[row.model]
+        if existing then
+            existing.resource = row.resource
+            existing.metaFile = row.metaFile
+            existing.gameName = row.gameName
+            existing.handlingId = row.handlingId
+            existing.txdName = row.txdName
+        else
+            byModel[row.model] = row
+            list[#list + 1] = row
+        end
+    end
+
     table.sort(list, function(a, b)
         if a.category == b.category then return a.label < b.label end
         return a.category < b.category
@@ -524,8 +883,9 @@ local function getSourceVehicles()
     return list, byModel
 end
 
-local function flattenSourceVehicles()
-    return getSourceVehicles()
+local function flattenSourceVehicles(forceDiscovery)
+    local list = getSourceVehicles(forceDiscovery == true)
+    return list
 end
 
 local function parseCatalogRow(row)
@@ -592,7 +952,7 @@ local function isKnownOrAllowedModel(model, allowExisting)
         if CatalogCache.vehicleByModel and CatalogCache.vehicleByModel[model] then return true end
     end
 
-    return false, 'Model is not in Config.Vehicles. Add it to the source list first, then save/capture it.'
+    return false, 'Model was not found in Config.Vehicles or any started resource vehicles.meta file. Start the vehicle pack, rescan, then try again.'
 end
 
 local function getCatalogVehicle(model, requireVisible)
@@ -738,12 +1098,24 @@ local function playerBucketId(src)
     return base + tonumber(src)
 end
 
-local function enterShopBucket(src)
+local function enterShopBucket(src, mode)
     src = tonumber(src)
     if not src then return end
-    ActiveShopPlayers[src] = true
+    local session = ActiveShopPlayers[src]
+    if type(session) ~= 'table' then
+        session = {
+            originalBucket = GetPlayerRoutingBucket(src),
+            enteredAt = nowMs(),
+            mode = mode or 'store'
+        }
+        ActiveShopPlayers[src] = session
+    else
+        session.mode = mode or session.mode or 'store'
+    end
+
     if not (Config.Dimension and Config.Dimension.enabled) then return end
     local bucket = playerBucketId(src)
+    session.shopBucket = bucket
     SetPlayerRoutingBucket(src, bucket)
     pcall(function() SetRoutingBucketPopulationEnabled(bucket, false) end)
     pcall(function() SetRoutingBucketEntityLockdownMode(bucket, (Config.Dimension.lockdownMode or 'relaxed')) end)
@@ -752,16 +1124,20 @@ end
 local function leaveShopBucket(src)
     src = tonumber(src)
     if not src then return end
+    local session = ActiveShopPlayers[src]
     ActiveShopPlayers[src] = nil
     if not (Config.Dimension and Config.Dimension.enabled) then return end
-    pcall(function() SetPlayerRoutingBucket(src, 0) end)
+    local originalBucket = type(session) == 'table' and tonumber(session.originalBucket) or 0
+    pcall(function() SetPlayerRoutingBucket(src, originalBucket or 0) end)
 end
 
 local function clearTestDriveCharge(src)
     TestDriveCharges[tonumber(src)] = nil
 end
 
-local function createTestDriveCharge(src, account, amount, model)
+local pushBalance
+
+local function createTestDriveCharge(src, debits, amount, model)
     src = tonumber(src)
     amount = math.floor(tonumber(amount) or 0)
     if not src or amount <= 0 then return nil end
@@ -770,7 +1146,7 @@ local function createTestDriveCharge(src, account, amount, model)
     local token = strongToken('td', src)
     TestDriveCharges[src] = {
         token = token,
-        account = account,
+        debits = debits or {},
         amount = amount,
         model = tostring(model or ''),
         expiresAt = now + TEST_DRIVE_CHARGE_TIMEOUT_MS
@@ -779,38 +1155,49 @@ local function createTestDriveCharge(src, account, amount, model)
     SetTimeout(TEST_DRIVE_CHARGE_TIMEOUT_MS, function()
         local charge = TestDriveCharges[src]
         if charge and charge.token == token then
-            refundMoney(src, charge.account, charge.amount)
+            refundCombinedMoney(src, charge.debits, 'vehicleshop_testdrive_timeout_refund')
             TestDriveCharges[src] = nil
+            TestDriveLocks[src] = nil
+            if pushBalance then pushBalance(src, 'testdrive_timeout_refunded') end
+            TriggerClientEvent('rn-vehicleshop:client:testDriveResult', src, false, 'start_timeout', 'Test drive could not start. Payment refunded.', { model = charge.model, refunded = true })
             notify(src, 'Test drive could not start. Payment refunded.', 'error')
+            structuredAdminLog('test_drive', 'start_timeout', src, { model = charge.model, amount = charge.amount, refunded = true }, 'error')
         end
     end)
 
     return token
 end
 
--- Best-effort player balance for the Cash/Bank HUD + Insufficient-Funds gate.
--- cm-core money APIs vary between builds, so we probe safely; if nothing matches
--- the client simply hides the HUD and never blocks buying (the purchase itself
--- is still validated server-side by removeMoney).
-local function tryGetMoney(method, src, account)
-    if GetResourceState('cm-core') ~= 'started' then return nil end
-    local ok, res = pcall(function() return exports['cm-core'][method](exports['cm-core'], src, account) end)
-    if ok and type(res) == 'number' then return res end
-    local ok2, res2 = pcall(function() return exports['cm-core'][method](src, account) end)
-    if ok2 and type(res2) == 'number' then return res2 end
-    return nil
-end
-
+-- Player balance for the Cash/Bank HUD + Insufficient-Funds gate.
+-- cm-playerdata exposes GetAccounts(src) -> { cash = n, bank = n } directly.
 local function getPlayerBalance(src)
-    local methods = { 'GetMoney', 'GetAccountMoney', 'GetPlayerMoney', 'getMoney' }
-    local cash, bank
-    for _, m in ipairs(methods) do
-        if cash == nil then cash = tryGetMoney(m, src, 'cash') or tryGetMoney(m, src, 'money') end
-        if bank == nil then bank = tryGetMoney(m, src, 'bank') end
-        if cash and bank then break end
+    local p = pd()
+    if not p then return nil end
+
+    local ok, accounts = pcall(function() return p:GetAccounts(src) end)
+    if ok and type(accounts) == 'table' then
+        return {
+            cash = tonumber(accounts.cash) or 0,
+            bank = tonumber(accounts.bank) or 0,
+        }
     end
+
+    -- Fallback: query each account individually.
+    local cash = getMoney(src, 'cash')
+    local bank = getMoney(src, 'bank')
     if cash == nil and bank == nil then return nil end
     return { cash = cash or 0, bank = bank or 0 }
+end
+
+pushBalance = function(src, reason)
+    TriggerClientEvent('rn-vehicleshop:client:balanceUpdate', src, getPlayerBalance(src) or { cash = 0, bank = 0 }, reason or 'update')
+end
+
+local function rejectTestDrive(src, code, message, extra)
+    message = tostring(message or 'Test drive request rejected.')
+    TriggerClientEvent('rn-vehicleshop:client:testDriveResult', src, false, tostring(code or 'rejected'), message, extra or {})
+    notify(src, message, 'error')
+    structuredAdminLog('test_drive', 'rejected', src, { code = code, message = message, extra = extra }, 'warning')
 end
 
 RegisterNetEvent('rn-vehicleshop:server:openUI', function()
@@ -819,7 +1206,7 @@ RegisterNetEvent('rn-vehicleshop:server:openUI', function()
         TriggerClientEvent('rn-vehicleshop:client:openFailed', src, 'You are too far from the dealership.')
         return notify(src, 'You are too far from the dealership.', 'error')
     end
-    enterShopBucket(src)
+    enterShopBucket(src, 'store')
 
     -- Character name lookup is async + cached. This avoids blocking the server
     -- thread with MySQL.single.await every time the shop UI opens.
@@ -837,8 +1224,14 @@ RegisterNetEvent('rn-vehicleshop:server:leaveShop', function()
 end)
 
 AddEventHandler('playerDropped', function()
-    leaveShopBucket(source)
-    resetPlayerRuntime(source)
+    local src = source
+    local charge = TestDriveCharges[tonumber(src)]
+    if charge then
+        refundCombinedMoney(src, charge.debits, 'vehicleshop_testdrive_disconnect_refund')
+        structuredAdminLog('test_drive', 'disconnect_refund', src, { model = charge.model, amount = charge.amount }, 'warning')
+    end
+    leaveShopBucket(src)
+    resetPlayerRuntime(src)
 end)
 
 RegisterNetEvent('rn-vehicleshop:server:buyVehicle', function(details)
@@ -865,20 +1258,23 @@ RegisterNetEvent('rn-vehicleshop:server:buyVehicle', function(details)
     local model = normalizeModel(details.model)
 
     getCatalogVehicleAsync(model, true, function(catalog)
-        if not catalog then
-            TriggerClientEvent('rn-vehicleshop:client:purchaseResult', src, false, 'Vehicle is not available.')
+        if not catalog or catalog.availableStore ~= true then
+            local msg = catalog and 'Event/task only vehicle.' or 'Vehicle is not available.'
+            TriggerClientEvent('rn-vehicleshop:client:purchaseResult', src, false, msg)
+            structuredAdminLog('purchase', 'rejected', src, { model = model, reason = msg }, 'warning')
             finish()
             return
         end
 
-        if catalog.availableStore ~= true then
-            TriggerClientEvent('rn-vehicleshop:client:purchaseResult', src, false, 'Event/task only vehicle.')
+        local price = math.floor(tonumber(catalog.price) or 0)
+        local maxPrice = math.floor(tonumber(hardeningCfg().MaxVehiclePrice) or 250000000)
+        if price < 0 or price > maxPrice then
+            local msg = 'Vehicle price is outside the allowed range.'
+            TriggerClientEvent('rn-vehicleshop:client:purchaseResult', src, false, msg)
+            structuredAdminLog('purchase', 'invalid_price', src, { model = model, price = price, maxPrice = maxPrice }, 'error')
             finish()
             return
         end
-
-        local price = tonumber(catalog.price) or 0
-        local account = Config.PaymentAccount or 'bank'
 
         local charId = getCharacterId(src)
         if not charId then
@@ -887,107 +1283,68 @@ RegisterNetEvent('rn-vehicleshop:server:buyVehicle', function(details)
             return
         end
 
-        -- Players may buy duplicates of a vehicle they already own; each purchase
-        -- creates a new owned vehicle row with its own plate.
-
-        if not removeMoney(src, account, price) then
-            TriggerClientEvent('rn-vehicleshop:client:purchaseResult', src, false, 'You do not have enough money.')
+        local paid, debits, payErr, available = removeCombinedMoney(src, price, 'vehicleshop_purchase')
+        if not paid then
+            local msg = payErr == 'not_enough'
+                and ('Not enough money. This costs $%s and your combined cash + bank is $%s.')
+                    :format(price, math.floor(tonumber(available) or 0))
+                or 'Payment failed. Please try again.'
+            TriggerClientEvent('rn-vehicleshop:client:purchaseResult', src, false, msg)
+            pushBalance(src, 'purchase_rejected')
+            structuredAdminLog('purchase', 'payment_failed', src, { model = model, price = price, available = available, error = payErr }, 'warning')
             finish()
             return
         end
+        pushBalance(src, 'purchase_charged')
 
+        local function clampInt(value, minValue, maxValue, fallback)
+            value = math.floor(tonumber(value) or fallback)
+            if value < minValue then value = minValue end
+            if value > maxValue then value = maxValue end
+            return value
+        end
         local meta = {
-            boughtFrom = 'rn-vehicleshop',
-            price = price,
-            category = catalog.category,
-            charId = charId,
-            characterId = charId,
-            owner = charId,
-            stored = true,
+            boughtFrom = 'rn-vehicleshop', price = price, category = catalog.category,
+            charId = charId, characterId = charId, owner = charId, stored = true,
+            payment = { total = price, debits = debits },
             paint = {
-                gtaColor = tonumber(details.gtaColor) or 111,
-                r = tonumber(details.r) or 255,
-                g = tonumber(details.g) or 255,
-                b = tonumber(details.b) or 255,
-                label = tostring(details.color or 'White')
+                gtaColor = clampInt(details.gtaColor, 0, 160, 111),
+                r = clampInt(details.r, 0, 255, 255),
+                g = clampInt(details.g, 0, 255, 255),
+                b = clampInt(details.b, 0, 255, 255),
+                label = tostring(details.color or 'White'):gsub('%c', ''):sub(1, 64)
             }
         }
 
-        -- Leave the private showroom bucket only once the purchase is validated.
-        -- If validation fails, keep the player isolated in the showroom instead of
-        -- dropping them back into bucket 0 while the store UI is still open.
         leaveShopBucket(src)
-
         local okExport, createOk, vehicleData = callExport('cm-vehicles', 'CreateOwnedVehicle', src, catalog.model, catalog.label, catalog.trunkLevel, meta)
         if okExport and createOk == true then
             TriggerClientEvent('rn-vehicleshop:client:purchaseResult', src, true,
                 ('Purchased %s for $%s. It is stored in your garage.'):format(catalog.label, price), vehicleData)
+            structuredAdminLog('purchase', 'completed', src, { model = catalog.model, label = catalog.label, price = price, payment = debits, vehicle = vehicleData }, 'success')
             finish()
             return
         end
 
-        debugPrint(('cm-vehicles create failed (src=%s char=%s model=%s okExport=%s createOk=%s err=%s); using async direct insert')
-            :format(src, tostring(charId), catalog.model, tostring(okExport), tostring(createOk), tostring(vehicleData)))
-
         createOwnedVehicleDirectAsync(charId, catalog.model, catalog.label, catalog.trunkLevel, meta, function(dok, dres)
             if not dok then
-                refundMoney(src, account, price)
-                enterShopBucket(src)
+                refundCombinedMoney(src, debits, 'vehicleshop_purchase_refund')
+                pushBalance(src, 'purchase_refunded')
+                enterShopBucket(src, 'store')
                 local msg = tostring(dres or vehicleData or 'Could not register vehicle. Payment refunded.')
                 TriggerClientEvent('rn-vehicleshop:client:purchaseResult', src, false, msg)
+                structuredAdminLog('purchase', 'refunded', src, { model = catalog.model, price = price, payment = debits, error = msg }, 'error')
                 finish()
                 return
             end
-
             TriggerClientEvent('rn-vehicleshop:client:purchaseResult', src, true,
                 ('Purchased %s for $%s. It is stored in your garage.'):format(catalog.label, price), dres)
+            structuredAdminLog('purchase', 'completed_fallback', src, { model = catalog.model, label = catalog.label, price = price, payment = debits, vehicle = dres }, 'success')
             finish()
         end)
     end)
 end)
 
-RegisterNetEvent('rn-vehicleshop:server:testDriveRequest', function(details)
-    local src = source
-    if not requireShopSession(src, 'test_drive') then return end
-    if not requireShopDistance(src, 'test_drive') then return end
-    details = type(details) == 'table' and details or {}
-    local model = normalizeModel(details.model)
-
-    getCatalogVehicleAsync(model, true, function(catalog)
-        if not catalog then return notify(src, 'This vehicle is not available.', 'error') end
-        if not (Config.TestDrive and Config.TestDrive.enabled) then return notify(src, 'Test drive is disabled.', 'error') end
-
-        local td = type(catalog.metadata) == 'table' and type(catalog.metadata.testDrive) == 'table' and catalog.metadata.testDrive or {}
-        if td.enabled == false then return notify(src, 'Test drive is disabled for this vehicle.', 'error') end
-
-        local cost = tonumber(td.cost) or tonumber(Config.TestDrive.testDriveCost) or 0
-        local duration = tonumber(td.duration) or tonumber(Config.TestDrive.testDriveTimer) or 60
-        local account = Config.PaymentAccount or 'bank'
-        if not removeMoney(src, account, cost) then return notify(src, 'You do not have enough money for the test drive.', 'error') end
-        local chargeToken = createTestDriveCharge(src, account, cost, model)
-
-        -- Keep the player in their private showroom bucket while they test drive at the airport.
-        enterShopBucket(src)
-        TriggerClientEvent('rn-vehicleshop:client:startTestDrive', src, details, duration, chargeToken)
-    end)
-end)
-
-RegisterNetEvent('rn-vehicleshop:server:testDriveStarted', function(token)
-    local src = source
-    local charge = TestDriveCharges[tonumber(src)]
-    if charge and charge.token == token then
-        clearTestDriveCharge(src)
-    end
-end)
-
-RegisterNetEvent('rn-vehicleshop:server:testDriveStartFailed', function(token, reason)
-    local src = source
-    local charge = TestDriveCharges[tonumber(src)]
-    if not charge or charge.token ~= token then return end
-    clearTestDriveCharge(src)
-    refundMoney(src, charge.account, charge.amount)
-    notify(src, ('Test drive could not start (%s). Payment refunded.'):format(tostring(reason or 'failed')), 'error')
-end)
 
 
 local function checkRateLimit(src, key, cooldownMs)
@@ -1004,13 +1361,132 @@ local function checkRateLimit(src, key, cooldownMs)
     return true
 end
 
+RegisterNetEvent('rn-vehicleshop:server:testDriveRequest', function(details)
+    local src = source
+    if not requireShopSession(src, 'test_drive') then return rejectTestDrive(src, 'no_session', 'Open the dealership menu first.') end
+    if not requireShopDistance(src, 'test_drive') then return rejectTestDrive(src, 'too_far', 'You are too far from the dealership.') end
+    if TestDriveLocks[src] then return rejectTestDrive(src, 'already_pending', 'A test drive is already active or starting.') end
+    if not checkRateLimit(src, 'testDriveRequest', tonumber(hardeningCfg().TestDriveRequestCooldownMs) or 1500) then
+        return rejectTestDrive(src, 'rate_limited', 'Please wait before requesting another test drive.')
+    end
+
+    details = type(details) == 'table' and details or {}
+    local model = normalizeModel(details.model)
+    TestDriveLocks[src] = { model = model, requestedAt = nowMs(), mode = 'store' }
+
+    getCatalogVehicleAsync(model, true, function(catalog)
+        if not catalog then TestDriveLocks[src] = nil return rejectTestDrive(src, 'not_available', 'This vehicle is not available.') end
+        if not (Config.TestDrive and Config.TestDrive.enabled) then TestDriveLocks[src] = nil return rejectTestDrive(src, 'disabled', 'Test drive is disabled.') end
+        local td = type(catalog.metadata) == 'table' and type(catalog.metadata.testDrive) == 'table' and catalog.metadata.testDrive or {}
+        if td.enabled == false then TestDriveLocks[src] = nil return rejectTestDrive(src, 'vehicle_disabled', 'Test drive is disabled for this vehicle.') end
+
+        local cost = math.max(0, math.floor(tonumber(td.cost) or tonumber(Config.TestDrive.testDriveCost) or 0))
+        local duration = math.max(10, math.min(600, math.floor(tonumber(td.duration) or tonumber(Config.TestDrive.testDriveTimer) or 60)))
+        local paid, debits, payErr, available = removeCombinedMoney(src, cost, 'vehicleshop_testdrive')
+        if not paid then
+            TestDriveLocks[src] = nil
+            pushBalance(src, 'testdrive_rejected')
+            return rejectTestDrive(src, payErr == 'not_enough' and 'insufficient_funds' or 'payment_failed',
+                payErr == 'not_enough'
+                    and ('You need $%s. Combined cash + bank: $%s.'):format(cost, math.floor(tonumber(available) or 0))
+                    or 'Test-drive payment failed.',
+                { model = model, cost = cost, available = available })
+        end
+
+        local chargeToken = createTestDriveCharge(src, debits, cost, model)
+        pushBalance(src, 'testdrive_charged')
+        enterShopBucket(src, 'test_drive')
+        TriggerClientEvent('rn-vehicleshop:client:testDriveResult', src, true, 'approved', 'Test drive approved.', { model = model, cost = cost, duration = duration })
+        TriggerClientEvent('rn-vehicleshop:client:startTestDrive', src, details, duration, chargeToken, 'store')
+        structuredAdminLog('test_drive', 'approved', src, { model = model, cost = cost, duration = duration, payment = debits }, 'success')
+    end)
+end)
+
+RegisterNetEvent('rn-vehicleshop:server:adminTestDriveRequest', function(details)
+    local src = source
+    if not isAdmin(src) then return rejectTestDrive(src, 'no_permission', 'You do not have vehicle admin permission.') end
+    if not (Config.AdminTestDrive and Config.AdminTestDrive.enabled ~= false) then return rejectTestDrive(src, 'admin_disabled', 'Admin test drive is disabled.') end
+    if TestDriveLocks[src] then return rejectTestDrive(src, 'already_pending', 'A test drive is already active or starting.') end
+    if not checkRateLimit(src, 'adminTestDriveRequest', tonumber(hardeningCfg().TestDriveRequestCooldownMs) or 1500) then
+        return rejectTestDrive(src, 'rate_limited', 'Please wait before testing another vehicle.')
+    end
+
+    details = type(details) == 'table' and details or {}
+    local model = normalizeModel(details.model)
+    local modelOk, modelErr = isKnownOrAllowedModel(model, true)
+    if not modelOk then return rejectTestDrive(src, 'invalid_model', modelErr or 'Invalid vehicle model.') end
+
+    local duration = math.max(10, math.min(600, math.floor(tonumber(details.testDriveTimer) or tonumber(Config.AdminTestDrive.defaultDuration) or 60)))
+    TestDriveLocks[src] = { model = model, requestedAt = nowMs(), mode = 'admin' }
+    enterShopBucket(src, 'admin_test_drive')
+    details.model = model
+    details.vehicle = tostring(details.vehicle or details.label or model)
+    details.testDriveCost = 0
+    TriggerClientEvent('rn-vehicleshop:client:testDriveResult', src, true, 'admin_approved', 'Admin test drive approved.', { model = model, cost = 0, duration = duration, admin = true })
+    TriggerClientEvent('rn-vehicleshop:client:startTestDrive', src, details, duration, nil, 'admin')
+    structuredAdminLog('test_drive', 'admin_started', src, { model = model, duration = duration }, 'info')
+end)
+
+RegisterNetEvent('rn-vehicleshop:server:testDriveStarted', function(token)
+    local src = source
+    local charge = TestDriveCharges[tonumber(src)]
+    if token and charge and charge.token == token then clearTestDriveCharge(src) end
+    TestDriveLocks[src] = { startedAt = nowMs(), mode = (TestDriveLocks[src] and TestDriveLocks[src].mode) or 'store' }
+    structuredAdminLog('test_drive', 'started', src, { token = token and true or false, mode = TestDriveLocks[src].mode }, 'info')
+end)
+
+RegisterNetEvent('rn-vehicleshop:server:testDriveEnded', function(reason, mode)
+    local src = source
+    TestDriveLocks[src] = nil
+    pushBalance(src, 'testdrive_ended')
+    structuredAdminLog('test_drive', 'ended', src, { reason = tostring(reason or 'finished'), mode = tostring(mode or 'store') }, 'info')
+end)
+
+RegisterNetEvent('rn-vehicleshop:server:testDriveStartFailed', function(token, reason)
+    local src = source
+    local charge = TestDriveCharges[tonumber(src)]
+    if charge and (not token or charge.token == token) then
+        clearTestDriveCharge(src)
+        refundCombinedMoney(src, charge.debits, 'vehicleshop_testdrive_refund')
+        pushBalance(src, 'testdrive_refunded')
+    end
+    TestDriveLocks[src] = nil
+    local refunded = charge ~= nil
+    local msg = refunded
+        and ('Test drive could not start (%s). Payment refunded.'):format(tostring(reason or 'failed'))
+        or ('Test drive could not start (%s).'):format(tostring(reason or 'failed'))
+    TriggerClientEvent('rn-vehicleshop:client:testDriveResult', src, false, 'start_failed', msg, { reason = reason, refunded = refunded })
+    notify(src, msg, 'error')
+    structuredAdminLog('test_drive', 'start_failed', src, { reason = reason, refunded = refunded }, 'error')
+end)
+
 RegisterNetEvent('rn-vehicleshop:server:openAdmin', function()
     local src = source
     if not isAdmin(src) then return notify(src, 'You do not have vehicle admin permission.', 'error') end
     if not checkRateLimit(src, 'openAdmin', tonumber(hardeningCfg().AdminOpenCooldownMs) or 750) then return end
-    enterShopBucket(src)
-    local sourceList = flattenSourceVehicles()
-    TriggerClientEvent('rn-vehicleshop:client:openAdmin', src, sourceList, getCatalog(true))
+    enterShopBucket(src, 'admin')
+    local sourceList = flattenSourceVehicles(false)
+    TriggerClientEvent('rn-vehicleshop:client:openAdmin', src, sourceList, getCatalog(true), {
+        autoDiscovered = #(VehicleDiscoveryCache.list or {}),
+        scannedResources = VehicleDiscoveryCache.resources or 0,
+        metaFiles = VehicleDiscoveryCache.metaFiles or 0
+    })
+end)
+
+RegisterNetEvent('rn-vehicleshop:server:rescanVehicles', function()
+    local src = source
+    if not isAdmin(src) then return notify(src, 'No permission.', 'error') end
+    if not checkRateLimit(src, 'rescanVehicles', 3000) then
+        return notify(src, 'Please wait before scanning vehicle resources again.', 'error')
+    end
+    clearVehicleDiscoveryCache()
+    local sourceList = flattenSourceVehicles(true)
+    TriggerClientEvent('rn-vehicleshop:client:adminData', src, sourceList, getCatalog(true), {
+        autoDiscovered = #(VehicleDiscoveryCache.list or {}),
+        scannedResources = VehicleDiscoveryCache.resources or 0,
+        metaFiles = VehicleDiscoveryCache.metaFiles or 0
+    })
+    notify(src, ('Detected %d vehicle models from started resources.'):format(#(VehicleDiscoveryCache.list or {})), 'success')
 end)
 
 local function safeUtf8Sub(value, maxChars, fallback)
@@ -1048,7 +1524,10 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
     local label = safeUtf8Sub(data.label, 100, model)
     local category = safeUtf8Sub(data.category, 64, 'Custom')
     local price = math.floor(tonumber(data.price) or 0)
-    if price < 0 then price = 0 end
+    local maxPrice = math.floor(tonumber(hardeningCfg().MaxVehiclePrice) or 250000000)
+    if price < 0 or price > maxPrice then
+        return notify(src, ('Price must be between $0 and $%s.'):format(maxPrice), 'error')
+    end
     local trunkLevel = clampTrunkLevel(data.trunkLevel or data.trunk_level)
 
     local availableStore = truthy(data.availableStore or data.available_store)
@@ -1108,8 +1587,9 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
 
     invalidateCatalogCache()
     notify(src, ('Saved %s.'):format(label), 'success')
+    structuredAdminLog('catalog', 'saved', src, { model = model, label = label, category = category, price = price, trunkLevel = trunkLevel, availableStore = availableStore, availableServer = availableServer, testDrive = { enabled = testDriveEnabled, duration = testDriveTimer, cost = testDriveCost } }, 'success')
     local sourceList = flattenSourceVehicles()
-    TriggerClientEvent('rn-vehicleshop:client:adminData', src, sourceList, getCatalog(true))
+    TriggerClientEvent('rn-vehicleshop:client:adminData', src, sourceList, getCatalog(true), { autoDiscovered = #(VehicleDiscoveryCache.list or {}), scannedResources = VehicleDiscoveryCache.resources or 0, metaFiles = VehicleDiscoveryCache.metaFiles or 0 })
 end)
 
 RegisterNetEvent('rn-vehicleshop:server:disableAdminVehicle', function(model)
@@ -1124,8 +1604,9 @@ RegisterNetEvent('rn-vehicleshop:server:disableAdminVehicle', function(model)
     end
     invalidateCatalogCache()
     notify(src, ('Disabled %s.'):format(model), 'success')
+    structuredAdminLog('catalog', 'disabled', src, { model = model }, 'warning')
     local sourceList = flattenSourceVehicles()
-    TriggerClientEvent('rn-vehicleshop:client:adminData', src, sourceList, getCatalog(true))
+    TriggerClientEvent('rn-vehicleshop:client:adminData', src, sourceList, getCatalog(true), { autoDiscovered = #(VehicleDiscoveryCache.list or {}), scannedResources = VehicleDiscoveryCache.resources or 0, metaFiles = VehicleDiscoveryCache.metaFiles or 0 })
 end)
 
 -- ============================================================================
@@ -1242,9 +1723,10 @@ RegisterNetEvent('rn-vehicleshop:server:saveVehicleImage', function(data)
     end
 
     invalidateCatalogCache()
+    structuredAdminLog('image_capture', 'saved', src, { model = model, image = nuiPath, bytes = #bytes, extension = ext }, 'success')
     TriggerClientEvent('rn-vehicleshop:client:vehicleImageSaved', src, true, nuiPath, model)
     local sourceList = flattenSourceVehicles()
-    TriggerClientEvent('rn-vehicleshop:client:adminData', src, sourceList, getCatalog(true))
+    TriggerClientEvent('rn-vehicleshop:client:adminData', src, sourceList, getCatalog(true), { autoDiscovered = #(VehicleDiscoveryCache.list or {}), scannedResources = VehicleDiscoveryCache.resources or 0, metaFiles = VehicleDiscoveryCache.metaFiles or 0 })
 end)
 
 RegisterCommand('vehicleadmin', function(src)
@@ -1255,6 +1737,11 @@ end, false)
 
 exports('GetCatalogVehicle', function(model)
     return getCatalogVehicle(model, true)
+end)
+
+exports('GetVehicleImage', function(model)
+    local vehicle = getCatalogVehicle(model, false)
+    return vehicle and vehicle.image or nil
 end)
 
 exports('GiveCatalogVehicle', function(src, model, metadata)
@@ -1275,6 +1762,12 @@ end)
 
 AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end
+
+    for src, charge in pairs(TestDriveCharges) do
+        if charge and charge.debits then
+            refundCombinedMoney(src, charge.debits, 'vehicleshop_testdrive_resource_stop_refund')
+        end
+    end
 
     local active = {}
     for src in pairs(ActiveShopPlayers) do active[#active + 1] = src end
@@ -1299,6 +1792,7 @@ AddEventHandler('onResourceStop', function(resource)
 
     PurchaseLocks = {}
     TestDriveCharges = {}
+    TestDriveLocks = {}
     ActiveShopPlayers = {}
     CharacterCache = {}
     RateLimits = {}
@@ -1312,6 +1806,8 @@ local function validateConfig()
     if Config.Security.ImageSaveCooldownMs == nil then Config.Security.ImageSaveCooldownMs = 5000 end
     if Config.Security.AdminDisableCooldownMs == nil then Config.Security.AdminDisableCooldownMs = 1000 end
     if Config.Security.AllowUnknownAddonModels == nil then Config.Security.AllowUnknownAddonModels = false end
+    if Config.Security.MaxVehiclePrice == nil then Config.Security.MaxVehiclePrice = 250000000 end
+    if Config.Security.TestDriveRequestCooldownMs == nil then Config.Security.TestDriveRequestCooldownMs = 1500 end
 
     if not Config.Location then
         print('[rn-vehicleshop] WARNING: Config.Location is missing. Store distance checks will fail.')
@@ -1319,9 +1815,13 @@ local function validateConfig()
     if not Config.TestVehicleSpawnLocation or not Config.TestVehicleSpawnLocation.coords then
         print('[rn-vehicleshop] WARNING: Config.TestVehicleSpawnLocation.coords is missing. Test drives will be disabled by client error.')
     end
-    getSourceVehicles()
-    print(('[rn-vehicleshop] Started v%s | source models=%s | max image bytes=%s')
-        :format(GetResourceMetadata(GetCurrentResourceName(), 'version', 0) or 'unknown', #(CatalogCache.sourceList or {}), tostring(Config.Security.MaxImageBase64Bytes)))
+    local configuredModels = 0
+    for _, category in ipairs(Config.Vehicles or {}) do
+        configuredModels = configuredModels + #(category.buttons or {})
+    end
+    print(('[rn-vehicleshop] Started v%s | configured models=%s | automatic vehicle discovery=%s | max image bytes=%s')
+        :format(GetResourceMetadata(GetCurrentResourceName(), 'version', 0) or 'unknown', configuredModels,
+            tostring(discoveryCfg().enabled ~= false), tostring(Config.Security.MaxImageBase64Bytes)))
 end
 
 AddEventHandler('onResourceStart', function(resource)
@@ -1332,4 +1832,23 @@ AddEventHandler('onResourceStart', function(resource)
     invalidateCatalogCache()
     loadCatalogCache(true)
     debugPrint('Vehicles must be enabled with /vehicleadmin before they appear.')
+end)
+
+
+-- Invalidate only the lightweight discovery/source cache when vehicle packs are
+-- started or stopped. The next admin open/refresh rebuilds it safely.
+AddEventHandler('onResourceStart', function(resourceName)
+    if resourceName ~= GetCurrentResourceName() then clearVehicleDiscoveryCache() end
+end)
+AddEventHandler('onResourceStop', function(resourceName)
+    if resourceName ~= GetCurrentResourceName() then clearVehicleDiscoveryCache() end
+end)
+
+
+CreateThread(function()
+    Wait(8000)
+    if discoveryCfg().enabled ~= false then
+        clearVehicleDiscoveryCache()
+        getSourceVehicles(true)
+    end
 end)

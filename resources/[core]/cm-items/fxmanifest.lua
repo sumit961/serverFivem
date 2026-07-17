@@ -4,7 +4,7 @@ lua54 'yes'
 
 author 'CM Development'
 description 'CM-Items: item registry for CM Roleplay framework'
-version '1.0.0'
+version '1.5.0-ctxmenu-cm-ui'
 
 shared_scripts {
     'config.lua',

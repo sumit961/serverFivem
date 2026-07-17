@@ -1,48 +1,80 @@
-# CM Vehicle Pack v1
+# CM Vehicle Keys v1.2.0
 
-Resources:
-- cm-vehicles: ownership, engine, locks, G menu, trunk inventory
-- cm-vehiclekeys: temporary shared vehicle keys until logout
-- cm-vehiclestore: dealership NPC and buy UI
+Secure, memory-only temporary vehicle keys. Keys belong to the currently loaded
+**character ID**, never the FiveM server ID or an account's last-played character.
 
-## Required order
+## Resource order
 
 ```cfg
-ensure oxmysql
-ensure ox_lib
-ensure cm-core
-ensure cm-auth
-ensure cm-characters
 ensure cm-playerdata
-ensure cm-items
-ensure cm-inventory
 ensure cm-vehiclekeys
 ensure cm-vehicles
-ensure cm-vehiclestore
+ensure rn-vehicleshop
 ```
 
-## Controls
+`oxmysql` is no longer required by this resource. It deliberately does not guess
+the active character from the database.
 
-- `G` near vehicle: vehicle menu
-- `L`: lock/unlock
-- `Left CTRL`: start/stop engine when in driver seat
+## Behaviour
 
-## Test commands
+- Duplicate temporary keys are rejected.
+- The giver and receiver must be online, nearby, and in the same routing bucket.
+- Keys are cleared when the receiving character unloads, changes character,
+  disconnects, or the resource restarts.
+- A state-polling fallback detects character changes automatically.
+- Optional time-limited keys can be configured or supplied per grant.
+- Grant metadata is stored in server memory for management/debug integrations.
 
-In F8, type without `/`:
+## Existing cm-vehicles compatibility
 
-```text
-vehgive sultan 3
-myvehicles
+The following exports remain compatible:
+
+```lua
+exports['cm-vehiclekeys']:HasTempKey(source, plate)
+exports['cm-vehiclekeys']:HasTempKeyByCharId(characterId, plate)
+exports['cm-vehiclekeys']:GiveTempKey(ownerSource, targetSource, plate)
+exports['cm-vehiclekeys']:RevokeTempKeyByChar(plate, characterId)
+exports['cm-vehiclekeys']:RevokeTempKey(source, plate)
+exports['cm-vehiclekeys']:ClearTempKeys(source)
 ```
 
-## Trunk levels
+`GiveTempKey` returns `false, reason` when the target already has the key. This
+prevents duplicate entries in the vehicle owner's lent-key metadata.
 
-- 0 = no trunk
-- 1 = 6 slots
-- 2 = 12 slots
-- 3 = 18 slots
-- 4 = 24 slots
-- 6 = 36 slots
+## Recommended character lifecycle integration
 
-Vehicle trunks have no kg/weight limit. They are slot-limited only.
+State polling works automatically, but explicit calls provide immediate cleanup:
+
+```lua
+-- After a character is fully selected/loaded
+exports['cm-vehiclekeys']:RegisterCharacter(source, characterId)
+
+-- Before character switch/logout
+exports['cm-vehiclekeys']:UnregisterCharacter(source, characterId)
+```
+
+## Additional server exports
+
+```lua
+exports['cm-vehiclekeys']:GetActiveCharacterId(source)
+exports['cm-vehiclekeys']:GetTempKeys(source)
+exports['cm-vehiclekeys']:GetTempKeysByCharId(characterId)
+exports['cm-vehiclekeys']:ClearTempKeysByCharId(characterId)
+exports['cm-vehiclekeys']:RevokeAllForPlate(plate)
+```
+
+## Optional timed grant
+
+The default remains "until character change/logout". A trusted server resource can
+issue a limited key:
+
+```lua
+local ok, reason = exports['cm-vehiclekeys']:GiveTempKey(
+    ownerSource,
+    targetSource,
+    plate,
+    { durationSeconds = 3600 }
+)
+```
+
+Duration is clamped by `maxDurationSeconds` in `shared/config.lua`.

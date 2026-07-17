@@ -31,8 +31,19 @@ add_ace group.admin command allow
 add_ace group.admin command.quit deny
 add_principal identifier.fivem:1494046 group.admin
 add_ace group.clothingadmin cm.clothing.admin allow
+add_ace group.admin cm-house.create allow
+add_principal identifier.license:1494046 group.admin
 
 add_principal identifier.fivem:1494046 group.clothingadmin
+
+add_ace group.admin cm-house.admin allow
+add_ace group.admin cm-house.create allow
+add_ace group.admin cm-house.admin.properties allow
+add_ace group.admin cm-house.admin.interiors allow
+add_ace group.admin cm-house.admin.garages allow
+add_ace group.admin cm-house.admin.pricing allow
+add_ace group.admin cm-house.admin.photos allow
+add_ace group.admin cm-house.admin.recovery allow
 
 # REQUIRED CFX Resources
 ensure sessionmanager
@@ -62,6 +73,7 @@ ensure cm-characters
 ensure cm-admin
 ensure cm-spawn
 ensure cm-climatime
+ensure cm-population
 
 # ITEMS / INVENTORY
 ensure cm-items
@@ -81,13 +93,25 @@ ensure nv_cloth
 ensure cm-weapons
 ensure cm-gunstore
 
+ensure cm-store
+
 
 # VEHICLES
 ensure vStudios_PacificBluffsDealership_Ultimate
 ensure showcasecars
 ensure showcasecars2
+ensure Relax_muatininV4
+
 ensure cm-vehiclekeys
 ensure cm-vehicles
+ensure cm-gasstations
+ensure cm-carwash
+
 #ensure cm-vehiclestore
 ensure rn-vehicleshop
+ensure cm-tuning
 ensure cm-parking
+
+ensure gn_dual_mediccenter
+
+ensure cm-house

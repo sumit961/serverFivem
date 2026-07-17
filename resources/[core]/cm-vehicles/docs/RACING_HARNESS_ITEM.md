@@ -1,42 +1,53 @@
-# Racing Harness Item Integration
+# Racing Harness Integration — v3.3.9
 
-This resource now supports a permanent racing harness installed per vehicle.
+Racing-harness installation is server-authorized only. The old public client/server events and `/installharness` test command have been removed.
 
-## What it does
+## Required flow
 
-When a vehicle has a racing harness installed:
+Your trusted resource must:
 
-- seatbelt crash ejection is disabled for that vehicle
-- the normal seatbelt chime/ejection logic is bypassed
-- the vehicle information screen shows `Racing Harness: Installed`
-- the value is stored in `cm_owned_vehicles.metadata.racingHarness`
-
-## Call from your item system
-
-When the player uses your item named `racing_harness`, trigger this client event:
+1. Validate the purchase or item use on the server.
+2. Consume the `racing_harness` item or charge the player.
+3. Resolve the target vehicle plate and network ID.
+4. Call the cm-vehicles server export.
+5. Refund/restore the item if the export returns `false`.
 
 ```lua
-TriggerClientEvent('cm-vehicles:client:useRacingHarness', source)
+local ok, reason = exports['cm-vehicles']:InstallRacingHarness(source, plate, netId)
+if not ok then
+    -- Restore the consumed item/payment here.
+    print(('Harness install failed: %s'):format(tostring(reason)))
+end
 ```
 
-If your item system can only trigger server events first, use:
+## Authorized resources
+
+Only resources listed in `CMVehicles.Config.Security.authorizedHarnessResources` may call the export. The supplied defaults are:
 
 ```lua
-TriggerEvent('cm-vehicles:server:useRacingHarness')
+authorizedHarnessResources = {
+    ['cm-tuning'] = true,
+    ['cm-itemactions'] = true,
+    ['cm-admin'] = true,
+}
 ```
 
-If your item system runs client-side item actions, use:
+Add another resource explicitly before allowing it to install a harness. Never recreate a public net event that calls this export without item/payment validation.
+
+## Export
 
 ```lua
-TriggerEvent('cm-vehicles:client:useRacingHarness')
+InstallRacingHarness(src, plate, netId) -> boolean, string|nil
 ```
 
-## Test command
+The export validates:
 
-For testing without item integration:
+- calling resource authorization;
+- online player/character;
+- vehicle database identity;
+- network entity identity;
+- routing bucket and proximity;
+- player access to the vehicle;
+- whether a harness is already installed.
 
-```txt
-/installharness
-```
-
-The player must be inside or near/look at the vehicle and must have access/keys.
+The installed state is saved in vehicle metadata and replicated as `cmRacingHarness`.

@@ -43,16 +43,6 @@ local function stopNoHeadCaptureFlag()
   noHeadCaptureActive = false
 end
 
-local function categoryNeedsVisibleHead(category)
-  category = tostring(category or ''):lower()
-  local keep = (Config.IconCapture and Config.IconCapture.keepBody and Config.IconCapture.keepBody[category]) or {}
-  -- Force pure item capture for outerwear, pants and bags even if an older config still keeps body parts.
-  if category == 'torso' or category == 'pants' or category == 'bags' then
-    keep = {}
-  end
-  return keep.head == true
-end
-
 -- Props that ATTACH TO THE HEAD BONE. For these we must NOT use reset flag 166
 -- (the first-person head-hide), because that flag hides everything on the head
 -- bone — including the hat/glasses/mask/earrings we are trying to photograph.
@@ -67,6 +57,48 @@ local HEAD_PROP_CATEGORIES = {
 
 local function categoryAttachesToHead(category)
   return HEAD_PROP_CATEGORIES[tostring(category or ''):lower()] == true
+end
+
+local function getCategorySupportModel(category)
+  local supportCfg = Config.IconCapture and Config.IconCapture.supportModels or nil
+  if type(supportCfg) ~= 'table' then return nil end
+
+  local ped = PlayerPedId()
+  local gender = GetEntityModel(ped) == GetHashKey('mp_f_freemode_01') and 'female' or 'male'
+  local genderCfg = supportCfg[gender]
+  if type(genderCfg) ~= 'table' then return nil end
+
+  local categories = genderCfg.categories or {}
+  local entry = categories[tostring(category or ''):lower()]
+  if type(entry) ~= 'table' then return nil end
+
+  return entry
+end
+
+local function categoryUsesSupportHead(category)
+  local support = getCategorySupportModel(category)
+  return type(support) == 'table' and type(support.head) == 'table'
+end
+
+local function categoryNeedsVisibleHead(category)
+  category = tostring(category or ''):lower()
+  if categoryUsesSupportHead(category) then
+    return true
+  end
+  local keep = (Config.IconCapture and Config.IconCapture.keepBody and Config.IconCapture.keepBody[category]) or {}
+  -- Force pure item capture for outerwear, pants and bags even if an older config still keeps body parts.
+  if category == 'torso' or category == 'pants' or category == 'bags' then
+    keep = {}
+  end
+  return keep.head == true
+end
+
+local function applySupportComponent(ped, componentId, spec)
+  if tonumber(componentId) == nil or type(spec) ~= 'table' then return end
+  local drawable = tonumber(spec.drawable)
+  if drawable == nil then return end
+  local texture = tonumber(spec.texture) or 0
+  SetPedComponentVariation(ped, tonumber(componentId), drawable, texture, 0)
 end
 
 
@@ -360,6 +392,7 @@ local function applyGhostCaptureBase(ped, payload)
 
   local drawable = tonumber(payload.drawableId or payload.drawable) or 0
   local texture = tonumber(payload.textureId or payload.texture or 0) or 0
+  local support = getCategorySupportModel(category)
 
   ClearPedTasksImmediately(ped)
   RemoveAllPedWeapons(ped, true)
@@ -371,10 +404,50 @@ local function applyGhostCaptureBase(ped, payload)
   -- Supporting body parts to KEEP for this category (so items that sit on the
   -- body don't float). Config-driven: shoes keep legs, watches keep arms, etc.
   local keep = (Config.IconCapture and Config.IconCapture.keepBody and Config.IconCapture.keepBody[category]) or {}
-  -- Force pure item capture for shirts, outerwear, pants and bags even if an
-  -- older config still keeps body parts.
-  if category == 'torso' or category == 'tshirt' or category == 'pants' or category == 'bags' then
+  -- Force pure item capture for shirts and outerwear even if an older config
+  -- still keeps body parts. Pants/bags can now use the streamed support body when configured.
+  if category == 'torso' or category == 'tshirt' then
     keep = {}
+    support = nil
+  end
+
+  -- When a streamed support model is configured for this category, use that body
+  -- instead of the old invisible/floating-item logic.
+  if type(support) == 'table' then
+    -- Head support (grey mannequin head)
+    if type(support.head) == 'table' then
+      local headSpec = support.head
+      SetPedComponentVariation(ped, 0, tonumber(headSpec.drawable) or 0, tonumber(headSpec.texture) or 0, 0)
+      SetPedComponentVariation(ped, 2, tonumber(headSpec.hair) or -1, tonumber(headSpec.hairTexture) or 0, 0)
+    elseif keep.head == true then
+      SetPedComponentVariation(ped, 0, 0, 0, 0)
+      SetPedComponentVariation(ped, 2, tonumber(keep.hair) or -1, 0, 0)
+    else
+      SetPedComponentVariation(ped, 0, 0, 1, 0)
+      SetPedComponentVariation(ped, 2, -1, 0, 0)
+    end
+    SetPedHairColor(ped, 45, 15)
+
+    -- Hide every other component, EXCEPT the target component and any support components.
+    for idx, hideVal in pairs(GHOST_HIDE) do
+      local compSpec = support[idx]
+      if type(compSpec) == 'table' then
+        applySupportComponent(ped, idx, compSpec)
+      elseif keep[idx] ~= nil then
+        SetPedComponentVariation(ped, idx, tonumber(keep[idx]) or 0, 0, 0)
+      elseif not (cat.type == 'component' and cat.index == idx) then
+        SetPedComponentVariation(ped, idx, hideVal, 0, 0)
+      end
+    end
+
+    if cat.type == 'prop' then
+      ClearPedProp(ped, cat.index)
+      SetPedPropIndex(ped, cat.index, drawable, texture, true)
+      return
+    end
+
+    SetPedComponentVariation(ped, cat.index, drawable, texture, 0)
+    return
   end
 
   -- Accessory PROPS (hat, glasses, earrings, watches) attach to a bone, not to

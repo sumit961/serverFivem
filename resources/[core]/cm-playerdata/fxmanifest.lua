@@ -4,7 +4,7 @@ lua54 'yes'
 
 description 'CM Player Data: character ID, cash/bank owner, vitals, death, identity labels and interactions'
 author 'CM Framework'
-version '1.9.14-interaction-arbiter-export'
+version '1.9.18-mandatory-family-symbols'
 
 shared_scripts {
     'config.lua'
@@ -12,7 +12,8 @@ shared_scripts {
 
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
-    'server/main.lua'
+    'server/main.lua',
+    'server/hardening.lua'
 }
 
 client_scripts {
@@ -26,7 +27,8 @@ ui_page 'ui/index.html'
 files {
     'ui/index.html',
     'ui/style.css',
-    'ui/main.js'
+    'ui/main.js',
+    'ui/family_symbols/*.png'
 }
 
 -- Hard dependencies kept for the @oxmysql import and shared cm-ui NUI theme.

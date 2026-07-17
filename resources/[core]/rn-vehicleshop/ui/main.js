@@ -17,6 +17,8 @@ let testDriveProcessing = false;
 let currentCategoryTitle = null;
 let currentVehicleButtons = [];
 let adminRenderedVehicles = [];
+let adminPreviewedModel = '';
+let adminDiscoveryInfo = {};
 let adminSelectedModel = null;
 let favorites = loadJsonStore('rnVehicleShopFavorites', []);
 let compareList = loadJsonStore('rnVehicleShopCompare', []);
@@ -169,17 +171,18 @@ function requestPreviewSpawn(model){
 function adminVisibleModels(){ return adminRenderedVehicles.map(v => String(v.model).toLowerCase()); }
 function selectAdminModel(model, preview = true){
   model = modelKey(model); if(!model) return;
+  const changed = model !== adminSelectedModel;
   adminSelectedModel = model;
   $('#admin-source-select').val(model);
   $('.admin-car').removeClass('selected');
   const card = $(`.admin-car[data-model="${model.replace(/"/g, '\\"')}"]`);
   card.addClass('selected');
-  if(card.length){
+  if(card.length && changed){
     const list = $('#admin-list');
     const top = card.position().top + list.scrollTop() - 90;
     list.stop(true).animate({ scrollTop: Math.max(0, top) }, 110);
   }
-  fillAdminForm(model, preview);
+  fillAdminForm(model, preview && model !== adminPreviewedModel);
 }
 function selectAdminRelative(delta){
   const models = adminVisibleModels();
@@ -285,6 +288,24 @@ addEventListener('message', (e) => {
     applyBalanceHud();
     renderCategories();
     autoStart();
+  } else if(msg.action === 'balanceUpdate'){
+    window.__balance = msg.balance || { cash: 0, bank: 0 };
+    applyBalanceHud();
+    if(details && details.numberprice != null) updateAfford(Number(details.numberprice || 0), details.buyable === true);
+  } else if(msg.action === 'testDriveResult'){
+    if(msg.success !== true){
+      setTestDriveProcessing(false);
+      showToast(msg.message || 'Test drive was rejected.');
+      $('#test-text').addClass('purchase-error').text(msg.message || 'Test drive was rejected.');
+      setTimeout(() => $('#test-text').removeClass('purchase-error').text('Are you sure you want to start the test drive?'), 2600);
+    }
+  } else if(msg.action === 'adminReturned'){
+    setTestDriveProcessing(false);
+    hideAllElements();
+    $('body').addClass('admin-active').removeClass('store-active test-drive-active');
+    $('#admin-panel').show();
+    renderAdmin();
+    showToast('Admin test drive finished.');
   } else if(msg.action === 'updateInfo'){
     const v = msg.vehicleInfo || {};
     const rawSpeed = Number(v.speed || 0);
@@ -367,10 +388,13 @@ addEventListener('message', (e) => {
   } else if(msg.action === 'adminOpen'){
     adminSourceVehicles = msg.sourceVehicles || [];
     adminCatalog = msg.catalog || [];
+    adminDiscoveryInfo = msg.discovery || {};
+    adminPreviewedModel = '';
     openAdminPanel();
   } else if(msg.action === 'adminData'){
     adminSourceVehicles = msg.sourceVehicles || [];
     adminCatalog = msg.catalog || [];
+    adminDiscoveryInfo = msg.discovery || adminDiscoveryInfo || {};
     renderAdmin();
   } else if(msg.action === 'closeAdmin'){
     closeAdminPanel(false);
@@ -464,11 +488,14 @@ function removeBackgroundAndCrop(dataUrl, payload = {}){
         const ch = payload.chroma || {};
         const bg = String(payload.background || 'green').toLowerCase();
 
-        const minGreen = Number(ch.minGreen ?? 90);
-        const dominance = Number(ch.dominance ?? 1.28);
-        const greenMargin = Number(ch.greenMargin ?? 28);
-        const maxRed = Number(ch.maxRed ?? 150);
-        const maxBlue = Number(ch.maxBlue ?? 165);
+        // Defaults must match config.lua. The old fallbacks (90/1.28/28) only
+        // removed BRIGHT green and would silently reintroduce the dark-green band
+        // if the config ever failed to reach the NUI.
+        const minGreen = Number(ch.minGreen ?? 18);
+        const dominance = Number(ch.dominance ?? 1.06);
+        const greenMargin = Number(ch.greenMargin ?? 6);
+        const maxRed = Number(ch.maxRed ?? 210);
+        const maxBlue = Number(ch.maxBlue ?? 210);
         const soften = ch.soften !== false;
 
         const crop = payload.crop || {};
@@ -482,12 +509,60 @@ function removeBackgroundAndCrop(dataUrl, payload = {}){
         const isTransparent = (x, y) => d[idx(x, y) + 3] <= 10;
         const yieldEvery = (src.width * src.height) > (1920 * 1080) ? 12 : 32;
 
+        // Green-screen key.
+        //
+        // The old test was purely RGB-threshold based (g >= minGreen && ...), so
+        // it only removed BRIGHT green. On a large backdrop the upper area sits
+        // in shadow and renders dark, those pixels fell under the threshold, and
+        // a solid dark-green band survived into the final image.
+        //
+        // This version keys on HUE + SATURATION instead, which is independent of
+        // brightness: a dark green pixel and a bright green pixel have the same
+        // hue, so both are removed. A grey/white/silver car body has almost no
+        // saturation and is never touched.
+        function isGreenScreen(r, g, b){
+          const max = Math.max(r, g, b);
+          const min = Math.min(r, g, b);
+          const delta = max - min;
+
+          // Green must be the dominant channel at all.
+          if(g !== max) return false;
+          // Near-grey pixels (car paint, chrome, glass) have tiny delta -> keep.
+          if(delta < greenMargin) return false;
+
+          // Saturation relative to the brightest channel. Screen green is a
+          // strongly saturated colour even when it is in shadow.
+          const sat = delta / (max || 1);
+          if(sat < 0.16) return false;
+
+          // Hue in degrees. Pure green is 120. Allow a generous band so lighting
+          // shifts (yellow-green in light, blue-green in shade) are still keyed.
+          let hue;
+          if(delta === 0) return false;
+          if(max === r)      hue = 60 * (((g - b) / delta) % 6);
+          else if(max === g) hue = 60 * (((b - r) / delta) + 2);
+          else               hue = 60 * (((r - g) / delta) + 4);
+          if(hue < 0) hue += 360;
+
+          if(hue < 70 || hue > 175) return false;
+
+          // Very dark pixels are shadow/ambient occlusion under the car, not the
+          // screen itself. minGreen is now a floor for "is there any green left".
+          if(max < minGreen) return false;
+
+          // Keep the explicit dominance/limit knobs working.
+          if(g <= Math.max(r, b) * dominance) return false;
+          if(r > maxRed || b > maxBlue) return false;
+
+          return true;
+        }
+
         function isKey(i){
           const r = d[i], g = d[i+1], b = d[i+2];
           if(bg === 'blue')  return b >= 110 && b >= r*1.25 && b >= g*1.15 && (b - Math.max(r,g)) >= 25 && r <= 165 && g <= 190;
           if(bg === 'white') return r >= 225 && g >= 225 && b >= 225 && Math.abs(r-g) <= 18 && Math.abs(r-b) <= 18 && Math.abs(g-b) <= 18;
           if(bg === 'black') return r <= 25 && g <= 25 && b <= 25;
-          return g >= minGreen && g > Math.max(r,b)*dominance && (g-r) >= greenMargin && (g-b) >= greenMargin && r <= maxRed && b <= maxBlue;
+          return isGreenScreen(r, g, b);
         }
 
         function nearTransparent(x, y, radius = 1){
@@ -530,15 +605,33 @@ function removeBackgroundAndCrop(dataUrl, payload = {}){
           }
 
           // Stronger cleanup pass for leftover green spill under tyres / lower body.
+          // NOTE: this used to require g >= 35. The real spill under the car
+          // measured g = 34, so it fell one point short and survived. Keyed on
+          // dominance now instead of an absolute brightness floor.
           for(let y = minY; y <= maxY; y++){
             for(let x = minX; x <= maxX; x++){
               const i = idx(x, y);
               if(d[i+3] <= 10) continue;
               const r = d[i], g = d[i+1], b = d[i+2];
-              if(nearTransparent(x, y, 2) && g >= 35 && g > Math.max(r,b) * 1.03 && (g-r) >= 6 && (g-b) >= 6){
+              if(nearTransparent(x, y, 2) && g >= 12 && g > Math.max(r,b) * 1.03 && (g-r) >= 4 && (g-b) >= 4){
                 d[i+3] = 0; removed++;
               } else if(nearTransparent(x, y, 2) && g > r * 1.04 && g > b * 1.04) {
                 d[i+1] = Math.max(r, b);
+              }
+            }
+            if((y % yieldEvery) === 0) await uiYield();
+          }
+
+          // FINAL SWEEP: catch any residual screen-green anywhere in the frame,
+          // not just next to already-transparent pixels. A large shadowed
+          // backdrop can leave whole regions of dark green that never touch an
+          // edge, which is what produced the solid dark band.
+          for(let y = minY; y <= maxY; y++){
+            for(let x = minX; x <= maxX; x++){
+              const i = idx(x, y);
+              if(d[i+3] <= 10) continue;
+              if(isGreenScreen(d[i], d[i+1], d[i+2])){
+                d[i+3] = 0; removed++;
               }
             }
             if((y % yieldEvery) === 0) await uiYield();
@@ -1083,11 +1176,11 @@ $(document).on('click', '.vehicle-class,.vehicle-class5', function(){ renderVehi
 $(document).on('click', '#cat-grid .cat-item', function(){ renderVehicleCategory($(this).data('title')); });
 
 $(document).on('click', '.color', function(){
-  const colorR = $(this).data('colorr');
-  const colorG = $(this).data('colorg');
-  const colorB = $(this).data('colorb');
+  const colorR = clamp(Number($(this).data('colorr')), 0, 255);
+  const colorG = clamp(Number($(this).data('colorg')), 0, 255);
+  const colorB = clamp(Number($(this).data('colorb')), 0, 255);
   const colorName = $(this).data('colorname');
-  const gtaColor = $(this).data('gtacolor');
+  const gtaColor = clamp(Number($(this).data('gtacolor')), 0, 160);
   details.color = colorName;
   details.r = colorR;
   details.g = colorG;
@@ -1386,8 +1479,8 @@ function hideAllElements(){
   vehiclesCategory = false; vehicleDisplay = false; inspect = false;
 }
 
-function openAdminPanel(){ hideAllElements(); $('body').addClass('admin-active').removeClass('store-active'); $('#admin-panel').fadeIn(); renderAdmin(); }
-function closeAdminPanel(send){ $('body').removeClass('admin-active'); $('#admin-panel').hide(); if(send) post('adminClose'); }
+function openAdminPanel(){ hideAllElements(); $('body').addClass('admin-active').removeClass('store-active'); $('#admin-panel').stop(true,true).show(); renderAdmin(); }
+function closeAdminPanel(send){ $('body').removeClass('admin-active'); $('#admin-panel').hide(); adminPreviewedModel = ''; if(send) post('adminClose'); }
 
 function renderAdmin(){
   const byCatalog = catalogByModel();
@@ -1400,22 +1493,26 @@ function renderAdmin(){
   merged.sort((a,b) => String(a.label || a.model).localeCompare(String(b.label || b.model)));
   for(const v of merged){
     const row = byCatalog[String(v.model).toLowerCase()];
-    const hay = `${v.model} ${v.label} ${v.category} ${statusFor(row)}`.toLowerCase();
+    const hay = `${v.model} ${v.label} ${v.category} ${v.resource || ''} ${statusFor(row)}`.toLowerCase();
     if(filter && !hay.includes(filter)) continue;
     adminRenderedVehicles.push(v);
     $('#admin-source-select').append(`<option value="${safe(v.model)}">${safe(v.label || v.model)} (${safe(v.model)}) — ${safe(v.category || 'Custom')}</option>`);
     const img = row && row.image ? `<img class="admin-car-thumb" src="${safe(row.image)}" />` : `<div class="admin-car-thumb noimg">No img</div>`;
     $('#admin-list').append(`
-      <div class="admin-car ${statusClass(row)}" data-model="${safe(String(v.model).toLowerCase())}">
+      <div class="admin-car ${statusClass(row)} ${v.autoDiscovered ? 'auto-detected' : ''} ${v.clientValid === false ? 'invalid-model' : ''}" data-model="${safe(String(v.model).toLowerCase())}">
         ${img}
-        <div class="admin-car-meta"><b>${safe(v.label || v.model)}</b><span>${safe(v.model)} • ${safe(v.category || 'Custom')}</span></div>
+        <div class="admin-car-meta"><b>${safe(v.label || v.model)}</b><span>${safe(v.model)} • ${safe(v.category || 'Custom')}${v.resource ? ` • ${safe(v.resource)}` : ''}</span></div>
         <em>${statusFor(row)}</em>
       </div>`);
   }
   const visibleModels = adminVisibleModels();
+  $('#admin-count').text(`${visibleModels.length} ${visibleModels.length === 1 ? 'vehicle' : 'vehicles'}`);
+  const autoCount = Number(adminDiscoveryInfo.autoDiscovered || adminSourceVehicles.filter(v => v.autoDiscovered).length || 0);
+  const resourceCount = Number(adminDiscoveryInfo.scannedResources || 0);
+  $('#admin-discovery-info').text(`${autoCount} auto-detected from ${resourceCount} started resource${resourceCount === 1 ? '' : 's'}`);
   let preferred = modelKey(adminSelectedModel || $('#admin-source-select').val());
   if(!preferred || !visibleModels.includes(preferred)) preferred = modelKey(adminRenderedVehicles[0] && adminRenderedVehicles[0].model);
-  if(preferred) selectAdminModel(preferred, true);
+  if(preferred) selectAdminModel(preferred, !adminPreviewedModel);
   else fillAdminForm('');
 }
 
@@ -1444,8 +1541,17 @@ function fillAdminForm(model, preview = true){
   $('#admin-test-enabled').prop('checked', td.enabled !== false);
   $('#admin-test-duration').val(td.duration ?? (data && data.testDrive && data.testDrive.testDriveTimer) ?? 60);
   $('#admin-test-cost').val(td.cost ?? (data && data.testDrive && data.testDrive.testDriveCost) ?? 0);
-  $('#admin-current-status').text(statusFor(row.model ? row : null));
-  if(preview && (row.model || source.model || model) && $('#admin-panel').is(':visible')) post('adminPreviewVehicle', { model: row.model || source.model || model });
+  $('#admin-current-status')
+    .text(statusFor(row.model ? row : null))
+    .attr('data-status', row.model ? statusMode : 'notset');
+  $('#admin-selected-title').text(row.label || source.label || source.name || model || 'Vehicle settings');
+  const sourceName = source.resource || (source.autoDiscovered ? 'Auto detected' : 'Config');
+  $('#admin-current-resource').text(sourceName).toggleClass('auto', !!source.autoDiscovered);
+  $('#admin-test, #admin-capture').prop('disabled', source.clientValid === false);
+  if(preview && (row.model || source.model || model) && $('#admin-panel').is(':visible')){
+    adminPreviewedModel = modelKey(row.model || source.model || model);
+    post('adminPreviewVehicle', { model: row.model || source.model || model });
+  }
   const imagePreview = $('#admin-image-preview');
   if(row.image){ imagePreview.attr('src', row.image).show(); }
   else { imagePreview.removeAttr('src').hide(); }
@@ -1472,6 +1578,18 @@ $(document).on('click', '#admin-save', function(){
 });
 $(document).on('click', '#dealer-dialog-store', function(){ $('body').removeClass('dialog-active'); $('#dealer-dialog').removeClass('show').hide(); $('#interaction-prompt').removeClass('show').hide(); post('dealerDialogStore'); });
 $(document).on('click', '#dealer-dialog-close', function(){ $('body').removeClass('dialog-active'); $('#dealer-dialog').removeClass('show').hide(); post('dealerDialogClose'); });
+$(document).on('click', '#admin-test', function(){
+  const model = String($('#admin-model').val() || '').trim();
+  if(!model){ showToast('Select a vehicle first.'); return; }
+  const payload = {
+    model, vehicle: $('#admin-label').val() || model, label: $('#admin-label').val() || model,
+    category: $('#admin-category').val() || 'Custom',
+    testDriveTimer: Number($('#admin-test-duration').val() || 60),
+    r: 255, g: 255, b: 255, gtaColor: 111, color: 'White'
+  };
+  setTestDriveProcessing(true);
+  post('adminTestVehicle', payload).fail(() => { setTestDriveProcessing(false); showToast('Admin test request failed.'); });
+});
 $(document).on('click', '#admin-disable', function(){ post('adminDisableVehicle', { model: $('#admin-model').val() }); });
 $(document).on('click', '#admin-capture', function(){
   const model = String($('#admin-model').val() || '').trim();
@@ -1483,6 +1601,11 @@ $(document).on('click', '#admin-capture', function(){
     label: $('#admin-label').val(),
     category: $('#admin-category').val()
   }), 250);
+});
+$(document).on('click', '#admin-rescan', function(){
+  const btn = $(this); btn.prop('disabled', true).addClass('is-scanning');
+  $('#admin-discovery-info').text('Scanning started vehicle resources…');
+  post('adminRescanVehicles').always(() => setTimeout(() => btn.prop('disabled', false).removeClass('is-scanning'), 1200));
 });
 $(document).on('click', '#admin-refresh', function(){ post('adminRefresh'); });
 $(document).on('click', '#admin-close', function(){ closeAdminPanel(true); });

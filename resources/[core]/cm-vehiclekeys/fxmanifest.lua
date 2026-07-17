@@ -2,14 +2,12 @@ fx_version 'cerulean'
 game 'gta5'
 
 author 'CM Framework'
-description 'CM Vehicle temporary key system'
-version '1.0.0'
+description 'CM secure session-bound manual and family vehicle key system'
+version '1.2.0'
 
-client_scripts {
-    'client/main.lua'
-}
+shared_script 'shared/config.lua'
 
-server_scripts {
-    '@oxmysql/lib/MySQL.lua',
-    'server/main.lua'
-}
+client_script 'client/main.lua'
+server_script 'server/main.lua'
+
+dependency 'cm-playerdata'

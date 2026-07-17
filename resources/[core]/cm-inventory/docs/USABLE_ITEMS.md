@@ -1,5 +1,8 @@
 # Usable Item System v2.5
 
+For the complete CM Inventory export/import reference, see
+[EXPORTS_AND_IMPORTS.md](EXPORTS_AND_IMPORTS.md).
+
 Cross-resource Lua function callbacks are unreliable in FiveM exports, so this version uses a stable export-handler model.
 
 ## Register an item from another resource

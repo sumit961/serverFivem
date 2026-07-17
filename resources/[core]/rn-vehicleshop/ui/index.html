@@ -191,8 +191,8 @@
       <span>[E]</span> Open Catalog
   </div>
   <div id="test-drive-container">
-      <div id="title-buy-container">
-          <div id="buy-offer">Test Drive Details</div>
+      <div id="test-title-container">
+          <div id="test-offer">Test Drive Details</div>
       </div>
       <div id="test-details">
           <div class="test-detail">
@@ -237,85 +237,133 @@
   </div>
 
   <div id="admin-panel" style="display:none;">
+    <div class="admin-preview-badge">
+      <span class="admin-preview-dot"></span>
+      Live preview
+      <small>Drag the mouse to rotate</small>
+    </div>
+
     <div class="admin-shell">
-      <div class="admin-head">
-        <div>
-          <h1>Vehicle Admin</h1>
-          <p>Only cars saved here will be used by the server. Store = buyable. Server only = event/task. Hidden = not shown.</p>
+      <aside class="admin-left admin-surface">
+        <div class="admin-brand-row">
+          <div class="admin-logo">CM</div>
+          <div class="admin-brand-copy">
+            <span class="admin-kicker">Catalog manager</span>
+            <h1>Vehicle Admin</h1>
+          </div>
+          <button id="admin-close" type="button" aria-label="Close">×</button>
         </div>
-        <button id="admin-close">Close</button>
-      </div>
-      <div class="admin-body">
-        <aside class="admin-left">
-          <input id="admin-search" placeholder="Search model, name, category..." />
+
+        <div class="admin-search-wrap">
+          <span class="admin-search-icon">⌕</span>
+          <input id="admin-search" placeholder="Search vehicle, model or class" autocomplete="off" />
+        </div>
+
+        <div class="admin-list-heading">
+          <div>
+            <strong>Vehicle catalog</strong>
+            <span id="admin-count">0 vehicles</span>
+          </div>
           <div class="admin-nav-buttons">
-            <button id="admin-prev" type="button"><i class="fas fa-chevron-up"></i> Up</button>
-            <button id="admin-next" type="button"><i class="fas fa-chevron-down"></i> Down</button>
+            <button id="admin-rescan" class="admin-rescan" type="button" aria-label="Rescan started vehicle resources" title="Rescan vehicle resources">↻</button>
+            <button id="admin-prev" type="button" aria-label="Previous vehicle">↑</button>
+            <button id="admin-next" type="button" aria-label="Next vehicle">↓</button>
           </div>
-          <div class="admin-nav-hint">Use the buttons or keyboard ↑ / ↓ to preview cars fast.</div>
-          <select id="admin-source-select" size="10"></select>
-          <div id="admin-list"></div>
-        </aside>
-        <main class="admin-form">
-          <div class="admin-status-line">Current state: <b id="admin-current-status">Not set</b></div>
-          <label>Model spawn name<input id="admin-model" placeholder="sultan" /></label>
-          <label>Display name<input id="admin-label" placeholder="Karin Sultan" /></label>
-          <label>Category
-            <select id="admin-category">
-              <option>Sports</option>
-              <option>Super</option>
-              <option>Sedans</option>
-              <option>Luxury</option>
-              <option>SUVs</option>
-              <option>Trucks</option>
-              <option>Motorcycles</option>
-              <option>Bikes</option>
-              <option>Compacts</option>
-              <option>Coupes</option>
-              <option>Muscle</option>
-              <option>Off Road</option>
-              <option>Vans</option>
-              <option>Custom</option>
-            </select>
-          </label>
-          <div class="admin-row">
-            <label>Price<input id="admin-price" type="number" min="0" step="1" /></label>
-            <label>Trunk level <small>0 = no trunk, 1 = 6 cells, 6 = 30 cells</small><input id="admin-trunk" type="number" min="0" max="6" step="1" /></label>
+        </div>
+
+        <select id="admin-source-select" size="7" aria-hidden="true" tabindex="-1"></select>
+        <div id="admin-list"></div>
+
+        <div class="admin-discovery-strip">
+          <span class="admin-scan-dot"></span>
+          <span id="admin-discovery-info">Scanning started vehicle resources…</span>
+        </div>
+        <div class="admin-left-footer">
+          <span><kbd>↑</kbd><kbd>↓</kbd> Browse</span>
+          <span>Click once to preview</span>
+        </div>
+      </aside>
+
+      <main class="admin-form admin-surface">
+        <div class="admin-form-head">
+          <div>
+            <span class="admin-kicker">Selected vehicle</span>
+            <h2 id="admin-selected-title">Vehicle settings</h2>
           </div>
-          <label>Catalog status
-            <select id="admin-status-mode">
-              <option value="hidden">Hidden / disabled</option>
-              <option value="server">Server only / event-task vehicle</option>
-              <option value="store">Store buyable</option>
-            </select>
-          </label>
-          <div class="admin-checks admin-test-drive-settings">
-            <label><input id="admin-test-enabled" type="checkbox" checked /> Test drive enabled</label>
-            <div class="admin-row">
-              <label>Test duration seconds<input id="admin-test-duration" type="number" min="10" max="600" step="1" value="60" /></label>
-              <label>Test drive cost<input id="admin-test-cost" type="number" min="0" step="1" value="50" /></label>
+          <div class="admin-head-badges"><span class="admin-resource-pill" id="admin-current-resource">Config</span><span class="admin-status-pill" id="admin-current-status">Not set</span></div>
+        </div>
+
+        <div class="admin-form-scroll">
+          <section class="admin-section admin-media-section">
+            <div class="admin-section-title">
+              <div><strong>Catalog image</strong><span>Transparent 512 × 512 preview</span></div>
+              <button id="admin-capture" class="admin-inline-action" type="button">Recapture</button>
             </div>
-          </div>
-          <div class="admin-actions">
-            <button id="admin-save">Save / Enable</button>
-            <button id="admin-capture">Recapture Image</button>
-            <button id="admin-disable">Disable / Hide</button>
-            <button id="admin-refresh">Refresh</button>
-          </div>
-          <div class="admin-image-row">
-            <div class="admin-image-label">Current image:</div>
-            <img id="admin-image-preview" alt="No image yet" style="display:none;" />
-          </div>
-          <div class="admin-help">
-            <b>Use:</b> Hidden disables the car. Server only is for event/task cars. Store buyable appears in the dealership with a buy button.<br>
-            <b>Image:</b> when a car has no image, Save will trigger the 3D studio capture. The crop tool now auto-fits tightly around the car, then lets you review before saving.
-          </div>
-        </main>
-      </div>
+            <div class="admin-image-row">
+              <div class="admin-image-placeholder">
+                <span>CM</span>
+                <small>Vehicle image</small>
+              </div>
+              <img id="admin-image-preview" alt="Current vehicle catalog preview" style="display:none;" />
+            </div>
+          </section>
+
+          <section class="admin-section">
+            <div class="admin-section-title"><div><strong>Vehicle details</strong><span>Identity and catalog placement</span></div></div>
+            <div class="admin-field-grid">
+              <label>Model spawn name<input id="admin-model" placeholder="sultan" /></label>
+              <label>Display name<input id="admin-label" placeholder="Karin Sultan" /></label>
+              <label>Category
+                <select id="admin-category">
+                  <option>Sports</option><option>Super</option><option>Sedans</option><option>Luxury</option>
+                  <option>SUVs</option><option>Trucks</option><option>Motorcycles</option><option>Bikes</option>
+                  <option>Compacts</option><option>Coupes</option><option>Muscle</option><option>Off Road</option>
+                  <option>Vans</option><option>Custom</option>
+                </select>
+              </label>
+              <label>Catalog status
+                <select id="admin-status-mode">
+                  <option value="hidden">Hidden / disabled</option>
+                  <option value="server">Server only / event-task</option>
+                  <option value="store">Store buyable</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section class="admin-section">
+            <div class="admin-section-title"><div><strong>Store configuration</strong><span>Price and storage capacity</span></div></div>
+            <div class="admin-field-grid admin-two-cols">
+              <label>Purchase price<input id="admin-price" type="number" min="0" max="250000000" step="1" /></label>
+              <label>Trunk level <small>0 none · 1 six cells · 6 thirty</small><input id="admin-trunk" type="number" min="0" max="6" step="1" /></label>
+            </div>
+          </section>
+
+          <section class="admin-section admin-test-drive-settings">
+            <div class="admin-section-title admin-toggle-title">
+              <div><strong>Public test drive</strong><span>Configure customer test access</span></div>
+              <label class="admin-switch" aria-label="Enable public test drive">
+                <input id="admin-test-enabled" type="checkbox" checked />
+                <span></span>
+              </label>
+            </div>
+            <div class="admin-field-grid admin-two-cols">
+              <label>Duration<input id="admin-test-duration" type="number" min="10" max="600" step="1" value="60" /><small>Seconds</small></label>
+              <label>Test cost<input id="admin-test-cost" type="number" min="0" step="1" value="50" /><small>Uses cash + bank</small></label>
+            </div>
+          </section>
+        </div>
+
+        <div class="admin-actions">
+          <button id="admin-save" class="primary" type="button"><span>Save vehicle</span><small>Update catalog</small></button>
+          <button id="admin-test" class="success" type="button"><span>Test vehicle</span><small>Free admin drive</small></button>
+          <button id="admin-disable" class="danger" type="button">Disable / hide</button>
+          <button id="admin-refresh" type="button">Refresh data</button>
+        </div>
+      </main>
     </div>
     <div id="admin-toast"></div>
   </div>
-
 
   <div id="crop-modal" style="display:none;">
     <div class="crop-shell">

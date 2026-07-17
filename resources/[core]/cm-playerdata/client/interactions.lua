@@ -188,6 +188,69 @@ local function GetAdminTag(serverId)
     return tag
 end
 
+local function HexToRgb(hex)
+    hex = tostring(hex or '#00f0ff'):gsub('#', '')
+    if #hex ~= 6 then return { r = 0, g = 240, b = 255, a = 245 } end
+    return {
+        r = tonumber(hex:sub(1, 2), 16) or 0,
+        g = tonumber(hex:sub(3, 4), 16) or 240,
+        b = tonumber(hex:sub(5, 6), 16) or 255,
+        a = 245,
+    }
+end
+
+local FAMILY_SYMBOLS = {
+    crown = { texture = 'crown', glyph = '♛' },
+    flower = { texture = 'flower', glyph = '✿' },
+    star = { texture = 'star', glyph = '★' },
+    shield = { texture = 'shield', glyph = '⬟' },
+    diamond = { texture = 'diamond', glyph = '♦' },
+    skull = { glyph = '☠' },
+    heart = { glyph = '♥' },
+    bolt = { glyph = 'ϟ' },
+    moon = { glyph = '☾' },
+    sun = { glyph = '☀' },
+}
+
+local FAMILY_SYMBOL_TXD = 'cm_family_symbols'
+local familySymbolTextureReady = {}
+
+CreateThread(function()
+    local okTxd, txd = pcall(CreateRuntimeTxd, FAMILY_SYMBOL_TXD)
+    if not okTxd or not txd then return end
+    for key, entry in pairs(FAMILY_SYMBOLS) do
+        if entry.texture then
+        -- CreateRuntimeTextureFromImage resolves files declared in the current
+        -- resource manifest, so no server-only filesystem path lookup is used.
+        local path = ('ui/family_symbols/%s.png'):format(entry.texture)
+        local ok = pcall(CreateRuntimeTextureFromImage, txd, entry.texture, path)
+        familySymbolTextureReady[key] = ok == true
+        end
+    end
+end)
+
+local function IsFamilySymbolMasked(state)
+    if GetCfg('HideFamilySymbolWhenMasked', true) ~= true or not state then return false end
+    local keys = GetCfg('FamilyMaskedStateKeys', { 'cm_masked', 'masked', 'isMasked', 'mask_on' })
+    for _, key in ipairs(keys) do
+        local value = state[key]
+        if value == true or value == 1 or value == '1' then return true end
+    end
+    return false
+end
+
+local function GetFamilySymbol(serverId)
+    if GetCfg('ShowFamilySymbols', true) ~= true then return nil, nil end
+    local state = Player(tonumber(serverId) or -1).state
+    local family = state and state.cmFamily or nil
+    if type(family) ~= 'table' or family.active ~= true or family.symbolVisible == false then return nil, nil end
+    if IsFamilySymbolMasked(state) then return nil, nil end
+
+    local symbol = tostring(family.symbol or 'shield'):lower()
+    if not FAMILY_SYMBOLS[symbol] then symbol = 'shield' end
+    return symbol, HexToRgb(family.symbolColor or family.color)
+end
+
 local function GetIdentityTitle(serverId, allowLoading)
     local identity = GetIdentity(serverId)
     local charId = GetCharacterIdForServerId(serverId)
@@ -221,17 +284,18 @@ end
 
 local function GetIdentityLabel(serverId, allowLoading, ped, isTarget)
     local nameLine, idLine, isAdmin = GetIdentityTitle(serverId, allowLoading)
-    if not nameLine or not idLine then return nil, nil, isAdmin, nil end
+    if not nameLine or not idLine then return nil, nil, isAdmin, nil, nil, nil end
 
-    -- Admin tag replaces normal identity completely. The unconscious status line
-    -- is only shown on normal player identity labels, and sits on its own red
-    -- line above the name (Grand-RP style: Unconscious / Name / ID).
     local statusLine = nil
     if not isAdmin and ped and IsPedValidLabelTarget(ped) and IsPedDowned(ped, serverId) then
         statusLine = GetCfg('DownedLabelText', 'Unconscious')
     end
 
-    return nameLine, idLine, isAdmin, statusLine
+    local familySymbol, familyColour
+    if not isAdmin or GetCfg('ShowFamilySymbolInAdminMode', false) == true then
+        familySymbol, familyColour = GetFamilySymbol(serverId)
+    end
+    return nameLine, idLine, isAdmin, statusLine, familySymbol, familyColour
 end
 
 -- Vehicle the ped is in, ENTERING (mid F-animation), or attached to (trunk).
@@ -593,7 +657,7 @@ local function BuildLabelPayload()
 
             if (labelsEnabled and dist <= distanceLimit and HasClearView(localPed, ped)) or isTarget then
                 if not useNativeLabels then
-                    local nameLine, idLine, isAdmin, statusLine = GetIdentityLabel(entry.serverId, isTarget, ped, isTarget)
+                    local nameLine, idLine, isAdmin, statusLine, familySymbol, familyColour = GetIdentityLabel(entry.serverId, isTarget, ped, isTarget)
                     if nameLine and idLine then
                         local labelCoords = GetOverheadLabelCoords(ped, entry.serverId)
                         local onScreen, sx, sy = World3dToScreen2d(labelCoords.x, labelCoords.y, labelCoords.z)
@@ -609,6 +673,8 @@ local function BuildLabelPayload()
                                 name = nameLine,
                                 id = idLine,
                                 status = statusLine or nil,
+                                familySymbol = familySymbol or nil,
+                                familyColor = familyColour and ('rgb(%d,%d,%d)'):format(familyColour.r, familyColour.g, familyColour.b) or nil,
                                 t = isTarget or nil,
                                 admin = isAdmin or nil
                             }
@@ -645,31 +711,45 @@ local function DrawNativeTextLine(text, y, scale, r, g, b, a, font, outline)
     EndTextCommandDisplayText(0.0, y)
 end
 
-local function DrawNativeHeadLabel(x, y, z, nameLine, idLine, scale, isAdmin, isTarget, statusLine)
+local function DrawNativeHeadLabel(x, y, z, nameLine, idLine, scale, isAdmin, isTarget, statusLine, familySymbol, familyColour)
     SetDrawOrigin(x, y, z, 0)
 
     local font = tonumber(GetCfg('OverheadFont', 0)) or 0
     local outline = GetCfg('OverheadTextOutline', true) ~= false
-
-    -- Line spacing scales with the text so the name/ID stay tight together at
-    -- distance instead of drifting apart (fixed offsets look wider as text shrinks).
     local gap = scale * (tonumber(GetCfg('OverheadLineGap', 0.075)) or 0.075)
+    local row = 0
 
-    -- When downed, a red status line sits on top and pushes the name/ID down one
-    -- row so the stack reads: Unconscious / Name / ID (Grand-RP style).
-    local nameY, idY = 0.0, gap
     if statusLine then
         local red = GetCfg('DownedLabelColour', { r = 235, g = 45, b = 45, a = 250 })
-        DrawNativeTextLine(statusLine, 0.0, scale * 0.92, red.r or 235, red.g or 45, red.b or 45, red.a or 250, font, outline)
-        nameY, idY = gap, gap * 2
+        DrawNativeTextLine(statusLine, row * gap, scale * 0.92, red.r or 235, red.g or 45, red.b or 45, red.a or 250, font, outline)
+        row = row + 1
     end
 
+    -- The family-wide symbol sits directly above the normal player name.
+    if familySymbol and (not isAdmin or GetCfg('ShowFamilySymbolInAdminMode', false) == true) then
+        local c = familyColour or { r = 0, g = 240, b = 255, a = 245 }
+        local entry = FAMILY_SYMBOLS[familySymbol] or FAMILY_SYMBOLS.shield
+        local factor = math.max(0.58, scale / (tonumber(GetCfg('OverheadScale', 0.32)) or 0.32))
+        local width = (tonumber(GetCfg('FamilySymbolWidth', 0.016)) or 0.016) * factor
+        local height = (tonumber(GetCfg('FamilySymbolHeight', 0.028)) or 0.028) * factor
+        local y = row * gap
+
+        if familySymbolTextureReady[familySymbol] == true then
+            DrawSprite(FAMILY_SYMBOL_TXD, entry.texture, 0.0, y, width, height, 0.0,
+                c.r or 0, c.g or 240, c.b or 255, c.a or 245)
+        else
+            DrawNativeTextLine(entry.glyph, y, scale * 1.02,
+                c.r or 0, c.g or 240, c.b or 255, c.a or 245, font, outline)
+        end
+        row = row + 1.15
+    end
+
+    local nameY, idY = row * gap, (row + 1) * gap
     if isAdmin then
         DrawNativeTextLine(nameLine, nameY, scale, 255, 35, 35, 245, font, outline)
         DrawNativeTextLine(idLine, idY, scale * 0.84, 255, 35, 35, 235, font, outline)
     else
         DrawNativeTextLine(nameLine, nameY, scale, 245, 252, 255, 245, font, outline)
-
         if isTarget then
             local accent = GetCfg('AccentColour', { r = 0, g = 230, b = 255, a = 255 })
             DrawNativeTextLine(idLine, idY, scale * 0.84, accent.r or 0, accent.g or 230, accent.b or 255, 235, font, outline)
@@ -700,14 +780,14 @@ local function DrawNativeOverheadLabels()
 
             if (dist <= distanceLimit and HasClearView(localPed, ped)) or isTarget then
                 local targetable = isTarget and IsTargetInteractable(currentTarget, GetCfg('LookDistance', GetCfg('Distance', 4.5))) == true
-                local nameLine, idLine, isAdmin, statusLine = GetIdentityLabel(entry.serverId, targetable, ped, targetable)
+                local nameLine, idLine, isAdmin, statusLine, familySymbol, familyColour = GetIdentityLabel(entry.serverId, targetable, ped, targetable)
                 if nameLine and idLine then
                     local scaleFactor = 1.15 - (dist * 0.026)
                     if scaleFactor < 0.58 then scaleFactor = 0.58 end
                     if scaleFactor > 1.10 then scaleFactor = 1.10 end
 
                     local labelCoords = GetOverheadLabelCoords(ped, entry.serverId)
-                    DrawNativeHeadLabel(labelCoords.x, labelCoords.y, labelCoords.z, nameLine, idLine, baseScale * scaleFactor, isAdmin == true, targetable, statusLine)
+                    DrawNativeHeadLabel(labelCoords.x, labelCoords.y, labelCoords.z, nameLine, idLine, baseScale * scaleFactor, isAdmin == true, targetable, statusLine, familySymbol, familyColour)
                 end
             end
         end
@@ -1152,6 +1232,7 @@ end
 local function CloseMenu()
     menuOpen = false
     menuTarget = nil
+    TriggerEvent('cm-playerdata:client:interactionTargetChanged', nil)
     currentPage = 'main'
     currentOptions = {}
     pageStack = {}
@@ -1169,6 +1250,10 @@ local function OpenMenu(target)
     end
     menuOpen = true
     menuTarget = target
+    -- Let extension resources synchronously rebuild target-specific pages before
+    -- BuildPage reads the registry. No client-provided permission is trusted;
+    -- cm-playerdata and the extension resource validate again on the server.
+    TriggerEvent('cm-playerdata:client:interactionTargetChanged', target.serverId)
     -- Unconscious body: only treatment actions make sense.
     currentPage = IsPedDowned(target.ped, target.serverId) and 'dead' or 'main'
     pageStack = {}
@@ -1585,4 +1670,9 @@ RegisterNetEvent('cm-playerdata:client:handshakeRequest', function(fromLabel, ti
         end
         handshakePending = false
     end)
+end)
+
+
+RegisterNetEvent('cm-playerdata:client:familyIdentityChanged', function()
+    RequestNearbyIdentities(true)
 end)

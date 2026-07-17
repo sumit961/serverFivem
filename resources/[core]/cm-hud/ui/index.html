@@ -28,6 +28,17 @@
         <!-- Vehicle HUD: renderer chosen by vehicle type (car/electric/air/boat/bike) -->
         <div id="hud-vehicle" class="hud-module hidden"></div>
 
+        <!-- Weapon ammo panel: bullet count from cm-inventory ammo slot -->
+        <div id="hud-weapon" class="hud-module hidden">
+            <div class="weapon-hud">
+                <div class="weapon-ammo-wrap">
+                    <span id="weapon-ammo" class="weapon-ammo">0</span>
+                    <span id="weapon-ammo-label" class="weapon-ammo-label">AMMO</span>
+                </div>
+                <svg class="weapon-ammo-icon" viewBox="0 0 24 24"><path d="M12 2c1.7 0 3 1.5 3 3.4V9h-6V5.4C9 3.5 10.3 2 12 2z"/><rect x="8.4" y="9" width="7.2" height="12.4" rx="1.3"/><rect x="8.4" y="11.4" width="7.2" height="1.7" opacity="0.35"/></svg>
+            </div>
+        </div>
+
         <!-- CENTER: Death screen -->
         <div id="hud-death" class="hud-module hidden"></div>
 

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 180">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#b48cff" stop-opacity=".95"/><stop offset="1" stop-color="#ffffff" stop-opacity=".75"/></linearGradient><filter id="s" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="10" stdDeviation="8" flood-color="#000" flood-opacity=".45"/></filter></defs>
+<rect width="256" height="180" rx="32" fill="none"/>
+<g filter="url(#s)">
+<path d="M48 94 L18 118 L62 122 L82 101 Z" fill="#26343d"/>
+<path d="M55 72 C72 58 112 55 150 59 L220 63 C226 64 230 69 228 75 L225 83 L149 84 L137 101 L77 101 L64 123 L48 119 L58 95 L48 88 C44 84 47 76 55 72 Z" fill="#0e171d" stroke="url(#g)" stroke-opacity=".65" stroke-width="3"/>
+<rect x="157" y="52" width="54" height="10" rx="5" fill="url(#g)" opacity=".55"/>
+<circle cx="79" cy="83" r="7" fill="#b48cff" opacity=".75"/>
+<path d="M102 98 L121 98 L115 145 L94 145 Z" fill="#1c2b34" stroke="#8ddfff" stroke-opacity=".35"/>
+<path d="M70 102 C82 111 84 128 75 143 L56 136 C64 122 62 113 54 105 Z" fill="#17242c" stroke="#8ddfff" stroke-opacity=".35"/>
+</g>
+<text x="128" y="166" fill="#dffbff" font-size="14" text-anchor="middle" font-family="Arial" font-weight="900">CARBINE</text>
+</svg>

@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CM Car Wash</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="interaction" class="interaction hidden" aria-hidden="true">
+    <div class="interaction-key" id="interactionKey">E</div>
+    <div class="interaction-copy">
+      <span class="interaction-title" id="interactionTitle">CAR WASH</span>
+      <strong id="interactionLabel">Open automatic car wash</strong>
+      <small id="interactionHint">Cash payment · vehicle secured during service</small>
+    </div>
+  </div>
+
+  <div id="wash-root" class="wash-root hidden" aria-hidden="true">
+    <div class="screen-shade"></div>
+
+    <main class="wash-panel" role="dialog" aria-modal="true" aria-labelledby="stationName">
+      <header class="panel-header">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 48 48">
+            <path d="M24 5s-10 12-10 21a10 10 0 0 0 20 0C34 17 24 5 24 5Z"/>
+            <path d="M18.5 28.5c1.2 3.2 3.3 4.8 6.4 4.8"/>
+            <path d="M8 41h32"/>
+          </svg>
+        </div>
+        <div class="heading-copy">
+          <span class="eyebrow">CM VEHICLE CARE</span>
+          <h1 id="stationName">CM Auto Spa</h1>
+          <p>Secure automatic exterior wash</p>
+        </div>
+        <button class="icon-button" id="btnClose" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </header>
+
+      <section class="vehicle-card">
+        <div class="vehicle-meta">
+          <span class="section-label">SELECTED VEHICLE</span>
+          <div class="vehicle-name-row">
+            <div>
+              <h2 id="vehicleName">Vehicle</h2>
+              <span class="plate" id="vehiclePlate">NO PLATE</span>
+            </div>
+            <span class="status-badge"><i></i> SECURED</span>
+          </div>
+        </div>
+
+        <div class="clean-overview">
+          <div class="clean-ring" id="cleanRing">
+            <div class="clean-ring-inner">
+              <span id="cleanValue">0</span><small>%</small>
+              <em>CLEAN</em>
+            </div>
+          </div>
+          <div class="clean-details">
+            <div class="stat-row">
+              <span>Current dirt</span>
+              <b><span id="dirtValue">0.0</span> / <span id="maxDirtValue">15</span></b>
+            </div>
+            <div class="stat-row">
+              <span>After service</span>
+              <b class="accent">100% clean</b>
+            </div>
+            <div class="stat-row">
+              <span>Wash time</span>
+              <b><span id="durationValue">7</span> sec</b>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="service-section">
+        <div class="section-heading">
+          <div>
+            <span class="section-label">AUTOMATIC SERVICE</span>
+            <h2>Exterior wash</h2>
+          </div>
+          <span class="cash-pill">Cash <b>$<span id="cashValue">0</span></b></span>
+        </div>
+
+        <article class="service-card">
+          <div class="service-icon">
+            <svg viewBox="0 0 24 24">
+              <path d="M5 14h14l-1.2-4.2A3 3 0 0 0 15 8H9a3 3 0 0 0-2.8 1.8L5 14Z"/>
+              <path d="M4 14v5h3v-2h10v2h3v-5M8 14h.01M16 14h.01"/>
+              <path d="M7 4l-1 2M12 3v3M17 4l1 2"/>
+            </svg>
+          </div>
+          <div class="service-copy">
+            <h3>Drive-through exterior wash</h3>
+            <p>Pre-rinse, foam wash, pressure rinse and dry.</p>
+            <div class="feature-row">
+              <span>Persistent clean state</span>
+              <span>Vehicle held safely</span>
+            </div>
+          </div>
+          <strong class="service-price">$<span id="servicePrice">0</span></strong>
+        </article>
+
+        <div class="wash-steps" id="washSteps">
+          <div class="wash-step active" data-step="rinse"><span>01</span><b>Pre-rinse</b></div>
+          <div class="wash-step" data-step="foam"><span>02</span><b>Foam</b></div>
+          <div class="wash-step" data-step="pressure"><span>03</span><b>Rinse</b></div>
+          <div class="wash-step" data-step="dry"><span>04</span><b>Dry</b></div>
+        </div>
+
+        <div id="progressCard" class="progress-card hidden">
+          <div class="progress-heading">
+            <div>
+              <span class="section-label">WASH IN PROGRESS</span>
+              <strong id="progressStage">Pre-rinse</strong>
+            </div>
+            <b><span id="progressValue">0</span>%</b>
+          </div>
+          <div class="progress-track"><i id="progressFill"></i></div>
+          <small>Keep the vehicle inside the wash. Controls unlock automatically.</small>
+        </div>
+      </section>
+
+      <footer class="checkout">
+        <div class="checkout-total">
+          <span>TOTAL</span>
+          <strong>$<span id="grandTotal">0</span></strong>
+          <small id="checkoutHint">Cash payment only</small>
+        </div>
+        <button id="btnWash" class="primary-button" type="button">
+          <span id="washButtonText">Start wash</span>
+          <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>
+        </button>
+      </footer>
+
+      <div id="toast" class="toast hidden" role="status">
+        <span class="toast-dot"></span>
+        <p id="toastMessage"></p>
+      </div>
+
+      <div class="key-hint"><kbd>ESC</kbd><span id="keyHintText">Close car wash</span></div>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

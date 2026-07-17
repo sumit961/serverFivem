@@ -14,6 +14,7 @@ shared_scripts {
 client_scripts {
     'client/main.lua',
     'client/tutorial.lua',
+    'client/selector_weather.lua',
 }
 
 server_scripts {

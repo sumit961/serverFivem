@@ -36,6 +36,19 @@ const ICONS = {
     dot: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/></svg>'
 };
 
+const FAMILY_SYMBOLS = {
+    crown: '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M8 47 6 18l14 14 12-23 12 23 14-14-2 29H8Z"/><path d="M10 47h44v9H10z"/></svg>',
+    flower: '<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="15" r="12"/><circle cx="47" cy="24" r="12"/><circle cx="47" cy="41" r="12"/><circle cx="32" cy="49" r="12"/><circle cx="17" cy="41" r="12"/><circle cx="17" cy="24" r="12"/><circle cx="32" cy="32" r="10"/></svg>',
+    star: '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="m32 5 8 17 19 2-14 13 4 19-17-9-17 9 4-19L5 24l19-2 8-17Z"/></svg>',
+    shield: '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 5 55 13v18c0 14-8 23-23 29C17 54 9 45 9 31V13l23-8Z"/></svg>',
+    diamond: '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="m32 4 27 28-27 28L5 32 32 4Z"/></svg>',
+    skull: '<svg viewBox="0 0 64 64"><path d="M12 29a20 20 0 1 1 40 0c0 10-5 16-12 19v10H24V48c-7-3-12-9-12-19Z"/><circle cx="24" cy="29" r="5"/><circle cx="40" cy="29" r="5"/></svg>',
+    heart: '<svg viewBox="0 0 64 64"><path d="M32 57 8 35C-7 18 17 1 32 17 47 1 71 18 56 35L32 57Z"/></svg>',
+    bolt: '<svg viewBox="0 0 64 64"><path d="M37 3 13 37h17l-4 24 25-36H34l3-22Z"/></svg>',
+    moon: '<svg viewBox="0 0 64 64"><path d="M48 51A27 27 0 0 1 30 4a25 25 0 1 0 18 47Z"/></svg>',
+    sun: '<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="14"/><path d="M32 3v10M32 51v10M3 32h10M51 32h10M12 12l7 7M45 45l7 7M52 12l-7 7M19 45l-7 7" stroke="currentColor" stroke-width="6"/></svg>',
+};
+
 // -------------------------------------------------------------------------
 // Overhead labels — element pool so per-frame updates never re-create DOM.
 // -------------------------------------------------------------------------
@@ -45,8 +58,9 @@ function getLabelEl(i) {
     if (pool[i]) return pool[i];
     const el = document.createElement('div');
     el.className = 'plabel';
-    el.innerHTML = '<div class="pstatus"></div><div class="pname"></div><div class="pid"></div>';
+    el.innerHTML = '<div class="pstatus"></div><div class="pfamily-symbol"></div><div class="pname"></div><div class="pid"></div>';
     el._status = el.querySelector('.pstatus');
+    el._familySymbol = el.querySelector('.pfamily-symbol');
     el._name = el.querySelector('.pname');
     el._id = el.querySelector('.pid');
     labelsRoot.appendChild(el);
@@ -71,6 +85,16 @@ function renderLabels(labels) {
             el._status.textContent = status;
             el._status.style.display = status ? 'block' : 'none';
             el._lastStatus = status;
+        }
+
+        const familySymbol = data.familySymbol || '';
+        const familyColor = data.familyColor || '';
+        if (el._lastFamilySymbol !== familySymbol || el._lastFamilyColor !== familyColor) {
+            el._familySymbol.innerHTML = familySymbol ? (FAMILY_SYMBOLS[familySymbol] || FAMILY_SYMBOLS.shield) : '';
+            el._familySymbol.style.display = familySymbol ? 'grid' : 'none';
+            el._familySymbol.style.color = familyColor;
+            el._lastFamilySymbol = familySymbol;
+            el._lastFamilyColor = familyColor;
         }
 
         if (el._lastName !== data.name) { el._name.textContent = data.name; el._lastName = data.name; }

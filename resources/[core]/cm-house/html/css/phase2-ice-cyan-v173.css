@@ -1,0 +1,641 @@
+/* ============================================================
+   CM HOUSE v1.4.2 — readable ice-blue / cyan UI
+   Reference language: compact pale-cyan cards, clear dark text,
+   cyan primary actions, green positive actions, no backdrop blur.
+   ============================================================ */
+:root {
+  --cm-cyan: #00eef2;
+  --cm-cyan-2: #00cbd3;
+  --cm-cyan-deep: #0794a4;
+  --cm-green: #1fc65d;
+  --cm-green-2: #12ad4d;
+  --cm-red: #df4152;
+  --cm-amber: #bb7513;
+  --cm-ink: #063747;
+  --cm-muted: #3f8799;
+  --cm-muted-2: #5e9dab;
+  --cm-ice-top: rgba(217, 249, 255, .985);
+  --cm-ice-mid: rgba(190, 233, 242, .975);
+  --cm-ice-bottom: rgba(167, 210, 220, .975);
+  --cm-row: rgba(210, 246, 253, .66);
+  --cm-row-2: rgba(194, 233, 242, .58);
+  --cm-line: rgba(76, 176, 198, .30);
+  --cm-line-soft: rgba(255,255,255,.42);
+  --cm-shadow: 0 24px 70px rgba(0, 8, 14, .45);
+  --cm-radius: 24px;
+  --cm-radius-sm: 14px;
+  --cm-font: "Google Sans Flex", "Segoe UI", Arial, sans-serif;
+
+  /* Re-map the original v1.1 design tokens so any legacy component not
+     explicitly restyled still uses the readable ice-blue palette. */
+  --ink: #d8f7fd;
+  --ink-2: #c9edf4;
+  --line: rgba(76,176,198,.22);
+  --line-hard: rgba(76,176,198,.38);
+  --cyan: var(--cm-cyan);
+  --cyan-dim: var(--cm-cyan-deep);
+  --cyan-glow: rgba(0,238,242,.24);
+  --amber: var(--cm-amber);
+  --red: var(--cm-red);
+  --green: var(--cm-green);
+  --text: var(--cm-ink);
+  --text-2: var(--cm-muted);
+  --text-3: var(--cm-muted-2);
+  --glass: rgba(217,249,255,.98);
+  --glass-2: rgba(167,210,220,.97);
+}
+
+* { font-family: var(--cm-font) !important; }
+body { background: transparent !important; color: var(--cm-ink); }
+.screen {
+  background: transparent !important;
+  padding: 22px;
+}
+.screen.on { display: grid; }
+
+/* Shared panel surface. No backdrop-filter is used. */
+.deed,
+.wiz,
+.adm,
+.garage-slot-card,
+.interior-door-card {
+  position: relative;
+  color: var(--cm-ink) !important;
+  background:
+    radial-gradient(circle at 22% 0%, rgba(255,255,255,.62), transparent 34%),
+    linear-gradient(165deg, var(--cm-ice-top) 0%, var(--cm-ice-mid) 47%, var(--cm-ice-bottom) 100%) !important;
+  border: 1px solid rgba(109, 213, 232, .72) !important;
+  border-radius: var(--cm-radius) !important;
+  box-shadow: var(--cm-shadow), inset 0 1px 0 rgba(255,255,255,.86) !important;
+  overflow: hidden;
+}
+.deed::before,
+.wiz::before,
+.adm::before,
+.garage-slot-card::before,
+.interior-door-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid rgba(255,255,255,.28);
+  pointer-events: none;
+  z-index: 0;
+}
+.deed > *, .wiz > *, .adm > *, .garage-slot-card > *, .interior-door-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.panel-accent {
+  width: 38px;
+  height: 3px;
+  margin-top: 12px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--cm-cyan), rgba(0,238,242,0));
+}
+
+/* ============================================================
+   PROPERTY DOOR CARD — intentionally close to the supplied card
+   ============================================================ */
+.property-card-screen { place-items: center; }
+.deed {
+  width: min(472px, 94vw) !important;
+  max-height: 92vh;
+  overflow-y: auto;
+  animation: cmRise .22s cubic-bezier(.22,1,.36,1);
+}
+@keyframes cmRise {
+  from { opacity: 0; transform: translateY(14px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.deed__head {
+  min-height: 84px;
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px 28px 18px !important;
+  background: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,.05)) !important;
+  border-bottom: 1px solid rgba(41,122,140,.11) !important;
+}
+.deed__id { min-width: 0; }
+.deed__id h1 {
+  color: var(--cm-ink) !important;
+  font-size: 21px !important;
+  font-weight: 800 !important;
+  line-height: 1.15;
+  letter-spacing: -.025em !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.deed__type {
+  min-height: 0;
+  margin-top: 6px !important;
+  color: var(--cm-muted) !important;
+  font-size: 11px !important;
+  letter-spacing: .04em !important;
+  text-transform: none !important;
+}
+.deed__fam {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  color: var(--cm-muted) !important;
+}
+.deed__x,
+.interior-door-close,
+.garage-slot-close,
+.modal-close {
+  width: 40px !important;
+  height: 40px !important;
+  flex: 0 0 40px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(93,176,194,.18) !important;
+  border-radius: 12px !important;
+  background: rgba(204, 241, 249, .62) !important;
+  color: #4e90a0 !important;
+  font-size: 26px !important;
+  line-height: 1;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.55), 0 5px 14px rgba(34,113,130,.08) !important;
+  cursor: pointer;
+  transition: transform .16s ease, background .16s ease, color .16s ease;
+}
+.deed__x:hover,
+.interior-door-close:hover,
+.garage-slot-close:hover {
+  transform: translateY(-1px);
+  color: var(--cm-red) !important;
+  background: rgba(255,255,255,.68) !important;
+}
+.seal[hidden] { display: none !important; }
+
+
+.property-photo {
+  position: relative;
+  display: block !important;
+  width: calc(100% - 56px);
+  height: 205px;
+  margin: 18px 28px 0 !important;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.45) !important;
+  border-radius: 17px !important;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(255,255,255,.65), transparent 38%),
+    linear-gradient(145deg, rgba(152,218,231,.82), rgba(101,176,193,.72)) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.62), 0 10px 24px rgba(18,100,119,.10) !important;
+}
+.property-photo img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: center;
+}
+.property-photo__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 5px;
+  text-align: center;
+  color: rgba(6,55,71,.68);
+  letter-spacing: .12em;
+}
+.property-photo__empty span { font-size: 12px; font-weight: 900; }
+.property-photo__empty small { font-size: 11px; font-weight: 600; letter-spacing: .02em; }
+.property-photo[data-has-image="1"] .property-photo__empty { display: none; }
+.property-photo[data-has-image="0"] img { display: none; }
+
+.property-ledger {
+  display: grid;
+  gap: 26px;
+  padding: 22px 28px 8px !important;
+}
+.property-ledger .ledger__row,
+.ledger__row,
+.info-row,
+.stat-tile,
+.field-row,
+.inherit-row,
+.garage-current,
+.garage-vehicle-row,
+.cards > * {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 55px;
+  padding: 14px 18px !important;
+  margin: 0 !important;
+  border: 1px solid rgba(255,255,255,.28) !important;
+  border-radius: var(--cm-radius-sm) !important;
+  background: linear-gradient(165deg, var(--cm-row), var(--cm-row-2)) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.44), 0 7px 18px rgba(24,104,123,.055) !important;
+}
+.property-ledger .ledger__row::before,
+.property-ledger .ledger__row::after,
+.ledger__row dt::after { display: none !important; }
+.property-ledger dt,
+.ledger dt {
+  color: var(--cm-muted) !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  letter-spacing: .005em !important;
+  text-transform: none !important;
+}
+.property-ledger dd,
+.ledger dd {
+  color: var(--cm-ink) !important;
+  font-size: 16px !important;
+  font-weight: 800 !important;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ledger__hash { margin-right: 2px; }
+.ledger__row--gov dd { color: var(--cm-cyan-deep) !important; }
+.ledger dd.warn { color: var(--cm-amber) !important; }
+.ledger dd.bad { color: var(--cm-red) !important; }
+
+.property-actions,
+.acts {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px !important;
+  padding: 20px 28px 10px !important;
+  border: 0 !important;
+}
+.act,
+.ghost,
+.solid,
+.tab,
+.mini,
+.garage-slot-action,
+.interior-door-option {
+  border-radius: 14px !important;
+  font-weight: 800 !important;
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease !important;
+}
+.act {
+  min-height: 54px;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 12px 10px !important;
+  color: var(--cm-ink) !important;
+  background: linear-gradient(165deg, rgba(218,248,253,.75), rgba(184,225,235,.62)) !important;
+  border: 1px solid rgba(255,255,255,.28) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 7px 18px rgba(13,108,128,.07) !important;
+}
+.act__icon { font-size: 17px !important; }
+.act__label { font-size: 12px !important; letter-spacing: 0 !important; text-transform: none !important; }
+.act--home {
+  color: #fff !important;
+  background: linear-gradient(135deg, var(--cm-green), var(--cm-green-2)) !important;
+  border-color: rgba(14,133,59,.20) !important;
+  box-shadow: 0 8px 22px rgba(20,177,77,.20), inset 0 1px 0 rgba(255,255,255,.28) !important;
+}
+.act--garage {
+  color: #00343c !important;
+  background: linear-gradient(135deg, var(--cm-cyan), var(--cm-cyan-2)) !important;
+  border-color: rgba(0,140,150,.20) !important;
+  box-shadow: 0 8px 22px rgba(0,203,211,.20), inset 0 1px 0 rgba(255,255,255,.38) !important;
+}
+.act:hover:not(:disabled), .ghost:hover:not(:disabled), .solid:hover:not(:disabled),
+.tab:hover:not(:disabled), .mini:hover:not(:disabled), .garage-slot-action:hover:not(:disabled),
+.interior-door-option:hover:not(:disabled) { transform: translateY(-2px); }
+.act:disabled, .ghost:disabled, .solid:disabled { opacity: .38 !important; cursor: not-allowed; }
+
+.deed__foot {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px !important;
+  padding: 14px 28px 28px !important;
+}
+.deed__foot .ghost {
+  min-height: 55px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 13px 18px !important;
+  font-size: 14px !important;
+  color: var(--cm-ink) !important;
+  background: linear-gradient(165deg, rgba(218,248,253,.75), rgba(184,225,235,.62)) !important;
+  border: 1px solid rgba(255,255,255,.28) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.42), 0 8px 20px rgba(20,104,122,.07) !important;
+}
+.deed__foot .ghost--buy {
+  background: linear-gradient(135deg, var(--cm-cyan), var(--cm-cyan-2)) !important;
+  border-color: rgba(0,140,150,.22) !important;
+  box-shadow: 0 8px 24px rgba(0,203,211,.23), inset 0 1px 0 rgba(255,255,255,.45) !important;
+}
+.deed__foot .ghost--sell {
+  color: #fff !important;
+  background: linear-gradient(135deg, #ee6370, #d33b4b) !important;
+  border-color: rgba(155,23,41,.20) !important;
+}
+
+/* ============================================================
+   INTERIOR ACCESS + GARAGE SLOT
+   ============================================================ */
+.interior-door-card { width: min(610px, 94vw) !important; }
+.garage-slot-card { width: min(720px, 94vw) !important; max-height: 88vh; }
+.interior-door-head,
+.garage-slot-head,
+.adm__head,
+.wiz__head {
+  background: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,.04)) !important;
+  border-bottom: 1px solid rgba(41,122,140,.11) !important;
+}
+.interior-door-head,
+.garage-slot-head { padding: 22px 26px 18px !important; }
+.interior-door-badge,
+.garage-slot-symbol {
+  width: 44px !important;
+  height: 44px !important;
+  display: grid !important;
+  place-items: center;
+  border-radius: 13px !important;
+  color: #00333a !important;
+  background: linear-gradient(135deg, var(--cm-cyan), var(--cm-cyan-2)) !important;
+  border: 1px solid rgba(0,140,150,.18) !important;
+  box-shadow: 0 8px 20px rgba(0,203,211,.20), inset 0 1px 0 rgba(255,255,255,.45) !important;
+}
+.garage-slot-symbol[data-occupied="1"] {
+  color: #fff !important;
+  background: linear-gradient(135deg, #ef6673, #d43b4b) !important;
+}
+.interior-door-eyebrow,
+.garage-slot-eyebrow,
+.garage-current__tag,
+.f__label,
+.adm__count {
+  color: var(--cm-muted) !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  letter-spacing: .10em !important;
+}
+.interior-door-head h2,
+.garage-slot-heading h2,
+.wiz__head h1,
+.adm__head h1 {
+  color: var(--cm-ink) !important;
+  font-size: 22px !important;
+  font-weight: 800 !important;
+  letter-spacing: -.02em !important;
+}
+.interior-door-head p:last-child,
+.garage-slot-heading > p:last-child,
+.wiz__sub,
+.wiz__note,
+.rail__note { color: var(--cm-muted) !important; }
+.interior-door-options,
+.garage-vehicle-section,
+.garage-slot-actions { padding-left: 26px !important; padding-right: 26px !important; }
+.interior-door-option,
+.garage-slot-action,
+.garage-vehicle-row {
+  color: var(--cm-ink) !important;
+  background: linear-gradient(165deg, var(--cm-row), var(--cm-row-2)) !important;
+  border: 1px solid rgba(255,255,255,.30) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 7px 18px rgba(20,104,122,.06) !important;
+}
+.interior-door-option:hover,
+.garage-slot-action:hover,
+.garage-vehicle-row:hover {
+  border-color: rgba(0,203,211,.48) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.48), 0 10px 24px rgba(0,203,211,.12) !important;
+}
+.interior-door-option strong,
+.garage-slot-action span,
+.garage-vehicle-row strong,
+.garage-current strong { color: var(--cm-ink) !important; font-weight: 800 !important; }
+.interior-door-option small,
+.garage-slot-action small,
+.garage-vehicle-row small,
+.garage-current small { color: var(--cm-muted) !important; }
+.garage-slot-action--cyan {
+  background: linear-gradient(135deg, var(--cm-cyan), var(--cm-cyan-2)) !important;
+  color: #00343c !important;
+}
+.garage-slot-action--danger {
+  background: linear-gradient(135deg, #ff7183, #d93855) !important;
+  border-color: rgba(190,28,57,.58) !important;
+}
+.garage-slot-action--danger span,
+.garage-slot-action--danger small { color: #fff !important; }
+.garage-current { margin: 20px 26px 0 !important; }
+.garage-current__state { font-weight: 800 !important; color: var(--cm-cyan-deep) !important; }
+.garage-current__state[data-status="IMPOUNDED"],
+.garage-current__state[data-status="POLICE_SEIZED"] { color: var(--cm-red) !important; }
+.garage-current__state[data-status="OPERATION_IN_PROGRESS"] { color: var(--cm-amber) !important; }
+.garage-current__state[data-status="PARKED_HERE"] { color: var(--cm-green-2) !important; }
+.interior-door-foot,
+.garage-slot-foot { color: var(--cm-muted) !important; border-top-color: rgba(41,122,140,.10) !important; }
+
+/* ============================================================
+   WIZARD + ADMIN — wide dialog language from the supplied sample
+   ============================================================ */
+.wiz {
+  width: min(1120px, 95vw) !important;
+  max-height: 88vh !important;
+  grid-template-columns: minmax(0, 1fr) 290px !important;
+}
+.adm { width: min(1120px, 95vw) !important; max-height: 86vh !important; }
+.wiz__head, .adm__head { padding: 24px 28px 18px !important; }
+.wiz__body, .adm__list { padding: 20px 28px 24px !important; }
+.wiz__foot, .adm__bar {
+  padding: 16px 28px 22px !important;
+  border-top: 1px solid rgba(41,122,140,.10) !important;
+  background: transparent !important;
+}
+.rail {
+  background: rgba(203,239,247,.42) !important;
+  border-left: 1px solid rgba(41,122,140,.10) !important;
+}
+.f__sep span { color: var(--cm-ink) !important; font-weight: 800 !important; }
+.f__in, input, select, textarea {
+  min-height: 45px;
+  color: var(--cm-ink) !important;
+  background: rgba(226,250,254,.68) !important;
+  border: 1px solid rgba(76,176,198,.26) !important;
+  border-radius: 12px !important;
+  outline: none !important;
+}
+.f__in:focus, input:focus, select:focus, textarea:focus {
+  border-color: var(--cm-cyan-2) !important;
+  box-shadow: 0 0 0 3px rgba(0,203,211,.13) !important;
+}
+.solid, .btn-primary, .tab--on {
+  color: #003038 !important;
+  background: linear-gradient(135deg, var(--cm-cyan), var(--cm-cyan-2)) !important;
+  border: 1px solid rgba(0,140,150,.18) !important;
+  box-shadow: 0 8px 24px rgba(0,203,211,.20), inset 0 1px 0 rgba(255,255,255,.45) !important;
+}
+.ghost, .tab, .mini {
+  color: var(--cm-muted) !important;
+  background: linear-gradient(165deg, rgba(218,248,253,.72), rgba(184,225,235,.58)) !important;
+  border: 1px solid rgba(255,255,255,.28) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.42), 0 6px 16px rgba(20,104,122,.055) !important;
+}
+.tab--on { color: #003038 !important; }
+.row__title, .row__meta, .row__plate, .build__err { color: var(--cm-ink) !important; }
+.row__meta { color: var(--cm-muted) !important; }
+.recovery-row { grid-template-columns: 70px minmax(240px, 1fr) minmax(300px, auto) !important; }
+.recovery-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+
+/* ============================================================
+   WORLD INTERACTION — transparent, raised, cyan, no large pill
+   ============================================================ */
+#cm-interaction {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  bottom: auto;
+  z-index: 9000;
+  transform: translate(-50%, -50%) scale(.96);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .14s ease, transform .14s ease;
+}
+#cm-interaction.is-visible {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+.cm-interaction__shell {
+  min-width: 0 !important;
+  max-width: min(540px, 82vw);
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.cm-interaction__key {
+  width: 42px !important;
+  height: 42px !important;
+  flex: 0 0 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 50% !important;
+  color: #00ffff !important;
+  background: rgba(0, 238, 242, .10) !important;
+  border: 1.5px solid rgba(0, 255, 255, .78) !important;
+  box-shadow: 0 0 18px rgba(0,255,255,.22), inset 0 0 12px rgba(0,255,255,.08) !important;
+  font-size: 17px !important;
+  font-weight: 900 !important;
+  text-shadow: 0 0 10px rgba(0,255,255,.62);
+}
+.cm-interaction__copy { min-width: 0; }
+.cm-interaction__label {
+  display: block;
+  max-width: min(560px, 78vw);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: #00ffff !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  line-height: 1.25;
+  letter-spacing: .01em !important;
+  text-transform: none;
+  text-shadow: 0 0 11px rgba(0,255,255,.34), 0 2px 5px rgba(0,0,0,.82);
+}
+.cm-interaction__sub,
+.cm-interaction__status { display: none !important; }
+#cm-interaction.is-disabled { opacity: .52; }
+
+/* Scrollbars remain subtle and readable. */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(51,135,153,.27); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(51,135,153,.42); }
+
+@media (max-width: 900px) {
+  .wiz { grid-template-columns: 1fr !important; }
+  .rail { border-left: 0 !important; border-top: 1px solid rgba(41,122,140,.10) !important; }
+  .recovery-row { grid-template-columns: 58px minmax(0, 1fr) !important; }
+  .recovery-row .recovery-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}
+@media (max-width: 620px) {
+  .screen { padding: 12px; }
+  .deed__head, .property-ledger, .property-actions, .deed__foot { padding-left: 18px !important; padding-right: 18px !important; }
+  .property-photo { width: calc(100% - 36px); margin-left: 18px !important; margin-right: 18px !important; height: 170px; }
+  .property-ledger { gap: 15px; }
+  .property-actions { grid-template-columns: 1fr !important; }
+  .deed__foot { grid-template-columns: 1fr !important; }
+  .property-ledger dt { font-size: 12px !important; }
+  .property-ledger dd { font-size: 14px !important; }
+  #cm-interaction { top: 50%; bottom: auto; }
+  .cm-interaction__label { max-width: 68vw; font-size: 12px !important; }
+}
+.deed__foot.deed__foot--single { grid-template-columns: 1fr !important; }
+.deed__foot.deed__foot--single > button:not([hidden]) { width: 100%; }
+/* Compact property spacing keeps all actions visible at 1080p and most 900p
+   layouts without sacrificing readable type. */
+.property-ledger { gap: 12px !important; padding-top: 18px !important; }
+.property-ledger .ledger__row { min-height: 49px !important; padding: 11px 16px !important; }
+.property-actions { padding-top: 14px !important; padding-bottom: 7px !important; }
+.property-actions .act { min-height: 50px !important; }
+.deed__foot { padding-top: 9px !important; padding-bottom: 22px !important; }
+.deed__foot .ghost { min-height: 52px !important; }
+
+/* Legacy wizard/admin controls inherit the same card language. */
+.tile, .tog, .card, .row {
+  color: var(--cm-ink) !important;
+  background: linear-gradient(165deg, var(--cm-row), var(--cm-row-2)) !important;
+  border-color: rgba(255,255,255,.28) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.40), 0 6px 16px rgba(20,104,122,.05) !important;
+}
+.tile:hover, .tog:hover, .card:hover, .row:hover {
+  border-color: rgba(0,203,211,.46) !important;
+  background: linear-gradient(165deg, rgba(218,250,254,.84), rgba(181,229,238,.68)) !important;
+}
+.tile.on, .tog.on, .row.on {
+  color: #00343c !important;
+  border-color: rgba(0,203,211,.56) !important;
+  background: rgba(0,238,242,.16) !important;
+  box-shadow: inset 0 0 0 1px rgba(0,203,211,.16), 0 7px 18px rgba(0,203,211,.10) !important;
+}
+.tile__name, .card__name, .row__name { color: var(--cm-ink) !important; font-weight: 800 !important; }
+.tile__cost, .tog__cost, .card__meta, .row__meta, .f__hint, .empty { color: var(--cm-muted) !important; }
+.row { border-bottom-style: solid !important; border-radius: 12px; margin-bottom: 8px; }
+.row__plate {
+  color: var(--cm-cyan-deep) !important;
+  background: rgba(0,238,242,.12) !important;
+  border-color: rgba(0,203,211,.30) !important;
+}
+.garage-vehicle-row__button {
+  min-height: 36px;
+  padding: 8px 12px !important;
+  border-radius: 10px !important;
+  color: #00343c !important;
+  background: linear-gradient(135deg, var(--cm-cyan), var(--cm-cyan-2)) !important;
+  border: 1px solid rgba(0,140,150,.20) !important;
+  font-weight: 800 !important;
+  box-shadow: 0 6px 16px rgba(0,203,211,.18), inset 0 1px 0 rgba(255,255,255,.40) !important;
+}
+.garage-vehicle-row__button:hover { transform: translateY(-1px); }
+.garage-vehicle-row__unavailable, .garage-vehicle-empty, .garage-vehicle-section__head {
+  color: var(--cm-muted) !important;
+}
+
+/* v1.4.2: keep local house photos clear. The old dark deed vignette made the
+   saved exterior image look almost black on the new pale ice-blue card. */
+.property-photo::after {
+  background: linear-gradient(to bottom,
+    rgba(255,255,255,.08) 0%, transparent 58%, rgba(5,51,64,.16) 100%) !important;
+}
+
+/* ============================================================
+   Interaction prompt — single source of truth.
+   Circular cyan "E" badge + clean interaction text. All earlier
+   stacked overrides (v1.5.0 → v1.7.2) were removed; the base
+   #cm-interaction rules above are authoritative.
+   ============================================================ */

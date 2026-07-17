@@ -239,6 +239,37 @@ Config.IconCapture = {
         shoes = 0.35,
     },
 
+
+    -- ── Streamed grey support body for accessory/icon capture ─────────────────
+    -- These use the stream files you added:
+    --   head_000_r.ydd / head_diff_000_a_whi.ytd
+    --   uppr_015_r.ydd / uppr_diff_015_a_whi.ytd
+    --   lowr_015_r.ydd / lowr_diff_015_a_whi.ytd
+    -- Only accessories + lower-body categories use them. T-shirts / torso keep
+    -- the old pure-item logic unchanged.
+    supportModels = {
+        -- These streamed files are female-only. Male capture deliberately has no
+        -- support model entry and therefore falls back to the previous logic.
+        female = {
+            categories = {
+                hat      = { head = { drawable = 0, texture = 0, hair = -1 } },
+                glasses  = { head = { drawable = 0, texture = 0, hair = -1 } },
+                earrings = { head = { drawable = 0, texture = 0, hair = -1 } },
+                mask     = { head = { drawable = 0, texture = 0, hair = -1 } },
+
+                watches  = { [3] = { drawable = 15, texture = 0 } },
+                chains   = { [3] = { drawable = 15, texture = 0 } },
+                bags     = { [3] = { drawable = 15, texture = 0 } },
+
+                pants    = { [4] = { drawable = 15, texture = 0 } },
+                shoes    = { [4] = { drawable = 15, texture = 0 } },
+            }
+        },
+        male = {
+            categories = {}
+        }
+    },
+
     -- ── Keep supporting body parts visible per category ──────────────────
     -- Items that sit ON the body (shoes on a foot, watch on a wrist) look wrong
     -- floating in empty space. For those, keep the supporting component visible

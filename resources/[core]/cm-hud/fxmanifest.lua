@@ -4,7 +4,7 @@ lua54 'yes'
 
 description 'CM HUD - responsive CM UI, driver-only speedometer, no default ammo/vehicle-name popup, event-driven money HUD'
 author 'CM Framework'
-version '2.8.1-driver-speedo-no-vehicle-name'
+version '2.10.0-unique-speedo-mileage-ammo-icon'
 
 client_scripts {
     'client/main.lua'

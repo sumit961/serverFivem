@@ -18,6 +18,17 @@ CMInventory.Config = {
         }
     },
 
+    -- Tier 2: giving items to nearby players.
+    Give = {
+        enabled = true,
+        distance = 3.0,   -- metres; players within this range are offered as targets
+    },
+
+    -- Tier 2: what drops on death.
+    Death = {
+        dropWeapons = true,   -- equipped gun + ammo drop to the ground on death
+    },
+
     -- Bag-level player inventory rules.
     -- Pockets + quick slots are always open. Backpack slots and capacity depend on the equipped bag.
     BagLevels = {
@@ -75,6 +86,8 @@ CMInventory.Config = {
         pickupDistance = 2.0,
         markerDistance = 18.0,
         uiDistance = 2.4,
+        propStreamDistance = 55.0,
+        propDespawnDistance = 70.0,
         groupDistance = 1.2,
         cleanupSeconds = 15,
         markerType = 2,

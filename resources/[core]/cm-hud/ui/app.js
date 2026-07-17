@@ -100,7 +100,7 @@ let deathInterval = null;
 
 // ========== HUD ADMIN SETTINGS ==========
 const HUD_DEFAULT_SETTINGS = {
-    speedoStyle: 1,
+    speedoStyle: 31,
     speedUnit: 'KM/H',
     theme: 'cyan',
     uiScale: 1.35,
@@ -148,7 +148,8 @@ const HUD_SPEEDO_STYLES = [
     { id: 27, name: 'JG Analogue', desc: 'JG HUD round analogue style', group: 'JG' },
     { id: 28, name: 'JG Bold', desc: 'JG HUD bold digital style', group: 'JG' },
     { id: 29, name: 'JG Minimal', desc: 'JG HUD minimal style', group: 'JG' },
-    { id: 30, name: 'Black Circle MPH', desc: 'Same style as requested screenshot', group: 'Requested' }
+    { id: 30, name: 'Black Circle MPH', desc: 'Same style as requested screenshot', group: 'Requested' },
+    { id: 31, name: 'CM Twin Arc', desc: 'Unique CM dual-arc fuel + power with mileage', group: 'CM' }
 ];
 
 const HUD_THEMES = {
@@ -421,9 +422,8 @@ function renderTopRight() {
         
         <div class="money-block-new">
             <div class="money-cash-new">$${formatMoney(state.cash)}</div>
-            <div class="money-bank-new">🏦 $${formatMoney(state.bank)}</div>
-        </div>
-    `;
+            <div class="money-bank-new"><svg class="money-bank-icon" viewBox="0 0 24 24"><path d="M12 3l9 4.5V9H3V7.5L12 3z" fill="currentColor"/><path d="M5 10v7M9 10v7M15 10v7M19 10v7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 19.5h18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>$${formatMoney(state.bank)}</span></div>
+        </div>`;
 }
 
 
@@ -557,6 +557,15 @@ const IND_ICONS = {
     anchor:'<svg viewBox="0 0 24 24"><circle cx="12" cy="6" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 8.5V20M5 14c0 3.6 3 6 7 6s7-2.4 7-6M4 13.5l2.4 2.2M20 13.5l-2.4 2.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
 };
 
+// Gas-pump glyph matching the reference screenshots (green pump / canister look).
+const ICON_PUMP = '<svg viewBox="0 0 24 24"><rect x="4" y="3.5" width="9.5" height="17" rx="1.6" fill="currentColor"/><rect x="6" y="6" width="5.5" height="4.5" rx="0.8" fill="#0c1116"/><path d="M15 8l2.4 2.4a2 2 0 01.6 1.4V17a1.8 1.8 0 003.6 0V11" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M18 8.6l-1.4-1.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>';
+
+// Odometer / mileage glyph (small gauge).
+const ICON_ODO = '<svg viewBox="0 0 24 24" class="cta-odo-icon"><path d="M4 15a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 15l4-3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="15" r="1.3" fill="currentColor"/></svg>';
+
+// Clock glyph for the bottom rail.
+const ICON_CLOCK = '<svg viewBox="0 0 24 24" class="cta-clock-icon"><circle cx="12" cy="12" r="8.4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 7.6V12l3 2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
 function indicatorBar(v) {
     const items = [
         { icon: 'left',  on: false },
@@ -564,11 +573,11 @@ function indicatorBar(v) {
         { icon: 'low',   on: v.lights === 1, color: '#38e659' },
         { icon: 'high',  on: v.lights === 2, color: '#31a8ff' },
         { icon: 'cruise', on: !!v.cruise, color: '#31e6ff' },
-        { icon: 'belt',  on: !v.seatbelt, color: '#ff5b5b', hideOn: v.vehType !== 'car' && v.vehType !== 'electric' },
+        { icon: 'belt',  on: !v.seatbelt, color: '#ff5b5b', flash: v.seatbeltWarn === true, hideOn: v.vehType !== 'car' && v.vehType !== 'electric' },
         { icon: 'right', on: false }
     ];
     return `<div class="veh-ind-bar">${items.filter(i => !i.hideOn).map(i =>
-        `<span class="veh-ind ${i.on ? 'on' : ''}" style="${i.on && i.color ? `color:${i.color}` : ''}">${IND_ICONS[i.icon]}</span>`).join('')}</div>`;
+        `<span class="veh-ind ${i.on ? 'on' : ''} ${i.flash ? 'flash' : ''}" style="${i.on && i.color ? `color:${i.color}` : ''}">${IND_ICONS[i.icon]}</span>`).join('')}</div>`;
 }
 
 function arcPath(cx, cy, r, a0, a1) {
@@ -736,6 +745,7 @@ function renderVehAk4y(v, styleId) {
 
 function renderVehCar(v) {
     const chosenStyle = getHudSettings().speedoStyle;
+    if (chosenStyle === 31) return renderVehCmTwinArc(v);
     if (chosenStyle === 30) return renderVehExactCircle(v);
     if (chosenStyle >= 24) return renderVehJg(v, chosenStyle);
     if (chosenStyle >= 15) return renderVehAk4y(v, chosenStyle);
@@ -800,6 +810,102 @@ function renderVehCar(v) {
     </div>`;
 }
 
+// ===================== CM TWIN ARC (unique CM design) =====================
+// Two independent curved arcs flank a large central speed readout:
+//   LEFT arc  = FUEL   (green fill, low-fuel turns amber, pump icon + % at top)
+//   RIGHT arc = POWER  (RPM, green gradient fill, redlines near 100%)
+// Center: big speed + unit, gear badge, and a MILEAGE (odometer) line beneath.
+// Bottom rail: clock + date, seatbelt/cruise/lock chips, and a gas-pump glyph.
+function renderVehCmTwinArc(v) {
+    const speed = Math.max(0, Math.min(999, Math.floor(Number(v.speed) || 0)));
+    const rpm = Math.max(0, Math.min(100, Number(v.rpm) || 0));
+    const fuel = Math.max(0, Math.min(100, Number(v.fuel ?? 0) || 0));
+    const engine = Math.max(0, Math.min(100, Number(v.engine ?? 100) || 0));
+    const gear = escapeHtml(String(v.gear ?? 'N'));
+    const unit = escapeHtml(v.unit || 'KM/H');
+    const odoUnit = /MPH/i.test(unit) ? 'MI' : 'KM';
+    const mileage = Math.max(0, Math.floor(Number(v.mileage) || 0));
+    const mileageText = mileage.toLocaleString('en-US');
+    const lowFuel = fuel <= 15;
+    const lowEngine = engine <= 30;
+    const redline = rpm >= 88;
+
+    // Arc geometry. Each arc spans ~150deg on its side, mirrored.
+    // SVG canvas 420x260. Left arc opens to the right, right arc opens to the left.
+    const CX = 210, CY = 138, R = 96;
+    // Left fuel arc: from bottom (210deg) up to top (330deg) on the LEFT side.
+    const fuelTrack = describeArcTrack(CX, CY, R, 250, 110);   // sweeps down-left to up-left (ccw via long)
+    const fuelFill  = describeArc(CX, CY, R, 250, 110, fuel / 100);
+    // Right power arc: mirrored on the RIGHT side.
+    const powTrack  = describeArcTrack(CX, CY, R, 290, 430);   // 430 == 70deg, wraps to up-right
+    const powFill   = describeArc(CX, CY, R, 290, 430, rpm / 100);
+
+    // Icon anchor points at each arc's top tip.
+    const fuelTip = polar(CX, CY, R, 110);
+    const powTip  = polar(CX, CY, R, 70);
+
+    const fuelColor = lowFuel ? '#ffce3a' : '#3df71f';
+    const powColor  = redline ? '#ff4d4d' : '#3df71f';
+
+    return `
+    <div class="cm-twinarc ${lowFuel ? 'low-fuel' : ''} ${lowEngine ? 'low-engine' : ''}">
+        <svg class="cta-svg" viewBox="0 0 420 260" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <defs>
+                <linearGradient id="ctaFuel" x1="0" y1="1" x2="0" y2="0">
+                    <stop offset="0" stop-color="#ffffff" stop-opacity="0.85"/>
+                    <stop offset="1" stop-color="${fuelColor}"/>
+                </linearGradient>
+                <linearGradient id="ctaPow" x1="0" y1="1" x2="0" y2="0">
+                    <stop offset="0" stop-color="#8a8f92" stop-opacity="0.9"/>
+                    <stop offset="1" stop-color="${powColor}"/>
+                </linearGradient>
+            </defs>
+
+            <!-- tracks -->
+            <path d="${fuelTrack}" stroke="rgba(255,255,255,0.14)" stroke-width="13" fill="none" stroke-linecap="round"/>
+            <path d="${powTrack}"  stroke="rgba(255,255,255,0.14)" stroke-width="13" fill="none" stroke-linecap="round"/>
+
+            <!-- fills -->
+            <path class="cta-fuel-fill" d="${fuelFill}" stroke="url(#ctaFuel)" stroke-width="13" fill="none" stroke-linecap="round"/>
+            <path class="cta-pow-fill"  d="${powFill}"  stroke="url(#ctaPow)"  stroke-width="13" fill="none" stroke-linecap="round"/>
+        </svg>
+
+        <!-- fuel % + pump icon at left arc top -->
+        <div class="cta-fuel-label ${lowFuel ? 'warn' : ''}" style="left:${(fuelTip.x - 6).toFixed(0)}px;top:${(fuelTip.y - 34).toFixed(0)}px">
+            <span class="cta-fuel-pct">${fuel}%</span>
+        </div>
+        <div class="cta-arc-icon cta-fuel-icon ${lowFuel ? 'warn' : ''}" style="left:${(fuelTip.x - 44).toFixed(0)}px;top:${(fuelTip.y + 60).toFixed(0)}px">${ICON_PUMP}</div>
+
+        <!-- engine icon at right arc top -->
+        <div class="cta-arc-icon cta-pow-icon ${lowEngine ? 'warn' : ''}" style="left:${(powTip.x + 24).toFixed(0)}px;top:${(powTip.y + 60).toFixed(0)}px">${IND_ICONS.engine}</div>
+
+        <!-- center cluster -->
+        <div class="cta-center">
+            <div class="cta-gear">${gear}</div>
+            <div class="cta-speed">${speed}</div>
+            <div class="cta-unit">${unit}</div>
+            <div class="cta-odo">
+                ${ICON_ODO}
+                <span class="cta-odo-num">${mileageText}</span>
+                <span class="cta-odo-unit">${odoUnit}</span>
+            </div>
+        </div>
+
+        <!-- bottom rail -->
+        <div class="cta-rail">
+            <div class="cta-rail-time">
+                <div class="cta-clock">${ICON_CLOCK}<span>${escapeHtml(state.clock || '--:--')}</span></div>
+                <div class="cta-date">${escapeHtml(state.date || '')}</div>
+            </div>
+            <div class="cta-chips">
+                <span class="cta-chip ${v.seatbelt ? 'ok' : (v.seatbeltWarn ? 'warn flash' : 'off')}" title="Seatbelt">${IND_ICONS.belt}</span>
+                <span class="cta-chip ${v.cruise ? 'on' : 'off'}" title="Cruise">${IND_ICONS.cruise}</span>
+                <span class="cta-chip ${v.locked ? 'on' : 'off'}" title="Lock">L</span>
+            </div>
+        </div>
+    </div>`;
+}
+
 // ===================== CIRCULAR SPEEDOMETER (reference design) =====================
 // Black dial, 1-8 tick numbers on the top arc, gear badge, big speed, unit,
 // odometer, outer RPM arc (left) + fuel arc (right), fuel/engine icons.
@@ -815,78 +921,73 @@ function renderVehCircle(v) {
     const lowFuel = fuel <= 15;
     const lowEngine = engine <= 30;
 
-    const CX = 150, CY = 150, R = 112;
+    // Mileage / odometer. Shown padded to 6 digits like a real odometer.
+    const mileageRaw = Math.max(0, Math.floor(Number(v.mileage ?? 0) || 0));
+    const odoText = String(mileageRaw).padStart(6, '0');
 
-    // JG layout: boundary ticks at segment edges (incl. 12 o'clock), numbers
-    // centered between them; "1" slot holds the rotated x1000 RPM label.
-    const A0 = -150, A1 = 150;
-    let ticks = '';
-    for (let i = 0; i <= 8; i++) {
-        const deg = A0 + (A1 - A0) * (i / 8);
-        const a = deg * Math.PI / 180;
-        const sin = Math.sin(a), cos = -Math.cos(a);
-        const t1r = R - 8, t2r = R - 17;
-        ticks += `<line x1="${(CX + sin * t1r).toFixed(1)}" y1="${(CY + cos * t1r).toFixed(1)}" x2="${(CX + sin * t2r).toFixed(1)}" y2="${(CY + cos * t2r).toFixed(1)}" stroke="rgba(255,255,255,0.95)" stroke-width="2.4" stroke-linecap="round"/>`;
-    }
-    let numbers = '';
-    let rpmLabel = '';
-    for (let i = 1; i <= 8; i++) {
-        const deg = A0 + (A1 - A0) * ((i - 0.5) / 8);
-        const a = deg * Math.PI / 180;
-        const sin = Math.sin(a), cos = -Math.cos(a);
-        const nr = R - 34;
-        if (i === 1) {
-            rpmLabel = `<text x="${(CX + sin * nr).toFixed(1)}" y="${(CY + cos * nr + 4).toFixed(1)}" class="vcs-rpm-text" transform="rotate(${(deg + 90).toFixed(0)} ${(CX + sin * nr).toFixed(1)} ${(CY + cos * nr).toFixed(1)})">x1000 RPM</text>`;
-        } else {
-            numbers += `<text x="${(CX + sin * nr).toFixed(1)}" y="${(CY + cos * nr + 6).toFixed(1)}" class="vcs-tick-num">${i}</text>`;
-        }
-    }
+    // Speed as a fraction of a sensible top for the arc sweep.
+    const speedMax = /MPH/i.test(unit) ? 180 : 280;
+    const speedFrac = Math.max(0, Math.min(1, speed / speedMax));
 
-    // THREE arcs, matching the reference:
-    //  outer-left  = FUEL   (pump icon at its top tip), fills bottom -> up
-    //  outer-right = ENGINE (engine icon at its top tip), fills bottom -> up
-    //  inner-left  = RPM    (inside the dial, beside the x1000 RPM label)
-    const AR = R + 22;
-    const fuelTrack = describeArcTrack(CX, CY, AR, 210, 322);
-    const fuelFill  = describeArc(CX, CY, AR, 210, 322, fuel / 100);
-    const engTrack  = describeArcTrack(CX, CY, AR, 150, 38);
-    const engFill   = describeArc(CX, CY, AR, 150, 38, engine / 100);
-    const RIN = R - 6;
-    const rpmTrack  = describeArcTrack(CX, CY, RIN, 214, 292);
-    const rpmFill   = describeArc(CX, CY, RIN, 214, 292, rpm / 100);
+    const CX = 150, CY = 150;
+    const R = 116;              // main arc radius
 
-    // Icon anchor points at the arc top tips (SVG coords == element px, 300x300)
-    const fuelPos = polar(CX, CY, AR + 1, 330);
-    const engPos  = polar(CX, CY, AR + 1, 30);
+    // Two open-C arcs with gaps at BOTH top and bottom, matching the reference.
+    const leftBottom = 208, leftTop = 332;    // sweeps up the left
+    const rightBottom = 152, rightTop = 28;    // sweeps up the right
+
+    // LEFT: fuel base (yellow) fills from bottom; rpm overlays white on the upper span.
+    const leftTrack = describeArcTrack(CX, CY, R, leftBottom, leftTop);
+    const fuelFill  = describeArc(CX, CY, R, leftBottom, leftTop, fuel / 100);
+    const rpmSpanStart = leftBottom + (leftTop - leftBottom) * 0.42;
+    const rpmTrack  = describeArcTrack(CX, CY, R, rpmSpanStart, leftTop);
+    const rpmFill   = describeArc(CX, CY, R, rpmSpanStart, leftTop, rpm / 100);
+
+    // RIGHT: speed fill (green) from bottom up.
+    const rightTrack = describeArcTrack(CX, CY, R, rightBottom, rightTop);
+    const speedFill  = describeArc(CX, CY, R, rightBottom, rightTop, speedFrac);
+
+    // Icon + label anchor points.
+    const fuelPos  = polar(CX, CY, R, leftBottom);
+    const fuelPct  = polar(CX, CY, R + 6, leftTop - 10);
+    const speedCap = polar(CX, CY, R, rightBottom);
+    const engPos   = polar(CX, CY, R + 6, rightTop + 8);
 
     return `
     <div class="veh-circle ${lowFuel ? 'low-fuel' : ''} ${lowEngine ? 'low-engine' : ''}">
         <svg class="vcs-svg" viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="${CX}" cy="${CY}" r="${R}" fill="rgba(8,11,14,0.78)"/>
-            <g>${ticks}${numbers}${rpmLabel}</g>
+            <!-- LEFT arc: track, fuel base (yellow), rpm overlay (white) -->
+            <path d="${leftTrack}" stroke="rgba(255,255,255,0.09)" stroke-width="12" fill="none" stroke-linecap="round"/>
+            <path d="${fuelFill}" stroke="${lowFuel ? '#ff5b5b' : '#f5c518'}" stroke-width="12" fill="none" stroke-linecap="round"/>
+            <path d="${rpmTrack}" stroke="rgba(255,255,255,0.05)" stroke-width="12" fill="none" stroke-linecap="round"/>
+            <path d="${rpmFill}" stroke="${rpm >= 90 ? '#ff5b5b' : 'rgba(255,255,255,0.97)'}" stroke-width="12" fill="none" stroke-linecap="round"/>
 
-            <path d="${fuelTrack}" stroke="rgba(255,255,255,0.13)" stroke-width="11" fill="none" stroke-linecap="round"/>
-            <path d="${fuelFill}" stroke="${lowFuel ? '#ffcc30' : 'var(--vcs-accent)'}" stroke-width="11" fill="none" stroke-linecap="round"/>
-
-            <path d="${engTrack}" stroke="rgba(255,255,255,0.13)" stroke-width="11" fill="none" stroke-linecap="round"/>
-            <path d="${engFill}" stroke="${lowEngine ? '#ff4d4d' : 'var(--vcs-accent)'}" stroke-width="11" fill="none" stroke-linecap="round"/>
-
-            <path d="${rpmTrack}" stroke="rgba(255,255,255,0.10)" stroke-width="9" fill="none" stroke-linecap="round"/>
-            <path d="${rpmFill}" stroke="${rpm >= 88 ? '#ff4d4d' : 'var(--vcs-accent)'}" stroke-width="9" fill="none" stroke-linecap="round"/>
+            <!-- RIGHT arc: track + speed fill (green) -->
+            <path d="${rightTrack}" stroke="rgba(255,255,255,0.09)" stroke-width="12" fill="none" stroke-linecap="round"/>
+            <path d="${speedFill}" stroke="#7ed321" stroke-width="12" fill="none" stroke-linecap="round"/>
         </svg>
 
-        <div class="vcs-icon vcs-fuel ${lowFuel ? 'warn' : ''}" style="left:${(fuelPos.x - 11).toFixed(0)}px;top:${(fuelPos.y - 26).toFixed(0)}px">${IND_ICONS.fuel}</div>
-        <div class="vcs-icon vcs-engine ${lowEngine ? 'warn' : ''}" style="left:${(engPos.x - 11).toFixed(0)}px;top:${(engPos.y - 26).toFixed(0)}px">${IND_ICONS.engine}</div>
+        <!-- Fuel % label near the top of the left arc -->
+        <div class="vcs-fuelpct ${lowFuel ? 'warn' : ''}" style="left:${(fuelPct.x - 20).toFixed(0)}px;top:${(fuelPct.y - 10).toFixed(0)}px">${Math.round(fuel)}%</div>
+
+        <!-- Fuel pump icon at left-bottom tip -->
+        <div class="vcs-icon vcs-fuel ${lowFuel ? 'warn' : ''}" style="left:${(fuelPos.x - 10).toFixed(0)}px;top:${(fuelPos.y - 4).toFixed(0)}px">${IND_ICONS.fuel}</div>
+
+        <!-- Engine icon near right-top tip -->
+        <div class="vcs-icon vcs-engine ${lowEngine ? 'warn' : ''}" style="left:${(engPos.x - 10).toFixed(0)}px;top:${(engPos.y - 10).toFixed(0)}px">${IND_ICONS.engine}</div>
+
+        <!-- Green speed cap marker at right-bottom tip -->
+        <div class="vcs-speedcap" style="left:${(speedCap.x - 6).toFixed(0)}px;top:${(speedCap.y - 6).toFixed(0)}px"></div>
 
         <div class="vcs-center">
             <div class="vcs-gear">${gear}</div>
             <div class="vcs-speed">${speed}</div>
             <div class="vcs-unit">${unit}</div>
-            <div class="vcs-odo"><span class="odo-num">000000</span> <span class="odo-unit">${odoUnit}</span></div>
+            <div class="vcs-odo"><svg class="odo-ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 12l4-2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 3.2v1.6M20.8 12h-1.6M12 20.8v-1.6M3.2 12h1.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><span class="odo-num">${odoText}</span> <span class="odo-unit">${odoUnit}</span></div>
         </div>
 
         <div class="vcs-status">
-            <span class="${v.seatbelt ? '' : 'warn'}" title="Seatbelt">${IND_ICONS.belt}</span>
+            <span class="${v.seatbelt ? '' : 'warn'} ${v.seatbeltWarn ? 'flash' : ''}" title="Seatbelt">${IND_ICONS.belt}</span>
             <span class="${v.cruise ? 'on' : ''}" title="Cruise">${IND_ICONS.cruise}</span>
             <span class="${v.locked ? 'on' : ''}" title="Lock">${IND_ICONS.low}</span>
         </div>
@@ -1352,6 +1453,10 @@ window.addEventListener('message', function(event) {
             updateModule('vehicle');
             break;
 
+        case 'updateWeaponAmmo':
+            updateWeaponAmmo(data);
+            break;
+
         case 'setMouseOpen':
             state.mouseOpen = !!data.open;
             updateModule('leftKeys');
@@ -1398,6 +1503,25 @@ function stopDeathTimer() {
         clearInterval(deathInterval);
         deathInterval = null;
     }
+}
+
+// ========== WEAPON AMMO ==========
+function updateWeaponAmmo(data) {
+    const module = document.getElementById('hud-weapon');
+    const ammoEl = document.getElementById('weapon-ammo');
+    if (!module || !ammoEl) return;
+
+    const armed = data.armed !== false && data.weapon != null;
+    const ammo = Number.isFinite(Number(data.ammo)) ? Number(data.ammo) : 0;
+
+    if (!armed || !state.hudVisible) {
+        module.classList.add('hidden');
+        return;
+    }
+
+    ammoEl.textContent = String(ammo);
+    ammoEl.classList.toggle('empty', ammo <= 0);
+    module.classList.remove('hidden');
 }
 
 // ========== NOTIFICATIONS ==========

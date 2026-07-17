@@ -54,7 +54,7 @@ CMPlayerData.Config = {
         -- player is finished and goes straight to hospital respawn.
         UnconsciousHealthPercent = 10,
         InjuredHealth = 140, -- kept for compatibility only; no walkstyle/effect is applied
-        MaxPassiveHealDelta = 5
+        MaxPassiveHealDelta = 0
     },
 
     Defaults = {
@@ -153,6 +153,17 @@ CMPlayerData.Config = {
         -- then on it moves only when the car moves (no jitter/swim while driving).
         VehicleLabelLockDelay = 700,
         AdminLabelText = 'Administrator',
+        -- Family identity is a symbol only. No family tag, rank or custom
+        -- title text is drawn above the player.
+        ShowFamilySymbols = true,
+        ShowFamilySymbolInAdminMode = true,
+        HideFamilySymbolWhenMasked = false,
+        FamilyMaskedStateKeys = { 'cm_masked', 'masked', 'isMasked', 'mask_on' },
+        FamilySymbolWidth = 0.016,
+        FamilySymbolHeight = 0.028,
+        -- Deprecated text-tag flags retained for older integrations; ignored.
+        ShowFamilyTags = false,
+        ShowFamilyRankInTag = false,
 
         -- G appears only when your camera is aiming at the nearby player body/head.
         Key = 47, -- G

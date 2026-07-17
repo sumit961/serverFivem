@@ -1,15 +1,10 @@
 local Config = CMVehicles.Config
 local lastSpeed = 0.0
-local lastChime = 0
 local engineAllowed = {}
 local engineRestartReadyAt = {}
 local engineStartInProgress = {}
 local lastHardImpactAt = 0
 local lastDriverVeh = 0
-
-local function playChime()
-    PlaySoundFrontend(-1, 'TIMER_STOP', 'HUD_MINI_GAME_SOUNDSET', true)
-end
 
 local function vehicleSpeedKmh(vehicle)
     if not vehicle or vehicle == 0 then return 0.0 end
@@ -26,6 +21,51 @@ end
 
 local function impactRestartDelayMs()
     return tonumber(Config.Damage and Config.Damage.restartDelayAfterImpactMs) or 5000
+end
+
+
+-- Admin/test/placement vehicles are created with a complete healthy condition
+-- and never run the owned-vehicle finalizeSpawn pipeline. Treat cmAdmin as a
+-- ready condition as a replication-safe fallback, while normal vehicles still
+-- require the strict cmConditionReady flag.
+local function isConditionReady(vehicle)
+    if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then return false end
+    local state = Entity(vehicle).state
+    return state.cmAdmin == true or state.cmConditionReady == true
+end
+
+local function isAdminAutoEngine(vehicle)
+    if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then return false end
+    local state = Entity(vehicle).state
+    return state.cmAdmin == true and state.cmAdminAutoEngine == true
+end
+
+local function playEngineStartAnimation(vehicle, done)
+    local cfg = Config.Engine or {}
+    local duration = math.max(350, tonumber(cfg.startAnimationDurationMs) or 1250)
+    if cfg.startAnimation == false then
+        done()
+        return
+    end
+
+    CreateThread(function()
+        local ped = PlayerPedId()
+        local dict = tostring(cfg.startAnimationDict or 'anim@mp_player_intmenu@key_fob@')
+        local clip = tostring(cfg.startAnimationClip or 'fob_click')
+        RequestAnimDict(dict)
+        local timeout = GetGameTimer() + 1500
+        while not HasAnimDictLoaded(dict) and GetGameTimer() < timeout do Wait(0) end
+
+        if HasAnimDictLoaded(dict) and GetVehiclePedIsIn(ped, false) == vehicle then
+            TaskPlayAnim(ped, dict, clip, 4.0, -4.0, duration, 48, 0.0, false, false, false)
+        end
+        Wait(duration)
+        if HasAnimDictLoaded(dict) then
+            StopAnimTask(ped, dict, clip, 1.0)
+            RemoveAnimDict(dict)
+        end
+        done()
+    end)
 end
 
 local function canManuallyStopEngine(vehicle)
@@ -47,9 +87,59 @@ local function ejectPlayer(vehicle)
     SetEntityVelocity(ped, velocity.x * 1.4, velocity.y * 1.4, velocity.z * 1.4)
 end
 
+local function restoreExpectedCondition(vehicle)
+    if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then return false end
+    local state = Entity(vehicle).state
+    local current = tonumber(GetVehicleEngineHealth(vehicle)) or 0.0
+
+    -- Once initialization is complete, the live physical condition is the truth.
+    -- Never restore state-bag health here: doing so repaired damage caused after
+    -- the vehicle was recalled from the garage.
+    if state.cmAdmin == true or state.cmConditionReady == true then
+        return state.cmEngineDestroyed ~= true and current > destroyedEngineThreshold()
+    end
+
+    -- Before readiness, the vehicle remains quarantined/undriveable. The spawn
+    -- finalizer owns the only legal convergence loop.
+    SetVehicleEngineOn(vehicle, false, true, true)
+    SetVehicleUndriveable(vehicle, true)
+    return false
+end
+
 local function setEngine(vehicle, enabled)
     if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then return end
     enabled = enabled == true
+    local state = Entity(vehicle).state
+    if enabled and not isConditionReady(vehicle) then
+        SetVehicleEngineOn(vehicle, false, true, true)
+        SetVehicleUndriveable(vehicle, true)
+        engineAllowed[vehicle] = false
+        return
+    end
+    if enabled and (state.cmEngineDestroyed == true
+        or (tonumber(GetVehicleEngineHealth(vehicle)) or 0.0) <= destroyedEngineThreshold()) then
+        SetVehicleEngineOn(vehicle, false, true, true)
+        SetVehicleUndriveable(vehicle, true)
+        engineAllowed[vehicle] = false
+        return
+    end
+
+    -- A house-garage vehicle is parked/frozen in its assigned bay. Starting
+    -- the engine is the explicit hand-off from parked display to drivable car.
+    local garageDisplay = false
+    pcall(function() garageDisplay = Entity(vehicle).state.cmHouseGarageDisplay == true end)
+    if garageDisplay and enabled then
+        restoreExpectedCondition(vehicle)
+        SetEntityInvincible(vehicle, false)
+        SetVehicleCanBeVisiblyDamaged(vehicle, true)
+        pcall(function() SetEntityProofs(vehicle, false, false, false, false, false, false, false, false) end)
+        pcall(function() SetEntityHasGravity(vehicle, true) end)
+        FreezeEntityPosition(vehicle, false)
+        SetVehicleHandbrake(vehicle, false)
+        SetEntityCollision(vehicle, true, true)
+        ResetEntityAlpha(vehicle)
+    end
+
     SetVehicleEngineOn(vehicle, enabled, true, true)
     SetVehicleUndriveable(vehicle, not enabled)
     engineAllowed[vehicle] = enabled
@@ -68,7 +158,18 @@ end
 
 local function forceEngineOffUntilCtrl(vehicle)
     if not vehicle or vehicle == 0 then return end
-    if engineAllowed[vehicle] ~= true then
+
+    -- Placement/admin vehicles explicitly spawned with engineOn=true should be
+    -- immediately driveable. They are temporary known-good entities, not owned
+    -- vehicles waiting for a player key/condition finalizer.
+    if isAdminAutoEngine(vehicle) and isConditionReady(vehicle) then
+        engineAllowed[vehicle] = true
+        SetVehicleUndriveable(vehicle, false)
+        SetVehicleEngineOn(vehicle, true, true, false)
+        return
+    end
+
+    if engineAllowed[vehicle] ~= true or Entity(vehicle).state.cmEngineDestroyed == true then
         SetVehicleEngineOn(vehicle, false, true, true)
         SetVehicleUndriveable(vehicle, true)
     end
@@ -94,6 +195,11 @@ local function startEngineWithDelayIfNeeded(vehicle, plate, netId)
         local ped = PlayerPedId()
         if GetVehiclePedIsIn(ped, false) ~= vehicle or GetPedInVehicleSeat(vehicle, -1) ~= ped then return end
         if engineAllowed[vehicle] == true then return end
+        if not restoreExpectedCondition(vehicle) then
+            setEngine(vehicle, false)
+            CMVehicles.Client.Notify('Vehicle condition is still loading. Try again in a moment.')
+            return
+        end
         if CMVehicles.Client.GetVehicleFuel(vehicle) <= 0.1 then
             setEngine(vehicle, false)
             CMVehicles.Client.Notify('Vehicle has no fuel.')
@@ -139,11 +245,21 @@ RegisterCommand('cm_engine', function()
     if veh == 0 or GetPedInVehicleSeat(veh, -1) ~= ped then return end
 
     local plate = CMVehicles.Client.VehiclePlate(veh)
-    local netId = NetworkGetNetworkIdFromEntity(veh)
+    local netId = CMVehicles.Client.SafeNetId(veh)
+    if not netId then
+        CMVehicles.Client.Notify('This is a local display vehicle and cannot be driven.')
+        return
+    end
     local desired = engineAllowed[veh] ~= true
 
     if not desired then
         stopEngine(veh, 'Engine stopped.', false)
+        return
+    end
+
+    if not isConditionReady(veh) then
+        setEngine(veh, false)
+        CMVehicles.Client.Notify('Vehicle condition is still loading. Try again in a moment.')
         return
     end
 
@@ -170,13 +286,31 @@ RegisterNetEvent('cm-vehicles:client:engineStartResult', function(netId, allowed
     if not veh or veh == 0 then return end
 
     if allowed == true then
+        if not isConditionReady(veh) then
+            setEngine(veh, false)
+            CMVehicles.Client.Notify('Vehicle condition is still loading. Try again in a moment.')
+            return
+        end
         if CMVehicles.Client.GetVehicleFuel(veh) <= 0.1 then
             setEngine(veh, false)
             CMVehicles.Client.Notify('Vehicle has no fuel.')
             return
         end
-        setEngine(veh, true)
-        CMVehicles.Client.Notify(message or 'Engine started.')
+        if engineStartInProgress[veh] == true then return end
+        engineStartInProgress[veh] = true
+        CMVehicles.Client.Notify('Starting engine...')
+        playEngineStartAnimation(veh, function()
+            engineStartInProgress[veh] = nil
+            local ped = PlayerPedId()
+            if not DoesEntityExist(veh) or GetVehiclePedIsIn(ped, false) ~= veh or GetPedInVehicleSeat(veh, -1) ~= ped then return end
+            if not isConditionReady(veh)
+                or CMVehicles.Client.GetVehicleFuel(veh) <= 0.1
+                or GetVehicleEngineHealth(veh) <= destroyedEngineThreshold() then
+                return setEngine(veh, false)
+            end
+            setEngine(veh, true)
+            CMVehicles.Client.Notify(message or 'Engine started.')
+        end)
     else
         setEngine(veh, false)
         CMVehicles.Client.Notify(message or 'You do not have keys for this vehicle.')
@@ -192,7 +326,7 @@ CreateThread(function()
         if veh ~= 0 and GetPedInVehicleSeat(veh, -1) == ped then
             if veh ~= lastDriverVeh then
                 lastDriverVeh = veh
-                engineAllowed[veh] = false
+                engineAllowed[veh] = isAdminAutoEngine(veh) and isConditionReady(veh) or false
                 SetVehicleNeedsToBeHotwired(veh, false)
                 forceEngineOffUntilCtrl(veh)
             else
@@ -230,7 +364,10 @@ CreateThread(function()
                 if held then
                     stopEngine(targetVeh, 'Engine stopped.', false)
                 elseif engineAllowed[targetVeh] == true then
-                    SetVehicleEngineOn(targetVeh, true, true, false)
+                    -- 4th arg = instantly (skip start sound/animation). Setting it
+                    -- to true removes the gear-up/engine-on beep cue.
+                    local instant = (Config.Engine and Config.Engine.playStartSound == false)
+                    SetVehicleEngineOn(targetVeh, true, instant, false)
                 end
                 exitKeyStartedAt = nil
                 exitKeyVehicle = nil
@@ -245,6 +382,11 @@ RegisterCommand('cm_seatbelt', function()
 end, false)
 RegisterKeyMapping('cm_seatbelt', 'Toggle seatbelt', 'keyboard', Config.Controls.seatbeltKey or 'B')
 
+-- Seatbelt warning is now HUD-only. cm-hud reads LocalPlayer.state.cmVehicleHud
+-- (see the HUD feed thread in client/main.lua) and shows a flashing belt icon.
+-- We publish a lightweight flag here so the HUD knows the warning is active.
+CMVehicles.Client.SeatbeltWarn = false
+
 CreateThread(function()
     while true do
         Wait(150)
@@ -255,41 +397,54 @@ CreateThread(function()
             local speed = vehicleSpeedKmh(veh)
             local delta = lastSpeed - speed
             local damage = Config.Damage or {}
+            local seatbeltCfg = Config.Seatbelt or {}
             local hasHarness = CMVehicles.Client.HasRacingHarness and CMVehicles.Client.HasRacingHarness(veh) == true
 
-            if not hasHarness and not CMVehicles.Client.Seatbelt and speed > 20 and now - lastChime > Config.Seatbelt.warningIntervalMs then
-                playChime()
-                lastChime = now
-            end
+            -- Seatbelt warning: visual only, no chime. Active when moving unbelted.
+            CMVehicles.Client.SeatbeltWarn = (not hasHarness and not CMVehicles.Client.Seatbelt and speed > 20)
 
-            -- Hard impact engine shutoff now uses the same crash severity as seatbelt ejection.
-            -- This avoids shutting the engine off for small bumps. If the crash is strong enough
-            -- that an unbelted player would be ejected, the vehicle engine dies and restart is delayed.
-            local seatbeltCfg = Config.Seatbelt or {}
-            local useSeatbeltCrash = damage.hardImpactUseSeatbeltCrashThreshold ~= false
-            local minImpactSpeed = useSeatbeltCrash and (tonumber(seatbeltCfg.ejectSpeedKmh) or 85.0) or (tonumber(damage.hardImpactMinSpeedKmh) or 85.0)
-            local impactDelta = useSeatbeltCrash and (tonumber(seatbeltCfg.crashDeltaKmh) or 45.0) or (tonumber(damage.hardImpactDeltaKmh) or 45.0)
-            local impactCooldown = tonumber(damage.hardImpactCooldownMs) or 3000
-            local ejectionLevelCrash = lastSpeed > minImpactSpeed and delta > impactDelta
+            -- ── Hard impact handling ──────────────────────────────────
+            -- A qualifying "hard impact" is a sudden speed drop above the
+            -- configured thresholds. Every hard impact removes only ~1% of
+            -- max engine health. The engine only *sometimes* dies, and only
+            -- on a severe crash (higher speed + bigger drop) rolled at random.
+            local minImpactSpeed = tonumber(damage.hardImpactMinSpeedKmh) or 55.0
+            local impactDelta = tonumber(damage.hardImpactDeltaKmh) or 35.0
+            local impactCooldown = tonumber(damage.hardImpactCooldownMs) or 1500
+            local isHardImpact = lastSpeed > minImpactSpeed and delta > impactDelta
 
-            if engineAllowed[veh] == true and ejectionLevelCrash and now - lastHardImpactAt >= impactCooldown then
+            if engineAllowed[veh] == true and isHardImpact and now - lastHardImpactAt >= impactCooldown then
                 lastHardImpactAt = now
-                local impactDamage = tonumber(damage.impactEngineDamage) or 120.0
-                if impactDamage > 0.0 then
+
+                -- 1% of max (1000) per hit.
+                local pct = tonumber(damage.impactEngineDamagePercent) or 1.0
+                local dmg = (pct / 100.0) * 1000.0
+                if dmg > 0.0 then
                     local currentHealth = GetVehicleEngineHealth(veh)
-                    SetVehicleEngineHealth(veh, math.max(0.0, currentHealth - impactDamage))
+                    SetVehicleEngineHealth(veh, math.max(0.0, currentHealth - dmg))
                 end
-                engineRestartReadyAt[veh] = now + impactRestartDelayMs()
-                setEngine(veh, false)
-                CMVehicles.Client.Notify(('Severe crash shut off the engine. Restart takes %d seconds.'):format(math.ceil(impactRestartDelayMs() / 1000)))
+
+                -- Hard + random stall: only severe crashes can stop the engine,
+                -- and only on a dice roll. Most crashes just chip the 1%.
+                local severeSpeed = tonumber(damage.stallOnCrashMinSpeedKmh) or 80.0
+                local severeDelta = tonumber(damage.stallOnCrashMinDeltaKmh) or 55.0
+                local stallChance = tonumber(damage.stallOnCrashChancePercent) or 22
+                local isSevere = lastSpeed >= severeSpeed and delta >= severeDelta
+                if isSevere and math.random(1, 100) <= stallChance then
+                    engineRestartReadyAt[veh] = now + impactRestartDelayMs()
+                    setEngine(veh, false)
+                    CMVehicles.Client.Notify(('Severe crash killed the engine. Restart takes %d seconds.'):format(math.ceil(impactRestartDelayMs() / 1000)))
+                end
             end
 
-            if not hasHarness and not CMVehicles.Client.Seatbelt and lastSpeed > (tonumber(Config.Seatbelt.ejectSpeedKmh) or 85.0) and delta > (tonumber(Config.Seatbelt.crashDeltaKmh) or 45.0) then
+            -- Unbelted ejection is unchanged (severe crash, no harness, no belt).
+            if not hasHarness and not CMVehicles.Client.Seatbelt and lastSpeed > (tonumber(seatbeltCfg.ejectSpeedKmh) or 85.0) and delta > (tonumber(seatbeltCfg.crashDeltaKmh) or 45.0) then
                 ejectPlayer(veh)
             end
             lastSpeed = speed
         else
             lastSpeed = 0.0
+            CMVehicles.Client.SeatbeltWarn = false
         end
     end
 end)
@@ -307,7 +462,7 @@ RegisterCommand('cm_cruise', function()
         CMVehicles.Client.Notify('Cruise control off.')
     end
 end, false)
-RegisterKeyMapping('cm_cruise', 'Toggle cruise control', 'keyboard', Config.Controls.cruiseKey or 'CAPITAL')
+RegisterKeyMapping('cm_cruise', 'Toggle cruise control', 'keyboard', Config.Controls.cruiseKey or 'X')
 
 RegisterNetEvent('cm-vehicles:client:useFakePlate', function(text, duration)
     local veh = GetVehiclePedIsIn(PlayerPedId(), false)
@@ -410,14 +565,116 @@ CreateThread(function()
     end
 end)
 
-RegisterNetEvent('cm-vehicles:client:useRacingHarness', function()
-    local ped = PlayerPedId()
-    local veh = GetVehiclePedIsIn(ped, false)
-    if veh == 0 then veh = CMVehicles.Client.GetActionVehicle(true) end
-    if not veh or veh == 0 then return CMVehicles.Client.Notify('No vehicle nearby for harness installation.') end
-    TriggerServerEvent('cm-vehicles:server:installRacingHarness', CMVehicles.Client.VehiclePlate(veh), NetworkGetNetworkIdFromEntity(veh))
+-- Racing harness installation is server-authorized only.
+-- cm-itemactions/cm-tuning must charge or consume the item before calling the server export.
+
+-- ────────────────────────────────────────────────────────────────────
+--  ENGINE PROTECT
+--  GTA drains engine health hard on every collision, independently of our own
+--  impact logic. Config alone can't slow that down. This loop watches the
+--  native health each tick and gives most of the loss back, so the engine only
+--  degrades by the small controlled amount we apply on hard impacts.
+--  Result: an engine takes a long, sustained beating before it actually breaks.
+-- ────────────────────────────────────────────────────────────────────
+CreateThread(function()
+    local dmg = Config.Damage or {}
+    if dmg.engineProtect == false then return end
+
+    local keep = tonumber(dmg.engineProtectKeepPercent) or 0.12
+    if keep < 0.0 then keep = 0.0 end
+    if keep > 1.0 then keep = 1.0 end
+
+    local lastVeh, lastHealth = 0, nil
+
+    while true do
+        Wait(150)
+        local ped = PlayerPedId()
+        local veh = GetVehiclePedIsIn(ped, false)
+
+        if veh ~= 0 and GetPedInVehicleSeat(veh, -1) == ped then
+            local health = GetVehicleEngineHealth(veh) or 0.0
+
+            if veh ~= lastVeh then
+                lastVeh, lastHealth = veh, health
+            elseif lastHealth and health < lastHealth then
+                -- GTA took some engine health. Give back most of it.
+                local lost = lastHealth - health
+                -- Ignore our own deliberate impact damage (it is applied in one
+                -- go and is small); this simply damps any drop by `keep`.
+                local restored = health + (lost * (1.0 - keep))
+                if restored > 1000.0 then restored = 1000.0 end
+                SetVehicleEngineHealth(veh, restored)
+                lastHealth = restored
+            else
+                lastHealth = health
+            end
+        else
+            lastVeh, lastHealth = 0, nil
+        end
+    end
 end)
 
-RegisterCommand('installharness', function()
-    TriggerEvent('cm-vehicles:client:useRacingHarness')
-end, false)
+-- ════════════════════════════════════════════════════════════════════
+--  RAIN GRIP FIX
+--  GTA slashes tyre grip on wet roads far harder than it should. On a rainy
+--  night a supercar becomes almost undriveable -- it slides on a straight.
+--  SetVehicleReduceGrip is the native GTA itself uses for this; we simply stop
+--  it applying, and restore grip each frame while it is raining.
+-- ════════════════════════════════════════════════════════════════════
+CreateThread(function()
+    local cfg = Config.Rain or {}
+    if cfg.fixGrip == false then return end
+
+    while true do
+        Wait(500)
+        local ped = PlayerPedId()
+        local veh = GetVehiclePedIsIn(ped, false)
+
+        if veh ~= 0 and GetPedInVehicleSeat(veh, -1) == ped then
+            local rain = 0.0
+            pcall(function() rain = GetRainLevel() or 0.0 end)
+
+            if rain > 0.0 then
+                -- Stop GTA's wet-road grip penalty.
+                pcall(function() SetVehicleReduceGrip(veh, false) end)
+
+                -- Restore grip, scaled by how hard it is raining. A little rain
+                -- should still be felt; a downpour should not be a death trap.
+                local keep = tonumber(cfg.wetGripFloor) or 0.92
+                local grip = 1.0 - ((1.0 - keep) * math.min(1.0, rain))
+
+                -- A higher tyre level claws grip back on top of this.
+                local tyreLvl = CMVehicles.Client.GetTyreLevel and CMVehicles.Client.GetTyreLevel(veh) or 0
+                local tcfg = (Config.Tuning and Config.Tuning.Tyres) or {}
+                grip = grip - (tyreLvl * (tonumber(tcfg.gripPerLevel) or 0.05))
+
+                pcall(function() SetVehicleGripLevel(veh, math.max(0.75, grip)) end)
+            end
+        end
+    end
+end)
+
+-- ════════════════════════════════════════════════════════════════════
+--  RADIO OFF BY DEFAULT
+--  Mute the radio whenever a player gets into a vehicle. They can still turn it
+--  on themselves; it just does not blast on entry.
+-- ════════════════════════════════════════════════════════════════════
+CreateThread(function()
+    if Config.Radio and Config.Radio.defaultOff == false then return end
+
+    local lastVeh = 0
+    while true do
+        Wait(250)
+        local ped = PlayerPedId()
+        local veh = GetVehiclePedIsIn(ped, false)
+
+        if veh ~= 0 and veh ~= lastVeh then
+            lastVeh = veh
+            SetVehicleRadioEnabled(veh, true)
+            SetVehRadioStation(veh, 'OFF')
+            pcall(function() SetUserRadioControlEnabled(true) end)
+        elseif veh == 0 then
+            lastVeh = 0
+        end
+    end
+end)

@@ -210,6 +210,7 @@ end
 local function sendInventorySmart(src, forceOpen)
     src = tonumber(src)
     if not src or src <= 0 then return false end
+    if forceOpen == true and isPlayerDeadState(src) then return false end
 
     if ActiveExternalInventories[src] then
         local payload, err = buildExternalInventoryPayload(src)
@@ -227,6 +228,7 @@ end
 local function OpenExternalInventoryInternal(src, context)
     src = tonumber(src)
     if not src or src <= 0 then return false, 'Invalid player.' end
+    if isPlayerDeadState(src) then return false, 'Player is unconscious.' end
 
     -- If another resource checks owner/permission and explicitly denies the
     -- storage, do not leave the player with nothing. Open their normal inventory.

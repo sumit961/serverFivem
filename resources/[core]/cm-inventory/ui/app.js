@@ -110,6 +110,50 @@ function firstEmptyMainSlot() {
   return null;
 }
 
+// First empty slot in the currently-open external container (vehicle/trunk/stash).
+// Returns the UI slot id (external-N) or null if none / no container open.
+function firstEmptyExternalSlot() {
+  if (!state.external?.active) return null;
+  const limit = externalSlotLimit();
+  if (limit <= 0) return null;
+  for (let i = 1; i <= limit; i++) {
+    const slot = `external-${i}`;
+    if (!itemBySlot(slot)) return slot;
+  }
+  return null;
+}
+
+// Double-right-click: send the item straight to the OTHER open container.
+// Rules: only works when a second container is open; equipment-slot items are
+// never auto-moved; drop is a no-op when no external container is open.
+function moveToOtherContainer(item) {
+  if (!item) return;
+  if (!state.external?.active) return;            // no second container -> do nothing
+  if (bestEquipmentSlot(item)) return;            // never yank equipment via this shortcut
+
+  const fromIsExternal = isExternalSlot(item.slot);
+  let toSlot;
+  if (fromIsExternal) {
+    toSlot = firstEmptyMainSlot();                // external -> main inventory
+  } else {
+    toSlot = firstEmptyExternalSlot();            // main inventory -> external
+  }
+  if (!toSlot) {
+    showToast('No free slot in the other container.', 'error');
+    return;
+  }
+
+  post('moveItem', {
+    fromSlot: item.slot,
+    toSlot,
+    fromExternal: fromIsExternal,
+    toExternal: isExternalSlot(toSlot),
+    fromIndex: fromIsExternal ? externalSlotIndex(item.slot) : null,
+    toIndex: isExternalSlot(toSlot) ? externalSlotIndex(toSlot) : null,
+  }).catch(() => showToast('Move request failed.', 'error'));
+  closeContext();
+}
+
 function resourceUrl(path) {
   return `https://${GetParentResourceName()}/${path}`;
 }
@@ -648,7 +692,7 @@ function finishDrag(x, y) {
   activeDrag = null;
 
   if (wantsGive && dragItem) {
-    openGive(dragItem);
+    giveAll(dragItem);
     return;
   }
 
@@ -757,6 +801,25 @@ function makeItem(item) {
   el.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     if (activeDrag) return;
+
+    // Ctrl + right-click: move directly to the other open container.
+    // With no external container open this intentionally does nothing.
+    if (e.ctrlKey) {
+      closeContext();
+      moveToOtherContainer(item);
+      return;
+    }
+
+    // Keep double-right-click as a compatibility shortcut.
+    const now = Date.now();
+    if (el._lastRightClick && (now - el._lastRightClick) < 400) {
+      el._lastRightClick = 0;
+      closeContext();
+      moveToOtherContainer(item);
+      return;
+    }
+    el._lastRightClick = now;
+
     showContext(item, e.clientX, e.clientY);
   });
 
@@ -873,8 +936,9 @@ function showContext(item, x, y) {
     </div>
   `;
   contextEl.querySelector('[data-action="use"]').onclick = () => { post('useItem', { slot: item.slot }); closeContext(); };
-  contextEl.querySelector('[data-action="give"]').onclick = () => openGive(item);
-  contextEl.querySelector('[data-action="drop"]').onclick = () => openDrop(item);
+  contextEl.querySelector('[data-action="give"]').onclick = () => giveAll(item);
+  // Drop now drops the ENTIRE stack directly (no amount prompt).
+  contextEl.querySelector('[data-action="drop"]').onclick = () => dropAll(item);
   const split = contextEl.querySelector('[data-action="split"]');
   if (split) split.onclick = () => openSplit(item);
 
@@ -918,6 +982,22 @@ function openDrop(item) {
   dropAmount.max = Math.max(1, item.quantity || 1);
   dropAmount.value = 1;
   dropModal.classList.remove('hidden');
+  closeContext();
+}
+
+// Drop the entire stack immediately, no amount prompt.
+function dropAll(item) {
+  if (!item) return;
+  post('dropItem', { slot: item.slot, amount: Math.max(1, item.quantity || 1) });
+  closeContext();
+}
+
+// Give the entire stack to a nearby player.
+// Tier 2: this now asks the server who is nearby; the server replies with
+// giveTargets and we show a confirm (one player) or a picker (several).
+function giveAll(item) {
+  if (!item) return;
+  post('requestGive', { slot: item.slot });
   closeContext();
 }
 
@@ -1078,7 +1158,68 @@ window.addEventListener('message', (event) => {
   if (data.action === 'notify') showToast(data.message, data.type || 'info');
   if (data.action === 'progress') showProgress(data.label || 'Using item...', Number(data.ms) || 1000);
   if (data.action === 'nearDrops') showNearbyDrops(data);
+  if (data.action === 'giveTargets') showGiveTargets(data.data || {});
 });
+
+// Tier 2 give-target UI. One nearby player -> confirm by name. Several -> a
+// picker list, then confirm. Sends confirmGive with the chosen server id.
+function showGiveTargets(payload) {
+  const players = Array.isArray(payload.players) ? payload.players : [];
+  if (players.length === 0) {
+    showToast('No nearby player found.', 'error');
+    return;
+  }
+
+  const label = payload.itemLabel || 'item';
+  const amount = payload.amount || 1;
+
+  // Build a lightweight modal each time (kept out of the static HTML so this
+  // patch stays self-contained). Overlay + card.
+  let overlay = document.getElementById('give-target-overlay');
+  if (overlay) overlay.remove();
+  overlay = document.createElement('div');
+  overlay.id = 'give-target-overlay';
+  overlay.className = 'cm-modal-overlay';
+
+  const rows = players.map((p) => `
+    <button class="cm-give-target-row" data-sid="${p.serverId}">
+      <span class="cm-give-name">${escapeHtml(p.name || ('Player ' + p.serverId))}</span>
+      <span class="cm-give-dist">${(p.distance ?? 0).toFixed(1)}m</span>
+    </button>`).join('');
+
+  const title = players.length === 1
+    ? `Give ${amount}x ${escapeHtml(label)} to this player?`
+    : `Give ${amount}x ${escapeHtml(label)} to which player?`;
+
+  overlay.innerHTML = `
+    <div class="cm-modal-card">
+      <div class="cm-modal-title">${title}</div>
+      <div class="cm-give-target-list">${rows}</div>
+      <div class="cm-modal-actions">
+        <button id="give-target-cancel" class="cm-btn cm-btn-ghost">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const finish = () => { overlay.remove(); };
+  overlay.querySelector('#give-target-cancel').onclick = finish;
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) finish(); });
+
+  overlay.querySelectorAll('.cm-give-target-row').forEach((btn) => {
+    btn.onclick = () => {
+      const sid = Number(btn.getAttribute('data-sid'));
+      post('confirmGive', { targetServerId: sid });
+      finish();
+    };
+  });
+}
+
+// Minimal HTML escaper for player-supplied names.
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
 
 function showProgress(label, ms) {
   progressLabel.textContent = label;

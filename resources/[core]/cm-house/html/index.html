@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,500;6..144,600;6..144,700;6..144,800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style-v110.css">
+    <link rel="stylesheet" href="css/phase2-ice-cyan-v173.css">
+    <link rel="stylesheet" href="css/weapon-storage-v150.css">
+</head>
+<body>
+<!-- Unified world interaction prompt -->
+<div id="cm-interaction" aria-hidden="true">
+  <div class="cm-interaction__shell">
+    <span class="cm-interaction__key" aria-hidden="true">E</span>
+    <span class="cm-interaction__label" id="cm-interaction-label">Interact</span>
+  </div>
+</div>
+
+
+<!-- ============================================================
+     DOOR -- compact CM ice-blue property card
+     ============================================================ -->
+<div id="door" class="screen property-card-screen" aria-hidden="true">
+  <section class="deed" role="dialog" aria-modal="true" aria-labelledby="d-label">
+    <header class="deed__head">
+      <div class="deed__id">
+        <h1 id="d-label">House</h1>
+        <div class="panel-accent" aria-hidden="true"></div>
+        <p class="deed__type"><span id="d-family" class="deed__fam"></span></p>
+      </div>
+      <button class="deed__x" data-act="close" aria-label="Close">&times;</button>
+    </header>
+
+    <figure class="shot property-photo" id="d-shot" data-live="0" data-has-image="0">
+      <img id="d-img" alt="Property photo">
+      <div class="property-photo__empty" id="d-photo-empty">
+        <span>HOUSE PHOTO</span>
+        <small>No saved photo</small>
+      </div>
+    </figure>
+
+    <!-- Kept for the existing status controller without displaying the old
+         circular deed seal. -->
+    <div class="seal" id="d-seal" data-stars="0" hidden>
+      <svg class="seal__ring" viewBox="0 0 120 120" aria-hidden="true">
+        <circle class="seal__track" cx="60" cy="60" r="52"/>
+        <circle class="seal__fill" cx="60" cy="60" r="52"/>
+      </svg>
+      <div class="seal__core">
+        <div class="seal__stars" id="d-stars"></div>
+        <div class="seal__word" id="d-status">VACANT</div>
+      </div>
+    </div>
+
+    <dl class="ledger property-ledger">
+      <div class="ledger__row">
+        <dt>House No</dt><dd><span class="ledger__hash">#</span><span id="d-number">000</span></dd>
+      </div>
+      <div class="ledger__row">
+        <dt>Type</dt><dd id="d-type">House</dd>
+      </div>
+      <div class="ledger__row">
+        <dt>Owner</dt><dd id="d-owner">For sale</dd>
+      </div>
+      <div class="ledger__row">
+        <dt>Price</dt><dd id="d-price">&mdash;</dd>
+      </div>
+      <div class="ledger__row">
+        <dt>Insurance</dt><dd id="d-insurance">&mdash;</dd>
+      </div>
+      <div class="ledger__row">
+        <dt>Daily cost</dt><dd id="d-daily">&mdash;</dd>
+      </div>
+      <div class="ledger__row">
+        <dt>Paid for</dt><dd id="d-paid">&mdash;</dd>
+      </div>
+      <div class="ledger__row ledger__row--gov">
+        <dt>Government value</dt><dd id="d-gov">&mdash;</dd>
+      </div>
+    </dl>
+
+    <div class="acts property-actions">
+      <button class="act act--lock" data-act="lock" id="d-lock">
+        <span class="act__icon" id="d-lock-icon">&#128274;</span>
+        <span class="act__label" id="d-lock-label">Unlock</span>
+      </button>
+      <button class="act act--home act--green" data-act="home" id="d-home">
+        <span class="act__icon">&#127968;</span>
+        <span class="act__label">Enter home</span>
+      </button>
+      <button class="act act--garage" data-act="garage" id="d-garage">
+        <span class="act__icon">&#128663;</span>
+        <span class="act__label">Open garage</span>
+      </button>
+    </div>
+
+    <footer class="deed__foot">
+      <button class="ghost ghost--buy" data-act="buy" id="d-buy">Buy &rarr;</button>
+      <button class="ghost ghost--sell" data-act="sell" id="d-sell">Sell property</button>
+    </footer>
+  </section>
+</div>
+
+<!-- ============================================================
+     INTERIOR DOOR  -- custom CM cyan navigation menu
+     House: outside / garage. Garage: house / outside.
+     ============================================================ -->
+<div id="interior-door" class="screen interior-door-screen" aria-hidden="true">
+  <section class="interior-door-card" role="dialog" aria-modal="true" aria-labelledby="id-title">
+    <header class="interior-door-head">
+      <div class="interior-door-badge" aria-hidden="true">E</div>
+      <div>
+        <p class="interior-door-eyebrow" id="id-eyebrow">PROPERTY ACCESS</p>
+        <h2 id="id-title">House door</h2>
+        <p id="id-subtitle">Choose where you want to go.</p>
+      </div>
+      <button class="interior-door-close" type="button" data-interior-act="close" aria-label="Close">&times;</button>
+    </header>
+
+    <div class="interior-door-options">
+      <button class="interior-door-option" id="id-primary" type="button" data-interior-act="exit">
+        <span class="interior-door-option__icon" id="id-primary-icon" aria-hidden="true">&#10140;</span>
+        <span class="interior-door-option__copy">
+          <strong id="id-primary-label">Go outside</strong>
+          <small id="id-primary-description">Leave the property through this door.</small>
+        </span>
+        <span class="interior-door-option__arrow" aria-hidden="true">&#8250;</span>
+      </button>
+
+      <button class="interior-door-option" id="id-secondary" type="button" data-interior-act="garage">
+        <span class="interior-door-option__icon" id="id-secondary-icon" aria-hidden="true">&#128663;</span>
+        <span class="interior-door-option__copy">
+          <strong id="id-secondary-label">Enter garage</strong>
+          <small id="id-secondary-description">Walk into the property garage.</small>
+        </span>
+        <span class="interior-door-option__arrow" aria-hidden="true">&#8250;</span>
+      </button>
+    </div>
+
+    <footer class="interior-door-foot">
+      <span>CM PROPERTY ACCESS</span>
+      <span><kbd>ESC</kbd> CLOSE</span>
+    </footer>
+  </section>
+</div>
+
+<!-- ============================================================
+     GARAGE SLOT  -- assign, recall or remove a vehicle
+     ============================================================ -->
+<div id="garage-slot" class="screen garage-slot-screen" aria-hidden="true">
+  <section class="garage-slot-card" role="dialog" aria-modal="true" aria-labelledby="gs-title">
+    <header class="garage-slot-head">
+      <div class="garage-slot-symbol" id="gs-symbol" data-occupied="0">P</div>
+      <div class="garage-slot-heading">
+        <p class="garage-slot-eyebrow" id="gs-eyebrow">AVAILABLE PARKING</p>
+        <h2 id="gs-title">Parking space 1</h2>
+        <p id="gs-subtitle">Choose one of your vehicles for this space.</p>
+      </div>
+      <button class="garage-slot-close" type="button" data-garage-act="close" aria-label="Close">&times;</button>
+    </header>
+
+    <section class="garage-current" id="gs-current" hidden>
+      <div>
+        <span class="garage-current__tag">CURRENT VEHICLE</span>
+        <strong id="gs-current-name">Vehicle</strong>
+        <small id="gs-current-plate">PLATE</small>
+      </div>
+      <span class="garage-current__state" id="gs-current-state">PARKED</span>
+    </section>
+
+    <div class="garage-slot-actions" id="gs-actions" hidden>
+      <button class="garage-slot-action garage-slot-action--cyan" type="button" data-garage-act="recall">
+        <span>Recall car</span><small>Return this car to its reserved space</small>
+      </button>
+      <button class="garage-slot-action garage-slot-action--danger" type="button" data-garage-act="remove">
+        <span>Cancel car</span><small>Remove the car and clear this parking space</small>
+      </button>
+    </div>
+
+    <div class="garage-vehicle-section" id="gs-vehicle-section">
+      <div class="garage-vehicle-section__head">
+        <span id="gs-list-title">YOUR AVAILABLE VEHICLES</span>
+        <span id="gs-count">0</span>
+      </div>
+      <div class="garage-vehicle-list" id="gs-list"></div>
+      <p class="garage-vehicle-empty" id="gs-empty" hidden>No available owned vehicles were found.</p>
+    </div>
+
+    <footer class="garage-slot-foot">
+      <span>CYAN = AVAILABLE &nbsp; RED = OCCUPIED</span>
+      <span><kbd>ESC</kbd> CLOSE</span>
+    </footer>
+  </section>
+</div>
+
+
+
+
+<!-- ============================================================
+     GARAGE CUSTOMIZATION -- owner/family-rank parking interior styling
+     ============================================================ -->
+<!-- ============================================================
+     HOUSE WEAPON STORAGE -- weapons and ammunition only
+     ============================================================ -->
+<div id="weapon-storage" class="screen weapon-storage-screen" aria-hidden="true">
+  <section class="weapon-storage-card" role="dialog" aria-modal="true" aria-labelledby="ws-title">
+    <header class="weapon-storage-head">
+      <div class="weapon-storage-mark" aria-hidden="true">WS</div>
+      <div class="weapon-storage-heading">
+        <p class="weapon-storage-eyebrow">SECURE PROPERTY LOCKER</p>
+        <h2 id="ws-title">Weapon Storage</h2>
+        <p id="ws-subtitle">Property</p>
+      </div>
+      <button class="weapon-storage-close" type="button" data-ws-close aria-label="Close">&times;</button>
+    </header>
+
+    <div class="weapon-storage-tools">
+      <div class="weapon-storage-tabs" role="tablist">
+        <button class="ws-tab is-active" type="button" data-ws-filter="all">All</button>
+        <button class="ws-tab" type="button" data-ws-filter="weapon">Weapons</button>
+        <button class="ws-tab" type="button" data-ws-filter="ammo">Ammo</button>
+      </div>
+      <label class="weapon-storage-search">
+        <span aria-hidden="true">⌕</span>
+        <input id="ws-search" type="search" placeholder="Search weapons or ammunition" autocomplete="off">
+      </label>
+      <button class="weapon-storage-refresh" type="button" data-ws-refresh>Refresh</button>
+    </div>
+
+    <div class="weapon-storage-columns">
+      <section class="weapon-storage-pane">
+        <header class="weapon-storage-pane-head">
+          <div><span>PLAYER INVENTORY</span><strong>Your weapons &amp; ammo</strong></div>
+          <b id="ws-player-count">0</b>
+        </header>
+        <div class="weapon-storage-list" id="ws-player-list"></div>
+        <p class="weapon-storage-empty" id="ws-player-empty" hidden>No weapons or ammunition in your inventory.</p>
+      </section>
+
+      <div class="weapon-storage-divider" aria-hidden="true"><span>⇄</span></div>
+
+      <section class="weapon-storage-pane">
+        <header class="weapon-storage-pane-head">
+          <div><span>HOUSE LOCKER</span><strong>Stored weapons &amp; ammo</strong></div>
+          <b id="ws-storage-count">0</b>
+        </header>
+        <div class="weapon-storage-list" id="ws-storage-list"></div>
+        <p class="weapon-storage-empty" id="ws-storage-empty" hidden>This weapon storage is empty.</p>
+      </section>
+    </div>
+
+    <footer class="weapon-storage-foot">
+      <span id="ws-capacity">0 / 60 storage slots</span>
+      <span>Only weapons and ammunition are accepted &nbsp; <kbd>ESC</kbd> CLOSE</span>
+    </footer>
+  </section>
+</div>
+
+<!-- ============================================================
+     WIZARD  --  features drive everything, and you can see it happen
+     ============================================================ -->
+<div id="wiz" class="screen">
+  <div class="wiz">
+
+    <!-- LEFT: what you declare -->
+    <div class="wiz__main">
+      <header class="wiz__head">
+        <p class="wiz__eyebrow" id="w-step">Step 1 — What is this property?</p>
+        <h1 id="w-title">Declare the property</h1>
+        <p class="wiz__sub" id="w-sub">Everything else — the layout, the garage, the price — follows from this.</p>
+      </header>
+
+      <div class="wiz__body" id="w-body">
+
+        <!-- FEATURES -->
+        <section class="pane" id="w-features">
+          <div class="f__sep"><span>Type</span></div>
+          <div class="tiles" id="w-types"></div>
+
+          <div class="f__sep"><span>Features</span></div>
+          <div class="toggles" id="w-feats"></div>
+
+          <div class="f__sep"><span>Garage</span></div>
+          <div class="tiles tiles--sm" id="w-garages"></div>
+          <p class="wiz__note" id="w-garage-note"></p>
+        </section>
+
+        <!-- PICK A SAVED LAYOUT -->
+        <section class="pane" id="w-pick" hidden>
+          <p class="wiz__note" id="w-pick-note"></p>
+          <div class="cards" id="w-pick-list"></div>
+        </section>
+
+        <!-- PICK A ROOM -->
+        <section class="pane" id="w-rooms" hidden>
+          <div class="cards" id="w-room-list"></div>
+          <div class="f__sep"><span>Somewhere else</span></div>
+          <div class="coords">
+            <input class="f__in mono" id="w-cx" placeholder="X" autocomplete="off">
+            <input class="f__in mono" id="w-cy" placeholder="Y" autocomplete="off">
+            <input class="f__in mono" id="w-cz" placeholder="Z" autocomplete="off">
+            <button class="ghost" data-act="w-custom">Go</button>
+          </div>
+        </section>
+
+        <!-- NAME A LAYOUT -->
+        <section class="pane" id="w-name" hidden>
+          <p class="wiz__note" id="w-name-note"></p>
+          <label class="f">
+            <span class="f__label">Name this layout</span>
+            <input class="f__in" id="w-name-in" maxlength="64" autocomplete="off">
+            <span class="f__hint">Every property like this will reuse it from now on.</span>
+          </label>
+        </section>
+
+        <!-- PUBLISH -->
+        <section class="pane" id="w-publish" hidden>
+          <div class="build__grid">
+            <label class="f">
+              <span class="f__label">Address</span>
+              <input class="f__in mono" id="w-number" maxlength="16" placeholder="042" autocomplete="off">
+            </label>
+            <label class="f">
+              <span class="f__label">Name</span>
+              <input class="f__in" id="w-label" maxlength="64" placeholder="Vinewood Heights 4B" autocomplete="off">
+            </label>
+          </div>
+        </section>
+
+      </div>
+
+      <p class="build__err" id="w-err"></p>
+
+      <footer class="wiz__foot">
+        <button class="ghost" data-act="w-cancel">Cancel</button>
+        <button class="solid" data-act="w-next" id="w-next">Continue</button>
+      </footer>
+    </div>
+
+    <!-- RIGHT: the valuation, recomputed live -->
+    <aside class="rail">
+      <div class="rail__seal" id="w-seal" data-stars="1">
+        <svg class="seal__ring" viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="seal__track" cx="60" cy="60" r="52"/>
+          <circle class="seal__fill"  cx="60" cy="60" r="52"/>
+        </svg>
+        <div class="seal__core">
+          <div class="seal__stars" id="w-stars">★☆☆☆☆</div>
+          <div class="seal__word">RATING</div>
+        </div>
+      </div>
+
+      <dl class="ledger ledger--rail">
+        <div class="ledger__row"><dt>Price</dt><dd id="w-price">$0</dd></div>
+        <div class="ledger__row"><dt>Gov value</dt><dd id="w-gov">$0</dd></div>
+        <div class="ledger__row"><dt>Insurance</dt><dd id="w-ins">$0</dd></div>
+        <div class="ledger__row"><dt>Upkeep / day</dt><dd id="w-daily">$0</dd></div>
+        <div class="ledger__row ledger__row--gov"><dt>Garage</dt><dd id="w-cap">—</dd></div>
+      </dl>
+
+      <p class="rail__note">The server prices this. Nothing here is typed.</p>
+    </aside>
+
+  </div>
+</div>
+
+
+<!-- ============================================================
+     ADMIN  --  a records office. Live camera behind the list.
+     ============================================================ -->
+<div id="admin" class="screen screen--admin">
+  <div class="adm">
+
+    <header class="adm__head">
+      <h1>Properties</h1>
+      <nav class="tabs">
+        <button class="tab tab--on" data-tab="houses">Houses</button>
+        <button class="tab" data-tab="interiors">Layouts</button>
+        <button class="tab" data-tab="garages">Garages</button>
+        <button class="tab" data-tab="recovery">Recovery</button>
+      </nav>
+      <button class="deed__x" data-act="a-close" aria-label="Close">&times;</button>
+    </header>
+
+    <div class="adm__bar">
+      <input class="f__in" id="a-search" placeholder="Search…" autocomplete="off">
+      <span class="adm__count" id="a-count"></span>
+      <button class="solid solid--sm" data-act="a-add" id="a-add">+ New property</button>
+    </div>
+
+    <div class="adm__list" id="a-list"></div>
+
+  </div>
+</div>
+
+<script src="js/interaction-v203.js"></script>
+<script src="js/interior-door-v110.js"></script>
+<script src="js/garage-slot-v114.js"></script>
+<script src="js/door-v105.js"></script>
+<script src="js/weapon-storage-v150.js"></script>
+<script src="js/app-v105.js"></script>
+</body>
+</html>

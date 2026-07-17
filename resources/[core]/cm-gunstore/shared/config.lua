@@ -20,7 +20,34 @@ Config.SyncConfigCatalogOnStart = true
 -- and stock/enabled are forced from Config.StoreCatalog so the player store never shows stale ammo-only rows.
 Config.StrictStoreCatalog = true
 Config.ForceConfigStockEnabled = true
-Config.AmmoQuantity = { min = 1, max = 999, default = 1 }
+Config.AmmoQuantity = { min = 1, max = 999, default = 30 }
+
+-- ============================================================
+-- Performance (client interaction loop) -- tuned for 1000+ players.
+-- The client interaction thread uses distance-based sleep so that players who
+-- are nowhere near a gun store cost almost nothing per frame.
+-- ============================================================
+Config.Perf = {
+    farSleep   = 1500, -- ms between checks when no shop is within markerDistance
+    nearSleep  = 400,  -- ms when inside markerDistance but not at the counter
+    activeSleep = 0,   -- ms when standing at the counter (needs 0 for responsive E press / marker draw)
+}
+
+-- ============================================================
+-- Ammo-per-weapon buy flow.
+-- When a player buys a weapon we optionally offer the matching ammo (looked up
+-- from the weapon's ammo_item link in cm-weapons) instead of listing every ammo
+-- type in a separate column. Set offerAmmoWithWeapon = false to disable.
+-- ============================================================
+Config.WeaponAmmo = {
+    offerAmmoWithWeapon = true, -- show an "Add ammunition" panel on the weapon detail
+    defaultBundleRounds = 30,   -- pre-filled ammo amount when a weapon is selected
+    maxBundleRounds = 999,      -- hard cap on ammo bought alongside a weapon
+}
+
+-- Server-side per-player buy rate limit (anti-spam / anti-dupe debounce).
+-- A player cannot fire buyItem more than once per this window.
+Config.BuyCooldownMs = 600
 
 Config.Target = {
     enabled = false, -- disabled: gunstore uses custom screen interaction + E key, not ox_target.

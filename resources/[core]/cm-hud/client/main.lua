@@ -33,6 +33,25 @@ local lastSeatbeltAlarmAt = 0
 local HIDE_DEFAULT_AMMO_PREVIEW = true
 local HIDE_DEFAULT_VEHICLE_NAME = true
 
+-- ============================================================
+-- cm-vehicles INTEGRATION
+-- cm-vehicles is the authoritative owner of seatbelt / cruise / fuel / engine.
+-- It publishes LocalPlayer.state.cmVehicleHud. When present, cm-hud renders from
+-- it and does NOT bind its own seatbelt/cruise keys or play the alarm sound
+-- (cm-vehicles asked for HUD-only, no sound). If cm-vehicles is missing, the
+-- legacy standalone behaviour below is used as a fallback.
+local CM_VEHICLES_OWNS_VEHICLE_STATE = true
+
+local function cmVehiclesActive()
+    return CM_VEHICLES_OWNS_VEHICLE_STATE and GetResourceState('cm-vehicles') == 'started'
+end
+
+local function readCmVehicleHud()
+    local ok, v = pcall(function() return LocalPlayer.state.cmVehicleHud end)
+    if ok and type(v) == 'table' then return v end
+    return nil
+end
+
 
 
 -- ============================================================
@@ -40,7 +59,7 @@ local HIDE_DEFAULT_VEHICLE_NAME = true
 -- Saved locally per player with FiveM KVP. Open with /hud admin.
 -- ============================================================
 local HUD_DEFAULT_SETTINGS = {
-    speedoStyle = 1,
+    speedoStyle = 31,
     speedUnit = 'KM/H',
     theme = 'cyan',
     uiScale = 1.35,
@@ -1089,6 +1108,8 @@ local function canVehicleUseSeatbelt(vehicle)
 end
 
 RegisterCommand('seatbelt', function()
+    -- cm-vehicles owns seatbelt (key B). Don't double-bind or fight it.
+    if cmVehiclesActive() then return end
     local ped = PlayerPedId()
     local veh = GetVehiclePedIsIn(ped, false)
     if veh ~= 0 and canVehicleUseSeatbelt(veh) then
@@ -1100,9 +1121,14 @@ RegisterCommand('seatbelt', function()
         TriggerEvent('cm-hud:client:notify', 'This vehicle has no seatbelt', 'info')
     end
 end, false)
-RegisterKeyMapping('seatbelt', 'Toggle seatbelt', 'keyboard', 'B')
+-- Only bind B if cm-vehicles is NOT present. cm-vehicles binds B itself.
+if GetResourceState('cm-vehicles') ~= 'started' then
+    RegisterKeyMapping('seatbelt', 'Toggle seatbelt', 'keyboard', 'B')
+end
 
 RegisterCommand('cruise', function()
+    -- cm-vehicles owns cruise (key X). Don't double-bind or fight it.
+    if cmVehiclesActive() then return end
     local ped = PlayerPedId()
     local veh = GetVehiclePedIsIn(ped, false)
     if veh ~= 0 and GetPedInVehicleSeat(veh, -1) == ped then
@@ -1111,7 +1137,9 @@ RegisterCommand('cruise', function()
         TriggerEvent('cm-hud:client:notify', cruiseOn and 'Cruise control enabled' or 'Cruise control disabled', cruiseOn and 'success' or 'info')
     end
 end, false)
-RegisterKeyMapping('cruise', 'Toggle cruise control', 'keyboard', 'Y')
+if GetResourceState('cm-vehicles') ~= 'started' then
+    RegisterKeyMapping('cruise', 'Toggle cruise control', 'keyboard', 'Y')
+end
 
 -- ============================================================
 -- VEHICLE SPEEDOMETER
@@ -1174,20 +1202,42 @@ CreateThread(function()
                 local speed = math.floor(GetEntitySpeed(veh) * speedMultiplier + 0.5)
                 local rpm = math.floor((GetVehicleCurrentRpm(veh) or 0.0) * 100)
                 local gear = GetVehicleCurrentGear(veh)
-                local fuel = math.floor(GetVehicleFuelLevel(veh) + 0.5)
-                local engine = math.floor(math.max(0.0, GetVehicleEngineHealth(veh)) / 10.0 + 0.5)
                 local locked = GetVehicleDoorLockStatus(veh) >= 2
 
-                if canVehicleUseSeatbelt(veh) and not seatbeltOn and speed > 25 then
-                    local now = GetGameTimer()
-                    if now - lastSeatbeltAlarmAt > 6500 then
-                        lastSeatbeltAlarmAt = now
-                        playHudSound('seatbelt-alarm', 0.32)
-                    end
-                end
+                -- Prefer cm-vehicles authoritative state (custom fuel + seatbelt +
+                -- cruise + engine). Fall back to natives if cm-vehicles is absent.
+                local cmv = cmVehiclesActive() and readCmVehicleHud() or nil
+                local fuel, engine, beltOn, cruiseActive, beltWarn, mileage
+                if cmv and cmv.inVehicle then
+                    fuel = math.floor((tonumber(cmv.fuel) or 0.0) + 0.5)
+                    engine = math.floor(math.max(0.0, (tonumber(cmv.engineHealth) or 0.0)) / 10.0 + 0.5)
+                    beltOn = cmv.seatbelt == true
+                    cruiseActive = cmv.cruise == true
+                    beltWarn = cmv.seatbeltWarn == true
+                    mileage = tonumber(cmv.mileage) or 0.0
+                else
+                    fuel = math.floor(GetVehicleFuelLevel(veh) + 0.5)
+                    engine = math.floor(math.max(0.0, GetVehicleEngineHealth(veh)) / 10.0 + 0.5)
+                    beltOn = seatbeltOn
+                    cruiseActive = cruiseOn
+                    beltWarn = (canVehicleUseSeatbelt(veh) and not seatbeltOn and speed > 25)
+                    -- Native fallback: read the cm-vehicles mileage state bag directly if present.
+                    local okM, m = pcall(function() return Entity(veh).state.cmMileage end)
+                    mileage = tonumber(okM and m or 0.0) or 0.0
 
-                if cruiseOn and GetPedInVehicleSeat(veh, -1) == ped and cruiseSpeed > 1.0 then
-                    SetVehicleForwardSpeed(veh, cruiseSpeed)
+                    -- Legacy alarm sound only runs when cm-vehicles is NOT owning state.
+                    if beltWarn then
+                        local now = GetGameTimer()
+                        if now - lastSeatbeltAlarmAt > 6500 then
+                            lastSeatbeltAlarmAt = now
+                            playHudSound('seatbelt-alarm', 0.32)
+                        end
+                    end
+
+                    -- Legacy cruise forward-speed hold (cm-vehicles does its own).
+                    if cruiseOn and GetPedInVehicleSeat(veh, -1) == ped and cruiseSpeed > 1.0 then
+                        SetVehicleForwardSpeed(veh, cruiseSpeed)
+                    end
                 end
 
                 if gear == 0 then
@@ -1205,8 +1255,10 @@ CreateThread(function()
                     fuel = math.max(0, math.min(100, fuel)),
                     engine = math.max(0, math.min(100, engine)),
                     locked = locked,
-                    seatbelt = seatbeltOn,
-                    cruise = cruiseOn,
+                    seatbelt = beltOn,
+                    seatbeltWarn = beltWarn == true,
+                    cruise = cruiseActive,
+                    mileage = math.floor((tonumber(mileage) or 0.0) + 0.5),
                     lights = (function()
                         local _, low, high = GetVehicleLightsState(veh)
                         return (low == 1 or high == 1) and (high == 1 and 2 or 1) or 0
@@ -1272,6 +1324,62 @@ RegisterNetEvent('cm-hud:client:notify', function(text, type)
 end)
 RegisterNetEvent('cm-hud:notify', function(text, type)
     Notify(text, type)
+end)
+
+-- ============================================================
+-- WEAPON AMMO (authoritative source = cm-inventory ammo slot)
+-- cm-inventory sends the real bullet count. We never use GetAmmoInPedWeapon
+-- as the source of truth because native ammo can drift from the inventory.
+-- ============================================================
+local currentWeaponName = nil
+local currentWeaponAmmo = 0
+
+local function sendWeaponAmmo(weaponName, amount, ammoItem)
+    currentWeaponName = weaponName
+    currentWeaponAmmo = tonumber(amount) or 0
+    SendNUIMessage({
+        action = 'updateWeaponAmmo',
+        weapon = weaponName,
+        ammo = currentWeaponAmmo,
+        ammoItem = ammoItem,
+        armed = weaponName ~= nil
+    })
+end
+
+-- Fired by cm-inventory whenever ammo is synced/changed for the equipped gun.
+RegisterNetEvent('cm-inventory:client:setWeaponAmmo', function(weaponName, amount, ammoItem)
+    sendWeaponAmmo(weaponName, amount, ammoItem)
+end)
+
+-- Fired by cm-inventory when there is no ammo item in the slot.
+RegisterNetEvent('cm-inventory:client:noInventoryAmmo', function()
+    sendWeaponAmmo(currentWeaponName, 0, nil)
+end)
+
+-- Optional normalized bridge some resources prefer. Same effect.
+RegisterNetEvent('cm-hud:client:updateWeapon', function(data)
+    data = type(data) == 'table' and data or {}
+    sendWeaponAmmo(data.equipped == false and nil or data.weapon, data.ammo, data.ammoItem)
+end)
+
+-- When the weapon is holstered/unequipped, hide the panel.
+RegisterNetEvent('cm-inventory:client:weaponUnequipped', function()
+    sendWeaponAmmo(nil, 0, nil)
+end)
+
+-- Safety net: if the ped is unarmed, ensure the panel is hidden. This does NOT
+-- drive the count (inventory does), it only closes a stale panel.
+CreateThread(function()
+    while true do
+        Wait(600)
+        if currentWeaponName ~= nil then
+            local ped = PlayerPedId()
+            local unarmed = GetSelectedPedWeapon(ped) == GetHashKey('WEAPON_UNARMED')
+            if unarmed then
+                sendWeaponAmmo(nil, 0, nil)
+            end
+        end
+    end
 end)
 
 -- ============================================================
