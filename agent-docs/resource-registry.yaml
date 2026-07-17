@@ -1,0 +1,1932 @@
+schema_version: 2
+generated_from:
+  - fxmanifest.lua
+  - __resource.lua
+  - server.cfg
+resources:
+  - name: 'zpack_1'
+    path: 'resources/[clothes]/zpack_1'
+    category: 'clothes'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: false
+    ensured_in_server_cfg: false
+    ensure_order: null
+    declared_dependencies:
+        - '/assetpacks'
+    shared_scripts: []
+    client_scripts: []
+    server_scripts: []
+    ui_page: null
+    files:
+        - 'mp_m_freemode_01_mp_m_zpack_1_shop.meta'
+        - 'mp_f_freemode_01_mp_f_zpack_1_shop.meta'
+        - 'pedalternatevariations.meta'
+    data_files:
+        - type: 'SHOP_PED_APPAREL_META_FILE'
+          path: 'mp_m_freemode_01_mp_m_zpack_1_shop.meta'
+        - type: 'SHOP_PED_APPAREL_META_FILE'
+          path: 'mp_f_freemode_01_mp_f_zpack_1_shop.meta'
+        - type: 'ALTERNATE_VARIATIONS_FILE'
+          path: 'pedalternatevariations.meta'
+    evidence:
+        - 'resources/[clothes]/zpack_1/fxmanifest.lua'
+    unresolved:
+        - 'declared_dependencies includes engine/marker entries not resolvable to a resource name: /assetpacks (FiveM reserved dependency syntax, e.g. asset-pack/onesync/min-build markers -- excluded from resource-to-resource dependency edges)'
+        - 'An ''ensure zpack_1'' line exists in server.cfg but is commented out (inactive) -- resource is present but not started.'
+  - name: 'bcrypt'
+    path: 'resources/[core]/bcrypt'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'bodacious'
+    game:
+        - 'gta5'
+    lua54_declared: false
+    ensured_in_server_cfg: true
+    ensure_order: 5
+    declared_dependencies: []
+    shared_scripts: []
+    client_scripts:
+        - 'Client/bin/Release/**/publish/*.net.dll'
+    server_scripts:
+        - 'Server/bin/Release/**/publish/*.net.dll'
+        - 'server.lua'
+    ui_page: null
+    files:
+        - 'Client/bin/Release/**/publish/*.dll'
+    data_files: []
+    evidence:
+        - 'resources/[core]/bcrypt/fxmanifest.lua'
+    unresolved:
+        - 'A nested manifest candidate (entry_kind: nested_manifest_candidate) exists at resources/[core]/bcrypt/dist with a byte-identical fxmanifest.lua -- see that entry. Whether it is independently loaded by FXServer is not runtime-verified.'
+  - name: 'cm-admin'
+    path: 'resources/[core]/cm-admin'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 14
+    declared_dependencies:
+        - 'cm-ui'
+    shared_scripts:
+        - 'config.lua'
+    client_scripts:
+        - 'client/noclip.lua'
+        - 'client/admin_menu.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/devtools.lua'
+        - 'server/main.lua'
+    ui_page: 'ui/index.html'
+    files:
+        - 'ui/index.html'
+        - 'ui/style.css'
+        - 'ui/main.js'
+        - 'ui/assets/*.png'
+        - 'ui/assets/map_tiles/*.png'
+        - 'data/*.json'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-admin/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-auth'
+    path: 'resources/[core]/cm-auth'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 11
+    declared_dependencies:
+        - 'cm-core'
+        - 'cm-ui'
+        - 'oxmysql'
+    shared_scripts:
+        - 'shared/config.lua'
+    client_scripts:
+        - 'client/client.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/modules/util.lua'
+        - 'server/modules/crypto.lua'
+        - 'server/modules/database.lua'
+        - 'server/modules/identity.lua'
+        - 'server/modules/security.lua'
+        - 'server/server.lua'
+    ui_page: 'ui/index.html'
+    files:
+        - 'loading/index.html'
+        - 'loading/style.css'
+        - 'loading/script.js'
+        - 'loading/config.js'
+        - 'loading/audio/loading-theme.wav'
+        - 'loading/assets/*.svg'
+        - 'ui/index.html'
+        - 'ui/style.css'
+        - 'ui/app.js'
+        - 'ui/assets/*.svg'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-auth/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-carwash'
+    path: 'resources/[core]/cm-carwash'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 34
+    declared_dependencies: []
+    shared_scripts:
+        - 'shared/config.lua'
+    client_scripts:
+        - 'client/main.lua'
+    server_scripts:
+        - 'server/main.lua'
+    ui_page: 'ui/index.html'
+    files:
+        - 'ui/index.html'
+        - 'ui/style.css'
+        - 'ui/app.js'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-carwash/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-characters'
+    path: 'resources/[core]/cm-characters'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 13
+    declared_dependencies:
+        - 'cm-auth'
+        - 'cm-core'
+        - 'cm-playerdata'
+        - 'cm-ui'
+    shared_scripts:
+        - '@cm-core/shared/config.lua'
+        - 'config.lua'
+    client_scripts:
+        - 'client/worldlock.lua'
+        - 'client/main.lua'
+        - 'client/creator.lua'
+        - 'client/appearance.lua'
+        - 'client/apply.lua'
+        - 'client/admin.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/id-generator.lua'
+        - 'server/utils.lua'
+        - 'server/main.lua'
+        - 'server/creation.lua'
+        - 'server/slots.lua'
+        - 'server/appearance.lua'
+        - 'server/bridge.lua'
+        - 'server/admin.lua'
+    ui_page: 'ui/index.html'
+    files:
+        - 'ui/index.html'
+        - 'ui/style.css'
+        - 'ui/app.js'
+        - 'ui/vendor/cm-miniquery.js'
+        - 'ui/assets/*.svg'
+        - 'ui/audio/character-theme.wav'
+        - 'data/selector_scene.json'
+        - 'ui/appearance/index.html'
+        - 'ui/appearance/style.css'
+        - 'ui/appearance/app.js'
+        - 'ui/appearance/translation.js'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-characters/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-chat'
+    path: 'resources/[core]/cm-chat'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 22
+    declared_dependencies: []
+    shared_scripts:
+        - 'config.lua'
+    client_scripts:
+        - 'client/main.lua'
+    server_scripts:
+        - 'server/main.lua'
+    ui_page: 'ui/index.html'
+    files:
+        - 'ui/index.html'
+        - 'ui/style.css'
+        - 'ui/app.js'
+        - 'ui/fonts/PTSansNarrow.ttf'
+        - 'ui/fonts/PTSansNarrow-Bold.ttf'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-chat/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-climatime'
+    path: 'resources/[core]/cm-climatime'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 16
+    declared_dependencies:
+        - 'cm-ui'
+    shared_scripts:
+        - 'shared/config.lua'
+    client_scripts:
+        - 'client/main.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/main.lua'
+    ui_page: 'ui/index.html'
+    files:
+        - 'ui/index.html'
+        - 'ui/style.css'
+        - 'ui/app.js'
+        - 'ui/leaflet-loader.js'
+        - 'ui/assets/map-vendor-Ig5MRTue.js'
+        - 'ui/assets/ui-vendor-BkK9XKBi.js'
+        - 'ui/assets/react-vendor-BtP0CW_r.js'
+        - 'ui/assets/gta-map.png'
+        - 'ui/assets/gta-map-local.png'
+        - 'ui/assets/*.png'
+        - 'ui/assets/map_tiles/*.png'
+        - 'data/state.json'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-climatime/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-core'
+    path: 'resources/[core]/cm-core'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 10
+    declared_dependencies:
+        - 'oxmysql'
+    shared_scripts:
+        - 'config/_master.lua'
+        - 'config/_environments.lua'
+        - 'config/shared.lua'
+        - 'config/ranks.lua'
+    client_scripts:
+        - 'client/state-bridge.lua'
+        - 'client/callbacks.lua'
+        - 'client/notify.lua'
+        - 'client/main.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/config-loader.lua'
+        - 'server/database.lua'
+        - 'server/logger.lua'
+        - 'server/validation.lua'
+        - 'server/security.lua'
+        - 'server/callbacks.lua'
+        - 'server/cache.lua'
+        - 'server/state-registry.lua'
+        - 'server/player.lua'
+        - 'server/acl.lua'
+        - 'server/money-ledger.lua'
+        - 'server/economy.lua'
+        - 'server/plugin-api.lua'
+        - 'server/scheduler.lua'
+        - 'server/error-boundary.lua'
+        - 'server/notify.lua'
+        - 'server/main.lua'
+    ui_page: 'ui/index.html'
+    files:
+        - 'ui/index.html'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-core/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-family'
+    path: 'resources/[core]/cm-family'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 40
+    declared_dependencies:
+        - 'cm-house'
+        - 'cm-playerdata'
+        - 'cm-vehiclekeys'
+        - 'ox_lib'
+        - 'oxmysql'
+    shared_scripts:
+        - '@ox_lib/init.lua'
+        - 'shared/config.lua'
+    client_scripts:
+        - 'client/cl_npc.lua'
+        - 'client/cl_menu.lua'
+        - 'client/cl_invites.lua'
+        - 'client/cl_gmenu.lua'
+        - 'client/cl_chat.lua'
+        - 'client/cl_tracking.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/sv_bridge.lua'
+        - 'server/sv_schema.lua'
+        - 'server/sv_core.lua'
+        - 'server/sv_audit.lua'
+        - 'server/sv_vehicles.lua'
+        - 'server/sv_ranks.lua'
+        - 'server/sv_members.lua'
+        - 'server/sv_bank.lua'
+        - 'server/sv_gmenu.lua'
+        - 'server/sv_chat.lua'
+        - 'server/sv_menu.lua'
+    ui_page: 'html/index.html'
+    files:
+        - 'html/index.html'
+        - 'html/css/*.css'
+        - 'html/js/*.js'
+        - 'audit_pending.json'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-family/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-gasstations'
+    path: 'resources/[core]/cm-gasstations'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 33
+    declared_dependencies: []
+    shared_scripts:
+        - 'shared/config.lua'
+    client_scripts:
+        - 'client/main.lua'
+    server_scripts:
+        - 'server/main.lua'
+    ui_page: 'ui/index.html'
+    files:
+        - 'ui/index.html'
+        - 'ui/style.css'
+        - 'ui/app.js'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-gasstations/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-gunstore'
+    path: 'resources/[core]/cm-gunstore'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 25
+    declared_dependencies:
+        - 'cm-core'
+        - 'cm-inventory'
+        - 'cm-items'
+        - 'cm-playerdata'
+        - 'cm-weapons'
+        - 'oxmysql'
+    shared_scripts:
+        - 'shared/util.lua'
+        - 'shared/config.lua'
+        - 'shared/weapons.lua'
+    client_scripts:
+        - 'client/main.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/main.lua'
+    ui_page: 'web/index.html'
+    files:
+        - 'web/index.html'
+        - 'web/style.css'
+        - 'web/app.js'
+        - 'web/images/*.svg'
+        - 'web/images/custom/*.png'
+        - 'web/images/custom/*.jpg'
+        - 'web/images/custom/*.jpeg'
+        - 'web/images/custom/*.webp'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-gunstore/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-house'
+    path: 'resources/[core]/cm-house'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 39
+    declared_dependencies:
+        - 'cm-inventory'
+        - 'cm-playerdata'
+        - 'cm-vehicles'
+        - 'ox_lib'
+        - 'oxmysql'
+    shared_scripts:
+        - '@ox_lib/init.lua'
+        - 'shared/config.lua'
+    client_scripts:
+        - 'client/cl_interaction.lua'
+        - 'client/cl_photo.lua'
+        - 'client/cl_create.lua'
+        - 'client/cl_admin.lua'
+        - 'client/cl_admin_templates.lua'
+        - 'client/cl_door.lua'
+        - 'client/cl_interior.lua'
+        - 'client/cl_weapon_storage.lua'
+        - 'client/cl_garage.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/sv_compat.lua'
+        - 'server/sv_core.lua'
+        - 'server/sv_templates.lua'
+        - 'server/sv_features.lua'
+        - 'server/sv_access.lua'
+        - 'server/sv_phase2.lua'
+        - 'server/sv_family_lifecycle.lua'
+        - 'server/sv_buckets.lua'
+        - 'server/sv_photo.lua'
+        - 'server/sv_admin.lua'
+        - 'server/sv_create.lua'
+        - 'server/sv_door.lua'
+        - 'server/sv_interior.lua'
+        - 'server/sv_weapon_storage.lua'
+        - 'server/sv_garage.lua'
+    ui_page: 'html/index.html'
+    files:
+        - 'html/index.html'
+        - 'html/css/*.css'
+        - 'html/js/*.js'
+        - 'html/img/houses/*.jpg'
+        - 'html/img/weapons/*.*'
+        - 'html/img/weapons/**/*.*'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-house/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-hud'
+    path: 'resources/[core]/cm-hud'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 21
+    declared_dependencies:
+        - 'cm-core'
+        - 'cm-playerdata'
+        - 'cm-ui'
+    shared_scripts: []
+    client_scripts:
+        - 'client/main.lua'
+    server_scripts:
+        - 'server/main.lua'
+    ui_page: 'ui/index.html'
+    files:
+        - 'ui/index.html'
+        - 'ui/style.css'
+        - 'ui/app.js'
+        - 'ui/assets/**/*'
+        - 'ui/fonts/Nunito.ttf'
+        - 'ui/fonts/Nekst-Regular.otf'
+        - 'ui/fonts/Nekst-SemiBold.otf'
+        - 'ui/fonts/Nekst-Bold.otf'
+        - 'ui/fonts/RobotoMono.ttf'
+        - 'ui/fonts/Unbounded.ttf'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-hud/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-inventory'
+    path: 'resources/[core]/cm-inventory'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 19
+    declared_dependencies:
+        - 'cm-items'
+        - 'oxmysql'
+    shared_scripts:
+        - 'config.lua'
+    client_scripts:
+        - 'client/main.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/main.lua'
+    ui_page: 'ui/index.html'
+    files:
+        - 'ui/index.html'
+        - 'ui/style.css'
+        - 'ui/app.js'
+        - 'ui/images/*.png'
+        - 'ui/images/*.jpg'
+        - 'ui/images/*.webp'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-inventory/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-itemactions'
+    path: 'resources/[core]/cm-itemactions'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 20
+    declared_dependencies:
+        - 'cm-inventory'
+    shared_scripts: []
+    client_scripts:
+        - 'client/main.lua'
+    server_scripts:
+        - 'server/main.lua'
+    ui_page: null
+    files: []
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-itemactions/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-items'
+    path: 'resources/[core]/cm-items'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 18
+    declared_dependencies:
+        - 'oxmysql'
+    shared_scripts:
+        - 'config.lua'
+        - 'shared/categories.lua'
+        - 'shared/items.lua'
+        - 'shared/clothing.lua'
+        - 'shared/virtual.lua'
+        - 'shared/api.lua'
+    client_scripts:
+        - 'client/main.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/main.lua'
+        - 'server/items_catalog.lua'
+        - 'server/item_props.lua'
+        - 'server/image_upload.lua'
+    ui_page: 'ui/preview.html'
+    files:
+        - 'ui/images/*.png'
+        - 'ui/images/*.webp'
+        - 'ui/images/*.jpg'
+        - 'ui/images/*.jpeg'
+        - 'ui/images/*.svg'
+        - 'ui/images/clothing/*.png'
+        - 'ui/images/clothing/*.webp'
+        - 'ui/images/clothing/*.jpg'
+        - 'ui/images/clothing/*.jpeg'
+        - 'ui/images/clothing/custom/*.png'
+        - 'ui/images/clothing/custom/*.webp'
+        - 'ui/images/clothing/custom/*.jpg'
+        - 'ui/images/clothing/custom/*.jpeg'
+        - 'ui/images/catalog/*.png'
+        - 'ui/images/catalog/*.webp'
+        - 'ui/images/catalog/*.jpg'
+        - 'ui/images/catalog/*.jpeg'
+        - 'ui/preview.html'
+        - 'ui/preview.css'
+        - 'ui/preview.js'
+        - 'shared/besttorso_male.json'
+        - 'shared/besttorso_female.json'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-items/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-parking'
+    path: 'resources/[core]/cm-parking'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 37
+    declared_dependencies:
+        - 'cm-vehicles'
+    shared_scripts:
+        - '@ox_lib/init.lua'
+        - 'config.lua'
+    client_scripts:
+        - 'client/main.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/main.lua'
+    ui_page: 'ui/index.html'
+    files:
+        - 'ui/index.html'
+        - 'ui/style.css'
+        - 'ui/app.js'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-parking/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-playerdata'
+    path: 'resources/[core]/cm-playerdata'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 12
+    declared_dependencies:
+        - 'cm-ui'
+        - 'oxmysql'
+    shared_scripts:
+        - 'config.lua'
+    client_scripts:
+        - 'client/main.lua'
+        - 'client/gameplay.lua'
+        - 'client/interactions.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/main.lua'
+        - 'server/hardening.lua'
+    ui_page: 'ui/index.html'
+    files:
+        - 'ui/index.html'
+        - 'ui/style.css'
+        - 'ui/main.js'
+        - 'ui/family_symbols/*.png'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-playerdata/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-population'
+    path: 'resources/[core]/cm-population'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 17
+    declared_dependencies: []
+    shared_scripts:
+        - 'config.lua'
+    client_scripts:
+        - 'client/main.lua'
+    server_scripts: []
+    ui_page: null
+    files: []
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-population/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-spawn'
+    path: 'resources/[core]/cm-spawn'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 15
+    declared_dependencies:
+        - 'cm-characters'
+        - 'cm-core'
+        - 'cm-playerdata'
+        - 'cm-ui'
+    shared_scripts:
+        - '@cm-core/shared/config.lua'
+        - 'config.lua'
+    client_scripts:
+        - 'client/main.lua'
+        - 'client/tutorial.lua'
+        - 'client/selector_weather.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/spawnpoints.lua'
+        - 'server/main.lua'
+    ui_page: 'ui/index.html'
+    files:
+        - 'ui/index.html'
+        - 'ui/style.css'
+        - 'ui/app.js'
+        - 'ui/assets/*.svg'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-spawn/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-store'
+    path: 'resources/[core]/cm-store'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 26
+    declared_dependencies:
+        - 'cm-core'
+        - 'cm-inventory'
+        - 'cm-items'
+        - 'cm-playerdata'
+        - 'oxmysql'
+    shared_scripts:
+        - 'shared/config.lua'
+    client_scripts:
+        - 'client/main.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/main.lua'
+    ui_page: 'web/index.html'
+    files:
+        - 'web/index.html'
+        - 'web/style.css'
+        - 'web/app.js'
+        - 'web/images/*.svg'
+        - 'web/images/custom/*.png'
+        - 'web/images/custom/*.jpg'
+        - 'web/images/custom/*.jpeg'
+        - 'web/images/custom/*.webp'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-store/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-storebase'
+    path: 'resources/[core]/cm-storebase'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: false
+    ensure_order: null
+    declared_dependencies:
+        - 'ox_lib'
+    shared_scripts:
+        - '@ox_lib/init.lua'
+        - 'config.lua'
+    client_scripts:
+        - 'client/cl_main.lua'
+    server_scripts:
+        - 'server/sv_main.lua'
+    ui_page: 'ui/index.html'
+    files:
+        - 'ui/index.html'
+        - 'ui/style.css'
+        - 'ui/app.js'
+        - 'ui/images/*.svg'
+        - 'ui/images/*.png'
+        - 'ui/images/*.jpg'
+        - 'ui/images/*.webp'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-storebase/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-tuning'
+    path: 'resources/[core]/cm-tuning'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 36
+    declared_dependencies:
+        - 'cm-playerdata'
+        - 'cm-vehicles'
+        - 'oxmysql'
+    shared_scripts:
+        - 'shared/config.lua'
+    client_scripts:
+        - 'client/main.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/main.lua'
+    ui_page: 'ui/index.html'
+    files:
+        - 'ui/index.html'
+        - 'ui/style.css'
+        - 'ui/app.js'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-tuning/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-ui'
+    path: 'resources/[core]/cm-ui'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 9
+    declared_dependencies: []
+    shared_scripts:
+        - 'shared/theme.lua'
+    client_scripts: []
+    server_scripts: []
+    ui_page: null
+    files:
+        - 'web/cm-theme.css'
+        - 'web/cm-components.css'
+        - 'web/cm-ui.js'
+        - 'web/cm-icons.css'
+        - 'docs/CM_UI_USAGE.md'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-ui/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-vehiclekeys'
+    path: 'resources/[core]/cm-vehiclekeys'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: false
+    ensured_in_server_cfg: true
+    ensure_order: 31
+    declared_dependencies:
+        - 'cm-playerdata'
+    shared_scripts:
+        - 'shared/config.lua'
+    client_scripts:
+        - 'client/main.lua'
+    server_scripts:
+        - 'server/main.lua'
+    ui_page: null
+    files: []
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-vehiclekeys/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-vehicles'
+    path: 'resources/[core]/cm-vehicles'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 32
+    declared_dependencies:
+        - 'cm-inventory'
+        - 'cm-playerdata'
+        - 'cm-vehiclekeys'
+    shared_scripts:
+        - 'shared/config.lua'
+        - 'shared/utils.lua'
+    client_scripts:
+        - 'client/admin.lua'
+        - 'client/main.lua'
+        - 'client/spawn.lua'
+        - 'client/persistence.lua'
+        - 'client/interaction.lua'
+        - 'client/menu.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/admin.lua'
+        - 'server/main.lua'
+        - 'server/location.lua'
+        - 'server/operations.lua'
+        - 'server/persistence.lua'
+        - 'server/spawn.lua'
+        - 'server/recovery.lua'
+        - 'server/api.lua'
+        - 'server/keys.lua'
+        - 'server/trunk.lua'
+    ui_page: 'ui/index.html'
+    files:
+        - 'ui/index.html'
+        - 'ui/style.css'
+        - 'ui/app.js'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-vehicles/fxmanifest.lua'
+    unresolved: []
+  - name: 'cm-weapons'
+    path: 'resources/[core]/cm-weapons'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 24
+    declared_dependencies:
+        - 'cm-items'
+        - 'oxmysql'
+    shared_scripts:
+        - 'shared/config.lua'
+        - 'shared/defaults.lua'
+    client_scripts:
+        - 'client/main.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/main.lua'
+    ui_page: 'web/index.html'
+    files:
+        - 'web/index.html'
+        - 'web/style.css'
+        - 'web/app.js'
+        - 'web/images/*.svg'
+        - 'web/images/custom/*.png'
+        - 'web/images/custom/*.jpg'
+        - 'web/images/custom/*.jpeg'
+        - 'web/images/custom/*.webp'
+    data_files: []
+    evidence:
+        - 'resources/[core]/cm-weapons/fxmanifest.lua'
+    unresolved: []
+  - name: 'dist'
+    path: 'resources/[core]/bcrypt/dist'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'nested_manifest_candidate'
+    containing_resource: 'resources/[core]/bcrypt'
+    expected_loadability: 'unlikely_nested'
+    loadability_confidence: 'inferred_platform_behavior'
+    fx_version: 'bodacious'
+    game:
+        - 'gta5'
+    lua54_declared: false
+    ensured_in_server_cfg: false
+    ensure_order: null
+    declared_dependencies: []
+    shared_scripts: []
+    client_scripts:
+        - 'Client/bin/Release/**/publish/*.net.dll'
+    server_scripts:
+        - 'Server/bin/Release/**/publish/*.net.dll'
+        - 'server.lua'
+    ui_page: null
+    files:
+        - 'Client/bin/Release/**/publish/*.dll'
+    data_files: []
+    evidence:
+        - 'resources/[core]/bcrypt/dist/fxmanifest.lua'
+    unresolved:
+        - 'Nested manifest candidate physically inside resources/[core]/bcrypt. Its fxmanifest.lua is byte-identical to the outer bcrypt manifest. dist/server.lua is missing even though the manifest declares server_script ''server.lua''. Its directory (only Client/Server publish-output DLLs plus the manifest) resembles compiled distribution output rather than an independent resource. Independent discovery by FXServer was not runtime-verified -- classification is inferred platform behavior, not proven locally.'
+  - name: 'nv_cloth'
+    path: 'resources/[core]/nv_cloth'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 23
+    declared_dependencies:
+        - 'cm-items'
+        - 'screenshot-basic'
+    shared_scripts:
+        - 'shared/config.lua'
+    client_scripts:
+        - 'client/cl_framework.lua'
+        - 'client/cl_camera.lua'
+        - 'client/cl_admin.lua'
+        - 'client/cl_shop.lua'
+        - 'client/cl_capture.lua'
+        - 'client/cl_clothing.lua'
+        - 'client/cl_main.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/sv_*.lua'
+    ui_page: 'web/index.html'
+    files:
+        - 'web/index.html'
+        - 'web/style.css'
+        - 'web/app.js'
+    data_files: []
+    evidence:
+        - 'resources/[core]/nv_cloth/fxmanifest.lua'
+    unresolved:
+        - 'A nested manifest candidate (entry_kind: nested_manifest_candidate) also named ''nv_cloth'' exists at resources/[core]/nv_cloth/nv_cloth -- see that entry. It is an older/incomplete copy (v3 UI vs this resource''s v5, missing 7 stream assets present here), not a complete duplicate. Whether it is independently loaded by FXServer is not runtime-verified.'
+  - name: 'nv_cloth'
+    path: 'resources/[core]/nv_cloth/nv_cloth'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'nested_manifest_candidate'
+    containing_resource: 'resources/[core]/nv_cloth'
+    expected_loadability: 'unlikely_nested'
+    loadability_confidence: 'inferred_platform_behavior'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 23
+    declared_dependencies:
+        - 'cm-items'
+        - 'screenshot-basic'
+    shared_scripts:
+        - 'shared/config.lua'
+    client_scripts:
+        - 'client/cl_framework.lua'
+        - 'client/cl_camera.lua'
+        - 'client/cl_admin.lua'
+        - 'client/cl_shop.lua'
+        - 'client/cl_capture.lua'
+        - 'client/cl_clothing.lua'
+        - 'client/cl_main.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/sv_*.lua'
+    ui_page: 'web/index.html'
+    files:
+        - 'web/index.html'
+        - 'web/style.css'
+        - 'web/app.js'
+    data_files: []
+    evidence:
+        - 'resources/[core]/nv_cloth/nv_cloth/fxmanifest.lua'
+    unresolved:
+        - 'Nested manifest candidate physically inside resources/[core]/nv_cloth, sharing the same folder name. fxmanifest.lua and all client/server/shared Lua source are identical to the outer nv_cloth. The inner web UI identifies itself as v3 (index.html references app.js?v=manual-pose-v3) while the outer resource identifies as v5 (v=manual-pose-v5), and the inner stream/ folder lacks seven binary assets present in the outer resource (cm_capture_female.ymt, head_000_r.ydd, head_diff_000_a_whi.ytd, lowr_015_r.ydd, lowr_diff_015_a_whi.ytd, uppr_015_r.ydd, uppr_diff_015_a_whi.ytd). Independent discovery by FXServer was not runtime-verified -- classification is inferred platform behavior, not proven locally.'
+  - name: 'rn-vehicleshop'
+    path: 'resources/[core]/rn-vehicleshop'
+    category: 'core'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 35
+    declared_dependencies:
+        - 'cm-core'
+        - 'cm-playerdata'
+        - 'cm-vehicles'
+        - 'oxmysql'
+        - 'screenshot-basic'
+    shared_scripts:
+        - 'config.lua'
+    client_scripts:
+        - 'client/capture.lua'
+        - 'client/client.lua'
+    server_scripts:
+        - '@oxmysql/lib/MySQL.lua'
+        - 'server/server.lua'
+    ui_page: 'ui/index.html'
+    files:
+        - 'ui/index.html'
+        - 'ui/style.css'
+        - 'ui/main.js'
+        - 'ui/vendor/jquery.min.js'
+        - 'ui/vendor/slick-lite.js'
+        - 'ui/vendor/slick-lite.css'
+        - 'ui/vendor/fa-lite.css'
+        - 'ui/images/vehicles/*.png'
+        - 'ui/images/vehicles/*.webp'
+    data_files: []
+    evidence:
+        - 'resources/[core]/rn-vehicleshop/fxmanifest.lua'
+    unresolved: []
+  - name: 'Relax_muatininV4'
+    path: 'resources/[mlo]/Relax_muatininV4'
+    category: 'mlo'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'adamant'
+    game:
+        - 'gta5'
+    lua54_declared: false
+    ensured_in_server_cfg: true
+    ensure_order: 30
+    declared_dependencies: []
+    shared_scripts: []
+    client_scripts: []
+    server_scripts: []
+    ui_page: null
+    files:
+        - 'data/**/*.meta'
+    data_files:
+        - type: 'HANDLING_FILE'
+          path: 'data/**/handling.meta'
+        - type: 'VEHICLE_METADATA_FILE'
+          path: 'data/**/vehicles.meta'
+        - type: 'CARCOLS_FILE'
+          path: 'data/**/carcols.meta'
+        - type: 'VEHICLE_VARIATION_FILE'
+          path: 'data/**/carvariations.meta'
+        - type: 'VEHICLE_LAYOUTS_FILE'
+          path: 'data/**/vehiclelayouts.meta'
+    evidence:
+        - 'resources/[mlo]/Relax_muatininV4/fxmanifest.lua'
+    unresolved: []
+  - name: 'bob74_ipl'
+    path: 'resources/[mlo]/bob74_ipl'
+    category: 'mlo'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 7
+    declared_dependencies: []
+    shared_scripts: []
+    client_scripts:
+        - 'lib/common.lua'
+        - 'lib/observers/interiorIdObserver.lua'
+        - 'lib/observers/officeSafeDoorHandler.lua'
+        - 'lib/observers/officeCullHandler.lua'
+        - 'client.lua'
+        - 'gtav/base.lua'
+        - 'gtav/ammunations.lua'
+        - 'gtav/bahama.lua'
+        - 'gtav/cargoship.lua'
+        - 'gtav/floyd.lua'
+        - 'gtav/franklin.lua'
+        - 'gtav/franklin_aunt.lua'
+        - 'gtav/graffitis.lua'
+        - 'gtav/pillbox_hospital.lua'
+        - 'gtav/lester_factory.lua'
+        - 'gtav/michael.lua'
+        - 'gtav/north_yankton.lua'
+        - 'gtav/red_carpet.lua'
+        - 'gtav/simeon.lua'
+        - 'gtav/stripclub.lua'
+        - 'gtav/trevors_trailer.lua'
+        - 'gtav/ufo.lua'
+        - 'gtav/zancudo_gates.lua'
+        - 'gta_online/apartment_hi_1.lua'
+        - 'gta_online/apartment_hi_2.lua'
+        - 'gta_online/house_hi_1.lua'
+        - 'gta_online/house_hi_2.lua'
+        - 'gta_online/house_hi_3.lua'
+        - 'gta_online/house_hi_4.lua'
+        - 'gta_online/house_hi_5.lua'
+        - 'gta_online/house_hi_6.lua'
+        - 'gta_online/house_hi_7.lua'
+        - 'gta_online/house_hi_8.lua'
+        - 'gta_online/house_mid_1.lua'
+        - 'gta_online/house_low_1.lua'
+        - 'dlc_high_life/apartment1.lua'
+        - 'dlc_high_life/apartment2.lua'
+        - 'dlc_high_life/apartment3.lua'
+        - 'dlc_high_life/apartment4.lua'
+        - 'dlc_high_life/apartment5.lua'
+        - 'dlc_high_life/apartment6.lua'
+        - 'dlc_heists/carrier.lua'
+        - 'dlc_heists/yacht.lua'
+        - 'dlc_executive/apartment1.lua'
+        - 'dlc_executive/apartment2.lua'
+        - 'dlc_executive/apartment3.lua'
+        - 'dlc_finance/office1.lua'
+        - 'dlc_finance/office2.lua'
+        - 'dlc_finance/office3.lua'
+        - 'dlc_finance/office4.lua'
+        - 'dlc_finance/organization.lua'
+        - 'dlc_bikers/cocaine.lua'
+        - 'dlc_bikers/counterfeit_cash.lua'
+        - 'dlc_bikers/document_forgery.lua'
+        - 'dlc_bikers/meth.lua'
+        - 'dlc_bikers/weed.lua'
+        - 'dlc_bikers/clubhouse1.lua'
+        - 'dlc_bikers/clubhouse2.lua'
+        - 'dlc_bikers/gang.lua'
+        - 'dlc_import/garage1.lua'
+        - 'dlc_import/garage2.lua'
+        - 'dlc_import/garage3.lua'
+        - 'dlc_import/garage4.lua'
+        - 'dlc_import/vehicle_warehouse.lua'
+        - 'dlc_gunrunning/bunkers.lua'
+        - 'dlc_gunrunning/yacht.lua'
+        - 'dlc_smuggler/hangar.lua'
+        - 'dlc_doomsday/facility.lua'
+        - 'dlc_afterhours/nightclubs.lua'
+        - 'dlc_casino/casino.lua'
+        - 'dlc_casino/penthouse.lua'
+        - 'dlc_casino/arcade.lua'
+        - 'dlc_casino/arcade_basement.lua'
+        - 'dlc_cayoperico/base.lua'
+        - 'dlc_cayoperico/nightclub.lua'
+        - 'dlc_cayoperico/submarine.lua'
+        - 'dlc_tuner/garage.lua'
+        - 'dlc_tuner/meetup.lua'
+        - 'dlc_tuner/methlab.lua'
+        - 'dlc_security/studio.lua'
+        - 'dlc_security/billboards.lua'
+        - 'dlc_security/musicrooftop.lua'
+        - 'dlc_security/garage.lua'
+        - 'dlc_security/office1.lua'
+        - 'dlc_security/office2.lua'
+        - 'dlc_security/office3.lua'
+        - 'dlc_security/office4.lua'
+        - 'gta_mpsum2/simeonfix.lua'
+        - 'gta_mpsum2/vehicle_warehouse.lua'
+        - 'gta_mpsum2/warehouse.lua'
+        - 'dlc_drugwars/base.lua'
+        - 'dlc_drugwars/freakshop.lua'
+        - 'dlc_drugwars/garage.lua'
+        - 'dlc_drugwars/lab.lua'
+        - 'dlc_drugwars/traincrash.lua'
+        - 'dlc_mercenaries/club.lua'
+        - 'dlc_mercenaries/lab.lua'
+        - 'dlc_mercenaries/fixes.lua'
+        - 'dlc_chopshop/base.lua'
+        - 'dlc_chopshop/cargoship.lua'
+        - 'dlc_chopshop/cartel_garage.lua'
+        - 'dlc_chopshop/lifeguard.lua'
+        - 'dlc_chopshop/salvage.lua'
+        - 'dlc_bounties/base.lua'
+        - 'dlc_bounties/carrier.lua'
+        - 'dlc_bounties/office.lua'
+        - 'dlc_agents/base.lua'
+        - 'dlc_agents/factory.lua'
+        - 'dlc_agents/office.lua'
+        - 'dlc_agents/airstrip.lua'
+        - 'dlc_agents/hangar_door.lua'
+        - 'dlc_money/base.lua'
+        - 'dlc_money/carwash.lua'
+        - 'dlc_money/office.lua'
+        - 'dlc_money/construction.lua'
+        - 'dlc_mansions/base.lua'
+        - 'dlc_mansions/mansion1.lua'
+        - 'dlc_mansions/mansion2.lua'
+        - 'dlc_mansions/mansion3.lua'
+        - 'dlc_mansions/mansion_basement1.lua'
+        - 'dlc_mansions/mansion_basement2.lua'
+        - 'dlc_mansions/mansion_basement3.lua'
+    server_scripts: []
+    ui_page: null
+    files: []
+    data_files: []
+    evidence:
+        - 'resources/[mlo]/bob74_ipl/fxmanifest.lua'
+    unresolved: []
+  - name: 'gn_dual_mediccenter'
+    path: 'resources/[mlo]/gn_dual_mediccenter'
+    category: 'mlo'
+    manifest: null
+    entry_kind: 'configured_manifest_missing'
+    containing_resource: null
+    expected_loadability: 'unavailable_no_manifest'
+    loadability_confidence: 'extracted'
+    fx_version: null
+    game: []
+    lua54_declared: false
+    ensured_in_server_cfg: true
+    ensure_order: 38
+    declared_dependencies: []
+    shared_scripts: []
+    client_scripts: []
+    server_scripts: []
+    ui_page: null
+    files: []
+    data_files: []
+    evidence:
+        - 'resources/[mlo]/gn_dual_mediccenter/ (directory listing -- no fxmanifest.lua or __resource.lua found)'
+    unresolved:
+        - 'No fxmanifest.lua or __resource.lua found anywhere under this directory (recursive search, all common casings). Contains only raw streamed GTA assets (119 .ydr, 9 .ybn, 8 .ymap, 3 .ytyp, 2 .ytd, 2 .gfx, 1 .ydd, 1 .ymf) and a readme. A stream/_manifest.ymf file is present but is a binary RAGE/game-asset manifest format, unrelated to FiveM''s fxmanifest.lua/__resource.lua resource manifest -- it must not be treated as a substitute. ''ensure gn_dual_mediccenter'' in server.cfg cannot start a resource as configured.'
+  - name: 'showcasecars'
+    path: 'resources/[mlo]/showcasecars'
+    category: 'mlo'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 28
+    declared_dependencies:
+        - '/assetpacks'
+    shared_scripts: []
+    client_scripts:
+        - 'vehiclenames.lua'
+    server_scripts: []
+    ui_page: null
+    files:
+        - 'data/**/carcols.meta'
+        - 'data/**/handling.meta'
+        - 'data/**/vehicles.meta'
+        - 'data/**/carvariations.meta'
+    data_files:
+        - type: 'CARCOLS_FILE'
+          path: 'data/**/carcols.meta'
+        - type: 'HANDLING_FILE'
+          path: 'data/**/handling.meta'
+        - type: 'VEHICLE_METADATA_FILE'
+          path: 'data/**/vehicles.meta'
+        - type: 'VEHICLE_VARIATION_FILE'
+          path: 'data/**/carvariations.meta'
+    evidence:
+        - 'resources/[mlo]/showcasecars/fxmanifest.lua'
+    unresolved:
+        - 'declared_dependencies includes engine/marker entries not resolvable to a resource name: /assetpacks (FiveM reserved dependency syntax, e.g. asset-pack/onesync/min-build markers -- excluded from resource-to-resource dependency edges)'
+  - name: 'showcasecars2'
+    path: 'resources/[mlo]/showcasecars2'
+    category: 'mlo'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 29
+    declared_dependencies:
+        - '/assetpacks'
+    shared_scripts: []
+    client_scripts:
+        - 'vehiclenames.lua'
+    server_scripts: []
+    ui_page: null
+    files:
+        - 'data/**/carcols.meta'
+        - 'data/**/handling.meta'
+        - 'data/**/vehicles.meta'
+        - 'data/**/carvariations.meta'
+    data_files:
+        - type: 'CARCOLS_FILE'
+          path: 'data/**/carcols.meta'
+        - type: 'HANDLING_FILE'
+          path: 'data/**/handling.meta'
+        - type: 'VEHICLE_METADATA_FILE'
+          path: 'data/**/vehicles.meta'
+        - type: 'VEHICLE_VARIATION_FILE'
+          path: 'data/**/carvariations.meta'
+    evidence:
+        - 'resources/[mlo]/showcasecars2/fxmanifest.lua'
+    unresolved:
+        - 'declared_dependencies includes engine/marker entries not resolvable to a resource name: /assetpacks (FiveM reserved dependency syntax, e.g. asset-pack/onesync/min-build markers -- excluded from resource-to-resource dependency edges)'
+  - name: 'vStudios_PacificBluffsDealership_Ultimate'
+    path: 'resources/[mlo]/vStudios_PacificBluffsDealership_Ultimate'
+    category: 'mlo'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'bodacious'
+    game:
+        - 'rdr3'
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 27
+    declared_dependencies:
+        - '/assetpacks'
+    shared_scripts: []
+    client_scripts: []
+    server_scripts: []
+    ui_page: null
+    files: []
+    data_files: []
+    evidence:
+        - 'resources/[mlo]/vStudios_PacificBluffsDealership_Ultimate/fxmanifest.lua'
+    unresolved:
+        - 'declared_dependencies includes engine/marker entries not resolvable to a resource name: /assetpacks (FiveM reserved dependency syntax, e.g. asset-pack/onesync/min-build markers -- excluded from resource-to-resource dependency edges)'
+  - name: 'ox_lib'
+    path: 'resources/[standalone]/ox_lib'
+    category: 'standalone'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'rdr3'
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 3
+    declared_dependencies:
+        - '/onesync'
+        - '/server:7290'
+    shared_scripts:
+        - 'resource/**/shared.lua'
+        - 'resource/init.lua'
+    client_scripts:
+        - 'resource/**/client.lua'
+        - 'resource/**/client/*.lua'
+    server_scripts:
+        - 'imports/callback/server.lua'
+        - 'imports/hook/shared.lua'
+        - 'imports/registerHook/shared.lua'
+        - 'imports/getFilesInDirectory/server.lua'
+        - 'resource/**/server.lua'
+        - 'resource/**/server/*.lua'
+    ui_page: 'web/build/index.html'
+    files:
+        - 'init.lua'
+        - 'resource/settings.lua'
+        - 'imports/**/client.lua'
+        - 'imports/**/shared.lua'
+        - 'web/build/index.html'
+        - 'web/build/**/*'
+        - 'locales/*.json'
+    data_files: []
+    evidence:
+        - 'resources/[standalone]/ox_lib/fxmanifest.lua'
+    unresolved:
+        - 'declared_dependencies includes engine/marker entries not resolvable to a resource name: /onesync, /server:7290 (FiveM reserved dependency syntax, e.g. asset-pack/onesync/min-build markers -- excluded from resource-to-resource dependency edges)'
+  - name: 'ox_target'
+    path: 'resources/[standalone]/ox_target'
+    category: 'standalone'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta5'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 4
+    declared_dependencies:
+        - 'ox_lib'
+    shared_scripts:
+        - '@ox_lib/init.lua'
+    client_scripts:
+        - 'client/main.lua'
+    server_scripts:
+        - 'server/main.lua'
+    ui_page: 'web/index.html'
+    files:
+        - 'web/**'
+        - 'locales/*.json'
+        - 'client/api.lua'
+        - 'client/utils.lua'
+        - 'client/state.lua'
+        - 'client/debug.lua'
+        - 'client/defaults.lua'
+        - 'client/framework/nd.lua'
+        - 'client/framework/ox.lua'
+        - 'client/framework/esx.lua'
+        - 'client/framework/qbx.lua'
+        - 'client/compat/qtarget.lua'
+    data_files: []
+    evidence:
+        - 'resources/[standalone]/ox_target/fxmanifest.lua'
+    unresolved: []
+  - name: 'oxmysql'
+    path: 'resources/[standalone]/oxmysql'
+    category: 'standalone'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'common'
+    lua54_declared: true
+    ensured_in_server_cfg: true
+    ensure_order: 6
+    declared_dependencies:
+        - '/server:12913'
+    shared_scripts: []
+    client_scripts:
+        - 'ui.lua'
+    server_scripts:
+        - 'dist/build.js'
+    ui_page: 'web/build/index.html'
+    files:
+        - 'web/build/index.html'
+        - 'web/build/**/*'
+    data_files: []
+    evidence:
+        - 'resources/[standalone]/oxmysql/fxmanifest.lua'
+    unresolved:
+        - 'declared_dependencies includes engine/marker entries not resolvable to a resource name: /server:12913 (FiveM reserved dependency syntax, e.g. asset-pack/onesync/min-build markers -- excluded from resource-to-resource dependency edges)'
+  - name: 'screenshot-basic'
+    path: 'resources/[standalone]/screenshot-basic'
+    category: 'standalone'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'bodacious'
+    game:
+        - 'common'
+    lua54_declared: false
+    ensured_in_server_cfg: true
+    ensure_order: 8
+    declared_dependencies:
+        - 'webpack'
+        - 'yarn'
+    shared_scripts: []
+    client_scripts:
+        - 'dist/client.js'
+    server_scripts:
+        - 'dist/server.js'
+    ui_page: 'dist/ui.html'
+    files:
+        - 'dist/ui.html'
+    data_files: []
+    evidence:
+        - 'resources/[standalone]/screenshot-basic/fxmanifest.lua'
+    unresolved: []
+  - name: 'baseevents'
+    path: 'resources/[system]/baseevents'
+    category: 'system'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'adamant'
+    game:
+        - 'gta5'
+    lua54_declared: false
+    ensured_in_server_cfg: false
+    ensure_order: null
+    declared_dependencies: []
+    shared_scripts: []
+    client_scripts:
+        - 'deathevents.lua'
+        - 'vehiclechecker.lua'
+    server_scripts:
+        - 'server.lua'
+    ui_page: null
+    files: []
+    data_files: []
+    evidence:
+        - 'resources/[system]/baseevents/fxmanifest.lua'
+    unresolved: []
+  - name: 'hardcap'
+    path: 'resources/[system]/hardcap'
+    category: 'system'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'adamant'
+    game:
+        - 'gta5'
+        - 'rdr3'
+    lua54_declared: false
+    ensured_in_server_cfg: true
+    ensure_order: 2
+    declared_dependencies: []
+    shared_scripts: []
+    client_scripts:
+        - 'client.lua'
+    server_scripts:
+        - 'server.lua'
+    ui_page: null
+    files: []
+    data_files: []
+    evidence:
+        - 'resources/[system]/hardcap/fxmanifest.lua'
+    unresolved: []
+  - name: 'rconlog'
+    path: 'resources/[system]/rconlog'
+    category: 'system'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'adamant'
+    game:
+        - 'gta5'
+        - 'rdr3'
+    lua54_declared: false
+    ensured_in_server_cfg: false
+    ensure_order: null
+    declared_dependencies: []
+    shared_scripts: []
+    client_scripts:
+        - 'rconlog_client.lua'
+    server_scripts:
+        - 'rconlog_server.lua'
+    ui_page: null
+    files: []
+    data_files: []
+    evidence:
+        - 'resources/[system]/rconlog/fxmanifest.lua'
+    unresolved: []
+  - name: 'runcode'
+    path: 'resources/[system]/runcode'
+    category: 'system'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'bodacious'
+    game:
+        - 'common'
+    lua54_declared: false
+    ensured_in_server_cfg: false
+    ensure_order: null
+    declared_dependencies: []
+    shared_scripts:
+        - 'runcode_shared.lua'
+        - 'runcode.js'
+    client_scripts:
+        - 'runcode_cl.lua'
+        - 'runcode_ui.lua'
+    server_scripts:
+        - 'runcode_sv.lua'
+        - 'runcode_web.lua'
+    ui_page: 'web/nui.html'
+    files:
+        - 'web/nui.html'
+    data_files: []
+    evidence:
+        - 'resources/[system]/runcode/fxmanifest.lua'
+    unresolved: []
+  - name: 'sessionmanager'
+    path: 'resources/[system]/sessionmanager'
+    category: 'system'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'cerulean'
+    game:
+        - 'gta4'
+        - 'gta5'
+    lua54_declared: false
+    ensured_in_server_cfg: true
+    ensure_order: 1
+    declared_dependencies: []
+    shared_scripts: []
+    client_scripts:
+        - 'client/empty.lua'
+    server_scripts:
+        - 'server/host_lock.lua'
+    ui_page: null
+    files: []
+    data_files: []
+    evidence:
+        - 'resources/[system]/sessionmanager/fxmanifest.lua'
+    unresolved: []
+  - name: 'sessionmanager-rdr3'
+    path: 'resources/[system]/sessionmanager-rdr3'
+    category: 'system'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'adamant'
+    game:
+        - 'rdr3'
+    lua54_declared: false
+    ensured_in_server_cfg: false
+    ensure_order: null
+    declared_dependencies:
+        - 'yarn'
+    shared_scripts: []
+    client_scripts: []
+    server_scripts:
+        - 'sm_server.js'
+    ui_page: null
+    files: []
+    data_files: []
+    evidence:
+        - 'resources/[system]/sessionmanager-rdr3/fxmanifest.lua'
+    unresolved: []
+  - name: 'webpack'
+    path: 'resources/[system]/[builders]/webpack'
+    category: 'system'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'adamant'
+    game:
+        - 'common'
+    lua54_declared: false
+    ensured_in_server_cfg: false
+    ensure_order: null
+    declared_dependencies:
+        - 'yarn'
+    shared_scripts: []
+    client_scripts: []
+    server_scripts:
+        - 'webpack_builder.js'
+    ui_page: null
+    files: []
+    data_files: []
+    evidence:
+        - 'resources/[system]/[builders]/webpack/fxmanifest.lua'
+    unresolved:
+        - 'Located inside a nested bracket directory resources/[system]/[builders]/ rather than directly under a single top-level collection folder. Category assigned as ''system'' from the outermost bracket segment; the nested ''[builders]'' grouping itself is not represented in the flat category list (core/standalone/mlo/clothes/system) requested for this phase. Not ensured/started in server.cfg -- referenced only via manifest ''dependencies'' (screenshot-basic depends on both; sessionmanager-rdr3 and webpack each depend on yarn).'
+  - name: 'yarn'
+    path: 'resources/[system]/[builders]/yarn'
+    category: 'system'
+    manifest: 'fxmanifest.lua'
+    entry_kind: 'resource'
+    containing_resource: null
+    expected_loadability: 'expected'
+    loadability_confidence: 'extracted'
+    fx_version: 'adamant'
+    game:
+        - 'common'
+    lua54_declared: false
+    ensured_in_server_cfg: false
+    ensure_order: null
+    declared_dependencies: []
+    shared_scripts: []
+    client_scripts: []
+    server_scripts:
+        - 'yarn_builder.js'
+    ui_page: null
+    files: []
+    data_files: []
+    evidence:
+        - 'resources/[system]/[builders]/yarn/fxmanifest.lua'
+    unresolved:
+        - 'Located inside a nested bracket directory resources/[system]/[builders]/ rather than directly under a single top-level collection folder. Category assigned as ''system'' from the outermost bracket segment; the nested ''[builders]'' grouping itself is not represented in the flat category list (core/standalone/mlo/clothes/system) requested for this phase. Not ensured/started in server.cfg -- referenced only via manifest ''dependencies'' (screenshot-basic depends on both; sessionmanager-rdr3 and webpack each depend on yarn).'
