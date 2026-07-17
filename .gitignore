@@ -9,10 +9,15 @@ server.log
 # Private local server configs / secrets
 server.local.cfg
 *.local.cfg
+server.cfg.bkp
 .env
 .env.*
+!.env.example
 *.key
 *.pem
+
+# Local security backup snapshots (never tracked)
+local-security-backup/
 
 # Large/private asset folders
 # Large/private asset folders
