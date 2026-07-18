@@ -156,3 +156,21 @@ State clearly when a behaviour requires manual FiveM gameplay testing. Never cla
 - Include concise manual test steps for gameplay behaviour.
 - Mention blockers and remaining risks directly.
 - Never expose credential values.
+
+## Project intelligence tools
+
+- Portable workflow skill: `.agents/skills/cm-server-agent/SKILL.md`.
+- FiveM contract scanner: `tools/cm-fivem-map/scan.py`.
+- Generated contract map: `cm-agent-out/` (events, exports, NUI, ox_lib
+  callbacks, MySQL/oxmysql, commands, permissions).
+- Generic call graph: `graphify-out/`.
+- Manifest registry: `agent-docs/resource-registry.yaml`.
+- Use the CM scanner for FiveM events/exports/NUI/callbacks/MySQL — it has
+  FiveM-specific knowledge Graphify does not.
+- Use Graphify only as a supplemental generic call graph.
+- Refresh or `--check` both maps before and after non-trivial
+  cross-resource work.
+- Generated output directories remain ignored and must not be committed by
+  default.
+- AI tools that do not automatically discover `.agents/skills/` must be
+  explicitly told to read `.agents/skills/cm-server-agent/SKILL.md`.
