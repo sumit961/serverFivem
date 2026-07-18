@@ -1,0 +1,56 @@
+# Graphify generated output and repository internals
+graphify-out/
+.git/
+
+# FiveM runtime/generated data
+cache/
+logs/
+crashes/
+txAdmin/
+*.log
+
+# Local secrets and recovery data
+server.local.cfg
+*.local.cfg
+server.cfg.bkp
+local-security-backup/
+.env
+.env.*
+*.key
+*.pem
+*credentials*
+*secret*
+*token*
+
+# Dependency/build output
+**/node_modules/
+**/.venv/
+**/venv/
+**/__pycache__/
+**/obj/
+**/.vs/
+
+# Large binary game assets that do not contribute code relationships
+#
+# NOTE on bracket escaping: graphify's ignore matcher uses Python's fnmatch,
+# not git's glob engine. Backslash escaping (\[mlo\], as used in .gitignore
+# for git itself) does NOT escape brackets under fnmatch - it is inert and
+# matches nothing. The correct fnmatch escape for a literal bracket is the
+# single-char class trick: [[] matches a literal '[', []] matches a literal
+# ']'. Verified empirically against fnmatch.fnmatch() and against graphify's
+# own _is_ignored()/_load_graphifyignore() before committing this file.
+resources/[[]mlo[]]/
+resources/[[]clothes[]]/
+**/stream/
+*.ydr
+*.ybn
+*.ymap
+*.ytyp
+*.ytd
+*.ydd
+*.ymf
+*.gfx
+
+# Verified nested/inert or distribution candidates
+resources/[[]core[]]/bcrypt/dist/
+resources/[[]core[]]/nv_cloth/nv_cloth/

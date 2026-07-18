@@ -26,3 +26,6 @@ resources/\[clothes\]/
 
 # Backup zip files
 *.zip
+
+# Graphify generated output
+graphify-out/
