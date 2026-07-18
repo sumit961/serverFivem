@@ -29,3 +29,8 @@ resources/\[clothes\]/
 
 # Graphify generated output
 graphify-out/
+
+# cm-fivem-map generated output
+cm-agent-out/
+__pycache__/
+*.pyc

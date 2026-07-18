@@ -54,3 +54,10 @@ resources/[[]clothes[]]/
 # Verified nested/inert or distribution candidates
 resources/[[]core[]]/bcrypt/dist/
 resources/[[]core[]]/nv_cloth/nv_cloth/
+
+# cm-fivem-map generated output
+cm-agent-out/
+
+# Vendored build tooling, not project code (bracket-escaped per the fnmatch
+# note above -- verified against graphify's own _is_ignored())
+resources/[[]system[]]/[[]builders[]]/yarn/
