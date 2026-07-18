@@ -356,6 +356,7 @@ end
 function SetVehicleSharedAndLevel(actorCid, vehicleId, shared, level)
     local rank, fam = GetRankForCid(actorCid)
     if not rank or not fam then return false, 'not_in_family' end
+    if not RankHasPermission(rank, 'family.manage_vehicles') then return false, 'no_permission' end
     vehicleId = tonumber(vehicleId)
     if not vehicleId then return false, 'invalid_vehicle_id' end
 
@@ -381,7 +382,13 @@ function SetVehicleSharedAndLevel(actorCid, vehicleId, shared, level)
         { vehicleId = vehicleId, level = tonumber(level) })
     return true
 end
-exports('SetFamilyVehicleShared', SetVehicleSharedAndLevel)
+exports('SetFamilyVehicleShared', function(actorCid, vehicleId, shared, level)
+    local invoking = GetInvokingResource()
+    if invoking and invoking ~= Config.HouseResource and invoking ~= 'cm-admin' and invoking ~= 'cm-family' then
+        return false, 'resource_not_authorized'
+    end
+    return SetVehicleSharedAndLevel(actorCid, vehicleId, shared, level)
+end)
 
 function InvalidateVehicleCache(familyId)
     levelCache[tonumber(familyId)] = nil

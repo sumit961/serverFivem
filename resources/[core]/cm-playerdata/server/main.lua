@@ -921,6 +921,18 @@ RegisterNetEvent('cm-playerdata:server:updatePosition', function(coords)
     -- cm-spawn may temporarily resurrect/move the ped for placement, but the RP
     -- death location must remain the place where SetDead captured it.
     if data.isDead == true then return end
+    -- Never save the fixed character-selector/creation preview coordinates as
+    -- the player's last position (docs/V1_4_1_FIXED_PREVIEW_COORDS.md's
+    -- documented contract: cm-playerdata ignores position updates while
+    -- skipPositionSave or isInCharacterSelector is true). cm-characters and
+    -- cm-spawn already set these state bags; this event handler simply never
+    -- checked them, so a position sample taken during selector preview could
+    -- overwrite last_position and cause the next "spawn at last location" to
+    -- place the player back at the selector scene.
+    local ok, state = pcall(function() return Player(src).state end)
+    if ok and state and (state.skipPositionSave == true or state.isInCharacterSelector == true) then
+        return
+    end
 
     local x, y, z, h = tonumber(coords.x), tonumber(coords.y), tonumber(coords.z), tonumber(coords.h)
     if not x or not y or not z then return end

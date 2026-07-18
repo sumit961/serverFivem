@@ -35,5 +35,5 @@
 - Deleted `garage-customization-v160.{js,css}` (v1.7.0 removed the feature).
 - Deleted stale `garage-slot-v110/111/112/113.js` (only v114 is loaded).
 - Deleted stale `interaction-v200/v201/v202.js` (superseded by v203).
-- Deleted stale `phase2-ice-cyan.css` and `phase2-ice-cyan-v171.css`.
+- Deleted stale `phase2-ice-cyan.css`, `phase2-ice-cyan-v171.css` and `phase2-ice-cyan-v172.css`.
 - Manifest verified: every referenced file exists, no file is orphaned.

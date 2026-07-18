@@ -285,3 +285,82 @@ RegisterNetEvent('cm-house:server:openStash', function(houseId, index)
 
     OpenPropertyStash(src, houseId, index, def)
 end)
+
+-- ------------------------------------------------------------
+--  Rejoin restore. cm-playerdata/cm-spawn already place a returning player
+--  back at their exact last raw coordinates -- but for an 'ipl' interior
+--  those coordinates render as empty space until RequestIpl runs for this
+--  client, and the routing bucket that keeps the room private to its
+--  occupants is gone the moment they disconnected. Replay both here, using
+--  the same template data enterHome/enterGarage would have sent, instead of
+--  leaving the player standing in a bucket-0 void.
+-- ------------------------------------------------------------
+AddEventHandler('cm-playerdata:server:characterLoaded', function(src, data)
+    local cid = tonumber(data and data.charId) or GetCid(src)
+    if not cid then return end
+
+    local row = MySQL.single.await('SELECT house_id, kind FROM cm_house_last_interior WHERE cid = ?', { cid })
+    if not row then return end
+
+    local houseId = tonumber(row.house_id)
+    local house = houseId and Houses[houseId]
+    if not house then
+        ClearLastInteriorByCid(cid)
+        return
+    end
+
+    if row.kind == 'garage' then
+        local g = GarageTemplates[house.garage_template_id]
+        local allowed = CanAccessProperty(cid, houseId, ACTIONS.GARAGE_ENTER)
+        if not allowed or not g then
+            ClearLastInteriorByCid(cid)
+            return
+        end
+
+        SendToGarage(src, houseId)
+        TriggerClientEvent('cm-house:client:restoreInterior', src, 'garage', {
+            houseId      = houseId,
+            sourceKind   = g.source_kind,
+            sourceRef    = g.source_ref,
+            entry        = g.player_entry,
+            vehicleExit  = g.vehicle_exit,
+            vehicleExits = g.vehicle_exits,
+            capacity     = g.capacity,
+        })
+    elseif row.kind == 'house' then
+        local tpl = InteriorTemplates[house.interior_template_id]
+        local allowed = CanAccessProperty(cid, houseId, ACTIONS.HOUSE_ENTER)
+        if not allowed or not tpl then
+            ClearLastInteriorByCid(cid)
+            return
+        end
+
+        local canWeaponStorage = CanAccessProperty(cid, houseId, ACTIONS.WEAPON_STORAGE_USE)
+        local canStorage = CanAccessProperty(cid, houseId, ACTIONS.STORAGE_USE)
+        local weaponStorages, stashes = {}, {}
+        if canWeaponStorage then
+            for i, w in ipairs(tpl.weapon_storages or tpl.wardrobes or {}) do
+                weaponStorages[i] = { index = i, coords = w }
+            end
+        end
+        if canStorage then
+            for i, st in ipairs(tpl.stashes or {}) do
+                stashes[i] = { index = i, coords = st, label = st.label, slots = st.slots }
+            end
+        end
+
+        SendToHouse(src, houseId)
+        TriggerClientEvent('cm-house:client:restoreInterior', src, 'house', {
+            houseId        = houseId,
+            sourceKind     = tpl.source_kind,
+            sourceRef      = tpl.source_ref,
+            exitPoint      = tpl.exit_point,
+            hasGarage      = house.garage_template_id ~= nil,
+            weaponStorages = weaponStorages,
+            wardrobes      = weaponStorages,
+            stashes        = stashes,
+        })
+    else
+        ClearLastInteriorByCid(cid)
+    end
+end)

@@ -25,16 +25,40 @@ function GarageBucket(houseId) return GARAGE_BASE + houseId end
 -- ------------------------------------------------------------
 --  Move a player in or out
 -- ------------------------------------------------------------
+-- Persisted separately from the in-memory Occupants table above: Occupants
+-- is rightly wiped on disconnect (it answers "who is online in here right
+-- now"), but a player who drops while inside must be put BACK on rejoin, so
+-- their last house/garage is written through to the database on every enter
+-- and cleared on every explicit exit. See PersistLastInterior/ClearLastInterior.
+function PersistLastInterior(src, houseId, kind)
+    local cid = GetCid(src)
+    if not cid then return end
+    MySQL.insert('INSERT INTO cm_house_last_interior (cid, house_id, kind) VALUES (?, ?, ?) '
+        .. 'ON DUPLICATE KEY UPDATE house_id = VALUES(house_id), kind = VALUES(kind)',
+        { cid, houseId, kind })
+end
+
+function ClearLastInteriorByCid(cid)
+    if not cid then return end
+    MySQL.query('DELETE FROM cm_house_last_interior WHERE cid = ?', { cid })
+end
+
+function ClearLastInterior(src)
+    ClearLastInteriorByCid(GetCid(src))
+end
+
 function SendToHouse(src, houseId)
     SetPlayerRoutingBucket(src, HouseBucket(houseId))
     Occupants[houseId] = Occupants[houseId] or {}
     Occupants[houseId][src] = 'house'
+    PersistLastInterior(src, houseId, 'house')
 end
 
 function SendToGarage(src, houseId)
     SetPlayerRoutingBucket(src, GarageBucket(houseId))
     Occupants[houseId] = Occupants[houseId] or {}
     Occupants[houseId][src] = 'garage'
+    PersistLastInterior(src, houseId, 'garage')
 end
 
 function SendToWorld(src)
@@ -48,6 +72,7 @@ function SendToWorld(src)
             end
         end
     end
+    ClearLastInterior(src)
 end
 
 --- Which property is this player inside, if any?

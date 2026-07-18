@@ -413,6 +413,41 @@ RegisterNetEvent('cm-house:client:completeGarageStoreTransition', function(res)
     busy = false
 end)
 
+-- ------------------------------------------------------------
+--  Rejoin restore. cm-playerdata/cm-spawn already put us back at our exact
+--  last coordinates -- we only need to (re)load the IPL room for an 'ipl'
+--  interior and rebuild the local In table so the E-prompt loop above and
+--  the door menu work again. No goTo(): moving the player is not our job
+--  here, only making the room they are already standing in actually render.
+-- ------------------------------------------------------------
+RegisterNetEvent('cm-house:client:restoreInterior', function(kind, res)
+    if In or type(res) ~= 'table' then return end
+
+    loadSource(res.sourceKind, res.sourceRef)
+
+    if kind == 'garage' then
+        In = {
+            houseId = res.houseId,
+            kind = 'garage',
+            entry = res.entry,
+            vehicleExit = res.vehicleExit,
+            vehicleExits = res.vehicleExits or (res.vehicleExit and { res.vehicleExit } or {}),
+            capacity = res.capacity,
+        }
+        TriggerEvent('cm-house:client:enterGarageState', res.houseId)
+    elseif kind == 'house' then
+        In = {
+            houseId   = res.houseId,
+            kind      = 'house',
+            exitPoint = res.exitPoint,
+            hasGarage = res.hasGarage,
+            weaponStorages = res.weaponStorages or res.wardrobes or {},
+            wardrobes = res.weaponStorages or res.wardrobes or {},
+            stashes   = res.stashes or {},
+        }
+    end
+end)
+
 RegisterNetEvent('cm-house:client:openGarage', function(houseId)
     -- From the front door, walking straight into the garage.
     if In then return end

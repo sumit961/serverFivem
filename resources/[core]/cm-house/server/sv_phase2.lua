@@ -493,7 +493,8 @@ function P2.AdminRecoverAssignedVehicle(vehicleId, src)
     if not slot or not slot.coords then return false, 'garage_slot_not_configured' end
 
     if GetResourceState('cm-vehicles') ~= 'started' then return false, 'cm_vehicles_not_running' end
-    local activeOk, active = exports['cm-vehicles']:GetSpawnedVehicleInfo(vehicleId)
+    local activeOk, active
+    pcall(function() activeOk, active = exports['cm-vehicles']:GetSpawnedVehicleInfo(vehicleId) end)
     if activeOk and active and tostring(active.context or '') == 'world' then
         local entity = tonumber(active.entity) or 0
         if entity ~= 0 and DoesEntityExist(entity) then
@@ -508,7 +509,8 @@ function P2.AdminRecoverAssignedVehicle(vehicleId, src)
     end
 
     pcall(function() exports['cm-vehicles']:CaptureVehicleState(vehicleId, 'admin_house_recovery') end)
-    local deleted, why = exports['cm-vehicles']:DeleteSpawnedVehicle(vehicleId)
+    local deleted, why
+    pcall(function() deleted, why = exports['cm-vehicles']:DeleteSpawnedVehicle(vehicleId) end)
     if deleted ~= true then return false, why or 'entity_delete_failed' end
 
     local affected = MySQL.update.await([[

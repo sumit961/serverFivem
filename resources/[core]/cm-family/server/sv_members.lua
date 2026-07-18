@@ -370,11 +370,9 @@ function LeaveFamily(actorCid)
 end
 
 -- ---------- promote / demote ----------
-function SetMemberRank(actorCid, targetCid, newRankId, requiredPermission)
+function SetMemberRank(actorCid, targetCid, newRankId)
     local actorRank, fam, err = actorContext(actorCid)
     if not actorRank then return false, err end
-    requiredPermission = tostring(requiredPermission or 'family.promote')
-    if not RankHasPermission(actorRank, requiredPermission) then return false, 'no_permission' end
     targetCid = tostring(targetCid)
 
     local targetRank = memberRank(fam, targetCid)
@@ -384,6 +382,12 @@ function SetMemberRank(actorCid, targetCid, newRankId, requiredPermission)
     local newRank = fam.ranksById[tonumber(newRankId)]
     if not newRank then return false, 'no_such_rank' end
     if newRank.is_founder or isFounderCid(fam, targetCid) then return false, 'Use "transfer leadership" to make a new founder.' end
+
+    -- The actual direction of the change decides which permission gates it --
+    -- never trust a caller-supplied permission name, otherwise a generic rank
+    -- edit could demote someone using only promote authority (or vice versa).
+    local requiredPermission = tierOf(newRank) > tierOf(targetRank) and 'family.promote' or 'family.demote'
+    if not RankHasPermission(actorRank, requiredPermission) then return false, 'no_permission' end
 
     -- Non-founders cannot manage equal/higher members. Nobody, including the
     -- owner, may assign their own authority tier or higher through a rank edit;
@@ -468,7 +472,7 @@ function PromoteMember(actorCid, targetCid)
         end
     end
     if not nextRank then return false, 'There is no higher rank you can assign.' end
-    return SetMemberRank(actorCid, targetCid, nextRank.id, 'family.promote')
+    return SetMemberRank(actorCid, targetCid, nextRank.id)
 end
 
 function DemoteMember(actorCid, targetCid)
@@ -486,7 +490,7 @@ function DemoteMember(actorCid, targetCid)
         if rank.tier < current.tier then previous = rank end
     end
     if not previous then return false, 'That member is already on the lowest rank.' end
-    return SetMemberRank(actorCid, targetCid, previous.id, 'family.demote')
+    return SetMemberRank(actorCid, targetCid, previous.id)
 end
 
 local function cleanTitle(value)

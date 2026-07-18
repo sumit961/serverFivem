@@ -549,26 +549,30 @@ local function hasHousePermission(characterId, familyId, houseId, permissionKey,
 
     permissionKey = tostring(permissionKey or '')
 
+    local rank = effectiveRankForMember(characterId, fam, resolveMembershipRank(fam, m))
+    if not rank then
+        if type(CMFamilyReloadRanks) == 'function' then CMFamilyReloadRanks(fam.id) end
+        rank = effectiveRankForMember(characterId, fam, resolveMembershipRank(fam, m))
+    end
+
+    -- Per-vehicle tier requirements apply whenever a specific vehicle is
+    -- targeted, even for baseline/basic-membership permissions -- otherwise
+    -- raising a car's required level would have no effect on ordinary members.
+    if Config.VehicleLevelActions[permissionKey] then
+        local vehicleId = CMFamilyResolveVehicleId and CMFamilyResolveVehicleId(action)
+        if vehicleId then
+            local level = GetVehicleLevel(fam.id, vehicleId)
+            if not rank or (tonumber(rank.tier) or 1) < tonumber(level) then return false end
+        end
+    end
+
     -- Baseline family-house use is granted by committed membership itself.
     -- Management powers remain rank-controlled below.
     if isBasicMemberHousePermission(permissionKey) then
         return true
     end
 
-    local rank = effectiveRankForMember(characterId, fam, resolveMembershipRank(fam, m))
-    if not rank then
-        if type(CMFamilyReloadRanks) == 'function' then CMFamilyReloadRanks(fam.id) end
-        rank = effectiveRankForMember(characterId, fam, resolveMembershipRank(fam, m))
-    end
     if not rank or not RankHasPermission(rank, permissionKey) then return false end
-
-    if Config.VehicleLevelActions[permissionKey] then
-        local vehicleId = CMFamilyResolveVehicleId and CMFamilyResolveVehicleId(action)
-        if vehicleId then
-            local level = GetVehicleLevel(fam.id, vehicleId)
-            if (tonumber(rank.tier) or 1) < tonumber(level) then return false end
-        end
-    end
 
     return true
 end
@@ -586,14 +590,16 @@ exports('GetHousePermissionDecision', function(characterId, familyId, houseId, p
     end
 
     local key = tostring(permissionKey or '')
-    if isBasicMemberHousePermission(key) then return true, 'allowed_by_active_membership' end
 
-    local rank = effectiveRankForMember(characterId, family, resolveMembershipRank(family, membership))
-    if not rank then return false, 'rank_not_loaded' end
-    if not RankHasPermission(rank, key) then
-        return false, ('rank_missing_permission:%s'):format(key)
-    end
     if not hasHousePermission(characterId, familyId, houseId, permissionKey, action) then
+        if isBasicMemberHousePermission(key) then
+            return false, 'vehicle_level_or_context_denied'
+        end
+        local rank = effectiveRankForMember(characterId, family, resolveMembershipRank(family, membership))
+        if not rank then return false, 'rank_not_loaded' end
+        if not RankHasPermission(rank, key) then
+            return false, ('rank_missing_permission:%s'):format(key)
+        end
         return false, 'vehicle_level_or_context_denied'
     end
     return true, 'allowed'

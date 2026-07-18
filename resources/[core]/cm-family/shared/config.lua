@@ -191,6 +191,13 @@ Config.Bank = {
     maxBalance = 2000000000,
     -- Daily withdrawal limits reset at this server hour (0-23, local server time).
     dailyResetHour = 0,
+
+    -- Only these server resources may charge a family's bank balance through
+    -- the FamilyBankCharge export (e.g. a business/shop resource). Never a
+    -- network event -- GetInvokingResource() is checked server-side.
+    authorizedExternalResources = {
+        -- ['cm-shops'] = true,
+    },
 }
 
 -- ============================================================

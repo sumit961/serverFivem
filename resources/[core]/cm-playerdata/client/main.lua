@@ -652,7 +652,13 @@ CreateThread(function()
                 TriggerServerEvent('cm-playerdata:server:syncVitals', currentHealth, currentArmor)
             end
 
-            if now - lastPositionSync >= (Config.Vitals.PositionSyncInterval or 6000) then
+            -- Never sample/send position while the character-selector/creation
+            -- preview scene is active -- its fixed coordinates must never be
+            -- mistaken for real gameplay position (server also enforces this;
+            -- see cm-playerdata:server:updatePosition).
+            if now - lastPositionSync >= (Config.Vitals.PositionSyncInterval or 6000)
+                and not SpawnUiActive() and LocalPlayer.state.skipPositionSave ~= true
+            then
                 lastPositionSync = now
                 local coords = GetEntityCoords(ped)
                 TriggerServerEvent('cm-playerdata:server:updatePosition', {

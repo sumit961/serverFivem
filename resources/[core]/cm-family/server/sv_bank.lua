@@ -64,59 +64,84 @@ end
 
 -- Withdraw: check daily limit + balance, debit family atomically, then pay the
 -- player. The atomic UPDATE with a balance guard prevents two concurrent
--- withdrawals from overdrawing.
+-- withdrawals from overdrawing the family balance; withdrawLocks additionally
+-- serialize a single character's own requests so two near-simultaneous
+-- withdrawals can't both read the same stale daily-limit counter.
+local withdrawLocks = {}
+
 function BankWithdraw(actorCid, amount)
-    local rank, fam = GetRankForCid(actorCid)
-    if not rank or not fam then return false, 'not_in_family' end
-    if not RankHasPermission(rank, 'bank.withdraw') then return false, 'no_permission' end
-    amount = math.floor(tonumber(amount) or 0)
-    if amount <= 0 then return false, 'invalid_amount' end
+    actorCid = tostring(actorCid)
+    if withdrawLocks[actorCid] then return false, 'A withdrawal is already being processed.' end
+    withdrawLocks[actorCid] = true
 
-    -- Daily limit: 0 = no withdrawals, <0 = unlimited (founder default).
-    local limit = rank.bank_daily_limit or 0
-    if not rank.is_founder and limit == 0 then return false, 'Your rank cannot withdraw.' end
-    if limit >= 0 and not rank.is_founder then
-        local rec = withdrawnToday(actorCid)
-        if rec.amount + amount > limit then
-            return false, ('Daily withdrawal limit reached ($%d of $%d used today).'):format(rec.amount, limit)
+    local ok, resultA, resultB = xpcall(function()
+        local rank, fam = GetRankForCid(actorCid)
+        if not rank or not fam then return false, 'not_in_family' end
+        if not RankHasPermission(rank, 'bank.withdraw') then return false, 'no_permission' end
+        amount = math.floor(tonumber(amount) or 0)
+        if amount <= 0 then return false, 'invalid_amount' end
+
+        -- Daily limit: 0 = no withdrawals, <0 = unlimited (founder default).
+        local limit = rank.bank_daily_limit or 0
+        if not rank.is_founder and limit == 0 then return false, 'Your rank cannot withdraw.' end
+        if limit >= 0 and not rank.is_founder then
+            local rec = withdrawnToday(actorCid)
+            if rec.amount + amount > limit then
+                return false, ('Daily withdrawal limit reached ($%d of $%d used today).'):format(rec.amount, limit)
+            end
         end
-    end
 
-    local src = B.GetSrcByCid(actorCid)
-    if not src then return false, 'player_not_online' end
+        local src = B.GetSrcByCid(actorCid)
+        if not src then return false, 'player_not_online' end
 
-    -- Atomic debit guarded by sufficient balance.
-    local affected
-    local ok = pcall(function()
-        affected = MySQL.update.await(
-            'UPDATE cm_families SET bank_balance = bank_balance - ? WHERE id = ? AND bank_balance >= ?',
-            { amount, fam.id, amount })
-    end)
-    if not ok or not affected or affected == 0 then
-        return false, 'The family bank does not have that much.'
-    end
-
-    local paid = B.AddMoney(src, amount, 'family_bank_withdraw')
-    if not paid then
-        -- Roll the family balance back if the payout failed.
-        pcall(function()
-            MySQL.update.await('UPDATE cm_families SET bank_balance = LEAST(bank_balance + ?, ?) WHERE id = ?',
-                { amount, Config.Bank.maxBalance, fam.id })
+        -- Atomic debit guarded by sufficient balance.
+        local affected
+        local dbOk = pcall(function()
+            affected = MySQL.update.await(
+                'UPDATE cm_families SET bank_balance = bank_balance - ? WHERE id = ? AND bank_balance >= ?',
+                { amount, fam.id, amount })
         end)
-        return false, 'Payout failed; the withdrawal was cancelled.'
+        if not dbOk or not affected or affected == 0 then
+            return false, 'The family bank does not have that much.'
+        end
+
+        -- Reserve the daily-limit allowance before paying out, while still
+        -- holding the per-character lock, so a second call sees the reservation.
+        if not rank.is_founder and limit > 0 then
+            local rec = withdrawnToday(actorCid)
+            rec.amount = rec.amount + amount
+        end
+
+        local paid = B.AddMoney(src, amount, 'family_bank_withdraw')
+        if not paid then
+            -- Roll back both the family balance and the daily-limit reservation.
+            pcall(function()
+                MySQL.update.await('UPDATE cm_families SET bank_balance = LEAST(bank_balance + ?, ?) WHERE id = ?',
+                    { amount, Config.Bank.maxBalance, fam.id })
+            end)
+            if not rank.is_founder and limit > 0 then
+                local rec = withdrawnToday(actorCid)
+                rec.amount = math.max(0, rec.amount - amount)
+            end
+            return false, 'Payout failed; the withdrawal was cancelled.'
+        end
+
+        local newBalance = MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { fam.id })
+        fam.bank_balance = tonumber(newBalance) or math.max(0, fam.bank_balance - amount)
+
+        logBank(fam.id, actorCid, 'withdraw', amount, fam.bank_balance, 'withdraw')
+        LogFamily(fam.id, actorCid, 'bank_withdraw', { amount = amount })
+        return true, fam.bank_balance
+    end, debug.traceback)
+
+    withdrawLocks[actorCid] = nil
+    if not ok then
+        -- Keep the stack trace server-side only; never surface internal
+        -- file/line detail to the player-facing error toast.
+        print(('[cm-family] BankWithdraw error for cid %s: %s'):format(actorCid, tostring(resultA)))
+        return false, 'Withdrawal failed unexpectedly. Please try again.'
     end
-
-    local newBalance = MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { fam.id })
-    fam.bank_balance = tonumber(newBalance) or math.max(0, fam.bank_balance - amount)
-
-    if not rank.is_founder and limit > 0 then
-        local rec = withdrawnToday(actorCid)
-        rec.amount = rec.amount + amount
-    end
-
-    logBank(fam.id, actorCid, 'withdraw', amount, fam.bank_balance, 'withdraw')
-    LogFamily(fam.id, actorCid, 'bank_withdraw', { amount = amount })
-    return true, fam.bank_balance
+    return resultA, resultB
 end
 
 function GetBankLog(familyId, limit)
@@ -129,6 +154,12 @@ end
 -- Allow other CM resources (e.g. a business or shop) to spend from the family
 -- bank with an atomic guard. Returns (ok, newBalance|reason).
 exports('FamilyBankCharge', function(familyId, amount, reason)
+    local invoking = GetInvokingResource()
+    if invoking and invoking ~= 'cm-family'
+        and not (Config.Bank.authorizedExternalResources and Config.Bank.authorizedExternalResources[invoking])
+    then
+        return false, 'resource_not_authorized'
+    end
     familyId = tonumber(familyId)
     amount = math.floor(tonumber(amount) or 0)
     if not familyId or amount <= 0 then return false, 'invalid_arguments' end

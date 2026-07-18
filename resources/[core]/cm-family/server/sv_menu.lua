@@ -475,6 +475,7 @@ lib.callback.register('cm-family:server:action', function(src, action, payload)
     elseif action == 'recallAllFamilyCars' then
         local rank, fam = GetRankForCid(cid)
         if not rank or not fam then return false, 'not_in_family' end
+        if not RankHasPermission(rank, 'family.manage_vehicles') then return false, 'no_permission' end
         local recalled, result = B.RecallAllFamilyGarageVehicles(fam.id, cid)
         if recalled == true then
             LogFamily(fam.id, cid, 'garage_recall_all', type(result) == 'table' and result or {})
