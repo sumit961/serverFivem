@@ -1,0 +1,31 @@
+/* 911/dispatch tab. Same dark/cyan palette as the rest of cm-police's F7
+   dashboard (mdt.css/fleet.css) -- this is NOT the MDT terminal's green
+   hacker skin, since it lives inside the normal F7 shell, not a standalone
+   overlay. */
+
+.dispatch-call-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: linear-gradient(155deg, #23263f, #1c1e33);
+  border: 1px solid rgba(255, 109, 109, 0.35);
+  margin-bottom: 8px;
+}
+.dispatch-call-row .dispatch-call-main { color: #f4f6ff; font-size: 14px; }
+.dispatch-call-row .dispatch-call-main strong { display: block; }
+.dispatch-call-row .dispatch-call-main small { display: block; color: #969bb8; margin-top: 3px; }
+.dispatch-call-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+.dispatch-history-row {
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: #17192b;
+  border: 1px solid rgba(255, 255, 255, .06);
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: #f4f6ff;
+}
+.dispatch-history-row small { display: block; color: #969bb8; margin-top: 2px; }

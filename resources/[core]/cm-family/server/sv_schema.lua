@@ -61,6 +61,9 @@ local CREATE_PARENT_TABLE = [[
       `tag_visible`   TINYINT(1) NOT NULL DEFAULT 1,
       `founder_cid`   VARCHAR(64) NOT NULL,
       `house_id`      INT UNSIGNED NULL,
+      `announcement`  VARCHAR(280) NULL,
+      `announcement_by` VARCHAR(64) NULL,
+      `announcement_at` TIMESTAMP NULL DEFAULT NULL,
       `bank_balance`  BIGINT NOT NULL DEFAULT 0,
       `created_at`    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (`id`),
@@ -202,6 +205,9 @@ local ADDITIVE_COLUMNS = {
         { name = 'tag_visible',  ddl = "`tag_visible` TINYINT(1) NOT NULL DEFAULT 1 AFTER `symbol`" },
         { name = 'founder_cid',  ddl = "`founder_cid` VARCHAR(64) NOT NULL DEFAULT '' AFTER `tag_visible`" },
         { name = 'house_id',     ddl = "`house_id` INT UNSIGNED NULL AFTER `founder_cid`" },
+        { name = 'announcement', ddl = "`announcement` VARCHAR(280) NULL AFTER `house_id`" },
+        { name = 'announcement_by', ddl = "`announcement_by` VARCHAR(64) NULL AFTER `announcement`" },
+        { name = 'announcement_at', ddl = "`announcement_at` TIMESTAMP NULL DEFAULT NULL AFTER `announcement_by`" },
         { name = 'bank_balance', ddl = "`bank_balance` BIGINT NOT NULL DEFAULT 0 AFTER `house_id`" },
         { name = 'created_at',   ddl = "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP" },
     },
@@ -279,7 +285,7 @@ local ADDITIVE_COLUMNS = {
 }
 
 local REQUIRED_COLUMNS = {
-    cm_families = { 'id', 'name', 'tag', 'color', 'symbol', 'tag_visible', 'founder_cid', 'house_id', 'bank_balance', 'created_at' },
+    cm_families = { 'id', 'name', 'tag', 'color', 'symbol', 'tag_visible', 'founder_cid', 'house_id', 'announcement', 'announcement_by', 'announcement_at', 'bank_balance', 'created_at' },
     cm_family_ranks = { 'id', 'family_id', 'tier', 'name', 'overhead_symbol', 'overhead_color', 'permissions', 'is_founder', 'bank_daily_limit', 'created_at' },
     -- Legacy cm_family_members tables often use character_id as the primary key
     -- and intentionally have no numeric id. No runtime query uses members.id.

@@ -1,0 +1,1 @@
+Read AGENTS.md and use .agents/skills/cm-server-agent/SKILL.md.

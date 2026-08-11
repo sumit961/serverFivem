@@ -1,0 +1,154 @@
+/* MDT records lookup. Same dark/cyan palette as the Fleet tab
+   (fleet.css) -- search boxes, a citizen profile card with three record
+   columns, and a small officer-notes list. */
+
+.mdt-search .operation-actions,
+.mdt-vehicle-search .operation-actions {
+  margin-bottom: 12px;
+}
+.mdt-search input,
+.mdt-vehicle-search input,
+.mdt-notes input {
+  flex: 1;
+  min-width: 220px;
+  padding: 10px 14px;
+  color: #fff;
+  background: #17192b;
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 10px;
+  outline: 0;
+}
+.mdt-search input:focus,
+.mdt-vehicle-search input:focus,
+.mdt-notes input:focus {
+  border-color: #5b86ff;
+}
+
+.mdt-result-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: linear-gradient(155deg, #23263f, #1c1e33);
+  border: 1px solid rgba(255, 255, 255, .07);
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+.mdt-result-row:hover { border-color: rgba(91, 134, 255, .35); }
+.mdt-result-badges { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.mdt-result-stars { color: #ffc02e; font-size: 13px; letter-spacing: 1px; }
+.mdt-result-wanted {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #ff6d6d;
+  background: rgba(255, 109, 109, .14);
+  border: 1px solid rgba(255, 109, 109, .4);
+}
+
+.mdt-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 4px 0 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #17192b;
+  border: 1px solid rgba(255, 255, 255, .07);
+}
+.mdt-stars { display: flex; gap: 4px; }
+.mdt-star {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 22px;
+  line-height: 1;
+  color: #3a3f5c;
+  cursor: pointer;
+}
+.mdt-star.filled { color: #ffc02e; }
+.mdt-fine-picker { display: flex; align-items: center; gap: 8px; }
+.mdt-fine-picker select {
+  padding: 9px 12px;
+  color: #fff;
+  background: #0f1120;
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 10px;
+  outline: 0;
+}
+#mdtWantedToggle.active {
+  background: linear-gradient(135deg, #ff6d6d, #c62828);
+  border-color: rgba(255, 109, 109, .6);
+}
+
+.mdt-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-top: 14px;
+}
+.mdt-profile-grid h4 {
+  margin: 0 0 8px;
+  color: #969bb8;
+  font-size: 12px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.mdt-record-row {
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: #17192b;
+  border: 1px solid rgba(255, 255, 255, .06);
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: #f4f6ff;
+}
+.mdt-record-row small { display: block; color: #969bb8; margin-top: 2px; }
+
+.mdt-notes { margin-top: 18px; }
+.mdt-notes h4 {
+  margin: 0 0 8px;
+  color: #969bb8;
+  font-size: 12px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.mdt-note-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: #17192b;
+  border: 1px solid rgba(255, 255, 255, .06);
+  margin-bottom: 6px;
+}
+.mdt-note-row .mdt-note-text { color: #f4f6ff; font-size: 13px; }
+.mdt-note-row small { display: block; color: #969bb8; margin-top: 2px; }
+
+.mdt-vehicle-card {
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: linear-gradient(155deg, #23263f, #1c1e33);
+  border: 1px solid rgba(255, 255, 255, .07);
+}
+.mdt-vehicle-card strong { color: #f4f6ff; }
+.mdt-vehicle-card small { display: block; color: #969bb8; margin-top: 4px; }
+.mdt-vehicle-card .impound-tag {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #ff6d6d;
+  background: rgba(255, 109, 109, .14);
+  border: 1px solid rgba(255, 109, 109, .4);
+}

@@ -1331,7 +1331,7 @@ CreateThread(function()
             icon = 'cloud',
             permission = Config.Admin.RankPermission or 'dev.climatime',
             actions = {
-                { id = 'open', label = 'Open Climatime Panel', type = 'server_event',
+                { id = 'open', label = 'Open Climatime Panel', type = 'launcher', realm = 'server',
                   event = 'cm-climatime:dev:open',
                   hint = 'Opens the full weather / time / schedule / zones panel' }
             }

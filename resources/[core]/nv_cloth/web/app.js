@@ -21,7 +21,7 @@ const app               = $('app');
 const categoriesEl      = $('categories');
 const emptyNotice       = $('emptyNotice');
 const buyBtn            = $('buyBtn');
-const captureIconBtn    = $('captureIconBtn');
+const adjustCaptureBtn  = $('adjustCaptureBtn');
 const captureStatus     = $('captureStatus');
 const adminBlock        = $('adminBlock');
 const customItemName    = $('customItemName');
@@ -32,8 +32,6 @@ const purchaseStatus    = $('purchaseStatus');
 const bagLevelControls  = $('bagLevelControls');
 const bagLevel          = $('bagLevel');
 const adminCaptureControls = $('adminCaptureControls');
-const captureAngle      = $('captureAngle');
-const captureZOffset    = $('captureZOffset');
 const captureBackground = $('captureBackground');
 const previewWall = $('previewWall');
 const previewWallWrap = $('previewWallWrap');
@@ -59,18 +57,58 @@ const cropCancelBtn     = $('cropCancelBtn');
 const saveMissingBtn    = $('saveMissingBtn');
 const saveAllBtn        = $('saveAllBtn');
 const cancelBulkBtn     = $('cancelBulkBtn');
-const payTabs           = document.querySelectorAll('.pay-tab');
+const pauseBulkBtn      = $('pauseBulkBtn');
+const resumeBulkBtn     = $('resumeBulkBtn');
+const allGendersBtn     = $('allGendersBtn');
+const failedCapturePanel = $('failedCapturePanel');
+const failedCaptureCount = $('failedCaptureCount');
+const failedCaptureList = $('failedCaptureList');
+// Only checkout payment buttons belong here. The store manager reuses the
+// visual .pay-tab class for its MALE/FEMALE controls; selecting every .pay-tab
+// caused this later payment handler to overwrite setManageGender().
+const payTabs           = document.querySelectorAll('#payTabs .pay-tab');
 const brandAdmin        = $('brandAdmin');
 const brandNote         = $('brandNote');
 const brandSub          = $('brandSub');
 const rpEyebrow         = $('rpEyebrow');
 const modeNote          = $('modeNote');
 const controlsHint      = $('controlsHint');
-const fitHelper         = $('fitHelper');
-const fitHelperTitle    = $('fitHelperTitle');
-const fitHelperText     = $('fitHelperText');
-const openArmsFitBtn    = $('openArmsFitBtn');
-const backToTorsoBtn    = $('backToTorsoBtn');
+const adminGenderSwitch = $('adminGenderSwitch');
+const adminGenderMale   = $('adminGenderMale');
+const adminGenderFemale = $('adminGenderFemale');
+const adminGenderState  = $('adminGenderState');
+/* /clothingstore manager */
+const managePanel         = $('managePanel');
+const manageCloseBtn      = $('manageCloseBtn');
+const manageGenderMale    = $('manageGenderMale');
+const manageGenderFemale  = $('manageGenderFemale');
+const manageCategoryFilter = $('manageCategoryFilter');
+const manageStatusFilter  = $('manageStatusFilter');
+const manageSearch        = $('manageSearch');
+const manageRefreshBtn    = $('manageRefreshBtn');
+const manageCount         = $('manageCount');
+const manageGrid          = $('manageGrid');
+const manageDetailEmpty   = $('manageDetailEmpty');
+const manageDetailBody    = $('manageDetailBody');
+const manageDetailImg     = $('manageDetailImg');
+const manageDetailNoImg   = $('manageDetailNoImg');
+const manageDetailMeta    = $('manageDetailMeta');
+const manageLabel         = $('manageLabel');
+const managePrice         = $('managePrice');
+const manageOrgChoices    = $('manageOrgChoices');
+const managePublishBtn    = $('managePublishBtn');
+const manageSaveBtn       = $('manageSaveBtn');
+const managePreviewBtn    = $('managePreviewBtn');
+const manageRetakeBtn     = $('manageRetakeBtn');
+const manageDetailState   = $('manageDetailState');
+const manageTorsoFit      = $('manageTorsoFit');
+const manageArmsPrev      = $('manageArmsPrev');
+const manageArmsNext      = $('manageArmsNext');
+const manageArmsValue     = $('manageArmsValue');
+const manageUnderPrev     = $('manageUnderPrev');
+const manageUnderNext     = $('manageUnderNext');
+const manageUnderValue    = $('manageUnderValue');
+const manageSaveTorsoFit  = $('manageSaveTorsoFit');
 const filterPanel       = $('filterPanel');
 const searchInput       = $('searchInput');
 const genderFilter      = $('genderFilter');
@@ -112,16 +150,17 @@ const CAT_ICONS = {
   chains:   svgIcon('chain'),
   bags:     svgIcon('bag'),
   watches:  svgIcon('watch'),
+  bracelets: svgIcon('watch'),
 };
 const CAT_LABELS = {
   torso: 'Outerwear', armor: 'Armor / Vest', arms: 'Arms / Fit', tshirt: 'Shirts',
   pants: 'Pants & Shorts', shoes: 'Shoes', hat: 'Headwear',
   glasses: 'Glasses', earrings: 'Earrings', chains: 'Accessories',
-  bags: 'Bags', watches: 'Watches',
+  bags: 'Bags', watches: 'Watches', bracelets: 'Bracelets',
 };
 
 // Categories that support manual "pose the ped, then confirm" capture.
-const MANUAL_POSE_CATS = new Set(['hat', 'glasses', 'earrings', 'watches', 'chains', 'shoes']);
+const MANUAL_POSE_CATS = new Set(['torso', 'tshirt', 'pants', 'shoes', 'hat', 'glasses', 'earrings', 'chains', 'bags', 'watches', 'bracelets', 'armor']);
 
 
 function svgIcon(name) {
@@ -144,14 +183,23 @@ function svgIcon(name) {
 
 /* ── Index maps (component/prop → category) ─────────── */
 const COMP_IDX_CAT  = { 11:'torso', 8:'tshirt', 4:'pants', 6:'shoes', 7:'chains', 5:'bags', 9:'armor' };
-const PROP_IDX_CAT  = { 0:'hat', 1:'glasses', 2:'earrings', 6:'watches' };
+const PROP_IDX_CAT  = { 0:'hat', 1:'glasses', 2:'earrings', 6:'watches', 7:'bracelets' };
+const CAT_NATIVE = {
+  torso:{type:'component',index:11}, tshirt:{type:'component',index:8},
+  arms:{type:'component',index:3}, pants:{type:'component',index:4},
+  shoes:{type:'component',index:6}, chains:{type:'component',index:7},
+  bags:{type:'component',index:5}, armor:{type:'component',index:9},
+  hat:{type:'prop',index:0}, glasses:{type:'prop',index:1},
+  earrings:{type:'prop',index:2}, watches:{type:'prop',index:6},
+  bracelets:{type:'prop',index:7},
+};
 
 /* ── Capture presets (server-mirrored) ─────────────── */
 const CAPTURE_PRESETS = {
   torso:    { angle:'front',  zOffset:0.00, bg:'green' },
   armor:    { angle:'front',  zOffset:0.00, bg:'green' },
   tshirt:   { angle:'front',  zOffset:0.00, bg:'green' },
-  pants:    { angle:'front',  zOffset:0.05, bg:'green' },
+  pants:    { angle:'front',  zOffset:0.00, bg:'green' },
   shoes:    { angle:'front',  zOffset:0.00, bg:'green' },
   bags:     { angle:'back',   zOffset:0.00, bg:'green', sharedGender:true },
   hat:      { angle:'front',  zOffset:0.00, bg:'green' },
@@ -159,12 +207,15 @@ const CAPTURE_PRESETS = {
   earrings: { angle:'right',  zOffset:0.00, bg:'green' },
   chains:   { angle:'front',  zOffset:0.00, bg:'green' },
   watches:  { angle:'left',   zOffset:0.00, bg:'green' },
+  bracelets:{ angle:'right',  zOffset:0.00, bg:'green' },
 };
 
 /* ── App state ─────────────────────────────────────── */
 let S = {
   open: false,
   isAdmin: false,
+  adminGender: 'male',
+  adminGenderSwitching: false,
   payment: 'bank',
   categories: [],
   counts: {},
@@ -180,20 +231,22 @@ let S = {
   textureCount: 1,
   exactTextureRows: [], // catalog rows for current drawable's textures
   adminTorsoTarget: null,
+  pendingRetake: null,                 // clothe handed over by /clothingstore for an image retake
   cart: [],
   favourites: new Set(),   // fav keys: gender:category:drawable (global across shops)
   captureCrops: {},         // admin: saved per-category crop { left, top, right, bottom }
   armCropForCategory: null,  // when set to a category, the next capture opens the crop editor to (re)set it
-  manualMode: false,         // admin: pose-and-shoot instead of auto-snapping the angle
   manualPosing: false,       // true while the on-screen pose bar is up
-  manualShotPending: false,  // open crop editor after the confirmed manual shot
   singleManual: false,       // current run is a single manual-eligible capture
   manualDrag: null,          // drag state for rotate-by-drag
   economy: {},              // auto-pricing config (from Config.Economy)
   bulkRunning: false,
   bulkCancel: false,
+  bulkPaused: false,
+  bulkFailures: [],
   pendingIconResolver: null,
   pricePresets: {},
+  captureSettings: { maxRetries: 2, retryDelay: 650 },
   filters: { q: '', gender: 'all', drawable: '', minPrice: '', maxPrice: '' },
   checkoutBusy: false,
   lastAdminSyncKey: '',
@@ -211,10 +264,15 @@ function normCat(row) {
   if (c === 'shirt') c = 'tshirt';
   if (c === 'legs')  c = 'pants';
   if (c === 'chain') c = 'chains';
-  if (!c) {
-    const tp  = String(row.componentType || row.component_type || 'component').toLowerCase();
-    const idx = Number(row.componentIndex ?? row.component_index);
-    c = tp === 'prop' ? PROP_IDX_CAT[idx] : COMP_IDX_CAT[idx];
+  const rawIndex = row.componentIndex ?? row.component_index;
+  if (rawIndex !== undefined && rawIndex !== null && rawIndex !== '') {
+    const tp = String(row.componentType || row.component_type || 'component').toLowerCase();
+    const indexedCategory = tp === 'prop' ? PROP_IDX_CAT[Number(rawIndex)] : COMP_IDX_CAT[Number(rawIndex)];
+    // Native component metadata is unambiguous. In particular, old catalogs may
+    // call both component 8 and component 11 "shirt"; 8 is Shirts/T-shirt while
+    // 11 is Outerwear. Trust the actual native slot so the wrong item cannot be
+    // selected or captured because of a legacy label.
+    if (indexedCategory) c = indexedCategory;
   }
   return c || '';
 }
@@ -226,11 +284,23 @@ function exactCmItemName(row = {}) {
   return key && !/\s/.test(key) ? key : '';
 }
 
+function clothingUniqueId(gender, category, drawable, texture, row = {}) {
+  const g = String(gender || S.adminGender || 'male').toLowerCase() === 'female' ? 'female' : 'male';
+  const c = String(category || 'unknown').toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+  const native = CAT_NATIVE[c] || {};
+  const type = String(row.componentType || row.component_type || native.type || 'component').toLowerCase();
+  const index = Number(row.componentIndex ?? row.component_index ?? native.index ?? -1);
+  const draw = Math.floor(Number(drawable) || 0);
+  const texNum = Math.floor(Number(texture) || 0);
+  const tex = texNum < 0 ? 'all' : String(texNum);
+  return `nvcloth_${g}_${c}_${type}_${index}_d${draw}_t${tex}`;
+}
+
 function normRow(row) {
   const category = normCat(row);
   const drawable  = Number(row.drawableId ?? row.drawable_id ?? row.drawable ?? 0);
   const texRaw    = Number(row.textureId  ?? row.texture_id  ?? row.texture  ?? 0);
-  const texture   = texRaw < 0 ? 0 : texRaw;
+  const texture   = texRaw;
   const itemKey   = exactCmItemName(row);
   const normalised = {
     ...row,
@@ -246,6 +316,12 @@ function normRow(row) {
     requiredFamily: row.requiredFamily || row.required_family || row.family || row.familyId || '',
     hasCatalogRow: !row.generated,
   };
+  const uniqueId = row.uniqueId || row.unique_id || row.clothingId || row.clothing_id
+    || clothingUniqueId(normalised.gender, category, drawable, texRaw, row);
+  normalised.uniqueId = uniqueId;
+  normalised.unique_id = uniqueId;
+  normalised.clothingId = uniqueId;
+  normalised.clothing_id = uniqueId;
   if (itemKey) {
     normalised.itemName = itemKey;
     normalised.item_name = itemKey;
@@ -293,7 +369,8 @@ function syncAdminFormFromSelected(force = false) {
 function drawKey(r)  { return `${r.category}:${Number(r.drawable)}`; }
 function fullKey(r) {
   const t = Number(r.texture ?? r.textureId ?? 0);
-  return `${r.category}:${Number(r.drawable)}:${t < 0 ? -1 : t}`;
+  const g = String(r.gender || 'all').toLowerCase();
+  return `${g}:${r.category}:${Number(r.drawable)}:${t < 0 ? -1 : t}`;
 }
 
 function uniqueByDrawable(rows) {
@@ -317,17 +394,24 @@ function getTextureRowsForSelected() {
   return exact.sort((a, b) => Number(a.texture) - Number(b.texture));
 }
 
+// Catalog texture -1 means "this drawable covers every texture". It is valid
+// metadata but is never a valid native preview/capture texture index.
+function previewTexture(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
+
 function applyTextureModeFromCatalog(preferredTex) {
   const exact = getTextureRowsForSelected();
   S.exactTextureRows = exact;
   if (!S.isAdmin && exact.length > 0) {
     let idx = exact.findIndex(r => Number(r.texture) === Number(preferredTex));
     if (idx < 0) idx = 0;
-    S.texture      = Number(exact[idx].texture || 0);
+    S.texture      = previewTexture(exact[idx].texture);
     S.textureCount = exact.length;
     S.selected     = { ...S.selected, ...exact[idx] };
   } else {
-    S.texture      = Number(preferredTex ?? (S.selected ? S.selected.texture : 0) ?? 0);
+    S.texture      = previewTexture(preferredTex ?? (S.selected ? S.selected.texture : 0) ?? 0);
     S.textureCount = Math.max(1, S.textureCount || 1);
   }
 }
@@ -365,18 +449,41 @@ function getRowsForCategory(category) {
     if (unique.length || S.useCatalogOnly) return unique;
   }
   // Admin: merge catalog rows with generated placeholders
-  const byDrawKey = new Map(
-    catalogRows(true).filter(r => r.category === category).map(r => [drawKey(r), r])
-  );
+  const byDrawKey = new Map();
+  for (const row of catalogRows(true).filter(r => r.category === category)) {
+    const key = drawKey(row);
+    const existing = byDrawKey.get(key);
+    if (!existing) {
+      byDrawKey.set(key, row);
+      continue;
+    }
+    const rowMaster = Number(row.texture) < 0;
+    const existingMaster = Number(existing.texture) < 0;
+    if (rowMaster) {
+      byDrawKey.set(key, {
+        ...existing, ...row,
+        image: row.image || row.icon || existing.image || existing.icon,
+        icon: row.icon || row.image || existing.icon || existing.image,
+      });
+    } else if (existingMaster && !hasImage(existing) && hasImage(row)) {
+      byDrawKey.set(key, { ...existing, image: row.image || row.icon, icon: row.icon || row.image });
+    }
+  }
   const count  = Number(S.counts[category] || 0);
   const result = [];
   for (let i = 0; i < count; i++) {
     const gen = {
       category, drawable: i, texture: 0,
+      gender: S.adminGender,
       label: `${CAT_LABELS[category] || category} ${i}`,
       price: Number(S.prices[category] || 0),
       enabled: true, generated: true,
     };
+    const uid = clothingUniqueId(gen.gender, category, i, 0, gen);
+    gen.uniqueId = uid;
+    gen.unique_id = uid;
+    gen.clothingId = uid;
+    gen.clothing_id = uid;
     result.push(byDrawKey.get(drawKey(gen)) || gen);
   }
   return result.filter(rowMatchesFilters);
@@ -408,6 +515,7 @@ function renderCategories() {
 
     const btn = document.createElement('button');
     btn.className = `category${isActive ? ' active' : ''}`;
+    btn.disabled = S.bulkRunning;
 
     const countStr = S.isAdmin ? `${enabled}/${rows.length}` : String(rows.length);
     btn.innerHTML = `
@@ -453,39 +561,6 @@ function renderTextureStatus() {
   });
 }
 
-
-function updateFitHelper() {
-  if (!fitHelper) return;
-  const show = S.isAdmin && (S.activeCategory === 'torso' || S.activeCategory === 'arms' || !!S.adminTorsoTarget);
-  fitHelper.classList.toggle('hidden', !show);
-  if (!show) return;
-  const torsoName = S.adminTorsoTarget ? (S.adminTorsoTarget.label || 'selected torso') : 'no torso selected';
-  if (fitHelperTitle) fitHelperTitle.textContent = S.activeCategory === 'arms' ? 'Editing Arms / Fit' : 'Arms / Fit Helper';
-  if (fitHelperText) fitHelperText.textContent = S.activeCategory === 'arms'
-    ? `Changing arms for ${torsoName}. Other preview clothes are kept.`
-    : `Current target: ${torsoName}. Open Arms / Fit to tune sleeves/body without clearing the preview.`;
-  if (openArmsFitBtn) openArmsFitBtn.disabled = !S.adminTorsoTarget || S.activeCategory === 'arms';
-  if (backToTorsoBtn) backToTorsoBtn.disabled = S.activeCategory !== 'arms';
-}
-
-function selectTorsoTarget() {
-  if (!S.adminTorsoTarget) return false;
-  S.activeCategory = 'torso';
-  S.filtered = getRowsForCategory('torso');
-  const targetDrawable = Number(S.adminTorsoTarget.drawable);
-  const targetTexture = Number(S.adminTorsoTarget.texture || 0);
-  const idx = S.filtered.findIndex(r => Number(r.drawable) === targetDrawable);
-  S.itemPos = idx >= 0 ? idx : 0;
-  S.selected = S.filtered[S.itemPos] || null;
-  S.texture = targetTexture;
-  S.textureCount = 1;
-  applyTextureModeFromCatalog(S.texture);
-  renderCategories();
-  updateBottom();
-  previewSelected();
-  post('changeCamera', { camera: 'body' });
-  return true;
-}
 
 /* ── Update right panel bottom ────────────────────── */
 function updateBottom() {
@@ -555,7 +630,6 @@ function updateBottom() {
     }
   }
 
-  updateFitHelper();
   updateAdminButton();
   renderTextureStatus();
   updateCartUI();
@@ -566,7 +640,13 @@ function updateAdminButton() {
   if (!S.isAdmin) {
     buyBtn.textContent = S.cart.length > 0 ? 'ADD TO CART +' : 'ADD TO CART';
     buyBtn.classList.remove('btn--fit');
+    if (adjustCaptureBtn) adjustCaptureBtn.classList.add('hidden');
     return;
+  }
+  if (adjustCaptureBtn) {
+    const canAdjust = S.activeCategory !== 'arms' && S.activeCategory !== '__fav' && !!S.selected;
+    adjustCaptureBtn.classList.toggle('hidden', !canAdjust);
+    adjustCaptureBtn.disabled = !canAdjust;
   }
   if (S.activeCategory === 'arms' && S.adminTorsoTarget) {
     buyBtn.textContent = 'SAVE FIT TO TORSO';
@@ -633,18 +713,9 @@ function updateCartUI() {
    ══════════════════════════════════════════════════════════ */
 function setCaptureControlsForCategory(cat) {
   const p = CAPTURE_PRESETS[cat] || {};
-  if (captureAngle)      captureAngle.value      = 'auto';
-  if (captureZOffset)    captureZOffset.value     = Number(p.zOffset || 0).toFixed(2);
   if (captureBackground) captureBackground.value  = p.bg || 'green';
   if (sharedGender)      sharedGender.checked     = cat === 'bags' || p.sharedGender === true;
   if (sharedGenderWrap)  sharedGenderWrap.classList.toggle('hidden', cat !== 'bags');
-  // Manual pose & shoot only applies to accessories + shoes; hide the toggle
-  // elsewhere so it's clear when it's available.
-  const manualWrap = $('manualModeWrap');
-  const manualNote = $('manualModeNote');
-  const poseable = MANUAL_POSE_CATS.has(String(cat));
-  if (manualWrap) manualWrap.classList.toggle('hidden', !poseable);
-  if (manualNote) manualNote.classList.toggle('hidden', !poseable);
 }
 
 function refreshCaptureBackdropPreview() {
@@ -657,26 +728,28 @@ function refreshCaptureBackdropPreview() {
 
 function setCategory(cat) {
   S.activeCategory = cat;
+  const captureCategory = cat === 'arms' ? 'torso' : cat;
+  window.__currentCaptureCategory = captureCategory;
   S.filtered       = getRowsForCategory(cat);
   S.itemPos        = 0;
   S.selected       = S.filtered[0] || null;
   if (cat === 'torso' && S.selected) S.adminTorsoTarget = { ...S.selected };
   if (S.isAdmin) {
-    setCaptureControlsForCategory(cat);
+    setCaptureControlsForCategory(captureCategory);
     refreshCaptureBackdropPreview();
     syncCropSection();
   }
-  S.texture      = S.selected ? Number(S.selected.texture || 0) : 0;
+  S.texture      = S.selected ? previewTexture(S.selected.texture) : 0;
   S.textureCount = 1;
   applyTextureModeFromCatalog(S.texture);
   renderCategories();
   updateBottom();
   previewSelected();
   // Camera preset per category
-  if (cat === 'hat') post('changeCamera', { camera: 'head' });
-  else if (['glasses','earrings'].includes(cat)) post('changeCamera', { camera: 'face' });
-  else if (cat === 'shoes')                        post('changeCamera', { camera: 'feet' });
-  else                                              post('changeCamera', { camera: 'body' });
+  if (cat === 'hat') post('changeCamera', { camera: 'head', category: captureCategory });
+  else if (['glasses','earrings'].includes(cat)) post('changeCamera', { camera: 'face', category: captureCategory });
+  else if (cat === 'shoes') post('changeCamera', { camera: 'feet', category: captureCategory });
+  else post('changeCamera', { camera: 'body', category: captureCategory });
 }
 
 async function previewSelected() {
@@ -684,9 +757,9 @@ async function previewSelected() {
   const item = {
     ...S.selected,
     drawable:    S.selected.drawable,
-    texture:     S.texture,
+    texture:     previewTexture(S.texture),
     drawableId:  S.selected.drawable,
-    textureId:   S.texture,
+    textureId:   previewTexture(S.texture),
     category:    S.selected.category,
   };
   if (S.isAdmin && S.activeCategory === 'arms' && S.adminTorsoTarget)
@@ -704,7 +777,7 @@ function moveItem(dir) {
   S.itemPos  = (S.itemPos + dir + S.filtered.length) % S.filtered.length;
   S.selected = S.filtered[S.itemPos];
   if (S.activeCategory === 'torso' && S.selected) S.adminTorsoTarget = { ...S.selected };
-  S.texture      = Number(S.selected.texture || 0);
+  S.texture      = previewTexture(S.selected.texture);
   S.textureCount = 1;
   applyTextureModeFromCatalog(S.texture);
   updateBottom();
@@ -717,7 +790,7 @@ function moveTexture(dir) {
     const cur  = Math.max(0, S.exactTextureRows.findIndex(r => Number(r.texture) === Number(S.texture)));
     const next = (cur + dir + S.exactTextureRows.length) % S.exactTextureRows.length;
     const row  = S.exactTextureRows[next];
-    S.texture      = Number(row.texture || 0);
+    S.texture      = previewTexture(row.texture);
     S.textureCount = S.exactTextureRows.length;
     S.selected     = { ...S.selected, ...row };
   } else {
@@ -773,7 +846,8 @@ function toggleCurrentFavourite() {
 // A saved crop for a category is reused automatically on every capture of that
 // category until it is changed or cleared. Shape: { left, top, right, bottom }.
 function savedCropFor(cat) {
-  const c = S.captureCrops[cat];
+  const key = normCat({ category: cat });
+  const c = S.captureCrops[key];
   if (c && [c.left, c.top, c.right, c.bottom].every(v => Number.isFinite(Number(v)))) return c;
   return null;
 }
@@ -796,11 +870,13 @@ function syncCropSection() {
   }
   const clearBtn = $('clearCropBtn');
   if (clearBtn) clearBtn.disabled = !saved;
+  const setBtn = $('setCropBtn');
+  if (setBtn) setBtn.textContent = saved ? 'CHANGE SAVED CROP' : 'SET CROP FOR THIS CATEGORY';
 }
 // Arm the next single capture to open the crop editor so the admin can set/reset
 // the crop for the current category. The saved crop then reapplies on its own.
 function armCropSetup() {
-  const cat = S.activeCategory;
+  const cat = normCat({ category: S.activeCategory });
   if (!S.isAdmin || !cat || cat === 'arms' || cat === '__fav') return;
   if (!S.selected) { toast('Select an item first, then Set Crop.', 'error'); return; }
   S.armCropForCategory = cat;
@@ -819,9 +895,24 @@ function clearSavedCrop() {
 // ── Manual pose & shoot ──────────────────────────────────
 // When Manual mode is on, a single accessory/shoe capture pauses so the admin can
 // rotate the ped (drag or buttons) and lift it (shoes) before shooting. Confirm
-// takes the screenshot; the normal crop editor then opens to trim and save.
+// takes the screenshot and silently reuses the category crop, when one is saved.
 const poseBar = $('poseBar');
-function enterPoseMode(category, heading) {
+function updatePoseReadout(extra = {}) {
+  S.poseTelemetry = { ...(S.poseTelemetry || {}), ...extra };
+  const t = S.poseTelemetry || {};
+  const out = $('poseReadout');
+  if (!out) return;
+  const h = Number(t.playerHeading || 0).toFixed(1);
+  const mx = Number(t.moveX || 0).toFixed(2);
+  const my = Number(t.moveY || 0).toFixed(2);
+  const lift = Number(t.lift || 0).toFixed(2);
+  const d = Number(t.dist || 0).toFixed(2);
+  const ch = Number(t.cameraHeading || 0).toFixed(1);
+  const z = Number(t.relZ || 0).toFixed(2);
+  const f = Number(t.fov || 0).toFixed(1);
+  out.textContent = `PLAYER heading ${h}° · offset X ${mx} / Y ${my} / Z ${lift}  |  CAMERA orbit ${ch}° · distance ${d} · height ${z} · FOV ${f}`;
+}
+function enterPoseMode(category, heading, camera) {
   S.manualPosing = true;
   setCaptureStatus(false);
   if (poseBar) poseBar.classList.remove('hidden');
@@ -833,30 +924,53 @@ function enterPoseMode(category, heading) {
   if (slider) slider.value = Math.round(((heading % 360) + 360) % 360);
   const val = $('poseHeadingVal');
   if (val) val.textContent = `${Math.round(((heading % 360) + 360) % 360)}°`;
+  S.poseTelemetry = {
+    playerHeading: heading, moveX: 0, moveY: 0,
+    dist: camera?.dist, cameraHeading: camera?.heading,
+    relZ: camera?.relZ, fov: camera?.fov,
+  };
+  updatePoseReadout();
 }
 function exitPoseMode() {
   S.manualPosing = false;
   if (poseBar) poseBar.classList.add('hidden');
   if (app) app.classList.remove('posing');
 }
-function poseRotate(delta) {
+async function poseRotate(delta) {
   if (!S.manualPosing) return;
-  post('manualPoseRotate', { delta });
+  const r = await post('manualPoseRotate', { delta });
+  if (r && r.heading != null) {
+    const slider = $('poseHeading'); if (slider) slider.value = Math.round(r.heading);
+    const val = $('poseHeadingVal'); if (val) val.textContent = `${Math.round(r.heading)}°`;
+    updatePoseReadout({ playerHeading: r.heading });
+  }
 }
 function poseSetHeading(absolute) {
   if (!S.manualPosing) return;
   post('manualPoseRotate', { absolute });
   const val = $('poseHeadingVal');
   if (val) val.textContent = `${Math.round(absolute)}°`;
+  updatePoseReadout({ playerHeading: absolute });
 }
-function poseLift(delta) {
+async function poseLift(delta) {
   if (!S.manualPosing) return;
-  post('manualPoseLift', { delta });
+  const r = await post('manualPoseLift', { delta });
+  if (r && r.lift != null) updatePoseReadout({ lift: r.lift });
+}
+async function poseMove(axis, amount) {
+  if (!S.manualPosing) return;
+  const r = await post('manualPoseMove', { axis, amount });
+  if (r && r.success) updatePoseReadout({ moveX: r.moveX, moveY: r.moveY });
+}
+async function poseCamera(action, amount) {
+  if (!S.manualPosing) return;
+  const r = await post('manualPoseCam', { action, amount });
+  const c = r && r.camera;
+  if (c) updatePoseReadout({ dist: c.dist, cameraHeading: c.heading, relZ: c.relZ, fov: c.fov });
 }
 function poseConfirm() {
   if (!S.manualPosing) return;
   exitPoseMode();
-  S.manualShotPending = true;   // open the crop editor after this shot
   setCaptureStatus(true, 'Shooting…');
   post('confirmManualShot', {});
 }
@@ -876,14 +990,14 @@ function poseCancel() {
 function poseCameraKey(key) {
   if (!S.manualPosing) return false;
   switch (key) {
-    case 'w': post('manualPoseCam', { action: 'zoom',   amount:  0.12 }); return true;
-    case 's': post('manualPoseCam', { action: 'zoom',   amount: -0.12 }); return true;
-    case 'a': post('manualPoseCam', { action: 'orbit',  amount: -4.0  }); return true;
-    case 'd': post('manualPoseCam', { action: 'orbit',  amount:  4.0  }); return true;
-    case 'r': post('manualPoseCam', { action: 'height', amount:  0.04 }); return true;
-    case 'f': post('manualPoseCam', { action: 'height', amount: -0.04 }); return true;
-    case 'q': post('manualPoseCam', { action: 'fov',    amount: -2.0  }); return true;
-    case 'e': post('manualPoseCam', { action: 'fov',    amount:  2.0  }); return true;
+    case 'w': poseCamera('zoom',    0.12); return true;
+    case 's': poseCamera('zoom',   -0.12); return true;
+    case 'a': poseCamera('orbit',  -4.0 ); return true;
+    case 'd': poseCamera('orbit',   4.0 ); return true;
+    case 'r': poseCamera('height',  0.04); return true;
+    case 'f': poseCamera('height', -0.04); return true;
+    case 'q': poseCamera('fov',    -2.0 ); return true;
+    case 'e': poseCamera('fov',     2.0 ); return true;
   }
   return false;
 }
@@ -926,6 +1040,8 @@ function openShop(data) {
   S.open = data.value !== false;
   if (!S.open) { app.classList.add('hidden'); return; }
 
+  if (String(data.gender || '').toLowerCase() === 'female') S.adminGender = 'female';
+  else if (String(data.gender || '').toLowerCase() === 'male') S.adminGender = 'male';
   S.categories  = Array.isArray(data.categories) ? data.categories : ['torso','tshirt','pants','shoes'];
   S.counts      = data.counts       || S.counts      || {};
   S.prices      = data.prices       || S.prices      || {};
@@ -933,6 +1049,7 @@ function openShop(data) {
   S.useCatalogOnly = data.useCatalogOnly !== false;
   S.pricePresets = data.pricePresets || S.pricePresets || {};
   if (data.economy) S.economy = data.economy;
+  if (data.iconCapture) S.captureSettings = { ...S.captureSettings, ...data.iconCapture };
 
   app.classList.remove('hidden');
 
@@ -961,7 +1078,9 @@ function setAdminMode(value) {
 
   // Show/hide admin controls
   adminBlock.classList.toggle('hidden', !S.isAdmin);
+  if (adminGenderSwitch) adminGenderSwitch.classList.toggle('hidden', !S.isAdmin);
   if (adminCaptureControls) adminCaptureControls.classList.toggle('hidden', !S.isAdmin);
+  if (adjustCaptureBtn) adjustCaptureBtn.classList.toggle('hidden', !S.isAdmin);
   if (missingImageWarning) {
     const current = S.selected;
     const missing = S.isAdmin && !!current && !hasImage(current);
@@ -977,15 +1096,64 @@ function setAdminMode(value) {
   // Eyebrow
   rpEyebrow.textContent = S.isAdmin ? 'ADMIN CREATOR' : 'CLOTHING STORE';
   if (modeNote) modeNote.textContent = S.isAdmin
-    ? 'Create catalog items, capture images, and manage texture status.'
+    ? 'Capture clothing images only. Use /clothingstore for torso fit and catalog management.'
     : 'Preview outfits, switch colors, add items to cart, then checkout.';
 
   // Hide controls hint in admin (saves vertical space)
   if (controlsHint) controlsHint.classList.toggle('hidden', S.isAdmin);
 
   updateAdminButton();
+  syncAdminGenderSwitch();
   renderCategories();
   if (S.activeCategory) setCategory(S.activeCategory);
+}
+
+function syncAdminGenderSwitch() {
+  const gender = S.adminGender === 'female' ? 'female' : 'male';
+  if (adminGenderMale) {
+    adminGenderMale.classList.toggle('active', gender === 'male');
+    adminGenderMale.disabled = S.adminGenderSwitching || S.bulkRunning;
+  }
+  if (adminGenderFemale) {
+    adminGenderFemale.classList.toggle('active', gender === 'female');
+    adminGenderFemale.disabled = S.adminGenderSwitching || S.bulkRunning;
+  }
+  if (adminGenderState) adminGenderState.textContent = S.adminGenderSwitching
+    ? `Loading ${gender.toUpperCase()} model…`
+    : `Editing ${gender.toUpperCase()} clothing`;
+}
+
+function applyAdminGenderChanged(gender, counts) {
+  S.adminGender = String(gender || '').toLowerCase() === 'female' ? 'female' : 'male';
+  if (counts && typeof counts === 'object') S.counts = counts;
+  S.catalog = [];
+  S.selected = null;
+  S.itemPos = 0;
+  S.texture = 0;
+  S.textureCount = 1;
+  S.exactTextureRows = [];
+  S.adminTorsoTarget = null;
+  S.lastAdminSyncKey = '';
+  if (genderFilter) genderFilter.value = S.adminGender;
+  S.filters.gender = S.adminGender;
+  syncAdminGenderSwitch();
+  renderCategories();
+  if (S.activeCategory) setCategory(S.activeCategory);
+}
+
+async function switchAdminGender(gender) {
+  gender = String(gender || '').toLowerCase() === 'female' ? 'female' : 'male';
+  if (!S.isAdmin || S.adminGenderSwitching || S.bulkRunning || gender === S.adminGender) return;
+  S.adminGenderSwitching = true;
+  syncAdminGenderSwitch();
+  const res = await post('adminSetGender', { gender });
+  S.adminGenderSwitching = false;
+  if (!res || res.success !== true) {
+    syncAdminGenderSwitch();
+    toast(`Could not load ${gender} clothing model: ${res?.error || 'unknown error'}`, 'error');
+    return;
+  }
+  applyAdminGenderChanged(res.gender || gender, res.counts || {});
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -1008,16 +1176,17 @@ function getAdminTarget() {
 
   const cat    = base.category;
   const preset = CAPTURE_PRESETS[cat] || {};
-  const angle  = captureAngle ? captureAngle.value : 'auto';
-  const z      = captureZOffset ? Number(captureZOffset.value) : Number(preset.zOffset || 0);
+  const z = Number(preset.zOffset || 0);
 
   const t = {
     ...base,
-    texture:          Number(base.texture ?? S.texture ?? 0),
-    textureId:        Number(base.texture ?? S.texture ?? 0),
+    gender:           S.adminGender,
+    texture:          previewTexture(S.texture ?? base.texture ?? 0),
+    textureId:        previewTexture(S.texture ?? base.texture ?? 0),
     drawableId:       base.drawable,
     enabled:          true,
-    captureAngle:     angle === 'auto' ? (preset.angle || 'front') : angle,
+    captureAngle:     preset.angle || 'front',
+    captureAngleOverride: false,
     zOffset:          Number.isFinite(z) ? z : Number(preset.zOffset || 0),
     captureBackground: captureBackground ? (captureBackground.value || preset.bg || 'green') : (preset.bg || 'green'),
     sharedGender:     cat === 'bags' ? (sharedGender ? sharedGender.checked !== false : true) : false,
@@ -1032,6 +1201,11 @@ function getAdminTarget() {
   t.required_job = t.requiredJob;
   t.required_gang = t.requiredGang;
   t.required_family = t.requiredFamily;
+  const uid = clothingUniqueId(t.gender, t.category, t.drawableId, t.textureId, t);
+  t.uniqueId = uid;
+  t.unique_id = uid;
+  t.clothingId = uid;
+  t.clothing_id = uid;
   if (t.category === 'bags') {
     const lvl = getBagLevel();
     if (!lvl) { toast('Select bag level 1-4 before saving.', 'error'); return null; }
@@ -1150,7 +1324,7 @@ async function applySavedCropToResult(result, saved) {
 function openCropEditor(result, payload) {
   if (!cropEditorModal) return Promise.resolve(result);
   S.cropEditor = { result, payload };
-  const cat = String((payload && payload.category) || S.activeCategory || '').toLowerCase();
+  const cat = normCat({ category: (payload && payload.category) || S.activeCategory || '' });
   // Pre-fill sliders from any existing saved crop for this category so the admin
   // adjusts from the current setting instead of starting at zero.
   const saved = savedCropFor(cat) || { left: 0, top: 0, right: 0, bottom: 0 };
@@ -1174,7 +1348,7 @@ function closeCropEditor() {
 async function saveCropEditor(useAuto) {
   if (!S.cropEditor) return;
   const payload = S.cropEditor.payload || {};
-  const cat = String(payload.category || S.activeCategory || '').toLowerCase();
+  const cat = normCat({ category: payload.category || S.activeCategory || '' });
   try {
     const vals = cropEditorValues();
     const finalResult = useAuto ? S.cropEditor.result : await buildCroppedResult(S.cropEditor.result);
@@ -1187,7 +1361,7 @@ async function saveCropEditor(useAuto) {
     if (!useAuto && cat) {
       const crop = { left: vals.left, top: vals.top, right: vals.right, bottom: vals.bottom };
       S.captureCrops[cat] = crop;
-      post('saveCaptureCrop', { category: cat, ...crop });
+      await post('saveCaptureCrop', { category: cat, ...crop });
       toast(`Crop saved for ${CAT_LABELS[cat] || cat}. It now applies to every capture of this category.`, 'success');
     }
     S.armCropForCategory = null;
@@ -1246,7 +1420,78 @@ function setBulkProgress(text, show = true) {
   bulkProgress.classList.toggle('hidden', !show);
 }
 
-function waitForIconResult(ms = 30000) {
+function resetBulkFailures() {
+  S.bulkFailures = [];
+  renderBulkFailures();
+}
+
+function recordBulkFailure(target, error, attempts) {
+  const row = target || {};
+  S.bulkFailures.push({
+    gender: String(row.gender || 'current'),
+    category: String(row.category || S.activeCategory || '?'),
+    drawable: Number(row.drawableId ?? row.drawable ?? -1),
+    texture: Number(row.textureId ?? row.texture ?? -1),
+    attempts: Number(attempts || 1),
+    error: String(error || 'failed'),
+  });
+  renderBulkFailures();
+}
+
+function renderBulkFailures() {
+  const rows = Array.isArray(S.bulkFailures) ? S.bulkFailures : [];
+  if (failedCapturePanel) failedCapturePanel.classList.toggle('hidden', rows.length === 0);
+  if (failedCaptureCount) failedCaptureCount.textContent = String(rows.length);
+  if (failedCaptureList) {
+    failedCaptureList.textContent = rows.map(r =>
+      `${r.gender} · ${r.category} · D${r.drawable}/T${r.texture} · ${r.error} (${r.attempts} attempts)`
+    ).join('\n');
+  }
+}
+
+async function waitWhileBulkPaused() {
+  while (S.bulkRunning && S.bulkPaused && !S.bulkCancel) await delay(150);
+}
+
+function beginBulk(mode) {
+  S.bulkRunning = true;
+  S.bulkCancel = false;
+  S.bulkPaused = false;
+  S.captureMode = mode;
+  resetBulkFailures();
+  applyBulkDisabled(true);
+}
+
+function endBulk() {
+  S.bulkRunning = false;
+  S.bulkPaused = false;
+  S.captureMode = null;
+  applyBulkDisabled(false);
+}
+
+const RETRYABLE_CAPTURE_ERROR = /unloaded|empty|too_small|no pixels|screenshot|timeout|decode|webp|save_file|save_failed/i;
+async function captureWithRetry(target, captureFn, label) {
+  const maxRetries = Math.max(0, Math.min(10, Number(S.captureSettings?.maxRetries ?? 2)));
+  const retryDelay = Math.max(100, Number(S.captureSettings?.retryDelay ?? 650));
+  let result = null;
+  let attempts = 0;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    await waitWhileBulkPaused();
+    if (S.bulkCancel) return { success: false, error: 'cancelled', attempts: attempt };
+    if (attempt > 0) {
+      setBulkProgress(`Retry ${attempt}/${maxRetries} · ${label}`);
+      await delay(retryDelay * attempt);
+    }
+    attempts++;
+    result = await captureFn();
+    if (result && result.success) return { ...result, attempts: attempt + 1 };
+    if (!RETRYABLE_CAPTURE_ERROR.test(String(result?.error || 'failed'))) break;
+  }
+  recordBulkFailure(target, result?.error || 'failed', attempts);
+  return { ...(result || {}), success: false, attempts };
+}
+
+function waitForIconResult(ms = 60000) {
   return new Promise(resolve => {
     const t = setTimeout(() => {
       S.pendingIconResolver = null;
@@ -1274,27 +1519,65 @@ function applyBulkDisabled(disabled) {
   if (saveAllBtn)     saveAllBtn.disabled      = disabled || !S.selected;
   if ($('catMissingBtn')) $('catMissingBtn').disabled = disabled || !S.isAdmin;
   if ($('catAllBtn'))     $('catAllBtn').disabled     = disabled || !S.isAdmin;
+  if (allGendersBtn)      allGendersBtn.disabled      = disabled || !S.isAdmin;
+  if (adjustCaptureBtn)   adjustCaptureBtn.disabled   = disabled || !S.selected;
+  syncAdminGenderSwitch();
   if (cancelBulkBtn)  cancelBulkBtn.classList.toggle('hidden', !disabled);
+  if (pauseBulkBtn) pauseBulkBtn.classList.toggle('hidden', !disabled || S.bulkPaused);
+  if (resumeBulkBtn) resumeBulkBtn.classList.toggle('hidden', !disabled || !S.bulkPaused);
+  for (const id of ['prevItem','nextItem','prevTexture','nextTexture']) {
+    const el = $(id); if (el) el.disabled = disabled;
+  }
+  renderCategories();
 }
 
-async function captureOneTexture(texture) {
-  S.texture = Number(texture || 0);
+async function captureOneTexture(texture, sourceTarget = null) {
+  // Lock this before any await. Preview callbacks and catalog refreshes may update
+  // S.texture while the capture is preparing; the requested native texture must
+  // remain the exact texture visible when the admin pressed Take Image.
+  const lockedTexture = previewTexture(texture);
+  const lockedSource = sourceTarget ? normRow({ ...sourceTarget, texture: lockedTexture, textureId: lockedTexture }) : null;
+  S.texture = lockedTexture;
   if (S.activeCategory === 'torso' && S.selected)
     S.adminTorsoTarget = { ...S.selected, texture: S.texture, textureId: S.texture };
   updateBottom();
-  await previewSelected();
+  if (lockedSource) {
+    await post('sendSelectedArticle', {
+      ...lockedSource,
+      category: lockedSource.category,
+      drawable: lockedSource.drawable,
+      drawableId: lockedSource.drawable,
+      texture: lockedTexture,
+      textureId: lockedTexture,
+    });
+  } else {
+    await previewSelected();
+  }
   await delay(550);
 
   const target = getAdminTarget();
   if (!target) return { success: false, error: 'invalid_target' };
-  target.texture   = S.texture;
-  target.textureId = S.texture;
-
-  // Manual pose-and-shoot only applies to a genuine single capture of an
-  // accessory/shoe category. Multi-texture and whole-category loops run auto.
-  if (S.manualMode && S.singleManual && MANUAL_POSE_CATS.has(String(S.activeCategory))) {
-    target.manual = true;
+  // Keep the native item identity immutable for the entire job. Bulk retries can
+  // outlive preview/UI updates; rebuilding only from S.selected could otherwise
+  // capture a newly selected drawable under the previous file name.
+  if (lockedSource) {
+    const locked = lockedSource;
+    target.category = locked.category;
+    target.drawable = locked.drawable;
+    target.drawableId = locked.drawable;
+    target.gender = locked.gender;
+    target.componentType = locked.componentType || locked.component_type || target.componentType;
+    target.componentIndex = locked.componentIndex ?? locked.component_index ?? target.componentIndex;
+    target.label = sourceTarget.label || target.label;
   }
+  target.texture   = lockedTexture;
+  target.textureId = lockedTexture;
+
+  // Only the explicit Adjust Position button opens the live editor. Normal single
+  // and bulk captures use the saved/default category composition immediately.
+  const useManualEditor = S.singleManual === true && MANUAL_POSE_CATS.has(String(S.activeCategory));
+  target.manual = useManualEditor;
+  if (useManualEditor) S.singleManual = false; // retries reuse the confirmed saved pose
 
   const waiter = waitForIconResult();
   const res    = await post('captureInventoryIcon', target);
@@ -1303,7 +1586,7 @@ async function captureOneTexture(texture) {
   return waiter;
 }
 
-async function runBulkCapture(mode) {
+async function runBulkCapture(mode, adjustPosition = false) {
   if (!S.isAdmin || !S.selected || S.bulkRunning) return;
   const indices = getTextureIndices(mode);
   if (!indices.length) {
@@ -1317,43 +1600,36 @@ async function runBulkCapture(mode) {
       : `Capture ${indices.length} missing texture(s)?`;
     if (!window.confirm(msg)) return;
   }
-  S.bulkRunning = true;
-  S.bulkCancel  = false;
-  S.captureMode = 'category_' + mode;
+  beginBulk('category_' + mode);
   S.manualCropNextCapture = false;
-  // Manual pose-and-shoot for accessories/shoes: pose the FIRST texture by hand,
-  // then the remaining textures reuse that exact angle/lift/camera automatically.
-  const manualRun = S.manualMode && MANUAL_POSE_CATS.has(String(S.activeCategory));
+  const manualRun = adjustPosition === true && MANUAL_POSE_CATS.has(String(S.activeCategory));
   S.singleManual = manualRun && (mode === 'current' && indices.length === 1);
-  applyBulkDisabled(true);
-
-  let saved = 0; const failed = [];
+  let saved = 0;
   for (let i = 0; i < indices.length; i++) {
+    await waitWhileBulkPaused();
     if (S.bulkCancel) break;
     const tex = indices[i];
     // Only the first texture is posed by hand; the rest replay the remembered pose.
     S.singleManual = manualRun && i === 0;
     setCaptureStatus(true, `Saving ${i+1}/${indices.length} (T${tex})…`);
     setBulkProgress(`Saving ${i+1}/${indices.length} · T${tex}`);
-    const r = await captureOneTexture(tex);
+    const target = { ...(S.selected || {}), texture: tex, textureId: tex };
+    const r = await captureWithRetry(target, () => captureOneTexture(tex, target), `T${tex}`);
     if (r && r.success) saved++;
-    else failed.push(`T${tex}: ${r?.error || 'failed'}`);
     await delay(350);
   }
-  S.bulkRunning = false;
-  S.captureMode = null;
+  endBulk();
   S.manualCropNextCapture = false;
   S.singleManual = false;
-  applyBulkDisabled(false);
   setCaptureStatus(false);
   renderTextureStatus();
   renderCategories();
   const done = S.bulkCancel ? 'Cancelled' : 'Done';
-  setBulkProgress(`${done}: saved ${saved}/${indices.length}${failed.length ? ` · Failed: ${failed.join(', ')}` : ''}`, true);
+  setBulkProgress(`${done}: saved ${saved}/${indices.length}${S.bulkFailures.length ? ` · Failed: ${S.bulkFailures.length}` : ''}`, true);
   setTimeout(() => setBulkProgress('', false), 5000);
 }
 
-// Batch capture EVERY drawable in the active category (one icon per item, texture 0).
+// Batch capture every drawable and every native texture in the active category.
 // mode 'missing' skips items that already have an image; 'all' recaptures everything.
 // Each item is auto-named, auto-priced, and routed to store/hidden by the economy rules.
 async function runCategoryCapture(mode) {
@@ -1374,14 +1650,12 @@ async function runCategoryCapture(mode) {
   }
   if (!window.confirm(`Capture ${targets.length} ${CAT_LABELS[cat] || cat} item(s)? This can take a few minutes — don't touch the game while it runs.`)) return;
 
-  S.bulkRunning = true;
-  S.bulkCancel  = false;
-  S.captureMode = 'wholecategory_' + mode;
+  beginBulk('wholecategory_' + mode);
   S.manualCropNextCapture = false;
-  applyBulkDisabled(true);
 
-  let saved = 0, empty = 0; const failed = [];
+  let saved = 0, attempted = 0;
   for (let i = 0; i < targets.length; i++) {
+    await waitWhileBulkPaused();
     if (S.bulkCancel) break;
     const row = targets[i];
 
@@ -1400,36 +1674,124 @@ async function runCategoryCapture(mode) {
     }
     updateBottom();
 
-    const tag = `#${row.drawable}${auto && auto.addon ? ' · Add-on' : ''}`;
-    setCaptureStatus(true, `Capturing ${i + 1}/${targets.length} · ${tag}`);
-    setBulkProgress(`Capturing ${i + 1}/${targets.length} · ${tag}`);
+    // Query the native texture count for this drawable, then capture every one.
+    await previewSelected();
+    const textureCount = Math.max(1, Number(S.textureCount || 1));
 
-    const r = await captureOneTexture(0);
-    if (r && r.success) saved++;
-    else if (r && /empty|too_small|no pixels/i.test(String(r.error || ''))) { empty++; failed.push(`#${row.drawable}: empty`); }
-    else failed.push(`#${row.drawable}: ${r?.error || 'failed'}`);
-    await delay(300);
+    const tag = `#${row.drawable}${auto && auto.addon ? ' · Add-on' : ''}`;
+    for (let tex = 0; tex < textureCount; tex++) {
+      await waitWhileBulkPaused();
+      if (S.bulkCancel) break;
+      attempted++;
+      setCaptureStatus(true, `Drawable ${i + 1}/${targets.length} · ${tag} · T${tex + 1}/${textureCount}`);
+      setBulkProgress(`Saved ${saved}/${attempted} · ${tag} · T${tex}`);
+      const target = { ...row, texture: tex, textureId: tex };
+      const r = await captureWithRetry(target, () => captureOneTexture(tex, target), `${tag} · T${tex}`);
+      if (r && r.success) saved++;
+      await delay(300);
+    }
   }
 
-  S.bulkRunning = false;
-  S.captureMode = null;
+  endBulk();
   S.manualCropNextCapture = false;
-  applyBulkDisabled(false);
   setCaptureStatus(false);
   renderTextureStatus();
   renderCategories();
 
   const done = S.bulkCancel ? 'Cancelled' : 'Done';
-  const emptyStr = empty ? ` · ${empty} empty — re-shoot these` : '';
-  const failStr  = failed.length ? ` · ${failed.slice(0, 6).join(', ')}${failed.length > 6 ? '…' : ''}` : '';
-  setBulkProgress(`${done}: saved ${saved}/${targets.length}${emptyStr}${failStr}`, true);
+  const failStr = S.bulkFailures.length ? ` · ${S.bulkFailures.length} failed (open list above)` : '';
+  setBulkProgress(`${done}: saved ${saved}/${attempted}${failStr}`, true);
   setTimeout(() => setBulkProgress('', false), 9000);
+}
+
+async function captureDirectJob(job) {
+  const preset = CAPTURE_PRESETS[job.category] || {};
+  const target = {
+    ...job,
+    drawable: Number(job.drawableId ?? job.drawable),
+    texture: Number(job.textureId ?? job.texture ?? 0),
+    drawableId: Number(job.drawableId ?? job.drawable),
+    textureId: Number(job.textureId ?? job.texture ?? 0),
+    captureAngle: preset.angle || 'front',
+    captureAngleOverride: false,
+    zOffset: Number(preset.zOffset || 0),
+    captureBackground: 'green',
+    destination: 'hidden',
+    enabled: true,
+    price: 0,
+  };
+  const waiter = waitForIconResult(60000);
+  const res = await post('captureInventoryIcon', target);
+  if (res && res.success === false && S.pendingIconResolver)
+    S.pendingIconResolver({ success: false, error: res.error || 'capture_start_failed' });
+  return waiter;
+}
+
+async function runAllGenderCapture() {
+  if (!S.isAdmin || S.bulkRunning) return;
+  setBulkProgress('Enumerating male and female drawable/texture combinations…');
+  const enumeration = await post('enumerateCaptureJobs');
+  const jobs = Array.isArray(enumeration?.jobs) ? enumeration.jobs : [];
+  if (!enumeration?.success || !jobs.length) {
+    setBulkProgress(`Enumeration failed: ${enumeration?.error || 'no jobs returned'}`);
+    return;
+  }
+  if (enumeration.truncated) {
+    setBulkProgress('Safety limit reached while enumerating; capture was not started.');
+    return;
+  }
+  if (!window.confirm(`Capture ${jobs.length} male + female images? Every drawable and every texture will be saved as a single PNG. You can pause or cancel safely.`)) {
+    setBulkProgress('', false);
+    return;
+  }
+
+  beginBulk('all_genders_all_textures');
+  S.manualCropNextCapture = false;
+  S.armCropForCategory = null;
+  let saved = 0;
+
+  for (let i = 0; i < jobs.length; i++) {
+    await waitWhileBulkPaused();
+    if (S.bulkCancel) break;
+    const job = jobs[i];
+    const label = `${job.gender} · ${job.category} · D${job.drawableId}/T${job.textureId}`;
+    setCaptureStatus(true, `Capturing ${i + 1}/${jobs.length} · ${label}`);
+    setBulkProgress(`${i + 1}/${jobs.length} · saved ${saved} · ${label}`);
+    const result = await captureWithRetry(job, () => captureDirectJob(job), label);
+    if (result && result.success) saved++;
+    await delay(250);
+  }
+
+  const cancelled = S.bulkCancel;
+  endBulk();
+  setCaptureStatus(false);
+  const failed = S.bulkFailures.length;
+  setBulkProgress(`${cancelled ? 'Cancelled' : 'Done'}: saved ${saved}/${jobs.length}${failed ? ` · ${failed} failed (open list)` : ''}`, true);
 }
 
 /* ══════════════════════════════════════════════════════════
    IMAGE PROCESSING — background removal
    ══════════════════════════════════════════════════════════ */
 function clamp01(n, fb) { n = Number(n); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fb; }
+
+async function addRequestedOutputFormats(result, payload = {}) {
+  const formats = payload.formats || { png: true, webp: true };
+  if (!result || !result.dataUrl || formats.webp === false) return result;
+  const image = await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('webp_image_load_failed'));
+    img.src = result.dataUrl;
+  });
+  const canvas = document.createElement('canvas');
+  canvas.width = image.naturalWidth || image.width;
+  canvas.height = image.naturalHeight || image.height;
+  canvas.getContext('2d').drawImage(image, 0, 0);
+  const quality = Math.max(0.1, Math.min(1, Number(payload.webpQuality ?? 0.94)));
+  const webp = canvas.toDataURL('image/webp', quality);
+  if (!webp.startsWith('data:image/webp;base64,')) throw new Error('webp_encoding_unavailable');
+  return { ...result, webpDataUrl: webp, webpBase64: webp.split(',')[1] };
+}
 
 function removeBackgroundAndCrop(dataUrl, payload = {}) {
   return new Promise((resolve, reject) => {
@@ -1445,6 +1807,7 @@ function removeBackgroundAndCrop(dataUrl, payload = {}) {
       const d = imageData.data;
       const ch  = payload.chroma || {};
       const ac  = payload.autoCrop || {};
+      const differenceIsolated = payload.differenceIsolated === true;
       const bg  = String(payload.captureBackground || payload.backgroundColor || 'green').toLowerCase();
 
       // Chroma key params. The normal key is conservative so green clothing is safer.
@@ -1567,7 +1930,7 @@ function removeBackgroundAndCrop(dataUrl, payload = {}) {
       // Step 2: edge flood-fill background removal.
       // This is what removes daylight/shadow variation from the green screen.
       // It starts only from crop edges, so disconnected green clothing is much safer.
-      if (ac.floodFillBackground !== false) {
+      if (!differenceIsolated && ac.floodFillBackground !== false) {
         const visited = new Uint8Array(src.width * src.height);
         const queue = [];
         const push = (x, y) => {
@@ -1591,15 +1954,17 @@ function removeBackgroundAndCrop(dataUrl, payload = {}) {
       }
 
       // Step 3: normal chroma key inside crop.
-      for (let y = minY; y <= maxY; y++) {
-        for (let x = minX; x <= maxX; x++) {
-          const i = idx(x, y);
-          if (d[i+3] > 10 && isKey(i)) { d[i+3] = 0; removed++; }
+      if (!differenceIsolated) {
+        for (let y = minY; y <= maxY; y++) {
+          for (let x = minX; x <= maxX; x++) {
+            const i = idx(x, y);
+            if (d[i+3] > 10 && isKey(i)) { d[i+3] = 0; removed++; }
+          }
         }
       }
 
       // Step 4: green de-spill on remaining item edge pixels.
-      if (soften && bg === 'green') {
+      if (!differenceIsolated && soften && bg === 'green') {
         for (let y = minY; y <= maxY; y++) {
           for (let x = minX; x <= maxX; x++) {
             const i = idx(x, y);
@@ -1611,7 +1976,7 @@ function removeBackgroundAndCrop(dataUrl, payload = {}) {
       }
 
       // Step 5: fallback head removal if streamed invisible head/reset flag fails.
-      removed += removeHeadFallbackPixels();
+      if (!differenceIsolated) removed += removeHeadFallbackPixels();
 
       // Step 6: remove tiny isolated leftover pixels caused by shadow/compression.
       const passes = ac.removeLoosePixels === false ? 0 : Math.max(0, Number(ac.loosePixelPasses ?? 1));
@@ -1710,6 +2075,486 @@ function removeBackgroundAndCrop(dataUrl, payload = {}) {
 }
 
 /* ══════════════════════════════════════════════════════════
+   /clothingstore · STORE MANAGER (admin)
+   Browse every saved clothe (with its captured image), publish/unpublish to
+   the player store, set price, assign to an org locker, preview on a
+   disposable fake ped (male + female), and jump back into /clothingadmin
+   with the clothe preselected to retake its image.
+   ══════════════════════════════════════════════════════════ */
+const M = {
+  open: false,
+  rows: [],
+  gender: 'male',
+  category: 'all',
+  status: 'all',
+  q: '',
+  orgs: [],
+  selectedKey: null,
+  fit: { arms: null, armsTexture: 0, armsCount: 0, undershirt: null, undershirtTexture: 0, undershirtCount: 0 },
+  switchingGender: false,
+  previewReady: false,
+};
+
+function manageImageUrl(row) {
+  const img = String(row.image || row.icon || '').trim();
+  if (!img) return '';
+  if (/^(nui:|https?:|data:)/i.test(img)) return img;
+  if (img.startsWith('generated_images/')) {
+    const version = encodeURIComponent(String(row.imageVersion || row.image_version || ''));
+    return `nui://${resource}/${img}${version ? `?v=${version}` : ''}`;
+  }
+  if (img.startsWith('ui/images/')) return `nui://cm-items/${img}`;
+  if (img.startsWith('images/')) return `nui://cm-items/ui/${img}`;
+  if (img.startsWith('custom/')) return `nui://cm-items/ui/images/clothing/${img}`;
+  if (img.startsWith('clothing/')) return `nui://cm-items/ui/images/${img}`;
+  return img;
+}
+
+function manageDrawableOf(r) { return Number(r.drawableId ?? r.drawable_id ?? r.drawable); }
+function manageTextureOf(r) {
+  const texture = Number(r._previewTexture ?? r.textureId ?? r.texture_id ?? r.texture ?? -1);
+  return Number.isFinite(texture) ? texture : -1;
+}
+function manageBaseKey(r) { return `${String(r.gender || 'male').toLowerCase()}|${normCat(r)}|${manageDrawableOf(r)}`; }
+function manageRowKey(r) { return `${manageBaseKey(r)}|${manageTextureOf(r)}`; }
+function manageEnabled(r) { return !(r.enabled === false || r.enabled === 0 || r.enabled === '0'); }
+function manageHasImage(r) { return String(r.image || r.icon || '').trim() !== ''; }
+
+function manageOrgOf(r) {
+  const org = String(r.org || '').toLowerCase();
+  if (org) return org;
+  const m = String(r.shop || '').toLowerCase().match(/^org_(.+)$/);
+  return m ? m[1] : '';
+}
+
+function manageOrganizationsOf(r) {
+  const values = Array.isArray(r.organizations) ? r.organizations : [];
+  const normalized = [...new Set(values.map(v => String(v || '').toLowerCase()).filter(Boolean))];
+  if (!normalized.length) {
+    const legacy = manageOrgOf(r);
+    if (legacy) normalized.push(legacy);
+  }
+  return normalized;
+}
+
+function selectedManageDestinations() {
+  if (!manageOrgChoices) return { publicStore: true, organizations: [] };
+  const publicStore = manageOrgChoices.querySelector('[data-public-store]')?.checked === true;
+  const organizations = [...manageOrgChoices.querySelectorAll('[data-org]:checked')].map(input => input.dataset.org);
+  return { publicStore, organizations };
+}
+
+// One card per captured texture. The texture=-1 row owns shared management
+// state, but must not collapse every photographed texture into one card.
+function manageGrouped() {
+  const masters = new Map();
+  const exact = new Map();
+  for (const r of M.rows) {
+    const cat = normCat(r);
+    if (!cat || cat === 'arms') continue;
+    const drawable = manageDrawableOf(r);
+    if (!Number.isFinite(drawable)) continue;
+    const base = `${String(r.gender || 'male').toLowerCase()}|${cat}|${drawable}`;
+    const tex = Number(r.textureId ?? r.texture_id ?? r.texture ?? -1);
+    const normalized = { ...r, category: cat };
+    if (tex < 0) masters.set(base, normalized);
+    else exact.set(`${base}|${tex}`, { ...normalized, _previewTexture: tex });
+  }
+
+  const rows = [];
+  const basesWithExact = new Set();
+  for (const captured of exact.values()) {
+    const base = manageBaseKey(captured);
+    const master = masters.get(base);
+    basesWithExact.add(base);
+    if (master) {
+      rows.push({
+        ...captured, ...master,
+        category: captured.category,
+        _tex: -1,
+        _previewTexture: manageTextureOf(captured),
+        image: captured.image || captured.icon || master.image || master.icon,
+        icon: captured.icon || captured.image || master.icon || master.image,
+      });
+    } else {
+      rows.push({ ...captured, _tex: manageTextureOf(captured) });
+    }
+  }
+  for (const [base, master] of masters) {
+    if (!basesWithExact.has(base)) rows.push({ ...master, _tex: -1, _previewTexture: 0 });
+  }
+  return rows;
+}
+
+function manageFiltered() {
+  const q = M.q.trim().toLowerCase();
+  return manageGrouped()
+    .filter(r => {
+      if (String(r.gender || 'male').toLowerCase() !== M.gender) return false;
+      if (M.category !== 'all' && r.category !== M.category) return false;
+      const org = manageOrgOf(r);
+      const pub = manageEnabled(r);
+      if (M.status === 'published' && !pub) return false;
+      if (M.status === 'unpublished' && pub) return false;
+      if (M.status === 'org' && !org) return false;
+      if (M.status === 'noimage' && manageHasImage(r)) return false;
+      if (q) {
+        const hay = `${r.label || ''} ${r.category} ${manageDrawableOf(r)} ${manageTextureOf(r)} ${org}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => a.category === b.category
+      ? (manageDrawableOf(a) - manageDrawableOf(b)) || (manageTextureOf(a) - manageTextureOf(b))
+      : a.category.localeCompare(b.category));
+}
+
+function manageSelectedRow() {
+  if (!M.selectedKey) return null;
+  return manageGrouped().find(r => manageRowKey(r) === M.selectedKey) || null;
+}
+
+function managePreviewPayload(row) {
+  if (!row) return null;
+  const texture = Math.max(0, Number(row._previewTexture ?? row.textureId ?? row.texture ?? 0));
+  return { ...row, texture, textureId: texture, texture_id: texture };
+}
+
+function fillManageOrgOptions() {
+  if (!manageOrgChoices) return;
+  manageOrgChoices.innerHTML =
+    '<label class="manage-org-choice"><input type="checkbox" data-public-store> <span>PUBLIC STORE</span></label>' +
+    M.orgs.map(o => `<label class="manage-org-choice"><input type="checkbox" data-org="${o.key}"> <span>${o.label || String(o.key).toUpperCase()}</span></label>`).join('');
+}
+
+function fillManageCategoryOptions() {
+  if (!manageCategoryFilter) return;
+  const cats = [...new Set(manageGrouped().map(r => r.category))].sort();
+  const cur = M.category;
+  manageCategoryFilter.innerHTML = '<option value="all">All categories</option>' +
+    cats.map(c => `<option value="${c}">${CAT_LABELS[c] || c}</option>`).join('');
+  manageCategoryFilter.value = cats.includes(cur) ? cur : 'all';
+  M.category = manageCategoryFilter.value;
+}
+
+function setManageGenderTabs() {
+  if (manageGenderMale) manageGenderMale.classList.toggle('active', M.gender === 'male');
+  if (manageGenderFemale) manageGenderFemale.classList.toggle('active', M.gender === 'female');
+  if (manageGenderMale) manageGenderMale.disabled = M.switchingGender;
+  if (manageGenderFemale) manageGenderFemale.disabled = M.switchingGender;
+}
+
+function applyManageFitState(data = {}, markReady = true) {
+  M.fit = {
+    arms: data.arms == null ? null : Number(data.arms),
+    armsTexture: Number(data.armsTexture ?? data.arms_texture ?? 0),
+    armsCount: Number(data.armsCount || 0),
+    undershirt: data.undershirt == null ? null : Number(data.undershirt),
+    undershirtTexture: Number(data.undershirtTexture ?? data.undershirt_texture ?? 0),
+    undershirtCount: Number(data.undershirtCount || 0),
+  };
+  if (markReady) M.previewReady = true;
+  if (manageArmsValue) {
+    const max = Math.max(0, Number(M.fit.arms || 0), M.fit.armsCount - 1);
+    manageArmsValue.textContent = M.fit.arms == null ? '—' : `${M.fit.arms} / ${max}`;
+  }
+  if (manageUnderValue) {
+    const max = Math.max(0, Number(M.fit.undershirt || 0), M.fit.undershirtCount - 1);
+    manageUnderValue.textContent = M.fit.undershirt == null ? '—' : `${M.fit.undershirt} / ${max}`;
+  }
+  const disabled = !M.previewReady || M.switchingGender;
+  if (manageArmsPrev) manageArmsPrev.disabled = disabled;
+  if (manageArmsNext) manageArmsNext.disabled = disabled;
+  if (manageUnderPrev) manageUnderPrev.disabled = disabled;
+  if (manageUnderNext) manageUnderNext.disabled = disabled;
+  if (manageSaveTorsoFit) manageSaveTorsoFit.disabled = disabled;
+}
+
+function renderManageGrid() {
+  if (!manageGrid) return;
+  const rows = manageFiltered();
+  if (manageCount) manageCount.textContent = `${rows.length} clothe${rows.length === 1 ? '' : 's'} · ${M.gender.toUpperCase()}`;
+  manageGrid.innerHTML = rows.map(r => {
+    const key = manageRowKey(r);
+    const img = manageImageUrl(r);
+    const pub = manageEnabled(r);
+    const organizations = manageOrganizationsOf(r);
+    const org = organizations.join(' ');
+    const badges = [
+      organizations.map(value => `<span class="m-badge m-badge--org">${value.toUpperCase()}</span>`).join(''),
+      pub ? '<span class="m-badge m-badge--on">IN STORE</span>' : '<span class="m-badge m-badge--off">SAVED</span>',
+      manageHasImage(r) ? '' : '<span class="m-badge m-badge--warn">NO IMG</span>',
+    ].join('');
+    const name = r.label || `${CAT_LABELS[r.category] || r.category} ${manageDrawableOf(r)}/${manageTextureOf(r)}`;
+    return `<button type="button" class="m-card${key === M.selectedKey ? ' active' : ''}" data-key="${key}">
+      <div class="m-card-img">${img ? `<img src="${img}" loading="lazy" alt="" onerror="this.style.display='none'">` : '<span class="m-card-noimg">NO IMG</span>'}</div>
+      <div class="m-card-name">${name}</div>
+      <div class="m-card-sub">${CAT_LABELS[r.category] || r.category} · D${manageDrawableOf(r)} T${manageTextureOf(r)} · $${Number(r.price || 0)}</div>
+      <div class="m-card-badges">${badges}</div>
+    </button>`;
+  }).join('');
+  manageGrid.querySelectorAll('.m-card').forEach(el => { el.onclick = () => selectManageRow(el.dataset.key); });
+}
+
+function renderManageDetail() {
+  const row = manageSelectedRow();
+  const has = !!row;
+  if (manageDetailEmpty) manageDetailEmpty.classList.toggle('hidden', has);
+  if (manageDetailBody) manageDetailBody.classList.toggle('hidden', !has);
+  if (!has) return;
+  const img = manageImageUrl(row);
+  if (manageDetailImg) {
+    manageDetailImg.src = img || '';
+    manageDetailImg.classList.toggle('hidden', !img);
+  }
+  if (manageDetailNoImg) manageDetailNoImg.classList.toggle('hidden', !!img);
+  if (manageDetailMeta) manageDetailMeta.textContent =
+    `${CAT_LABELS[row.category] || row.category} · ${String(row.gender || 'male').toUpperCase()} · Drawable ${manageDrawableOf(row)} · Texture ${manageTextureOf(row)}`;
+  if (manageLabel && document.activeElement !== manageLabel) manageLabel.value = row.label || '';
+  if (managePrice && document.activeElement !== managePrice) managePrice.value = String(Number(row.price || 0));
+  if (manageOrgChoices) {
+    const organizations = new Set(manageOrganizationsOf(row));
+    const publicInput = manageOrgChoices.querySelector('[data-public-store]');
+    if (publicInput) publicInput.checked = row.publicStore === true || String(row.shop || '').toLowerCase() === 'clothes';
+    manageOrgChoices.querySelectorAll('[data-org]').forEach(input => { input.checked = organizations.has(input.dataset.org); });
+  }
+  const isTorso = row.category === 'torso';
+  if (manageTorsoFit) manageTorsoFit.classList.toggle('hidden', !isTorso);
+  if (isTorso) {
+    applyManageFitState({
+      arms: M.fit.arms == null ? row.arms : M.fit.arms,
+      armsTexture: M.fit.arms == null ? (row.armsTexture ?? row.arms_texture ?? 0) : M.fit.armsTexture,
+      armsCount: M.fit.armsCount,
+      undershirt: M.fit.undershirt == null ? row.undershirt : M.fit.undershirt,
+      undershirtTexture: M.fit.undershirt == null ? (row.undershirtTexture ?? row.undershirt_texture ?? 0) : M.fit.undershirtTexture,
+      undershirtCount: M.fit.undershirtCount,
+    }, false);
+  }
+  const pub = manageEnabled(row);
+  if (managePublishBtn) {
+    managePublishBtn.textContent = pub ? 'REMOVE FROM STORE' : 'PUBLISH TO STORE';
+    managePublishBtn.classList.toggle('btn--green', !pub);
+    managePublishBtn.classList.toggle('btn--close', pub);
+  }
+  if (manageDetailState) {
+    const organizations = manageOrganizationsOf(row);
+    const destinations = [row.publicStore === true || String(row.shop || '').toLowerCase() === 'clothes' ? 'PUBLIC STORE' : '',
+      ...organizations.map(value => `${value.toUpperCase()} LOCKER`)].filter(Boolean);
+    manageDetailState.textContent = pub
+      ? `Published in: ${destinations.join(' · ') || 'no destination selected'}.`
+      : 'Saved only — players cannot see this clothe yet.';
+    manageDetailState.classList.remove('hidden');
+    manageDetailState.classList.toggle('item-state-note--ok', pub);
+    manageDetailState.classList.toggle('item-state-note--warn', !pub);
+  }
+}
+
+function selectManageRow(key) {
+  M.selectedKey = key || null;
+  const row = manageSelectedRow();
+  M.previewReady = false;
+  M.fit = {
+    arms: row && row.arms != null ? Number(row.arms) : null,
+    armsTexture: Number(row && (row.armsTexture ?? row.arms_texture) || 0),
+    armsCount: 0,
+    undershirt: row && row.undershirt != null ? Number(row.undershirt) : null,
+    undershirtTexture: Number(row && (row.undershirtTexture ?? row.undershirt_texture) || 0),
+    undershirtCount: 0,
+  };
+  renderManageGrid();
+  renderManageDetail();
+  // Selection is the preview action. The explicit PREVIEW button remains as a
+  // retry, but admins no longer need a second click for every clothe.
+  if (row) post('managePreviewItem', { row: managePreviewPayload(row) });
+}
+
+function manageBuildSavePayload(row, published) {
+  const destinations = selectedManageDestinations();
+  const payload = {
+    category: row.category,
+    drawableId: manageDrawableOf(row),
+    textureId: -1,
+    gender: String(row.gender || 'male').toLowerCase(),
+    label: manageLabel && manageLabel.value.trim() ? manageLabel.value.trim() : (row.label || ''),
+    price: managePrice && managePrice.value !== ''
+      ? Math.max(0, Math.floor(Number(managePrice.value) || 0))
+      : Number(row.price || 0),
+    orgs: destinations.organizations,
+    publicStore: destinations.publicStore,
+    published: published === true,
+    image: row.image || row.icon || '',
+  };
+  if (row.category === 'torso') {
+    payload.arms = M.fit.arms;
+    payload.armsTexture = M.fit.armsTexture;
+    payload.undershirt = M.fit.undershirt;
+    payload.undershirtTexture = M.fit.undershirtTexture;
+  }
+  return payload;
+}
+
+async function manageSaveSelected(publishOverride) {
+  const row = manageSelectedRow();
+  if (!row) return;
+  const published = publishOverride === undefined ? manageEnabled(row) : publishOverride;
+  if (published && !manageHasImage(row)) {
+    toast('This clothe has no image. Use RETAKE IMAGE first, then publish.', 'error');
+    return;
+  }
+  await post('manageSaveItem', manageBuildSavePayload(row, published));
+}
+
+function applyManageSaved(row) {
+  if (!row) return;
+  const base = manageBaseKey(row);
+  const selectedKey = M.selectedKey;
+  let updated = false;
+  M.rows = M.rows.map(existing => {
+    if (manageBaseKey(existing) !== base) return existing;
+    updated = true;
+    return {
+      ...existing,
+      label: row.label,
+      description: row.description,
+      price: row.price,
+      enabled: row.enabled,
+      shop: row.shop,
+      org: row.org,
+      organizations: row.organizations,
+      publicStore: row.publicStore,
+      arms: row.arms,
+      armsTexture: row.armsTexture ?? row.arms_texture,
+      undershirt: row.undershirt,
+      undershirtTexture: row.undershirtTexture ?? row.undershirt_texture,
+    };
+  });
+  if (!updated) M.rows.push(row);
+  M.selectedKey = selectedKey;
+  fillManageCategoryOptions();
+  renderManageGrid();
+  renderManageDetail();
+  // Keep the shop catalog copy consistent if it is loaded in this session.
+  const i = S.catalog.findIndex(c => drawKey(normRow(c)) === drawKey(normRow(row)));
+  if (i >= 0) S.catalog[i] = { ...S.catalog[i], ...row };
+}
+
+function openManage(data) {
+  M.open = data.value !== false;
+  if (managePanel) managePanel.classList.toggle('hidden', !M.open);
+  app.classList.toggle('manage-mode', M.open);
+  if (M.open) app.classList.remove('hidden');
+  else if (!S.open) app.classList.add('hidden');
+  if (!M.open) return;
+  M.orgs = Array.isArray(data.orgs) ? data.orgs : [];
+  M.rows = [];
+  M.gender = String(data.gender || 'male').toLowerCase() === 'female' ? 'female' : 'male';
+  M.selectedKey = null;
+  M.q = '';
+  if (manageSearch) manageSearch.value = '';
+  setManageGenderTabs();
+  fillManageOrgOptions();
+  renderManageGrid();
+  renderManageDetail();
+}
+
+async function setManageGender(g) {
+  const next = g === 'female' ? 'female' : 'male';
+  if (M.switchingGender) return;
+
+  // Always round-trip through manageSetGender, even on a same-tab click — the
+  // manager can reopen with stale NUI state after a model swap/retake, and the
+  // Lua side now re-verifies the ped's actual model hash rather than trusting
+  // the tab we last rendered, so a repeat click self-heals a desynced ped.
+  M.switchingGender = true;
+  M.gender = next;
+  M.selectedKey = null;
+  M.previewReady = false;
+  setManageGenderTabs();
+  renderManageGrid();
+  renderManageDetail();
+  const res = await Promise.race([
+    post('manageSetGender', { gender: next }),
+    new Promise(resolve => setTimeout(() => resolve({ success: false, error: 'model_switch_timeout' }), 10000)),
+  ]);
+  M.switchingGender = false;
+  setManageGenderTabs();
+  if (!res || res.success !== true) toast(`Could not switch to ${next} model.`, 'error');
+}
+
+async function cycleManageFit(slot, dir) {
+  const row = manageSelectedRow();
+  if (!row || row.category !== 'torso') return;
+  if (!M.previewReady) { toast('Wait for the live preview to finish loading.', 'info'); return; }
+  const res = await post('manageCycleFit', { slot, dir });
+  if (res && res.success) applyManageFitState(res);
+}
+
+async function saveManageTorsoFit() {
+  const row = manageSelectedRow();
+  if (!row || row.category !== 'torso') return;
+  if (!M.previewReady) { toast('Wait for the live preview to finish loading.', 'info'); return; }
+  const fit = await post('manageGetFit', {});
+  if (!fit || fit.success === false) return;
+  applyManageFitState(fit);
+  await manageSaveSelected(undefined);
+}
+
+// /clothingstore handed us a clothe to re-photograph. Once the admin panel is
+// open and its catalog has loaded, jump straight to that exact item.
+function tryApplyPendingRetake() {
+  const row = S.pendingRetake;
+  if (!row || !S.open || !S.isAdmin) return;
+  const cat = normCat(row);
+  if (!cat || !S.categories.includes(cat)) return;
+  S.pendingRetake = null;
+  setCategory(cat);
+  const target = manageDrawableOf(row);
+  const idx = S.filtered.findIndex(r => Number(r.drawable) === target);
+  if (idx >= 0) {
+    S.itemPos = idx;
+    S.selected = S.filtered[idx];
+    const tex = Number(row.textureId ?? row.texture ?? 0);
+    S.texture = tex >= 0 ? tex : 0;
+    S.textureCount = 1;
+    applyTextureModeFromCatalog(S.texture);
+    updateBottom();
+    previewSelected();
+  }
+  $('itemName').textContent = `RETAKE: ${row.label || `${cat} ${target}`} — use TAKE IMAGE / UPDATE`;
+}
+
+if (manageCloseBtn)   manageCloseBtn.onclick   = () => post('manageClose');
+if (manageRefreshBtn) manageRefreshBtn.onclick = () => post('manageRefresh');
+if (manageGenderMale)   manageGenderMale.onclick   = () => setManageGender('male');
+if (manageGenderFemale) manageGenderFemale.onclick = () => setManageGender('female');
+if (manageCategoryFilter) manageCategoryFilter.onchange = () => {
+  M.category = manageCategoryFilter.value;
+  M.selectedKey = null;
+  renderManageGrid();
+  renderManageDetail();
+};
+if (manageStatusFilter) manageStatusFilter.onchange = () => { M.status = manageStatusFilter.value; renderManageGrid(); };
+if (manageSearch) manageSearch.addEventListener('input', () => { M.q = manageSearch.value; renderManageGrid(); });
+if (managePublishBtn) managePublishBtn.onclick = () => {
+  const r = manageSelectedRow();
+  if (r) manageSaveSelected(!manageEnabled(r));
+};
+if (manageSaveBtn) manageSaveBtn.onclick = () => manageSaveSelected(undefined);
+if (managePreviewBtn) managePreviewBtn.onclick = () => {
+  const r = manageSelectedRow();
+  if (r) post('managePreviewItem', { row: managePreviewPayload(r) });
+};
+if (manageArmsPrev) manageArmsPrev.onclick = () => cycleManageFit('arms', -1);
+if (manageArmsNext) manageArmsNext.onclick = () => cycleManageFit('arms', 1);
+if (manageUnderPrev) manageUnderPrev.onclick = () => cycleManageFit('undershirt', -1);
+if (manageUnderNext) manageUnderNext.onclick = () => cycleManageFit('undershirt', 1);
+if (manageSaveTorsoFit) manageSaveTorsoFit.onclick = () => saveManageTorsoFit();
+if (manageRetakeBtn) manageRetakeBtn.onclick = () => {
+  const r = manageSelectedRow();
+  if (r) post('manageRetake', { row: r });
+};
+
+/* ══════════════════════════════════════════════════════════
    NUI MESSAGE HANDLER
    ══════════════════════════════════════════════════════════ */
 const delay = ms => new Promise(r => setTimeout(r, ms));
@@ -1722,8 +2567,28 @@ window.addEventListener('message', ({ data = {} }) => {
       S.catalog = Array.isArray(data.catalog) ? data.catalog : [];
       if (S.activeCategory) setCategory(S.activeCategory);
       else renderCategories();
+      // A /clothingstore retake may be waiting for this catalog.
+      tryApplyPendingRetake();
       break;
     case 'adminMode':         setAdminMode(data.value);                         break;
+    case 'adminGenderChanged':
+      S.adminGenderSwitching = false;
+      applyAdminGenderChanged(data.gender, data.counts || {});
+      break;
+
+    case 'openManagePanel':   openManage(data);                                 break;
+    case 'manageCatalog':
+      M.rows = Array.isArray(data.rows) ? data.rows : [];
+      fillManageCategoryOptions();
+      renderManageGrid();
+      renderManageDetail();
+      break;
+    case 'manageItemSaved':   applyManageSaved(data.row);                       break;
+    case 'manageFitState':    applyManageFitState(data);                         break;
+    case 'manageRetakeTarget':
+      S.pendingRetake = data.row || null;
+      tryApplyPendingRetake();
+      break;
 
     case 'favourites':
       S.favourites = new Set((data.keys || []).map(k => String(k).toLowerCase()));
@@ -1733,12 +2598,16 @@ window.addEventListener('message', ({ data = {} }) => {
       break;
 
     case 'captureCrops':
-      S.captureCrops = data.crops || {};
+      S.captureCrops = {};
+      Object.entries(data.crops || {}).forEach(([category, crop]) => {
+        const key = normCat({ category });
+        if (key) S.captureCrops[key] = crop;
+      });
       syncCropSection();
       break;
 
     case 'manualPoseStart':
-      enterPoseMode(data.category, Number(data.heading) || 0);
+      enterPoseMode(data.category, Number(data.heading) || 0, data.camera || {});
       break;
 
     case 'prepareIconCapture':
@@ -1752,18 +2621,25 @@ window.addEventListener('message', ({ data = {} }) => {
       if (!S.bulkRunning) { setCaptureStatus(false); refreshCaptureBackdropPreview(); }
       if (data.success) {
         if (data.entry) {
+          // Build 2.19: captures save the clothe UNPUBLISHED unless it was
+          // already published; the server's entry carries the real enabled
+          // state, so never force enabled: true here.
           const row = normRow(data.entry);
           const i   = S.catalog.findIndex(r => fullKey(normRow(r)) === fullKey(row));
-          if (i >= 0) S.catalog[i] = { ...S.catalog[i], ...data.entry, enabled: true };
-          else S.catalog.push({ ...data.entry, enabled: true });
+          if (i >= 0) S.catalog[i] = { ...S.catalog[i], ...data.entry };
+          else S.catalog.push({ ...data.entry });
           if (S.selected && drawKey(S.selected) === drawKey(row)) {
-            S.selected = { ...S.selected, ...row, enabled: true };
-            if (S.filtered[S.itemPos]) S.filtered[S.itemPos] = { ...S.filtered[S.itemPos], ...row, enabled: true };
+            S.selected = { ...S.selected, ...row };
+            if (S.filtered[S.itemPos]) S.filtered[S.itemPos] = { ...S.filtered[S.itemPos], ...row };
           }
           renderCategories();
           updateBottom();
         }
-        $('itemName').textContent = '✓ IMAGE SAVED — ITEM ADDED TO STORE';
+        $('itemName').textContent = data.entry?.imageOnly
+          ? '✓ PNG + WEBP SAVED LOCALLY'
+          : (data.entry?.enabled === true
+            ? '✓ IMAGE RETAKEN — CLOTHE STAYS PUBLISHED'
+            : '✓ CLOTHE SAVED — PUBLISH IT IN /clothingstore');
       } else {
         $('itemName').textContent = `✗ ICON SAVE FAILED: ${data.error || 'unknown'}`;
       }
@@ -1778,28 +2654,20 @@ window.addEventListener('message', ({ data = {} }) => {
       break;
 
     case 'processIconImage':
-      setCaptureStatus(true, 'Removing background…');
+      setCaptureStatus(true, 'Removing background from single capture…');
       removeBackgroundAndCrop(data.image, data.payload || {})
         .then(result => {
-          if (capturePreview && result.dataUrl) {
-            capturePreview.src = result.dataUrl;
-            capturePreview.classList.remove('hidden');
-          }
-          const cat = String((data.payload && data.payload.category) || S.activeCategory || '').toLowerCase();
-
-          // Manual pose shot just confirmed: always open the crop editor so the
-          // admin trims and saves this hand-posed image.
-          if (S.manualShotPending) {
-            S.manualShotPending = false;
-            setCaptureStatus(true, 'Crop the shot, then save…');
-            return openCropEditor(result, data.payload || {});
-          }
+          const cat = normCat({ category: (data.payload && data.payload.category) || S.activeCategory || '' });
 
           // 1) Admin is (re)setting the crop for this category: open the editor.
           //    Whatever they save becomes the category's persistent crop.
           //    Only during a single capture — never mid category bulk run.
           const inCategoryBulk = String(S.captureMode || '').startsWith('wholecategory_');
           if (S.armCropForCategory && S.armCropForCategory === cat && !inCategoryBulk) {
+            // Consume the request before opening the editor. If image saving later
+            // retries, it must use the saved crop automatically instead of opening
+            // the crop editor a second time.
+            S.armCropForCategory = null;
             setCaptureStatus(true, 'Set the crop for this category, then save…');
             return openCropEditor(result, data.payload || {});
           }
@@ -1813,6 +2681,17 @@ window.addEventListener('message', ({ data = {} }) => {
 
           return result;
         })
+        // Show exactly the pixels that continue to encoding/saving. Previously
+        // the preview was updated before the saved category crop ran, so a retake
+        // looked uncropped even though its output file was cropped afterward.
+        .then(result => {
+          if (capturePreview && result && result.dataUrl) {
+            capturePreview.src = result.dataUrl;
+            capturePreview.classList.remove('hidden');
+          }
+          return result;
+        })
+        .then(result => addRequestedOutputFormats(result, data.payload || {}))
         .then(result => post('iconProcessed', { ...result, payload: data.payload || {} }))
         .then(() => { if (!S.bulkRunning) setCaptureStatus(false); })
         .catch(err => {
@@ -1821,6 +2700,16 @@ window.addEventListener('message', ({ data = {} }) => {
           if (S.pendingIconResolver) S.pendingIconResolver({ success: false, error: String(err.message || err) });
         });
       break;
+
+    case 'captureDiagnostic': {
+      const d = data.diagnostic || {};
+      const attached = d.itemAttached === true ? 'PROP/ITEM OK' : 'PROP/ITEM FAILED';
+      const message = `${attached} · expected D${d.expectedDrawable}/T${d.expectedTexture}, actual D${d.actualDrawable}/T${d.actualTexture} · ` +
+        `model ${d.expectedGender || '?'}→${d.actualGender || '?'} · isolation ${d.isolationMode || 'unknown'} · empty head ${d.emptyHeadAccepted ? 'OK' : 'fallback'}`;
+      console.log('[nv_cloth] capture diagnostic', d);
+      setCaptureStatus(true, message);
+      break;
+    }
   }
 });
 
@@ -1857,6 +2746,7 @@ if ($('favBtn')) $('favBtn').addEventListener('click', toggleCurrentFavourite);
 // Admin per-category crop section
 if ($('setCropBtn')) $('setCropBtn').addEventListener('click', armCropSetup);
 if ($('clearCropBtn')) $('clearCropBtn').addEventListener('click', clearSavedCrop);
+
 if (clearFiltersBtn) clearFiltersBtn.onclick = () => {
   if (searchInput) searchInput.value = '';
   if (genderFilter) genderFilter.value = 'all';
@@ -1927,11 +2817,8 @@ $('nextItem').onclick    = () => moveItem(1);
 $('prevTexture').onclick = () => moveTexture(-1);
 $('nextTexture').onclick = () => moveTexture(1);
 
-if (openArmsFitBtn) openArmsFitBtn.onclick = () => {
-  if (S.activeCategory === 'torso' && S.selected) S.adminTorsoTarget = { ...S.selected, texture: S.texture, textureId: S.texture };
-  if (S.adminTorsoTarget) setCategory('arms');
-};
-if (backToTorsoBtn) backToTorsoBtn.onclick = () => selectTorsoTarget();
+if (adminGenderMale) adminGenderMale.onclick = () => switchAdminGender('male');
+if (adminGenderFemale) adminGenderFemale.onclick = () => switchAdminGender('female');
 
 // Capture backdrop preview is optional while browsing. Capture always uses selected color.
 if (captureBackground) captureBackground.onchange = () => refreshCaptureBackdropPreview();
@@ -1942,9 +2829,23 @@ if (saveMissingBtn) saveMissingBtn.onclick = async () => runBulkCapture('missing
 if (saveAllBtn)     saveAllBtn.onclick     = async () => runBulkCapture('all');
 if ($('catMissingBtn')) $('catMissingBtn').onclick = async () => runCategoryCapture('missing');
 if ($('catAllBtn'))     $('catAllBtn').onclick     = async () => runCategoryCapture('all');
-if (captureIconBtn) captureIconBtn.onclick = async () => runBulkCapture('current');
+if (allGendersBtn)      allGendersBtn.onclick      = async () => runAllGenderCapture();
+if (adjustCaptureBtn) adjustCaptureBtn.onclick = async () => runBulkCapture('current', true);
+if (pauseBulkBtn) pauseBulkBtn.onclick = () => {
+  if (!S.bulkRunning) return;
+  S.bulkPaused = true;
+  applyBulkDisabled(true);
+  setBulkProgress('Paused after the current image. Press Resume to continue.');
+};
+if (resumeBulkBtn) resumeBulkBtn.onclick = () => {
+  if (!S.bulkRunning) return;
+  S.bulkPaused = false;
+  applyBulkDisabled(true);
+  setBulkProgress('Resuming capture…');
+};
 if (cancelBulkBtn)  cancelBulkBtn.onclick  = () => {
   S.bulkCancel = true;
+  S.bulkPaused = false;
   setBulkProgress('Cancelling after current texture…');
 };
 
@@ -1952,7 +2853,7 @@ if (cancelBulkBtn)  cancelBulkBtn.onclick  = () => {
 buyBtn.onclick = async () => {
   if (!S.selected) return;
   if (S.isAdmin) { await runBulkCapture('current'); return; }
-  const item = { ...S.selected, texture: S.texture, textureId: S.texture, drawableId: S.selected.drawable };
+  const item = { ...S.selected, texture: previewTexture(S.texture), textureId: previewTexture(S.texture), drawableId: S.selected.drawable };
   addToCart(item);
   updateCartUI();
   hidePurchaseStatus();
@@ -1990,6 +2891,10 @@ if (checkoutBtn) checkoutBtn.onclick = () => {
 
 // Close
 $('closeBtn').onclick = () => {
+  if (S.bulkRunning) {
+    toast('Cancel the capture queue first. The player will be restored after the current image.', 'error');
+    return;
+  }
   S.isAdmin         = false;
   S.adminTorsoTarget = null;
   S.cart            = [];
@@ -2008,7 +2913,12 @@ $('closeBtn').onclick = () => {
 
 // Keyboard shortcuts
 document.addEventListener('keydown', e => {
+  if (M.open) {
+    if (e.key === 'Escape') post('manageClose');
+    return;
+  }
   if (!S.open) return;
+  if (S.bulkRunning && !S.manualPosing) return;
   if (e.key === 'Escape')      $('closeBtn').click();
   if (e.key === 'ArrowLeft')   moveItem(-1);
   if (e.key === 'ArrowRight')  moveItem(1);
@@ -2025,11 +2935,15 @@ document.addEventListener('mousedown', e => {
 });
 document.addEventListener('mouseup',   () => { dragging = false; });
 document.addEventListener('mousemove', e => {
-  if (!dragging || !S.open) return;
+  if (!dragging || (!S.open && !M.open)) return;
   const dx = e.clientX - lastX;
   lastX = e.clientX;
   if (Math.abs(dx) <= 1) return;
-  if (S.manualPosing) {
+  if (M.open) {
+    // Only rotate when dragging on the open game area, not over the manager UI.
+    if (managePanel && managePanel.contains(e.target) && e.target.closest('.manage-left, .manage-detail')) return;
+    post('manageRotatePed', { delta: -dx * 0.45 });
+  } else if (S.manualPosing) {
     // During manual posing, drag rotates the posed ped via the manual callback.
     post('manualPoseRotate', { delta: -dx * 0.5 });
   } else {
@@ -2044,9 +2958,6 @@ if (cropSaveBtn) cropSaveBtn.addEventListener('click', () => { saveCropEditor(fa
 if (cropUseAutoBtn) cropUseAutoBtn.addEventListener('click', () => { saveCropEditor(true); });
 if (cropCancelBtn) cropCancelBtn.addEventListener('click', cancelCropEditor);
 
-// Manual mode toggle
-if ($('manualMode')) $('manualMode').addEventListener('change', e => { S.manualMode = !!e.target.checked; });
-
 // Pose bar controls
 if ($('poseRotLeftBig'))  $('poseRotLeftBig').addEventListener('click',  () => poseRotate(-45));
 if ($('poseRotLeft'))     $('poseRotLeft').addEventListener('click',     () => poseRotate(-15));
@@ -2055,5 +2966,17 @@ if ($('poseRotRightBig')) $('poseRotRightBig').addEventListener('click', () => p
 if ($('poseHeading'))     $('poseHeading').addEventListener('input', e => poseSetHeading(Number(e.target.value) || 0));
 if ($('poseLiftUp'))      $('poseLiftUp').addEventListener('click',   () => poseLift(0.08));
 if ($('poseLiftDown'))    $('poseLiftDown').addEventListener('click', () => poseLift(-0.08));
+if ($('poseMoveLeft'))    $('poseMoveLeft').addEventListener('click',   () => poseMove('side', -0.05));
+if ($('poseMoveRight'))   $('poseMoveRight').addEventListener('click',  () => poseMove('side',  0.05));
+if ($('poseMoveToward'))  $('poseMoveToward').addEventListener('click', () => poseMove('depth', 0.05));
+if ($('poseMoveAway'))    $('poseMoveAway').addEventListener('click',   () => poseMove('depth', -0.05));
+if ($('poseCamOrbitLeft'))  $('poseCamOrbitLeft').addEventListener('click',  () => poseCamera('orbit', -4.0));
+if ($('poseCamOrbitRight')) $('poseCamOrbitRight').addEventListener('click', () => poseCamera('orbit',  4.0));
+if ($('poseCamIn'))         $('poseCamIn').addEventListener('click',         () => poseCamera('zoom',    0.10));
+if ($('poseCamOut'))        $('poseCamOut').addEventListener('click',        () => poseCamera('zoom',   -0.10));
+if ($('poseCamDown'))       $('poseCamDown').addEventListener('click',       () => poseCamera('height', -0.04));
+if ($('poseCamUp'))         $('poseCamUp').addEventListener('click',         () => poseCamera('height',  0.04));
+if ($('poseFovWide'))       $('poseFovWide').addEventListener('click',       () => poseCamera('fov',    -2.0));
+if ($('poseFovTight'))      $('poseFovTight').addEventListener('click',      () => poseCamera('fov',     2.0));
 if ($('poseConfirm'))     $('poseConfirm').addEventListener('click', poseConfirm);
 if ($('poseCancel'))      $('poseCancel').addEventListener('click', poseCancel);

@@ -718,6 +718,28 @@ RegisterNetEvent('cm-weapons:server:requestAdminData', function()
     broadcastAdminData(src)
 end)
 
+AddEventHandler('cm-weapons:dev:openAdmin', function(src)
+    src = tonumber(src)
+    if not src or not isAdmin(src) then return end
+    loadAll()
+    TriggerClientEvent('cm-weapons:client:openAdmin', src)
+    broadcastAdminData(src)
+end)
+
+CreateThread(function()
+    while GetResourceState('cm-admin') ~= 'started' do Wait(5000) end
+    pcall(function()
+        exports['cm-admin']:RegisterDevTool({
+            id = 'weapons', label = 'Weapon Admin', category = 'Catalogs', icon = 'gun',
+            permission = 'dev.weapons',
+            actions = {
+                { id = 'open', label = 'Open Weapon Admin', type = 'launcher', realm = 'server',
+                  event = 'cm-weapons:dev:openAdmin' }
+            }
+        })
+    end)
+end)
+
 RegisterNetEvent('cm-weapons:server:saveAmmo', function(data)
     local src = source
     if not isAdmin(src) then return notify(src, 'No permission.', 'error') end

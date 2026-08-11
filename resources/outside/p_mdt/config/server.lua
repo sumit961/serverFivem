@@ -1,0 +1,1 @@
+DISCORD_WEBHOOK = 'WEBHOOK_HERE' -- paste webhook here for discord logs

@@ -2,6 +2,11 @@
 -- nvCloth – cm-core server helpers
 --========================================================
 
+-- Replicate FiveM's native empty-head opt-in to every capturing client. This is
+-- equivalent to entering `allowEmptyHeadDrawable true` in F8, but does not require
+-- each clothing admin to set it manually before a batch.
+SetConvarReplicated('allowEmptyHeadDrawable', 'true')
+
 function getAccountMoney(src, account)
   -- cm-core only exposes RemoveMoney for payment in this setup.
   -- Return a high value so old balance-check code cannot block; sv_cloth.lua uses RemoveMoney directly.

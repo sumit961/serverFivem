@@ -93,6 +93,26 @@ Config.Channels = {
         color = '#31e6ff', format = 'group'
     },
 
+    ems_rp = {
+        id = 'ems_rp', label = 'EMS RP RADIO', type = 'group', group = 'ems',
+        color = '#31e6ff', format = 'ems_rp'
+    },
+
+    ems_nonrp = {
+        id = 'ems_nonrp', label = 'EMS NON-RP', type = 'group', group = 'ems',
+        color = '#9bb8c8', format = 'ems_nonrp'
+    },
+
+    police_rp = {
+        id = 'police_rp', label = 'POLICE RP RADIO', type = 'group', group = 'police',
+        color = '#31e6ff', format = 'police_rp'
+    },
+
+    police_nonrp = {
+        id = 'police_nonrp', label = 'POLICE NON-RP', type = 'group', group = 'police',
+        color = '#9bb8c8', format = 'police_nonrp'
+    },
+
     club = {
         id = 'club', label = 'CLUB', type = 'group', group = 'club',
         color = '#b889ff', format = 'group'
@@ -124,7 +144,7 @@ Config.Channels = {
     }
 }
 
-Config.ChannelOrder = { 'rp', 'nonrp', 'family', 'org', 'club', 'admin' }
+Config.ChannelOrder = { 'rp', 'nonrp', 'family', 'org', 'ems_rp', 'ems_nonrp', 'police_rp', 'police_nonrp', 'club', 'admin' }
 
 Config.CommandAliases = {
     ooc = 'nonrp',

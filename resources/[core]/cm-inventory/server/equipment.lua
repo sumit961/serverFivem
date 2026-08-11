@@ -62,7 +62,14 @@ local function AddItemInternal(src, itemName, amount, metadata, reason, preferre
 
     local stackTarget = findStackTarget(ownerType, ownerId, itemName, metadata, slot)
     if stackTarget and (not slot or stackTarget.slot == slot) then
-        MySQL.update.await('UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?', { amount, stackTarget.id })
+        -- Refresh metadata on every stack, not just quantity. A stack match only
+        -- guarantees the wearable APPEARANCE signature is identical (drawable/
+        -- texture/component) — fields outside that signature (image path, label,
+        -- price, catalogId, arms/undershirt fit) can legitimately change between
+        -- additions, and a row that started with bad/incomplete metadata (e.g. an
+        -- old test give) would otherwise stay corrupt forever since only quantity
+        -- was ever updated.
+        MySQL.update.await('UPDATE inventory_items SET quantity = quantity + ?, metadata = ? WHERE id = ?', { amount, encode(metadata), stackTarget.id })
         audit(ownerId, 'add_stack', itemName, amount, nil, stackTarget.slot, reason, metadata)
         return true, stackTarget.slot
     end
@@ -77,7 +84,10 @@ local function AddItemInternal(src, itemName, amount, metadata, reason, preferre
     local existingAtSlot = getItemAt(ownerType, ownerId, slot)
     if existingAtSlot then
         if rowCanStackWithMetadata(existingAtSlot, itemName, metadata) then
-            MySQL.update.await('UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?', { amount, existingAtSlot.id })
+            -- Same reasoning as the stack-target branch above: refresh metadata,
+            -- not just quantity, so a stale/corrupt row can't outlive every future
+            -- correct addition of the same-looking item.
+            MySQL.update.await('UPDATE inventory_items SET quantity = quantity + ?, metadata = ? WHERE id = ?', { amount, encode(metadata), existingAtSlot.id })
             audit(ownerId, 'add_stack_slot', itemName, amount, nil, existingAtSlot.slot, reason, metadata)
             return true, existingAtSlot.slot
         end
@@ -143,6 +153,15 @@ local function syncEquipmentSlot(src, slot)
     local item = row and rowToItem(row) or nil
     TriggerClientEvent('cm-inventory:client:equipmentSlot', src, slot, item)
 
+    -- Replicated so OTHER resources can cheaply check "is this player
+    -- currently masked" without a DB round-trip (e.g. cm-playerdata's
+    -- unmasked-kill wanted-stars check). cm-playerdata's own
+    -- IsFamilySymbolMasked already reads this exact key -- it just had
+    -- nothing setting it until now.
+    if slot == 'mask' then
+        Player(src).state:set('cm_masked', item ~= nil, true)
+    end
+
     -- Weapon/ammo are linked: whenever either slot changes, push the real
     -- inventory ammo count to the client so GTA ammo never uses fake bullets.
     local ammoSlot = (Config.Ammo and Config.Ammo.slot) or 'ammo'
@@ -159,6 +178,9 @@ local function syncAllEquipment(src)
         local row = getItemAt(ownerType, ownerId, slot)
         payload[slot] = row and rowToItem(row) or nil
     end
+    -- Same cm_masked replication as syncEquipmentSlot -- covers a player who
+    -- loads in already wearing a mask, before any equip/unequip happens.
+    Player(src).state:set('cm_masked', payload.mask ~= nil, true)
     TriggerClientEvent('cm-inventory:client:setEquipment', src, payload)
     if syncCurrentWeaponAmmo then syncCurrentWeaponAmmo(src) end
 end

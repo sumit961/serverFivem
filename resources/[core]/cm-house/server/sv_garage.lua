@@ -511,6 +511,11 @@ local function finalizeGarageEntityFor(src, entry, row)
         model = row.model,
         label = row.label,
         plate = row.plate,
+        -- Police-issued registration (cm-police MDT). Shown as the visible
+        -- plate text client-side (cm-vehicles' finalizeSpawnPayload) --
+        -- normalizedGarageVehicleRow already shallow-copies this through
+        -- from the raw `SELECT *` row, so it's just a matter of forwarding it.
+        licenseNumber = row.licenseNumber or row.license_number,
         fuel = normalizeVehicleFuel(row.fuel, 100.0),
         engineHealth = normalizeVehicleHealth(row.engine_health, 1000.0),
         bodyHealth = normalizeVehicleHealth(row.body_health, 1000.0),
@@ -754,6 +759,32 @@ local function requireInsideGarage(src, houseId)
     return true
 end
 
+-- SetPlayerRoutingBucket is normally visible immediately, but the rejoin
+-- restore path can race another spawn lifecycle write. Physical vehicle
+-- creation must not begin until cm-vehicles will observe the same bucket.
+local function ensureGarageBucketReady(src, houseId)
+    src, houseId = tonumber(src), tonumber(houseId)
+    if not src or not houseId or not GetPlayerName(src) then
+        return false, 'The garage viewer is not online.'
+    end
+
+    local expected = GarageBucket(houseId)
+    if GetPlayerRoutingBucket(src) ~= expected then
+        SetPlayerRoutingBucket(src, expected)
+    end
+
+    local deadline = GetGameTimer() + 2000
+    while GetPlayerName(src) and GetPlayerRoutingBucket(src) ~= expected
+          and GetGameTimer() < deadline do
+        Wait(50)
+    end
+
+    if not GetPlayerName(src) or GetPlayerRoutingBucket(src) ~= expected then
+        return false, 'The garage routing bucket is not ready.'
+    end
+    return true
+end
+
 local STATUS_LABELS = {
     AVAILABLE = 'Available',
     PARKED_HERE = 'Parked here',
@@ -908,6 +939,8 @@ lib.callback.register('cm-house:server:ensureGarageVehicles', function(src, hous
     local cid = GetCid(src)
     local ok, why = CanAccessProperty(cid, houseId, ACTIONS.GARAGE_VIEW)
     if not ok then return false, why end
+    local bucketReady, bucketWhy = ensureGarageBucketReady(src, houseId)
+    if not bucketReady then return false, bucketWhy end
     return refreshGarageEntitiesFor(src, houseId)
 end)
 
@@ -3024,6 +3057,17 @@ end)
 exports('GetGarageState', GarageState)
 exports('IsGarageVehicleOperationActive', function(vehicleId)
     return Operations[tonumber(vehicleId)] ~= nil
+end)
+exports('IsHouseGarageOperationActive', function(houseId)
+    houseId = tonumber(houseId)
+    if not houseId then return false end
+    for vehicleId in pairs(Operations) do
+        local row = MySQL.single.await(
+            'SELECT 1 FROM cm_house_garage_slots WHERE house_id = ? AND vehicle_id = ? LIMIT 1',
+            { houseId, tonumber(vehicleId) })
+        if row then return true end
+    end
+    return false
 end)
 
 -- Local server-only event: cm-vehicles calls this after a permanent vehicle is

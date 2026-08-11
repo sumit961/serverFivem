@@ -4,7 +4,7 @@ lua54 'yes'
 
 author 'CM Framework'
 description 'CM owned vehicle system: keys, locks, menu, trunk access; inventory delegated to cm-inventory'
-version '3.5.3'
+version '3.5.5'
 
 ui_page 'ui/index.html'
 
@@ -34,6 +34,7 @@ client_scripts {
     'client/spawn.lua',
     'client/persistence.lua',
     'client/interaction.lua',
+    'client/organization_access.lua',
     'client/menu.lua'
 }
 

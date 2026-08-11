@@ -19,6 +19,7 @@ local function databaseReady()
 end
 
 local creationLocks = {}
+local announcementCooldowns = {}
 
 local function rollbackFamily(familyId)
     familyId = tonumber(familyId)
@@ -325,6 +326,10 @@ lib.callback.register('cm-family:server:getMenu', function(src)
             symbol = CMFamilyNormalizeSymbol(fam.symbol),
             houseId = fam.house_id, bankBalance = fam.bank_balance,
             founderCid = fam.founder_cid,
+            announcement = fam.announcement,
+            announcementBy = fam.announcement_by,
+            announcementByName = fam.announcement_by and B.GetCharName(fam.announcement_by) or nil,
+            announcementAt = fam.announcement_at,
             tagVisible = false,
             symbolVisible = true,
         },
@@ -336,7 +341,15 @@ lib.callback.register('cm-family:server:getMenu', function(src)
         bankLog = RankHasPermission(rank, 'bank.view') and GetBankLog(fam.id, 30) or {},
         activityLog = ((CMFamilyIsFounder and CMFamilyIsFounder(cid, fam)) or RankHasPermission(rank, 'family.view_logs'))
             and GetFamilyActivityLogs(fam.id, { limit = Config.Audit and Config.Audit.menuLimit or 75 }) or false,
-        permissionCatalog = Config.Permissions,
+        permissionCatalog = (function()
+            local visible = {}
+            for _, permission in ipairs(Config.Permissions or {}) do
+                if tostring(permission.group or '') ~= 'bank' then
+                    visible[#visible + 1] = permission
+                end
+            end
+            return visible
+        end)(),
         symbolCatalog = (function()
             local out = {}
             for _, key in ipairs((Config.Identity and Config.Identity.symbolOrder) or {}) do
@@ -461,6 +474,27 @@ lib.callback.register('cm-family:server:action', function(src, action, payload)
         LogFamily(fam.id, cid, 'family_symbol_updated', { symbol = symbol, color = color })
         SyncFamilyState(fam.id)
         return true
+    elseif action == 'setFamilyAnnouncement' then
+        local rank, fam = GetRankForCid(cid)
+        if not rank or not fam then return false, 'not_in_family' end
+        if not RankHasPermission(rank, 'family.manage_announcement') then return false, 'no_permission' end
+        local now = os.time()
+        if announcementCooldowns[src] and announcementCooldowns[src] > now then
+            return false, 'Please wait before changing the announcement again.'
+        end
+        local message = tostring(payload.message or ''):gsub('[%z\1-\8\11\12\14-\31\127]', '')
+        message = message:gsub('^%s+', ''):gsub('%s+$', ''):sub(1, 280)
+        if message == '' then message = nil end
+        local changed = tonumber(MySQL.update.await([[UPDATE cm_families
+            SET announcement = ?, announcement_by = ?, announcement_at = CURRENT_TIMESTAMP WHERE id = ?]],
+            { message, tostring(cid), fam.id })) or 0
+        if changed < 1 then return false, 'family_announcement_update_failed' end
+        fam.announcement, fam.announcement_by = message, tostring(cid)
+        fam.announcement_at = os.date('%Y-%m-%d %H:%M:%S')
+        announcementCooldowns[src] = now + 3
+        LogFamily(fam.id, cid, 'family_announcement_updated', { cleared = message == nil })
+        SyncFamilyState(fam.id)
+        return true
     elseif action == 'setRankBankLimit' then
         return SetRankBankLimit(cid, payload.rankId, payload.limit)
     elseif action == 'setVehicleShared' then
@@ -534,4 +568,8 @@ lib.callback.register('cm-family:server:action', function(src, action, payload)
     end
 
     return false, 'unknown_action'
+end)
+
+AddEventHandler('playerDropped', function()
+    announcementCooldowns[source] = nil
 end)

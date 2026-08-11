@@ -135,7 +135,7 @@ RegisterNetEvent('cm-vehicles:server:toggleTrunkDoor', function(plate, netId)
     local vehicle = CMVehicles.Server.GetVehicleByPlate(plate)
     if not vehicle then return U.Notify(src, 'Vehicle not found.', 'error') end
     if vehicle.is_locked then return U.Notify(src, 'Vehicle is locked.', 'error') end
-    if not CMVehicles.Server.HasAccess(src, plate, 'vehicle.trunk.open') then return U.Notify(src, 'You do not have keys for this trunk.', 'error') end
+    if not CMVehicles.Server.HasAccess(src, plate, 'vehicle.trunk.open') then return U.Notify(src, 'Your organization rank or vehicle access does not allow this trunk.', 'error') end
     if CMVehicles.Trunk.SlotCount(vehicle.trunk_level) <= 0 then return U.Notify(src, 'This vehicle has no trunk.', 'error') end
     local near = CMVehicles.Server.ValidateNearVehicle(src, netId, (Config.Interaction.trunkDistance or 4.0) + 2.0)
     if not near then return U.Notify(src, 'You are too far from the trunk.', 'error') end
@@ -158,7 +158,7 @@ RegisterNetEvent('cm-vehicles:server:openSharedTrunkInventory', function(plate, 
     local vehicle = CMVehicles.Server.GetVehicleByPlate(plate)
     if not vehicle then return U.Notify(src, 'Vehicle not found.', 'error') end
     if vehicle.is_locked then return U.Notify(src, 'Vehicle is locked.', 'error') end
-    if not CMVehicles.Server.HasAccess(src, plate, 'vehicle.trunk.open') then return U.Notify(src, 'Your key or family rank cannot use this trunk.', 'error') end
+    if not CMVehicles.Server.HasAccess(src, plate, 'vehicle.trunk.open') then return U.Notify(src, 'Your organization rank or vehicle access does not allow this trunk.', 'error') end
 
     local slotCount = CMVehicles.Trunk.SlotCount(vehicle.trunk_level)
     if slotCount <= 0 then return U.Notify(src, 'This vehicle has no trunk storage.', 'error') end

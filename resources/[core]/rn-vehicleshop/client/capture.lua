@@ -160,11 +160,24 @@ local function applyCaptureEnvironment()
 
     -- Hold it. Other resources (cm-climatime) will otherwise stomp the weather
     -- back mid-capture and the stage goes dim again.
+    --
+    -- Reassert interval MUST stay slow (the light visibly blinks/pulses on
+    -- every single call to SetWeatherTypeNow/NetworkOverrideClockTime, even
+    -- with identical values -- each call restarts GTA's internal weather
+    -- blend). This is the exact same bug already fixed once for the general
+    -- studio view (see Config.VehicleAdminStudio.Environment.reassertMs and
+    -- its "old 350ms clear/set loop caused visible flicker" note) -- this
+    -- capture-specific loop had been left on the old fast interval. A whole
+    -- capture only takes ~1-1.5s, so a 5s reassert means it fires at most
+    -- once during any single photo, and only actually kicks in if the studio
+    -- stays open far longer than a capture takes.
+    local studio = getCaptureStudio()
+    local reassertMs = math.max(2000, tonumber((studio.Environment or {}).reassertMs) or 5000)
     if captureEnvHold then return end
     captureEnvHold = true
     CreateThread(function()
         while captureEnvHold do
-            Wait(200)
+            Wait(reassertMs)
             pushCaptureEnvironment()
         end
     end)

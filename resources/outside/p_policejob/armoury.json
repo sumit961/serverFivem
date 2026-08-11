@@ -1,0 +1,44 @@
+{
+    "fm-mrpd:1": {
+        "handcuffs": {
+            "stock": 50,
+            "limits": []
+        },
+        "WEAPON_PISTOL": {
+            "stock": 49,
+            "limits": []
+        },
+        "WEAPON_COMBATPISTOL": {
+            "stock": 50,
+            "limits": []
+        },
+        "WEAPON_FLASHLIGHT": {
+            "stock": 50,
+            "limits": []
+        },
+        "WEAPON_PUMPSHOTGUN": {
+            "stock": 50,
+            "limits": []
+        },
+        "WEAPON_CARBINERIFLE": {
+            "stock": 50,
+            "limits": []
+        },
+        "WEAPON_STUNGUN": {
+            "stock": 50,
+            "limits": []
+        },
+        "bodycam": {
+            "stock": 50,
+            "limits": []
+        },
+        "radio": {
+            "stock": 50,
+            "limits": []
+        },
+        "WEAPON_NIGHTSTICK": {
+            "stock": 50,
+            "limits": []
+        }
+    }
+}

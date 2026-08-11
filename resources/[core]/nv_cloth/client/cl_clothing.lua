@@ -55,6 +55,7 @@ local SKINCHANGER_FIELDS = {
   glasses  = { d = "glasses_1", t = "glasses_2" },
   earrings = { d = "ears_1",    t = "ears_2"    },
   watches  = { d = "watches_1", t = "watches_2" },
+  bracelets = { d = "bracelets_1", t = "bracelets_2" },
 }
 
 --========================================================
@@ -97,6 +98,22 @@ end
 local function getPedGender(ped)
   local model = GetEntityModel(ped or PlayerPedId())
   return model == GetHashKey('mp_f_freemode_01') and 'female' or 'male'
+end
+
+-- Stable identity shared with the server. This is intentionally derived from
+-- native clothing coordinates instead of a database row id, so re-captures,
+-- restarts and catalog rebuilds keep referring to the exact same item.
+local function clothingUniqueId(gender, category, drawable, texture)
+  gender = tostring(gender or 'male'):lower() == 'female' and 'female' or 'male'
+  category = tostring(category or 'unknown'):lower():gsub('[^%w_%-]', '_')
+  local def = categories and categories[category] or nil
+  local componentType = def and def.type or 'component'
+  local componentIndex = def and tonumber(def.index) or -1
+  drawable = math.floor(tonumber(drawable) or 0)
+  texture = math.floor(tonumber(texture) or 0)
+  local textureKey = texture < 0 and 'all' or tostring(texture)
+  return ('nvcloth_%s_%s_%s_%s_d%s_t%s'):format(
+    gender, category, componentType, tostring(componentIndex), tostring(drawable), textureKey)
 end
 
 local function normalizeSleeveStyle(style)
@@ -204,19 +221,69 @@ local function applyItem(ped, category, drawable, texture)
     return
   end
 
+  drawable = math.floor(tonumber(drawable) or -1)
+  texture = math.max(0, math.floor(tonumber(texture) or 0))
+
   -- cm-core uses native ped clothing. Do native apply first so store preview is instant.
   if cat.type == "component" then
-    SetPedComponentVariation(ped, cat.index, drawable, texture or 0, 0)
-    if category == 'torso' then
-      applyTorsoFitForPreview(ped, drawable, texture or 0)
+    local drawableCount = GetNumberOfPedDrawableVariations(ped, cat.index)
+    if drawable < 0 or drawable >= drawableCount then
+      print(('[nv_cloth] Invalid component preview %s drawable=%s max=%s'):format(
+        category, drawable, math.max(0, drawableCount - 1)))
+      return false
     end
+
+    local textureCount = GetNumberOfPedTextureVariations(ped, cat.index, drawable)
+    if textureCount <= 0 then
+      print(('[nv_cloth] Component has no streamed textures %s drawable=%s'):format(category, drawable))
+      texture = 0
+    elseif texture >= textureCount then
+      texture = 0
+    end
+
+    SetPedComponentVariation(ped, cat.index, drawable, texture, 0)
+    -- The admin base-outfit reset and the selected component can otherwise land
+    -- in the same game frame. Verify the native result and retry on the next
+    -- frame so streamed addon/replacement components are actually equipped.
+    if GetPedDrawableVariation(ped, cat.index) ~= drawable then
+      Wait(0)
+      SetPedComponentVariation(ped, cat.index, drawable, texture, 0)
+    end
+
+    local appliedDrawable = GetPedDrawableVariation(ped, cat.index)
+    local appliedTexture = GetPedTextureVariation(ped, cat.index)
+    if appliedDrawable ~= drawable then
+      print(('[nv_cloth] Component preview failed %s requested=%s/%s applied=%s/%s count=%s'):format(
+        category, drawable, texture, appliedDrawable, appliedTexture, drawableCount))
+      return false
+    end
+    if category == 'torso' then
+      applyTorsoFitForPreview(ped, drawable, texture)
+    end
+    return true
   elseif cat.type == "prop" then
     if drawable ~= -1 then
-      SetPedPropIndex(ped, cat.index, drawable, texture or 0, true)
+      local drawableCount = GetNumberOfPedPropDrawableVariations(ped, cat.index)
+      if drawable >= drawableCount then
+        print(('[nv_cloth] Invalid prop preview %s drawable=%s max=%s'):format(category, drawable, math.max(0, drawableCount - 1)))
+        return
+      end
+      local textureCount = GetNumberOfPedPropTextureVariations(ped, cat.index, drawable)
+      if textureCount > 0 and texture >= textureCount then texture = 0 end
+      -- Clear first so switching between two props on the same anchor never leaves
+      -- the old entity cached. Re-assert once for streamed add-on props.
+      ClearPedProp(ped, cat.index)
+      SetPedPropIndex(ped, cat.index, drawable, texture, true)
+      if GetPedPropIndex(ped, cat.index) ~= drawable then
+        SetPedPropIndex(ped, cat.index, drawable, texture, true)
+      end
+      return GetPedPropIndex(ped, cat.index) == drawable
     else
       ClearPedProp(ped, cat.index)
+      return true
     end
   end
+  return false
 end
 
 --- Change uniquement la texture de l’élément actuellement porté dans la catégorie
@@ -229,6 +296,8 @@ local function changeCurrentTexture(ped, category, texture)
     notifyKey("invalid-category")
     return
   end
+
+  texture = math.max(0, math.floor(tonumber(texture) or 0))
 
   if cat.type == "prop" then
     local cur = GetPedPropIndex(ped, cat.index)
@@ -353,7 +422,7 @@ RegisterNUICallback("sendSelectedArticle", function(data, cb)
   local category = tostring(data.category or data.type or '')
   local cat = categories[category]
   local drawable = tonumber(data.drawable or data.drawableId or data.component or data.componentId)
-  local texture  = tonumber(data.texture or data.textureId or 0) or 0
+  local texture  = math.max(0, math.floor(tonumber(data.texture or data.textureId or 0) or 0))
 
   if not cat then
     notifyKey("invalid-category")
@@ -384,7 +453,10 @@ RegisterNUICallback("sendSelectedArticle", function(data, cb)
   end
 
   -- Apply immediately for preview.
-  applyItem(ped, category, drawable, texture)
+  local applied = applyItem(ped, category, drawable, texture)
+  if isAdminPreview and type(RestoreAdminCategoryPreview) == 'function' then
+    RestoreAdminCategoryPreview(category, true)
+  end
   scheduleTryBeforeBuyRevert()
 
   -- Number of textures available for this drawable.
@@ -394,7 +466,17 @@ RegisterNUICallback("sendSelectedArticle", function(data, cb)
   else
     count = GetNumberOfPedPropTextureVariations(ped, cat.index, drawable)
   end
-  cb({ count = count })
+  -- Build 2.19: the admin torso panel shows the current body/arms drawable
+  -- inline (the old open-Arms/Fit-menu flow was removed), so every preview
+  -- response reports what fit the ped ended up wearing after auto-resolution.
+  cb({
+    success = applied == true,
+    count = count,
+    appliedDrawable = cat.type == "component" and GetPedDrawableVariation(ped, cat.index) or GetPedPropIndex(ped, cat.index),
+    appliedTexture = cat.type == "component" and GetPedTextureVariation(ped, cat.index) or GetPedPropTextureIndex(ped, cat.index),
+    arms = GetPedDrawableVariation(ped, 3),
+    armsCount = GetNumberOfPedDrawableVariations(ped, 3),
+  })
 end)
 
 -- Reset d’une catégorie depuis la sauvegarde locale `saveClothes`
@@ -434,6 +516,8 @@ RegisterNUICallback("changeTexture", function(data, cb)
   changeCurrentTexture(ped, tostring(data.category or data.type or ''), tonumber(texture) or 0)
   cb({ success = true })
 end)
+
+
 
 -- Applique une tenue (prévisualisation ou finale)
 RegisterNUICallback("setOutfit", function(data, cb)
@@ -503,6 +587,7 @@ local function buildBuyMetadata(item)
   local texture = tonumber(item.texture or item.textureId or 0) or 0
   local image = item.image or item.icon or item.inventoryImage or item.inventory_icon
   local itemKey = item.itemName or item.item_name or item.nameKey or item.name_key or item.inventoryItem or item.inventory_item or item.item_key or ('clothing_' .. category)
+  local uniqueId = clothingUniqueId(gender, category, drawable, texture)
 
   local metadata = {
     itemName = itemKey,
@@ -529,6 +614,10 @@ local function buildBuyMetadata(item)
     price = tonumber(item.price) or nil,
     catalogId = item.catalogId or item.catalog_id or item.id,
     catalogKey = item.catalogKey or (gender .. ':' .. category .. ':' .. tostring(drawable) .. ':' .. tostring(texture)),
+    uniqueId = uniqueId,
+    unique_id = uniqueId,
+    clothingId = uniqueId,
+    clothing_id = uniqueId,
     image = image,
     icon = image,
     inventoryImage = image,
@@ -624,6 +713,7 @@ end)
 --========================================================
 local CM_CATEGORY_ALIASES = {
   legs = 'pants', pants = 'pants', watches = 'watches', watch = 'watches',
+  bracelets = 'bracelets', bracelet = 'bracelets',
   jacket = 'torso', outerwear = 'torso', shirt = 'tshirt', tshirt = 'tshirt',
   chain = 'chains', accessory = 'chains', bag = 'bags', headwear = 'hat', hat = 'hat',
   arms = 'arms', gloves = 'arms'
@@ -860,4 +950,3 @@ RegisterCommand('cmfit', function(_, args)
     gender, torso, arms, armsTexture, tshirt, tshirtTexture, torsoTexture
   ))
 end, false)
-

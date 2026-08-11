@@ -1,0 +1,73 @@
+/* EMS Fleet tab. Row layout mirrors cm-family's "Family vehicle access" list
+   (thumbnail + title/subtext + inline rank control), translated to cm-ems's
+   own dark/cyan palette instead of importing cm-family's CSS variables.
+   Appearance configuration (colors/livery/etc) lives entirely in
+   rn-vehicleshop's /vehicleadmin now -- this tab only lists + spawns +
+   sets the minimum rank tier per vehicle. */
+
+.fleet-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: linear-gradient(155deg, #23263f, #1c1e33);
+  border: 1px solid rgba(255, 255, 255, .07);
+  margin-bottom: 10px;
+}
+.fleet-row.disabled { opacity: .55; }
+
+.fleet-thumb {
+  width: 124px;
+  height: 68px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 9px;
+  background: #0f1120;
+  border: 1px solid rgba(0, 240, 255, .18);
+}
+.fleet-thumb--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #969bb8;
+  font-size: 11px;
+  letter-spacing: .08em;
+}
+
+.fleet-row__main { flex: 1; min-width: 0; }
+.fleet-row__title {
+  font: 600 15px var(--cm-font-display, "Poppins", sans-serif);
+  color: #f4f6ff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fleet-row__sub { margin-top: 3px; color: #969bb8; font-size: 13px; }
+
+.fleet-badge {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #ffcf5d;
+  background: rgba(255, 207, 93, .14);
+  border: 1px solid rgba(255, 207, 93, .4);
+}
+
+.fleet-row__actions { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+
+.fleet-tier-ctl { display: flex; align-items: center; gap: 8px; }
+.fleet-tier-ctl label { color: #969bb8; font-size: 12px; white-space: nowrap; }
+.fleet-tier-input {
+  width: 60px;
+  text-align: center;
+  padding: 8px 6px;
+  color: #fff;
+  background: #17192b;
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 10px;
+  outline: 0;
+}
+.fleet-tier-input:focus { border-color: #00f0ff; }
+.fleet-tier-input:disabled { opacity: .45; cursor: not-allowed; }

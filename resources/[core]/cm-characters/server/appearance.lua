@@ -214,7 +214,7 @@ local function failAppearanceSave(src, message)
     TriggerClientEvent('cm-characters:client:appearanceSaved', src, false, { message = message })
 end
 
-RegisterNetEvent('cm-characters:server:saveAppearance', function(charId, appearanceData)
+RegisterNetEvent('cm-characters:server:saveAppearance', function(charId, appearanceData, requestedServiceMode)
     local src = source
     if CMCharacters.IsRateLimited(src, 'saveAppearance', 3, 30) then
         failAppearanceSave(src, 'Please wait before saving again.')
@@ -232,6 +232,19 @@ RegisterNetEvent('cm-characters:server:saveAppearance', function(charId, appeara
         return
     end
 
+    local serviceMode = tostring(requestedServiceMode or '')
+    if serviceMode ~= '' then
+        if serviceMode ~= 'gender' and serviceMode ~= 'surgery' then
+            failAppearanceSave(src, 'Invalid appearance service.')
+            return
+        end
+        local activeCharId = Player(src).state.charId or Player(src).state.characterId
+        if not activeCharId or tostring(activeCharId) ~= tostring(char.id) then
+            failAppearanceSave(src, 'Appearance services require your active character.')
+            return
+        end
+    end
+
     -- IMPORTANT:
     -- cm-inventory resolves owner from Player(src).state.charId.
     -- During first character creation this state may not exist yet, so set it BEFORE AddItem.
@@ -243,6 +256,10 @@ RegisterNetEvent('cm-characters:server:saveAppearance', function(charId, appeara
     local alreadyHasAppearance = false
     if char.appearance_json and char.appearance_json ~= '' and char.appearance_json ~= '{}' and char.appearance_json ~= 'null' then
         alreadyHasAppearance = true
+    end
+    if serviceMode ~= '' and not alreadyHasAppearance then
+        failAppearanceSave(src, 'Finish creating this character before using appearance services.')
+        return
     end
 
     local creatorOutfit = cmCopyTable(appearanceData)
@@ -278,7 +295,11 @@ RegisterNetEvent('cm-characters:server:saveAppearance', function(charId, appeara
         TriggerClientEvent('cm-characters:client:applyAppearance', src, baseAppearance)
     end
 
-    TriggerEvent('cm-core:characterLoaded', src, tostring(char.id))
+    -- Active-character hospital services are edits, not character selection.
+    -- Emitting characterLoaded here would reopen cm-spawn's selector.
+    if serviceMode == '' then
+        TriggerEvent('cm-core:characterLoaded', src, tostring(char.id))
+    end
 
     if starterEquipment then
         TriggerClientEvent('cm-characters:client:equipStarterClothingSlots', src, starterEquipment)
@@ -291,6 +312,7 @@ RegisterNetEvent('cm-characters:server:saveAppearance', function(charId, appeara
     -- Acknowledgement used by the client to close the creator only after the DB/inventory work finished.
     TriggerClientEvent('cm-characters:client:appearanceSaved', src, true, {
         charId = tostring(char.id),
+        serviceMode = serviceMode ~= '' and serviceMode or nil,
         alreadyHadAppearance = alreadyHasAppearance,
         starterEquipment = starterEquipment ~= nil
     })

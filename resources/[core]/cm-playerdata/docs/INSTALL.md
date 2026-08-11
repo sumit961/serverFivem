@@ -73,6 +73,23 @@ exports['cm-playerdata']:Load(src)
 exports['cm-playerdata']:Save(src)
 ```
 
+Wanted-level exports:
+
+```lua
+-- Server realm
+exports['cm-playerdata']:GetWantedStars(src)
+exports['cm-playerdata']:SetWantedStars(src, stars)
+exports['cm-playerdata']:ClearWantedStars(src)
+
+-- Client realm (local player; read-only)
+exports['cm-playerdata']:GetWantedStars()
+```
+
+Wanted levels are persistent per character. Levels 1-5 remain player-police
+gameplay; level 6 activates native GTA police dispatch. Evading that native
+chase reduces level 6 to level 5, and thereafter one star expires every hour.
+Every change is mirrored to the Police MDT while `cm-police` is running.
+
 
 ## Player interaction / identity menu
 

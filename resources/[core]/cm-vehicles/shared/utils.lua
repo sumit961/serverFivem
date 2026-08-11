@@ -34,7 +34,13 @@ function U.ClampHealth(v)
     v = tonumber(v) or 0.0
     if v < 0.0 then return 0.0 end
     if v > 1000.0 then return 1000.0 end
-    return v
+    -- Lua 5.4 keeps an integer/float subtype distinction. A clean value like
+    -- the integer 1000 falls through untouched here, and CitizenFX's native
+    -- marshalling does not safely convert a Lua integer into a float-typed
+    -- native argument -- it reinterprets the raw bits instead, so
+    -- SetVehicleEngineHealth(veh, 1000) silently writes ~1.4e-42 instead of
+    -- 1000.0. Force a genuine float subtype on every return path.
+    return v + 0.0
 end
 
 -- Saved condition and bootstrap condition are intentionally different.

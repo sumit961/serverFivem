@@ -92,12 +92,48 @@ Config.Accounts = {
 
 -- Inventory icon capture for /clothingadmin.
 -- For transparent icons, capture in front of a solid green background/greenscreen.
--- The NUI removes green pixels and saves a transparent PNG into cm-items/ui/images/clothing/custom/.
+-- The NUI removes the backdrop and the server writes transparent images into this
+-- resource. Nothing in the capture path calls RCore or an external HTTP API.
+
 Config.IconCapture = {
     enabled = true,
-    resource = 'cm-items',
-    folder = 'ui/images/clothing/custom',
+    resource = 'nv_cloth',
+    folder = 'generated_images',
+    -- One clothing item = exactly one saved photo. Only the PNG published into
+    -- cm-items (where cm-inventory's clothing image resolver expects it) is
+    -- kept; no nv_cloth/generated_images working copy and no .webp companion
+    -- are written. Set keepLocalCopy = true to bring back the local png/webp
+    -- working copy for debugging.
+    keepLocalCopy = false,
+    catalogImageResource = 'cm-items',
+    catalogImageFolder = 'ui/images/clothing/custom',
     catalogImagePrefix = 'custom',
+    formats = { png = true, webp = false },
+    webpQuality = 0.94,
+
+    -- Build 2.19: every successful capture also writes a clothing catalog record
+    -- so the item shows up in the /clothingstore manager. New records are saved
+    -- UNPUBLISHED (enabled = false); nothing reaches the player store until an
+    -- admin publishes it in /clothingstore. Retakes of an already-published item
+    -- keep its publish state, price, label, and org assignment.
+    catalogSync = true,
+
+    -- Every automatic shot uses a fresh local freemode ped of the requested sex.
+    -- The real player is hidden but never model-swapped or stripped.
+    dedicatedCapturePed = true,
+
+    -- Single-pass native ghost capture. Requires the capture client to accept
+    -- `allowEmptyHeadDrawable true`: head/body/hair are made empty, only the
+    -- selected component/prop is applied, and exactly ONE screenshot is taken.
+    -- There is deliberately no body-subtraction or baseline fallback.
+    isolationMode = 'native_ghost',
+    isolateEveryCategory = false,
+    maxRetries = 2,
+    retryDelay = 650,
+    captureCategories = {
+        'torso', 'tshirt', 'pants', 'shoes', 'hat', 'glasses',
+        'earrings', 'chains', 'bags', 'watches', 'bracelets', 'armor',
+    },
     width = 512,
     height = 512,
     padding = 18,
@@ -181,19 +217,45 @@ Config.IconCapture = {
     --            When set, viewAngle overrides `view`. Angles below are adapted
     --            from the reference greenscreener's per-component rotations.
     presets = {
-        torso    = { camera = 'body', view = 'front', zOffset = 0.00, padding = 10 },
-        tshirt   = { camera = 'body', view = 'front', zOffset = 0.00, padding = 10 },
-        pants    = { camera = 'body', view = 'front', zOffset = 0.05, padding = 8  },
-        shoes    = { camera = 'feet', view = 'front', zOffset = 0.00, padding = 8  },
-        hat      = { camera = 'face', view = 'front', zOffset = 0.00, padding = 8  },
-        glasses  = { camera = 'face', view = 'front', zOffset = 0.00, padding = 6  },
+        torso    = { camera = 'body', view = 'front', viewAngle =   0.0, zOffset =  0.00, padding = 10 },
+        tshirt   = { camera = 'body', view = 'front', viewAngle =   0.0, zOffset =  0.00, padding = 10 },
+        armor    = { camera = 'body', view = 'front', viewAngle =   0.0, zOffset =  0.00, padding = 10 },
+        pants    = { camera = 'body', view = 'front', viewAngle =   0.0, zOffset =  0.02, padding = 8  },
+        -- A slight three-quarter turn exposes both the toe and side profile while
+        -- keeping the pair centred. Straight-on hid too much of many shoe models.
+        shoes    = { camera = 'feet', view = 'front', viewAngle = -18.0, zOffset = -0.02, padding = 8  },
+        hat      = { camera = 'face', view = 'front', viewAngle =   0.0, zOffset =  0.00, padding = 8  },
+        glasses  = { camera = 'face', view = 'front', viewAngle =   0.0, zOffset =  0.00, padding = 6  },
         -- Ears/watches/bracelets present the item at a precise diagonal so the
         -- accessory faces the camera and the supporting limb is turned mostly out
         -- of frame (then cropped). Tune viewAngle if an item sits slightly off.
-        earrings = { camera = 'face', view = 'right', viewAngle = -122.5, zOffset = 0.00, padding = 6  },
-        chains   = { camera = 'body', view = 'front', zOffset = 0.00, padding = 6  },
-        bags     = { camera = 'body', view = 'back',  zOffset = 0.00, padding = 10, sharedGender = true },
-        watches  = { camera = 'body', view = 'left',  viewAngle = 59.0, zOffset = 0.00, padding = 6  },
+        earrings = { camera = 'face', view = 'front', viewAngle =   0.0, zOffset =  0.00, padding = 6  },
+        chains   = { camera = 'body', view = 'front', viewAngle =   0.0, zOffset =  0.02, padding = 6  },
+        bags     = { camera = 'body', view = 'back',  viewAngle = 180.0, zOffset =  0.00, padding = 10, sharedGender = true },
+        -- OP-style prop presentation: watches are rotated so the outside of the
+        -- left wrist faces the fixed camera; bracelets stay front-facing. Their
+        -- capture cameras aim at the real wrist bones below.
+        watches  = { camera = 'body', view = 'right', viewAngle = -90.0, zOffset =  0.00, padding = 6  },
+        bracelets = { camera = 'body', view = 'front', viewAngle =   0.0, zOffset = 0.00, padding = 6  },
+    },
+
+    -- Normal /clothingadmin browsing cameras. These are deliberately wider than
+    -- the inventory-icon cameras below: the middle preview character remains easy
+    -- to inspect while each accessory still gets the correct side/back angle.
+    -- viewAngle rotates only the ped; the preview camera stays on the fixed studio axis.
+    previewCameras = {
+        torso    = { dist = 4.35, z =  0.18, fov = 38.0, viewAngle =   0.0 },
+        tshirt   = { dist = 4.35, z =  0.18, fov = 38.0, viewAngle =   0.0 },
+        armor    = { dist = 4.20, z =  0.22, fov = 38.0, viewAngle =   0.0 },
+        chains   = { dist = 3.20, z =  0.34, fov = 32.0, viewAngle =   0.0 },
+        pants    = { dist = 3.90, z = -0.35, fov = 38.0, viewAngle =   0.0 },
+        shoes    = { dist = 3.10, z = -0.82, fov = 34.0, viewAngle = -18.0 },
+        bags     = { dist = 4.45, z =  0.20, fov = 40.0, viewAngle = 180.0 },
+        hat      = { dist = 2.60, z =  0.72, fov = 32.0, viewAngle =   0.0 },
+        glasses  = { dist = 2.25, z =  0.65, fov = 28.0, viewAngle =   0.0 },
+        earrings = { dist = 2.20, z =  0.64, fov = 27.0, viewAngle = -78.0 },
+        watches  = { dist = 3.00, z =  0.12, fov = 32.0, viewAngle =  70.0 },
+        bracelets = { dist = 3.00, z = 0.12, fov = 32.0, viewAngle = -70.0 },
     },
 
     -- ── Per-category capture CAMERA framing ──────────────────────────────
@@ -203,116 +265,24 @@ Config.IconCapture = {
     --   z    = height the camera AIMS at, relative to the ped root
     --          (positive = higher up = head/torso, negative = lower = legs/feet)
     --   fov  = zoom (smaller fov = tighter/more zoomed in)
-    -- Starting values are adapted from Bentix's greenscreener per-component
-    -- settings. Tweak these live and re-capture; you don't need to touch any Lua.
+    -- Exact player/camera compositions transcribed from For glass.docx. The
+    -- optional live editor saves a DB override when a custom item needs adjustment.
+    -- playerOffsetX/Y are converted to camera-target offsets at capture time.
     captureCameras = {
-        torso    = { dist = 2.95, z =  0.26, fov = 36.0 },
-        tshirt   = { dist = 2.90, z =  0.28, fov = 36.0 },
-        armor    = { dist = 2.90, z =  0.28, fov = 36.0 },
-        chains   = { dist = 2.10, z =  0.40, fov = 26.0 },
-        pants    = { dist = 2.85, z = -0.40, fov = 36.0 },
-        shoes    = { dist = 1.80, z = -0.90, fov = 26.0 },
-        bags     = { dist = 3.05, z =  0.26, fov = 38.0 },
-        hat      = { dist = 1.90, z =  0.64, fov = 24.0 },
-        glasses  = { dist = 1.55, z =  0.60, fov = 18.0 },
-        earrings = { dist = 1.45, z =  0.62, fov = 16.0 },
-        -- Watch: very tight and close on the wrist so the forearm/hand fall outside
-        -- the frame and are cropped away, leaving just the watch (Option B).
-        watches  = { dist = 1.10, z =  0.05, fov = 14.0 },
+        torso     = { dist = 2.41, z =  0.22, fov = 45.0, poseHeading = 319.0, poseLift =  0.08, camHeading = 332.4 },
+        tshirt    = { dist = 2.74, z =  0.22, fov = 40.0, poseHeading = 328.4, poseLift =  0.08, camHeading = 328.4 },
+        armor     = { dist = 2.41, z =  0.22, fov = 45.0, poseHeading = 319.0, poseLift =  0.08, camHeading = 332.4 },
+        chains    = { dist = 1.80, z =  0.52, fov = 38.0, poseHeading = 328.4, poseLift =  0.08, camHeading = 324.4, playerOffsetX =  0.04, playerOffsetY = -0.03 },
+        pants     = { dist = 4.28, z = -0.51, fov = 42.0, poseHeading = 323.0, poseLift =  0.08, camHeading = 328.4 },
+        shoes     = { dist = 1.96, z = -0.90, fov = 34.0, poseHeading = 295.0, poseLift =  0.08, camHeading = 328.4 },
+        bags      = { dist = 1.50, z =  0.30, fov = 45.0 }, -- component 5; back view
+        hat       = { dist = 3.69, z =  0.70, fov = 26.0, poseHeading = 336.0, poseLift =  0.08, camHeading = 340.4, playerOffsetX =  0.05, playerOffsetY = -0.02 },
+        glasses   = { dist = 1.42, z =  0.66, fov = 22.0, poseHeading = 335.0, poseLift =  0.00, camHeading = 328.4 },
+        earrings  = { dist = 1.18, z =  0.58, fov = 26.0, poseHeading =  43.0, poseLift =  0.00, camHeading = 336.4 },
+        watches   = { dist = 2.18, z =  0.19, fov = 24.0, poseHeading =  57.0, poseLift = -0.24, camHeading = 336.4, playerOffsetX = -0.25, playerOffsetY =  0.17 },
+        bracelets = { dist = 2.18, z =  0.19, fov = 24.0, poseHeading =  57.0, poseLift = -0.24, camHeading = 336.4, playerOffsetX = -0.25, playerOffsetY =  0.17 },
     },
 
-    -- ── Head-prop capture: force freemode model ──────────────────────────
-    -- Hat/glasses/earrings hide the head via the streamed invisible-head file,
-    -- which only overrides mp_m_freemode_01 / mp_f_freemode_01. The capture code
-    -- re-asserts the invisible head before each shot, which normally suffices.
-    -- If the head STILL shows on head-prop shots, set this true to force the ped
-    -- to the matching freemode model during capture (most reliable, but resets
-    -- appearance during the shot and restores after). Leave false unless needed.
-    forceFreemodeForHeadProps = false,
-
-    -- ── Per-category ground lift ─────────────────────────────────────────
-    -- Raises the ped vertically during capture so items don't sink into the
-    -- floor. Mainly for shoes (the feet sit at ground level and can clip). The
-    -- manual pose bar can also lift live with the ▲/▼ buttons; this is the
-    -- default applied automatically. Value in metres.
-    groundLift = {
-        shoes = 0.35,
-    },
-
-
-    -- ── Streamed grey support body for accessory/icon capture ─────────────────
-    -- These use the stream files you added:
-    --   head_000_r.ydd / head_diff_000_a_whi.ytd
-    --   uppr_015_r.ydd / uppr_diff_015_a_whi.ytd
-    --   lowr_015_r.ydd / lowr_diff_015_a_whi.ytd
-    -- Only accessories + lower-body categories use them. T-shirts / torso keep
-    -- the old pure-item logic unchanged.
-    supportModels = {
-        -- These streamed files are female-only. Male capture deliberately has no
-        -- support model entry and therefore falls back to the previous logic.
-        female = {
-            categories = {
-                hat      = { head = { drawable = 0, texture = 0, hair = -1 } },
-                glasses  = { head = { drawable = 0, texture = 0, hair = -1 } },
-                earrings = { head = { drawable = 0, texture = 0, hair = -1 } },
-                mask     = { head = { drawable = 0, texture = 0, hair = -1 } },
-
-                watches  = { [3] = { drawable = 15, texture = 0 } },
-                chains   = { [3] = { drawable = 15, texture = 0 } },
-                bags     = { [3] = { drawable = 15, texture = 0 } },
-
-                pants    = { [4] = { drawable = 15, texture = 0 } },
-                shoes    = { [4] = { drawable = 15, texture = 0 } },
-            }
-        },
-        male = {
-            categories = {}
-        }
-    },
-
-    -- ── Keep supporting body parts visible per category ──────────────────
-    -- Items that sit ON the body (shoes on a foot, watch on a wrist) look wrong
-    -- floating in empty space. For those, keep the supporting component visible
-    -- at a neutral skin drawable instead of hiding it. Everything else still hides,
-    -- and the head stays invisible unless a category sets head = true.
-    --   [componentIndex] = neutralDrawable   (3 = arms/torso, 4 = legs, 6 = feet)
-    --   head = true                          (show a normal head — also shows the face)
-    --   hair = <drawable>                    (only used when head = true; -1 = bald)
-    keepBody = {
-        -- Pure item capture for outerwear, pants and bags: do NOT keep the mannequin body.
-        -- This leaves only the target clothing visible after the head-hide / ghost pass.
-        torso    = { },
-        -- T-shirt: capture like outerwear — item only, no mannequin body.
-        tshirt   = { },
-        armor    = { [3] = 0, [4] = 0, [6] = 0, [8] = 0 },
-        pants    = { },
-        bags     = { },
-        -- Shoes: the shoe IS component 6 (feet) and is always shown as the target.
-        -- Do NOT keep the legs (component 4) — leg drawable 0 renders as pants/
-        -- underwear, which is the "pants" that was showing in shoe shots. With legs
-        -- hidden, only the foot/shoe shows (bare shin above it at most), and the low
-        -- shoe camera + crop trims the rest.
-        shoes    = { },
-        -- Watch: prop-only. Hide the arm (component 3 -> -1) so ONLY the watch
-        -- renders, with no hand/forearm skin. The watch stays attached to the wrist
-        -- bone (which still exists even with the arm mesh hidden), so it floats
-        -- alone. On the rare model where -1 leaves a bare-arm fallback, the tight
-        -- watch camera (captureCameras.watches) still crops the stub out.
-        watches  = { },
-        -- Chains / necklaces (component 7) sit on the upper chest. Keep a BARE
-        -- torso skin so the chain has a neck/chest to rest on, but HIDE the
-        -- undershirt/shirt (8) and top (11) so no shirt covers it. If your torso
-        -- drawable 0 still shows a shirt on your build, try a different nude value
-        -- here (e.g. [3] = 15) — it's the bare-skin torso drawable.
-        chains   = { [3] = 0 },
-        -- Hats, glasses and earrings attach to the HEAD BONE, which still exists
-        -- even when the head mesh is invisible. So we hide the head (head not kept)
-        -- and the prop renders alone, floating where the head would be — no head in
-        -- the icon. Set head = true instead if you WANT a visible head for context.
-        hat      = { },
-        glasses  = { },
-        earrings = { },
-    },
 }
 
 Config.Prices = {
@@ -328,6 +298,7 @@ Config.Prices = {
     ['bags'] = 20,
     ['earrings'] = 30,
     ['watches'] = 40,
+    ['bracelets'] = 35,
 }
 
 
@@ -398,6 +369,27 @@ Config.BagLevels = {
     [4] = { label = 'Bag Level 4', backpackSlots = 20, maxWeight = 65000 },
 }
 
+-- ── /clothingstore manager + organisation lockers (build 2.19) ───────────
+-- /clothingstore (admin only): browse every captured clothe with its image,
+-- publish/unpublish to the player store, set price, assign to an org, preview
+-- on the ped (male + female), and jump back into /clothingadmin to retake the
+-- image.
+Config.ManageCommand = 'clothingstore'
+
+-- Clothes assigned to an org are stored under shop 'org_<key>' with
+-- required_job = <key>. Org members open their locker with /orgcloset (or the
+-- command below). Add more orgs by adding keys here; the /clothingstore org
+-- dropdown reads this table.
+Config.OrgShopCommand = 'orgcloset'
+Config.OrgShops = {
+    ['ems']    = { label = 'EMS Locker' },
+    ['police'] = { label = 'Police Locker' },
+    ['sahp']   = { label = 'SAHP Locker' },
+    ['sheriff'] = { label = 'Sheriff Locker' },
+    ['fib']     = { label = 'FIB Locker' },
+    ['army']    = { label = 'Army Locker' },
+}
+
 Config.Shops = {
     ['clothes'] = {
         coords = {
@@ -449,6 +441,7 @@ Config.Shops = {
             'earrings',
             'chains',
             'watches',
+            'bracelets',
         }
     }
 }
@@ -466,6 +459,7 @@ Config.Translations = {
         ['bags'] = 'SAC',
         ['earrings'] = 'BOUCLES D\'OREILLES',
         ['watches'] = 'MONTRES',
+        ['bracelets'] = 'BRACELETS',
         ['bproof'] = 'GILET PB',
         ['cart'] = 'PANIER',
         ['buy'] = 'ACHETER',
@@ -507,6 +501,7 @@ Config.Translations = {
         ['bags'] = 'BAG',
         ['earrings'] = 'EARRINGS',
         ['watches'] = 'WATCHES',
+        ['bracelets'] = 'BRACELETS',
         ['bproof'] = 'BODY ARMOR',
         ['cart'] = 'CART',
         ['buy'] = 'BUY',

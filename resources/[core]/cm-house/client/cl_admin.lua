@@ -176,6 +176,16 @@ RegisterNUICallback('admin:vehicleRecovery', function(d, cb)
     cb({ ok = ok, message = type(result) == 'string' and result or nil, data = result })
 end)
 
+RegisterNUICallback('admin:weaponRecovery', function(d, cb)
+    local ok, result = lib.callback.await('cm-house:server:adminWeaponRecovery', false, tonumber(d.id))
+    lib.notify({ description = result or (ok and 'Weapon restored.' or 'Recovery failed.'), type = ok and 'success' or 'error' })
+    if ok then
+        local data = lib.callback.await('cm-house:server:adminData', false)
+        SendNUIMessage({ action = 'adminRefresh', data = data })
+    end
+    cb({ ok = ok, message = result })
+end)
+
 -- ------------------------------------------------------------
 --  Layouts
 -- ------------------------------------------------------------

@@ -223,7 +223,9 @@ Handlers.notify = function(src, def, a)
     return result(true, toBool(a.consume, false) and 1 or 0, a.message or 'You used the item.')
 end
 
-exports('RegisterActionType', function(actionType, fn)
+exports('RegisterActionType', function(a, b, c)
+    local actionType, fn = a, b
+    if type(a) == 'table' then actionType, fn = b, c end
     actionType = tostring(actionType or ''):lower()
     if actionType == '' or type(fn) ~= 'function' then return false end
     Handlers[actionType] = fn
@@ -245,20 +247,41 @@ end)
 -- ============================================================
 local ItemHandlers = {}
 
-exports('RegisterItem', function(itemName, handler)
+exports('RegisterItem', function(a, b, c)
+    local itemName, handler = a, b
+    if type(a) == 'table' then itemName, handler = b, c end
     itemName = tostring(itemName or ''):lower()
     if itemName == '' or type(handler) ~= 'function' then return false end
     ItemHandlers[itemName] = handler
-    -- Make sure the inventory routes this item's "use" to us.
-    pcall(function()
-        if GetResourceState('cm-inventory') == 'started' then
-            exports['cm-inventory']:RegisterUseableItem(itemName, GetCurrentResourceName(), 'UseItem')
-        end
-    end)
-    return true
+    -- Make sure the inventory routes this item's "use" to us and that the
+    -- registration cache reflects the real inventory state.
+    return registerUsable(itemName)
 end)
 
-exports('UnregisterItem', function(itemName)
+-- Stable cross-resource route that does not serialize a Lua closure through
+-- the export boundary. The owning resource exposes a named handler instead.
+exports('RegisterExternalItem', function(a, b, c, d)
+    local itemName, resourceName, exportName = a, b, c
+    if type(a) == 'table' then itemName, resourceName, exportName = b, c, d end
+    itemName = tostring(itemName or ''):lower()
+    resourceName, exportName = tostring(resourceName or ''), tostring(exportName or '')
+    if itemName == '' or resourceName == '' or exportName == '' then return false end
+    ItemHandlers[itemName] = function(src, item, name)
+        local ok, response = pcall(function()
+            return exports[resourceName][exportName](itemName, src, item, name)
+        end)
+        if not ok then
+            print(('[CM-ITEMACTIONS] External item handler failed: %s -> %s.%s | %s')
+                :format(itemName, resourceName, exportName, tostring(response)))
+            return result(false, 0, 'This item could not be used.')
+        end
+        return response
+    end
+    return registerUsable(itemName)
+end)
+
+exports('UnregisterItem', function(a, b)
+    local itemName = type(a) == 'table' and b or a
     itemName = tostring(itemName or ''):lower()
     if itemName == '' then return false end
     ItemHandlers[itemName] = nil
@@ -276,6 +299,18 @@ local LegacyActions = {
     lockpick  = { type = 'consume', client_event = 'cm-itemactions:client:lockpickStart', message = 'You used a lockpick.' },
     id_card   = { type = 'event',   client_event = 'cm-itemactions:client:showIdCard', consume = false, message = 'You checked your ID card.' },
 }
+
+-- Read-only readiness contract for shops and other item producers. An item is
+-- ready only when it has an effect and cm-inventory has the live use route.
+exports('IsItemReady', function(a, b)
+    local itemName = type(a) == 'table' and b or a
+    itemName = tostring(itemName or ''):lower()
+    if itemName == '' then return false, 'Invalid item name.' end
+    local hasEffect = ItemHandlers[itemName] ~= nil or LegacyActions[itemName] ~= nil
+    if not hasEffect then return false, 'No item effect is registered.' end
+    if Registered[itemName] ~= true then return false, 'Inventory use route is not registered.' end
+    return true
+end)
 
 -- Items whose "use" is intentionally handled elsewhere (equip flow), not consumed.
 local function equipOnlyMessage(itemName)
@@ -376,7 +411,7 @@ end)
 
 -- Legacy built-ins that must always be usable even before the catalog loads.
 local BaseUsable = {
-    'weapon_pistol', 'bandage', 'medkit', 'armor', 'water',
+    'weapon_pistol', 'bandage', 'medkit', 'medikit', 'armor', 'water',
     'sandwich', 'repairkit', 'lockpick', 'id_card',
     -- Fixed cm-weapons ammo items. These are equip-only/use-to-move items;
     -- inventory consumes one round only when a weapon fires.
@@ -434,6 +469,9 @@ end)
 
 AddEventHandler('onResourceStart', function(resourceName)
     if resourceName == 'cm-inventory' or resourceName == ResourceName then
+        -- cm-inventory keeps usable handlers in memory. Its restart empties that
+        -- table, so our local success cache must be rebuilt as well.
+        if resourceName == 'cm-inventory' then Registered = {} end
         CreateThread(function()
             Wait(750)
             registerAll()

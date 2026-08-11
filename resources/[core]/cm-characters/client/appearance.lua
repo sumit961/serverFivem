@@ -31,6 +31,7 @@ local appearanceOffset = nil
 local currentCharData = nil
 local isInAppearance = false
 local appearanceSavePending = false
+local appearanceServiceMode = nil
 
 -- Config (from vms_charcreator adapted for cm)
 local AppearanceConfig = {
@@ -545,6 +546,7 @@ end
 
 -- Open appearance editor
 AddEventHandler('cm-characters:client:openAppearance', function(charData)
+    appearanceServiceMode = nil
     currentCharData = charData
     isInAppearance = true
     TriggerEvent('cm-characters:client:setWorldLock', 'creator', true)
@@ -626,6 +628,79 @@ AddEventHandler('cm-characters:client:openAppearance', function(charData)
     sendCreationLoading(false)
 end)
 
+-- Opens the existing editor for an active character without entering the
+-- first-character creation/spawn flow. Callers may expose only the service
+-- categories they own; cm-characters still owns the save operation.
+AddEventHandler('cm-characters:client:openAppearanceService', function(options)
+    if isInAppearance then return end
+    options = type(options) == 'table' and options or {}
+
+    local service = tostring(options.service or '')
+    if service ~= 'gender' and service ~= 'surgery' then return end
+
+    local charId = LocalPlayer.state.charId or LocalPlayer.state.characterId
+    if not charId then
+        TriggerEvent('cm-characters:client:error', 'No active character is available for this service.')
+        TriggerEvent('cm-ems:client:appearanceServiceClosed')
+        return
+    end
+    if not next(tempSkinTable) then
+        TriggerEvent('cm-characters:client:error', 'Your saved appearance is still loading. Please try again.')
+        TriggerEvent('cm-ems:client:appearanceServiceClosed')
+        return
+    end
+
+    appearanceServiceMode = service
+    currentCharData = { charId = charId, serviceMode = service }
+    isInAppearance = true
+    lastSkin = CopyTable(tempSkinTable)
+
+    local ped = PlayerPedId()
+    local coords = GetEntityCoords(ped)
+    lastCoords = { x = coords.x, y = coords.y, z = coords.z, w = GetEntityHeading(ped) }
+
+    -- Hospital services edit the active character in place. They must never
+    -- enter the first-creation state, creator room, or spawn-selector flow.
+    FreezeEntityPosition(ped, true)
+
+    InitSkinData()
+    for key, value in pairs(lastSkin or {}) do tempSkinTable[key] = value end
+    ApplySkin(tempSkinTable)
+    CreateAppearanceCam()
+
+    local categories
+    local items
+    if service == 'gender' then
+        categories = { parents = true }
+        items = {
+            parents = { sex = true, parents = false, face_md_weight = false, skin_md_weight = false }
+        }
+    else
+        categories = { parents = true, face = true }
+        items = {
+            parents = { sex = false, parents = true, face_md_weight = true, skin_md_weight = true },
+            face = AvailableItems.face,
+        }
+    end
+
+    SendNUIMessage({
+        action = 'openAppearance',
+        categories = categories,
+        items = items,
+        data = GetComponentData(),
+        currentRotate = GetEntityHeading(PlayerPedId()),
+        currentDistance = 30,
+        clotheSets = {},
+        handsUpKey = AppearanceConfig.handsUpKey,
+        enableHandsUpButton = false,
+        enableCancelButtonUI = true,
+        playerHasAlreadySkin = true,
+        charId = charId,
+    })
+
+    SetNuiFocus(true, true)
+end)
+
 -- NUI Callbacks for appearance
 RegisterNUICallback('appearanceChange', function(data, cb)
     if data.type == 'clotheset' then
@@ -634,7 +709,9 @@ RegisterNUICallback('appearanceChange', function(data, cb)
         if data.type == 'sex' then
             local sex = tonumber(data.new)
             local model = sex == 0 and GetHashKey('mp_m_freemode_01') or GetHashKey('mp_f_freemode_01')
-            sendCreationLoading(true, 'Changing character model...')
+            if not appearanceServiceMode then
+                sendCreationLoading(true, 'Changing character model...')
+            end
             RequestModel(model)
             while not HasModelLoaded(model) do
                 RequestModel(model)
@@ -642,7 +719,14 @@ RegisterNUICallback('appearanceChange', function(data, cb)
             end
             SetPlayerModel(PlayerId(), model)
             SetPedComponentVariation(PlayerPedId(), 0, 0, 0, 2)
-            sendCreationLoading(false)
+            if appearanceServiceMode and lastCoords then
+                SetEntityCoordsNoOffset(PlayerPedId(), lastCoords.x, lastCoords.y, lastCoords.z, false, false, false)
+                SetEntityHeading(PlayerPedId(), lastCoords.w)
+                FreezeEntityPosition(PlayerPedId(), true)
+            end
+            if not appearanceServiceMode then
+                sendCreationLoading(false)
+            end
             tempSkinTable['sex'] = sex
             -- Reapply default clothes for new gender
             local mySex = sex == 0 and 'm' or 'f'
@@ -762,17 +846,20 @@ RegisterNUICallback('appearanceSave', function(data, cb)
 
     appearanceSavePending = true
     SetNuiFocus(false, false)
-    SendNUIMessage({ action = 'creationLoading', show = true, message = 'Saving character...', percent = 55 })
+    if not appearanceServiceMode then
+        SendNUIMessage({ action = 'creationLoading', show = true, message = 'Saving character...', percent = 55 })
 
-    -- Hide the transition while the server saves naked/base JSON and inventory re-equips
-    -- starter clothes. This prevents the brief default-body blink after pressing Create.
-    if not IsScreenFadedOut() and not IsScreenFadingOut() then
-        DoScreenFadeOut(150)
-        Wait(180)
+        -- Hide the transition while the server saves naked/base JSON and inventory re-equips
+        -- starter clothes. This prevents the brief default-body blink after pressing Create.
+        if not IsScreenFadedOut() and not IsScreenFadingOut() then
+            DoScreenFadeOut(150)
+            Wait(180)
+        end
     end
 
     -- Server acknowledgement will close the creator after DB/inventory work finishes.
-    TriggerServerEvent('cm-characters:server:saveAppearance', currentCharData.charId, tempSkinTable)
+    TriggerServerEvent('cm-characters:server:saveAppearance',
+        currentCharData.charId, tempSkinTable, appearanceServiceMode)
 
     -- Safety: if the server event fails for any reason, do not leave the screen black forever.
     local savedCharId = currentCharData.charId
@@ -782,9 +869,19 @@ RegisterNUICallback('appearanceSave', function(data, cb)
             isInAppearance = false
             SendNUIMessage({ action = 'hideAll' })
             DeleteAppearanceCam()
-            setCreationState(false)
-            setCreationHudVisible(false)
-            TriggerEvent('cm-characters:client:characterReady', savedCharId)
+            if appearanceServiceMode then
+                appearanceServiceMode = nil
+                if lastCoords then
+                    SetEntityCoordsNoOffset(PlayerPedId(), lastCoords.x, lastCoords.y, lastCoords.z, false, false, false)
+                    SetEntityHeading(PlayerPedId(), lastCoords.w)
+                end
+                FreezeEntityPosition(PlayerPedId(), false)
+                TriggerEvent('cm-ems:client:appearanceServiceClosed')
+            else
+                setCreationState(false)
+                setCreationHudVisible(false)
+                TriggerEvent('cm-characters:client:characterReady', savedCharId)
+            end
             if IsScreenFadedOut() or IsScreenFadingOut() then DoScreenFadeIn(350) end
         end
     end)
@@ -870,6 +967,23 @@ RegisterNetEvent('cm-characters:client:appearanceSaved', function(ok, payload)
         return
     end
 
+    if appearanceServiceMode then
+        local serviceMode = appearanceServiceMode
+        appearanceServiceMode = nil
+        isInAppearance = false
+        SendNUIMessage({ action = 'hideAll' })
+        DeleteAppearanceCam()
+
+        if lastCoords then
+            SetEntityCoordsNoOffset(PlayerPedId(), lastCoords.x, lastCoords.y, lastCoords.z, false, false, false)
+            SetEntityHeading(PlayerPedId(), lastCoords.w)
+        end
+        FreezeEntityPosition(PlayerPedId(), false)
+        TriggerEvent('cm-ems:client:appearanceServiceClosed', serviceMode)
+        if IsScreenFadedOut() or IsScreenFadingOut() then DoScreenFadeIn(350) end
+        return
+    end
+
     isInAppearance = false
     SendNUIMessage({ action = 'hideAll' })
     DeleteAppearanceCam()
@@ -894,13 +1008,29 @@ end)
 
 -- Close appearance (shouldn't happen for new chars, but handle it)
 RegisterNUICallback('appearanceClose', function(data, cb)
+    local wasService = appearanceServiceMode ~= nil
+    if appearanceServiceMode then
+        appearanceServiceMode = nil
+        if lastSkin then
+            tempSkinTable = CopyTable(lastSkin)
+            ApplySkin(tempSkinTable)
+        end
+        if lastCoords then
+            SetEntityCoordsNoOffset(PlayerPedId(), lastCoords.x, lastCoords.y, lastCoords.z, false, false, false)
+            SetEntityHeading(PlayerPedId(), lastCoords.w)
+        end
+        FreezeEntityPosition(PlayerPedId(), false)
+        TriggerEvent('cm-ems:client:appearanceServiceClosed')
+    end
     isInAppearance = false
     SetNuiFocus(false, false)
     SendNUIMessage({ action = 'hideAll' })
     sendCreationLoading(false)
-    TriggerEvent('cm-characters:client:setWorldLock', 'creator', false)
-    setCreationState(false)
-    setCreationHudVisible(true)
+    if not wasService then
+        TriggerEvent('cm-characters:client:setWorldLock', 'creator', false)
+        setCreationState(false)
+        setCreationHudVisible(true)
+    end
     DeleteAppearanceCam()
     cb('ok')
 end)

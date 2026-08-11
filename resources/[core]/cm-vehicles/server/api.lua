@@ -41,6 +41,36 @@ local function familyDecision(src, row, action)
     return allowed == true, tostring(reason or (allowed and 'allowed' or 'denied')), context
 end
 
+local function emsDecision(src, row, action)
+    if GetResourceState('cm-ems') ~= 'started' then return false, 'not_ems_vehicle', nil end
+    local charId = CMVehicles.Server.GetCharacterId(src)
+    if not charId then return false, 'character_not_loaded', nil end
+    local ok, allowed, reason, context = pcall(function()
+        return exports['cm-ems']:GetVehicleAccessDecision(tostring(charId), tonumber(row.id), tostring(action or 'vehicle.drive'))
+    end)
+    if not ok then return false, 'ems_export_failed', nil end
+    return allowed == true, tostring(reason or 'denied'), context
+end
+
+local function organizationDecision(src, row, action)
+    if tostring(row.owner_type or '') ~= 'organization' then return nil, 'not_organization_vehicle', nil end
+    local organization = tostring(row.owner_id or ''):lower()
+    local resource = organization == 'ems' and 'cm-ems'
+        or organization == 'police' and 'cm-police'
+        or ((organization == 'sahp' or organization == 'sheriff' or organization == 'fib' or organization == 'army') and 'cm-law' or nil)
+    if not resource or GetResourceState(resource) ~= 'started' then
+        return false, 'organization_access_unavailable', { organization = organization }
+    end
+    local charId = CMVehicles.Server.GetCharacterId(src)
+    if not charId then return false, 'character_not_loaded', { organization = organization } end
+    local ok, allowed, reason, context = pcall(function()
+        return exports[resource]:GetVehicleAccessDecision(tostring(charId), tonumber(row.id), tostring(action or 'vehicle.drive'))
+    end)
+    if not ok then return false, 'organization_access_failed', { organization = organization } end
+    return allowed == true, tostring(reason or (allowed and 'organization_fleet' or 'organization_access_denied')),
+        type(context) == 'table' and context or { organization = organization }
+end
+
 local function assignmentFamilyContext(row)
     if GetResourceState('cm-house') ~= 'started' then return nil end
     local okAssignment, assignment = pcall(function()
@@ -146,7 +176,19 @@ function A.CanUseVehicle(src, identity, action)
     if not row then return false, 'vehicle_not_found' end
     local charId = CMVehicles.Server.GetCharacterId(src)
     if not charId then return false, 'character_not_loaded' end
-    if tostring(row.owner_character_id) == tostring(charId) then return true, 'owner', row end
+    local orgAllowed, orgReason, orgContext = organizationDecision(src, row, action)
+    if orgAllowed ~= nil then
+        return orgAllowed == true, orgAllowed and 'organization' or orgReason, row, orgContext
+    end
+    -- Compatibility for older EMS fleet rows created before organization
+    -- ownership was introduced.
+    local emsAllowed, emsReason, emsContext = emsDecision(src, row, action)
+    if emsAllowed then return true, 'ems', row, emsContext end
+    if emsReason ~= 'not_ems_vehicle' and emsReason ~= 'ems_resource_not_started' then return false, emsReason, row end
+    if tostring(row.owner_type or 'character') == 'character'
+        and tostring(row.owner_character_id) == tostring(charId) then
+        return true, 'owner', row
+    end
     if ownerOnly[action] then return false, 'owner_only', row end
 
     -- Manual keys and already-issued family keys are checked first. Family keys
@@ -276,3 +318,34 @@ exports('GetFamilyVehicleContext', A.GetFamilyVehicleContext)
 exports('GrantFamilySessionKey', A.GrantFamilySessionKey)
 exports('RevokeFamilyVehicleKeys', A.RevokeFamilyVehicleKeys)
 exports('GetVehicleIntegrationContract', A.GetIntegrationContract)
+
+-- Server-authoritative driver-seat audit for organization fleet vehicles.
+-- Door presentation remains client-side, but a stale client state or direct
+-- native call cannot keep an off-duty/non-member player in the driver seat.
+CreateThread(function()
+    while true do
+        Wait(1000)
+        for _, rawSrc in ipairs(GetPlayers()) do
+            local src = tonumber(rawSrc)
+            local ped = src and GetPlayerPed(src) or 0
+            local vehicle = ped ~= 0 and GetVehiclePedIsIn(ped, false) or 0
+            if vehicle ~= 0 and DoesEntityExist(vehicle) and GetPedInVehicleSeat(vehicle, -1) == ped then
+                local state = Entity(vehicle).state
+                local vehicleId = tonumber(state.cmVehicleId)
+                if vehicleId then
+                    local row = CMVehicles.Server.GetVehicleById(vehicleId)
+                    local ownerClass = row and tostring(row.owner_class or ''):lower() or ''
+                    if ownerClass == 'police' or ownerClass == 'ems' or ownerClass == 'sahp'
+                        or ownerClass == 'sheriff' or ownerClass == 'fib' or ownerClass == 'army' then
+                        local allowed, why = A.CanUseVehicle(src, vehicleId, 'vehicle.drive')
+                        if allowed ~= true then
+                            pcall(SetVehicleEngineOn, vehicle, false, true, true)
+                            TriggerClientEvent('cm-vehicles:client:forceOrganizationVehicleExit', src,
+                                NetworkGetNetworkIdFromEntity(vehicle), tostring(why or 'organization_access_denied'))
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)

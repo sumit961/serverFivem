@@ -17,6 +17,8 @@ const actions = [
   { id: 9, key: 'enterTrunk', icon: '📦', title: 'GET IN THE TRUNK', mode: 'outside' },
   { id: 10, key: 'getOutTrunk', icon: '⬆', title: 'GET PLAYER OUT OF THE TRUNK', mode: 'always' },
   { id: 11, key: 'passengers', icon: '👥', title: 'GET PASSENGER OUT OF CAR', mode: 'inside' }
+  ,{ id: 12, key: 'policePutDragged', icon: 'POLICE', title: 'PUT DRAGGED SUSPECT IN VEHICLE', mode: 'outside' }
+  ,{ id: 13, key: 'policeRemoveCuffed', icon: 'POLICE', title: 'REMOVE CUFFED SUSPECT FROM VEHICLE', mode: 'outside' }
 ];
 
 function post(name, data = {}) {
@@ -145,6 +147,8 @@ function actionVisible(action) {
   const slots = Number(vehicle?.trunkSlots || 0);
   if (action.mode === 'inside' && !inside) return false;
   if (action.mode === 'outside' && inside) return false;
+  if (action.key === 'policePutDragged' && !vehicle?.policeDraggedSuspect) return false;
+  if (action.key === 'policeRemoveCuffed' && !vehicle?.policeCuffedOccupant) return false;
   if ((action.key === 'trunk' || action.key === 'enterTrunk') && slots <= 0) return false;
   if (inside && ['repair','refuel','wash','charge','features','giveKey','enterTrunk'].includes(action.key)) return false;
   return true;

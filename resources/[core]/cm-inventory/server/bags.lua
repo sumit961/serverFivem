@@ -102,7 +102,14 @@ local function decorateNewItemMetadata(itemName, metadata, def, hadCustomMetadat
         metadata.durability = tonumber(def.durability) or 100
     end
     if isWeapon then
-        metadata.serial = metadata.serial or randomSerial('WPN')
+        -- Trusted server resources can intentionally return an unregistered
+        -- weapon (for example, cm-house weapon storage). Preserve that state
+        -- instead of silently minting a new serial during AddItem.
+        if metadata.serialRequired == false then
+            metadata.serial = nil
+        else
+            metadata.serial = metadata.serial or randomSerial('WPN')
+        end
         metadata.durability = metadata.durability or 100
     end
     if isArmor then
@@ -111,4 +118,3 @@ local function decorateNewItemMetadata(itemName, metadata, def, hadCustomMetadat
 
     return metadata
 end
-

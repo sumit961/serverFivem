@@ -11,7 +11,7 @@ const state = {
   open: false,
   tab: 'dashboard',
   selectedPlayer: null,
-  data: { me: {}, players: [], admins: [], ranks: [], logs: [], logCategories: [], permissions: [], server: {} },
+  data: { me: {}, players: [], admins: [], ranks: [], logs: [], logCategories: [], permissions: [], server: {}, orgs: { list: [], policy: {} } },
   offline: { query: '', results: [] },
   map: { players: [], vehicles: [], showVehicles: true, showAdmins: true, cam: { x: 0, y: -800, zoom: 0.34 }, timer: null, drag: null, moved: false, cursor: null, resizeBound: false, selected: null, calibrating: false, calibration: null },
   rankEditor: { name: '', label: '', level: 20, permissions: [] },
@@ -69,6 +69,7 @@ const tabs = [
   { id: 'developer', label: 'Developer', hint: 'Tools', perm: 'dev.view' },
   { id: 'inventory', label: 'Inventory', hint: 'Items', perm: 'inventory.view' },
   { id: 'vehicles', label: 'Vehicles', hint: 'Cars', perm: 'vehicles.view' },
+  { id: 'orgs', label: 'Organizations', hint: 'Leadership', perm: 'orgs.view' },
   { id: 'admins', label: 'Admins', hint: 'Staff', perm: 'admins.view' },
   { id: 'ranks', label: 'Ranks', hint: 'Perms', perm: 'ranks.view' },
   { id: 'logs', label: 'Logs', hint: 'Audit', perm: 'logs.view' },
@@ -146,6 +147,7 @@ function dashboard() {
         <div class="actions vertical">
           ${(hasPerm('gps.teleport') || hasPerm('teleport') || hasPerm('players.teleport')) ? `<button class="btn primary" onclick="action('gpsTeleport')">GPS Teleport</button>` : ''}
           ${hasPerm('map.view') || hasPerm('players.view') ? `<button class="btn" onclick="cmSetTab('map')">Open Live Map</button>` : ''}
+          ${hasPerm('ems.admin.manage') ? `<button class="btn" onclick="action('openEmsManagement')">Open EMS Management</button>` : ''}
           ${hasPerm('dev.view') ? `<button class="btn" onclick="cmSetTab('developer')">Open Developer Launchers</button>` : ''}
         </div>
       </div>
@@ -285,6 +287,64 @@ function vehiclesPage() {
 window.cmViewVehicleInventory = function() {
   const plate = document.getElementById('plateInput').value;
   action('viewVehicleInventory', { plate });
+};
+
+function orgsPage() {
+  const orgs = state.data.orgs || { list: [], policy: {} };
+  const list = orgs.list || [];
+  const policy = orgs.policy || {};
+  const canManage = hasPerm('orgs.manage');
+  return `
+    <div class="card">
+      <h3>Organizations</h3>
+      <p class="mini-label">Every self-registered organization (EMS, Police, and any future ones) in one place. Assigning a leader here calls that organization's own leader-assignment logic directly -- it's the same action as using its own dashboard's Admin tab.</p>
+      <div class="table-wrap">
+        <table><thead><tr><th>Organization</th><th>Status</th><th>Leader</th><th>Members</th><th>On duty</th><th>Leadership</th><th>Facilities</th></tr></thead><tbody>
+          ${list.map(o => `<tr>
+            <td>${esc(o.label)}</td>
+            <td><span class="badge ${o.running ? '' : 'off'}">${o.running ? 'Running' : 'Stopped'}</span></td>
+            <td>${o.leaderCid ? `${esc(o.leaderName || 'Unknown')} (CID ${esc(o.leaderCid)})` : 'Not assigned'}</td>
+            <td>${Number(o.memberCount || 0)}</td>
+            <td>${Number(o.onDutyCount || 0)}</td>
+            <td>${canManage && o.running ? `<div class="form" style="gap:8px"><input id="orgLeaderCid_${esc(o.id)}" class="input" placeholder="Character ID" style="width:120px" /><button class="btn small primary" onclick="cmAssignOrgLeader('${esc(o.id)}')">Assign</button>${o.leaderCid && o.canRemoveLeader ? `<button class="btn small danger" onclick="cmRemoveOrgLeader('${esc(o.id)}','${esc(o.label)}')">Remove current</button>` : ''}</div>` : '-'}</td>
+            <td>${canManage&&o.running&&o.canManageFacilities?`<div class="form" style="gap:8px"><select id="orgFacility_${esc(o.id)}" class="select"><option value="front_desk">Front desk</option><option value="wardrobe">Wardrobe</option><option value="armory">Armory</option><option value="storage">Storage</option><option value="fleet">Fleet</option>${o.resource==='cm-law'?'<option value="intake">Organization prison intake</option><option value="jail_spawn">Shared jail: add spawn</option><option value="jail_release">Shared jail: release point</option><option value="jail_spawns">Shared jail: all spawns</option>':''}</select><button class="btn small primary" onclick="cmSetOrgFacility('${esc(o.id)}',false)">Set here</button><button class="btn small danger" onclick="cmSetOrgFacility('${esc(o.id)}',true)">Reset</button></div>`:'-'}</td>
+          </tr>`).join('') || `<tr><td colspan="7">No organizations have registered yet.</td></tr>`}
+        </tbody></table>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3>Cross-Org Policy</h3>
+      <p class="mini-label">Applies to every registered organization, not just a specific pair. Both default off (a character can belong to at most one organization, and cannot lead two at once).</p>
+      <div class="form">
+        <div class="field full"><label><input type="checkbox" id="orgPolicyMulti" ${policy.allowMultiOrgMembership ? 'checked' : ''} ${canManage ? '' : 'disabled'} /> Allow a player to be a member of more than one organization at the same time</label></div>
+        <div class="field full"><label><input type="checkbox" id="orgPolicySameLeader" ${policy.allowSameLeaderAcrossOrgs ? 'checked' : ''} ${canManage ? '' : 'disabled'} /> Allow the same character to be leader of more than one organization at the same time</label></div>
+        ${canManage ? `<button class="btn primary" onclick="cmSaveOrgPolicy()">Save policy</button>` : ''}
+      </div>
+    </div>`;
+}
+
+window.cmAssignOrgLeader = function(orgId) {
+  const input = document.getElementById(`orgLeaderCid_${orgId}`);
+  const characterId = input ? input.value : '';
+  if (!characterId) return;
+  action('orgsAssignLeader', { orgId, characterId });
+};
+window.cmRemoveOrgLeader = function(orgId, label) {
+  if (confirm(`Remove the current leader of ${label}? Their organization membership will also be removed and the organization will remain without a leader.`)) {
+    action('orgsRemoveLeader', { orgId });
+  }
+};
+window.cmSetOrgFacility = function(orgId, reset) {
+  const select = document.getElementById(`orgFacility_${orgId}`);
+  if (!select) return;
+  if (reset && !confirm(`Reset the selected ${select.options[select.selectedIndex].text} location?`)) return;
+  action('orgsSetFacility', { orgId, facilityType: select.value, reset: reset === true });
+};
+window.cmSaveOrgPolicy = function() {
+  action('orgsSavePolicy', {
+    allowMultiOrgMembership: document.getElementById('orgPolicyMulti').checked,
+    allowSameLeaderAcrossOrgs: document.getElementById('orgPolicySameLeader').checked,
+  });
 };
 
 function adminsPage() {
@@ -542,6 +602,7 @@ function render() {
   else if (state.tab === 'players') page.innerHTML = playersPage();
   else if (state.tab === 'inventory') page.innerHTML = inventoryPage();
   else if (state.tab === 'vehicles') page.innerHTML = vehiclesPage();
+  else if (state.tab === 'orgs') page.innerHTML = orgsPage();
   else if (state.tab === 'admins') page.innerHTML = adminsPage();
   else if (state.tab === 'ranks') page.innerHTML = ranksPage();
   else if (state.tab === 'offline') page.innerHTML = offlinePage();
@@ -1100,7 +1161,7 @@ window.cmMapTeleport = cmMapTeleport;
 window.cmMapVehicleAction = cmMapVehicleAction;
 
 // ---------------------------------------------------------------------------
-// Developer tools (plugin-registered by other resources; nothing hardcoded).
+// Developer panel launchers (plugin-registered; no commands or forms run here).
 // ---------------------------------------------------------------------------
 function developerPage() {
   const tools = state.data.devTools || [];
@@ -1125,25 +1186,9 @@ function developerPage() {
   }).join('');
 
   const actions = (selected.actions || []).map(a => {
-    if (a.type === 'form') {
-      const fields = (a.fields || []).map(f => {
-        const fid = `devf_${selected.id}_${a.id}_${f.id}`;
-        if (f.type === 'select') {
-          const opts = (f.options || []).map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
-          return `<label class="dev-field"><span>${esc(f.label)}</span><select id="${fid}">${opts}</select></label>`;
-        }
-        return `<label class="dev-field"><span>${esc(f.label)}</span>
-          <input id="${fid}" type="${f.type === 'number' ? 'number' : 'text'}" placeholder="${esc(f.placeholder || '')}" /></label>`;
-      }).join('');
-      return `<div class="dev-action form">
-        <div class="dev-action-head"><strong>${esc(a.label)}</strong>${a.hint ? `<small>${esc(a.hint)}</small>` : ''}</div>
-        ${fields}
-        <button class="btn" onclick="cmDevForm('${esc(selected.id)}', '${esc(a.id)}')">Run</button>
-      </div>`;
-    }
     return `<div class="dev-action">
       <div class="dev-action-head"><strong>${esc(a.label)}</strong>${a.hint ? `<small>${esc(a.hint)}</small>` : ''}</div>
-      <button class="btn" onclick="cmDevAction('${esc(selected.id)}', '${esc(a.id)}')">Run</button>
+      <button class="btn" onclick="cmDevAction('${esc(selected.id)}', '${esc(a.id)}')">Open</button>
     </div>`;
   }).join('');
 
@@ -1158,18 +1203,4 @@ function cmDevSelect(id) { state.devTool = id; render(); }
 
 function cmDevAction(tool, actionId) {
   sendAction('devAction', { tool, actionId });
-}
-
-function cmDevForm(tool, actionId) {
-  const t = (state.data.devTools || []).find(x => x.id === tool);
-  const a = t && (t.actions || []).find(x => x.id === actionId);
-  if (!a) return;
-  const values = {};
-  for (const f of (a.fields || [])) {
-    const el = document.getElementById(`devf_${tool}_${actionId}_${f.id}`);
-    if (!el) continue;
-    if (f.required && !el.value) { el.focus(); return; }
-    values[f.id] = el.value;
-  }
-  sendAction('devAction', { tool, actionId, values });
 }

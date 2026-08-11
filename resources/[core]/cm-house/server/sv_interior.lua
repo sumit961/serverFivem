@@ -294,9 +294,28 @@ end)
 --  occupants is gone the moment they disconnected. Replay both here, using
 --  the same template data enterHome/enterGarage would have sent, instead of
 --  leaving the player standing in a bucket-0 void.
+--
+--  Hooked on 'cm-spawn:server:spawned', NOT 'cm-playerdata:server:characterLoaded'.
+--  The latter fires as soon as the character row loads from the database --
+--  seconds before cm-spawn actually places the ped, and cm-spawn's own
+--  resetPlayerWorldState(src, true) unconditionally sets the player's routing
+--  bucket back to 0 once it finishes. Restoring the garage bucket before that
+--  reset just gets silently overwritten by it: the garage vehicle create
+--  request goes out for a client that is about to leave (or already left)
+--  that bucket, and the vehicle either gets deleted mid-init or never
+--  reaches OneSync at all. 'cm-spawn:server:spawned' fires only after the
+--  client has confirmed its own spawn is complete, i.e. strictly after that
+--  reset -- so restoring here is the last write, not one that gets clobbered.
+--
+--  A death/hospital respawn (or any other spawn override) can also legitimately
+--  place the player somewhere far from this recorded interior even though the
+--  record still points here -- playerNear() guards against dragging that
+--  player's client into a garage/house they are nowhere near.
 -- ------------------------------------------------------------
-AddEventHandler('cm-playerdata:server:characterLoaded', function(src, data)
-    local cid = tonumber(data and data.charId) or GetCid(src)
+AddEventHandler('cm-spawn:server:spawned', function(src, charId)
+    src = tonumber(src)
+    if not src then return end
+    local cid = tonumber(charId) or GetCid(src)
     if not cid then return end
 
     local row = MySQL.single.await('SELECT house_id, kind FROM cm_house_last_interior WHERE cid = ?', { cid })
@@ -312,7 +331,7 @@ AddEventHandler('cm-playerdata:server:characterLoaded', function(src, data)
     if row.kind == 'garage' then
         local g = GarageTemplates[house.garage_template_id]
         local allowed = CanAccessProperty(cid, houseId, ACTIONS.GARAGE_ENTER)
-        if not allowed or not g then
+        if not allowed or not g or not playerNear(src, g.player_entry, 150.0) then
             ClearLastInteriorByCid(cid)
             return
         end
@@ -330,7 +349,7 @@ AddEventHandler('cm-playerdata:server:characterLoaded', function(src, data)
     elseif row.kind == 'house' then
         local tpl = InteriorTemplates[house.interior_template_id]
         local allowed = CanAccessProperty(cid, houseId, ACTIONS.HOUSE_ENTER)
-        if not allowed or not tpl then
+        if not allowed or not tpl or not playerNear(src, tpl.entry or tpl.exit_point, 150.0) then
             ClearLastInteriorByCid(cid)
             return
         end

@@ -133,12 +133,33 @@ function L.Transition(vehicleId, state, data)
     local ref = data.ref ~= nil and tostring(data.ref) or nil
     local slot = tonumber(data.slot)
     local stored, garage, parkingId = legacyFor(state, ref, slot)
-    local sets = { 'location_state = ?', 'location_ref = ?', 'location_slot = ?', 'location_updated_at = NOW()' }
-    local values = { state, ref, slot }
+    -- Keep the oxmysql parameter array dense. Nil location fields create holes
+    -- in Lua arrays, making #values unreliable and shifting the final id bind.
+    local sets = { 'location_state = ?' }
+    local values = { state }
+    if ref ~= nil then
+        sets[#sets + 1] = 'location_ref = ?'; values[#values + 1] = ref
+    else
+        sets[#sets + 1] = 'location_ref = NULL'
+    end
+    if slot ~= nil then
+        sets[#sets + 1] = 'location_slot = ?'; values[#values + 1] = slot
+    else
+        sets[#sets + 1] = 'location_slot = NULL'
+    end
+    sets[#sets + 1] = 'location_updated_at = NOW()'
     if stored ~= nil then
         sets[#sets + 1] = 'is_stored = ?'; values[#values + 1] = stored
-        sets[#sets + 1] = 'garage = ?'; values[#values + 1] = garage
-        sets[#sets + 1] = 'parking_id = ?'; values[#values + 1] = parkingId
+        if garage ~= nil then
+            sets[#sets + 1] = 'garage = ?'; values[#values + 1] = garage
+        else
+            sets[#sets + 1] = 'garage = NULL'
+        end
+        if parkingId ~= nil then
+            sets[#sets + 1] = 'parking_id = ?'; values[#values + 1] = parkingId
+        else
+            sets[#sets + 1] = 'parking_id = NULL'
+        end
         if stored == 1 then
             sets[#sets + 1] = 'parked_at = NOW()'
         else

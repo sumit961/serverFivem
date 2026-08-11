@@ -56,28 +56,6 @@ RegisterNetEvent('cm-admin:client:closeForDevTool', function()
     setHudVisible(true)
 end)
 
-RegisterNetEvent('cm-admin:client:runCommand', function(command, values)
-    if type(command) ~= 'string' or command == '' then return end
-    menuOpen = false
-    SetNuiFocus(false, false) -- release menu focus so the tool's own UI can take it
-    SetNuiFocusKeepInput(false)
-    SendNUIMessage({ action = 'close' })
-    setHudVisible(true)
-    Wait(150)
-    ExecuteCommand(command)
-end)
-
-RegisterNetEvent('cm-admin:client:devClientEvent', function(eventName, values)
-    if type(eventName) ~= 'string' or eventName == '' then return end
-    menuOpen = false
-    SetNuiFocus(false, false)
-    SetNuiFocusKeepInput(false)
-    SendNUIMessage({ action = 'close' })
-    setHudVisible(true)
-    Wait(150)
-    TriggerEvent(eventName, values)
-end)
-
 RegisterNetEvent('cm-admin:client:mapData', function(payload)
     SendNUIMessage({ action = 'mapData', data = payload or {} })
 end)
@@ -298,6 +276,15 @@ end)
 RegisterNetEvent('cm-admin:client:armor', function()
     SetPedArmour(PlayerPedId(), 100)
     notify('Armor set to 100.', 'success')
+end)
+
+-- Fatally injures the local ped so cm-playerdata's own death watcher (health/
+-- IsPedFatallyInjured poll) picks it up and runs the normal death/EMS flow,
+-- instead of duplicating that pipeline here.
+RegisterNetEvent('cm-admin:client:kill', function()
+    local ped = PlayerPedId()
+    SetEntityHealth(ped, 0)
+    notify('You have been killed for testing.', 'inform')
 end)
 
 RegisterNetEvent('cm-admin:client:repairCurrentVehicle', function()

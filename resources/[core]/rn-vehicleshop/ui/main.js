@@ -20,6 +20,11 @@ let adminRenderedVehicles = [];
 let adminPreviewedModel = '';
 let adminDiscoveryInfo = {};
 let adminSelectedModel = null;
+let visualCatalog = {}; // cm-tuning's paint/livery/wheel/tyre/neon option catalog
+let legalOrganizations = []; // cm-law's org list ({id,label}[]), for the admin-status-mode dropdown's legal:<id> options
+let adminEmsMods = {};  // currently edited EMS vehicle's mods (mirrors client.lua currentAdminMods for display only)
+let adminIntrospect = { liveries: 0, slots: {} }; // live per-vehicle option counts from client.lua introspectAdminVehicle
+let adminMode = 'manage';
 let favorites = loadJsonStore('rnVehicleShopFavorites', []);
 let compareList = loadJsonStore('rnVehicleShopCompare', []);
 
@@ -226,14 +231,31 @@ function setTimerValue(seconds, baseDuration){
   showTestTimer();
 }
 function catalogByModel(){ const m = {}; for (const row of adminCatalog || []) m[String(row.model).toLowerCase()] = row; return m; }
+function renderLegalOrgOptions(){
+  const select = $('#admin-status-mode');
+  select.find('option[value^="legal:"]').remove();
+  (legalOrganizations || []).forEach(org => {
+    select.append($('<option>').attr('value', 'legal:' + org.id).text(org.label + ' fleet vehicle'));
+  });
+}
+function legalOrgLabel(id){
+  const org = (legalOrganizations || []).find(o => o.id === id);
+  return org ? org.label : String(id || '').toUpperCase();
+}
 function statusFor(row){
   if(!row) return 'Not set';
+  if(row.availableEms) return 'EMS fleet vehicle';
+  if(row.availablePolice) return 'Police fleet vehicle';
+  if(row.legalOrg) return legalOrgLabel(row.legalOrg) + ' fleet vehicle';
   if(row.availableStore) return 'Store: buyable';
   if(row.availableServer) return 'Server only';
   return 'Disabled';
 }
 function statusClass(row){
   if(!row) return 'notset';
+  if(row.availableEms) return 'ems';
+  if(row.availablePolice) return 'police';
+  if(row.legalOrg) return 'legal-org';
   if(row.availableStore) return 'store';
   if(row.availableServer) return 'server';
   return 'disabled';
@@ -389,12 +411,19 @@ addEventListener('message', (e) => {
     adminSourceVehicles = msg.sourceVehicles || [];
     adminCatalog = msg.catalog || [];
     adminDiscoveryInfo = msg.discovery || {};
+    visualCatalog = (msg.discovery && msg.discovery.visualCatalog) || visualCatalog;
+    legalOrganizations = (msg.discovery && msg.discovery.legalOrganizations) || legalOrganizations;
+    renderLegalOrgOptions();
+    adminMode = msg.mode === 'capture' ? 'capture' : 'manage';
     adminPreviewedModel = '';
     openAdminPanel();
   } else if(msg.action === 'adminData'){
     adminSourceVehicles = msg.sourceVehicles || [];
     adminCatalog = msg.catalog || [];
     adminDiscoveryInfo = msg.discovery || adminDiscoveryInfo || {};
+    visualCatalog = (msg.discovery && msg.discovery.visualCatalog) || visualCatalog;
+    legalOrganizations = (msg.discovery && msg.discovery.legalOrganizations) || legalOrganizations;
+    renderLegalOrgOptions();
     renderAdmin();
   } else if(msg.action === 'closeAdmin'){
     closeAdminPanel(false);
@@ -984,7 +1013,7 @@ function renderCategories(){
   try { $('#vehicle-class-carousel').slick('slickRemove', null, null, true); } catch(e) {}
   const list = getCategoryList();
   if(!list.some(c => c.count > 0)){
-    $('#vehicle-class-warp').append(`<div class="empty-shop">No vehicles are enabled yet.<br>Use /vehicleadmin to add cars to the server catalog.</div>`);
+    $('#vehicle-class-warp').append(`<div class="empty-shop">No vehicles are enabled yet.<br>Capture photos with /vehicleadmin, then publish them with /managevehicle.</div>`);
     renderCatGrid(null);
     return;
   }
@@ -1479,8 +1508,16 @@ function hideAllElements(){
   vehiclesCategory = false; vehicleDisplay = false; inspect = false;
 }
 
-function openAdminPanel(){ hideAllElements(); $('body').addClass('admin-active').removeClass('store-active'); $('#admin-panel').stop(true,true).show(); renderAdmin(); }
-function closeAdminPanel(send){ $('body').removeClass('admin-active'); $('#admin-panel').hide(); adminPreviewedModel = ''; if(send) post('adminClose'); }
+function openAdminPanel(){
+  hideAllElements();
+  $('body').addClass('admin-active').toggleClass('admin-capture-mode', adminMode === 'capture').removeClass('store-active');
+  $('.admin-brand-copy h1').text(adminMode === 'capture' ? 'Vehicle Photo Studio' : 'Manage Vehicles');
+  $('.admin-brand-copy .admin-kicker').text(adminMode === 'capture' ? 'Capture catalog images' : 'Catalog manager');
+  $('.admin-list-heading strong').text(adminMode === 'capture' ? 'Discovered vehicles' : 'Photographed vehicles');
+  $('#admin-panel').stop(true,true).show();
+  renderAdmin();
+}
+function closeAdminPanel(send){ $('body').removeClass('admin-active admin-capture-mode'); $('#admin-panel').hide(); adminPreviewedModel = ''; if(send) post('adminClose'); }
 
 function renderAdmin(){
   const byCatalog = catalogByModel();
@@ -1488,8 +1525,10 @@ function renderAdmin(){
   $('#admin-source-select').html('');
   $('#admin-list').html('');
   adminRenderedVehicles = [];
-  const merged = [...adminSourceVehicles];
-  for(const row of adminCatalog){ if(!merged.find(v => String(v.model).toLowerCase() === String(row.model).toLowerCase())) merged.push({ model: row.model, label: row.label, category: row.category, price: row.price, trunkLevel: row.trunkLevel }); }
+  const merged = adminMode === 'capture' ? [...adminSourceVehicles] : adminCatalog.map(row => {
+    const source = adminSourceVehicles.find(v => modelKey(v.model) === modelKey(row.model)) || {};
+    return Object.assign({}, source, { model: row.model, label: row.label, category: row.category, price: row.price, speedKph: row.speedKph, trunkLevel: row.trunkLevel });
+  });
   merged.sort((a,b) => String(a.label || a.model).localeCompare(String(b.label || b.model)));
   for(const v of merged){
     const row = byCatalog[String(v.model).toLowerCase()];
@@ -1526,6 +1565,155 @@ function setAdminCategory(cat){
   sel.val(cat);
 }
 
+// ── EMS appearance editor ────────────────────────────────────────────────
+// Options come from cm-tuning's visual catalog (server pushed it in as
+// discovery.visualCatalog). Live changes are sent to client.lua's
+// adminModPatch, which merges + re-applies the whole mods table to the local
+// admin preview vehicle via cm-vehicles' ApplyVehicleMods -- same reuse
+// cm-ems's fleet configurator uses, just against this resource's own preview.
+// Same nested merge as client.lua's mergeAdminMods (extras/mods/neons merge
+// key-by-key). This copy is display-only -- client.lua's currentAdminMods is
+// what actually gets applied/saved -- but without the same merge logic the
+// UI would visually forget e.g. a spoiler choice the moment another body
+// part changes, since a naive Object.assign replaces the whole sub-object.
+function mergeEmsMods(base, patch){
+  if(!patch || typeof patch !== 'object') return base;
+  for(const key of Object.keys(patch)){
+    const value = patch[key];
+    if((key === 'extras' || key === 'mods') && value && typeof value === 'object'){
+      base[key] = Object.assign(base[key] || {}, value);
+    } else if(key === 'neons' && value && typeof value === 'object'){
+      base.neons = Object.assign(base.neons || {}, value);
+    } else {
+      base[key] = value;
+    }
+  }
+  return base;
+}
+
+function emsModPatch(patch){
+  mergeEmsMods(adminEmsMods, patch); // display-only mirror; client.lua is authoritative
+  post('adminModPatch', { patch });
+}
+
+function buildEmsSwatchRow($el, colors, currentValue){
+  $el.empty();
+  (colors || []).forEach(([value, label, hex]) => {
+    const $btn = $('<button type="button" class="va-swatch"></button>')
+      .css('background', hex).attr('title', label).attr('data-value', value)
+      .toggleClass('active', Number(currentValue) === Number(value));
+    $el.append($btn);
+  });
+}
+
+function buildEmsSelect($el, count, currentValue){
+  $el.empty().append('<option value="0">Stock</option>');
+  for(let i = 0; i < count; i++){ $el.append(`<option value="${i}">Option ${i + 1}</option>`); }
+  if(currentValue !== undefined) $el.val(String(currentValue));
+}
+
+function buildEmsLabeledSelect($el, options, currentValue){
+  $el.empty();
+  (options || []).forEach(([value, label]) => { $el.append(`<option value="${value}">${safe(label)}</option>`); });
+  if(currentValue !== undefined) $el.val(String(currentValue));
+}
+
+function renderEmsSection(row){
+  const mods = JSON.parse(JSON.stringify((row && row.mods) || {}));
+  adminEmsMods = mods;
+
+  const catalog = visualCatalog || {};
+  buildEmsSwatchRow($('#admin-ems-primary'), catalog.colors, mods.primaryColor);
+  buildEmsSwatchRow($('#admin-ems-secondary'), catalog.colors, mods.secondaryColor);
+  buildEmsSwatchRow($('#admin-ems-neoncolor'), (catalog.neonColors || []).map(([label, r, g, b]) => [`${r},${g},${b}`, label, `rgb(${r},${g},${b})`]), null);
+  buildEmsSelect($('#admin-ems-wheeltype'), 12, mods.wheelType);
+  buildEmsLabeledSelect($('#admin-ems-tint'), (catalog.windowTints || []).map(([v, l]) => [v, l]), mods.windowTint);
+  buildEmsLabeledSelect($('#admin-ems-plate'), (catalog.plateStyles || []).map(([v, l]) => [v, l]), mods.plateIndex);
+  $('#admin-ems-tyrelevel').val(String(mods.tyreLevel ?? 0));
+
+  const extras = mods.extras || {};
+  $('#admin-ems-extras').empty();
+  for(let id = 1; id <= 8; id++){
+    const on = extras[String(id)] === true;
+    $('#admin-ems-extras').append(`<label><input type="checkbox" data-extra="${id}" ${on ? 'checked' : ''}><span>Extra ${id}</span></label>`);
+  }
+  const neons = mods.neons || [];
+  $('#admin-ems-neons').empty();
+  for(let i = 1; i <= 4; i++){
+    const on = neons[i - 1] === true;
+    $('#admin-ems-neons').append(`<label><input type="checkbox" data-neon="${i}" ${on ? 'checked' : ''}><span>Neon ${i}</span></label>`);
+  }
+
+  // Livery + body-part selects need the vehicle's actual supported counts
+  // (from client.lua's introspectAdminVehicle), not a guessed ceiling.
+  renderEmsIntrospectControls(adminIntrospect);
+}
+
+// Populate the livery select and every "body part" select (spoiler, bumpers,
+// hood, roof, wheels-visual, etc.) with ONLY the option counts this specific
+// vehicle actually supports, and select whatever is already in adminEmsMods.
+function renderEmsIntrospectControls(introspect){
+  introspect = introspect || { liveries: 0, slots: {} };
+  const liveries = Number(introspect.liveries) || 0;
+  const $livery = $('#admin-ems-livery');
+  $livery.empty().append('<option value="-1">None</option>');
+  for(let i = 0; i < liveries; i++){ $livery.append(`<option value="${i}">Livery ${i + 1}</option>`); }
+  $livery.val(String(adminEmsMods.livery ?? -1));
+
+  const slotMods = adminEmsMods.mods || {};
+  $('#admin-ems-parts [data-part]').each(function(){
+    const key = $(this).data('part');
+    const slot = (introspect.slots || {})[key] || { modType: null, count: 0 };
+    const current = slot.modType !== null ? slotMods[String(slot.modType)] : undefined;
+    $(this).empty().append('<option value="-1">Stock</option>');
+    for(let i = 0; i < slot.count; i++){ $(this).append(`<option value="${i}">Option ${i + 1}</option>`); }
+    $(this).val(String(current ?? -1)).data('mod-type', slot.modType);
+    $(this).prop('disabled', slot.count === 0);
+  });
+}
+
+$(document).on('change', '#admin-ems-parts [data-part]', function(){
+  const modType = $(this).data('mod-type');
+  if(modType === null || modType === undefined) return;
+  emsModPatch({ mods: { [modType]: Number($(this).val()) } });
+});
+
+$(document).on('change', '#admin-ems-wheeltype', function(){ emsModPatch({ wheelType: Number($(this).val()) }); });
+$(document).on('change', '#admin-ems-tyrelevel', function(){ emsModPatch({ tyreLevel: Number($(this).val()) }); });
+$(document).on('change', '#admin-ems-tint', function(){ emsModPatch({ windowTint: Number($(this).val()) }); });
+$(document).on('change', '#admin-ems-plate', function(){ emsModPatch({ plateIndex: Number($(this).val()) }); });
+$(document).on('change', '#admin-ems-livery', function(){ emsModPatch({ livery: Number($(this).val()) }); });
+$(document).on('click', '#admin-ems-primary .va-swatch, #admin-ems-secondary .va-swatch', function(){
+  const $row = $(this).closest('.va-swatch-row');
+  $row.find('.va-swatch').removeClass('active');
+  $(this).addClass('active');
+  emsModPatch({ [$row.data('target')]: Number($(this).data('value')) });
+});
+$(document).on('click', '#admin-ems-neoncolor .va-swatch', function(){
+  const $row = $(this).closest('.va-swatch-row');
+  $row.find('.va-swatch').removeClass('active');
+  $(this).addClass('active');
+  const [r, g, b] = String($(this).data('value')).split(',').map(Number);
+  emsModPatch({ neonColor: { r, g, b } });
+});
+$(document).on('change', '#admin-ems-extras [data-extra]', function(){
+  emsModPatch({ extras: { [$(this).data('extra')]: $(this).is(':checked') } });
+});
+$(document).on('change', '#admin-ems-neons [data-neon]', function(){
+  const neons = [false, false, false, false];
+  $('#admin-ems-neons [data-neon]').each(function(){ neons[Number($(this).data('neon')) - 1] = $(this).is(':checked'); });
+  emsModPatch({ neons });
+});
+$(document).on('change', '#admin-status-mode', function(){
+  const mode = String($(this).val());
+  const showEms = mode === 'ems' || mode === 'police' || mode.indexOf('legal:') === 0;
+  $('#admin-ems-section').toggle(showEms);
+  if(showEms){
+    const model = String($('#admin-model').val() || '').toLowerCase();
+    renderEmsSection(catalogByModel()[model] || {});
+  }
+});
+
 function fillAdminForm(model, preview = true){
   model = String(model || '').toLowerCase();
   const source = adminSourceVehicles.find(v => String(v.model).toLowerCase() === model) || {};
@@ -1534,9 +1722,17 @@ function fillAdminForm(model, preview = true){
   $('#admin-label').val(row.label || source.label || source.name || model);
   setAdminCategory(row.category || source.category || 'Custom');
   $('#admin-price').val(row.price ?? source.price ?? 0);
+  $('#admin-speed').val(row.speedKph ?? source.speedKph ?? 0);
   $('#admin-trunk').val(clampTrunkLevel(row.trunkLevel ?? source.trunkLevel ?? 1));
-  const statusMode = row.availableStore === true ? 'store' : (row.availableServer === true ? 'server' : 'hidden');
+  const statusMode = row.availableEms === true ? 'ems'
+    : row.availablePolice === true ? 'police'
+    : row.legalOrg ? ('legal:' + row.legalOrg)
+    : row.availableStore === true ? 'store'
+    : (row.availableServer === true ? 'server' : 'hidden');
   $('#admin-status-mode').val(row.model ? statusMode : 'hidden');
+  const showEmsSection = statusMode === 'ems' || statusMode === 'police' || statusMode.indexOf('legal:') === 0;
+  $('#admin-ems-section').toggle(showEmsSection);
+  if(showEmsSection) renderEmsSection(row);
   const td = (row.metadata && row.metadata.testDrive) || {};
   $('#admin-test-enabled').prop('checked', td.enabled !== false);
   $('#admin-test-duration').val(td.duration ?? (data && data.testDrive && data.testDrive.testDriveTimer) ?? 60);
@@ -1550,11 +1746,16 @@ function fillAdminForm(model, preview = true){
   $('#admin-test, #admin-capture').prop('disabled', source.clientValid === false);
   if(preview && (row.model || source.model || model) && $('#admin-panel').is(':visible')){
     adminPreviewedModel = modelKey(row.model || source.model || model);
-    post('adminPreviewVehicle', { model: row.model || source.model || model });
+    post('adminPreviewVehicle', { model: row.model || source.model || model, mods: row.mods || null }).then((result) => {
+      adminIntrospect = (result && result.introspect) || { liveries: 0, slots: {} };
+      const mode = String($('#admin-status-mode').val() || '');
+      if(mode === 'ems' || mode === 'police' || mode.indexOf('legal:') === 0) renderEmsIntrospectControls(adminIntrospect);
+    });
   }
   const imagePreview = $('#admin-image-preview');
   if(row.image){ imagePreview.attr('src', row.image).show(); }
   else { imagePreview.removeAttr('src').hide(); }
+  $('#admin-capture').text(row.image ? 'Retake Photo' : 'Take Photo');
 }
 
 $(document).on('input', '#admin-search', renderAdmin);
@@ -1564,16 +1765,22 @@ $(document).on('click', '#admin-prev', function(){ selectAdminRelative(-1); });
 $(document).on('click', '#admin-next', function(){ selectAdminRelative(1); });
 $(document).on('click', '#admin-save', function(){
   const mode = String($('#admin-status-mode').val() || 'hidden');
+  const availableEms = mode === 'ems';
+  const availablePolice = mode === 'police';
+  const legalOrg = mode.indexOf('legal:') === 0 ? mode.slice(6) : null;
   const availableStore = mode === 'store';
   const availableServer = mode === 'server' || availableStore;
   const payload = {
     model: $('#admin-model').val(), label: $('#admin-label').val(), category: $('#admin-category').val(),
-    price: Number($('#admin-price').val() || 0), trunkLevel: clampTrunkLevel($('#admin-trunk').val()),
-    availableServer, availableStore,
+    price: Number($('#admin-price').val() || 0), speedKph: Number($('#admin-speed').val() || 0), trunkLevel: clampTrunkLevel($('#admin-trunk').val()),
+    availableServer, availableStore, availableEms, availablePolice, legalOrg,
     testDriveEnabled: $('#admin-test-enabled').is(':checked'),
     testDriveTimer: Number($('#admin-test-duration').val() || 60),
     testDriveCost: Number($('#admin-test-cost').val() || 0)
   };
+  // The actual mods payload is attached server-side by client.lua's
+  // adminSaveVehicle NUI callback (currentAdminMods, kept in sync via
+  // adminModPatch) -- it is authoritative over anything the NUI could claim.
   post('adminSaveVehicle', payload);
 });
 $(document).on('click', '#dealer-dialog-store', function(){ $('body').removeClass('dialog-active'); $('#dealer-dialog').removeClass('show').hide(); $('#interaction-prompt').removeClass('show').hide(); post('dealerDialogStore'); });

@@ -1,0 +1,7 @@
+/* Police duty clothing (wardrobe presets). Row layout matches the member
+   list style -- a name/subtext row plus inline action buttons. Never
+   touches the inventory. The Police Wardrobe dressing room itself (the
+   full-screen picker) lives in wardrobe.css -- this file only owns the
+   preset list and the "Open Police Wardrobe" entry point on this tab. */
+
+.manage-outfits-only[hidden] { display: none !important; }

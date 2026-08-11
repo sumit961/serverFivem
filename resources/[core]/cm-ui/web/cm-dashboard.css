@@ -1,0 +1,59 @@
+/* CM shared dashboard language v1.2.0
+   Source: supplied cm-ui package. Blue-first, cyan-highlighted, no blur. */
+:root {
+    --cm-dashboard-panel: linear-gradient(160deg, #181a2c 0%, #171827 58%, #151625 100%);
+    --cm-dashboard-sidebar: linear-gradient(180deg, #191b2d 0%, #111321 100%);
+    --cm-dashboard-card: linear-gradient(155deg, #23263f, #1c1e33);
+    --cm-dashboard-row: rgba(255, 255, 255, 0.035);
+    --cm-dashboard-row-hover: rgba(91, 134, 255, 0.10);
+    --cm-dashboard-line: rgba(255, 255, 255, 0.075);
+    --cm-dashboard-line-strong: rgba(91, 134, 255, 0.34);
+    --cm-dashboard-text: #f4f6ff;
+    --cm-dashboard-text-soft: #c3c6de;
+    --cm-dashboard-muted: #969bb8;
+    --cm-dashboard-blue: #5b86ff;
+    --cm-dashboard-blue-dark: #3f63e0;
+    --cm-dashboard-cyan: #52dce9;
+    --cm-dashboard-green: #33d69f;
+    --cm-dashboard-amber: #f0b43c;
+    --cm-dashboard-red: #ff6b6b;
+    --cm-dashboard-primary: linear-gradient(135deg, var(--cm-dashboard-blue), var(--cm-dashboard-blue-dark));
+    --cm-dashboard-radius-panel: 30px;
+    --cm-dashboard-radius-card: 18px;
+    --cm-dashboard-radius-item: 14px;
+    --cm-dashboard-shadow: 0 38px 110px rgba(3, 6, 20, .58);
+    --cm-dashboard-shadow-button: 0 13px 27px -15px rgba(73, 115, 240, .88);
+}
+
+.cm-dashboard-surface {
+    color: var(--cm-dashboard-text);
+    background: var(--cm-dashboard-panel);
+    border: 1px solid var(--cm-dashboard-line-strong);
+    border-radius: var(--cm-dashboard-radius-panel);
+    box-shadow: var(--cm-dashboard-shadow);
+}
+.cm-dashboard-card {
+    color: var(--cm-dashboard-text);
+    background: var(--cm-dashboard-card);
+    border: 1px solid var(--cm-dashboard-line);
+    border-radius: var(--cm-dashboard-radius-card);
+}
+.cm-dashboard-kicker {
+    color: var(--cm-dashboard-cyan);
+    font: 700 12px/1.3 var(--cm-font-display);
+    letter-spacing: .16em;
+    text-transform: uppercase;
+}
+.cm-dashboard-title {
+    color: var(--cm-dashboard-text);
+    font: 700 28px/1.2 var(--cm-font-display);
+}
+.cm-dashboard-button {
+    color: #fff;
+    background: var(--cm-dashboard-primary);
+    border: 1px solid rgba(151, 183, 255, .42);
+    border-radius: 12px;
+    box-shadow: var(--cm-dashboard-shadow-button);
+    font-family: var(--cm-font-display);
+    font-weight: 600;
+}

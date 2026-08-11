@@ -5,7 +5,7 @@ lua54 'yes'
 name        'cm-family'
 author      'Sumit'
 description 'CM Framework | Family system (ranks, vehicles, bank, family house)'
-version     '1.6.10'
+version     '1.6.20'
 
 shared_scripts {
     '@ox_lib/init.lua',
@@ -19,6 +19,7 @@ client_scripts {
     'client/cl_gmenu.lua',
     'client/cl_chat.lua',
     'client/cl_tracking.lua',
+    'client/cl_admin.lua',
 }
 
 server_scripts {
@@ -34,6 +35,7 @@ server_scripts {
     'server/sv_gmenu.lua',    -- cm-playerdata G-menu integration
     'server/sv_chat.lua',     -- private family chat + cm-chat integration event
     'server/sv_menu.lua',     -- NPC create flow + menu callbacks
+    'server/sv_admin.lua',    -- cm-admin launcher + guarded recovery panel
 }
 
 ui_page 'html/index.html'
@@ -42,6 +44,7 @@ files {
     'html/index.html',
     'html/css/*.css',
     'html/js/*.js',
+    'html/fonts/*.ttf',
     'audit_pending.json',
 }
 

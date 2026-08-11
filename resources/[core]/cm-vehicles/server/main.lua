@@ -18,6 +18,8 @@ function CMVehicles.Server.EnsureTables()
         CREATE TABLE IF NOT EXISTS cm_owned_vehicles (
             id BIGINT AUTO_INCREMENT PRIMARY KEY,
             owner_character_id VARCHAR(100) NOT NULL,
+            owner_type VARCHAR(24) NOT NULL DEFAULT 'character',
+            owner_id VARCHAR(100) NULL,
             model VARCHAR(64) NOT NULL,
             label VARCHAR(100) NOT NULL,
             plate VARCHAR(16) NOT NULL UNIQUE,
@@ -43,6 +45,14 @@ function CMVehicles.Server.EnsureTables()
     ensureColumn('cm_owned_vehicles', 'tank_health', 'FLOAT NOT NULL DEFAULT 1000')
     ensureColumn('cm_owned_vehicles', 'dirt_level', 'FLOAT NOT NULL DEFAULT 0')
     ensureColumn('cm_owned_vehicles', 'owner_name', 'VARCHAR(120) NULL')
+    ensureColumn('cm_owned_vehicles', 'owner_type', "VARCHAR(24) NOT NULL DEFAULT 'character'")
+    ensureColumn('cm_owned_vehicles', 'owner_id', 'VARCHAR(100) NULL')
+    pcall(function()
+        MySQL.update.await([[UPDATE cm_owned_vehicles
+            SET owner_type = 'character', owner_id = owner_character_id
+            WHERE (owner_type IS NULL OR owner_type = '' OR owner_type = 'character')
+              AND (owner_id IS NULL OR owner_id = '')]])
+    end)
     ensureColumn('cm_owned_vehicles', 'insurance_days', 'INT NOT NULL DEFAULT 0')
     ensureColumn('cm_owned_vehicles', 'state_value', 'INT NOT NULL DEFAULT 0')
     -- Cosmetic/mod persistence (colors, extras, wheels, tuning). Stored as JSON.
@@ -57,6 +67,11 @@ function CMVehicles.Server.EnsureTables()
     ensureColumn('cm_owned_vehicles', 'location_ref', 'VARCHAR(96) NULL')
     ensureColumn('cm_owned_vehicles', 'location_slot', 'INT NULL')
     ensureColumn('cm_owned_vehicles', 'location_updated_at', 'TIMESTAMP NULL')
+    -- Police-issued vehicle registration (cm-police MDT). NULL until an
+    -- officer issues one -- separate from `plate`, which stays the
+    -- internal identity/lookup key every other resource already relies on.
+    ensureColumn('cm_owned_vehicles', 'license_number', 'VARCHAR(20) NULL')
+    pcall(function() MySQL.query.await('ALTER TABLE cm_owned_vehicles ADD UNIQUE KEY idx_cm_owned_vehicles_license_number (license_number)') end)
 
     -- v1.3.2.6 one-time, idempotent cleanup. The old window snapshot queried
     -- unsupported eWindowId indexes and could permanently store every pane as
@@ -439,6 +454,31 @@ function CMVehicles.Server.GetVehicleByPlate(plate)
     return row
 end
 
+-- Police-issued vehicle registration number (cm-police MDT). Rejects if
+-- already registered; otherwise generates a unique number via a retry-loop
+-- UPDATE, pcall-guarded so a UNIQUE KEY collision (another vehicle already
+-- holding that candidate number) just retries with a new one instead of
+-- throwing -- race-safe the same way cm-police's own firearms-license
+-- number generator is.
+function CMVehicles.Server.IssueVehicleLicense(plate)
+    plate = U.NormalizePlate(plate)
+    if plate == '' then return false, 'Invalid plate.' end
+    local row = MySQL.single.await('SELECT license_number FROM cm_owned_vehicles WHERE plate = ? LIMIT 1', { plate })
+    if not row then return false, 'That vehicle does not exist.' end
+    if row.license_number then return false, 'That vehicle is already registered.' end
+
+    for _ = 1, 5 do
+        local candidate = ('REG-%06d'):format(math.random(100000, 999999))
+        local ok, affected = pcall(function()
+            return MySQL.update.await('UPDATE cm_owned_vehicles SET license_number = ? WHERE plate = ? AND license_number IS NULL', { candidate, plate })
+        end)
+        if ok and tonumber(affected) == 1 then
+            return true, ('Registration issued: %s'):format(candidate), candidate
+        end
+    end
+    return false, 'Could not issue a registration number. Try again.'
+end
+
 function CMVehicles.Server.GetVehicleById(id)
     local row = MySQL.single.await('SELECT * FROM cm_owned_vehicles WHERE id = ? LIMIT 1', { tonumber(id) })
     if row then
@@ -484,7 +524,8 @@ function CMVehicles.Server.IsOwner(src, plate)
     local charId = CMVehicles.Server.GetCharacterId(src)
     if not charId then return false end
     local row = CMVehicles.Server.GetVehicleByPlate(plate)
-    return row and tostring(row.owner_character_id) == tostring(charId) or false
+    return row and tostring(row.owner_type or 'character') == 'character'
+        and tostring(row.owner_character_id) == tostring(charId) or false
 end
 
 function CMVehicles.Server.HasTempKey(src, plate, action)
@@ -638,7 +679,8 @@ function CMVehicles.Server.VehicleInfoFor(src, plate)
     local row = CMVehicles.Server.GetVehicleByPlate(plate)
     if not row then return nil end
     local charId = CMVehicles.Server.GetCharacterId(src)
-    local owner = charId and tostring(row.owner_character_id) == tostring(charId) or false
+    local owner = charId and tostring(row.owner_type or 'character') == 'character'
+        and tostring(row.owner_character_id) == tostring(charId) or false
     local access, accessReason, _, accessContext = false, 'no_access', nil, nil
     if owner then
         access, accessReason = true, 'owner'
@@ -674,7 +716,9 @@ function CMVehicles.Server.VehicleInfoFor(src, plate)
         model = row.model,
         label = row.label,
         plate = row.plate,
-        ownerCharacterId = tostring(row.owner_character_id),
+        ownerCharacterId = tostring(row.owner_type or 'character') == 'character' and tostring(row.owner_character_id) or nil,
+        ownerType = tostring(row.owner_type or 'character'),
+        ownerId = row.owner_id and tostring(row.owner_id) or tostring(row.owner_character_id),
         ownerName = tostring(ownerName or 'Unknown'),
         insuranceDays = insuranceDays,
         stateValue = stateValue,
@@ -716,9 +760,10 @@ function CMVehicles.Server.HasRacingHarness(plate)
     return metadata.racingHarness == true or metadata.racing_harness == true
 end
 
-function CMVehicles.Server.GeneratePlate()
-    local prefix = (Config.Plate and Config.Plate.prefix) or 'CM'
-    local digits = tonumber(Config.Plate and Config.Plate.length) or 6
+function CMVehicles.Server.GeneratePlate(customPrefix, customDigits)
+    local prefix = tostring(customPrefix or (Config.Plate and Config.Plate.prefix) or 'CM'):upper():gsub('[^A-Z0-9]', ''):sub(1, 8)
+    local digits = tonumber(customDigits) or tonumber(Config.Plate and Config.Plate.length) or 6
+    digits = math.max(1, math.min(8 - #prefix, math.floor(digits)))
     for _ = 1, 50 do
         local n = math.random(0, (10 ^ digits) - 1)
         local plate = (prefix .. string.format('%0' .. digits .. 'd', n)):upper()
@@ -726,6 +771,26 @@ function CMVehicles.Server.GeneratePlate()
         if not exists then return plate end
     end
     return (prefix .. tostring(os.time() % 1000000)):upper()
+end
+
+-- Organization-owned vehicles (fleet cars) are only trusted when the
+-- calling resource matches the organization that's supposed to own them --
+-- otherwise any resource could mint a vehicle owned by an org it has no
+-- business touching. Add a row here (not a new hardcoded == chain) when
+-- another resource needs its own organization-owned fleet.
+local TRUSTED_ORGANIZATIONS = {
+    police = { resource = 'cm-police', prefix = 'POLICE', name = 'Police' },
+    ems = { resource = 'cm-ems', prefix = 'EMS', name = 'EMS' },
+    sahp = { resource = 'cm-law', prefix = 'SAHP', name = 'SAHP' },
+    sheriff = { resource = 'cm-law', prefix = 'BCSO', name = 'Sheriff' },
+    fib = { resource = 'cm-law', prefix = 'FIB', name = 'FIB' },
+    army = { resource = 'cm-law', prefix = 'ARMY', name = 'Army' },
+}
+
+local function trustedOrgInfo(organization, invokingResource)
+    local info = TRUSTED_ORGANIZATIONS[organization]
+    if info and info.resource == invokingResource then return info end
+    return nil
 end
 
 function CMVehicles.Server.CreateOwnedVehicle(src, model, label, trunkLevel, metadata)
@@ -736,23 +801,65 @@ function CMVehicles.Server.CreateOwnedVehicle(src, model, label, trunkLevel, met
     label = tostring(label or model)
     trunkLevel = tonumber(trunkLevel) or Config.DefaultTrunkLevel or 1
     if trunkLevel < 0 then trunkLevel = 0 end
-    local plate = CMVehicles.Server.GeneratePlate()
-
     metadata = type(metadata) == 'table' and metadata or {}
+    local ownerType, ownerId, ownerCharacterId = 'character', tostring(charId), tostring(charId)
+    local organization = tostring(metadata.organization or ''):lower()
+    local invokingResource = GetInvokingResource()
+    local orgInfo = trustedOrgInfo(organization, invokingResource)
+    if orgInfo then
+        ownerType, ownerId, ownerCharacterId = 'organization', organization, ('organization:%s'):format(organization)
+    end
+    local platePrefix = ownerType == 'organization' and orgInfo.prefix or nil
+    local plate = CMVehicles.Server.GeneratePlate(platePrefix, platePrefix and (8 - #platePrefix) or nil)
     local stateValue = numFrom(metadata.stateValue, metadata.state_value, metadata.storePrice, metadata.store_price, metadata.purchasePrice, metadata.purchase_price, metadata.price, metadata.vehiclePrice, metadata.vehicle_price)
     local insuranceDays = numFrom(metadata.insuranceDays, metadata.insurance_days, metadata.insurance)
-    local ownerName = metadata.ownerName or metadata.owner_name or CMVehicles.Server.GetCharacterName(src, charId)
+    local ownerName = ownerType == 'organization' and orgInfo.name
+        or metadata.ownerName or metadata.owner_name or CMVehicles.Server.GetCharacterName(src, charId)
     metadata.stateValue = metadata.stateValue or stateValue
     metadata.ownerName = metadata.ownerName or ownerName
     metadata.insuranceDays = metadata.insuranceDays or insuranceDays
 
     local id = MySQL.insert.await([[INSERT INTO cm_owned_vehicles
-        (owner_character_id, owner_name, model, label, plate, trunk_level, insurance_days, state_value, metadata)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)]], { tostring(charId), tostring(ownerName or ''), model, label, plate, trunkLevel, insuranceDays, stateValue, U.Encode(metadata or {}) })
+        (owner_character_id, owner_type, owner_id, owner_name, model, label, plate, trunk_level, insurance_days, state_value, metadata)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]], { ownerCharacterId, ownerType, ownerId, tostring(ownerName or ''), model, label, plate, trunkLevel, insuranceDays, stateValue, U.Encode(metadata or {}) })
 
     CMVehicles.Server.Audit(charId, plate, 'vehicle_created', { model = model, label = label, trunkLevel = trunkLevel, stateValue = stateValue })
-    return true, { id = id, owner_character_id = tostring(charId), owner_name = tostring(ownerName or ''), model = model, label = label, plate = plate, trunk_level = trunkLevel, insurance_days = insuranceDays, state_value = stateValue, is_locked = true, fuel = 100, metadata = metadata or {} }
+    return true, { id = id, owner_character_id = ownerCharacterId, owner_type = ownerType, owner_id = ownerId, owner_name = tostring(ownerName or ''), model = model, label = label, plate = plate, trunk_level = trunkLevel, insurance_days = insuranceDays, state_value = stateValue, is_locked = true, fuel = 100, metadata = metadata or {} }
 end
+
+function CMVehicles.Server.EnsureOrganizationOwnership(vehicleId, organization)
+    vehicleId = tonumber(vehicleId)
+    organization = tostring(organization or ''):lower()
+    local invokingResource = GetInvokingResource()
+    local orgInfo = trustedOrgInfo(organization, invokingResource)
+    if not vehicleId or not orgInfo then return false end
+    local row = CMVehicles.Server.GetVehicleById(vehicleId)
+    if not row then return false end
+    local ownerName = orgInfo.name
+    local plate = row.plate
+    local active = CMVehicles.Server.GetSpawnedVehicleInfo and CMVehicles.Server.GetSpawnedVehicleInfo(vehicleId)
+    local prefix = orgInfo.prefix
+    if active ~= true and not tostring(plate or ''):upper():find('^' .. prefix) then
+        plate = CMVehicles.Server.GeneratePlate(prefix, 8 - #prefix)
+    end
+    local changed = MySQL.update.await([[UPDATE cm_owned_vehicles
+        SET owner_character_id = ?, owner_type = 'organization', owner_id = ?, owner_name = ?, plate = ?
+        WHERE id = ?]], { ('organization:%s'):format(organization), organization, ownerName, plate, vehicleId })
+    return tonumber(changed) and tonumber(changed) > 0, plate
+end
+
+-- Compatibility helper for integrations that only need to update the
+-- human-readable owner name. Legal ownership is determined by owner_type and
+-- owner_id; owner_character_id remains populated for legacy schema consumers.
+function CMVehicles.Server.SetOwnerDisplay(vehicleId, ownerName)
+    vehicleId = tonumber(vehicleId)
+    ownerName = tostring(ownerName or '')
+    if not vehicleId or ownerName == '' then return false end
+    MySQL.update.await('UPDATE cm_owned_vehicles SET owner_name = ? WHERE id = ?', { ownerName, vehicleId })
+    return true
+end
+exports('SetOwnerDisplay', CMVehicles.Server.SetOwnerDisplay)
+exports('EnsureOrganizationOwnership', CMVehicles.Server.EnsureOrganizationOwnership)
 
 RegisterNetEvent('cm-vehicles:server:registerNetVehicle', function(plate, netId)
     local src = source
@@ -1377,7 +1484,7 @@ exports('GetLentKeys', CMVehicles.Server.GetLentKeys)
 
 -- Server-side service exports so other resources (mechanic script, pump prop
 -- placed server-side, admin commands) can act without touching a client.
-CMVehicles.Server.ServiceVehicle = function(plate, patch)
+CMVehicles.Server.ServiceVehicle = function(plate, patch, targetSrc)
     plate = U.NormalizePlate(plate)
     patch = type(patch) == 'table' and patch or {}
     local row = CMVehicles.Server.GetVehicleByPlate(plate)
@@ -1422,7 +1529,18 @@ CMVehicles.Server.ServiceVehicle = function(plate, patch)
             if type(patch.conditionState) == 'table' then
                 state:set('cmConditionState', patch.conditionState, true)
             end
-            TriggerClientEvent('cm-vehicles:client:applyTrustedCondition', -1, tonumber(active.netId) or 0, patch)
+            -- A trusted service is not complete until a controlling client has
+            -- physically applied and verified the requested condition.
+            state:set('cmConditionReady', false, true)
+            -- The requested/broadcast target may not currently have this entity
+            -- streamed in (e.g. a fleet vehicle serviced from far away). Keep the
+            -- patch replicated so the pooled vehicle scan on whichever client
+            -- eventually streams it in can retry the trusted apply instead of
+            -- leaving the vehicle permanently damaged/undriveable.
+            state:set('cmPendingServicePatch', patch, true)
+            targetSrc = tonumber(targetSrc)
+            if not targetSrc or targetSrc <= 0 or not GetPlayerName(targetSrc) then targetSrc = -1 end
+            TriggerClientEvent('cm-vehicles:client:applyTrustedCondition', targetSrc, tonumber(active.netId) or 0, patch)
         end
     end
     return true
@@ -1518,6 +1636,7 @@ end)
 
 exports('CreateOwnedVehicle', CMVehicles.Server.CreateOwnedVehicle)
 exports('GetVehicleByPlate', CMVehicles.Server.GetVehicleByPlate)
+exports('IssueVehicleLicense', CMVehicles.Server.IssueVehicleLicense)
 exports('HasVehicleAccess', CMVehicles.Server.HasAccess)
 exports('PlayerOwnsVehicle', CMVehicles.Server.IsOwner)
 exports('GetCharacterId', CMVehicles.Server.GetCharacterId)

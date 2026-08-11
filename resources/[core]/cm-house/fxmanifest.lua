@@ -5,7 +5,7 @@ lua54 'yes'
 name        'cm-house'
 author      'Sumit'
 description 'CM Framework | Housing and family system'
-version     '1.7.27'
+version     '1.8.1'
 
 shared_scripts {
     '@ox_lib/init.lua',
@@ -22,6 +22,7 @@ client_scripts {
     'client/cl_interior.lua',
     'client/cl_weapon_storage.lua',
     'client/cl_garage.lua',   -- real networked garage vehicles + slots
+    'client/cl_gmenu.lua',
 }
 
 server_scripts {
@@ -40,7 +41,9 @@ server_scripts {
     'server/sv_door.lua',
     'server/sv_interior.lua',
     'server/sv_weapon_storage.lua',
+    'server/sv_helipad.lua',
     'server/sv_garage.lua',   -- PHASE 3: the vehicle state machine
+    'server/sv_transfer.lua', -- confirmed player-to-player gift / sale journal
 }
 
 ui_page 'html/index.html'
@@ -57,6 +60,7 @@ files {
 dependencies {
     'oxmysql',
     'ox_lib',
+    'cm-ui',
     'cm-playerdata',
     'cm-inventory',
     'cm-vehicles',

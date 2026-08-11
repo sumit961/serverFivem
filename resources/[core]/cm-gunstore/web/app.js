@@ -16,6 +16,7 @@ const npcDialog = document.getElementById('npcDialog');
 const dialogName = document.getElementById('dialogName');
 const dialogTitle = document.getElementById('dialogTitle');
 const dialogStoreBtn = document.getElementById('dialogStoreBtn');
+const dialogLicenseBtn = document.getElementById('dialogLicenseBtn');
 const dialogCloseBtn = document.getElementById('dialogCloseBtn');
 const interactionPrompt = document.getElementById('interactionPrompt');
 const interactionKey = document.getElementById('interactionKey');
@@ -487,6 +488,7 @@ function openDialog(data = {}) {
   dialogName.textContent = data.clerkName || 'Gun Store Clerk';
   dialogTitle.textContent = data.title || 'How can I help you today?';
   dialogStoreBtn.textContent = data.optionStore || 'Show me what you have got';
+  dialogLicenseBtn.textContent = data.optionLicense || 'Buy a firearms license';
   dialogCloseBtn.textContent = data.optionClose || 'No thanks';
   npcDialog.classList.remove('hidden');
 }
@@ -744,5 +746,6 @@ document.addEventListener('input', (e) => {
 closeBtn.addEventListener('click', () => post('close'));
 refreshBtn.addEventListener('click', () => post('refreshCatalog'));
 dialogStoreBtn.addEventListener('click', () => post('dialogOpenStore'));
+dialogLicenseBtn.addEventListener('click', () => post('dialogBuyLicense'));
 dialogCloseBtn.addEventListener('click', () => post('dialogClose'));
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') post('close'); });

@@ -90,6 +90,7 @@ function CMVehicles.Client.ApplyPerformance(vehicle, metadata)
     local mileageMul = getMileageSpeedMultiplier(metadata.mileage)  -- <= 1.0 (wear)
     local tuneMul    = CMVehicles.Client.GetTuningMultiplier(vehicle)  -- >= 1.0 (upgrade)
     local final      = mileageMul * tuneMul
+    local catalogMaxSpeed = tonumber(metadata.catalogMaxSpeedKph or metadata.catalog_max_speed_kph)
 
     -- SetVehicleEnginePowerMultiplier takes a PERCENT delta (0 = stock).
     SetVehicleEnginePowerMultiplier(vehicle, (final - 1.0) * 100.0)
@@ -99,8 +100,8 @@ function CMVehicles.Client.ApplyPerformance(vehicle, metadata)
     -- harder but still bumps into its stock limiter, so the upgrade is invisible
     -- at the top end -- which is exactly why native mods feel pointless.
     local baseSpeed = GetVehicleEstimatedMaxSpeed(vehicle) or 0.0
-    if baseSpeed > 0.0 and tuneMul > 1.0 then
-        local target = baseSpeed * tuneMul
+    local target = catalogMaxSpeed and catalogMaxSpeed > 0 and (catalogMaxSpeed / 3.6) * final or baseSpeed * tuneMul
+    if target > 0.0 and (catalogMaxSpeed or tuneMul > 1.0) then
         pcall(function() ModifyVehicleTopSpeed(vehicle, target - baseSpeed) end)
         pcall(function() SetVehicleMaxSpeed(vehicle, target) end)
     end
@@ -171,6 +172,10 @@ local function applyVehicleMods(vehicle, mods)
     end
     if mods.bulletproofTyres ~= nil then
         SetVehicleTyresCanBurst(vehicle, mods.bulletproofTyres ~= true)
+    end
+    local catalogMaxSpeed = tonumber(mods.catalogMaxSpeedKph or mods.catalog_max_speed_kph)
+    if catalogMaxSpeed and catalogMaxSpeed > 0 then
+        pcall(function() SetVehicleMaxSpeed(vehicle, catalogMaxSpeed / 3.6) end)
     end
 end
 CMVehicles.Client.ApplyVehicleMods = applyVehicleMods
@@ -411,7 +416,7 @@ local function applyPhysicalCondition(vehicle, data, options)
     SetEntityAsMissionEntity(vehicle, true, true)
     SetVehicleModKit(vehicle, 0)
     if type(data.mods) == 'table' then applyVehicleMods(vehicle, data.mods) end
-    SetVehicleDirtLevel(vehicle, tonumber(data.dirtLevel) or 0.0)
+    SetVehicleDirtLevel(vehicle, (tonumber(data.dirtLevel) or 0.0) + 0.0)
     CMVehicles.Client.SetVehicleFuel(vehicle, tonumber(data.fuel) or 100.0)
 
     local deadline = GetGameTimer()
@@ -430,9 +435,16 @@ local function applyPhysicalCondition(vehicle, data, options)
                 SetVehicleFixed(vehicle)
                 SetVehicleDeformationFixed(vehicle)
             end
-            SetVehicleEngineHealth(vehicle, engine)
-            SetVehicleBodyHealth(vehicle, body)
-            SetVehiclePetrolTankHealth(vehicle, tank)
+            -- Lua 5.4 integer/float subtype: these natives are float-typed and
+            -- CitizenFX does not safely convert a Lua integer argument, it
+            -- reinterprets the bits (e.g. integer 1000 becomes ~1.4e-42). Force
+            -- a genuine float here even though engine/body/tank already went
+            -- through U.ClampHealth, as defense-in-depth at the actual native
+            -- call site -- the same pattern CMVehicles.Client.SetVehicleFuel
+            -- already uses for the fuel native just above.
+            SetVehicleEngineHealth(vehicle, engine + 0.0)
+            SetVehicleBodyHealth(vehicle, body + 0.0)
+            SetVehiclePetrolTankHealth(vehicle, tank + 0.0)
             applyDamageSnapshot(vehicle, data.conditionState)
         end
 
@@ -703,7 +715,9 @@ local function finalizeSpawnPayload(data)
 
     -- Fit the saved appearance before the one legal condition convergence loop.
     -- Once cmConditionReady becomes true no protection thread writes health again.
-    SetVehicleNumberPlateText(veh, '        ')
+    -- Blank unless police have issued this vehicle a registration (cosmetic
+    -- only -- vehicle identity is never read from this text, see docs/API.md).
+    SetVehicleNumberPlateText(veh, data.licenseNumber or '        ')
     if type(data.mods) == 'table' then applyVehicleMods(veh, data.mods) end
     CMVehicles.Client.ApplyPerformance(veh, data.metadata)
     SetVehicleHasBeenOwnedByPlayer(veh, true)
@@ -852,31 +866,70 @@ AddStateBagChangeHandler('cmPendingFinalize', nil, function(bagName, _, value)
     end
 end)
 
+local activeTrustedCondition = {}
+
+-- Shared by the direct server-fired event (below) and the pooled vehicle scan
+-- retry (see cmPendingServicePatch): a trusted service/repair may be requested
+-- while nobody is near the vehicle to physically apply it (e.g. an EMS fleet
+-- vehicle recalled to its garage from across the map). cmPendingServicePatch
+-- keeps the patch replicated so whichever client's vehicle pool eventually
+-- streams this entity in can finish the job instead of leaving it permanently
+-- damaged/dirty/undriveable.
+local function runTrustedConditionApply(netId, patch)
+    netId = tonumber(netId)
+    if not netId or netId <= 0 or activeTrustedCondition[netId] then return end
+    activeTrustedCondition[netId] = true
+    CreateThread(function()
+        local veh = waitForNetVehicle(netId)
+        if not veh or veh == 0 or not DoesEntityExist(veh) then
+            activeTrustedCondition[netId] = nil
+            return
+        end
+
+        patch = type(patch) == 'table' and patch or {}
+        local state = Entity(veh).state
+        local data = {
+            engineHealth = patch.engineHealth ~= nil and patch.engineHealth or state.cmEngineHealth,
+            bodyHealth = patch.bodyHealth ~= nil and patch.bodyHealth or state.cmBodyHealth,
+            tankHealth = patch.tankHealth ~= nil and patch.tankHealth or state.cmTankHealth,
+            dirtLevel = patch.dirtLevel ~= nil and patch.dirtLevel or state.cmDirtLevel,
+            fuel = patch.fuel ~= nil and patch.fuel or state.cmFuel,
+            conditionState = patch.conditionState ~= nil and patch.conditionState or state.cmConditionState,
+        }
+
+        local deadline = GetGameTimer() + 12000
+        local applied = false
+        while DoesEntityExist(veh) and GetGameTimer() < deadline do
+            if CMVehicles.Client.HasControl(veh, 1200) then
+                state:set('cmConditionReady', false, true)
+                applied = applyPhysicalCondition(veh, data, {
+                    repairBaseline = true,
+                    timeoutMs = 2000,
+                }) == true
+                if applied then break end
+            end
+            Wait(350)
+        end
+
+        if applied and DoesEntityExist(veh) then
+            local threshold = tonumber(Config.Damage and Config.Damage.destroyedEngineHealth) or 150.0
+            state:set('cmEngineHealth', normalizedHealth(data.engineHealth, 1000.0), true)
+            state:set('cmBodyHealth', normalizedHealth(data.bodyHealth, 1000.0), true)
+            state:set('cmTankHealth', normalizedHealth(data.tankHealth, 1000.0), true)
+            state:set('cmDirtLevel', tonumber(data.dirtLevel) or 0.0, true)
+            state:set('cmFuel', tonumber(data.fuel) or 100.0, true)
+            state:set('cmConditionState', type(data.conditionState) == 'table' and data.conditionState or {}, true)
+            state:set('cmEngineDestroyed', normalizedHealth(data.engineHealth, 1000.0) <= threshold, true)
+            state:set('cmConditionReady', true, true)
+            state:set('cmPendingServicePatch', false, true)
+            SetVehicleUndriveable(veh, false)
+        end
+        activeTrustedCondition[netId] = nil
+    end)
+end
+
 RegisterNetEvent('cm-vehicles:client:applyTrustedCondition', function(netId, patch)
-    local veh = waitForNetVehicle(tonumber(netId))
-    if not veh or veh == 0 or not DoesEntityExist(veh) then return end
-    if not CMVehicles.Client.HasControl(veh, 1500) then return end
-    patch = type(patch) == 'table' and patch or {}
-    local state = Entity(veh).state
-    local data = {
-        engineHealth = patch.engineHealth ~= nil and patch.engineHealth or state.cmEngineHealth,
-        bodyHealth = patch.bodyHealth ~= nil and patch.bodyHealth or state.cmBodyHealth,
-        tankHealth = patch.tankHealth ~= nil and patch.tankHealth or state.cmTankHealth,
-        dirtLevel = patch.dirtLevel ~= nil and patch.dirtLevel or state.cmDirtLevel,
-        fuel = patch.fuel ~= nil and patch.fuel or state.cmFuel,
-        conditionState = patch.conditionState ~= nil and patch.conditionState or state.cmConditionState,
-    }
-    state:set('cmConditionReady', false, true)
-    local ok = applyPhysicalCondition(veh, data, { repairBaseline = true })
-    if ok then
-        local threshold = tonumber(Config.Damage and Config.Damage.destroyedEngineHealth) or 150.0
-        state:set('cmEngineHealth', normalizedHealth(data.engineHealth, 1000.0), true)
-        state:set('cmBodyHealth', normalizedHealth(data.bodyHealth, 1000.0), true)
-        state:set('cmTankHealth', normalizedHealth(data.tankHealth, 1000.0), true)
-        state:set('cmConditionState', type(data.conditionState) == 'table' and data.conditionState or {}, true)
-        state:set('cmEngineDestroyed', normalizedHealth(data.engineHealth, 1000.0) <= threshold, true)
-        state:set('cmConditionReady', true, true)
-    end
+    runTrustedConditionApply(netId, patch)
 end)
 
 local releaseHandoffThreads = {}
@@ -1030,6 +1083,9 @@ CreateThread(function()
                 local state = Entity(entity).state
                 if type(state.cmPendingFinalize) == 'table' and state.cmConditionReady ~= true then
                     tryDeferredFinalize(entity, state.cmPendingFinalize)
+                elseif type(state.cmPendingServicePatch) == 'table' and state.cmConditionReady ~= true then
+                    local netId = NetworkGetNetworkIdFromEntity(entity)
+                    if netId and netId > 0 then runTrustedConditionApply(netId, state.cmPendingServicePatch) end
                 end
                 local token = tostring(state.cmGarageReleaseVersion or state.cmGarageReleasePending or '')
                 local netId = NetworkGetNetworkIdFromEntity(entity)

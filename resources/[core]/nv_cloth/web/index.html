@@ -4,10 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Clothing Studio</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=glass-v7-keepbody" />
+  <link rel="stylesheet" href="style.css?v=2.22.4-matched-rails" />
 </head>
 <body>
   <main id="app" class="hidden">
@@ -112,6 +109,10 @@
       <!-- ── ADMIN CONTROLS (hidden for normal store) ── -->
       <div id="adminBlock" class="admin-block hidden">
 
+        <!-- Capture-only workflow: catalog naming, pricing, restrictions,
+             publishing and torso fit are owned by /clothingstore. Keep these
+             fields mounted for backward-compatible capture payload defaults. -->
+        <div class="admin-catalog-settings hidden">
         <div class="section-label" style="margin-top:14px;">ITEM SETUP</div>
         <div class="field-group">
           <input type="text" id="customItemName" class="field-input" placeholder="Custom name…" autocomplete="off" />
@@ -136,21 +137,19 @@
           <input type="text" id="requiredFamily" class="field-input" placeholder="Family allowed" autocomplete="off" />
         </div>
         <div class="capture-note">Leave blank for public clothing. Use comma for multiple values.</div>
-
-        <div id="adminItemState" class="item-state-note hidden"></div>
-        <div id="missingImageWarning" class="missing-image-warning hidden">Missing image: capture icon before enabling this item in public store.</div>
-
-        <div id="fitHelper" class="fit-helper hidden">
-          <div class="section-label" style="margin-top:14px;">TORSO FIT</div>
-          <div class="fit-card">
-            <div class="fit-title" id="fitHelperTitle">Arms / Fit helper</div>
-            <div class="fit-text" id="fitHelperText">Select a torso first, then tune arms here without resetting the rest of the preview.</div>
-            <div class="fit-actions">
-              <button id="openArmsFitBtn" type="button" class="mini-action">OPEN ARMS / FIT</button>
-              <button id="backToTorsoBtn" type="button" class="mini-action mini-action--ghost">BACK TO TORSO</button>
-            </div>
-          </div>
         </div>
+
+        <div id="adminGenderSwitch" class="admin-gender-switch hidden">
+          <div class="section-label">ADMIN MODEL</div>
+          <div class="admin-gender-tabs" role="group" aria-label="Admin clothing gender">
+            <button id="adminGenderMale" type="button" class="admin-gender-tab">MALE</button>
+            <button id="adminGenderFemale" type="button" class="admin-gender-tab">FEMALE</button>
+          </div>
+          <div id="adminGenderState" class="capture-note">Editing MALE clothing</div>
+        </div>
+
+        <div class="hidden"><div id="adminItemState" class="item-state-note hidden"></div></div>
+        <div id="missingImageWarning" class="missing-image-warning hidden">Missing image: capture icon before enabling this item in public store.</div>
 
         <!-- Bag level -->
         <div id="bagLevelControls" class="bag-level hidden">
@@ -166,23 +165,6 @@
         <!-- Capture controls -->
         <div id="adminCaptureControls" class="capture-controls hidden">
           <div class="section-label" style="margin-top:14px;">IMAGE & CAPTURE</div>
-          <div class="capture-grid2">
-            <label class="field-label">
-              Angle
-              <select id="captureAngle" class="field-select">
-                <option value="auto">Auto</option>
-                <option value="front">Front</option>
-                <option value="current">Current</option>
-                <option value="back">Back</option>
-                <option value="left">Left</option>
-                <option value="right">Right</option>
-              </select>
-            </label>
-            <label class="field-label">
-              Z Offset
-              <input type="number" id="captureZOffset" class="field-input" step="0.05" value="0.00" />
-            </label>
-          </div>
           <label class="field-label" style="margin-top:8px;">
             Backdrop Color
             <select id="captureBackground" class="field-select">
@@ -198,12 +180,6 @@
             Preview capture wall while browsing
           </label>
           <div class="capture-note">Wall stays hidden until capture unless preview is enabled.</div>
-
-          <label id="manualModeWrap" class="check-row">
-            <input type="checkbox" id="manualMode" />
-            Manual pose &amp; shoot (accessories + shoes)
-          </label>
-          <div class="capture-note" id="manualModeNote">When on, single captures of hat / glasses / earrings / watches / chains / shoes let you rotate the ped and lift it before shooting, then crop.</div>
 
           <label id="sharedGenderWrap" class="check-row hidden">
             <input type="checkbox" id="sharedGender" checked />
@@ -226,6 +202,10 @@
           </div>
 
           <div id="bulkProgress" class="bulk-progress hidden"></div>
+          <details id="failedCapturePanel" class="failed-captures hidden">
+            <summary>FAILED IMAGES · <span id="failedCaptureCount">0</span></summary>
+            <div id="failedCaptureList" class="failed-capture-list"></div>
+          </details>
           <img id="capturePreview" class="capture-preview hidden" alt="Captured preview" />
 
           <div id="cropEditorModal" class="crop-editor-modal hidden">
@@ -253,6 +233,8 @@
           <div class="bulk-btns">
             <button id="saveMissingBtn" class="bulk-btn">SAVE MISSING IMAGES</button>
             <button id="saveAllBtn" class="bulk-btn">SAVE ALL IMAGES</button>
+            <button id="pauseBulkBtn" class="bulk-btn bulk-btn--neutral hidden">PAUSE</button>
+            <button id="resumeBulkBtn" class="bulk-btn hidden">RESUME</button>
             <button id="cancelBulkBtn" class="bulk-btn bulk-btn--danger hidden">CANCEL</button>
           </div>
 
@@ -261,6 +243,12 @@
           <div class="bulk-btns">
             <button id="catMissingBtn" class="bulk-btn">CAPTURE CATEGORY · MISSING</button>
             <button id="catAllBtn" class="bulk-btn">CAPTURE CATEGORY · ALL</button>
+          </div>
+
+          <div class="section-label" style="margin-top:14px;">COMPLETE LOCAL EXPORT</div>
+          <div class="capture-note">Enumerates both freemode models and captures every drawable + texture as PNG and WebP in nv_cloth/generated_images.</div>
+          <div class="bulk-btns">
+            <button id="allGendersBtn" class="bulk-btn">CAPTURE EVERYTHING · MALE + FEMALE</button>
           </div>
         </div>
       </div>
@@ -279,7 +267,7 @@
       <div class="action-area">
         <button id="buyBtn" class="btn btn--primary" disabled>ADD TO CART</button>
         <button id="checkoutBtn" class="btn btn--green hidden">CHECKOUT · $0</button>
-        <button id="captureIconBtn" class="btn btn--capture hidden">CAPTURE ICON + SAVE</button>
+        <button id="adjustCaptureBtn" class="btn btn--capture hidden">ADJUST POSITION &amp; TAKE IMAGE</button>
         <button id="closeBtn" class="btn btn--close">CLOSE  ESC</button>
       </div>
       <div id="purchaseStatus" class="purchase-status hidden">Items will go to inventory first. Wear them later from inventory.</div>
@@ -305,8 +293,9 @@
 
     <!-- Manual pose bar: shown while posing the ped before a manual shot.
          The panel is dimmed so the admin can see the ped in the game view. -->
+    <div class="pose-frame-guide" aria-hidden="true"><span>512 × 512 TARGET FRAME</span></div>
     <div id="poseBar" class="pose-bar hidden">
-      <div class="pose-bar-title">Pose <span id="poseBarCat">item</span> — rotate to the angle you want, then Confirm</div>
+      <div class="pose-bar-title">Capture Position Editor · <span id="poseBarCat">item</span></div>
       <div class="pose-bar-row">
         <button id="poseRotLeftBig" class="pose-btn" title="Rotate left 45°">⟲ 45</button>
         <button id="poseRotLeft" class="pose-btn" title="Rotate left 15°">⟲ 15</button>
@@ -319,16 +308,120 @@
         <span class="pose-val" id="poseHeadingVal">0°</span>
       </div>
       <div class="pose-bar-row">
-        <span class="pose-lbl">Lift</span>
+        <span class="pose-lbl">Player</span>
+        <button id="poseMoveLeft" class="pose-btn" title="Move player left in frame">←</button>
+        <button id="poseMoveRight" class="pose-btn" title="Move player right in frame">→</button>
+        <button id="poseMoveToward" class="pose-btn" title="Move player toward camera">Toward</button>
+        <button id="poseMoveAway" class="pose-btn" title="Move player away from camera">Away</button>
         <button id="poseLiftDown" class="pose-btn" title="Lower 5cm">▼</button>
         <button id="poseLiftUp" class="pose-btn" title="Raise 5cm">▲</button>
-        <span class="pose-hint">Raise shoes so they don't sink into the floor</span>
       </div>
+      <div class="pose-bar-row">
+        <span class="pose-lbl">Camera</span>
+        <button id="poseCamOrbitLeft" class="pose-btn">Orbit ←</button>
+        <button id="poseCamOrbitRight" class="pose-btn">Orbit →</button>
+        <button id="poseCamIn" class="pose-btn">Zoom +</button>
+        <button id="poseCamOut" class="pose-btn">Zoom −</button>
+        <button id="poseCamDown" class="pose-btn">Cam ▼</button>
+        <button id="poseCamUp" class="pose-btn">Cam ▲</button>
+      </div>
+      <div class="pose-bar-row">
+        <span class="pose-lbl">Frame</span>
+        <button id="poseFovWide" class="pose-btn">Wider</button>
+        <button id="poseFovTight" class="pose-btn">Tighter</button>
+        <span class="pose-hint">The square guide shows the final icon framing.</span>
+      </div>
+      <div id="poseReadout" class="pose-readout">Player and camera position</div>
       <div class="pose-bar-row pose-bar-actions">
         <button id="poseCancel" class="pose-btn pose-btn--ghost">CANCEL</button>
         <button id="poseConfirm" class="pose-btn pose-btn--go">CONFIRM &amp; SHOOT</button>
       </div>
       <div class="pose-drag-hint">Drag anywhere to spin the ped · <b>W/S</b> zoom · <b>A/D</b> orbit · <b>R/F</b> camera up/down · <b>Q/E</b> lens · <b>Enter</b> shoot · <b>Esc</b> cancel</div>
+    </div>
+
+    <!-- ═══ /clothingstore · STORE MANAGER (admin) ═══ -->
+    <div id="managePanel" class="manage-panel hidden">
+      <div class="manage-left">
+        <div class="manage-head">
+          <div class="manage-title">
+            <span class="brand-name">STORE</span>
+            <span class="brand-name brand-name--admin">MANAGER</span>
+            <div class="brand-sub">PUBLISH · PRICE · ORG · PREVIEW · RETAKE</div>
+          </div>
+          <button id="manageCloseBtn" type="button" class="btn btn--close">CLOSE  ESC</button>
+        </div>
+
+        <div class="manage-toolbar">
+          <div class="manage-gender-tabs">
+            <button class="pay-tab active" id="manageGenderMale" data-gender="male">MALE</button>
+            <button class="pay-tab" id="manageGenderFemale" data-gender="female">FEMALE</button>
+          </div>
+          <select id="manageCategoryFilter" class="filter-select">
+            <option value="all">All categories</option>
+          </select>
+          <select id="manageStatusFilter" class="filter-select">
+            <option value="all">All clothes</option>
+            <option value="published">In store</option>
+            <option value="unpublished">Saved only</option>
+            <option value="org">Org clothes</option>
+            <option value="noimage">Missing image</option>
+          </select>
+          <input id="manageSearch" class="filter-input" type="text" placeholder="Search name / drawable…" autocomplete="off" />
+          <button id="manageRefreshBtn" type="button" class="mini-action mini-action--ghost">REFRESH</button>
+        </div>
+
+        <div id="manageCount" class="manage-count">0 clothes</div>
+        <div id="manageGrid" class="manage-grid"></div>
+      </div>
+
+      <div class="manage-detail" id="manageDetail">
+        <div class="manage-detail-empty" id="manageDetailEmpty">Select a clothe to manage it.</div>
+        <div class="manage-detail-body hidden" id="manageDetailBody">
+          <div class="manage-detail-imgwrap">
+            <img id="manageDetailImg" alt="Clothing image" />
+            <div id="manageDetailNoImg" class="manage-noimg hidden">NO IMAGE — RETAKE</div>
+          </div>
+          <div class="manage-detail-meta" id="manageDetailMeta">—</div>
+
+          <div class="section-label">NAME</div>
+          <input id="manageLabel" class="field-input" type="text" placeholder="Item name…" autocomplete="off" />
+
+          <div class="section-label">PRICE ($)</div>
+          <input id="managePrice" class="field-input" type="number" min="0" step="1" placeholder="Price" />
+
+          <div class="section-label">ORGANISATION</div>
+          <div id="manageOrgChoices" class="manage-org-choices"></div>
+          <div class="capture-note">Select every destination that should receive this same clothing item. One image and catalog entry are shared across all selected organisation lockers.</div>
+
+          <div id="manageTorsoFit" class="fit-helper hidden">
+            <div class="section-label">TORSO FIT</div>
+            <div class="fit-card">
+              <div class="fit-text">Live-preview the Outerwear, match its body/arms and undershirt, then save. This updates the existing clothing ID for every texture.</div>
+              <div class="fit-title">Body / Arms</div>
+              <div class="sel-row fit-cycle-row">
+                <button class="sel-arrow" id="manageArmsPrev" type="button">‹</button>
+                <span class="sel-value" id="manageArmsValue">—</span>
+                <button class="sel-arrow" id="manageArmsNext" type="button">›</button>
+              </div>
+              <div class="fit-title">Undershirt</div>
+              <div class="sel-row fit-cycle-row">
+                <button class="sel-arrow" id="manageUnderPrev" type="button">‹</button>
+                <span class="sel-value" id="manageUnderValue">—</span>
+                <button class="sel-arrow" id="manageUnderNext" type="button">›</button>
+              </div>
+              <button id="manageSaveTorsoFit" type="button" class="mini-action mini-action--save">SAVE TORSO FIT</button>
+            </div>
+          </div>
+
+          <div class="manage-detail-actions">
+            <button id="managePublishBtn" type="button" class="btn btn--green">PUBLISH TO STORE</button>
+            <button id="manageSaveBtn" type="button" class="btn btn--primary">SAVE CHANGES</button>
+            <button id="managePreviewBtn" type="button" class="mini-action">PREVIEW ON PED</button>
+            <button id="manageRetakeBtn" type="button" class="mini-action mini-action--ghost">RETAKE IMAGE</button>
+          </div>
+          <div id="manageDetailState" class="item-state-note hidden"></div>
+        </div>
+      </div>
     </div>
 
     <!-- Empty store notice -->
@@ -338,6 +431,6 @@
     </div>
 
   </main>
-  <script src="app.js?v=manual-pose-v5"></script>
+  <script src="app.js?v=2.21.3-cm-items-images"></script>
 </body>
 </html>

@@ -211,3 +211,16 @@ AddEventHandler('playerDropped', function()
     ActiveHudCharacters[source] = nil
     LastHudPayload[source] = nil
 end)
+CreateThread(function()
+    while GetResourceState('cm-admin') ~= 'started' do Wait(5000) end
+    pcall(function()
+        exports['cm-admin']:RegisterDevTool({
+            id = 'hud', label = 'HUD Settings', category = 'Systems', icon = 'hud',
+            permission = 'dev.hud',
+            actions = {
+                { id = 'open', label = 'Open HUD Settings', type = 'launcher', realm = 'client',
+                  event = 'cm-hud:client:openAdminLauncher' }
+            }
+        })
+    end)
+end)

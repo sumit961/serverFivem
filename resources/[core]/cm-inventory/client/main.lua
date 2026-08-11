@@ -382,12 +382,15 @@ end
 
 
 local ClothingSlotMap = {
+    mask = { type = 'component', index = 1 },
+    arms = { type = 'component', index = 3 },
     shirt = { type = 'component', index = 8 },
     outerwear = { type = 'component', index = 11 },
     pants = { type = 'component', index = 4 },
     shoes = { type = 'component', index = 6 },
     accessory = { type = 'component', index = 7 },
     bag = { type = 'component', index = 5 },
+    decals = { type = 'component', index = 10 },
     headwear = { type = 'prop', index = 0 },
     glasses = { type = 'prop', index = 1 },
     earrings = { type = 'prop', index = 2 },
@@ -395,6 +398,7 @@ local ClothingSlotMap = {
 }
 
 local ClothingCategoryBySlot = {
+    mask = 'mask', arms = 'arms', decals = 'decals',
     shirt = 'tshirt', outerwear = 'torso', pants = 'pants', shoes = 'shoes',
     accessory = 'chains', bag = 'bags', headwear = 'hat', glasses = 'glasses',
     earrings = 'earrings', watch = 'watches'
@@ -402,24 +406,30 @@ local ClothingCategoryBySlot = {
 
 local ClothingEmptyDefaults = {
     male = {
+        mask = { type = 'component', index = 1, drawable = 0, texture = 0 },
+        arms = { type = 'component', index = 3, drawable = 15, texture = 0 },
         shirt = { type = 'component', index = 8, drawable = 15, texture = 0 },
         outerwear = { type = 'component', index = 11, drawable = 15, texture = 0, arms = 15, armsTexture = 0, undershirt = 15, undershirtTexture = 0 },
         pants = { type = 'component', index = 4, drawable = 21, texture = 0 },
         shoes = { type = 'component', index = 6, drawable = 34, texture = 0 },
         accessory = { type = 'component', index = 7, drawable = 0, texture = 0 },
         bag = { type = 'component', index = 5, drawable = 0, texture = 0 },
+        decals = { type = 'component', index = 10, drawable = 0, texture = 0 },
         headwear = { type = 'prop', index = 0, drawable = -1, texture = 0 },
         glasses = { type = 'prop', index = 1, drawable = -1, texture = 0 },
         earrings = { type = 'prop', index = 2, drawable = -1, texture = 0 },
         watch = { type = 'prop', index = 6, drawable = -1, texture = 0 }
     },
     female = {
+        mask = { type = 'component', index = 1, drawable = 0, texture = 0 },
+        arms = { type = 'component', index = 3, drawable = 15, texture = 0 },
         shirt = { type = 'component', index = 8, drawable = 14, texture = 0 },
         outerwear = { type = 'component', index = 11, drawable = 15, texture = 0, arms = 15, armsTexture = 0, undershirt = 14, undershirtTexture = 0 },
         pants = { type = 'component', index = 4, drawable = 15, texture = 0 },
         shoes = { type = 'component', index = 6, drawable = 35, texture = 0 },
         accessory = { type = 'component', index = 7, drawable = 0, texture = 0 },
         bag = { type = 'component', index = 5, drawable = 0, texture = 0 },
+        decals = { type = 'component', index = 10, drawable = 0, texture = 0 },
         headwear = { type = 'prop', index = 0, drawable = -1, texture = 0 },
         glasses = { type = 'prop', index = 1, drawable = -1, texture = 0 },
         earrings = { type = 'prop', index = 2, drawable = -1, texture = 0 },
@@ -588,11 +598,30 @@ RegisterNetEvent('cm-inventory:client:playInventoryAnim', function(kind, duratio
     playInventoryAnim(kind, duration)
 end)
 
-local function applyEquipmentSlot(slot, item, silent)
+local function dutyUniformClothingLocked()
+    local police = LocalPlayer and LocalPlayer.state and LocalPlayer.state.cmPolice
+    if type(police) == 'table' and police.onDuty == true then return true, 'Police' end
+    local legal = LocalPlayer and LocalPlayer.state and LocalPlayer.state.cmLegalOrg
+    if type(legal) == 'table' and legal.onDuty == true and legal.uniformActive == true then
+        return true, legal.shortLabel or 'organization'
+    end
+    return false, nil
+end
+
+local function applyEquipmentSlot(slot, item, silent, bypassPoliceDutyLock)
     equipmentState[slot] = item
     local ped = PlayerPedId()
 
     if ClothingSlotMap[slot] then
+        -- Keep the server-owned equipment slot change, but do not let normal
+        -- inventory clothing visually overwrite an approved Police uniform.
+        -- When duty ends, restoreEquippedClothing below reapplies the latest
+        -- slot state, including changes the officer made during the shift.
+        local uniformLocked, uniformLabel = dutyUniformClothingLocked()
+        if not bypassPoliceDutyLock and uniformLocked then
+            if not silent then notifyLocal(('Civilian clothing is saved but cannot replace your on-duty %s uniform.'):format(uniformLabel)) end
+            return
+        end
         if item and tostring(item.item_name or ''):find('clothing_', 1, true) == 1 then
             if equipClothingFromInventorySlot(slot, item) then
                 if not silent then playInventoryAnim('clothes_change') end
@@ -821,6 +850,17 @@ end)
 
 RegisterNetEvent('cm-inventory:client:forceWearEquippedClothing', function()
     requestEquipmentRefreshBurst()
+end)
+
+RegisterNetEvent('cm-inventory:client:restoreEquippedClothing', function()
+    local order = { 'mask', 'arms', 'decals', 'glasses', 'headwear', 'earrings', 'shirt', 'outerwear', 'bag', 'accessory', 'watch', 'pants', 'shoes' }
+    for _, slot in ipairs(order) do
+        applyEquipmentSlot(slot, equipmentState[slot], true, true)
+    end
+    applyEquipmentSlot('bodyarmor', equipmentState.bodyarmor, true, true)
+    if not equipmentState.bodyarmor then
+        SetPedComponentVariation(PlayerPedId(), 9, 0, 0, 0)
+    end
 end)
 
 AddEventHandler('playerSpawned', function()

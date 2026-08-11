@@ -2,7 +2,7 @@ fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
 
-version '3.0.1-family-image-export'
+version '3.2.0-ems-catalog-export'
 author 'RN Vehicleshop adapted for CM Framework'
 
 this_is_a_map 'yes'
@@ -39,6 +39,7 @@ files {
 dependencies {
     'oxmysql',
     'cm-vehicles',
+    'cm-tuning',       -- EMS appearance editor: GetVisualCatalog (paint/livery/wheel/tyre/neon options)
     'cm-playerdata',   -- money: GetMoney / RemoveMoney / AddMoney / GetAccounts
     'cm-core',         -- character resolution only
     'screenshot-basic',

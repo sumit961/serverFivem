@@ -182,7 +182,7 @@ function FindInteriorTemplates(signature)
     local out = {}
     for id, t in pairs(InteriorTemplates) do
         -- An empty signature is a standalone universal layout created from
-        -- /cmadminhouse. It is intentionally reusable by every property type.
+        -- the House Admin panel. It is intentionally reusable by every property type.
         if tostring(t.signature or '') == '' or tostring(t.signature) == tostring(signature or '') then
             out[#out + 1] = {
                 id = id, label = t.label,
@@ -303,25 +303,4 @@ lib.callback.register('cm-house:server:garagesFor', function(src, capacity)
     if not capacity or capacity <= 0 then return {} end
 
     return FindGarageTemplates(capacity)
-end)
-
-
---- Is this address free?
---- Checked at the FEATURES step, not at publish. Discovering "address 01 is
---- taken" after parking seven cars is a cruel way to find out.
-lib.callback.register('cm-house:server:checkAddress', function(src, number)
-    if not IsHouseAdmin(src) then return false, 'Not permitted.' end
-
-    number = tostring(number or ''):gsub('%s+', '')
-    if number == '' then return true end   -- not typed yet; publish will catch it
-
-    if #number > 16 or not number:match('^[%w%-_]+$') then
-        return false, 'The address must be 1-16 letters, numbers, - or _.'
-    end
-
-    if MySQL.scalar.await('SELECT id FROM cm_houses WHERE house_number = ?', { number }) then
-        return false, ('Address %s is already taken.'):format(number)
-    end
-
-    return true
 end)

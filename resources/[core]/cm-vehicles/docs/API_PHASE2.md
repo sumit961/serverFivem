@@ -29,6 +29,19 @@ The table contains authority ownership, access actions, location states and all 
 
 Creates a permanent owned vehicle for the source character and returns success plus the new row summary. Call only from trusted purchase/admin resources.
 
+When invoked by `cm-police` with `metadata.organization = 'police'`, or by
+`cm-ems` with `metadata.organization = 'ems'`, the permanent record is owned by
+that organization instead of the invoking character. Organization vehicles use
+service plate prefixes (`POLICE` or `EMS`). Other resources cannot request this
+ownership mode.
+
+### `EnsureOrganizationOwnership(vehicleId, organization)`
+
+Internal trusted server export used by `cm-police` and `cm-ems` to migrate or
+verify a fleet vehicle as organization-owned. It fails closed for every other
+invoking resource. If the vehicle is not currently spawned, it also assigns the
+appropriate service plate prefix.
+
 ### `GetVehicleById(vehicleId)`
 
 Returns the normalized permanent vehicle row.

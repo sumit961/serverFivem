@@ -260,9 +260,33 @@ local function CloseExternalInventoryInternal(src)
     return true
 end
 
+-- Vehicle trunks are opened by cm-vehicles after its distance, lock and access
+-- checks. Revalidate authorization for every item movement as well: an external
+-- inventory can remain open while a player goes off duty, is suspended, or has
+-- their organization rank changed. The persistent vehicle ID is the storage
+-- owner ID, so no client-provided plate or network ID is trusted here.
+local function validateExternalMovementAccess(src, ctx, action)
+    if not ctx or tostring(ctx.ownerType or '') ~= 'vehicle_trunk' then return true end
+    if GetResourceState('cm-vehicles') ~= 'started' then
+        return false, 'Vehicle access is unavailable.'
+    end
+
+    local vehicleId = tonumber(ctx.ownerId)
+    if not vehicleId then return false, 'Invalid vehicle trunk.' end
+    local ok, allowed = pcall(function()
+        return exports['cm-vehicles']:CanUseVehicle(src, vehicleId, action)
+    end)
+    if not ok or allowed ~= true then
+        return false, 'You no longer have access to this vehicle trunk.'
+    end
+    return true
+end
+
 local function moveFromPlayerToExternal(src, ctx, fromSlot, toSlot)
     dprint(('moveFromPlayerToExternal START src=%s from=%s to=%s ctx=%s/%s'):format(tostring(src), tostring(fromSlot), tostring(toSlot), tostring(ctx and ctx.ownerType), tostring(ctx and ctx.ownerId)))
     if ctx.canDeposit == false then return false, 'You cannot put items in this storage.' end
+    local accessOk, accessErr = validateExternalMovementAccess(src, ctx, 'vehicle.trunk.deposit')
+    if not accessOk then return false, accessErr end
 
     local ownerType, ownerId, ownerErr = getPlayerOwner(src)
     if not ownerId then return false, ownerErr end
@@ -315,6 +339,8 @@ end
 
 local function moveFromExternalToPlayer(src, ctx, fromSlot, toSlot)
     if ctx.canWithdraw == false then return false, 'You cannot take items from this storage.' end
+    local accessOk, accessErr = validateExternalMovementAccess(src, ctx, 'vehicle.trunk.withdraw')
+    if not accessOk then return false, accessErr end
 
     local ownerType, ownerId, ownerErr = getPlayerOwner(src)
     if not ownerId then return false, ownerErr end

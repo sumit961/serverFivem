@@ -1,0 +1,63 @@
+local L0_1, L1_1
+L0_1 = MENU_ID_LIST
+L0_1 = L0_1.LOBBY_MENU
+function L1_1()
+  local L0_2, L1_2, L2_2, L3_2, L4_2, L5_2, L6_2
+  L0_2 = {}
+  L1_2 = {}
+  L2_2 = _U
+  L3_2 = "MENU.LOBBY_TITLE"
+  L2_2 = L2_2(L3_2)
+  L1_2.header = L2_2
+  L1_2.isMenuHeader = true
+  L0_2[1] = L1_2
+  L1_2 = #L0_2
+  L1_2 = L1_2 + 1
+  L2_2 = {}
+  L2_2.type = "button"
+  L3_2 = _U
+  L4_2 = "MENU.LOBBY_RESTORE_OUTFIT_TITLE"
+  L3_2 = L3_2(L4_2)
+  L2_2.header = L3_2
+  L3_2 = _U
+  L4_2 = "MENU.LOBBY_RESTORE_OUTFIT_DESC"
+  L3_2 = L3_2(L4_2)
+  L2_2.description = L3_2
+  L3_2 = {}
+  L3_2.isClient = true
+  L3_2.event = "rcore_prison:executeTask"
+  L3_2.args = "restoreOutfit"
+  L2_2.params = L3_2
+  L0_2[L1_2] = L2_2
+  L1_2 = #L0_2
+  L1_2 = L1_2 + 1
+  L2_2 = {}
+  L2_2.type = "button"
+  L3_2 = _U
+  L4_2 = "MENU.LOBBY_RETURN_STASHED_ITEMS_TITLE"
+  L3_2 = L3_2(L4_2)
+  L2_2.header = L3_2
+  L3_2 = _U
+  L4_2 = "MENU.LOBBY_RETURN_STASHED_ITEMS_DESC"
+  L3_2 = L3_2(L4_2)
+  L2_2.description = L3_2
+  L3_2 = {}
+  L3_2.isServer = true
+  L3_2.event = "rcore_prison:server:requestStashedItems"
+  L4_2 = SH
+  L4_2 = L4_2.zoneId
+  L3_2.args = L4_2
+  L2_2.params = L3_2
+  L0_2[L1_2] = L2_2
+  L1_2 = Frontend
+  L2_2 = L1_2
+  L1_2 = L1_2.CreateMenu
+  L3_2 = L0_1
+  L4_2 = _U
+  L5_2 = "MENU.LOBBY_TITLE"
+  L4_2 = L4_2(L5_2)
+  L5_2 = L0_2
+  L6_2 = true
+  L1_2(L2_2, L3_2, L4_2, L5_2, L6_2)
+end
+OpenLobbyMenu = L1_1

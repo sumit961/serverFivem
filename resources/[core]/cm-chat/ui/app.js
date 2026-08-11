@@ -142,6 +142,17 @@ function channelClass(channel) {
     return String(channel || 'rp').replace(/[^a-z0-9_-]/gi, '').toLowerCase();
 }
 
+function messageIcon(msg) {
+    if (msg.format === 'ems_rp' || msg.format === 'ems_nonrp') return '+';
+    if (msg.format === 'police_rp' || msg.format === 'police_nonrp') return 'P';
+    if (msg.format === 'nonrp') return '∞';
+    if (msg.format === 'me' || msg.format === 'try') return '★';
+    if (msg.format === 'do') return '!';
+    if (msg.format === 'family') return '◆';
+    if (msg.format === 'admin' || msg.format === 'adminsys') return 'A';
+    return '•';
+}
+
 function shortLabel(label) {
     const clean = String(label || 'RP').replace(/[^a-z0-9]/gi, '').toUpperCase();
     return clean.length > 5 ? clean.slice(0, 5) : clean;
@@ -188,12 +199,19 @@ function buildPrefix(msg) {
         const role = escapeHtml(msg.memberTitle || msg.rankName || 'Member');
         return `[${tag}] [${role}] ${author} (${id}):`;
     }
+    if (msg.format === 'ems_rp' || msg.format === 'ems_nonrp') {
+        return `<span class="ems-chat-logo">EMS</span> <span class="ems-chat-author">${author}</span> <span class="ems-chat-id">[${id}]</span>:`;
+    }
+    if (msg.format === 'police_rp' || msg.format === 'police_nonrp') {
+        return `<span class="police-chat-logo">POLICE</span> <span class="police-chat-author">${author}</span> <span class="police-chat-id">[${id}]</span>:`;
+    }
     return `${author} (${id}) said:`;
 }
 
 function buildText(msg) {
     const text = escapeHtml(msg.text);
     if (msg.format === 'nonrp') return `(( ${text} ))`;
+    if (msg.format === 'ems_nonrp' || msg.format === 'police_nonrp') return `(( ${text} ))`;
     if (msg.format === 'do') return text;
     if (msg.format === 'me') return `* ${text}`;
     if (msg.format === 'try') return text;
@@ -205,11 +223,10 @@ function renderMessages(scrollToBottom = true) {
     if (!els.messages) return;
     els.messages.innerHTML = state.messages.map(msg => {
         const color = safeColor(msg.channelColor || getChannel(msg.channel).color || '#31e6ff');
-        const label = shortLabel(msg.channelLabel || msg.channel);
         const cls = `chat-message chat-${channelClass(msg.channel)} chat-${channelClass(msg.format)}`;
         return `
             <div class="${cls}" style="--chat-color:${color}; --prefix-color:${color}">
-                <div class="chat-mark" data-label="${escapeHtml(label)}"></div>
+                <div class="chat-mark" data-icon="${escapeHtml(messageIcon(msg))}"></div>
                 <div class="chat-body">
                     <span class="chat-prefix">${buildPrefix(msg)}</span>
                     <span class="chat-text">${buildText(msg)}</span>

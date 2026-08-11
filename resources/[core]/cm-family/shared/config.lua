@@ -78,6 +78,7 @@ Config.Permissions = {
     { key = 'family.manage_titles', label = 'Manage member titles',  group = 'management' },
     { key = 'family.view_logs',     label = 'View family activity',  group = 'management' },
     { key = 'family.set_meeting',   label = 'Set meeting point',     group = 'management' },
+    { key = 'family.manage_announcement', label = 'Edit family announcement', group = 'management' },
     { key = 'vehicle.track',        label = 'Track shared vehicles', group = 'vehicles' },
 
     -- Bank
@@ -98,6 +99,7 @@ Config.Permissions = {
     { key = 'weapon_storage.withdraw', label = 'Withdraw weapons',   group = 'house' },
     { key = 'storage.access',       label = 'General storage',       group = 'house' },
     { key = 'helipad.use',          label = 'Use helipad',           group = 'house' },
+    { key = 'house.view_logs',      label = 'View house activity',   group = 'house' },
 }
 
 -- The subset of permission keys that cm-house asks about through
@@ -109,6 +111,7 @@ Config.HousePermissionKeys = {
     ['weapon_storage.access'] = true, ['weapon_storage.deposit'] = true,
     ['weapon_storage.withdraw'] = true,
     ['storage.access'] = true, ['trunk.access'] = true, ['helipad.use'] = true,
+    ['house.view_logs'] = true,
 }
 
 -- Vehicle actions gated by per-vehicle LEVEL (tier >= level) rather than a
@@ -122,20 +125,12 @@ Config.VehicleLevelActions = {
     ['helipad.use'] = true,
 }
 
--- Every active family member receives these baseline permissions at the linked
--- family house. Rank permissions still control management actions (locking,
--- shared-vehicle administration, rank editing, bank withdrawals, etc.).
+-- Every active family member receives only basic entry at the linked house.
+-- Storage, weapons, garage, trunk, helipad and logs remain rank-authoritative.
 -- This is intentionally DB-membership based so legacy rank-id/grade schemas
 -- cannot strand a valid member outside their own family property.
 Config.BasicMemberHousePermissions = {
     ['door.enter'] = true,
-    ['garage.access'] = true,
-    ['garage.take'] = true,
-    ['garage.store'] = true,
-    ['weapon_storage.access'] = true,
-    ['weapon_storage.deposit'] = true,
-    ['weapon_storage.withdraw'] = true,
-    ['storage.access'] = true,
 }
 
 -- ============================================================
@@ -155,10 +150,12 @@ Config.DefaultRanks = {
         permissions = {
             'family.invite', 'family.kick', 'family.promote', 'family.demote',
             'family.manage_vehicles', 'family.manage_tags', 'family.manage_titles', 'family.view_logs', 'vehicle.track',
+            'family.manage_announcement',
             'bank.view', 'bank.deposit', 'bank.withdraw',
             'door.enter', 'door.lock', 'garage.access', 'garage.take', 'garage.store',
             'garage.manage_shared', 'trunk.access', 'weapon_storage.access', 'weapon_storage.deposit',
             'weapon_storage.withdraw', 'storage.access', 'helipad.use',
+            'house.view_logs',
         },
     },
     {

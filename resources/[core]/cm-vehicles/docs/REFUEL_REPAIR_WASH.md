@@ -178,7 +178,8 @@ Backed by a new `cm-vehiclekeys` export `RevokeTempKeyByChar(plate, charId)`.
 - `SaveVehicleMods(veh, mods?)` → ok, mods
 
 **Server exports (cm-vehicles):**
-- `ServiceVehicle(plate, { fuel?, engineHealth?, bodyHealth?, tankHealth?, dirtLevel? })`
+- `ServiceVehicle(plate, { fuel?, engineHealth?, bodyHealth?, tankHealth?, dirtLevel?, conditionState?, clearVisualDamage? }, targetSource?)`
+  - `targetSource` is optional and limits physical condition convergence to that online player; existing callers may omit it.
 - `GetLentKeys(plate)` → list
 
 **Server events (cm-vehicles):**

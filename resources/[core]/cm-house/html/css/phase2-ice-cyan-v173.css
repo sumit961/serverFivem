@@ -24,7 +24,10 @@
   --cm-shadow: 0 24px 70px rgba(0, 8, 14, .45);
   --cm-radius: 24px;
   --cm-radius-sm: 14px;
-  --cm-font: "Google Sans Flex", "Segoe UI", Arial, sans-serif;
+  /* Shared with cm-family via cm-ui's self-hosted @font-face rules
+     (nui://cm-ui/web/cm-theme.css, linked in index.html). */
+  --cm-font: "DM Sans", "Segoe UI", Arial, sans-serif;
+  --cm-font-display: "Poppins", "DM Sans", "Segoe UI", Arial, sans-serif;
 
   /* Re-map the original v1.1 design tokens so any legacy component not
      explicitly restyled still uses the readable ice-blue palette. */

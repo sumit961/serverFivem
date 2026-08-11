@@ -1,0 +1,41 @@
+/* EMS duty clothing (wardrobe presets). Row layout matches fleet.css's
+   list style -- a name/subtext row plus inline action buttons, translated
+   to this page's own choose/manage split. Never touches the inventory. */
+
+.outfit-manage-only[hidden] { display: none !important; }
+
+.outfit-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: linear-gradient(155deg, #23263f, #1c1e33);
+  border: 1px solid rgba(255, 255, 255, .07);
+  margin-bottom: 10px;
+}
+.outfit-row.current { border-color: rgba(0, 240, 255, .45); }
+
+.outfit-row__main { flex: 1; min-width: 0; }
+.outfit-row__title {
+  font: 600 15px var(--cm-font-display, "Poppins", sans-serif);
+  color: #f4f6ff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.outfit-row__sub { margin-top: 3px; color: #969bb8; font-size: 13px; }
+
+.outfit-badge {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #52dce9;
+  background: rgba(82, 220, 233, .12);
+  border: 1px solid rgba(82, 220, 233, .4);
+}
+
+.outfit-row__actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+#outfitSaveForm { margin-bottom: 18px; }

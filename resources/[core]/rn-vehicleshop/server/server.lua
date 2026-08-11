@@ -4,7 +4,9 @@ local TestDriveLocks = {}
 local ActiveShopPlayers = {}
 local CharacterCache = {}
 local RateLimits = {}
+local AdminModes = {}
 local CatalogCache = { sourceList = nil, sourceByModel = nil, adminCatalog = nil, publicCatalog = nil, shopVehicles = nil, vehicleByModel = nil, loadedAt = 0 }
+local RuntimeVehicleCache = { list = {}, byModel = {} }
 
 local PURCHASE_LOCK_TIMEOUT_MS = 45000
 local TEST_DRIVE_CHARGE_TIMEOUT_MS = 30000
@@ -20,6 +22,94 @@ local function clampTrunkLevel(level)
     if level < 0 then level = 0 end
     if level > 6 then level = 6 end
     return level
+end
+
+-- ── EMS fleet vehicle appearance (paint/livery/wheels/etc) ──────────────────
+-- Same validated shape and bounds as cm-ems's fleet vehicle mods (server/
+-- vehicles.lua): fail-closed, unknown/out-of-range fields dropped rather than
+-- passed through. Kept here rather than shared, matching how this codebase
+-- already duplicates small self-contained validation/utility helpers per
+-- resource instead of introducing a shared library resource for them.
+local function clampModInt(value, min, max, default)
+    local n = tonumber(value)
+    if n == nil then n = default or min end
+    n = math.floor(n)
+    if n < min then n = min end
+    if n > max then n = max end
+    return n
+end
+
+local function sanitizeRgbMod(raw)
+    if type(raw) ~= 'table' then return nil end
+    return { r = clampModInt(raw.r, 0, 255, 0), g = clampModInt(raw.g, 0, 255, 0), b = clampModInt(raw.b, 0, 255, 0) }
+end
+
+local function sanitizeVehicleMods(raw)
+    if type(raw) ~= 'table' then return {} end
+    local out = {}
+    if raw.catalogMaxSpeedKph ~= nil then out.catalogMaxSpeedKph = clampModInt(raw.catalogMaxSpeedKph, 1, 1000, 1) end
+
+    if raw.primaryColor ~= nil then out.primaryColor = clampModInt(raw.primaryColor, 0, 160, 0) end
+    if raw.secondaryColor ~= nil then out.secondaryColor = clampModInt(raw.secondaryColor, 0, 160, 0) end
+    if raw.pearlColor ~= nil then out.pearlColor = clampModInt(raw.pearlColor, 0, 160, 0) end
+    if raw.wheelColor ~= nil then out.wheelColor = clampModInt(raw.wheelColor, 0, 160, 0) end
+    local customPrimary = sanitizeRgbMod(raw.customPrimary)
+    if customPrimary then out.customPrimary = customPrimary end
+    local customSecondary = sanitizeRgbMod(raw.customSecondary)
+    if customSecondary then out.customSecondary = customSecondary end
+
+    if raw.wheelType ~= nil then out.wheelType = clampModInt(raw.wheelType, 0, 12, 0) end
+    if raw.windowTint ~= nil then out.windowTint = clampModInt(raw.windowTint, 0, 4, 0) end
+    if raw.plateIndex ~= nil then out.plateIndex = clampModInt(raw.plateIndex, 0, 5, 0) end
+    if raw.livery ~= nil then out.livery = clampModInt(raw.livery, -1, 100, -1) end
+    if raw.tyreLevel ~= nil then out.tyreLevel = clampModInt(raw.tyreLevel, 0, 4, 0) end
+
+    out.turbo = raw.turbo == true
+    out.xenon = raw.xenon == true
+    out.bulletproofTyres = raw.bulletproofTyres == true
+    out.customWheels = raw.customWheels == true
+
+    if type(raw.extras) == 'table' then
+        local extras = {}
+        for key, value in pairs(raw.extras) do
+            local id = tonumber(key)
+            if id and id >= 1 and id <= 14 then extras[tostring(id)] = value == true end
+        end
+        out.extras = extras
+    end
+
+    if type(raw.mods) == 'table' then
+        local slots, count = {}, 0
+        for key, value in pairs(raw.mods) do
+            local modType, idx = tonumber(key), tonumber(value)
+            if modType and idx and modType >= 0 and modType <= 49 and idx >= -1 and idx <= 254 then
+                slots[tostring(modType)] = idx
+                count = count + 1
+                if count >= 30 then break end
+            end
+        end
+        out.mods = slots
+    end
+
+    if type(raw.neons) == 'table' then
+        local neons = {}
+        for i = 1, 4 do neons[i] = raw.neons[i] == true end
+        out.neons = neons
+    end
+    local neonColor = sanitizeRgbMod(raw.neonColor)
+    if neonColor then out.neonColor = neonColor end
+
+    return out
+end
+
+-- Read-only paint/livery/wheel/tyre/neon option catalog, owned by cm-tuning
+-- (server/main.lua:GetVisualCatalog). Cached since it is static reference data.
+local VisualCatalogCache = nil
+local function getVisualCatalog()
+    if VisualCatalogCache then return VisualCatalogCache end
+    local ok, catalog = pcall(function() return exports['cm-tuning']:GetVisualCatalog() end)
+    VisualCatalogCache = (ok and type(catalog) == 'table') and catalog or {}
+    return VisualCatalogCache
 end
 
 local function hardeningCfg()
@@ -73,6 +163,7 @@ local function resetPlayerRuntime(src)
     ActiveShopPlayers[src] = nil
     CharacterCache[src] = nil
     RateLimits[src] = nil
+    AdminModes[src] = nil
 end
 
 local function invalidateCatalogCache()
@@ -576,16 +667,22 @@ local function ensureTables()
             label VARCHAR(100) NOT NULL,
             category VARCHAR(64) NOT NULL DEFAULT 'Custom',
             price INT NOT NULL DEFAULT 0,
+            speed_kph INT NULL,
             trunk_level INT NOT NULL DEFAULT 1,
             available_store TINYINT(1) NOT NULL DEFAULT 0,
             available_server TINYINT(1) NOT NULL DEFAULT 0,
+            available_ems TINYINT(1) NOT NULL DEFAULT 0,
+            available_police TINYINT(1) NOT NULL DEFAULT 0,
             image VARCHAR(255) NULL,
             metadata LONGTEXT NULL,
+            mods LONGTEXT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             INDEX idx_category (category),
             INDEX idx_available_store (available_store),
-            INDEX idx_available_server (available_server)
+            INDEX idx_available_server (available_server),
+            INDEX idx_available_ems (available_ems),
+            INDEX idx_available_police (available_police)
         )
     ]])
     -- Migration for servers that created the table before image support existed.
@@ -600,6 +697,79 @@ local function ensureTables()
             MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD COLUMN image VARCHAR(255) NULL')
         end)
     end
+
+    -- Same migration pattern for the EMS fleet destination: a mutually-exclusive
+    -- 4th catalog status (hidden/server/store/ems) plus a saved appearance
+    -- (paint/livery/wheels/etc, same shape cm-ems's fleet vehicles use).
+    local okEms, colsEms = pcall(function()
+        return MySQL.query.await([[SHOW COLUMNS FROM cm_vehicle_catalog LIKE 'available_ems']])
+    end)
+    if okEms and (not colsEms or not colsEms[1]) then
+        pcall(function()
+            MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD COLUMN available_ems TINYINT(1) NOT NULL DEFAULT 0')
+        end)
+        pcall(function()
+            MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD INDEX idx_available_ems (available_ems)')
+        end)
+    end
+    local okMods, colsMods = pcall(function()
+        return MySQL.query.await([[SHOW COLUMNS FROM cm_vehicle_catalog LIKE 'mods']])
+    end)
+    if okMods and (not colsMods or not colsMods[1]) then
+        pcall(function()
+            MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD COLUMN mods LONGTEXT NULL')
+        end)
+    end
+
+    -- Same migration pattern again for the Police fleet destination: a 5th
+    -- mutually-exclusive catalog status alongside hidden/server/store/ems.
+    local okPolice, colsPolice = pcall(function()
+        return MySQL.query.await([[SHOW COLUMNS FROM cm_vehicle_catalog LIKE 'available_police']])
+    end)
+    if okPolice and (not colsPolice or not colsPolice[1]) then
+        pcall(function()
+            MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD COLUMN available_police TINYINT(1) NOT NULL DEFAULT 0')
+        end)
+        pcall(function()
+            MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD INDEX idx_available_police (available_police)')
+        end)
+    end
+    local okSpeed, colsSpeed = pcall(function()
+        return MySQL.query.await([[SHOW COLUMNS FROM cm_vehicle_catalog LIKE 'speed_kph']])
+    end)
+    if okSpeed and (not colsSpeed or not colsSpeed[1]) then
+        pcall(function() MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD COLUMN speed_kph INT NULL AFTER price') end)
+    end
+
+    -- Generic legal-org fleet destination: unlike available_ems/available_police
+    -- (one hardcoded column each), this is a single nullable column holding
+    -- whichever org id (e.g. 'sahp', 'fib') the vehicle is tagged for, so any
+    -- number of cm-law organizations can use the same mutually-exclusive
+    -- catalog-status pattern without a new column per org.
+    local okLegal, colsLegal = pcall(function()
+        return MySQL.query.await([[SHOW COLUMNS FROM cm_vehicle_catalog LIKE 'legal_org']])
+    end)
+    if okLegal and (not colsLegal or not colsLegal[1]) then
+        pcall(function()
+            MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD COLUMN legal_org VARCHAR(32) NULL')
+        end)
+        pcall(function()
+            MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD INDEX idx_legal_org (legal_org)')
+        end)
+    end
+
+    -- Discovery used to publish class-priced GTA models immediately. Keep every
+    -- discovered model available to Manage Vehicles, but fail closed for every
+    -- destination until an admin has captured an image and deliberately saved a
+    -- status. Existing photographed/configured rows are left untouched.
+    MySQL.update.await([[
+        UPDATE cm_vehicle_catalog
+        SET available_store = 0,
+            available_server = 0,
+            available_ems = 0,
+            available_police = 0
+        WHERE image IS NULL OR TRIM(image) = ''
+    ]])
 end
 
 local function normalizeModel(model)
@@ -620,6 +790,38 @@ end
 -- io.readdir API. Results are cached and merged with Config.Vehicles.
 -- ============================================================================
 local VehicleDiscoveryCache = { list = nil, byModel = nil, scannedAt = 0, resources = 0, metaFiles = 0 }
+
+-- Soft integration: the admin catalog's status dropdown offers one option
+-- per cm-law organization (alongside the fixed EMS/Police options) so a
+-- vehicle can be tagged for any of them without rn-vehicleshop hardcoding
+-- org names. Works fine with cm-law absent -- the dropdown just won't
+-- offer legal-org options.
+local function legalOrgOptions()
+    if GetResourceState('cm-law') ~= 'started' then return {} end
+    local ok, organizations = pcall(function() return exports['cm-law']:GetOrganizations() end)
+    if not ok or type(organizations) ~= 'table' then return {} end
+    local out = {}
+    for _, org in ipairs(organizations) do
+        out[#out + 1] = { id = org.id, label = org.shortLabel or org.label }
+    end
+    return out
+end
+
+-- Shared metadata table sent alongside every rn-vehicleshop:client:adminData
+-- push -- factored out so legalOrganizations doesn't need repeating at each
+-- of this file's several call sites. Must be declared after
+-- VehicleDiscoveryCache above (it reads that local).
+local function adminMeta(extra)
+    local meta = {
+        autoDiscovered = #(VehicleDiscoveryCache.list or {}),
+        scannedResources = VehicleDiscoveryCache.resources or 0,
+        metaFiles = VehicleDiscoveryCache.metaFiles or 0,
+        visualCatalog = getVisualCatalog(),
+        legalOrganizations = legalOrgOptions(),
+    }
+    if type(extra) == 'table' then for key, value in pairs(extra) do meta[key] = value end end
+    return meta
+end
 
 local function discoveryCfg()
     return type(Config.AutoDiscoverVehicles) == 'table' and Config.AutoDiscoverVehicles or {}
@@ -689,7 +891,12 @@ end
 local function findVehicleMetaFiles(resourceName)
     local cfg = discoveryCfg()
     local maxDepth = math.max(1, math.min(12, tonumber(cfg.maxDepth) or 7))
-    local maxFiles = math.max(1, math.min(250, tonumber(cfg.maxMetaFilesPerResource) or 80))
+    -- Hard ceiling raised from 250 to 1000: large multi-vehicle packs that
+    -- organise as stream/[Brand]/[Model]/vehicles.meta per car (a very common
+    -- convention -- e.g. 600-DebadgedCars ships 600+ of them) legitimately
+    -- exceed the old cap, which silently truncated discovery well before any
+    -- "not all visible" symptom was otherwise explained.
+    local maxFiles = math.max(1, math.min(1000, tonumber(cfg.maxMetaFilesPerResource) or 80))
     local found, visited = {}, {}
 
     local function walk(relative, depth)
@@ -707,9 +914,13 @@ local function findVehicleMetaFiles(resourceName)
             if lower == 'vehicles.meta' then
                 found[#found + 1] = rel
             elseif depth < maxDepth then
-                -- Never traverse large asset/UI folders; vehicles.meta is normally
-                -- at the resource root or under data/common/dlc folders.
-                local skipDirectory = lower == 'stream' or lower == 'ui' or lower == 'html'
+                -- Never traverse large UI/script folders; they never contain
+                -- vehicles.meta. NOTE: 'stream' is deliberately NOT skipped --
+                -- that is exactly where per-car vehicles.meta commonly lives
+                -- (stream/[Brand]/[Model]/vehicles.meta). A flat binary-only
+                -- stream/ folder just costs one extra readdir() call; its loose
+                -- .ytd/.yft files all have extensions so they never recurse.
+                local skipDirectory = lower == 'ui' or lower == 'html'
                     or lower == 'web' or lower == 'client' or lower == 'server'
                     or lower == 'locales' or lower == 'audio' or lower == 'sounds'
                 local likelyDirectory = not skipDirectory and (not name:match('%.%w+$')
@@ -873,6 +1084,16 @@ local function getSourceVehicles(forceDiscovery)
         end
     end
 
+    -- Base-game GTA models are reported by an authorised admin client because
+    -- FiveM exposes GetAllVehicleModels client-side. They belong in the Manage
+    -- Vehicles discovery list, not in the persistent/published catalog.
+    for _, row in ipairs(RuntimeVehicleCache.list or {}) do
+        if not byModel[row.model] then
+            byModel[row.model] = row
+            list[#list + 1] = row
+        end
+    end
+
     table.sort(list, function(a, b)
         if a.category == b.category then return a.label < b.label end
         return a.category < b.category
@@ -898,11 +1119,16 @@ local function parseCatalogRow(row)
         label = tostring(row.label or row.model),
         category = tostring(row.category or 'Custom'),
         price = tonumber(row.price) or 0,
+        speedKph = tonumber(row.speed_kph),
         trunkLevel = clampTrunkLevel(row.trunk_level),
         availableStore = truthy(row.available_store),
         availableServer = truthy(row.available_server),
+        availableEms = truthy(row.available_ems),
+        availablePolice = truthy(row.available_police),
+        legalOrg = (row.legal_org and tostring(row.legal_org) ~= '') and tostring(row.legal_org) or nil,
         image = (row.image and tostring(row.image) ~= '' ) and tostring(row.image) or nil,
-        metadata = decode(row.metadata)
+        metadata = decode(row.metadata),
+        mods = decode(row.mods)
     }
 end
 
@@ -913,7 +1139,19 @@ local function loadCatalogCache(force)
         return
     end
 
-    local rows = MySQL.query.await('SELECT * FROM cm_vehicle_catalog ORDER BY category ASC, label ASC') or {}
+    local rows = MySQL.query.await([[
+        SELECT id, model, label, category, price, speed_kph, trunk_level,
+               available_store, available_server, available_ems, available_police,
+               legal_org, image, metadata, mods
+        FROM cm_vehicle_catalog
+        WHERE (image IS NOT NULL AND TRIM(image) <> '')
+           OR available_store = 1
+           OR available_server = 1
+           OR available_ems = 1
+           OR available_police = 1
+           OR legal_org IS NOT NULL
+        ORDER BY category ASC, label ASC
+    ]]) or {}
     local admin, public, byModel = {}, {}, {}
     for _, row in ipairs(rows) do
         local parsed = parseCatalogRow(row)
@@ -1305,6 +1543,7 @@ RegisterNetEvent('rn-vehicleshop:server:buyVehicle', function(details)
         end
         local meta = {
             boughtFrom = 'rn-vehicleshop', price = price, category = catalog.category,
+            catalogMaxSpeedKph = catalog.speedKph,
             charId = charId, characterId = charId, owner = charId, stored = true,
             payment = { total = price, debits = debits },
             paint = {
@@ -1460,17 +1699,15 @@ RegisterNetEvent('rn-vehicleshop:server:testDriveStartFailed', function(token, r
     structuredAdminLog('test_drive', 'start_failed', src, { reason = reason, refunded = refunded }, 'error')
 end)
 
-RegisterNetEvent('rn-vehicleshop:server:openAdmin', function()
+RegisterNetEvent('rn-vehicleshop:server:openAdmin', function(requestedMode)
     local src = source
     if not isAdmin(src) then return notify(src, 'You do not have vehicle admin permission.', 'error') end
     if not checkRateLimit(src, 'openAdmin', tonumber(hardeningCfg().AdminOpenCooldownMs) or 750) then return end
+    local mode = requestedMode == 'capture' and 'capture' or 'manage'
+    AdminModes[src] = mode
     enterShopBucket(src, 'admin')
     local sourceList = flattenSourceVehicles(false)
-    TriggerClientEvent('rn-vehicleshop:client:openAdmin', src, sourceList, getCatalog(true), {
-        autoDiscovered = #(VehicleDiscoveryCache.list or {}),
-        scannedResources = VehicleDiscoveryCache.resources or 0,
-        metaFiles = VehicleDiscoveryCache.metaFiles or 0
-    })
+    TriggerClientEvent('rn-vehicleshop:client:openAdmin', src, sourceList, getCatalog(true), adminMeta(), mode)
 end)
 
 RegisterNetEvent('rn-vehicleshop:server:rescanVehicles', function()
@@ -1481,11 +1718,7 @@ RegisterNetEvent('rn-vehicleshop:server:rescanVehicles', function()
     end
     clearVehicleDiscoveryCache()
     local sourceList = flattenSourceVehicles(true)
-    TriggerClientEvent('rn-vehicleshop:client:adminData', src, sourceList, getCatalog(true), {
-        autoDiscovered = #(VehicleDiscoveryCache.list or {}),
-        scannedResources = VehicleDiscoveryCache.resources or 0,
-        metaFiles = VehicleDiscoveryCache.metaFiles or 0
-    })
+    TriggerClientEvent('rn-vehicleshop:client:adminData', src, sourceList, getCatalog(true), adminMeta())
     notify(src, ('Detected %d vehicle models from started resources.'):format(#(VehicleDiscoveryCache.list or {})), 'success')
 end)
 
@@ -1512,6 +1745,7 @@ end
 RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
     local src = source
     if not isAdmin(src) then return notify(src, 'No permission.', 'error') end
+    if AdminModes[src] ~= 'manage' then return notify(src, 'Use /managevehicle to configure photographed vehicles.', 'error') end
     if not checkRateLimit(src, 'saveAdminVehicle', tonumber(hardeningCfg().AdminSaveCooldownMs) or 1500) then
         return notify(src, 'Slow down before saving another vehicle.', 'error')
     end
@@ -1528,11 +1762,29 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
     if price < 0 or price > maxPrice then
         return notify(src, ('Price must be between $0 and $%s.'):format(maxPrice), 'error')
     end
+    local speedKph = math.floor(tonumber(data.speedKph or data.speed_kph) or 0)
+    if speedKph < 0 or speedKph > 1000 then return notify(src, 'Top speed must be between 0 and 1000 km/h.', 'error') end
+    if speedKph == 0 then speedKph = nil end
     local trunkLevel = clampTrunkLevel(data.trunkLevel or data.trunk_level)
 
     local availableStore = truthy(data.availableStore or data.available_store)
     local availableServer = truthy(data.availableServer or data.available_server)
+    local availableEms = truthy(data.availableEms or data.available_ems)
+    local availablePolice = truthy(data.availablePolice or data.available_police)
+    local legalOrg = tostring(data.legalOrg or data.legal_org or ''):lower():gsub('[^a-z0-9_]', '')
+    if legalOrg == '' then legalOrg = nil end
     if availableStore then availableServer = true end
+    -- EMS, Police, and any cm-law organization are each their own
+    -- mutually-exclusive catalog status (hidden/server/store/ems/police/
+    -- legal:<org>), matching the single #admin-status-mode select in the
+    -- NUI -- never let a vehicle be both a public store item and a fleet
+    -- vehicle, and never assigned to more than one fleet at once.
+    if availableEms then availableStore = false; availableServer = false; availablePolice = false; legalOrg = nil end
+    if availablePolice then availableStore = false; availableServer = false; availableEms = false; legalOrg = nil end
+    if legalOrg then availableStore = false; availableServer = false; availableEms = false; availablePolice = false end
+
+    local vehicleMods = sanitizeVehicleMods(data.mods)
+    if speedKph then vehicleMods.catalogMaxSpeedKph = speedKph end
 
     local testDriveCfg = Config.TestDrive or {}
     local testDriveEnabled = data.testDriveEnabled
@@ -1552,30 +1804,35 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
         if existing and tostring(existing) ~= '' then image = tostring(existing) end
     end
 
-    -- A car can only be enabled (store or server) once it has a captured image.
-    if (availableStore or availableServer) and (not image or image == '') then
+    -- A car can only be enabled (store, server, ems, police, or a legal org) once it has a captured image.
+    if (availableStore or availableServer or availableEms or availablePolice or legalOrg ~= nil) and (not image or image == '') then
         notify(src, 'Capture an image first. A vehicle cannot be enabled without an image.', 'error')
         TriggerClientEvent('rn-vehicleshop:client:adminNeedsImage', src, model, {
-            label = label, category = category, price = price, trunkLevel = trunkLevel,
-            availableStore = availableStore, availableServer = availableServer,
+            label = label, category = category, price = price, speedKph = speedKph, trunkLevel = trunkLevel,
+            availableStore = availableStore, availableServer = availableServer, availableEms = availableEms, availablePolice = availablePolice, legalOrg = legalOrg,
             testDriveEnabled = testDriveEnabled, testDriveTimer = testDriveTimer, testDriveCost = testDriveCost
         })
         return
     end
 
     MySQL.insert.await([[
-        INSERT INTO cm_vehicle_catalog (model, label, category, price, trunk_level, available_store, available_server, image, metadata)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO cm_vehicle_catalog (model, label, category, price, speed_kph, trunk_level, available_store, available_server, available_ems, available_police, legal_org, image, metadata, mods)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
             label = VALUES(label),
             category = VALUES(category),
             price = VALUES(price),
+            speed_kph = VALUES(speed_kph),
             trunk_level = VALUES(trunk_level),
             available_store = VALUES(available_store),
             available_server = VALUES(available_server),
+            available_ems = VALUES(available_ems),
+            available_police = VALUES(available_police),
+            legal_org = VALUES(legal_org),
             image = VALUES(image),
-            metadata = VALUES(metadata)
-    ]], { model, label, category, price, trunkLevel, availableStore and 1 or 0, availableServer and 1 or 0, image, encode({
+            metadata = VALUES(metadata),
+            mods = VALUES(mods)
+    ]], { model, label, category, price, speedKph, trunkLevel, availableStore and 1 or 0, availableServer and 1 or 0, availableEms and 1 or 0, availablePolice and 1 or 0, legalOrg, image, encode({
         savedBy = GetPlayerName(src),
         savedAt = os.time(),
         testDrive = {
@@ -1583,22 +1840,80 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
             duration = testDriveTimer,
             cost = testDriveCost
         }
-    }) })
+    }), (availableEms or availablePolice or legalOrg ~= nil) and encode(vehicleMods) or nil })
 
     invalidateCatalogCache()
     notify(src, ('Saved %s.'):format(label), 'success')
-    structuredAdminLog('catalog', 'saved', src, { model = model, label = label, category = category, price = price, trunkLevel = trunkLevel, availableStore = availableStore, availableServer = availableServer, testDrive = { enabled = testDriveEnabled, duration = testDriveTimer, cost = testDriveCost } }, 'success')
+    structuredAdminLog('catalog', 'saved', src, { model = model, label = label, category = category, price = price, trunkLevel = trunkLevel, availableStore = availableStore, availableServer = availableServer, availableEms = availableEms, availablePolice = availablePolice, legalOrg = legalOrg, testDrive = { enabled = testDriveEnabled, duration = testDriveTimer, cost = testDriveCost } }, 'success')
     local sourceList = flattenSourceVehicles()
-    TriggerClientEvent('rn-vehicleshop:client:adminData', src, sourceList, getCatalog(true), { autoDiscovered = #(VehicleDiscoveryCache.list or {}), scannedResources = VehicleDiscoveryCache.resources or 0, metaFiles = VehicleDiscoveryCache.metaFiles or 0 })
+    TriggerClientEvent('rn-vehicleshop:client:adminData', src, sourceList, getCatalog(true), adminMeta())
 end)
+
+local RuntimeModelBatches = {}
+local vehicleClassCategories = {
+    [0] = 'Compacts', [1] = 'Sedans', [2] = 'SUVs', [3] = 'Coupes', [4] = 'Muscle',
+    [5] = 'Sports Classics', [6] = 'Sports', [7] = 'Super', [8] = 'Motorcycles',
+    [9] = 'Off Road', [10] = 'Industrial', [11] = 'Utility', [12] = 'Vans',
+    [13] = 'Bicycles', [14] = 'Boats', [15] = 'Helicopters', [16] = 'Planes',
+    [17] = 'Service', [18] = 'Emergency', [19] = 'Military', [20] = 'Commercial', [21] = 'Rail'
+}
+
+RegisterNetEvent('rn-vehicleshop:server:runtimeVehicleModels')
+AddEventHandler('rn-vehicleshop:server:runtimeVehicleModels', function(rows, finalBatch)
+    local src = source
+    local seed = Config.RuntimeCatalogSeed or {}
+    if not isAdmin(src) or seed.enabled ~= true or type(rows) ~= 'table' or #rows > 200 then return end
+    local batch = RuntimeModelBatches[src] or { rows = {}, seen = {}, count = 0 }
+    RuntimeModelBatches[src] = batch
+    for _, raw in ipairs(rows) do
+        if type(raw) == 'table' and batch.count < 2000 then
+            local model = normalizeModel(raw.model)
+            local classId = math.floor(tonumber(raw.classId) or -1)
+            if isValidModelName(model) and vehicleClassCategories[classId] and not batch.seen[model] then
+                batch.seen[model] = true
+                batch.count = batch.count + 1
+                batch.rows[#batch.rows + 1] = {
+                    model = model, label = safeUtf8Sub(raw.label, 100, model), classId = classId,
+                    speedKph = math.max(1, math.min(1000, math.floor(tonumber(raw.speedKph) or 1)))
+                }
+            end
+        end
+    end
+    if finalBatch ~= true then return end
+    RuntimeModelBatches[src] = nil
+    local runtimeList, runtimeByModel = {}, {}
+    for _, row in ipairs(batch.rows) do
+        local price = tonumber(seed.classPrices and seed.classPrices[row.classId])
+        local sourceRow = {
+            model = row.model,
+            label = row.label,
+            category = vehicleClassCategories[row.classId],
+            price = price or 0,
+            speedKph = row.speedKph,
+            trunkLevel = math.max(0, math.min(6, math.floor(tonumber(seed.defaultTrunkLevel) or 1))),
+            source = 'runtime',
+            autoDiscovered = true
+        }
+        runtimeByModel[row.model] = sourceRow
+        runtimeList[#runtimeList + 1] = sourceRow
+    end
+    RuntimeVehicleCache = { list = runtimeList, byModel = runtimeByModel }
+    CatalogCache.sourceList, CatalogCache.sourceByModel = nil, nil
+    structuredAdminLog('catalog', 'runtime_discovery', src, { discovered = batch.count }, 'success')
+    local sourceList = flattenSourceVehicles()
+    TriggerClientEvent('rn-vehicleshop:client:adminData', src, sourceList, getCatalog(true), adminMeta({ runtimeModels = batch.count }))
+end)
+
+AddEventHandler('playerDropped', function() RuntimeModelBatches[source] = nil end)
 
 RegisterNetEvent('rn-vehicleshop:server:disableAdminVehicle', function(model)
     local src = source
     if not isAdmin(src) then return notify(src, 'No permission.', 'error') end
+    if AdminModes[src] ~= 'manage' then return notify(src, 'Use /managevehicle to change vehicle availability.', 'error') end
     if not checkRateLimit(src, 'disableAdminVehicle', tonumber(hardeningCfg().AdminDisableCooldownMs) or 1000) then return end
     model = normalizeModel(model)
     if not isValidModelName(model) then return notify(src, 'Invalid model.', 'error') end
-    local changed = MySQL.update.await('UPDATE cm_vehicle_catalog SET available_store = 0, available_server = 0 WHERE model = ?', { model })
+    local changed = MySQL.update.await('UPDATE cm_vehicle_catalog SET available_store = 0, available_server = 0, available_ems = 0, available_police = 0 WHERE model = ?', { model })
     if not tonumber(changed) or tonumber(changed) <= 0 then
         MySQL.insert.await('INSERT IGNORE INTO cm_vehicle_catalog (model, label, category, price, trunk_level, available_store, available_server) VALUES (?, ?, ?, 0, 1, 0, 0)', { model, model, 'Custom' })
     end
@@ -1606,7 +1921,7 @@ RegisterNetEvent('rn-vehicleshop:server:disableAdminVehicle', function(model)
     notify(src, ('Disabled %s.'):format(model), 'success')
     structuredAdminLog('catalog', 'disabled', src, { model = model }, 'warning')
     local sourceList = flattenSourceVehicles()
-    TriggerClientEvent('rn-vehicleshop:client:adminData', src, sourceList, getCatalog(true), { autoDiscovered = #(VehicleDiscoveryCache.list or {}), scannedResources = VehicleDiscoveryCache.resources or 0, metaFiles = VehicleDiscoveryCache.metaFiles or 0 })
+    TriggerClientEvent('rn-vehicleshop:client:adminData', src, sourceList, getCatalog(true), adminMeta())
 end)
 
 -- ============================================================================
@@ -1663,6 +1978,10 @@ RegisterNetEvent('rn-vehicleshop:server:saveVehicleImage', function(data)
     if not isAdmin(src) then
         TriggerClientEvent('rn-vehicleshop:client:vehicleImageSaved', src, false, 'no_permission')
         return notify(src, 'No permission to capture vehicle images.', 'error')
+    end
+    if AdminModes[src] ~= 'capture' then
+        TriggerClientEvent('rn-vehicleshop:client:vehicleImageSaved', src, false, 'wrong_admin_mode')
+        return notify(src, 'Use /vehicleadmin to capture vehicle images.', 'error')
     end
     if not (Config.ImageCapture and Config.ImageCapture.enabled) then
         TriggerClientEvent('rn-vehicleshop:client:vehicleImageSaved', src, false, 'capture_disabled')
@@ -1726,14 +2045,44 @@ RegisterNetEvent('rn-vehicleshop:server:saveVehicleImage', function(data)
     structuredAdminLog('image_capture', 'saved', src, { model = model, image = nuiPath, bytes = #bytes, extension = ext }, 'success')
     TriggerClientEvent('rn-vehicleshop:client:vehicleImageSaved', src, true, nuiPath, model)
     local sourceList = flattenSourceVehicles()
-    TriggerClientEvent('rn-vehicleshop:client:adminData', src, sourceList, getCatalog(true), { autoDiscovered = #(VehicleDiscoveryCache.list or {}), scannedResources = VehicleDiscoveryCache.resources or 0, metaFiles = VehicleDiscoveryCache.metaFiles or 0 })
+    TriggerClientEvent('rn-vehicleshop:client:adminData', src, sourceList, getCatalog(true), adminMeta())
 end)
 
 RegisterCommand('vehicleadmin', function(src)
     if src <= 0 then return end
     if not isAdmin(src) then return notify(src, 'You do not have vehicle admin permission.', 'error') end
-    TriggerClientEvent('rn-vehicleshop:client:requestAdmin', src)
+    TriggerClientEvent('rn-vehicleshop:client:requestAdmin', src, 'capture')
 end, false)
+
+RegisterCommand('managevehicle', function(src)
+    if src <= 0 then return end
+    if not isAdmin(src) then return notify(src, 'You do not have vehicle admin permission.', 'error') end
+    TriggerClientEvent('rn-vehicleshop:client:requestAdmin', src, 'manage')
+end, false)
+
+AddEventHandler('rn-vehicleshop:dev:openAdmin', function(src)
+    src = tonumber(src)
+    if not src or src <= 0 or not isAdmin(src) then return end
+    TriggerClientEvent('rn-vehicleshop:client:requestAdmin', src, 'manage')
+end)
+
+RegisterNetEvent('rn-vehicleshop:server:adminClosed', function()
+    AdminModes[source] = nil
+end)
+
+CreateThread(function()
+    while GetResourceState('cm-admin') ~= 'started' do Wait(5000) end
+    pcall(function()
+        exports['cm-admin']:RegisterDevTool({
+            id = 'vehicles', label = 'Vehicle Catalog Admin', category = 'Catalogs', icon = 'car',
+            permission = 'dev.vehicles',
+            actions = {
+                { id = 'open', label = 'Open Vehicle Admin', type = 'launcher', realm = 'server',
+                  event = 'rn-vehicleshop:dev:openAdmin' }
+            }
+        })
+    end)
+end)
 
 exports('GetCatalogVehicle', function(model)
     return getCatalogVehicle(model, true)
@@ -1742,6 +2091,74 @@ end)
 exports('GetVehicleImage', function(model)
     local vehicle = getCatalogVehicle(model, false)
     return vehicle and vehicle.image or nil
+end)
+
+-- Read-only: every catalog vehicle currently tagged "EMS fleet vehicle" in
+-- /vehicleadmin, with its captured image (already a full nui://rn-vehicleshop/...
+-- URL, usable directly as an <img src>) and saved appearance. This is the
+-- single source of truth cm-ems's Fleet tab reads from -- it never stores its
+-- own copy of model/image/mods, only where each one spawns and which EMS
+-- rank tier may spawn it.
+exports('GetEmsCatalog', function()
+    loadCatalogCache(false)
+    local out = {}
+    for _, row in ipairs(CatalogCache.adminCatalog or {}) do
+        if row.availableEms then
+            out[#out + 1] = {
+                model = row.model,
+                label = row.label,
+                category = row.category,
+                image = row.image,
+                mods = row.mods or {},
+            }
+        end
+    end
+    return out
+end)
+
+-- Read-only: every catalog vehicle currently tagged "Police fleet vehicle" in
+-- /vehicleadmin, with its captured image and saved appearance. Same contract
+-- as GetEmsCatalog above -- cm-police's Fleet tab reads from this and never
+-- stores its own copy of model/image/mods.
+exports('GetPoliceCatalog', function()
+    loadCatalogCache(false)
+    local out = {}
+    for _, row in ipairs(CatalogCache.adminCatalog or {}) do
+        if row.availablePolice then
+            out[#out + 1] = {
+                model = row.model,
+                label = row.label,
+                category = row.category,
+                image = row.image,
+                mods = row.mods or {},
+            }
+        end
+    end
+    return out
+end)
+
+-- Read-only, generic equivalent of GetEmsCatalog/GetPoliceCatalog for any
+-- cm-law organization: every catalog vehicle tagged with that org's id in
+-- /vehicleadmin (legal_org column), same row shape as the two exports
+-- above. Unlike EMS/Police, this isn't a fixed column per job -- any
+-- number of organizations can share this one mechanism.
+exports('GetOrgCatalog', function(organizationId)
+    organizationId = tostring(organizationId or ''):lower()
+    if organizationId == '' then return {} end
+    loadCatalogCache(false)
+    local out = {}
+    for _, row in ipairs(CatalogCache.adminCatalog or {}) do
+        if row.legalOrg == organizationId then
+            out[#out + 1] = {
+                model = row.model,
+                label = row.label,
+                category = row.category,
+                image = row.image,
+                mods = row.mods or {},
+            }
+        end
+    end
+    return out
 end)
 
 exports('GiveCatalogVehicle', function(src, model, metadata)

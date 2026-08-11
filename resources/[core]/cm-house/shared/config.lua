@@ -4,17 +4,6 @@ Config = {}
 --  General
 -- ============================================================
 Config.Debug           = false       -- enable only while actively diagnosing
-Config.AdminCommand    = 'cmhouse'
-
--- TEMPORARY LOCAL-DEVELOPMENT BYPASS.
--- When true, every connected player may open and use every cm-house admin
--- section and the property creator. It does NOT grant ordinary owner/family
--- gameplay access to houses, garages, storage or weapons.
--- Set this to false before opening the server to normal players.
-Config.DevelopmentPublicAdmin = false
-
--- Unique aliases avoid conflicts with another resource registering /cmadmin.
-Config.PublicAdminCommands = { 'cmadminhouse', 'cmhouseadmin', 'houseadmin' }
 
 -- Automatically repairs additive cm-house v1.5/v1.6 columns and tables at
 -- resource startup. Keep enabled for local development and normal upgrades.
@@ -22,18 +11,16 @@ Config.PublicAdminCommands = { 'cmadminhouse', 'cmhouseadmin', 'houseadmin' }
 -- permission and you manage every migration manually.
 Config.AutoRepairSchema = true
 
--- Normal production gate used when DevelopmentPublicAdmin is false.
-Config.RequireAdmin    = true
-
--- When RequireAdmin is on, the gate is checked in this order:
+-- House administration opens from cm-admin's Developer launcher. The gate is
+-- checked in this order:
 --   1. cm-core:ACLCheck(src, AdminPermission) -> cm-admin:HasPermission
 --   2. native ACE fallback:  add_ace group.admin cm-house.create allow
-Config.AdminPermission = 'house.create' -- legacy fallback while ranks are migrated
+Config.AdminPermission = 'house.create' -- compatibility key; granular scopes below are authoritative
 Config.AdminAce        = 'cm-house.create'
 
--- Granular keys are ready for cm-admin rank permissions. Keep the legacy
--- fallback enabled until existing ranks have these keys, then turn it off.
-Config.AdminUseLegacyFallback = true
+-- Granular cm-admin rank permissions are authoritative. The broad historical
+-- house.create fallback is disabled so panel access follows the assigned rank.
+Config.AdminUseLegacyFallback = false
 Config.AdminPermissions = {
     panel      = 'house.admin.open',
     create     = 'house.create',

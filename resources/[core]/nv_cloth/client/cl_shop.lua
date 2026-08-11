@@ -31,6 +31,7 @@ categories = {
   glasses  = { type = "prop",      index = 1  },
   earrings = { type = "prop",      index = 2  },
   watches  = { type = "prop",      index = 6  },
+  bracelets = { type = "prop",     index = 7  },
 }
 
 -- État UI
@@ -47,6 +48,8 @@ local currentShopKey = nil
 local currentShopData = nil
 local isAdminShop = false
 local inPrivateBucket = false
+local currentShopCategories = {}
+local adminOriginalAppearance = nil
 
 function NvCloth_IsAdminShop() return isAdminShop == true end
 function NvCloth_GetCurrentShopKey() return currentShopKey or 'clothes' end
@@ -171,6 +174,108 @@ local function ensureFreemodeIfSkinchanger()
   end
 end
 
+local function captureAdminOriginalAppearance()
+  local ped = PlayerPedId()
+  local snap = {
+    model = GetEntityModel(ped),
+    components = {}, props = {}, overlays = {}, faceFeatures = {},
+    hairColor = GetPedHairColor(ped),
+    hairHighlight = GetPedHairHighlightColor(ped),
+    eyeColor = GetPedEyeColor(ped),
+  }
+  for i = 0, 11 do
+    snap.components[i] = {
+      drawable = GetPedDrawableVariation(ped, i),
+      texture = GetPedTextureVariation(ped, i),
+      palette = GetPedPaletteVariation(ped, i),
+    }
+  end
+  for i = 0, 12 do
+    snap.props[i] = {
+      drawable = GetPedPropIndex(ped, i),
+      texture = GetPedPropTextureIndex(ped, i),
+    }
+    local ok, value, colourType, firstColour, secondColour, opacity = GetPedHeadOverlayData(ped, i)
+    snap.overlays[i] = {
+      ok = ok == true, value = tonumber(value) or 0,
+      colourType = tonumber(colourType) or 0,
+      firstColour = tonumber(firstColour) or 0,
+      secondColour = tonumber(secondColour) or 0,
+      opacity = tonumber(opacity) or 0.0,
+    }
+  end
+  for i = 0, 19 do snap.faceFeatures[i] = GetPedFaceFeature(ped, i) or 0.0 end
+  local okBlend, hasBlend, blend = pcall(GetPedHeadBlendData, ped)
+  if okBlend and hasBlend and type(blend) == 'table' then snap.headBlend = blend end
+  return snap
+end
+
+local function requestPlayerModel(hash)
+  if not IsModelInCdimage(hash) or not IsModelValid(hash) then return false end
+  RequestModel(hash)
+  local deadline = GetGameTimer() + 8000
+  while not HasModelLoaded(hash) do
+    if GetGameTimer() > deadline then return false end
+    Wait(25)
+  end
+  return true
+end
+
+local function applyAdminOriginalAppearance(snap)
+  if type(snap) ~= 'table' then return false end
+  local ped = PlayerPedId()
+  if snap.model and GetEntityModel(ped) ~= snap.model then
+    if not requestPlayerModel(snap.model) then return false end
+    SetPlayerModel(PlayerId(), snap.model)
+    SetModelAsNoLongerNeeded(snap.model)
+    ped = PlayerPedId()
+  end
+  for i = 0, 11 do
+    local c = snap.components[i]
+    if c then SetPedComponentVariation(ped, i, c.drawable or 0, c.texture or 0, c.palette or 0) end
+  end
+  for i = 0, 12 do
+    local p = snap.props[i]
+    if p and tonumber(p.drawable) and tonumber(p.drawable) >= 0 then
+      SetPedPropIndex(ped, i, tonumber(p.drawable), tonumber(p.texture) or 0, true)
+    else
+      ClearPedProp(ped, i)
+    end
+  end
+  if snap.hairColor ~= nil then SetPedHairColor(ped, tonumber(snap.hairColor) or 0, tonumber(snap.hairHighlight) or 0) end
+  if snap.eyeColor ~= nil then SetPedEyeColor(ped, tonumber(snap.eyeColor) or 0) end
+  local b = snap.headBlend
+  if type(b) == 'table' then
+    pcall(SetPedHeadBlendData, ped,
+      tonumber(b.shapeFirst) or 0, tonumber(b.shapeSecond) or 0, tonumber(b.shapeThird) or 0,
+      tonumber(b.skinFirst) or 0, tonumber(b.skinSecond) or 0, tonumber(b.skinThird) or 0,
+      tonumber(b.shapeMix) or 0.0, tonumber(b.skinMix) or 0.0, tonumber(b.thirdMix) or 0.0,
+      false)
+  end
+  for i = 0, 12 do
+    local o = snap.overlays[i]
+    if o then
+      SetPedHeadOverlay(ped, i, o.value or 0, o.opacity or 0.0)
+      SetPedHeadOverlayColor(ped, i, o.colourType or 0, o.firstColour or 0, o.secondColour or 0)
+    end
+  end
+  for i = 0, 19 do
+    if snap.faceFeatures[i] ~= nil then SetPedFaceFeature(ped, i, snap.faceFeatures[i]) end
+  end
+  return true
+end
+
+-- Shared rollback contract used by /clothingadmin, the public clothing store,
+-- and /clothingstore. It includes model, clothes, props, head blend, all face
+-- features, overlays, hair colours and eye colour.
+function NvClothCaptureFullAppearance()
+  return captureAdminOriginalAppearance()
+end
+
+function NvClothApplyFullAppearance(snap)
+  return applyAdminOriginalAppearance(snap)
+end
+
 --- Snapshot des vêtements actuels -> saveClothes
 local function snapshotCurrentClothes()
   local ped = PlayerPedId()
@@ -270,6 +375,7 @@ end
 
 --- Envoie l’état complet d’ouverture au NUI (avec init si première fois)
 local function sendOpenMessage(label, cats, counts, isOpen)
+  local gender = GetEntityModel(PlayerPedId()) == GetHashKey('mp_f_freemode_01') and 'female' or 'male'
   if not nuiInitialized then
     SendNUIMessage({
       type         = "openClothShop",
@@ -279,9 +385,14 @@ local function sendOpenMessage(label, cats, counts, isOpen)
       categories   = cats,
       translations = Config.Translations[Config.Lang],
       counts       = counts,
+      gender       = gender,
       useCatalogOnly = Config.UseCatalogOnly ~= false,
       pricePresets = Config.PricePresets or {},
       economy      = Config.Economy or {},
+      iconCapture  = {
+        maxRetries = tonumber(Config.IconCapture and Config.IconCapture.maxRetries) or 2,
+        retryDelay = tonumber(Config.IconCapture and Config.IconCapture.retryDelay) or 650,
+      },
     })
     nuiInitialized = true
   else
@@ -291,9 +402,14 @@ local function sendOpenMessage(label, cats, counts, isOpen)
       label      = label,
       categories = cats,
       counts     = counts,
+      gender     = gender,
       useCatalogOnly = Config.UseCatalogOnly ~= false,
       pricePresets = Config.PricePresets or {},
       economy      = Config.Economy or {},
+      iconCapture  = {
+        maxRetries = tonumber(Config.IconCapture and Config.IconCapture.maxRetries) or 2,
+        retryDelay = tonumber(Config.IconCapture and Config.IconCapture.retryDelay) or 650,
+      },
     })
   end
 
@@ -310,6 +426,7 @@ end
 --- @param cats table|nil (filtre/ordre côté UI)
 function closeShopRoutine()
   local ped = PlayerPedId()
+  local appearanceToRestore = adminOriginalAppearance
 
   opened = false
   isAdminShop = false
@@ -317,12 +434,24 @@ function closeShopRoutine()
   applyUiGameFocus(false)
   SendNUIMessage({ type = "adminMode", value = false })
   SendNUIMessage({ type = "openClothShop", value = false })
-  restoreShopPreviewClothes()
   if StopClothingAdminStudio then StopClothingAdminStudio() end
+  if appearanceToRestore then
+    applyAdminOriginalAppearance(appearanceToRestore)
+    adminOriginalAppearance = nil
+  else
+    restoreShopPreviewClothes()
+  end
+  ped = PlayerPedId()
   if SetShopCameraFixedMode then SetShopCameraFixedMode(false) end
   DestroySkinCam()
   Wait(75)
   RenderScriptCams(false, false, 0, true, true)
+  -- Reassert once after camera/capture cleanup. This closes the race where a
+  -- delayed capture-preview task used to equip the photographed item again.
+  if appearanceToRestore then
+    applyAdminOriginalAppearance(appearanceToRestore)
+    ped = PlayerPedId()
+  end
   setShopPlayerLocked(false)
   ClearPedTasksImmediately(ped)
   DisplayRadar(true)
@@ -346,6 +475,14 @@ function closeShopRoutine()
   currentShopCoords = nil
   currentShopKey = nil
   currentShopData = nil
+  currentShopCategories = {}
+
+  -- Build 2.19: if /clothingstore swapped the admin's ped model for an
+  -- opposite-gender image retake, restore the original model + appearance now
+  -- that the admin panel has closed.
+  if type(NvClothManage_OnShopClosed) == 'function' then
+    NvClothManage_OnShopClosed()
+  end
 end
 
 --- Ouvre/ferme la boutique de vêtements
@@ -361,10 +498,14 @@ function openClothShop(label, cats, shopKey, shopData, adminMode)
   isAdminShop = adminMode == true
   currentShopKey = shopKey or 'clothes'
   currentShopData = shopData
+  currentShopCategories = type(cats) == 'table' and cats or {}
 
   local ped = PlayerPedId()
   local startCoords = GetEntityCoords(ped)
   local startHeading = GetEntityHeading(ped)
+  -- Capture before entering the bucket, swapping model, clearing overlays, or
+  -- applying any preview clothing. Nothing selected in either UI may survive.
+  adminOriginalAppearance = captureAdminOriginalAppearance()
   setClothingPositionSaveBlocked(true)
 
   -- Every shopper/admin gets their own private dressing room instance.
@@ -414,6 +555,7 @@ function openClothShop(label, cats, shopKey, shopData, adminMode)
   if isAdminShop then
     TriggerServerEvent('nvCloth:server:getCaptureCameras')
     TriggerServerEvent('nvCloth:server:getCaptureCrops')
+    TriggerServerEvent('nvCloth:server:requestCaptureVisibility')
   else
     TriggerServerEvent('nvCloth:server:getFavourites')
   end
@@ -438,7 +580,21 @@ end, false)
 
 -- /clothingadmin is registered server-side so normal players cannot open it.
 RegisterNetEvent('nvCloth:client:openAdminPanel', function()
-  openClothShop("ADMIN PANEL", { "torso", "arms", "tshirt", "pants", "shoes", "hat", "glasses", "earrings", "chains", "bags", "watches" }, "clothes", nil, true)
+  -- Capture-only panel. Torso fitting, publishing, price and org assignment
+  -- are managed after capture in /clothingstore.
+  openClothShop("ADMIN PANEL", { "torso", "tshirt", "pants", "shoes", "hat", "glasses", "earrings", "chains", "bags", "watches", "bracelets" }, "clothes", nil, true)
+end)
+
+-- Build 2.19: org clothing locker. Opened only through the server /orgcloset
+-- command after the player's job was verified against Config.OrgShops. Uses the
+-- normal store UI on the org's own shop key, so only rows published to
+-- 'org_<job>' in /clothingstore appear here.
+RegisterNetEvent('nvCloth:client:openOrgShop', function(job, label)
+  job = tostring(job or ''):lower()
+  if job == '' then return end
+  openClothShop(tostring(label or (job:upper() .. ' Locker')),
+    { "hat", "torso", "arms", "tshirt", "pants", "shoes", "glasses", "chains", "bags", "watches", "bracelets", "earrings" },
+    'org_' .. job, nil, false)
 end)
 
 -- Armor-only admin used by cm-gunstore. Locks the panel to the vest category and
@@ -484,66 +640,71 @@ RegisterNetEvent('nvCloth:client:favourites', function(keys)
 end)
 
 
+-- Build 2.20: /clothingadmin switches the actual freemode ped, not just a UI
+-- filter. Native drawable/texture counts, previews, captures and saved torso
+-- fits therefore all belong to the selected gender.
+RegisterNUICallback('adminSetGender', function(data, cb)
+  if not opened or not isAdminShop then
+    cb({ success = false, error = 'not_admin_mode' })
+    return
+  end
 
-RegisterNUICallback("adminToggleItem", function(data, cb)
+  local gender = tostring(data and data.gender or 'male'):lower() == 'female' and 'female' or 'male'
+  local targetModel = gender == 'female' and GetHashKey('mp_f_freemode_01') or GetHashKey('mp_m_freemode_01')
+  if GetEntityModel(PlayerPedId()) == targetModel then
+    cb({ success = true, gender = gender, counts = computeCounts() })
+    return
+  end
+
+  if StopClothingAdminStudio then StopClothingAdminStudio() end
+  if SetShopCameraFixedMode then SetShopCameraFixedMode(false) end
+  DestroySkinCam()
+  RenderScriptCams(false, false, 0, true, true)
+  setShopPlayerLocked(false)
+
+  if not requestPlayerModel(targetModel) then
+    if StartClothingAdminStudio then StartClothingAdminStudio() end
+    setShopPlayerLocked(true)
+    if SetShopCameraFixedMode then SetShopCameraFixedMode(true) end
+    CreateSkinCam('body')
+    cb({ success = false, error = 'model_load_failed' })
+    return
+  end
+
+  SetPlayerModel(PlayerId(), targetModel)
+  SetModelAsNoLongerNeeded(targetModel)
   local ped = PlayerPedId()
-  local category = tostring(data.category or data.type or ''):lower()
-  local cat = categories[category]
-  if not cat then
-    cb({ success = false, error = 'invalid_category' })
-    return
+  SetPedDefaultComponentVariation(ped)
+  ClearAllPedProps(ped)
+
+  local room = Config.AdminStudio and Config.AdminStudio.StudioCoords
+  if room then
+    SetEntityCoordsNoOffset(ped, room.x, room.y, room.z, false, false, false)
+    if room.w then SetEntityHeading(ped, room.w) end
   end
+  ClearPedTasksImmediately(ped)
+  FreezeEntityPosition(ped, true)
+  SetEntityInvincible(ped, true)
+  SetPedCanRagdoll(ped, false)
 
-  local drawable = tonumber(data.drawableId or data.drawable)
-  local texture = -1 -- admin toggles the whole drawable; all textures come with it
-  if not drawable then
-    cb({ success = false, error = 'invalid_drawable' })
-    return
-  end
+  -- This snapshot is only the clean temporary model used by category reset.
+  -- adminOriginalAppearance remains untouched until the whole panel closes.
+  saveClothes = {}
+  snapshotCurrentClothes()
+  if StartClothingAdminStudio then StartClothingAdminStudio() end
+  setShopPlayerLocked(true)
+  if SetShopCameraFixedMode then SetShopCameraFixedMode(true) end
+  CreateSkinCam('body')
 
-  local gender = GetEntityModel(ped) == GetHashKey('mp_f_freemode_01') and 'female' or 'male'
-  local enabled = data.enabled == true or data.enabled == 1
-
-  local payload = {
-    shop = currentShopKey or 'clothes',
-    gender = gender,
-    category = category,
-    componentType = cat.type,
-    componentIndex = cat.index,
-    drawableId = drawable,
-    textureId = -1, -- store one row for this drawable; all textures are included
-    label = data.label,
-    price = data.price,
-    enabled = enabled,
-  }
-
-  -- For torso, admin can select jacket, then select matching arms/t-shirt,
-  -- and press the admin button. We save current component 3 + 8 as the fit.
-  if category == 'torso' then
-    payload.arms = GetPedDrawableVariation(ped, 3)
-    payload.armsTexture = GetPedTextureVariation(ped, 3)
-    payload.undershirt = GetPedDrawableVariation(ped, 8)
-    payload.undershirtTexture = GetPedTextureVariation(ped, 8)
-  end
-
-  -- Bags need their capacity level saved into catalog metadata.
-  -- The NUI admin panel sends this when capturing icons, but the direct
-  -- SAVE CURRENT TEXTURE/adminToggle path also needs to forward it.
-  if category == 'bags' then
-    local level = tonumber(data.bagLevel or data.bag_level or data.level) or 1
-    level = math.max(1, math.min(4, math.floor(level)))
-    payload.bagLevel = level
-    payload.bag_level = level
-    payload.level = level
-  end
-
-  TriggerServerEvent('nvCloth:server:adminToggleItem', payload)
-
-  cb({ success = true })
+  local counts = computeCounts()
+  SendNUIMessage({ type = 'clothingCounts', counts = counts })
+  cb({ success = true, gender = gender, counts = counts })
+  -- Let the NUI reset its old-gender rows before the fresh catalog arrives.
+  CreateThread(function()
+    Wait(50)
+    TriggerServerEvent('nvCloth:server:getCachedShopCatalog', GetGameTimer(), currentShopKey or 'clothes', gender, true)
+  end)
 end)
-
-
-
 
 RegisterNUICallback("adminBulkToggleItems", function(data, cb)
   data = type(data) == 'table' and data or {}

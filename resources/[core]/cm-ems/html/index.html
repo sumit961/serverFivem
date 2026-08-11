@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-dashboard.css">
+  <link rel="stylesheet" href="app.css?v=5002">
+  <link rel="stylesheet" href="ranks.css?v=1202">
+  <link rel="stylesheet" href="ems-cyan.css?v=131">
+  <link rel="stylesheet" href="fleet.css?v=170">
+  <link rel="stylesheet" href="outfits.css?v=100">
+  <link rel="stylesheet" href="wardrobe.css?v=560">
+  <link rel="stylesheet" href="dispatch.css?v=5000">
+  <link rel="stylesheet" href="theme-v130.css?v=132">
+</head>
+<body>
+  <section class="npc-dialogue" id="npcDialogue" hidden>
+    <div class="npc-dialogue__identity">
+      <small id="npcDialogueRole">CM MEDICAL</small>
+      <h1 id="npcDialogueName">Medical Staff</h1>
+    </div>
+    <div class="npc-dialogue__choices">
+      <div class="npc-dialogue__quote"><p id="npcDialogueQuote"></p><span id="npcDialogueSignature"></span></div>
+      <button class="npc-dialogue__option npc-dialogue__option--primary" id="npcDialogueContinue">Continue</button>
+      <button class="npc-dialogue__option" id="npcDialogueClose">I’m not interested right now</button>
+    </div>
+  </section>
+  <main id="app" hidden>
+    <section class="shell">
+      <aside class="side">
+        <div class="brand"><div class="logo">+</div><div><small>CM MEDICAL</small><h1>EMS</h1><p id="memberRank">Organization</p></div></div>
+        <nav>
+          <button class="nav active" data-page="overview"><b>01</b><span>Overview<small>Duty and status</small></span></button>
+          <button class="nav" data-page="members"><b>02</b><span>Members<small>Roster and ranks</small></span></button>
+          <button class="nav" data-page="ranks"><b>03</b><span>Ranks & access<small>Manage permissions</small></span></button>
+          <button class="nav" data-page="outfits"><b>04</b><span>Duty outfits<small>Clothing wardrobe</small></span></button>
+          <button class="nav fleet-only" data-page="fleet"><b>05</b><span>Fleet vehicles<small>Ambulances and more</small></span></button>
+          <button class="nav logs-only" data-page="logs"><b>06</b><span>Activity logs<small>Organization history</small></span></button>
+          <button class="nav admin-only" data-page="admin"><b>07</b><span>Administration<small>Assign EMS leader</small></span></button>
+          <button class="nav medical-only" data-page="medical"><b>08</b><span>Medical records<small>Reports and history</small></span></button>
+          <button class="nav tasks-only" data-page="tasks"><b>09</b><span>Employee tasks<small>Daily and weekly rewards</small></span></button>
+          <button class="nav history-only" data-page="callhistory"><b>10</b><span>Call history<small>Responses and outcomes</small></span></button>
+        </nav>
+        <footer><kbd>ESC</kbd> Close menu</footer>
+      </aside>
+      <div class="workspace">
+        <header><div><small>EMS ORGANIZATION</small><h2 id="pageTitle">Medical operations</h2></div><button id="close">&times;</button></header>
+        <div class="content">
+          <section class="page active" data-view="overview">
+            <div class="hero"><small>EMERGENCY MEDICAL SERVICES</small><h2>Medical operations</h2><p>Review duty coverage, organization staffing, records, tasks, and operational performance.</p></div>
+            <div class="stats" id="stats"></div>
+            <div class="stats" id="medicStats"></div>
+            <article class="card duty"><div><small>CURRENT STATUS</small><h3 id="dutyTitle">Duty clothing required</h3><p id="dutyText">Visit the EMS wardrobe NPC to choose an approved uniform and begin duty.</p></div></article>
+            <article class="card operations"><div><small>EMS CONTROL</small><h3>Field coordination</h3><p>Live member map and meeting point. Fleet and service-NPC actions stay at their configured NPCs.</p></div><div class="operation-actions"><button class="primary" id="memberMap">Toggle member map</button><button class="primary" id="meetingPoint">Set meeting point</button></div><p id="dailyMissionNpcStatus" hidden></p></article>
+          </section>
+          <section class="page" data-view="members"><div class="section-head"><div><small>ORGANIZATION ROSTER</small><h3>EMS members</h3></div></div><div class="list" id="members"></div></section>
+          <section class="page" data-view="ranks">
+            <div class="section-head"><div><small>ORGANIZATION STRUCTURE</small><h3>Ranks and permissions</h3></div><button class="primary" id="newRank">Add rank</button></div>
+            <article class="card rank-editor" id="rankEditor" hidden>
+              <div class="rank-fields"><label>Rank name<input id="rankName" maxlength="32" placeholder="Example: Senior Paramedic"></label><label>Tier<input id="rankTier" type="number" min="1" max="99" placeholder="50"></label></div>
+              <div><small>RANK PERMISSIONS</small><div class="permission-editor" id="permissionEditor"></div></div>
+              <div class="editor-actions"><button class="mini" id="cancelRank">Cancel</button><button class="primary" id="saveRank">Save rank</button></div>
+            </article>
+            <div class="rank-grid" id="ranks"></div>
+          </section>
+          <section class="page" data-view="outfits">
+            <div class="section-head"><div><small>EMS UNIFORM MANAGEMENT</small><h3>Approved duty clothing</h3><p>Manage saved uniform slots here. Trying on or wearing duty clothing only happens in person at the wardrobe NPC.</p><p id="clothingNpcStatus"></p></div><button class="primary admin-only" id="setClothingNpc">Set wardrobe NPC (stand here)</button></div>
+            <article class="card form"><label>Favorite name<input id="favoriteOutfitName" maxlength="32" placeholder="Example: Response uniform"></label><label>Slot<select id="favoriteOutfitSlot"><option value="1">Slot 1</option><option value="2">Slot 2</option><option value="3">Slot 3</option><option value="4">Slot 4</option><option value="5">Slot 5</option></select></label><button class="primary" id="saveFavoriteOutfit">Save current clothing</button></article>
+            <div class="list" id="favoriteOutfitList"></div>
+            <article class="card admin-only"><div><small>ADMIN CATALOG</small><h3>Select available EMS clothing</h3><p>Open the clothing catalogue editor using the EMS shop collection.</p></div><button class="primary" id="openEmsClothingAdmin">Manage EMS clothing</button></article>
+          </section>
+          <section class="page fleet-only" data-view="fleet">
+            <div class="section-head"><div><small>EMS FLEET</small><h3>Persistent fleet vehicles</h3><p>Set location records your current position without spawning a placement car. Every configured ambulance keeps one permanent vehicle ID.</p></div><button class="primary danger" id="recallFleet">Recall all fleet vehicles</button></div>
+            <div class="list" id="fleetList"></div>
+          </section>
+          <section class="page logs-only" data-view="logs"><div class="section-head"><div><small>ACCOUNTABILITY</small><h3>EMS activity logs</h3><p>Visible only to ranks with the View activity logs permission.</p></div></div><div class="logs" id="logs"></div></section>
+          <section class="page admin-only" data-view="admin">
+            <div class="section-head"><div><small>ADMIN AUTHORITY</small><h3>EMS management</h3><p>Leadership, staffing, hospital billing, rewards, and automatic dispatch.</p></div></div>
+            <article class="card form"><label>Leader character ID<input id="leaderCid" inputmode="numeric" placeholder="Character ID"></label><button class="primary danger" id="assignLeader">Assign leader</button></article>
+            <article class="card admin-panel"><h3>Staffing</h3><div class="admin-grid"><label>Character ID<input id="staffCid" inputmode="numeric"></label><label>Starting rank<select id="staffRank"></select></label><label>Suspension minutes<input id="staffMinutes" type="number" min="5" max="43200" value="60"></label><label>Reason<input id="staffReason" maxlength="160" placeholder="Administrative suspension"></label></div><div class="operation-actions"><button class="mini" data-staff-action="hire">Hire</button><button class="mini danger" data-staff-action="fire">Fire</button><button class="mini danger" data-staff-action="suspend">Suspend</button><button class="mini" data-staff-action="reinstate">Reinstate</button></div></article>
+            <article class="card admin-panel"><h3>Operations settings</h3><div class="admin-grid"><label>Check-in price<input id="settingTreatment" type="number" min="0"></label><label>Death respawn bill<input id="settingRespawn" type="number" min="0"></label><label>Medic reward<input id="settingReward" type="number" min="0"></label><label>AI arrival delay (seconds)<input id="settingArrival" type="number" min="15" max="600"></label><label>Shared AI radius (metres)<input id="settingRadius" type="number" min="10" max="150"></label><label class="check-field"><input id="settingHospital" type="checkbox"> Hospital enabled</label><label class="check-field"><input id="settingAutoDispatch" type="checkbox"> Automatic AI dispatch</label></div><button class="primary" id="saveSettings">Save settings</button></article>
+            <article class="card admin-panel mission-studio">
+              <div class="section-head"><div><small>MISSION STUDIO</small><h3>Create EMS missions</h3><p>Choose Place in world, move to the route point, then press E. Saved missions appear immediately on the employee board.</p></div><button class="primary" id="newAdminMission">New mission</button></div>
+              <div class="mission-admin-list" id="missionAdminList"></div>
+              <div class="mission-editor" id="missionEditor" hidden>
+                <div class="admin-grid">
+                  <label>Mission name<input id="missionEditLabel" maxlength="64" placeholder="Example: Highway pile-up"></label>
+                  <label>Category<input id="missionEditCategory" maxlength="32" placeholder="LAND RESCUE"></label>
+                  <label class="wide-field">Description<input id="missionEditDescription" maxlength="255" placeholder="Describe what the EMS crew must do."></label>
+                  <label>Reward<input id="missionEditReward" type="number" min="0" max="100000" value="1000"></label>
+                  <label>EMS XP<input id="missionEditXp" type="number" min="0" max="10000" value="50"></label>
+                  <label>Time limit (seconds, 0 = none)<input id="missionEditTime" type="number" min="0" max="7200" value="0"></label>
+                  <label class="check-field"><input id="missionEditPatient" type="checkbox" checked> Spawn patient NPC</label>
+                  <label class="check-field"><input id="missionEditAutomatic" type="checkbox"> Use for automatic NPC emergencies</label>
+                  <label class="check-field"><input id="missionEditEnabled" type="checkbox" checked> Mission enabled</label>
+                </div>
+                <div class="mission-stage-head"><div><small>ROUTE BUILDER</small><h4>Mission stages</h4></div><button class="mini" id="addMissionStage">Add stage</button></div>
+                <div class="mission-stage-list" id="missionStageList"></div>
+                <div class="editor-actions"><button class="mini" id="cancelMissionEdit">Cancel</button><button class="primary" id="saveAdminMission">Save mission</button></div>
+              </div>
+            </article>
+          </section>
+          <section class="page medical-only" data-view="medical">
+            <div class="section-head"><div><small>PATIENT CARE</small><h3>Medical reports and history</h3><p>Permanent treatment history linked to character ID.</p></div></div>
+            <article class="card form"><label>Patient character ID<input id="medicalSearchCid" inputmode="numeric"></label><button class="primary" id="medicalSearch">Search history</button></article>
+            <div class="logs medical-history" id="medicalHistory"></div>
+            <article class="card report-form" id="reportForm"><h3>New medical report</h3><div class="admin-grid"><label>Patient CID<input id="reportPatientCid" inputmode="numeric"></label><label>Incident ID<input id="reportIncidentId" inputmode="numeric"></label><label>Injuries<input id="reportInjuries" maxlength="500"></label><label>Medications (comma separated)<input id="reportMedications" maxlength="500"></label><label>Treatment<input id="reportTreatment" maxlength="2000"></label><label>Outcome<input id="reportOutcome" maxlength="48" value="treated"></label><label>Billing<input id="reportBilling" type="number" min="0" value="0"></label></div><button class="primary" id="saveMedicalReport">Save report</button></article>
+          </section>
+          <section class="page tasks-only" data-view="tasks">
+            <div class="section-head"><div><small>EMPLOYEE ENGAGEMENT</small><h3>Daily and weekly tasks</h3><p>Complete real EMS work while on duty, then claim each bank reward.</p></div><button class="primary" id="refreshTasks">Refresh</button></div>
+            <article class="career-card" id="careerProgress"></article>
+            <div class="task-period"><div class="task-period__head"><div><small>DAILY OBJECTIVES</small><h3>Today</h3></div><span>Resets at server midnight</span></div><div class="task-grid" id="dailyTasks"></div></div>
+            <div class="task-period"><div class="task-period__head"><div><small>WEEKLY OBJECTIVES</small><h3>This week</h3></div><span>Resets every Monday</span></div><div class="task-grid" id="weeklyTasks"></div></div>
+            <div class="mission-section"><div class="section-head"><div><small>SELECTABLE EMS WORK</small><h3>Mission board</h3><p>Accept a public emergency, join a nearby EMS crew, or start a scheduled task.</p></div><button class="mini" id="refreshMissions">Refresh missions</button></div><div id="activeMissionCard"></div><div id="publicEmergencySection"></div><div id="openCrewSection"></div><h3 class="mission-subtitle">Scheduled EMS tasks</h3><div class="mission-grid" id="missionBoard"></div></div>
+          </section>
+          <section class="page history-only" data-view="callhistory">
+            <div class="section-head"><div><small>EMS OPERATIONS</small><h3>Call history</h3><p>Responders, arrival status, outcomes and the complete incident timeline.</p></div><button class="primary" id="refreshCallHistory">Refresh</button></div>
+            <div class="ems-history-list" id="emsCallHistory"></div>
+          </section>
+        </div>
+      </div>
+    </section>
+  </main>
+  <div id="wardrobeRoom" class="wardrobe-room" hidden>
+    <aside class="wardrobe-sidebar"><div class="wardrobe-sidebar-head"><small>CLOTHING</small><h2>EMS Wardrobe</h2></div><nav id="wardrobeCategoryList" class="wardrobe-category-list"></nav></aside>
+    <div class="wardrobe-viewport" id="wardrobeViewport"><div class="wardrobe-hint">Drag to rotate</div></div>
+    <div class="wardrobe-controls"><div class="wardrobe-title"><small>SELECT CLOTHING</small><h2>Build your uniform</h2></div><div class="wardrobe-control-group"><span>Option</span><div class="wardrobe-arrow-row"><button class="wardrobe-arrow" id="wardrobeOptionPrev">&lsaquo;</button><span id="wardrobeOptionLabel">--</span><button class="wardrobe-arrow" id="wardrobeOptionNext">&rsaquo;</button></div></div><div class="wardrobe-control-group"><span>Color</span><div class="wardrobe-arrow-row"><button class="wardrobe-arrow" id="wardrobeColorPrev">&lsaquo;</button><span id="wardrobeColorLabel">--</span><button class="wardrobe-arrow" id="wardrobeColorNext">&rsaquo;</button></div></div><button class="primary wardrobe-done" id="wardrobeDone">Done</button></div>
+  </div>
+  <aside id="dispatchOverlay" class="dispatch-overlay" aria-live="polite"></aside>
+  <section id="dispatchBoard" class="dispatch-board" hidden>
+    <div class="dispatch-board__shade"></div>
+    <div class="dispatch-board__layout">
+      <aside class="dispatch-board__summary">
+        <div class="dispatch-board__eyebrow">CM MEDICAL</div>
+        <h2>EMERGENCY<br>CALLS</h2>
+        <p>Live ambulance requests available to authorized on-duty EMS members.</p>
+        <div class="dispatch-board__counts">
+            <button class="active" data-dispatch-filter="active"><span>ACTIVE CALLS</span><strong id="dispatchActiveCount">0</strong></button>
+          <button data-dispatch-filter="assigned"><span>ASSIGNED</span><strong id="dispatchAssignedCount">0</strong></button>
+        </div>
+        <div class="dispatch-board__medical-mark"><span>+</span><b>EMS<br>DISPATCH</b></div>
+      </aside>
+      <main class="dispatch-board__main">
+        <header class="dispatch-board__header">
+          <div><small>LIVE OPERATIONS</small><h3>Ambulance requests</h3></div>
+          <div class="dispatch-board__header-actions"><button id="dispatchRefresh">Refresh</button><button id="dispatchClose">Close <kbd>ESC</kbd></button></div>
+        </header>
+        <div class="dispatch-board__columns"><span>CALLER / LOCATION</span><span>STATUS</span><span>DISTANCE</span><span>ACTION</span><span></span></div>
+        <div id="dispatchBoardRows" class="dispatch-board__rows"></div>
+      </main>
+    </div>
+  </section>
+  <script src="app.js?v=5002"></script>
+</body>
+</html>

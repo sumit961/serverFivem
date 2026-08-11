@@ -212,6 +212,53 @@ local function getGroupValue(src, groupName)
         return family and tostring(family.id) or nil
     end
 
+    -- EMS radio access is always rebuilt from cm-ems's authoritative
+    -- membership. Never accept a client/manual group assignment for it.
+    if groupName == 'ems' then
+        if GetResourceState('cm-ems') ~= 'started' then return nil end
+        local active = ActiveCharacters[src]
+        local characterId = active and active.id or extractCharacterIdFromAny(
+            readStateValue(src, { 'characterId', 'charId', 'charid', 'char_id', 'currentCharacterId' }))
+        if not characterId then return nil end
+        local ok, membership = pcall(function()
+            return exports['cm-ems']:GetMember(tostring(characterId))
+        end)
+        if not ok or type(membership) ~= 'table' or membership.suspended == true then return nil end
+        return 'ems'
+    end
+
+    -- Police channels are a separate authoritative organization group. A
+    -- client/manual SetPlayerChatGroup call cannot grant Police chat access.
+    if groupName == 'police' then
+        if GetResourceState('cm-police') ~= 'started' then return nil end
+        local active = ActiveCharacters[src]
+        local characterId = active and active.id or extractCharacterIdFromAny(
+            readStateValue(src, { 'characterId', 'charId', 'charid', 'char_id', 'currentCharacterId' }))
+        if not characterId then return nil end
+        local ok, membership = pcall(function()
+            return exports['cm-police']:GetMember(tostring(characterId))
+        end)
+        if not ok or type(membership) ~= 'table' or membership.suspended == true then return nil end
+        return 'police'
+    end
+
+    -- cm-law channels are authoritative per organization and capability.
+    -- Manual group events/state bags cannot grant access to these groups.
+    local legalOrgId, legalKind = groupName:match('^legal_([a-z0-9_%-]+)_(radio)$')
+    if not legalOrgId then legalOrgId, legalKind = groupName:match('^legal_([a-z0-9_%-]+)_(chat)$') end
+    if legalOrgId then
+        if GetResourceState('cm-law') ~= 'started' then return nil end
+        local active = ActiveCharacters[src]
+        local characterId = active and active.id or extractCharacterIdFromAny(
+            readStateValue(src, { 'characterId', 'charId', 'charid', 'char_id', 'currentCharacterId' }))
+        if not characterId then return nil end
+        local ok, membership = pcall(function() return exports['cm-law']:GetMember(tostring(characterId), legalOrgId) end)
+        if not ok or type(membership) ~= 'table' or membership.suspended == true then return nil end
+        local permission = legalKind == 'radio' and 'law.radio' or 'law.chat'
+        if membership.isLeader ~= true and (type(membership.permissions) ~= 'table' or membership.permissions[permission] ~= true) then return nil end
+        return legalOrgId
+    end
+
     local manual = PlayerGroups[src] and PlayerGroups[src][groupName]
     if type(manual) == 'table' and manual.value then return manual.value end
     if manual and type(manual) ~= 'table' then return manual end
@@ -286,6 +333,11 @@ local function registerChannel(id, label, options)
         color = cleanColor(options.color, '#31e6ff'),
         format = options.format or 'rp'
     }
+    if options.appendOrder == true then
+        local exists = false
+        for _, current in ipairs(Config.ChannelOrder or {}) do if current == id then exists = true break end end
+        if not exists then Config.ChannelOrder[#Config.ChannelOrder + 1] = id end
+    end
     return true
 end
 
@@ -644,6 +696,16 @@ local function sendPlayerMessage(src, channelId, text, formatOverride)
     end)
 end
 
+-- Server-only integration used by organization resources for command aliases.
+-- sendPlayerMessage still performs the same cooldown, blocked-word, character,
+-- channel-membership, recipient, and database-log checks as the NUI path.
+exports('SendPlayerChatMessage', function(src, channelId, text, formatOverride)
+    src, channelId = tonumber(src), tostring(channelId or ''):lower()
+    if not src or not Config.Channels[channelId] then return false end
+    sendPlayerMessage(src, channelId, text, formatOverride)
+    return true
+end)
+
 -- Internal server-only integration from cm-family. This event is intentionally
 -- not registered as a network event, so clients cannot forge family messages.
 AddEventHandler('cm-chat:server:familyMessage', function(data, suppliedRecipients)
@@ -744,6 +806,26 @@ end, false)
 RegisterCommand('ooc', function(src, args)
     if src <= 0 then return end
     sendPlayerMessage(src, 'nonrp', table.concat(args or {}, ' '), 'nonrp')
+end, false)
+
+RegisterCommand('emsrp', function(src, args)
+    if src <= 0 then return end
+    sendPlayerMessage(src, 'ems_rp', table.concat(args or {}, ' '), 'ems_rp')
+end, false)
+
+RegisterCommand('emsnrp', function(src, args)
+    if src <= 0 then return end
+    sendPlayerMessage(src, 'ems_nonrp', table.concat(args or {}, ' '), 'ems_nonrp')
+end, false)
+
+RegisterCommand('policerp', function(src, args)
+    if src <= 0 then return end
+    sendPlayerMessage(src, 'police_rp', table.concat(args or {}, ' '), 'police_rp')
+end, false)
+
+RegisterCommand('policenrp', function(src, args)
+    if src <= 0 then return end
+    sendPlayerMessage(src, 'police_nonrp', table.concat(args or {}, ' '), 'police_nonrp')
 end, false)
 
 RegisterCommand('b', function(src, args)

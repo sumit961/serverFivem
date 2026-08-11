@@ -761,6 +761,13 @@ local function buildMetadata(src, row)
         meta.weaponName = row.item_name; meta.ammoType = row.ammo_item; meta.ammoItem = row.ammo_item
         meta.damage = row.damage; meta.magazineSize = row.magazine_size
         meta.serial = makeSerial(src)
+        -- Firearms license number (cm-police, Phase 4), same as the serial
+        -- right above -- nil if unlicensed (shouldn't normally happen since
+        -- processPurchase already blocked this weapon's purchase, but stays
+        -- pcall-guarded like every cross-resource call to cm-police here).
+        local licenseNumber = nil
+        pcall(function() licenseNumber = exports['cm-police']:GetLicenseNumber(src, 'firearms') end)
+        meta.licenseNumber = licenseNumber
         meta.durability = weapon and (weapon.durability or 100) or 100
         meta.stack = false
     end
@@ -817,7 +824,27 @@ RegisterNetEvent('cm-gunstore:server:requestCatalog', function(mode)
         notify(src, 'You do not have permission to manage gun store catalog.', 'error')
         return
     end
+    -- Heads-up the moment the catalog opens, not just at the final buy step
+    -- (Phase 4). Non-blocking -- the catalog still opens either way; ammo
+    -- and armor stay fully purchasable, only weapon purchases are actually
+    -- blocked (processPurchase's own gate above, unchanged).
+    if not admin then
+        local licensed = true
+        pcall(function() licensed = exports['cm-police']:HasValidLicense(src, 'firearms') end)
+        if licensed == false then
+            notify(src, 'You do not have a valid firearms license -- ask the vendor about buying one before purchasing a weapon.', 'warning')
+        end
+    end
     TriggerClientEvent('cm-gunstore:client:openCatalog', src, mode, getCatalog(admin))
+end)
+
+-- Self-service firearms license purchase (Phase 4), triggered from the NPC
+-- dialog's "Buy a firearms license" option (client/main.lua's dialogBuyLicense).
+RegisterNetEvent('cm-gunstore:server:buyLicense', function()
+    local src = source
+    local ok, message = false, 'The license office is unavailable right now.'
+    pcall(function() ok, message = exports['cm-police']:PurchaseLicense(src, 'firearms') end)
+    notify(src, message, ok and 'success' or 'error')
 end)
 
 -- NEW: player asks for the ammo linked to a weapon they selected in the store.
@@ -1061,6 +1088,20 @@ local function processPurchase(src, data)
         notify(src, ('%s has no valid weapon/ammo snapshot. Add it from /cmweaponadmin, then set it in store again from /gunadmin.'):format(row.label or itemName), 'error')
         TriggerClientEvent('cm-gunstore:client:purchaseResult', src, false)
         return
+    end
+
+    -- Firearms license check (cm-police). Weapons only -- ammo/armor are
+    -- untouched. pcall-guarded so a stopped/missing cm-police degrades to
+    -- "allow" rather than erroring the whole purchase flow, same defensive
+    -- shape every cross-resource export call in this codebase already uses.
+    if row.item_type == 'weapon' then
+        local licensed = true
+        pcall(function() licensed = exports['cm-police']:HasValidLicense(src, 'firearms') end)
+        if licensed == false then
+            notify(src, 'You need a valid firearms license to purchase this.', 'error')
+            TriggerClientEvent('cm-gunstore:client:purchaseResult', src, false)
+            return
+        end
     end
 
     -- Quantity is only meaningful for ammo; weapons are always 1.

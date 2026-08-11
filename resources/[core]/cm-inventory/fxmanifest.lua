@@ -3,8 +3,8 @@ game 'gta5'
 lua54 'yes'
 
 author 'CM Development'
-description 'CM Inventory v4.3.2 - unconscious/death and trunk access fixes'
-version '4.3.2'
+description 'CM Inventory v4.3.3 - medikit item alias and treatment support'
+version '4.3.3'
 
 dependencies {
     'oxmysql',

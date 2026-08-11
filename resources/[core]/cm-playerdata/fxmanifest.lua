@@ -4,7 +4,7 @@ lua54 'yes'
 
 description 'CM Player Data: character ID, cash/bank owner, vitals, death, identity labels and interactions'
 author 'CM Framework'
-version '1.9.18-mandatory-family-symbols'
+version '1.14.0-treatment-feedback'
 
 shared_scripts {
     'config.lua'

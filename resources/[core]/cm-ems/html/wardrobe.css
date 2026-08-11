@@ -1,0 +1,9 @@
+.wardrobe-room{position:fixed;inset:0;z-index:20;display:flex;font-family:var(--cm-font,"DM Sans",sans-serif)}
+.wardrobe-room[hidden]{display:none!important}.wardrobe-sidebar{width:260px;padding:28px 18px;background:rgba(10,20,28,.92);border-right:1px solid rgba(69,224,255,.18);overflow-y:auto}
+.wardrobe-sidebar-head small,.wardrobe-title small{color:#45e0ff;letter-spacing:.12em;font-size:11px}.wardrobe-sidebar-head h2,.wardrobe-title h2{margin:4px 0 18px;color:#f4fbff}
+.wardrobe-category-list{display:flex;flex-direction:column;gap:6px}.wardrobe-category-item{padding:12px 14px;border-radius:10px;color:#b8cad2;background:transparent;border:1px solid transparent;text-align:left}
+.wardrobe-category-item:hover{background:rgba(69,224,255,.07)}.wardrobe-category-item.active{background:#122b35;border-color:rgba(69,224,255,.4);color:#45e0ff}
+.wardrobe-viewport{flex:1;position:relative;cursor:grab}.wardrobe-hint{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);padding:8px 18px;border-radius:999px;background:rgba(10,20,28,.7);color:#a9bec7}
+.wardrobe-controls{width:320px;padding:28px 22px;background:rgba(10,20,28,.92);border-left:1px solid rgba(69,224,255,.18);display:flex;flex-direction:column;gap:22px}
+.wardrobe-control-group>span{display:block;margin-bottom:8px;color:#9ab0ba;font-size:11px;letter-spacing:.1em}.wardrobe-arrow-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:12px;background:#10232b;border:1px solid rgba(69,224,255,.15)}
+.wardrobe-arrow-row span{flex:1;text-align:center;color:#f4fbff}.wardrobe-arrow{width:32px;height:32px;border-radius:50%;border:1px solid rgba(69,224,255,.4);background:rgba(69,224,255,.08);color:#45e0ff}.wardrobe-done{margin-top:auto}

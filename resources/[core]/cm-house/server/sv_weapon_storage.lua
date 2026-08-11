@@ -82,12 +82,17 @@ local function stripWeaponIdentity(metadata)
     local out = decode(encode(metadata))
     if not STRIP_SERIAL then return out end
     stripSerialRecursive(out, 0)
+    -- cm-inventory normally assigns every weapon a serial on AddItem. Keep an
+    -- explicit server-owned marker so a weapon withdrawn from this locker
+    -- remains unregistered instead of receiving a replacement serial.
+    out.serialRequired = false
     out.serialRemovedByHouseStorage = true
     return out
 end
 
 local function normaliseName(value)
-    return tostring(value or ''):lower():gsub('^%s+', ''):gsub('%s+$', '')
+    local normalized = tostring(value or ''):lower():gsub('^%s+', ''):gsub('%s+$', '')
+    return normalized
 end
 
 local function inventorySuccess(result)
@@ -321,6 +326,14 @@ local function findEmptySlot(ownerId)
     return nil
 end
 
+local function findStackRow(ownerId, itemName)
+    return MySQL.single.await([[
+        SELECT id, slot FROM inventory_items
+        WHERE owner_type = ? AND owner_id = ? AND LOWER(item_name) = ?
+        ORDER BY id LIMIT 1
+    ]], { OWNER_TYPE, ownerId, normaliseName(itemName) })
+end
+
 local function inventoryRemove(src, itemName, amount, metadata, itemType)
     if GetResourceState(INV) ~= 'started' then return false, 'Inventory is not running.' end
     local inv = exports[INV]
@@ -366,16 +379,14 @@ local function inventoryAdd(src, itemName, amount, metadata)
 end
 
 local function addLockerItem(ownerId, row, amount, def)
-    if def.itemType == 'ammo' then
-        local existing = MySQL.single.await([[
-            SELECT id, slot FROM inventory_items
-            WHERE owner_type = ? AND owner_id = ? AND LOWER(item_name) = ?
-            ORDER BY id LIMIT 1
-        ]], { OWNER_TYPE, ownerId, normaliseName(row.item_name) })
-        if existing then
-            local changed = MySQL.update.await('UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?', { amount, existing.id })
-            return changed and changed > 0
-        end
+    local existing = findStackRow(ownerId, row.item_name)
+    if existing then
+        local changed = MySQL.update.await([[
+            UPDATE inventory_items SET quantity = quantity + ?
+            WHERE id = ? AND owner_type = ? AND owner_id = ?
+        ]], { amount, existing.id, OWNER_TYPE, ownerId })
+        local updated = changed and changed > 0
+        return updated, updated and nil or 'The stored weapon stack changed. Refresh and try again.'
     end
     local slot = findEmptySlot(ownerId)
     if not slot then return false, 'Weapon storage is full.' end
@@ -444,8 +455,12 @@ lib.callback.register('cm-house:server:weaponStorageTransfer', function(src, hou
             end
             local available = math.max(1, tonumber(row.quantity) or 1)
             if def.itemType == 'weapon' then amount = 1 else amount = math.min(amount, available) end
-            local slot = def.itemType == 'ammo' and true or findEmptySlot(ctx.ownerId)
-            if not slot then return false, 'Weapon storage is full.' end
+            -- Existing weapon/ammo rows consume no new slot. This also permits
+            -- adding to a stack when every physical locker slot is occupied.
+            local hasStack = findStackRow(ctx.ownerId, row.item_name) ~= nil
+            if not hasStack and not findEmptySlot(ctx.ownerId) then
+                return false, 'Weapon storage is full.'
+            end
 
             local removed, removeWhy = inventoryRemove(src, normaliseName(row.item_name), amount, meta, def.itemType)
             if not removed then return false, removeWhy end
@@ -500,6 +515,14 @@ lib.callback.register('cm-house:server:weaponStorageTransfer', function(src, hou
         local available = math.max(1, tonumber(row.quantity) or 1)
         if def.itemType == 'weapon' then amount = 1 else amount = math.min(amount, available) end
 
+        -- Legacy locker rows may predate the startup serial cleanup or may have
+        -- been stored while an older cm-house version was running. Sanitize at
+        -- the authoritative withdrawal boundary as well, so every withdrawn
+        -- weapon is serial-free regardless of when it entered storage. Keep
+        -- row.metadata unchanged below so a failed inventory add restores the
+        -- exact original locker row.
+        local withdrawMeta = def.itemType == 'weapon' and stripWeaponIdentity(meta) or meta
+
         -- Reserve/remove from the locker first. If the inventory rejects the
         -- item, restore the exact locker row. This ordering prevents a failed
         -- database finalization from duplicating a gun in the player's bag.
@@ -519,7 +542,7 @@ lib.callback.register('cm-house:server:weaponStorageTransfer', function(src, hou
             return false, 'That locker item changed. Refresh the storage and try again.'
         end
 
-        local added, addWhy = inventoryAdd(src, normaliseName(row.item_name), amount, meta)
+        local added, addWhy = inventoryAdd(src, normaliseName(row.item_name), amount, withdrawMeta)
         if not added then
             local restored
             if amount >= available then
@@ -570,7 +593,8 @@ local function sanitizeExistingLockerSerials()
     for _, row in ipairs(rows) do
         local metadata = decode(row.metadata)
         local def = itemDefinition(row.item_name, metadata)
-        if def and def.itemType == 'weapon' and containsSerialRecursive(metadata, 0) then
+        if def and def.itemType == 'weapon'
+            and (containsSerialRecursive(metadata, 0) or metadata.serialRequired ~= false) then
             local before = encode(metadata)
             local cleaned = stripWeaponIdentity(metadata)
             local after = encode(cleaned)
@@ -666,7 +690,7 @@ end)
 
 exports('GetHouseWeaponStorageContract', function()
     return {
-        version = '1.2.0',
+        version = '1.3.0',
         authority = { access = 'cm-house', playerInventory = INV, catalog = WEAPONS, shopImages = GUNSTORE },
         ownerType = OWNER_TYPE,
         playerOwnerType = PLAYER_OWNER_TYPE,
@@ -712,7 +736,7 @@ end)
 exports('ListWeaponStorageRecovery', function(limit)
     limit = math.max(1, math.min(200, tonumber(limit) or 50))
     return MySQL.query.await(
-        'SELECT * FROM cm_house_weapon_recovery WHERE resolved = 0 ORDER BY created_at DESC LIMIT ?',
+        'SELECT * FROM cm_house_weapon_recovery ORDER BY created_at DESC LIMIT ?',
         { limit }) or {}
 end)
 
@@ -724,15 +748,48 @@ exports('RestoreWeaponStorageRecovery', function(recoveryId, targetSrc)
     targetSrc = tonumber(targetSrc)
     if not recoveryId or not targetSrc then return false, 'invalid_arguments' end
 
-    local row = MySQL.query.await(
-        'SELECT * FROM cm_house_weapon_recovery WHERE id = ? AND resolved = 0', { recoveryId })
-    row = row and row[1]
+    local row = MySQL.single.await(
+        'SELECT * FROM cm_house_weapon_recovery WHERE id = ? AND resolved = 0 LIMIT 1', { recoveryId })
     if not row then return false, 'No open recovery row with that id.' end
+
+    local targetCid = GetCid(targetSrc)
+    if not targetCid then return false, 'The selected character is not online.' end
+    if tostring(targetCid) ~= tostring(row.character_id or '') then
+        return false, 'The recovery row belongs to a different character.'
+    end
+
+    local token = ('weapon-recovery:%d:%d:%d'):format(recoveryId, targetCid, os.time())
+    local claimed = tonumber(MySQL.update.await([[
+        UPDATE cm_house_weapon_recovery
+        SET status = 'processing', processing_token = ?, processing_by = ?,
+            processing_started_at = NOW(), last_error = NULL
+        WHERE id = ? AND resolved = 0 AND status IN ('pending', 'failed')
+    ]], { token, targetCid, recoveryId })) or 0
+    if claimed ~= 1 then return false, 'That row is already resolved or being restored.' end
 
     local meta = decode(row.metadata) or {}
     local ok, why = inventoryAdd(targetSrc, normaliseName(row.item_name), tonumber(row.amount) or 1, meta)
-    if not ok then return false, why or 'Could not add the item to that player.' end
+    if not ok then
+        local reason = tostring(why or 'Could not add the item to that player.')
+        MySQL.update.await([[
+            UPDATE cm_house_weapon_recovery
+            SET status = 'failed', processing_token = NULL, processing_by = NULL,
+                processing_started_at = NULL, last_error = ?
+            WHERE id = ? AND processing_token = ?
+        ]], { reason:sub(1, 255), recoveryId, token })
+        return false, reason
+    end
 
-    MySQL.update.await('UPDATE cm_house_weapon_recovery SET resolved = 1 WHERE id = ?', { recoveryId })
-    return true
+    local marked = tonumber(MySQL.update.await([[
+        UPDATE cm_house_weapon_recovery
+        SET resolved = 1, status = 'resolved', restored_to_cid = ?, restored_to_src = ?,
+            resolved_at = NOW(), processing_token = NULL, last_error = NULL
+        WHERE id = ? AND processing_token = ? AND resolved = 0
+    ]], { tostring(targetCid), targetSrc, recoveryId, token })) or 0
+    if marked ~= 1 then
+        print(('[cm-house] ^1CRITICAL: weapon recovery %d restored to CID %s but could not be marked resolved.^7')
+            :format(recoveryId, tostring(targetCid)))
+        return true, 'Weapon restored; journal status requires administrator review.'
+    end
+    return true, 'Weapon restored to the online character.'
 end)

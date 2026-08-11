@@ -434,7 +434,26 @@ RegisterNetEvent('cm-house:client:restoreInterior', function(kind, res)
             vehicleExits = res.vehicleExits or (res.vehicleExit and { res.vehicleExit } or {}),
             capacity = res.capacity,
         }
-        TriggerEvent('cm-house:client:enterGarageState', res.houseId)
+
+        -- Every other path into a garage calls goTo() first, which blocks on
+        -- HasCollisionLoadedAroundEntity before anything else happens. This is
+        -- the one path that skips goTo() (the player is already there), so it
+        -- must wait for the same thing here -- otherwise this can ask the
+        -- server to spawn networked vehicles before the client's world has
+        -- actually streamed in on a fresh rejoin, and the engine culls them
+        -- mid-initialization ("entity deleted during initialization").
+        CreateThread(function()
+            local ped = PlayerPedId()
+            local deadline = GetGameTimer() + 8000
+            while (ped == 0 or not DoesEntityExist(ped) or not HasCollisionLoadedAroundEntity(ped))
+                  and GetGameTimer() < deadline do
+                Wait(100)
+                ped = PlayerPedId()
+            end
+            if In and In.houseId == res.houseId and In.kind == 'garage' then
+                TriggerEvent('cm-house:client:enterGarageState', res.houseId)
+            end
+        end)
     elseif kind == 'house' then
         In = {
             houseId   = res.houseId,

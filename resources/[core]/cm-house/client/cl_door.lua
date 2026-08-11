@@ -41,10 +41,119 @@ local function refreshBlip(h)
         or (h.forSale and Config.HouseBlip.colorForSale)
         or Config.HouseBlip.colorOther)
     BeginTextCommandSetBlipName('STRING')
-    AddTextComponentString(('%s  #%s'):format(h.label or 'House', h.houseNumber))
+    -- Keep one shared pause-map legend category. Numbered selection remains in
+    -- the property/admin menus instead of creating hundreds of legend rows.
+    AddTextComponentString('House')
     EndTextCommandSetBlipName(b)
     Blips[h.id] = b
 end
+
+-- ------------------------------------------------------------
+--  Helipad
+-- ------------------------------------------------------------
+local helipadBusy = false
+local MarkerTypeHelicopterSymbol = 34
+local VisibleHelipads = {}
+
+local function refreshVisibleHelipads()
+    local callbackOk, houseIds = pcall(lib.callback.await,
+        'cm-house:server:visibleHelipads', false)
+    local visible = {}
+    if callbackOk and type(houseIds) == 'table' then
+        for _, houseId in ipairs(houseIds) do
+            houseId = tonumber(houseId)
+            if houseId then visible[houseId] = true end
+        end
+    end
+    VisibleHelipads = visible
+end
+
+local function openHelipad(house)
+    if helipadBusy then return end
+    helipadBusy = true
+    local callbackOk, vehicles, why = pcall(lib.callback.await,
+        'cm-house:server:helipadVehicles', false, house.id)
+    helipadBusy = false
+    if not callbackOk then
+        return lib.notify({
+            description = 'The helipad service is still starting. Restart cm-house and try again.',
+            type = 'error',
+        })
+    end
+    if type(vehicles) ~= 'table' then
+        return lib.notify({ description = why or 'The helipad is unavailable.', type = 'error' })
+    end
+    if #vehicles == 0 then
+        return lib.notify({ description = 'No accessible helicopters were found.', type = 'inform' })
+    end
+
+    local options = {}
+    for _, vehicle in ipairs(vehicles) do
+        local vehicleId = tonumber(vehicle.id)
+        options[#options + 1] = {
+            title = tostring(vehicle.label or vehicle.model or 'Helicopter'),
+            description = ('%s%s'):format(tostring(vehicle.plate or ''), vehicle.family and ' · Family' or ''),
+            icon = 'helicopter',
+            onSelect = function()
+                local callbackWorked, ok, message = pcall(lib.callback.await,
+                    'cm-house:server:callHelicopter', false, house.id, vehicleId)
+                if not callbackWorked then
+                    return lib.notify({ description = 'The helipad service restarted. Try again.', type = 'error' })
+                end
+                lib.notify({ description = message or (ok and 'Helicopter called.' or 'Call failed.'),
+                    type = ok and 'success' or 'error' })
+            end,
+        }
+    end
+    lib.registerContext({
+        id = ('cm_house_helipad_%s'):format(house.id),
+        title = ('House #%s Helipad'):format(house.houseNumber or '?'),
+        options = options,
+    })
+    lib.showContext(('cm_house_helipad_%s'):format(house.id))
+end
+
+CreateThread(function()
+    while true do
+        local sleep = 750
+        local ped = PlayerPedId()
+        local coords = GetEntityCoords(ped)
+        local closest, closestDistance
+
+        for _, house in pairs(Houses) do
+            local pad = house.helipad
+            if pad and VisibleHelipads[tonumber(house.id)] then
+                local distance = #(coords - vector3(pad.x, pad.y, pad.z))
+                if distance <= 35.0 then
+                    sleep = 0
+                    DrawMarker(MarkerTypeHelicopterSymbol,
+                        pad.x, pad.y, pad.z + 0.15, 0.0, 0.0, 0.0,
+                        0.0, 0.0, pad.h or 0.0, 1.35, 1.35, 1.35, 60, 210, 255, 185,
+                        false, false, 2, false, nil, nil, false)
+                    if not closestDistance or distance < closestDistance then
+                        closest, closestDistance = house, distance
+                    end
+                end
+            end
+        end
+
+        if closest and closestDistance <= 3.0 and not menuOpen then
+            if CMHouseInteraction and CMHouseInteraction.Request then
+                CMHouseInteraction.Request(('house-helipad:%s'):format(closest.id),
+                    'Open helipad', nil, 60)
+            end
+            if IsControlJustReleased(0, Config.Prompt.key) then openHelipad(closest) end
+        end
+        Wait(sleep)
+    end
+end)
+
+CreateThread(function()
+    while true do
+        refreshVisibleHelipads()
+        Wait(15000)
+    end
+end)
 
 -- ------------------------------------------------------------
 --  3D text prompt
@@ -364,6 +473,7 @@ local function buildDoorNuiPayload(view, requestId)
             enter   = can.enter == true,
             garage  = can.garage == true,
             sell    = can.sell == true,
+            activity = can.activity == true,
             buy     = can.buy == true,
         },
     }
@@ -541,6 +651,34 @@ RegisterNUICallback('door:openGarage', function(d, cb)
     TriggerEvent('cm-house:client:openGarage', d.houseId)
 end)
 
+RegisterNUICallback('door:activity', function(d, cb)
+    local rows, reason = lib.callback.await('cm-house:server:getHouseActivity', false, d.houseId)
+    if type(rows) ~= 'table' then
+        lib.notify({ description = reason or 'Activity is unavailable.', type = 'error' })
+        cb({ ok = false })
+        return
+    end
+    local options = {}
+    for _, row in ipairs(rows) do
+        local detail = type(row.detail) == 'string' and row.detail or ''
+        options[#options + 1] = {
+            title = tostring(row.action or 'house activity'):gsub('_', ' '),
+            description = ('%s (CID %s) · %s%s'):format(
+                tostring(row.actorName or 'System'), tostring(row.cid or '—'),
+                tostring(row.created_at or ''), detail ~= '' and (' · ' .. detail) or ''),
+            icon = tostring(row.action or ''):find('weapon', 1, true) and 'gun'
+                or (tostring(row.action or ''):find('garage', 1, true) and 'car'
+                or (tostring(row.action or ''):find('heli', 1, true) and 'helicopter' or 'box-open')),
+            disabled = true,
+        }
+    end
+    if #options == 0 then options[1] = { title = 'No house activity yet', disabled = true } end
+    closeMenu()
+    lib.registerContext({ id = 'cm_house_activity', title = 'House Activity', options = options })
+    lib.showContext('cm_house_activity')
+    cb({ ok = true })
+end)
+
 RegisterNUICallback('door:buy', function(d, cb)
     local ok, msg = lib.callback.await('cm-house:server:buyHouse', false, d.houseId)
     lib.notify({ description = msg, type = ok and 'success' or 'error' })
@@ -579,6 +717,7 @@ end)
 RegisterNetEvent('cm-house:client:syncOwnership', function(owned)
     MyHouses = owned or {}
     for _, h in pairs(Houses) do refreshBlip(h) end
+    CreateThread(refreshVisibleHelipads)
 end)
 
 RegisterNetEvent('cm-house:client:syncLock', function(houseId, locked)
@@ -601,6 +740,7 @@ local function bootstrap()
     if Config.Debug then
         print(('[cm-house] %d houses loaded'):format(#(list or {})))
     end
+    refreshVisibleHelipads()
 end
 
 AddEventHandler('onClientResourceStart', function(res)

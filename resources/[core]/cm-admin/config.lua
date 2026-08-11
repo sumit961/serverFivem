@@ -1,6 +1,6 @@
 Config = Config or {}
 
--- CM Admin v2.6 - character ID based staff access + role-based staff center
+-- CM Admin v2.8 - character ID staff access + resource-owned EMS management
 -- You join as a normal player. Type /admin to enter/leave admin mode.
 -- F11 opens the admin menu ONLY while admin mode is enabled.
 
@@ -120,6 +120,7 @@ Config.DefaultRanks = {
         'logs.vehicles',
         'logs.dev',
         'logs.system',
+        'logs.ems',
 
         'map.view',
         'map.vehicles',
@@ -129,6 +130,7 @@ Config.DefaultRanks = {
         'noclip',
         'teleport',
         'tools.heal',
+        'tools.kill',
 
         'dev.view',
         'dev.tools',
@@ -146,7 +148,18 @@ Config.DefaultRanks = {
         'house.admin.garages',
         'house.admin.pricing',
         'house.admin.photos',
-        'house.admin.recovery'
+        'house.admin.recovery',
+
+        -- CM Family admin/recovery panel
+        'family.admin.open',
+        'family.admin.recovery',
+        'family.logs.view',
+
+        -- CM EMS organization leadership
+        'ems.admin.manage',
+
+        -- Centralized Organizations tab (list orgs, assign leaders, cross-org policy)
+        'orgs.view', 'orgs.manage'
     }
 },
     senior_admin = {
@@ -154,7 +167,9 @@ Config.DefaultRanks = {
         permissions = {
             'menu.open', 'players.view', 'players.manage', 'players.teleport', 'players.freeze', 'players.kick', 'money.manage',
             'inventory.view', 'vehicles.view', 'vehicles.manage', 'vehicle_inventory.view',
-            'admins.view', 'logs.view', 'logs.admin', 'logs.players', 'logs.vehicles', 'map.view', 'map.vehicles', 'map.admins', 'gps.teleport', 'noclip', 'teleport', 'tools.heal', 'dev.view'
+            'admins.view', 'logs.view', 'logs.admin', 'logs.players', 'logs.vehicles', 'logs.ems', 'map.view', 'map.vehicles', 'map.admins', 'gps.teleport', 'noclip', 'teleport', 'tools.heal', 'tools.kill', 'dev.view',
+            'family.admin.open', 'family.logs.view', 'ems.admin.manage',
+            'orgs.view', 'orgs.manage'
         }
     },
     admin = {
@@ -162,14 +177,14 @@ Config.DefaultRanks = {
         permissions = {
             'menu.open', 'players.view', 'players.manage', 'players.teleport', 'players.freeze', 'money.manage',
             'inventory.view', 'vehicles.view', 'vehicle_inventory.view', 'logs.view', 'logs.players', 'map.view', 'gps.teleport',
-            'noclip', 'teleport', 'tools.heal'
+            'noclip', 'teleport', 'tools.heal', 'tools.kill'
         }
     },
     senior_mod = {
         label = 'Senior Moderator', level = 50,
         permissions = {
             'menu.open', 'players.view', 'players.manage', 'players.teleport', 'players.freeze', 'money.manage',
-            'inventory.view', 'logs.view', 'logs.players', 'map.view', 'noclip', 'tools.heal'
+            'inventory.view', 'logs.view', 'logs.players', 'map.view', 'noclip', 'tools.heal', 'tools.kill'
         }
     },
     moderator = {
@@ -208,50 +223,12 @@ Config.OfflineSearchQueries = {
       sql = "SELECT id, first_name, last_name, dob, cash, bank FROM characters WHERE CONCAT(first_name, ' ', last_name) LIKE ? ORDER BY last_played DESC LIMIT 20" }
 }
 
--- Built-in developer tools (Developer tab). Adjust commands to match your
--- stores. NEW RESOURCES DO NOT GO HERE: they self-register at startup with
+-- Optional built-in Developer launchers. Current CM resources self-register
+-- their own resource-owned panels at startup with
 --   exports['cm-admin']:RegisterDevTool({ ... })
--- and appear automatically with permission gating and audit logging.
-Config.DevToolsBuiltin = {
-    {
-        id = 'climatime', label = 'Climatime Admin', category = 'Systems',
-        icon = 'cloud', permission = 'dev.climatime',
-        actions = {
-            { id = 'open', label = 'Open Weather / Time Admin', type = 'command', command = 'climatime',
-              hint = 'Opens cm-climatime visual weather/time control.' },
-            { id = 'debug', label = 'Toggle Zone Debug', type = 'command', command = 'climazone' }
-        }
-    },
-    {
-        id = 'hud', label = 'HUD Admin', category = 'Systems',
-        icon = 'hud', permission = 'dev.hud',
-        actions = {
-            { id = 'open', label = 'Open HUD Admin', type = 'command', command = 'hud admin' }
-        }
-    },
-    {
-        id = 'clothing', label = 'Clothing Store', category = 'Stores',
-        icon = 'shirt', permission = 'dev.clothing',
-        actions = {
-            { id = 'open_store', label = 'Open Clothing Shop (Admin)', type = 'command', command = 'clothShop',
-              hint = 'Opens nv_cloth. Set your admin variant command here if different.' }
-        }
-    },
-    {
-        id = 'vehicles', label = 'Vehicle Admin', category = 'Stores',
-        icon = 'car', permission = 'dev.vehicles',
-        actions = {
-            { id = 'open', label = 'Open Vehicle Admin', type = 'command', command = 'vehicleadmin' }
-        }
-    },
-    {
-        id = 'weapons', label = 'Weapon Admin', category = 'Stores',
-        icon = 'gun', permission = 'dev.weapons',
-        actions = {
-            { id = 'open', label = 'Open Weapon Picker', type = 'command', command = 'gunadmin' }
-        }
-    }
-}
+-- and appear automatically with permission gating and audit logging. Only
+-- launcher actions are accepted; this page never runs commands or forms.
+Config.DevToolsBuiltin = {}
 
 Config.Map = {
     RefreshMs = 1500,
@@ -289,7 +266,8 @@ Config.LogCategories = {
     { id = 'inventory', label = 'Inventory', permission = 'logs.inventory' },
     { id = 'vehicles', label = 'Vehicles', permission = 'logs.vehicles' },
     { id = 'dev', label = 'Developer', permission = 'logs.dev' },
-    { id = 'system', label = 'System', permission = 'logs.system' }
+    { id = 'system', label = 'System', permission = 'logs.system' },
+    { id = 'ems', label = 'EMS', permission = 'logs.ems' }
 }
 
 Config.DatabaseBridge = {

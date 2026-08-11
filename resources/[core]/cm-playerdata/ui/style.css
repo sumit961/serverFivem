@@ -288,6 +288,16 @@ html, body {
     text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
 }
 
+.hex .desc {
+    color: rgba(205, 237, 242, 0.82);
+    font-size: 9.5px;
+    line-height: 1.1;
+    max-width: 102px;
+    max-height: 34px;
+    overflow: hidden;
+    text-align: center;
+}
+
 /* ------------------------------------------------------------------ */
 /* Death screen                                                        */
 /* ------------------------------------------------------------------ */
@@ -407,6 +417,14 @@ html, body {
     font-weight: 800;
     font-size: 13px;
     letter-spacing: 0.18em;
+}
+
+.dm-eta {
+    color: #8fe8ff;
+    font-weight: 800;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    font-variant-numeric: tabular-nums;
 }
 
 .dm-timer {

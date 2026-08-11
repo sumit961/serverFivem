@@ -73,3 +73,10 @@ It then emits `cm-admin:server:addLog` as a compatibility fallback and writes a 
 - Added automatic scanning of started resources for nested `vehicles.meta` files.
 - Added a manual rescan button; newly discovered vehicles appear hidden until saved/enabled by an admin.
 - Added resource provenance and client model validation to the catalog list.
+
+## Runtime catalog manager
+
+- `/managevehicle` opens the same secured catalog manager as `/vehicleadmin`.
+- The first authorized manager open per client session enumerates FiveM's live registered vehicle models and seeds missing civilian land vehicles into the store without overwriting existing rows.
+- Emergency, military, aircraft, watercraft, and rail models remain visible but disabled by default.
+- Catalog top speed is editable in km/h. New store purchases persist the limit in owned-vehicle metadata; Police/EMS fleet appearance payloads carry the same limit.

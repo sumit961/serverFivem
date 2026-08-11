@@ -141,6 +141,7 @@
     var garage = el('d-garage');
     var buy = el('d-buy');
     var sell = el('d-sell');
+    var activity = el('d-activity');
     var foot = root ? root.querySelector('.deed__foot') : null;
 
     if (lock) lock.disabled = !can.lock;
@@ -156,6 +157,10 @@
     if (sell) {
       sell.hidden = !can.sell;
       sell.disabled = !can.sell;
+    }
+    if (activity) {
+      activity.hidden = !can.activity;
+      activity.disabled = !can.activity;
     }
 
     if (foot) {
@@ -363,6 +368,12 @@
 
       if (action === 'garage') {
         post('door:openGarage', { houseId: houseId });
+        closeLocal(false);
+        return;
+      }
+
+      if (action === 'activity') {
+        post('door:activity', { houseId: houseId });
         closeLocal(false);
         return;
       }

@@ -33,3 +33,15 @@ CREATE TABLE IF NOT EXISTS clothing_catalog (
     INDEX idx_enabled (enabled),
     INDEX idx_component (gender, component_index, drawable_id)
 );
+
+CREATE TABLE IF NOT EXISTS clothing_catalog_organizations (
+    clothing_id BIGINT NOT NULL,
+    organization_id VARCHAR(80) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (clothing_id, organization_id),
+    INDEX idx_clothing_org (organization_id, clothing_id)
+);
+
+INSERT IGNORE INTO clothing_catalog_organizations (clothing_id, organization_id)
+SELECT id, LOWER(SUBSTRING(shop, 5)) FROM clothing_catalog
+WHERE LEFT(LOWER(shop), 4) = 'org_' AND LENGTH(shop) > 4;

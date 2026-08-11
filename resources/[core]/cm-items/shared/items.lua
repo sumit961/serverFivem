@@ -33,7 +33,7 @@ CMItems.Items = {
     -- Medical
     bandage = {
         label = 'Bandage',
-        image = 'bandage.png',
+        image = 'nui://cm-items/ui/images/medical_bandage.svg',
         weight = 100,
         stack = true,
         unique = false,
@@ -41,12 +41,12 @@ CMItems.Items = {
         close = true,
         category = 'medical',
         worldModel = 'prop_ld_health_pack',
-        description = 'Used to treat minor injuries.'
+        description = 'Restores 20 health. Cannot be used at full health.'
     },
 
     medkit = {
         label = 'Medical Kit',
-        image = 'medkit.png',
+        image = 'nui://cm-items/ui/images/medical_kit.svg',
         weight = 1200,
         stack = true,
         unique = false,
@@ -54,12 +54,25 @@ CMItems.Items = {
         close = true,
         category = 'medical',
         worldModel = 'prop_ld_health_pack',
-        description = 'A medical kit for serious injuries.'
+        description = 'A medical kit that restores health.'
+    },
+
+    medikit = {
+        label = 'Medikit',
+        image = 'nui://cm-items/ui/images/medical_kit.svg',
+        weight = 900,
+        stack = true,
+        unique = false,
+        usable = true,
+        close = true,
+        category = 'medical',
+        worldModel = 'prop_ld_health_pack',
+        description = 'Fully heals you or revives a nearby player.'
     },
 
     armor = {
         label = 'Body Armor',
-        image = 'armor.png',
+        image = 'nui://cm-items/ui/images/medical_armor.svg',
         weight = 2500,
         stack = false,
         unique = false,
@@ -68,6 +81,47 @@ CMItems.Items = {
         category = 'medical',
         worldModel = 'prop_armour_pickup',
         description = 'Protective armor vest.'
+    },
+
+    -- Doctor NPC catalog (cm-doctor). Effects registered by cm-doctor at
+    -- startup via exports['cm-itemactions']:RegisterItem.
+    painkillers = {
+        label = 'Painkillers',
+        image = 'nui://cm-items/ui/images/medical_painkillers.svg',
+        weight = 50,
+        stack = true,
+        unique = false,
+        usable = true,
+        close = true,
+        category = 'medical',
+        worldModel = 'prop_cs_pills',
+        description = 'Restores 10 health. Cannot be used at full health.'
+    },
+
+    antibiotics = {
+        label = 'Antibiotics',
+        image = 'nui://cm-items/ui/images/medical_antibiotics.svg',
+        weight = 60,
+        stack = true,
+        unique = false,
+        usable = true,
+        close = true,
+        category = 'medical',
+        worldModel = 'prop_cs_pills',
+        description = 'Supports recovery and restores 25 health.'
+    },
+
+    adrenaline_shot = {
+        label = 'Adrenaline Shot',
+        image = 'nui://cm-items/ui/images/medical_adrenaline.svg',
+        weight = 80,
+        stack = true,
+        unique = false,
+        usable = true,
+        close = true,
+        category = 'medical',
+        worldModel = 'prop_syringe_01',
+        description = 'Restores 40 health. Cannot be used at full health.'
     },
 
     -- Tools

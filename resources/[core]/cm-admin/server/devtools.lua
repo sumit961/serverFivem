@@ -10,19 +10,15 @@
 --       category = 'World',
 --       permission = 'dev.housing',       -- optional, default 'dev.tools'
 --       actions = {
---           { id = 'open', label = 'Open Editor', type = 'command', command = 'houseadmin' },
---           { id = 'reload', label = 'Reload Configs', type = 'server_event', event = 'housing:server:reload' },
---           { id = 'goto', label = 'Teleport To House', type = 'form', event = 'housing:server:gotoHouse',
---             fields = { { id = 'houseId', label = 'House ID', type = 'number', required = true } } }
+--           { id = 'open', label = 'Open Editor', type = 'launcher',
+--             realm = 'server', event = 'housing:dev:open' }
 --       }
 --   })
 --
 -- Tools are removed automatically when their owning resource stops.
--- Action types:
---   command      -> runs a chat command AS the admin (works for client & server commands)
---   client_event -> TriggerEvent on the admin's client
---   server_event -> TriggerEvent on the server (src, values)
---   form         -> renders input fields, then fires `event` server-side with (src, values)
+-- Developer entries are launchers only. They may open a resource-owned panel
+-- through a local server event or a client event, but cannot run commands,
+-- submit forms, or perform business actions from cm-admin itself.
 
 CMDevTools = {}
 
@@ -54,13 +50,9 @@ local function validateTool(tool)
     for _, a in ipairs(tool.actions) do
         if type(a.id) ~= 'string' or type(a.label) ~= 'string' then return false, 'action id/label required' end
         local t = a.type
-        if t ~= 'command' and t ~= 'client_event' and t ~= 'server_event' and t ~= 'form' then
-            return false, ('unknown action type %s'):format(tostring(t))
-        end
-        if t == 'command' and type(a.command) ~= 'string' then return false, 'command actions need .command' end
-        if (t == 'client_event' or t == 'server_event' or t == 'form') and type(a.event) ~= 'string' then
-            return false, 'event actions need .event'
-        end
+        if t ~= 'launcher' then return false, 'developer actions must be launchers' end
+        if a.realm ~= 'client' and a.realm ~= 'server' then return false, 'launcher realm must be client or server' end
+        if type(a.event) ~= 'string' or a.event == '' then return false, 'launcher actions need .event' end
     end
     return true
 end
@@ -107,8 +99,7 @@ function CMDevTools.forPlayer(src)
             local actions = {}
             for _, a in ipairs(tool.actions) do
                 actions[#actions + 1] = {
-                    id = a.id, label = a.label, type = a.type,
-                    fields = a.fields, hint = a.hint
+                    id = a.id, label = a.label, type = a.type, hint = a.hint
                 }
             end
             out[#out + 1] = {
@@ -141,23 +132,17 @@ function CMDevTools.invoke(src, data)
     end
     if not action then return end
 
-    local values = type(data.values) == 'table' and data.values or {}
-    log(src, 'dev_tool', { tool = tool.id, action = action.id, values = values })
-
-    if action.type == 'command' then
-        -- Runs on the admin's client so server commands receive the real src.
-        TriggerClientEvent('cm-admin:client:runCommand', src, action.command, values)
-    elseif action.type == 'client_event' then
-        TriggerClientEvent('cm-admin:client:devClientEvent', src, action.event, values)
-    elseif action.type == 'server_event' or action.type == 'form' then
-        -- Close the admin menu first so a tool that opens its own NUI panel
-        -- (e.g. Climatime) gets a clean focus handoff.
-        TriggerClientEvent('cm-admin:client:closeForDevTool', src)
-        TriggerEvent(action.event, src, values)
+    log(src, 'dev_launcher_open', { tool = tool.id, launcher = action.id })
+    TriggerClientEvent('cm-admin:client:closeForDevTool', src)
+    if action.realm == 'client' then
+        TriggerClientEvent(action.event, src)
+    else
+        TriggerEvent(action.event, src)
     end
 end
 
--- Built-in registrations for existing stores (configurable in config.lua).
+-- Optional built-in launchers. Current CM resources self-register their own
+-- panels so authorization and lifecycle ownership stay with each resource.
 CreateThread(function()
     Wait(1000)
     for _, tool in ipairs(Config.DevToolsBuiltin or {}) do

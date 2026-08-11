@@ -263,6 +263,21 @@ local function ensureClothingCatalogTable()
     pcall(function() MySQL.query.await('ALTER TABLE clothing_catalog ADD COLUMN IF NOT EXISTS bag_level INT NULL') end)
     pcall(function() MySQL.query.await('ALTER TABLE clothing_catalog ADD COLUMN IF NOT EXISTS backpack_slots INT NULL') end)
     pcall(function() MySQL.query.await('ALTER TABLE clothing_catalog ADD COLUMN IF NOT EXISTS max_weight INT NULL') end)
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS clothing_catalog_organizations (
+            clothing_id BIGINT NOT NULL,
+            organization_id VARCHAR(80) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (clothing_id, organization_id),
+            INDEX idx_clothing_org (organization_id, clothing_id)
+        )
+    ]])
+    -- Preserve all existing one-organization assignments during upgrade.
+    MySQL.query.await([[
+        INSERT IGNORE INTO clothing_catalog_organizations (clothing_id, organization_id)
+        SELECT id, LOWER(SUBSTRING(shop, 5)) FROM clothing_catalog
+        WHERE LEFT(LOWER(shop), 4) = 'org_' AND LENGTH(shop) > 4
+    ]])
     return true
 end
 
@@ -410,12 +425,23 @@ function CMItems.ReloadClothingCatalog()
     if not ensureClothingCatalogTable() then return false end
     local rows = MySQL.query.await('SELECT * FROM clothing_catalog WHERE enabled = 1 OR enabled = 0 ORDER BY gender, component_index, drawable_id, texture_id') or {}
     local catalog = { male = {}, female = {} }
+    local organizationRows = MySQL.query.await('SELECT clothing_id, organization_id FROM clothing_catalog_organizations') or {}
+    local organizationsById = {}
+    for _, assignment in ipairs(organizationRows) do
+        local clothingId = tonumber(assignment.clothing_id)
+        local organizationId = tostring(assignment.organization_id or ''):lower()
+        if clothingId and organizationId ~= '' then
+            organizationsById[clothingId] = organizationsById[clothingId] or {}
+            organizationsById[clothingId][organizationId] = true
+        end
+    end
     local flatRows = {}
     local count = 0
 
     for _, row in ipairs(rows) do
         local entry = normaliseCatalogRow(row)
         if entry then
+            entry.organizations = organizationsById[entry.id] or {}
             insertCatalogEntry(catalog, entry)
             flatRows[#flatRows + 1] = entry
             count = count + 1
@@ -546,7 +572,9 @@ function CMItems.GetClothingCatalogRows(filters)
     for _, row in ipairs(rows) do
         local ok = true
         if filterGender and row.gender ~= filterGender then ok = false end
-        if filterShop and tostring(row.shop or ''):lower() ~= filterShop then ok = false end
+        local filterOrg = filterShop and filterShop:match('^org_(.+)$') or nil
+        local assignedToOrg = filterOrg and type(row.organizations) == 'table' and row.organizations[filterOrg] == true
+        if filterShop and tostring(row.shop or ''):lower() ~= filterShop and not assignedToOrg then ok = false end
         if filterCategory and tostring(row.category or ''):lower() ~= filterCategory then ok = false end
         if filterComponent and tonumber(row.componentIndex) ~= filterComponent then ok = false end
         if not includeDisabled and row.enabled == false then ok = false end
@@ -563,7 +591,7 @@ function CMItems.GetClothingCatalogRows(filters)
                 description = row.description,
                 price = tonumber(row.price) or 0,
                 category = row.category,
-                shop = row.shop,
+                shop = assignedToOrg and filterShop or row.shop,
                 sleeveStyle = row.sleeveStyle,
                 arms = row.arms,
                 armsTexture = tonumber(row.armsTexture) or 0,
@@ -574,7 +602,15 @@ function CMItems.GetClothingCatalogRows(filters)
                 maxWeight = row.maxWeight,
                 image = row.image,
                 enabled = row.enabled ~= false,
-                job = row.job,
+                job = assignedToOrg and filterOrg or row.job,
+                organizations = (function()
+                    local list = {}
+                    for organizationId, assigned in pairs(row.organizations or {}) do
+                        if assigned == true then list[#list + 1] = organizationId end
+                    end
+                    table.sort(list)
+                    return list
+                end)(),
                 gang = row.gang,
                 notes = row.notes,
                 createdBy = row.createdBy,
@@ -584,6 +620,40 @@ function CMItems.GetClothingCatalogRows(filters)
     end
 
     return out
+end
+
+function CMItems.SetClothingCatalogOrganizations(identity, organizations)
+    if not ensureClothingCatalogTable() then return false, 'catalog_table_unavailable' end
+    identity = type(identity) == 'table' and identity or {}
+    local gender = CMItems.NormalizeClothingGender(identity.gender)
+    local componentType = tostring(identity.componentType or identity.component_type or 'component'):lower()
+    local componentIndex = tonumber(identity.componentIndex or identity.component_index)
+    local drawableId = tonumber(identity.drawableId or identity.drawable_id or identity.drawable)
+    local textureId = tonumber(identity.textureId or identity.texture_id or identity.texture)
+    if textureId == nil then textureId = -1 end
+    if not componentIndex or not drawableId then return false, 'invalid_catalog_key' end
+
+    local clothingId = MySQL.scalar.await([[SELECT id FROM clothing_catalog
+        WHERE gender = ? AND component_type = ? AND component_index = ? AND drawable_id = ? AND texture_id = ? LIMIT 1]],
+        { gender, componentType, componentIndex, drawableId, textureId })
+    clothingId = tonumber(clothingId)
+    if not clothingId then return false, 'catalog_entry_not_found' end
+
+    local clean, seen = {}, {}
+    for _, value in ipairs(type(organizations) == 'table' and organizations or {}) do
+        local organizationId = tostring(value or ''):lower():gsub('[^%w_%-]', '')
+        if organizationId ~= '' and not seen[organizationId] then
+            seen[organizationId] = true
+            clean[#clean + 1] = organizationId
+        end
+    end
+    local queries = {{ query = 'DELETE FROM clothing_catalog_organizations WHERE clothing_id = ?', values = { clothingId } }}
+    for _, organizationId in ipairs(clean) do
+        queries[#queries + 1] = { query = 'INSERT INTO clothing_catalog_organizations (clothing_id, organization_id) VALUES (?, ?)', values = { clothingId, organizationId } }
+    end
+    if MySQL.transaction.await(queries) ~= true then return false, 'organization_assignment_failed' end
+    CMItems.ReloadClothingCatalog()
+    return true
 end
 
 function CMItems.GetShopClothingCatalog(shopName, gender)
@@ -624,6 +694,10 @@ exports('SaveClothingCatalogEntry', exportSafe(function(entry)
     return CMItems.SaveClothingCatalogEntry(entry)
 end))
 
+exports('SetClothingCatalogOrganizations', exportSafe(function(identity, organizations)
+    return CMItems.SetClothingCatalogOrganizations(identity, organizations)
+end))
+
 exports('DeleteClothingCatalogEntry', exportSafe(function(gender, componentType, componentIndex, drawableId, textureId)
     return CMItems.DeleteClothingCatalogEntry(gender, componentType, componentIndex, drawableId, textureId)
 end))
@@ -660,17 +734,20 @@ local function tryInventoryExport(resourceName, exportName, src, itemName, amoun
         return exports[resourceName][exportName](src, itemName, amount, meta, nil, 'cm-items_preview_give')
     end)
     if ok and result ~= false and result ~= nil then
-        if itemName == 'clothing_bags' then
-            print(('[CM-ITEMS] inventory export success resource=%s export=%s bagLevel=%s image=%s'):format(
-                tostring(resourceName), tostring(exportName), tostring((metadata or {}).bagLevel), tostring((metadata or {}).image or (metadata or {}).icon)
+        if itemName == 'clothing_bags' or (CMItems.Config and CMItems.Config.Debug) then
+            print(('[CM-ITEMS] inventory export success item=%s resource=%s export=%s bagLevel=%s image=%s'):format(
+                tostring(itemName), tostring(resourceName), tostring(exportName), tostring((metadata or {}).bagLevel), tostring((metadata or {}).image or (metadata or {}).icon)
             ))
         end
         return true
     end
 
-    if itemName == 'clothing_bags' then
-        print(('[CM-ITEMS] inventory export failed resource=%s export=%s err=%s extra=%s'):format(
-            tostring(resourceName), tostring(exportName), tostring(result), tostring(extra)
+    -- Was previously logged only for clothing_bags; every clothing give/purchase
+    -- that fails needs this to see the real pcall error instead of only the
+    -- generic "no compatible export" fallback further down.
+    if itemName == 'clothing_bags' or tostring(itemName or ''):find('^clothing_') or (CMItems.Config and CMItems.Config.Debug) then
+        print(('[CM-ITEMS] inventory export failed item=%s resource=%s export=%s ok=%s err=%s extra=%s'):format(
+            tostring(itemName), tostring(resourceName), tostring(exportName), tostring(ok), tostring(result), tostring(extra)
         ))
     end
 
@@ -719,6 +796,75 @@ local function getCategoryFromPreviewRow(row)
 
     local compMap = { [1] = 'mask', [3] = 'arms', [4] = 'pants', [5] = 'bags', [6] = 'shoes', [7] = 'chains', [8] = 'tshirt', [10] = 'decals', [11] = 'torso' }
     return compMap[idx]
+end
+
+local function sameClothingIdentity(itemName, existingMetadata, requestedMetadata)
+    if tostring(itemName or ''):find('^clothing_') == nil then return false end
+    existingMetadata = type(existingMetadata) == 'table' and existingMetadata or {}
+    requestedMetadata = type(requestedMetadata) == 'table' and requestedMetadata or {}
+
+    local function normalizedText(metadata, ...)
+        for i = 1, select('#', ...) do
+            local value = metadata[select(i, ...)]
+            if value ~= nil and value ~= '' then return tostring(value):lower() end
+        end
+        return nil
+    end
+
+    local function normalizedNumber(metadata, ...)
+        for i = 1, select('#', ...) do
+            local value = tonumber(metadata[select(i, ...)])
+            if value ~= nil then return value end
+        end
+        return nil
+    end
+
+    local existingCategory = normalizedText(existingMetadata, 'categoryType', 'category_type', 'clothingCategory', 'category')
+    local requestedCategory = normalizedText(requestedMetadata, 'categoryType', 'category_type', 'clothingCategory', 'category')
+    local existingType = normalizedText(existingMetadata, 'componentType', 'component_type')
+    local requestedType = normalizedText(requestedMetadata, 'componentType', 'component_type')
+    local existingIndex = normalizedNumber(existingMetadata, 'componentIndex', 'component_index', 'componentId', 'component_id', 'propIndex', 'prop_index')
+    local requestedIndex = normalizedNumber(requestedMetadata, 'componentIndex', 'component_index', 'componentId', 'component_id', 'propIndex', 'prop_index')
+    local existingDrawable = normalizedNumber(existingMetadata, 'drawableId', 'drawable_id', 'drawable')
+    local requestedDrawable = normalizedNumber(requestedMetadata, 'drawableId', 'drawable_id', 'drawable')
+    local existingTexture = normalizedNumber(existingMetadata, 'textureId', 'texture_id', 'texture') or 0
+    local requestedTexture = normalizedNumber(requestedMetadata, 'textureId', 'texture_id', 'texture') or 0
+    local existingGender = normalizedText(existingMetadata, 'gender', 'sex', 'pedGender') or 'male'
+    local requestedGender = normalizedText(requestedMetadata, 'gender', 'sex', 'pedGender') or 'male'
+
+    return existingCategory == requestedCategory
+        and existingType == requestedType
+        and existingIndex == requestedIndex
+        and existingDrawable == requestedDrawable
+        and existingTexture == requestedTexture
+        and existingGender == requestedGender
+end
+
+local function alreadyHasPreviewClothing(src, itemName, metadata)
+    if GetResourceState('cm-inventory') ~= 'started' then return false end
+
+    local ok, payload = pcall(function()
+        return exports['cm-inventory']:GetInventory(src)
+    end)
+    if not ok or type(payload) ~= 'table' or type(payload.items) ~= 'table' then return false end
+
+    local slots = type(payload.slots) == 'table' and payload.slots or {}
+    local pocketPrefix = type(slots.pockets) == 'table' and tostring(slots.pockets.prefix or 'pocket-') or 'pocket-'
+    local backpackPrefix = type(slots.backpack) == 'table' and tostring(slots.backpack.prefix or 'backpack-') or 'backpack-'
+
+    itemName = tostring(itemName or ''):lower()
+    for _, item in ipairs(payload.items) do
+        local itemSlot = type(item) == 'table' and tostring(item.slot or '') or ''
+        local isStoredItem = itemSlot:find(pocketPrefix, 1, true) == 1
+            or itemSlot:find(backpackPrefix, 1, true) == 1
+        if isStoredItem
+            and tostring(item.item_name or item.name or ''):lower() == itemName
+            and sameClothingIdentity(itemName, item.metadata, metadata) then
+            return true
+        end
+    end
+
+    return false
 end
 
 RegisterNetEvent('cm-items:server:previewGiveItem', function(requestId, row)
@@ -773,7 +919,17 @@ RegisterNetEvent('cm-items:server:previewGiveItem', function(requestId, row)
         end
     end
 
-    local ok, err = addPreviewItemToInventory(src, itemName, 1, metadata or {})
+    -- VN cloth retakes overwrite a stable PNG path. If this exact wearable is
+    -- already in the admin's inventory, reuse it instead of increasing its
+    -- quantity or creating a second slot; the existing item now reads the
+    -- replaced image from that same path.
+    local ok, err
+    if alreadyHasPreviewClothing(src, itemName, metadata) then
+        ok = true
+        err = 'existing_item_reused'
+    else
+        ok, err = addPreviewItemToInventory(src, itemName, 1, metadata or {})
+    end
     TriggerClientEvent('cm-items:client:previewGiveResult', src, requestId, ok == true, err, itemName)
 end)
 

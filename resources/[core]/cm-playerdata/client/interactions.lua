@@ -995,6 +995,7 @@ local function NormalizeInteractionOption(pageId, option)
     return {
         id = id,
         label = SafeString(option.label or option.title, id),
+        description = option.description and SafeString(option.description, '') or nil,
         icon = SafeString(option.icon, 'dot'),
         type = SafeString(option.type, 'extension'),
         action = SafeString(option.action or id, id),
@@ -1159,6 +1160,7 @@ local function BuildPage(page)
     elseif page == 'basic' then
         local options = {
             { id = 'handshake', label = 'Handshake', icon = 'handshake', type = 'server', action = 'handshake', order = 10 },
+            { id = 'treat_player', label = 'Patch / Treat', icon = 'people', type = 'server', action = 'treat_player', order = 15 },
             { id = 'show_id', label = 'Share ID', icon = 'id', type = 'server', action = 'share_id', order = 20 },
             { id = 'greet', label = 'Say Hello', icon = 'hello', type = 'server', action = 'greet', order = 30 },
             { id = 'give_cash', label = 'Give Cash', icon = 'cash', type = 'cash', order = 40 }
@@ -1228,6 +1230,10 @@ local function SendMenuPage()
         options = currentOptions
     })
 end
+
+RegisterNetEvent('cm-playerdata:client:refreshInteractionMenu', function()
+    if menuOpen then SendMenuPage() end
+end)
 
 local function CloseMenu()
     menuOpen = false
@@ -1669,6 +1675,32 @@ RegisterNetEvent('cm-playerdata:client:handshakeRequest', function(fromLabel, ti
             end
         end
         handshakePending = false
+    end)
+end)
+
+local treatmentRequestPending = false
+RegisterNetEvent('cm-playerdata:client:treatmentRequest', function(fromLabel, timeoutMs)
+    if treatmentRequestPending then return end
+    treatmentRequestPending = true
+    local expires = GetGameTimer() + (tonumber(timeoutMs) or 15000)
+    CreateThread(function()
+        local answered = false
+        while treatmentRequestPending and GetGameTimer() < expires do
+            Wait(0)
+            if not IsReadyForInteraction() then break end
+            BeginTextCommandDisplayHelp('STRING')
+            AddTextComponentSubstringPlayerName(('%s requests to treat you. Press ~y~Y~s~ to accept or ~r~N~s~ to decline.'):format(tostring(fromLabel or 'Someone')))
+            EndTextCommandDisplayHelp(0, false, false, 1)
+            DisableControlAction(0, 246, true)
+            DisableControlAction(0, 249, true)
+            if IsDisabledControlJustPressed(0, 246) then
+                answered = true; TriggerServerEvent('cm-playerdata:server:treatmentResponse', true); Notify('You accepted treatment.', 'success'); break
+            elseif IsDisabledControlJustPressed(0, 249) then
+                answered = true; TriggerServerEvent('cm-playerdata:server:treatmentResponse', false); Notify('You declined treatment.', 'error'); break
+            end
+        end
+        if not answered then TriggerServerEvent('cm-playerdata:server:treatmentResponse', false) end
+        treatmentRequestPending = false
     end)
 end)
 

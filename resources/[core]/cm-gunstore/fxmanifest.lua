@@ -41,7 +41,13 @@ dependencies {
     'cm-inventory',
     'cm-items',
     'oxmysql',
-    'cm-weapons'
+    'cm-weapons',
+    -- Firearms license check + self-service purchase (processPurchase calls
+    -- exports['cm-police']:HasValidLicense, buyLicense calls PurchaseLicense,
+    -- buildMetadata calls GetLicenseNumber). Not strictly required by this
+    -- codebase's own cross-resource export convention (callers elsewhere
+    -- don't always declare the callee), but guarantees start order.
+    'cm-police'
     -- Optional for armor admin photo capture: screenshot-basic
 }
 

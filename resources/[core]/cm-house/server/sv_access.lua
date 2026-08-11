@@ -19,6 +19,7 @@ ACTIONS = {
     HOUSE_MANAGE_ACCESS = 'house.manage_access',
     HOUSE_SET_SPAWN     = 'house.set_spawn',
     HOUSE_SELL          = 'house.sell',
+    HOUSE_VIEW_LOGS     = 'house.view_logs',
 
     WEAPON_STORAGE_USE      = 'weapon_storage.use',
     WEAPON_STORAGE_DEPOSIT  = 'weapon_storage.deposit',
@@ -95,6 +96,7 @@ local FAMILY_PERMISSION_MAP = {
     ['house.lock'] = 'door.lock',
     ['house.manage_access'] = 'keys.grant',
     ['house.set_spawn'] = 'door.enter',
+    ['house.view_logs'] = 'house.view_logs',
     ['weapon_storage.use'] = 'weapon_storage.access',
     ['weapon_storage.deposit'] = 'weapon_storage.deposit',
     ['weapon_storage.withdraw'] = 'weapon_storage.withdraw',
@@ -111,13 +113,6 @@ local FAMILY_PERMISSION_MAP = {
 
 local BASIC_FAMILY_MEMBER_PERMISSIONS = {
     ['door.enter'] = true,
-    ['garage.access'] = true,
-    ['garage.take'] = true,
-    ['garage.store'] = true,
-    ['weapon_storage.access'] = true,
-    ['weapon_storage.deposit'] = true,
-    ['weapon_storage.withdraw'] = true,
-    ['storage.access'] = true,
 }
 
 local function committedFamilyMembershipAllows(cid, house, permission)

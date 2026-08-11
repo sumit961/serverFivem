@@ -18,23 +18,9 @@ local function clampInt(v, min, max, default)
     return v
 end
 
--- ------------------------------------------------------------
---  Start the wizard
--- ------------------------------------------------------------
-RegisterCommand(Config.AdminCommand, function(src)
-    if src == 0 then
-        print('[cm-house] /' .. Config.AdminCommand .. ' must be run in-game.')
-        return
-    end
-    if not IsHouseAdmin(src) then
-        Notify(src, 'You cannot create properties.', 'error')
-        return
-    end
-
-    -- No pre-existing template is needed: if none exists for this kind of
-    -- property, the wizard walks you through the interior once and saves it.
-    TriggerClientEvent('cm-house:client:startPlacement', src)
-end, false)
+-- Serialises the short number-allocation window. cm_houses also keeps its
+-- unique house_number constraint as the final database-level guard.
+local creatingHouse = false
 
 -- ------------------------------------------------------------
 --  Publish
@@ -100,16 +86,9 @@ lib.callback.register('cm-house:server:createHouse', function(src, d)
     end
 
     -- ---- identity ----
-    local number = tostring(d.houseNumber or ''):gsub('%s+', '')
-    if number == '' or #number > 16 or not number:match('^[%w%-_]+$') then
-        return false, 'The address must be 1-16 letters, numbers, - or _.'
-    end
-    if MySQL.scalar.await('SELECT id FROM cm_houses WHERE house_number = ?', { number }) then
-        return false, ('Address %s is already taken.'):format(number)
-    end
-
-    local label = tostring(d.label or ''):sub(1, 64)
-    if label == '' then label = ('Property %s'):format(number) end
+    -- Players and admins identify properties as House #<number>. The client
+    -- cannot choose either value; both are authoritative here.
+    local label = 'House'
 
     -- ---- templates ----
     local interiorId = tonumber(d.interiorTemplateId)
@@ -140,6 +119,26 @@ lib.callback.register('cm-house:server:createHouse', function(src, d)
 
     local familyEligible = (houseType ~= 'apartment') and 1 or 0
     local adminCid = GetCid(src)
+
+    if creatingHouse then
+        return false, 'Another house is being published. Please try again.'
+    end
+    creatingHouse = true
+
+    local numberOk, number = pcall(function()
+        return tostring(MySQL.scalar.await([[
+            SELECT COALESCE(MAX(
+                CASE WHEN house_number REGEXP '^[0-9]+$'
+                    THEN CAST(house_number AS UNSIGNED)
+                END
+            ), 0) + 1
+            FROM cm_houses
+        ]]) or 1)
+    end)
+    if not numberOk or #number > 16 then
+        creatingHouse = false
+        return false, 'The next house number could not be allocated.'
+    end
 
     -- Built column-by-column so a nil simply OMITS the column. A `false`
     -- would coerce to 0 on garage_template_id, and there is no template with
@@ -179,7 +178,9 @@ lib.callback.register('cm-house:server:createHouse', function(src, d)
         { 'created_by',           adminCid },
     })
 
-    local houseId = MySQL.insert.await(sql, params)
+    local insertOk, houseId = pcall(MySQL.insert.await, sql, params)
+    creatingHouse = false
+    if not insertOk then return false, 'The database refused the insert.' end
     if not houseId then return false, 'The database refused the insert.' end
 
     -- The screenshot was captured before the database ID existed. Move the
@@ -252,8 +253,8 @@ lib.callback.register('cm-house:server:createHouse', function(src, d)
 
     TriggerClientEvent('cm-house:client:syncHouse', -1, BuildClientHouse(house))
 
-    local publishedMessage = ('%s published. %d stars, $%s%s')
-        :format(label, derived.stars, derived.price,
+    local publishedMessage = ('House #%s published. %d stars, $%s%s')
+        :format(number, derived.stars, derived.price,
                 derived.garageCapacity > 0
                     and (', ' .. derived.garageCapacity .. '-car garage') or '')
     if d.photoToken and not imageUrl then

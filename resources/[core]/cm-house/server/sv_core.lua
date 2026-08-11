@@ -67,6 +67,9 @@ exports('LogHouse', LogHouse)
 --  Load
 -- ------------------------------------------------------------
 local function indexHouse(h)
+    -- House names are intentionally generic. Keep legacy database text intact
+    -- for rollback, but never expose it as the active runtime identity.
+    h.label = 'House'
     Houses[h.id] = h
     if h.owner_cid then
         OwnerHouses[h.owner_cid] = OwnerHouses[h.owner_cid] or {}
@@ -316,10 +319,33 @@ function BuildDoorView(cid, house)
             enter  = CanAccessProperty(cid, id, ACTIONS.HOUSE_ENTER, false),
             garage = g ~= nil and CanAccessProperty(cid, id, ACTIONS.GARAGE_ENTER, false),
             sell   = CanAccessProperty(cid, id, ACTIONS.HOUSE_SELL, false),
+            activity = CanAccessProperty(cid, id, ACTIONS.HOUSE_VIEW_LOGS, false),
             buy    = listed,
         },
     }
 end
+
+lib.callback.register('cm-house:server:getHouseActivity', function(src, houseId)
+    local cid = GetCid(src)
+    houseId = tonumber(houseId)
+    if not cid or not houseId or not Houses[houseId] then return nil, 'That property does not exist.' end
+    local allowed, reason = CanAccessProperty(cid, houseId, ACTIONS.HOUSE_VIEW_LOGS, false)
+    if not allowed then return nil, reason end
+    local rows = MySQL.query.await([[
+        SELECT id, cid, action, detail, created_at
+        FROM cm_house_logs
+        WHERE house_id = ? AND (
+            action LIKE 'storage_%' OR action LIKE 'weapon_storage_%'
+            OR action LIKE 'garage_%' OR action LIKE 'heli_%'
+        )
+        ORDER BY id DESC LIMIT ?
+    ]], { houseId, math.max(1, math.min(100, tonumber(Config.MaxLogRows) or 100)) }) or {}
+    for _, row in ipairs(rows) do
+        row.actorName = row.cid and GetCharName(row.cid) or 'System'
+        row.cid = row.cid and tostring(row.cid) or nil
+    end
+    return rows
+end)
 
 lib.callback.register('cm-house:server:getDoorView', function(src, houseId)
     houseId = tonumber(houseId)
@@ -556,17 +582,7 @@ AddEventHandler('onResourceStart', function(res)
     end
     WarmNameCache(owners)
 
-    print(('[cm-house] ^2ready^7 | command: /%s'):format(Config.AdminCommand))
-
-    if Config.DevelopmentPublicAdmin == true then
-        print('[cm-house] ^3DEVELOPMENT WARNING: public house admin is ON.^7')
-        print('[cm-house] ^3Every player can open and use cm-house admin tools.^7')
-        print('[cm-house] ^3Set Config.DevelopmentPublicAdmin = false before launch.^7')
-    elseif not Config.RequireAdmin then
-        print('[cm-house] ^3WARNING: creator admin check is OFF. Any player can run /'
-            .. Config.AdminCommand .. ' and create houses.^7')
-        print('[cm-house] ^3Set Config.RequireAdmin = true before launch.^7')
-    end
+    print('[cm-house] ^2ready^7 | admin: cm-admin Developer > House Admin')
 end)
 
 -- Wardrobes need no registration: cm-inventory opens storage on demand by

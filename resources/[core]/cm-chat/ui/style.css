@@ -34,7 +34,8 @@ body {
     height: 100%;
     overflow: hidden;
     background: transparent;
-    font-family: "PT Sans Narrow", "Arial Narrow", "Roboto Condensed", Arial, sans-serif;
+    font-family: "PT Sans Narrow", "Arial Narrow", sans-serif;
+    font-weight: 700;
 }
 
 .hidden {
@@ -65,9 +66,10 @@ body {
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
-    gap: 7px;
-    padding: 4px 8px 10px 0;
-    text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.92), 0 2px 8px rgba(0, 0, 0, 0.58);
+    gap: 1px;
+    padding: 7px 9px 8px 0;
+    background: transparent;
+    text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.98);
 }
 
 .chat-open .chat-messages {
@@ -90,38 +92,25 @@ body {
 .chat-message {
     position: relative;
     display: grid;
-    grid-template-columns: 16px 1fr;
-    column-gap: 8px;
-    max-width: calc(var(--chat-width) - 18px);
-    min-height: 31px;
+    grid-template-columns: 1fr;
+    align-items: start;
+    column-gap: 5px;
+    max-width: 100%;
+    min-height: 23px;
     color: #ffffff;
     font-size: var(--chat-font-size);
-    line-height: 1.2;
-    font-weight: 900;
-    letter-spacing: 0.12px;
+    line-height: 1.12;
+    font-weight: 700;
+    letter-spacing: 0;
     word-break: break-word;
 }
 
 .chat-mark {
-    position: relative;
-    min-height: 31px;
-    border-left: 4px solid var(--chat-color, var(--cm-cyan));
-    border-radius: 2px;
-    filter: drop-shadow(0 0 5px rgba(49, 230, 255, 0.12));
+    display: none;
 }
 
 .chat-mark::after {
-    content: attr(data-label);
-    position: absolute;
-    left: -26px;
-    top: 50%;
-    transform: translateY(-50%) rotate(-90deg);
-    color: var(--chat-color, var(--cm-cyan));
-    font-size: 9px;
-    line-height: 1;
-    letter-spacing: 1px;
-    font-weight: 1000;
-    opacity: 0.95;
+    content: attr(data-icon);
 }
 
 .chat-body {
@@ -130,13 +119,59 @@ body {
 
 .chat-prefix {
     color: var(--prefix-color, var(--cm-cyan));
-    font-weight: 1000;
-    margin-right: 4px;
+    font-weight: 700;
+    margin-right: 3px;
 }
 
 .chat-text {
-    color: #f6fbff;
-    font-weight: 900;
+    color: #ffffff;
+    font-weight: 700;
+}
+
+.ems-chat-logo {
+    display: inline;
+    margin-right: 2px;
+    color: #31e6ff;
+    font-weight: 1000;
+}
+
+.ems-chat-author,
+.ems-chat-id {
+    color: #ff4f4f;
+    font-weight: 1000;
+}
+
+.chat-ems_rp .chat-text,
+.chat-ems_nonrp .chat-text {
+    color: #ffffff;
+}
+
+.chat-ems_rp .chat-mark,
+.chat-ems_nonrp .chat-mark {
+    background: #31e6ff;
+}
+
+.police-chat-logo {
+    display: inline;
+    margin-right: 2px;
+    color: #31e6ff;
+    font-weight: 1000;
+}
+
+.police-chat-author,
+.police-chat-id {
+    color: #5ba7ff;
+    font-weight: 1000;
+}
+
+.chat-police_rp .chat-text,
+.chat-police_nonrp .chat-text {
+    color: #ffffff;
+}
+
+.chat-police_rp .chat-mark,
+.chat-police_nonrp .chat-mark {
+    background: #188cff;
 }
 
 .chat-muted {

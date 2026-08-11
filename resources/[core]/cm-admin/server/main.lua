@@ -820,7 +820,9 @@ local AllPermissions = {
     'logs.view', 'logs.all', 'logs.admin', 'logs.players', 'logs.economy', 'logs.inventory', 'logs.vehicles', 'logs.dev', 'logs.system',
     'map.view', 'map.vehicles', 'map.admins', 'map.teleport', 'map.calibrate', 'gps.teleport',
     'noclip', 'teleport', 'tools.heal',
-    'dev.view', 'dev.tools', 'dev.clothing', 'dev.vehicles', 'dev.weapons', 'dev.climatime', 'dev.hud'
+    'dev.view', 'dev.tools', 'dev.clothing', 'dev.vehicles', 'dev.weapons', 'dev.climatime', 'dev.hud',
+    'house.admin.open', 'house.create', 'house.admin.properties', 'house.admin.interiors',
+    'house.admin.garages', 'house.admin.pricing', 'house.admin.photos', 'house.admin.recovery'
 }
 
 local function currentAdminUi(src)
@@ -865,6 +867,7 @@ local function buildMenuPayload(src)
     if hasPermission(src, 'admins.view') then payload.admins = getAdminsForUi() end
     if hasPermission(src, 'ranks.view') then payload.ranks = getRanksForUi() end
     if hasPermission(src, 'logs.view') then payload.logs = getLogsForUi(80, src); payload.logCategories = getLogCategoriesForUi(src) end
+    if hasPermission(src, 'orgs.view') and CMOrganizations then payload.orgs = CMOrganizations.forAdminPayload(src) end
 
     return payload
 end
@@ -1010,6 +1013,17 @@ RegisterCommand('cmtp', function(src)
     if onCooldown(src, 'gpsTeleportCommand', 2000) then return end
     logAction(src, 'gps_teleport_command', { category = 'players' })
     TriggerClientEvent('cm-admin:client:teleportToWaypoint', src)
+end, false)
+
+RegisterCommand('kill', function(src)
+    if src <= 0 then return end
+    if not hasPermission(src, 'tools.kill') then
+        notify(src, 'No permission: tools.kill', 'error')
+        return
+    end
+    if onCooldown(src, 'selfKillCommand', 3000) then return end
+    logAction(src, 'self_kill_test')
+    TriggerClientEvent('cm-admin:client:kill', src)
 end, false)
 
 RegisterCommand('cmunstuck', function(src)
@@ -1200,8 +1214,54 @@ RegisterNetEvent('cm-admin:server:nuiAction', function(payload)
         return
     end
 
+    if action == 'openEmsManagement' then
+        if not hasPermission(src, 'ems.admin.manage') then
+            return notify(src, 'No permission: ems.admin.manage', 'error')
+        end
+        if GetResourceState('cm-ems') ~= 'started' then
+            return notify(src, 'cm-ems is not running.', 'error')
+        end
+        TriggerClientEvent('cm-admin:client:forceClose', src)
+        TriggerClientEvent('cm-ems:client:open', src, true)
+        logAction(src, 'ems_management_open', { category = 'ems' })
+        return
+    end
+
     if action == 'devAction' then
         if CMDevTools then CMDevTools.invoke(src, data) end
+        return
+    end
+
+    if action == 'orgsAssignLeader' then
+        if not CMOrganizations then return notify(src, 'Organizations registry is unavailable.', 'error') end
+        local ok, message = CMOrganizations.assignLeader(src, data.orgId, data.characterId)
+        notify(src, message or (ok and 'Leader assigned.' or 'Assignment failed.'), ok and 'success' or 'error')
+        if ok then refreshMenu(src) end
+        return
+    end
+
+    if action == 'orgsRemoveLeader' then
+        if not CMOrganizations then return notify(src, 'Organizations registry is unavailable.', 'error') end
+        local ok, message = CMOrganizations.removeLeader(src, data.orgId)
+        notify(src, message or (ok and 'Leader removed.' or 'Removal failed.'), ok and 'success' or 'error')
+        if ok then refreshMenu(src) end
+        return
+    end
+
+    if action == 'orgsSetFacility' then
+        if not CMOrganizations then return notify(src, 'Organizations registry is unavailable.', 'error') end
+        if data.reset ~= true then TriggerClientEvent('cm-admin:client:forceClose', src) end
+        local ok, message = CMOrganizations.setFacility(src, data.orgId, data.facilityType, data.reset == true)
+        notify(src, message or (ok and 'Facility updated.' or 'Facility update failed.'), ok and 'success' or 'error')
+        if ok then refreshMenu(src) end
+        return
+    end
+
+    if action == 'orgsSavePolicy' then
+        if not CMOrganizations then return notify(src, 'Organizations registry is unavailable.', 'error') end
+        local ok, message = CMOrganizations.savePolicy(src, data)
+        notify(src, message or (ok and 'Saved.' or 'Save failed.'), ok and 'success' or 'error')
+        if ok then refreshMenu(src) end
         return
     end
 

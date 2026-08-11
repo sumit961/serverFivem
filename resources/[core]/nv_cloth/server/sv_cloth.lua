@@ -12,7 +12,7 @@ local BLOCKED_CATEGORIES = {
 local EQUIP_SLOT_BY_CATEGORY = {
   tshirt = 'shirt', torso = 'outerwear', pants = 'pants', legs = 'pants', shoes = 'shoes',
   chains = 'accessory', bags = 'bag', hat = 'headwear', glasses = 'glasses',
-  earrings = 'earrings', watches = 'watch'
+  earrings = 'earrings', watches = 'watch', bracelets = 'bracelet'
 }
 
 local CATEGORY_COMPONENTS = {
@@ -26,7 +26,22 @@ local CATEGORY_COMPONENTS = {
   glasses  = { type = 'prop',      index = 1,  label = 'Glasses' },
   earrings = { type = 'prop',      index = 2,  label = 'Earrings' },
   watches  = { type = 'prop',      index = 6,  label = 'Watch' },
+  bracelets = { type = 'prop',     index = 7,  label = 'Bracelet' },
 }
+
+-- Build 2.19 helpers are implemented later in this file, but the legacy admin
+-- save handler above that section also calls them. Forward-declare the locals so
+-- Lua closes over these references instead of looking for nil globals.
+local findExistingManagedRow
+local preserveManagedState
+
+-- Version 5 keeps OP Clothing's per-slot framing and additionally persists live
+-- camera orbit plus off-centre target offsets from the capture position editor.
+local CAPTURE_PRESET_VERSION = 6
+local CAPTURE_CROP_VERSION = 3
+-- Version 2 changes the default visibility contract: hats/glasses use a visible
+-- head, while the Accessories/chains category hides every supporting body part.
+-- Older saved overrides are ignored until an admin deliberately saves them again.
 
 local function notify(src, msg, typ)
   TriggerClientEvent('cm-hud:client:notify', src, tostring(msg or ''), typ or 'info')
@@ -58,6 +73,34 @@ local function dbSingle(query, params)
   if ok then return result end
   print(('[nv_cloth] DB single failed: %s'):format(tostring(result)))
   return nil, result
+end
+
+-- Idempotent schema upgrade. Re-running plain ALTER TABLE ADD COLUMN on every
+-- resource restart logs a false error once the column already exists. Check the
+-- active database schema first, then alter only installations that need it.
+local function ensureDbColumn(tableName, columnName, definition)
+  tableName = tostring(tableName or '')
+  columnName = tostring(columnName or '')
+  if not tableName:match('^[%w_]+$') or not columnName:match('^[%w_]+$') then
+    return false, 'invalid_schema_identifier'
+  end
+  if not MySQL or not MySQL.scalar or not MySQL.scalar.await then
+    return false, 'mysql_scalar_unavailable'
+  end
+
+  local ok, count = pcall(function()
+    return MySQL.scalar.await([[
+      SELECT COUNT(*) FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+    ]], { tableName, columnName })
+  end)
+  if not ok then
+    print(('[nv_cloth] DB column check failed for %s.%s: %s'):format(tableName, columnName, tostring(count)))
+    return false, count
+  end
+  if tonumber(count) and tonumber(count) > 0 then return true, 'already_exists' end
+
+  return dbUpdate(('ALTER TABLE `%s` ADD COLUMN `%s` %s'):format(tableName, columnName, definition), {})
 end
 
 local function ensureNvClothSchema()
@@ -99,8 +142,25 @@ local function ensureNvClothSchema()
     dist FLOAT NOT NULL,
     z FLOAT NOT NULL,
     fov FLOAT NOT NULL,
+    pose_heading FLOAT NULL,
+    pose_lift FLOAT NULL,
+    preset_version INT NOT NULL DEFAULT 6,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   )]], {})
+  -- Add columns only when upgrading from an older schema.
+  ensureDbColumn('nv_cloth_capture_cameras', 'pose_heading', 'FLOAT NULL')
+  ensureDbColumn('nv_cloth_capture_cameras', 'pose_lift', 'FLOAT NULL')
+  -- Unified Capture Studio extras: lighting strength, backdrop color, timecycle.
+  ensureDbColumn('nv_cloth_capture_cameras', 'light_strength', 'FLOAT NULL')
+  ensureDbColumn('nv_cloth_capture_cameras', 'backdrop', 'VARCHAR(16) NULL')
+  ensureDbColumn('nv_cloth_capture_cameras', 'cam_rel_z', 'FLOAT NULL')
+  ensureDbColumn('nv_cloth_capture_cameras', 'cam_heading', 'FLOAT NULL')
+  ensureDbColumn('nv_cloth_capture_cameras', 'cam_target_x', 'FLOAT NULL')
+  ensureDbColumn('nv_cloth_capture_cameras', 'cam_target_y', 'FLOAT NULL')
+  -- Existing installations receive version 1 here. Only current-version rows are
+  -- accepted, so old framing cannot override the new OP-style camera table until
+  -- an admin deliberately saves a fresh preset.
+  ensureDbColumn('nv_cloth_capture_cameras', 'preset_version', 'INT NOT NULL DEFAULT 1')
   -- Admin per-category capture crops. Set once per clothing category in the admin
   -- panel; every future capture of that category reuses the same crop (percent
   -- trims from each edge) until it is changed or cleared.
@@ -110,8 +170,12 @@ local function ensureNvClothSchema()
     trim_top FLOAT NOT NULL DEFAULT 0,
     trim_right FLOAT NOT NULL DEFAULT 0,
     trim_bottom FLOAT NOT NULL DEFAULT 0,
+    crop_version INT NOT NULL DEFAULT 2,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   )]], {})
+  -- Camera framing changed in capture preset v4. Old manual crops were measured
+  -- against the previous framing and can cut off otherwise-correct new images.
+  ensureDbColumn('nv_cloth_capture_crops', 'crop_version', 'INT NOT NULL DEFAULT 1')
 end
 
 CreateThread(function()
@@ -257,12 +321,17 @@ local function restrictionAllowed(src, row)
   if type(row) ~= 'table' then return true end
   local job = stateStringValue(src, 'jobName', 'job_name', 'job')
   local gang = stateStringValue(src, 'gangName', 'gang', 'org', 'organization')
+  local legalOrg = stateStringValue(src, 'cmLegalOrg')
   local family = stateStringValue(src, 'familyName', 'family', 'familyId', 'family_id')
   local requiredJob = row.requiredJob or row.required_job
   local requiredGang = row.requiredGang or row.required_gang
   local requiredFamily = row.requiredFamily or row.required_family
-  if not csvAllows(requiredJob, job) then return false, ('This clothing requires job: %s'):format(tostring(requiredJob)) end
-  if not csvAllows(requiredGang, gang) then return false, ('This clothing requires gang/org: %s'):format(tostring(requiredGang)) end
+  if not csvAllows(requiredJob, job) and not csvAllows(requiredJob, legalOrg) then
+    return false, ('This clothing requires job: %s'):format(tostring(requiredJob))
+  end
+  if not csvAllows(requiredGang, gang) and not csvAllows(requiredGang, legalOrg) then
+    return false, ('This clothing requires gang/org: %s'):format(tostring(requiredGang))
+  end
   if not csvAllows(requiredFamily, family) then return false, ('This clothing requires family: %s'):format(tostring(requiredFamily)) end
   return true
 end
@@ -332,6 +401,26 @@ RegisterCommand('clothingadmin', function(src)
 
   TriggerClientEvent('nvCloth:client:openAdminPanel', src)
 end, false)
+
+AddEventHandler('nvCloth:dev:openAdmin', function(src)
+  src = tonumber(src)
+  if not src or not isClothingAdmin(src) then return end
+  TriggerClientEvent('nvCloth:client:openAdminPanel', src)
+end)
+
+CreateThread(function()
+  while GetResourceState('cm-admin') ~= 'started' do Wait(5000) end
+  pcall(function()
+    exports['cm-admin']:RegisterDevTool({
+      id = 'clothing', label = 'Clothing Admin', category = 'Catalogs', icon = 'shirt',
+      permission = 'dev.clothing',
+      actions = {
+        { id = 'open', label = 'Open Clothing Admin', type = 'launcher', realm = 'server',
+          event = 'nvCloth:dev:openAdmin' }
+      }
+    })
+  end)
+end)
 
 local function runPositionCommand(src)
   if src == 0 then
@@ -505,6 +594,40 @@ local function catalogKey(gender, category, drawable, texture)
   return ('%s:%s:%s:%s'):format(
     tostring(gender or ''), tostring(category or ''), tostring(drawable or ''), tostring(texture or '')
   )
+end
+
+-- Stable identity shared by nv_cloth, cm-items catalog rows, manager updates,
+-- captures, and inventory metadata. It deliberately does not use a database
+-- auto-increment id, so retakes and restarts keep the same clothing identity.
+local function clothingUniqueId(gender, category, componentType, componentIndex, drawable, texture)
+  gender = tostring(gender or 'male'):lower() == 'female' and 'female' or 'male'
+  category = tostring(category or 'unknown'):lower():gsub('[^%w_%-]', '_')
+  componentType = tostring(componentType or 'component'):lower() == 'prop' and 'prop' or 'component'
+  componentIndex = math.floor(tonumber(componentIndex) or -1)
+  drawable = math.floor(tonumber(drawable) or -1)
+  texture = math.floor(tonumber(texture) or -1)
+  local textureKey = texture < 0 and 'all' or tostring(texture)
+  return ('nvcloth_%s_%s_%s_%s_d%s_t%s'):format(
+    gender, category, componentType, componentIndex, drawable, textureKey)
+end
+
+local function stampClothingIdentity(row)
+  if type(row) ~= 'table' then return row end
+  local category = tostring(row.category or row.categoryType or ''):lower()
+  local def = CATEGORY_COMPONENTS[category] or {}
+  local gender = tostring(row.gender or row.sex or 'male'):lower() == 'female' and 'female' or 'male'
+  local componentType = row.componentType or row.component_type or def.type
+  local componentIndex = tonumber(row.componentIndex or row.component_index) or tonumber(def.index)
+  local drawable = tonumber(row.drawableId or row.drawable_id or row.drawable)
+  local texture = tonumber(row.textureId or row.texture_id or row.texture or -1) or -1
+  local uid = clothingUniqueId(gender, category, componentType, componentIndex, drawable, texture)
+  row.uniqueId = uid
+  row.unique_id = uid
+  row.clothingId = uid
+  row.clothing_id = uid
+  row.catalogKey = row.catalogKey or catalogKey(gender, category, drawable, texture)
+  row.catalog_key = row.catalog_key or row.catalogKey
+  return row
 end
 
 local function rowMatchesClothing(row, category, gender, drawable, texture)
@@ -698,6 +821,7 @@ local function normalizeMetadataAliases(meta, category, def, drawable, texture, 
   meta.isClothing = true
   meta.stack = false
   meta.unique = true
+  stampClothingIdentity(meta)
 
   image = normalizeClothingImagePath(image or meta.image or meta.icon or meta.inventoryImage, gender, meta.componentType, meta.componentIndex, drawable)
   meta.image = image
@@ -1223,6 +1347,16 @@ RegisterNetEvent('nvCloth:server:getCachedShopCatalog', function(requestId, shop
     rows = filtered
   end
 
+  -- Backfill deterministic identity for older cm-items rows as they leave the
+  -- cache. No SQL migration is required and every UI/inventory path sees the
+  -- same identifier immediately.
+  for _, row in ipairs(rows) do
+    if type(row) == 'table' then
+      row.gender = row.gender or gender
+      stampClothingIdentity(row)
+    end
+  end
+
   TriggerClientEvent('nvCloth:client:cachedShopCatalog', src, requestId, rows)
 end)
 
@@ -1279,15 +1413,25 @@ end)
 local function sendCaptureCamerasToClient(src)
   local overrides = {}
   local ok, rows = pcall(function()
-    return MySQL.query.await('SELECT category, dist, z, fov FROM nv_cloth_capture_cameras', {})
+    return MySQL.query.await('SELECT category, dist, z, fov, pose_heading, pose_lift, light_strength, backdrop, cam_rel_z, cam_heading, cam_target_x, cam_target_y, preset_version FROM nv_cloth_capture_cameras', {})
   end)
   if ok and type(rows) == 'table' then
     for _, r in ipairs(rows) do
-      overrides[tostring(r.category)] = {
-        dist = tonumber(r.dist),
-        z = tonumber(r.z),
-        fov = tonumber(r.fov),
-      }
+      if tonumber(r.preset_version) == CAPTURE_PRESET_VERSION then
+        overrides[tostring(r.category)] = {
+          dist = tonumber(r.dist),
+          z = tonumber(r.z),
+          fov = tonumber(r.fov),
+          poseHeading = tonumber(r.pose_heading),
+          poseLift = tonumber(r.pose_lift),
+          lightStrength = tonumber(r.light_strength),
+          backdrop = r.backdrop and tostring(r.backdrop) or nil,
+          camRelZ = tonumber(r.cam_rel_z),
+          camHeading = tonumber(r.cam_heading),
+          camTargetX = tonumber(r.cam_target_x),
+          camTargetY = tonumber(r.cam_target_y),
+        }
+      end
     end
   end
   TriggerClientEvent('nvCloth:client:captureCameras', src, overrides)
@@ -1314,15 +1458,41 @@ RegisterNetEvent('nvCloth:server:saveCaptureCamera', function(data)
   local fov = tonumber(data.fov)
   if not dist or not z or not fov then return end
   -- Clamp to sane ranges so a bad slider value can't wreck the camera.
-  dist = math.max(0.6, math.min(6.0, dist))
+  dist = math.max(0.35, math.min(6.0, dist))
   z = math.max(-1.5, math.min(1.5, z))
   fov = math.max(6.0, math.min(70.0, fov))
 
-  dbUpdate([[INSERT INTO nv_cloth_capture_cameras (category, dist, z, fov)
-             VALUES (?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE dist = VALUES(dist), z = VALUES(z), fov = VALUES(fov)]],
-    { category, dist, z, fov })
-  auditLog(src, 'capture_camera_saved', { category = category, dist = dist, z = z, fov = fov }, category)
+  -- Optional pose (ped heading + lift) saved alongside the camera.
+  local poseHeading = tonumber(data.poseHeading)
+  local poseLift = tonumber(data.poseLift)
+  if poseHeading ~= nil then poseHeading = poseHeading % 360.0 end
+  if poseLift ~= nil then poseLift = math.max(-2.0, math.min(2.0, poseLift)) end
+
+  -- Unified studio extras.
+  local lightStrength = tonumber(data.lightStrength)
+  if lightStrength ~= nil then lightStrength = math.max(0.0, math.min(1.0, lightStrength)) end
+  local backdrop = data.backdrop and tostring(data.backdrop):lower():gsub('[^%a]', '') or nil
+  local allowedBackdrops = { green = true, blue = true, magenta = true, white = true, black = true }
+  if backdrop == '' or not allowedBackdrops[backdrop] then backdrop = nil end
+  local camRelZ = tonumber(data.camRelZ)
+  if camRelZ ~= nil then camRelZ = math.max(-2.0, math.min(2.0, camRelZ)) end
+  local camHeading = tonumber(data.camHeading)
+  if camHeading ~= nil then camHeading = camHeading % 360.0 end
+  local camTargetX = tonumber(data.camTargetX)
+  local camTargetY = tonumber(data.camTargetY)
+  if camTargetX ~= nil then camTargetX = math.max(-3.0, math.min(3.0, camTargetX)) end
+  if camTargetY ~= nil then camTargetY = math.max(-3.0, math.min(3.0, camTargetY)) end
+
+  dbUpdate([[INSERT INTO nv_cloth_capture_cameras (category, dist, z, fov, pose_heading, pose_lift, light_strength, backdrop, cam_rel_z, cam_heading, cam_target_x, cam_target_y, preset_version)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE dist = VALUES(dist), z = VALUES(z), fov = VALUES(fov),
+               pose_heading = VALUES(pose_heading), pose_lift = VALUES(pose_lift),
+               light_strength = VALUES(light_strength), backdrop = VALUES(backdrop), cam_rel_z = VALUES(cam_rel_z),
+               cam_heading = VALUES(cam_heading), cam_target_x = VALUES(cam_target_x), cam_target_y = VALUES(cam_target_y),
+               preset_version = VALUES(preset_version)]],
+    { category, dist, z, fov, poseHeading, poseLift, lightStrength, backdrop, camRelZ,
+      camHeading, camTargetX, camTargetY, CAPTURE_PRESET_VERSION })
+  auditLog(src, 'capture_camera_saved', { category = category, dist = dist, z = z, fov = fov, poseHeading = poseHeading, poseLift = poseLift }, category)
   sendCaptureCamerasToClient(src)
 end)
 
@@ -1342,16 +1512,18 @@ end)
 local function sendCaptureCropsToClient(src)
   local crops = {}
   local ok, rows = pcall(function()
-    return MySQL.query.await('SELECT category, trim_left, trim_top, trim_right, trim_bottom FROM nv_cloth_capture_crops', {})
+    return MySQL.query.await('SELECT category, trim_left, trim_top, trim_right, trim_bottom, crop_version FROM nv_cloth_capture_crops', {})
   end)
   if ok and type(rows) == 'table' then
     for _, r in ipairs(rows) do
-      crops[tostring(r.category)] = {
-        left = tonumber(r.trim_left) or 0,
-        top = tonumber(r.trim_top) or 0,
-        right = tonumber(r.trim_right) or 0,
-        bottom = tonumber(r.trim_bottom) or 0,
-      }
+      if tonumber(r.crop_version) == CAPTURE_CROP_VERSION then
+        crops[tostring(r.category)] = {
+          left = tonumber(r.trim_left) or 0,
+          top = tonumber(r.trim_top) or 0,
+          right = tonumber(r.trim_right) or 0,
+          bottom = tonumber(r.trim_bottom) or 0,
+        }
+      end
     end
   end
   TriggerClientEvent('nvCloth:client:captureCrops', src, crops)
@@ -1385,11 +1557,12 @@ RegisterNetEvent('nvCloth:server:saveCaptureCrop', function(data)
   local right = clampTrim(data.right)
   local bottom = clampTrim(data.bottom)
 
-  dbUpdate([[INSERT INTO nv_cloth_capture_crops (category, trim_left, trim_top, trim_right, trim_bottom)
-             VALUES (?, ?, ?, ?, ?)
+  dbUpdate([[INSERT INTO nv_cloth_capture_crops (category, trim_left, trim_top, trim_right, trim_bottom, crop_version)
+             VALUES (?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE trim_left = VALUES(trim_left), trim_top = VALUES(trim_top),
-                                     trim_right = VALUES(trim_right), trim_bottom = VALUES(trim_bottom)]],
-    { category, left, top, right, bottom })
+                                     trim_right = VALUES(trim_right), trim_bottom = VALUES(trim_bottom),
+                                     crop_version = VALUES(crop_version)]],
+    { category, left, top, right, bottom, CAPTURE_CROP_VERSION })
   auditLog(src, 'capture_crop_saved', { category = category, left = left, top = top, right = right, bottom = bottom }, category)
   sendCaptureCropsToClient(src)
 end)
@@ -1467,17 +1640,11 @@ RegisterNetEvent('nvCloth:server:adminToggleItem', function(data)
 
   applyDestinationToEntry(entry, destination)
 
-  -- For torso rows we save the matching component 3 arms/body and component 8 undershirt.
-  -- Admin can set the fit once; because textureId = -1, every texture of this drawable uses it.
-  if category == 'torso' then
-    entry.arms = tonumber(data.arms)
-    entry.armsTexture = tonumber(data.armsTexture) or 0
-    entry.arms_texture = entry.armsTexture
-    entry.undershirt = tonumber(data.undershirt)
-    entry.undershirtTexture = tonumber(data.undershirtTexture) or 0
-    entry.undershirt_texture = entry.undershirtTexture
+  -- Legacy state-preserving catalog updates remain compatible, but the current
+  -- /clothingadmin NUI no longer exposes this path or any torso-fit controls.
+  if data.preserveState == true then
+    preserveManagedState(entry, findExistingManagedRow(category, gender, drawable))
   end
-
 
   if category == 'bags' then
     local level = tonumber(data.bagLevel or data.bag_level or data.level)
@@ -1495,13 +1662,20 @@ RegisterNetEvent('nvCloth:server:adminToggleItem', function(data)
     print(('[nv_cloth] Admin save bag drawable=%s level=%s image=%s destination=%s'):format(tostring(drawable), tostring(level), tostring(entry.image), tostring(destination)))
   end
 
+  stampClothingIdentity(entry)
   local ok, result, err = pcall(function()
     return exports['cm-items']:SaveClothingCatalogEntry(entry)
   end)
 
   if ok and result then
-    auditLog(src, enabled and 'catalog_enabled' or 'catalog_disabled', entry, ('%s:%s:%s:%s'):format(gender, category, drawable, texture))
-    notify(src, enabled and 'Clothing item enabled for all textures. Torso fit saved if this is a torso item.' or 'Clothing item disabled for all textures.', enabled and 'success' or 'info')
+    auditLog(src, entry.enabled and 'catalog_enabled' or 'catalog_disabled', entry, ('%s:%s:%s:%s'):format(gender, category, drawable, texture))
+    if data.preserveState == true then
+      notify(src, category == 'torso'
+        and 'Torso saved with its current body/arms fit. Publish state unchanged.'
+        or 'Clothing item saved. Publish state unchanged.', 'success')
+    else
+      notify(src, entry.enabled and 'Clothing item enabled for all textures. Torso fit saved if this is a torso item.' or 'Clothing item disabled for all textures.', entry.enabled and 'success' or 'info')
+    end
     TriggerClientEvent('nvCloth:client:adminCatalogSaved', src, entry)
   else
     local reason = tostring(err or result or 'unknown')
@@ -1585,6 +1759,7 @@ RegisterNetEvent('nvCloth:server:adminBulkToggleItems', function(data)
             entry.description = ('Level %s bag. Unlocks backpack slots.'):format(level)
           end
         end
+        stampClothingIdentity(entry)
         local ok, result = pcall(function() return exports['cm-items']:SaveClothingCatalogEntry(entry) end)
         if ok and result then updated = updated + 1 else failed = failed + 1 end
       else
@@ -1600,7 +1775,8 @@ end)
 
 --========================================================
 -- Admin inventory icon save
--- Receives transparent PNG from NUI canvas, saves it in cm-items, then saves path to clothing_catalog.image.
+-- Receives transparent PNG/WebP from NUI canvas and writes both into this resource.
+-- Optional cm-items catalog synchronisation is disabled by default.
 --========================================================
 local b64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 local b64lookup = {}
@@ -1636,6 +1812,98 @@ local function safeFilePart(value)
   value = value:gsub('[^%w_%-%.]', '_')
   value = value:gsub('_+', '_')
   return value
+end
+
+--========================================================
+-- Build 2.19 · /clothingstore manager helpers
+-- Captured clothes are saved UNPUBLISHED. Publishing, pricing, and org
+-- assignment happen in /clothingstore. Org clothes live under shop
+-- 'org_<key>' with required_job = <key>; org members open them with the
+-- separate org locker command, never the public store.
+--========================================================
+local function allManagedShopNames()
+  local shops = { 'clothes', 'hidden_event' }
+  for org in pairs(Config.OrgShops or {}) do
+    shops[#shops + 1] = 'org_' .. tostring(org):lower()
+  end
+  return shops
+end
+
+local function orgFromShopName(shop)
+  shop = tostring(shop or ''):lower()
+  local org = shop:match('^org_(.+)$')
+  return org
+end
+
+-- Finds the stored catalog row for one drawable (any texture row form) across
+-- every managed shop, disabled rows included. Used so a retake never resets an
+-- item that an admin already published/priced/assigned in /clothingstore.
+findExistingManagedRow = function(category, gender, drawable)
+  if GetResourceState('cm-items') ~= 'started' then return nil end
+  category = tostring(category or ''):lower()
+  gender = tostring(gender or 'male'):lower() == 'female' and 'female' or 'male'
+  drawable = tonumber(drawable)
+  if not drawable then return nil end
+
+  local fallback = nil
+  for _, shopName in ipairs(allManagedShopNames()) do
+    local ok, rows = pcall(function()
+      return exports['cm-items']:GetClothingCatalogRows({
+        shop = shopName,
+        gender = gender,
+        includeDisabled = true,
+      })
+    end)
+    if ok and type(rows) == 'table' then
+      for _, row in ipairs(rows) do
+        if type(row) == 'table' then
+          local rowCat = tostring(row.category or ''):lower()
+          local rowDraw = tonumber(row.drawableId or row.drawable_id or row.drawable)
+          local rowGender = tostring(row.gender or 'male'):lower()
+          if rowDraw == drawable and rowGender == gender
+            and (rowCat == category or CATEGORY_COMPONENTS[rowCat] == CATEGORY_COMPONENTS[category]) then
+            row.shop = row.shop or shopName
+            local rowTexture = tonumber(row.textureId or row.texture_id or row.texture or -1) or -1
+            if rowTexture < 0 then return row end
+            fallback = fallback or row
+          end
+        end
+      end
+    end
+  end
+  return fallback
+end
+
+-- Copies the fields an admin manages in /clothingstore from an existing row
+-- onto a freshly-built entry, so image retakes are state-preserving.
+preserveManagedState = function(entry, existing)
+  if type(existing) ~= 'table' then
+    -- Brand-new clothe: saved but NOT in any store until published.
+    entry.enabled = false
+    return entry
+  end
+  entry.enabled = not (existing.enabled == false or existing.enabled == 0 or existing.enabled == '0')
+  entry.shop = existing.shop or entry.shop
+  entry.price = tonumber(existing.price) or entry.price
+  if existing.label and existing.label ~= '' then
+    entry.label = existing.label
+    entry.name = existing.label
+  end
+  local rJob = existing.requiredJob or existing.required_job
+  if rJob and rJob ~= '' then
+    entry.requiredJob = rJob
+    entry.required_job = rJob
+  end
+  local rGang = existing.requiredGang or existing.required_gang
+  if rGang and rGang ~= '' then
+    entry.requiredGang = rGang
+    entry.required_gang = rGang
+  end
+  entry.destination = existing.destination or entry.destination
+  if entry.destination == 'hidden' or entry.shop == 'hidden_event' then
+    entry.hidden = true
+  end
+  return entry
 end
 
 local function saveCatalogEntryFromIcon(src, data, imagePath)
@@ -1683,15 +1951,12 @@ local function saveCatalogEntryFromIcon(src, data, imagePath)
 
   applyDestinationToEntry(entry, destination)
 
-  if category == 'torso' then
-    entry.arms = tonumber(data.arms)
-    entry.armsTexture = tonumber(data.armsTexture) or 0
-    entry.arms_texture = entry.armsTexture
-    entry.undershirt = tonumber(data.undershirt)
-    entry.undershirtTexture = tonumber(data.undershirtTexture) or 0
-    entry.undershirt_texture = entry.undershirtTexture
-  end
-
+  -- Build 2.19: /clothingadmin only captures + saves. It never publishes.
+  -- New clothes are stored with enabled = false and appear in /clothingstore
+  -- as "SAVED · NOT IN STORE". A retake of an existing clothe keeps whatever
+  -- publish state / price / label / org the admin already set in /clothingstore.
+  local existingManaged = findExistingManagedRow(category, gender, drawable)
+  preserveManagedState(entry, existingManaged)
 
   if category == 'bags' then
     local level = tonumber(data.bagLevel or data.bag_level or data.level) or 1
@@ -1704,6 +1969,7 @@ local function saveCatalogEntryFromIcon(src, data, imagePath)
   end
 
   local function saveEntry(row)
+    stampClothingIdentity(row)
     local ok, result, err = pcall(function()
       return exports['cm-items']:SaveClothingCatalogEntry(row)
     end)
@@ -1732,8 +1998,27 @@ local function saveCatalogEntryFromIcon(src, data, imagePath)
   end
 
   local okSave, errSave = saveEntry(entry)
-  if okSave then return true, entry end
-  return false, errSave
+  if not okSave then return false, errSave end
+
+  -- /clothingstore groups exact texture captures under the drawable-level
+  -- (texture = -1) row. Keep that authoritative manager row's image in sync on
+  -- a retake, otherwise the PNG is written successfully but the manager keeps
+  -- showing its previous image path/content.
+  local existingTexture = type(existingManaged) == 'table'
+    and (tonumber(existingManaged.textureId or existingManaged.texture_id or existingManaged.texture or -1) or -1)
+    or nil
+  if existingTexture and existingTexture < 0 and texture >= 0 then
+    local drawableEntry = {}
+    for k, v in pairs(existingManaged) do drawableEntry[k] = v end
+    drawableEntry.image = imagePath
+    drawableEntry.icon = imagePath
+    drawableEntry.updatedBy = ('player:%s'):format(src)
+    drawableEntry.updated_by = drawableEntry.updatedBy
+    local okDrawable, errDrawable = saveEntry(drawableEntry)
+    if not okDrawable then return false, errDrawable end
+  end
+
+  return true, entry
 end
 
 RegisterNetEvent('nvCloth:server:saveInventoryIcon', function(data)
@@ -1745,9 +2030,11 @@ RegisterNetEvent('nvCloth:server:saveInventoryIcon', function(data)
     return
   end
 
-  if GetResourceState('cm-items') ~= 'started' then
+  local captureCfg = Config.IconCapture or {}
+  local catalogSync = captureCfg.catalogSync == true
+  if catalogSync and GetResourceState('cm-items') ~= 'started' then
     TriggerClientEvent('nvCloth:client:inventoryIconSaveFailed', src, 'cm-items_not_started')
-    notify(src, 'cm-items is not started.', 'error')
+    notify(src, 'Catalog sync is enabled but cm-items is not started.', 'error')
     return
   end
 
@@ -1767,7 +2054,8 @@ RegisterNetEvent('nvCloth:server:saveInventoryIcon', function(data)
 
   local bytes = base64Decode(raw)
   print(('[nv_cloth] decoded icon bytes=%s'):format(bytes and #bytes or 0))
-  if not bytes or #bytes < 100 then
+  local pngSignature = string.char(137) .. 'PNG' .. string.char(13, 10, 26, 10)
+  if not bytes or #bytes < 100 or bytes:sub(1, 8) ~= pngSignature then
     TriggerClientEvent('nvCloth:client:inventoryIconSaveFailed', src, 'decode_failed')
     return
   end
@@ -1780,7 +2068,7 @@ RegisterNetEvent('nvCloth:server:saveInventoryIcon', function(data)
   --========================================================
   local category = tostring(data.category or ''):lower()
   local shopKey = tostring(data.shop or ''):lower()
-  if category == 'armor' or shopKey == 'guns' then
+  if catalogSync and (category == 'armor' or shopKey == 'guns') then
     if GetResourceState('cm-gunstore') ~= 'started' then
       TriggerClientEvent('nvCloth:client:inventoryIconSaveFailed', src, 'cm-gunstore_not_started')
       notify(src, 'cm-gunstore is not started; cannot deliver vest image.', 'error')
@@ -1818,21 +2106,82 @@ RegisterNetEvent('nvCloth:server:saveInventoryIcon', function(data)
     return
   end
 
-  local folder = (Config.IconCapture and Config.IconCapture.folder) or 'ui/images/clothing/custom'
+  local folder = captureCfg.folder or 'generated_images'
   folder = tostring(folder):gsub('^/', ''):gsub('/$', '')
-  local savePath = ('%s/%s'):format(folder, fileName)
-  print(('[nv_cloth] saving icon into cm-items:%s'):format(savePath))
-  local okSave = SaveResourceFile('cm-items', savePath, bytes, #bytes)
-  if not okSave then
-    TriggerClientEvent('nvCloth:client:inventoryIconSaveFailed', src, 'save_file_failed')
-    notify(src, 'Could not save icon file into cm-items. Check folder exists and server has write permission.', 'error')
+  local targetResource = GetCurrentResourceName()
+  local localFiles = {}
+
+  -- One clothing item = exactly one saved photo (the cm-items PNG below).
+  -- Set Config.IconCapture.keepLocalCopy = true only if you also want an
+  -- nv_cloth/generated_images working copy (png + optional webp) kept on disk.
+  if captureCfg.keepLocalCopy == true then
+    local savePath = ('%s/%s'):format(folder, fileName)
+    print(('[nv_cloth] saving local PNG into %s:%s'):format(targetResource, savePath))
+    local okSave = SaveResourceFile(targetResource, savePath, bytes, #bytes)
+    if not okSave then
+      TriggerClientEvent('nvCloth:client:inventoryIconSaveFailed', src, 'save_file_failed')
+      notify(src, 'Could not save PNG inside nv_cloth/generated_images. Check server write permission.', 'error')
+      return
+    end
+    localFiles.png = savePath
+
+    local formats = type(captureCfg.formats) == 'table' and captureCfg.formats or { png = true }
+    if formats.webp ~= false then
+      local webpBytes = type(data.webpBase64) == 'string' and base64Decode(data.webpBase64) or nil
+      local webpName = fileName:gsub('%.png$', '.webp')
+      local webpPath = ('%s/%s'):format(folder, webpName)
+      local validWebp = webpBytes and #webpBytes >= 100
+        and webpBytes:sub(1, 4) == 'RIFF' and webpBytes:sub(9, 12) == 'WEBP'
+      if validWebp and SaveResourceFile(targetResource, webpPath, webpBytes, #webpBytes) then
+        localFiles.webp = webpPath
+        print(('[nv_cloth] saved local WebP into %s:%s'):format(targetResource, webpPath))
+      else
+        print(('[nv_cloth] ERROR: WebP companion could not be written for %s'):format(fileName))
+        TriggerClientEvent('nvCloth:client:inventoryIconSaveFailed', src, 'webp_save_failed')
+        return
+      end
+    end
+  end
+
+  local catalogResource = tostring(captureCfg.catalogImageResource or 'cm-items')
+  local catalogFolder = tostring(captureCfg.catalogImageFolder or 'ui/images/clothing/custom')
+    :gsub('^/', ''):gsub('/$', '')
+  local catalogFilePath = ('%s/%s'):format(catalogFolder, fileName)
+  if GetResourceState(catalogResource) ~= 'started'
+    or not SaveResourceFile(catalogResource, catalogFilePath, bytes, #bytes) then
+    TriggerClientEvent('nvCloth:client:inventoryIconSaveFailed', src, 'cm_items_image_save_failed')
+    notify(src, 'Image captured, but it could not be copied into cm-items.', 'error')
     return
   end
 
-  local prefix = (Config.IconCapture and Config.IconCapture.catalogImagePrefix) or 'custom'
+  local prefix = captureCfg.catalogImagePrefix or 'custom'
   prefix = tostring(prefix):gsub('^/', ''):gsub('/$', '')
   local catalogImage = ('%s/%s'):format(prefix, fileName)
-  print(('[nv_cloth] saved icon file, catalog image=%s'):format(catalogImage))
+  localFiles.catalogPng = catalogFilePath
+  print(('[nv_cloth] saved local icon and cm-items catalog image=%s'):format(catalogImage))
+
+  -- Image-only mode: no external inventory/catalog API is called. Return enough
+  -- metadata for progress tracking and the failed-image/retry queue.
+  if not catalogSync then
+    local entry = {
+      gender = tostring(data.gender or 'male'):lower(),
+      category = category,
+      componentType = data.componentType,
+      componentIndex = tonumber(data.componentIndex),
+      drawableId = tonumber(data.drawableId or data.drawable),
+      textureId = tonumber(data.textureId or data.texture or 0) or 0,
+      image = catalogImage,
+      icon = catalogImage,
+      localFiles = localFiles,
+      enabled = true,
+      imageOnly = true,
+    }
+    auditLog(src, 'local_icon_saved', entry,
+      ('%s:%s:%s:%s'):format(tostring(entry.gender), tostring(entry.category),
+        tostring(entry.drawableId), tostring(entry.textureId)))
+    TriggerClientEvent('nvCloth:client:inventoryIconSaved', src, entry)
+    return
+  end
 
   local okCatalog, entryOrErr = saveCatalogEntryFromIcon(src, data, catalogImage)
   if not okCatalog then
@@ -1842,6 +2191,353 @@ RegisterNetEvent('nvCloth:server:saveInventoryIcon', function(data)
   end
 
   auditLog(src, 'catalog_icon_saved', entryOrErr, entryOrErr and ('%s:%s:%s:%s'):format(tostring(entryOrErr.gender), tostring(entryOrErr.category), tostring(entryOrErr.drawableId), tostring(entryOrErr.textureId)) or nil)
-  notify(src, (data.destination == 'hidden') and 'Inventory icon captured. Item saved hidden/event-only.' or 'Inventory icon captured and clothing enabled.', 'success')
+  local savedPublished = type(entryOrErr) == 'table' and entryOrErr.enabled == true
+  notify(src, savedPublished
+    and 'Image retaken. Clothe stays published with its current price/org.'
+    or 'Clothe captured and saved. Publish it to the store in /clothingstore.', 'success')
   TriggerClientEvent('nvCloth:client:inventoryIconSaved', src, entryOrErr)
 end)
+
+-- One-time/idempotent compatibility reconciliation for captures made before
+-- cm-items became the image owner. Existing catalog rows keep their identity,
+-- price, publish state and restrictions; only their image path is migrated.
+CreateThread(function()
+  Wait(5000)
+  if GetResourceState('cm-items') ~= 'started' then return end
+  local ok, rows = pcall(function()
+    return exports['cm-items']:GetClothingCatalogRows({ includeDisabled = true })
+  end)
+  if not ok or type(rows) ~= 'table' then return end
+
+  local captureCfg = Config.IconCapture or {}
+  local catalogFolder = tostring(captureCfg.catalogImageFolder or 'ui/images/clothing/custom')
+    :gsub('^/', ''):gsub('/$', '')
+  local catalogPrefix = tostring(captureCfg.catalogImagePrefix or 'custom')
+    :gsub('^/', ''):gsub('/$', '')
+
+  for _, row in ipairs(rows) do
+    if type(row) == 'table' then
+      local oldImage = tostring(row.image or row.icon or '')
+      local oldPath = oldImage:match('^generated_images/(.+%.png)$')
+      if oldPath then
+        local fileName = safeFilePart(oldPath)
+        local bytes = LoadResourceFile(GetCurrentResourceName(), 'generated_images/' .. fileName)
+        if bytes and #bytes >= 100 then
+          local targetPath = ('%s/%s'):format(catalogFolder, fileName)
+          if SaveResourceFile('cm-items', targetPath, bytes, #bytes) then
+            local migrated = {}
+            for k, v in pairs(row) do migrated[k] = v end
+            migrated.image = ('%s/%s'):format(catalogPrefix, fileName)
+            migrated.icon = migrated.image
+            migrated.updatedBy = migrated.updatedBy or 'nv_cloth:image_reconcile'
+            pcall(function()
+              return exports['cm-items']:SaveClothingCatalogEntry(migrated)
+            end)
+          end
+        end
+      end
+    end
+  end
+end)
+
+--========================================================
+-- Build 2.19 · /clothingstore — admin store manager
+--========================================================
+-- /clothingadmin now only captures + saves clothes (records are unpublished).
+-- /clothingstore is where an admin:
+--   · browses every saved clothe (male + female) with its captured image,
+--   · publishes/unpublishes it to the player store and sets its price,
+--   · assigns it to an org (Config.OrgShops) so it moves to that org locker,
+--   · previews the clothe on the ped (model-swapping for the other gender),
+--   · jumps back into /clothingadmin with the clothe preselected to retake
+--     its image.
+-- The player store only ever shows rows with enabled = true in shop 'clothes';
+-- org lockers only show rows in their own 'org_<key>' shop.
+
+local function orgShopLabel(org)
+  local cfg = (Config.OrgShops or {})[org]
+  if type(cfg) == 'table' and cfg.label then return tostring(cfg.label) end
+  return tostring(org or ''):upper() .. ' Locker'
+end
+
+local function manageOrgList()
+  local list = {}
+  for org in pairs(Config.OrgShops or {}) do
+    list[#list + 1] = { key = tostring(org):lower(), label = orgShopLabel(org) }
+  end
+  table.sort(list, function(a, b) return a.key < b.key end)
+  return list
+end
+
+RegisterCommand(Config.ManageCommand or 'clothingstore', function(src)
+  if src == 0 then
+    print('[nv_cloth] /' .. tostring(Config.ManageCommand or 'clothingstore') .. ' can only be used in-game.')
+    return
+  end
+  local allowed = isClothingAdmin(src)
+  print(('[nv_cloth] /%s requested by source=%s ACE=%s'):format(
+    tostring(Config.ManageCommand or 'clothingstore'), tostring(src), allowed and 'allowed' or 'denied'))
+  if not allowed then
+    notify(src, 'You do not have permission to manage the clothing store.', 'error')
+    return
+  end
+  TriggerClientEvent('nvCloth:client:openManagePanel', src, {
+    orgs = manageOrgList(),
+    prices = Config.Prices,
+  })
+end, false)
+
+AddEventHandler('nvCloth:dev:openManage', function(src)
+  src = tonumber(src)
+  if not src or not isClothingAdmin(src) then return end
+  TriggerClientEvent('nvCloth:client:openManagePanel', src, {
+    orgs = manageOrgList(),
+    prices = Config.Prices,
+  })
+end)
+
+local function collectManageRows()
+  local out = {}
+  if GetResourceState('cm-items') ~= 'started' then return out end
+  local seen = {}
+  -- The manager owns every saved clothing row, including unpublished and
+  -- legacy rows. Querying only a hard-coded shop list hid otherwise-valid
+  -- female captures when their stored shop value was missing or nonstandard.
+  local ok, rows = pcall(function()
+    return exports['cm-items']:GetClothingCatalogRows({ includeDisabled = true })
+  end)
+  if not ok or type(rows) ~= 'table' then return out end
+
+  for _, row in ipairs(rows) do
+    if type(row) == 'table' then
+      local managedRow = {}
+      for k, v in pairs(row) do managedRow[k] = v end
+      local gender = tostring(managedRow.gender or ''):lower()
+      local category = tostring(managedRow.category or ''):lower()
+      local drawable = tonumber(managedRow.drawableId or managedRow.drawable_id or managedRow.drawable)
+      local texture = tonumber(managedRow.textureId or managedRow.texture_id or managedRow.texture or -1) or -1
+      local shopName = tostring(managedRow.shop or 'clothes'):lower()
+      if drawable and (gender == 'male' or gender == 'female') then
+        local key = ('%s|%s|%s|%s|%s'):format(gender, shopName, category, drawable, texture)
+        if not seen[key] then
+          seen[key] = true
+          managedRow.shop = shopName
+          managedRow.organizations = type(managedRow.organizations) == 'table' and managedRow.organizations or {}
+          managedRow.org = managedRow.organizations[1] or orgFromShopName(shopName) or ''
+          managedRow.publicStore = shopName == 'clothes'
+          managedRow.image = normalizeClothingImagePath(
+            managedRow.image or managedRow.icon, gender,
+            managedRow.componentType or managedRow.component_type,
+            managedRow.componentIndex or managedRow.component_index, drawable)
+          -- The capture file name is stable across retakes. Give the NUI a
+          -- per-refresh cache token so CEF fetches the overwritten pixels.
+          managedRow.imageVersion = os.time()
+          stampClothingIdentity(managedRow)
+          out[#out + 1] = managedRow
+        end
+      end
+    end
+  end
+  return out
+end
+
+RegisterNetEvent('nvCloth:server:getManageCatalog', function()
+  local src = source
+  if not isClothingAdmin(src) then return end
+  TriggerClientEvent('nvCloth:client:manageCatalog', src, collectManageRows())
+end)
+
+RegisterNetEvent('nvCloth:server:manageSaveItem', function(data)
+  local src = source
+  if not isClothingAdmin(src) then
+    notify(src, 'You do not have permission to manage the clothing store.', 'error')
+    return
+  end
+  if GetResourceState('cm-items') ~= 'started' then
+    notify(src, 'cm-items is not started.', 'error')
+    return
+  end
+  data = type(data) == 'table' and data or {}
+
+  local category = tostring(data.category or ''):lower()
+  local def = CATEGORY_COMPONENTS[category]
+  if not def then
+    notify(src, 'Invalid clothing category.', 'error')
+    return
+  end
+  local drawable = tonumber(data.drawableId or data.drawable)
+  if not drawable then
+    notify(src, 'Invalid clothing drawable.', 'error')
+    return
+  end
+  local texture = tonumber(data.textureId or data.texture or -1) or -1
+  local gender = tostring(data.gender or 'male'):lower() == 'female' and 'female' or 'male'
+  local published = data.published == true or data.published == 1
+
+  -- Org routing. A clothe with an org lives ONLY in that org's locker shop and
+  -- carries required_job so even a leaked row can't be bought by outsiders.
+  local orgs, seenOrgs = {}, {}
+  local requestedOrgs = type(data.orgs) == 'table' and data.orgs or { data.org }
+  for _, requested in ipairs(requestedOrgs) do
+    local org = tostring(requested or ''):lower():gsub('[^%w_%-]', '')
+    if org ~= '' then
+      if not (Config.OrgShops or {})[org] then
+        notify(src, ('Unknown org "%s". Add it to Config.OrgShops first.'):format(org), 'error')
+        return
+      end
+      if not seenOrgs[org] then seenOrgs[org] = true; orgs[#orgs + 1] = org end
+    end
+  end
+  table.sort(orgs)
+  local publicStore = data.publicStore == true or (#orgs == 0 and data.publicStore == nil)
+
+  local existing = findExistingManagedRow(category, gender, drawable)
+  local label = tostring(data.label or (existing and existing.label) or ('%s %s'):format(def.label, drawable))
+  local price = tonumber(data.price)
+  if price == nil then price = tonumber(existing and existing.price) or tonumber(Config.Prices[category]) or 0 end
+  price = math.max(0, math.floor(price))
+
+  local entry = {
+    gender = gender,
+    componentType = def.type,
+    component_type = def.type,
+    componentIndex = def.index,
+    component_index = def.index,
+    drawableId = drawable,
+    drawable_id = drawable,
+    drawable = drawable,
+    textureId = texture,
+    texture_id = texture,
+    texture = texture,
+    label = label,
+    name = label,
+    description = (existing and existing.description) or ('%s clothing item'):format(def.label),
+    price = price,
+    category = category,
+    enabled = published,
+    updatedBy = ('player:%s'):format(src),
+    updated_by = ('player:%s'):format(src),
+  }
+
+  -- Keep the captured image. Torso fitting is owned exclusively by
+  -- /clothingstore: incoming live values update the existing texture=-1 row;
+  -- ordinary name/price/publish saves retain the previous fit.
+  if existing then
+    entry.image = existing.image or existing.icon or data.image or data.icon
+    entry.icon = existing.icon or existing.image or data.icon or data.image
+    if category == 'bags' then
+      local level = tonumber(existing.bagLevel or existing.bag_level or existing.level)
+      if level then
+        entry.bagLevel = level
+        entry.bag_level = level
+        entry.level = level
+        entry.itemName = 'clothing_bags'
+        entry.item_name = 'clothing_bags'
+      end
+    end
+  end
+  if not entry.image then
+    entry.image = data.image or data.icon
+    entry.icon = data.icon or data.image
+  end
+
+  if category == 'torso' then
+    local oldArms = existing and tonumber(existing.arms) or nil
+    local oldArmsTexture = existing and tonumber(existing.armsTexture or existing.arms_texture) or 0
+    local oldUndershirt = existing and tonumber(existing.undershirt) or nil
+    local oldUndershirtTexture = existing and tonumber(existing.undershirtTexture or existing.undershirt_texture) or 0
+    entry.arms = tonumber(data.arms) or oldArms
+    entry.armsTexture = tonumber(data.armsTexture or data.arms_texture)
+      or oldArmsTexture or 0
+    entry.arms_texture = entry.armsTexture
+    entry.undershirt = tonumber(data.undershirt) or oldUndershirt
+    entry.undershirtTexture = tonumber(data.undershirtTexture or data.undershirt_texture)
+      or oldUndershirtTexture or 0
+    entry.undershirt_texture = entry.undershirtTexture
+    entry.fitMaster = true
+    entry.fit_master = true
+  end
+
+  if not publicStore and #orgs > 0 then
+    entry.shop = 'org_' .. orgs[1]
+    entry.requiredJob = orgs[1]
+    entry.required_job = orgs[1]
+    entry.destination = 'store'
+    entry.hidden = false
+  else
+    entry.shop = 'clothes'
+    entry.requiredJob = tostring(data.requiredJob or '')
+    entry.required_job = entry.requiredJob
+    entry.destination = 'store'
+    entry.hidden = false
+  end
+
+  stampClothingIdentity(entry)
+  local ok, result, err = pcall(function()
+    return exports['cm-items']:SaveClothingCatalogEntry(entry)
+  end)
+  if not ok or not result then
+    local reason = tostring(err or result or 'unknown')
+    print(('[nv_cloth] manage save failed for %s/%s gender=%s: %s'):format(category, drawable, gender, reason))
+    notify(src, ('Could not save clothe: %s'):format(reason), 'error')
+    return
+  end
+
+  local assignedOk, assigned, assignedErr = pcall(function()
+    return exports['cm-items']:SetClothingCatalogOrganizations(entry, orgs)
+  end)
+  if not assignedOk or assigned ~= true then
+    notify(src, ('Clothe saved, but organisation assignments failed: %s'):format(tostring(assignedErr or assigned or 'unknown')), 'error')
+    return
+  end
+
+  -- NOTE: a previous "disable the old shop's stale row" step used to run
+  -- here when an item moved between shops (clothes <-> org_x). It assumed
+  -- each shop got its own DB row, but cm-items' clothing_catalog unique key
+  -- (gender, component_type, component_index, drawable_id, texture_id)
+  -- does not include `shop` -- there is only ever one row per item, so that
+  -- second save always re-targeted the exact row this function just
+  -- updated above and immediately reverted shop back to the old value with
+  -- enabled=false, clobbering the org assignment before this handler even
+  -- returned. Removed: the save above already fully moves the item between
+  -- shops by itself (same row, updated shop column), nothing else to do.
+
+  auditLog(src, 'manage_save', entry, ('%s:%s:%s'):format(gender, category, drawable))
+  local msg
+  if #orgs > 0 then
+    local labels = {}
+    for _, org in ipairs(orgs) do labels[#labels + 1] = orgShopLabel(org) end
+    msg = published
+      and ('Clothe published for %s%s.'):format(table.concat(labels, ', '), publicStore and ' and the public store' or '')
+      or ('Clothe assigned to %s (saved unpublished).'):format(table.concat(labels, ', '))
+  else
+    msg = published and 'Clothe published in the player store.' or 'Clothe removed from the player store (still saved).'
+  end
+  notify(src, msg, 'success')
+
+  entry.org = orgs[1] or ''
+  entry.organizations = orgs
+  entry.publicStore = publicStore
+  entry.image = entry.image and normalizeClothingImagePath(entry.image, gender, def.type, def.index, drawable) or entry.image
+  TriggerClientEvent('nvCloth:client:manageItemSaved', src, entry)
+end)
+
+--========================================================
+-- Build 2.19 · Org locker command (/orgcloset)
+--========================================================
+RegisterCommand(Config.OrgShopCommand or 'orgcloset', function(src)
+  if src == 0 then
+    print('[nv_cloth] Org locker can only be used in-game.')
+    return
+  end
+  local job = stateStringValue(src, 'jobName', 'job_name', 'job')
+  local legalOrg = stateStringValue(src, 'cmLegalOrg')
+  if (job == '' or not (Config.OrgShops or {})[job]) and legalOrg ~= '' and (Config.OrgShops or {})[legalOrg] then
+    job = legalOrg
+  end
+  if job == '' or not (Config.OrgShops or {})[job] then
+    notify(src, 'Your job has no clothing locker.', 'error')
+    return
+  end
+  TriggerClientEvent('nvCloth:client:openOrgShop', src, job, orgShopLabel(job))
+end, false)

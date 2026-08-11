@@ -1,0 +1,4 @@
+/* Intentionally left as the shared cm-ui cyan/ice-blue identity (see root
+   AGENTS.md) rather than a "police blue" reskin -- this file exists so a
+   future palette tweak has somewhere to go without touching index.html or
+   fxmanifest.lua again. */

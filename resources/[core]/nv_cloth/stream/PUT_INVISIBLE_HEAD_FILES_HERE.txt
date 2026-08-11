@@ -1,9 +1,0 @@
-Place your invisible freemode head replacement files in this stream folder with these exact names:
-
-mp_m_freemode_01^head_000_r.ydd
-mp_f_freemode_01^head_000_r.ydd
-
-These files replace head drawable 0 while this resource is running. nv_cloth capture uses:
-SetPedComponentVariation(ped, 0, 0, 0, 0)
-
-Do not rename them with spaces or backslashes. The ^ symbol is required in the filename.

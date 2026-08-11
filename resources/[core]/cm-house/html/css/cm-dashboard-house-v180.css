@@ -1,0 +1,228 @@
+/* cm-house v1.8.0 — shared CM dashboard adapter.
+   Loaded last to convert every house NUI view without changing JS contracts. */
+:root {
+  --house-panel:var(--cm-dashboard-panel,linear-gradient(160deg,#181a2c 0%,#171827 58%,#151625 100%));
+  --house-card:var(--cm-dashboard-card,linear-gradient(155deg,#23263f,#1c1e33));
+  --house-row:#23263f;
+  --house-row-hover:#292e4b;
+  --house-line:var(--cm-dashboard-line,rgba(255,255,255,.075));
+  --house-line-strong:var(--cm-dashboard-line-strong,rgba(91,134,255,.34));
+  --house-text:var(--cm-dashboard-text,#f4f6ff);
+  --house-soft:var(--cm-dashboard-text-soft,#c3c6de);
+  --house-muted:var(--cm-dashboard-muted,#969bb8);
+  --house-blue:var(--cm-dashboard-blue,#5b86ff);
+  --house-blue-dark:var(--cm-dashboard-blue-dark,#3f63e0);
+  --house-cyan:var(--cm-dashboard-cyan,#52dce9);
+  --house-green:var(--cm-dashboard-green,#33d69f);
+  --house-amber:var(--cm-dashboard-amber,#f0b43c);
+  --house-red:var(--cm-dashboard-red,#ff6b6b);
+  --house-font:"DM Sans","Segoe UI",Arial,sans-serif;
+  --house-font-display:"Poppins","DM Sans","Segoe UI",Arial,sans-serif;
+  --cm-dashboard-primary:linear-gradient(135deg,#5b86ff,#3f63e0);
+  --cm-dashboard-shadow:0 38px 110px rgba(3,6,20,.58);
+  --cm-dashboard-shadow-button:0 13px 27px -15px rgba(73,115,240,.88);
+}
+
+* { font-family:var(--cm-font,var(--house-font)) !important; }
+h1,h2,h3,strong,.deed__id h1,.row__title,.row__name,.tile__name,.card__name,
+.weapon-storage-heading h2,.weapon-item-name,.solid,.ghost,.act,.tab,.mini,
+.garage-slot-action span,.interior-door-option strong {
+  font-family:var(--cm-font-display,var(--house-font-display)) !important;
+}
+body { color:var(--house-text) !important; background:transparent !important; }
+.screen { padding:clamp(16px,2.5vw,34px) !important; background:rgba(94,103,157,.43) !important; }
+
+.deed,.wiz,.adm,.garage-slot-card,.interior-door-card,.weapon-storage-card {
+  color:var(--house-text) !important;
+  background:var(--house-panel) !important;
+  border:1px solid var(--house-line-strong) !important;
+  border-radius:30px !important;
+  box-shadow:var(--cm-dashboard-shadow),inset 0 0 0 1px rgba(255,255,255,.02) !important;
+}
+.deed::before,.wiz::before,.adm::before,.garage-slot-card::before,
+.interior-door-card::before,.weapon-storage-card::before { background:none !important; }
+.deed { width:min(690px,94vw) !important; max-height:94vh !important; }
+.wiz { width:min(1240px,95vw) !important; }
+.adm { width:min(1240px,95vw) !important; }
+.garage-slot-card { width:min(760px,94vw) !important; }
+.interior-door-card { width:min(650px,94vw) !important; }
+
+.deed__head,.interior-door-head,.garage-slot-head,.weapon-storage-head,
+.adm__head,.wiz__head {
+  color:var(--house-text) !important;
+  background:#17192b !important;
+  border-bottom:1px solid var(--house-line) !important;
+}
+.deed__head { padding:24px 28px 20px !important; }
+.deed__id h1,.interior-door-head h2,.garage-slot-heading h2,.weapon-storage-heading h2,
+.wiz__head h1,.adm__head h1 { color:var(--house-text) !important; font-weight:700 !important; }
+.deed__id h1 { font-size:30px !important; letter-spacing:-.025em !important; }
+.interior-door-head h2,.garage-slot-heading h2,.weapon-storage-heading h2 { font-size:26px !important; }
+.wiz__head h1,.adm__head h1 { font-size:30px !important; }
+.deed__type,.interior-door-eyebrow,.garage-slot-eyebrow,.weapon-storage-eyebrow,
+.garage-current__tag,.f__label,.adm__count,.weapon-storage-pane-head span {
+  color:var(--house-cyan) !important;
+  font-size:12px !important;
+  font-weight:700 !important;
+  letter-spacing:.13em !important;
+}
+.interior-door-head p:last-child,.garage-slot-heading>p:last-child,
+.weapon-storage-heading p:last-child,.wiz__sub,.wiz__note,.rail__note,
+.f__hint,.empty { color:var(--house-muted) !important; font-size:14px !important; }
+.panel-accent { background:linear-gradient(90deg,var(--house-blue),var(--house-cyan)) !important; }
+
+.deed__x,.interior-door-close,.garage-slot-close,.weapon-storage-close,.modal-close {
+  width:42px !important; height:42px !important; display:grid !important; place-items:center;
+  color:var(--house-soft) !important; background:rgba(255,255,255,.055) !important;
+  border:1px solid var(--house-line) !important; border-radius:13px !important;
+  box-shadow:none !important; font-size:27px !important;
+}
+.deed__x:hover,.interior-door-close:hover,.garage-slot-close:hover,
+.weapon-storage-close:hover { color:#fff !important; background:rgba(91,134,255,.16) !important; }
+
+.property-photo {
+  height:220px !important; border-color:var(--house-line) !important;
+  background:linear-gradient(145deg,#252a46,#1b1e34) !important;
+  box-shadow:0 18px 34px rgba(3,6,20,.28) !important;
+}
+.property-photo::after { background:linear-gradient(to bottom,transparent 55%,rgba(8,10,24,.46)) !important; }
+.property-photo__empty { color:var(--house-muted) !important; }
+
+.property-ledger .ledger__row,.ledger__row,.info-row,.stat-tile,.field-row,
+.inherit-row,.garage-current,.garage-vehicle-row,.cards>* {
+  color:var(--house-text) !important; background:var(--house-row) !important;
+  border:1px solid var(--house-line) !important; box-shadow:none !important;
+}
+.property-ledger dt,.ledger dt { color:var(--house-muted) !important; font-size:15px !important; }
+.property-ledger dd,.ledger dd { color:var(--house-text) !important; font-size:17px !important; }
+.ledger__row--gov dd,.garage-current__state { color:var(--house-cyan) !important; }
+.ledger dd.warn { color:var(--house-amber) !important; }
+.ledger dd.bad { color:var(--house-red) !important; }
+
+.act,.ghost,.solid,.tab,.mini,.garage-slot-action,.interior-door-option,
+.garage-vehicle-row__button,.ws-tab,.weapon-storage-refresh,.weapon-item-action {
+  border-radius:12px !important; font-size:15px !important; font-weight:600 !important;
+  transition:filter .15s,transform .15s,border-color .15s,background .15s !important;
+}
+.act,.ghost,.tab,.mini,.interior-door-option,.garage-slot-action {
+  color:var(--house-soft) !important; background:#20233a !important;
+  border:1px solid var(--house-line) !important; box-shadow:none !important;
+}
+.act:hover:not(:disabled),.ghost:hover:not(:disabled),.tab:hover:not(:disabled),
+.mini:hover:not(:disabled),.interior-door-option:hover:not(:disabled),
+.garage-slot-action:hover:not(:disabled) {
+  color:#fff !important; background:var(--house-row-hover) !important;
+  border-color:rgba(82,220,233,.3) !important; transform:translateY(-1px);
+}
+.solid,.ghost--buy,.act--garage,.tab--on,.garage-slot-action--cyan,
+.garage-vehicle-row__button,.ws-tab.is-active,.weapon-item-action {
+  color:#fff !important; background:var(--cm-dashboard-primary) !important;
+  border:1px solid rgba(151,183,255,.42) !important;
+  box-shadow:var(--cm-dashboard-shadow-button) !important;
+}
+.act--home { color:#fff !important; background:linear-gradient(135deg,#34d399,#0e9f6e) !important; }
+.ghost--sell,.garage-slot-action--danger,.weapon-item-action--danger {
+  color:#fff !important; background:linear-gradient(135deg,#f87171,#dc2626) !important;
+  border-color:rgba(255,107,107,.34) !important;
+}
+.act__label { font-size:14px !important; }
+.act__icon { font-size:19px !important; }
+
+.interior-door-badge,.garage-slot-symbol,.weapon-storage-mark {
+  color:#fff !important; background:var(--cm-dashboard-primary) !important;
+  border:1px solid rgba(151,183,255,.38) !important;
+  box-shadow:var(--cm-dashboard-shadow-button) !important;
+}
+.interior-door-option,.garage-slot-action { min-height:74px !important; }
+.interior-door-option strong,.garage-slot-action span,.garage-vehicle-row strong,
+.garage-current strong { color:var(--house-text) !important; font-size:16px !important; }
+.interior-door-option small,.garage-slot-action small,.garage-vehicle-row small,
+.garage-current small { color:var(--house-muted) !important; font-size:13px !important; }
+.garage-slot-foot,.interior-door-foot,.weapon-storage-foot {
+  color:var(--house-muted) !important; background:#151726 !important;
+  border-top:1px solid var(--house-line) !important;
+}
+kbd { color:var(--house-text) !important; background:#23263f !important; border-color:var(--house-line) !important; }
+
+.wiz__body,.adm__list { background:#17192b !important; }
+.wiz__foot,.adm__bar { background:#151726 !important; border-color:var(--house-line) !important; }
+.rail { color:var(--house-text) !important; background:#151726 !important; border-left:1px solid var(--house-line) !important; }
+.tile,.tog,.card,.row {
+  color:var(--house-text) !important; background:var(--house-row) !important;
+  border:1px solid var(--house-line) !important; box-shadow:none !important;
+}
+.tile:hover,.tog:hover,.card:hover,.row:hover {
+  background:var(--house-row-hover) !important; border-color:rgba(82,220,233,.28) !important;
+}
+.tile.on,.tog.on,.row.on { color:#fff !important; background:rgba(91,134,255,.16) !important; border-color:var(--house-blue) !important; }
+.tile__name,.card__name,.row__name,.row__title,.row__plate,.build__err { color:var(--house-text) !important; }
+.tile__cost,.tog__cost,.card__meta,.row__meta { color:var(--house-muted) !important; }
+.row__plate { color:var(--house-cyan) !important; background:rgba(82,220,233,.1) !important; border-color:rgba(82,220,233,.22) !important; }
+.f__in,input,select,textarea {
+  color:var(--house-text) !important; background:#20233a !important;
+  border:1px solid rgba(255,255,255,.14) !important; box-shadow:none !important;
+  font-size:15px !important;
+}
+.f__in::placeholder,input::placeholder,textarea::placeholder { color:var(--house-muted) !important; }
+.f__in:focus,input:focus,select:focus,textarea:focus { border-color:var(--house-blue) !important; box-shadow:0 0 0 3px rgba(91,134,255,.13) !important; }
+
+.weapon-storage-screen { background:rgba(94,103,157,.43) !important; font-family:var(--cm-font,var(--house-font)) !important; }
+.weapon-storage-card { width:min(1240px,96vw) !important; }
+.weapon-storage-head,.weapon-storage-tools { background:#17192b !important; border-color:var(--house-line) !important; }
+.weapon-storage-tools { gap:12px !important; }
+.ws-tab,.weapon-storage-refresh {
+  color:var(--house-soft) !important; background:#20233a !important;
+  border:1px solid var(--house-line) !important; box-shadow:none !important;
+}
+.ws-tab.is-active { color:#fff !important; background:var(--cm-dashboard-primary) !important; }
+.weapon-storage-search {
+  color:var(--house-text) !important; background:#20233a !important;
+  border:1px solid var(--house-line) !important; box-shadow:none !important;
+}
+.weapon-storage-search input { color:var(--house-text) !important; background:transparent !important; }
+.weapon-storage-search span { color:var(--house-cyan) !important; }
+.weapon-storage-pane {
+  background:var(--house-card) !important; border:1px solid var(--house-line) !important;
+  box-shadow:none !important;
+}
+.weapon-storage-pane-head { background:#20233a !important; border-color:var(--house-line) !important; }
+.weapon-storage-pane-head strong,.ws-item__name { color:var(--house-text) !important; }
+.weapon-storage-pane-head b { color:var(--house-cyan) !important; background:rgba(82,220,233,.1) !important; }
+.weapon-storage-list { background:transparent !important; }
+.ws-item {
+  color:var(--house-text) !important; background:var(--house-row) !important;
+  border:1px solid var(--house-line) !important; box-shadow:none !important;
+}
+.ws-item:hover { background:var(--house-row-hover) !important; border-color:rgba(82,220,233,.26) !important; }
+.ws-item__type { color:var(--house-cyan) !important; }
+.ws-item__meta,.weapon-storage-empty { color:var(--house-muted) !important; }
+.ws-item__image { background:#1b1e33 !important; border-color:var(--house-line) !important; }
+.ws-item__qty {
+  color:var(--house-text) !important; background:#1b1e33 !important;
+  border:1px solid var(--house-line) !important;
+}
+.ws-item__button {
+  color:#fff !important; background:var(--cm-dashboard-primary) !important;
+  border:1px solid rgba(151,183,255,.42) !important;
+  box-shadow:var(--cm-dashboard-shadow-button) !important;
+  font-family:var(--cm-font-display,var(--house-font-display)) !important; font-weight:600 !important;
+}
+.ws-item__button:disabled { opacity:.42 !important; box-shadow:none !important; }
+.weapon-storage-divider { color:var(--house-cyan) !important; }
+
+#cm-interaction { background:transparent !important; }
+.cm-interaction__key { color:var(--house-cyan) !important; border-color:var(--house-cyan) !important; }
+.cm-interaction__label { color:var(--house-cyan) !important; font-size:15px !important; }
+
+::-webkit-scrollbar-thumb { background:rgba(91,134,255,.34) !important; }
+@media (max-width:900px) {
+  .wiz { grid-template-columns:1fr !important; }
+  .rail { border-left:0 !important; border-top:1px solid var(--house-line) !important; }
+}
+@media (max-width:620px) {
+  .screen { padding:10px !important; }
+  .deed,.wiz,.adm,.garage-slot-card,.interior-door-card,.weapon-storage-card { border-radius:20px !important; }
+  .property-actions,.deed__foot { grid-template-columns:1fr !important; }
+  .weapon-storage-columns { grid-template-columns:1fr !important; overflow-y:auto; }
+  .weapon-storage-divider { display:none !important; }
+}

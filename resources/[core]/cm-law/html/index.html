@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css"><link rel="stylesheet" href="nui://cm-ui/web/cm-dashboard.css"><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="police-dashboard.css"><link rel="stylesheet" href="dispatch-board.css">
+  <title>CM Legal Organization</title>
+</head>
+<body>
+  <main id="app" class="hidden">
+    <section class="shell">
+      <aside class="side">
+        <div class="brand"><div class="logo">★</div><div><small id="shortLabel">LEGAL ORGANIZATION</small><h1 id="orgLabel">Organization</h1><p id="jurisdiction"></p></div></div>
+        <div class="identity">
+          <div><span>YOUR RANK</span><strong id="rankName">—</strong></div>
+          <div><span>DUTY STATUS</span><strong id="dutyStatus">Off duty</strong></div>
+        </div>
+        <nav>
+          <button class="tab active" data-tab="overview"><b>01</b><span>Overview<small>Duty and status</small></span></button>
+          <button class="tab" data-tab="roster"><b>02</b><span>Members<small>Roster and ranks</small></span></button>
+          <button class="tab" data-tab="ranks" id="ranksTab"><b>03</b><span>Ranks &amp; access<small>Manage permissions</small></span></button>
+          <button class="tab hidden" data-tab="fleet" id="fleetTab"><b>04</b><span>Fleet vehicles<small>Rank and parking</small></span></button>
+          <button class="tab hidden" data-tab="logs" id="logsTab"><b>05</b><span>Activity logs<small>Organization history</small></span></button>
+          <button class="tab hidden" data-tab="dispatch" id="dispatchTab"><b>06</b><span>Dispatch<small>Shared law calls</small></span></button>
+          <button class="tab hidden" data-tab="mdt" id="mdtTab"><b>07</b><span>MDT<small>Shared legal records</small></span></button>
+          <button class="tab" data-tab="staffing" id="staffingTab"><b>08</b><span>Staffing<small>Hire and manage</small></span></button>
+        </nav>
+        <div class="side-foot">ESC to close</div>
+      </aside>
+      <div class="workspace">
+        <header><h2 id="pageTitle">Overview</h2><button class="icon" data-close aria-label="Close">×</button></header>
+        <div class="content">
+          <section id="overviewView" class="view">
+            <div class="section-head"><div><small>ORGANIZATION CONTROL</small><h3>Operational overview</h3><p>Membership, rank, dispatch, fleet and shared records.</p></div></div>
+            <div id="overviewStats" class="stats"></div>
+          </section>
+          <section id="rosterView" class="view hidden"><div id="roster" class="roster"></div></section>
+          <section id="ranksView" class="view hidden">
+            <div class="section-head"><p class="hint">Ranks define tier and permissions. Leaders can create, edit, and delete ranks below their own tier.</p><button id="newRank" class="hidden">Add rank</button></div>
+            <article class="card rank-editor hidden" id="rankEditor">
+              <div class="rank-fields">
+                <label>Rank name<input id="editRankName" maxlength="48"></label>
+                <label>Tier (1-99)<input id="editRankTier" type="number" min="1" max="99"></label>
+              </div>
+              <div><small>PERMISSIONS</small><div class="permission-editor" id="permissionEditor"></div></div>
+              <div class="editor-actions"><button id="cancelRank">Cancel</button><button id="saveRankBtn">Save rank</button></div>
+            </article>
+            <div class="rank-grid" id="ranksList"></div>
+          </section>
+          <section id="fleetView" class="view hidden">
+            <div class="fleet-head">
+              <p class="hint">Manage each vehicle's parking location and minimum rank. Officers collect vehicles from these persistent parking spaces.</p>
+              <button id="fleetRecallAll" class="hidden">Recall All to Parking</button>
+            </div>
+            <div id="fleetRoster" class="fleet-roster"></div>
+          </section>
+          <section id="logsView" class="view hidden"><div id="activityLogList" class="log-list"></div></section>
+            <section id="dispatchView" class="view hidden law-dispatch-board">
+              <aside class="law-dispatch-summary"><small>CM LAW ENFORCEMENT</small><h2>EMERGENCY<br>CALLS</h2><p>One live feed shared by Police, Sheriff, FIB, Army, and authorized legal units.</p><div class="law-dispatch-counts"><div><span>ACTIVE CALLS</span><strong id="lawDispatchActiveCount">0</strong></div><div><span>ASSIGNED</span><strong id="lawDispatchAssignedCount">0</strong></div></div><div class="law-dispatch-mark"><span>★</span><b>LAW<br>DISPATCH</b></div></aside>
+              <main class="law-dispatch-main"><div class="dispatch-toolbar"><div><small>LIVE OPERATIONS</small><h3>Law enforcement requests</h3></div><div class="actions"><button id="dispatchBackup">Request backup</button><button id="dispatchPanic" class="danger">Panic button</button></div></div><div class="law-dispatch-columns"><span>CALLER / LOCATION</span><span>STATUS / UNITS</span><span>ACTION</span></div><div id="dispatchActiveList" class="dispatch-list"></div><h3 class="dispatch-heading">Recent history</h3><div id="dispatchHistoryList" class="dispatch-list"></div></main>
+            </section>
+          <section id="mdtView" class="view hidden">
+            <div class="mdt-searchbar"><input id="lawMdtCitizenQuery" placeholder="Citizen name or character ID"><button id="lawMdtCitizenSearch">Search citizens</button><input id="lawMdtPlateQuery" placeholder="Vehicle plate"><button id="lawMdtVehicleSearch">Search vehicle</button></div>
+            <div class="law-mdt-layout">
+              <aside id="lawMdtResults" class="law-mdt-results"><p class="hint">Search for a citizen or vehicle.</p></aside>
+              <div id="lawMdtWorkspace" class="law-mdt-workspace"><div class="card"><p class="hint">Shared records are visible to every authorized legal organization.</p></div></div>
+            </div>
+          </section>
+          <section id="staffingView" class="view hidden">
+            <form id="hireForm" class="hire"><label>Character ID<input id="hireCid" required maxlength="64" autocomplete="off"></label><label>Starting rank<select id="hireRank"></select></label><button type="submit">Add member</button></form>
+            <p class="hint">Leaders can only assign ranks below their own. Every staffing change is logged.</p>
+          </section>
+        </div>
+      </div>
+    </section>
+    <div id="toast" role="status"></div>
+    <div id="facilities" class="hidden" aria-hidden="true"></div>
+  </main>
+  <aside id="facilityPrompt" class="npc-interaction hidden"><span class="npc-interaction__key">E</span><span class="npc-interaction__line"></span><span class="npc-interaction__copy"><b>INTERACTION</b><small id="facilityPromptText"></small></span></aside>
+  <section id="facilityDialogue" class="npc-dialogue hidden">
+    <div class="npc-dialogue__identity"><small id="facilityRole"></small><h1 id="facilityName"></h1></div>
+    <div class="npc-dialogue__choices"><div class="npc-dialogue__quote"><p id="facilityQuote"></p><span id="facilitySignature"></span></div><div id="facilityOptions" class="npc-dialogue__services hidden"></div><button class="npc-dialogue__option npc-dialogue__option--primary" id="facilityContinue"></button><button class="npc-dialogue__option" id="facilityClose">I'm not interested right now</button></div>
+  </section>
+  <section id="wardrobeRoom" class="wardrobe-room hidden">
+    <aside class="wardrobe-sidebar"><small id="wardrobeOrg">LEGAL ORGANIZATION</small><h2>Wardrobe</h2><p>Approved duty uniform</p><nav id="wardrobeCategories"></nav><div class="wardrobe-help">W / S switch items<br>A / D rotate officer<br>ESC cancel</div></aside>
+    <div id="wardrobeViewport" class="wardrobe-viewport"><span>Drag to rotate</span></div>
+    <aside class="wardrobe-controls"><small>DUTY CLOTHING</small><h2 id="wardrobeTitle">Select clothing</h2><p>Outerwear, pants and shoes are required.</p><label>OPTION</label><div class="wardrobe-selector"><button id="wardrobePrev">&#8249;</button><strong id="wardrobeOption">--</strong><button id="wardrobeNext">&#8250;</button></div><label>COLOR</label><div class="wardrobe-selector"><button id="wardrobeColorPrev">&#8249;</button><strong id="wardrobeColor">--</strong><button id="wardrobeColorNext">&#8250;</button></div><button id="wardrobeDone" class="wardrobe-done">Wear uniform &amp; start duty</button><button id="wardrobeCancel">Cancel</button></aside>
+  </section>
+  <section id="legalArmory" class="legal-armory hidden">
+    <header class="legal-armory__header">
+      <div><small id="armoryOrg">LEGAL ORGANIZATION</small><h1>Department Armory</h1><p>Weapons, matching ammunition and protective vests</p></div>
+      <div class="legal-armory__status"><span>ON-DUTY ACCESS</span><span>LIVE STOCK</span><span>ISSUES LOGGED</span><button id="armoryManage" class="hidden">Manage stock</button><button id="armoryClose" aria-label="Close">&times;</button></div>
+    </header>
+    <nav id="armoryFilters" class="legal-armory__filters">
+      <button class="active" data-armory-filter="all">All equipment</button><button data-armory-filter="weapon">Weapons</button><button data-armory-filter="ammo">Ammunition</button><button data-armory-filter="vest">Protective vests</button>
+    </nav>
+    <div id="armoryGrid" class="legal-armory__grid"></div>
+    <section id="armoryManager" class="armory-manager hidden">
+      <div class="armory-manager__head"><div><small>SHARED QUARTERMASTER CONTROL</small><h2>Equipment catalogue</h2><p>Enabled equipment appears in every legal organization. Stock remains separate.</p></div><div><button id="armoryLoadStock">Load this organization (+10 guns / +1,000 ammo)</button><button id="armoryManagerClose">Back to checkout</button></div></div>
+      <div id="armoryManagerGrid" class="armory-manager__grid"></div>
+    </section>
+  </section>
+  <script src="app.js"></script>
+</body>
+</html>

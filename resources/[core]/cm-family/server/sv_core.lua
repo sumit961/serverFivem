@@ -240,6 +240,8 @@ function LoadFamilies()
             id = familyId, name = f.name, tag = f.tag, color = f.color,
             tag_visible = tonumber(f.tag_visible) ~= 0,
             founder_cid = f.founder_cid, house_id = tonumber(f.house_id) or f.house_id,
+            announcement = f.announcement, announcement_by = f.announcement_by,
+            announcement_at = f.announcement_at,
             bank_balance = tonumber(f.bank_balance) or 0,
             created_at = f.created_at,
             ranks = {}, ranksById = {},

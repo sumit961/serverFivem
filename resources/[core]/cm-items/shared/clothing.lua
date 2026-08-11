@@ -542,7 +542,19 @@ function CMItems.GetClothingCatalogEntry(gender, componentTypeOrIndex, component
     end
 
     if type(base) == 'table' and type(textureEntry) == 'table' and textureEntry ~= base then
-        return cmDeepMerge(base, textureEntry)
+        local merged = cmDeepMerge(base, textureEntry)
+        -- The drawable-level (texture = -1) "default" row is the authoritative
+        -- /clothingstore manager row for publish state, price and shop/org
+        -- assignment; the exact-texture row only owns the captured image. A
+        -- plain override-merge let an unpublished/disabled texture row (still
+        -- awaiting a photo) silently disable an otherwise-published drawable,
+        -- so these management fields are always taken from the base row.
+        merged.enabled = base.enabled
+        merged.price = base.price
+        merged.shop = base.shop
+        merged.job = base.job
+        merged.gang = base.gang
+        return merged
     end
     return type(textureEntry) == 'table' and textureEntry or base
 end

@@ -279,31 +279,17 @@ function wizName(data) {
 
 /* ---- publish ---- */
 
-// Check the address as it is typed. Finding out it is taken AFTER parking
-// seven cars would be a cruel way to learn it.
-let addrTimer = null;
-$('w-number').addEventListener('input', () => {
-  clearTimeout(addrTimer);
-  addrTimer = setTimeout(async () => {
-    const num = $('w-number').value.trim();
-    if (!num) { $('w-err').textContent = ''; return; }
-    const r = await post('wizard:checkAddress', { number: num });
-    $('w-err').textContent = (r && r.ok === false) ? (r.message || '') : '';
-  }, 400);
-});
-
 function wizPublish(data) {
   W.phase = 'publish';
   paintRail(data.derived);
 
   $('w-step').textContent  = 'Final step';
   $('w-title').textContent = 'Publish the property';
-  $('w-sub').textContent   = 'Give it an address and it goes on the market.';
+  $('w-sub').textContent   = 'The next House number is assigned automatically.';
   $('w-next').textContent  = 'Publish';
 
   paneShow('w-publish');
   $('wiz').classList.add('on');
-  $('w-number').focus();
 }
 
 /* ---- the one Continue button ---- */
@@ -363,17 +349,9 @@ $('wiz').addEventListener('click', async (e) => {
   }
 
   if (W.phase === 'publish') {
-    const num = $('w-number').value.trim();
-    if (!num) {
-      $('w-err').textContent = 'Give the property an address.';
-      return;
-    }
     btn.disabled = true;
     btn.textContent = 'Publishing…';
-    const r = await post('wizard:publish', {
-      houseNumber: num,
-      label: $('w-label').value.trim(),
-    });
+    const r = await post('wizard:publish', {});
     btn.disabled = false;
     btn.textContent = 'Publish';
     if (r.ok) $('wiz').classList.remove('on');
@@ -416,7 +394,7 @@ function renderAdmin() {
 
   if (A.tab === 'houses') {
     const items = A.data.houses.filter((h) =>
-      !q || h.number.toLowerCase().includes(q) || (h.label || '').toLowerCase().includes(q)
+      !q || h.number.toLowerCase().includes(q) || `house #${h.number}`.includes(q)
          || (h.owner || '').toLowerCase().includes(q));
 
     $('a-count').textContent = `${items.length} of ${A.data.houses.length}`;
@@ -453,7 +431,7 @@ function renderAdmin() {
             ${!h.owner && adminCan('properties') ? '<button class="mini mini--bad" data-h="delete">Delete</button>' : ''}
           </div>
         </div>`;
-      r.querySelector('.row__name').textContent = h.label || 'Property';
+      r.querySelector('.row__name').textContent = `House #${h.number}`;
       return r;
     });
 
@@ -527,12 +505,19 @@ function renderAdmin() {
     });
   } else {
     const source = Array.isArray(A.data.recovery) ? A.data.recovery : [];
+    const weapons = Array.isArray(A.data.weaponRecovery) ? A.data.weaponRecovery : [];
     const items = source.filter((v) => {
       const haystack = [v.id, v.plate, v.label, v.ownerCid, v.locationState,
         v.locationRef, v.assignedHouseId, v.assignedSlot].join(' ').toLowerCase();
       return !q || haystack.includes(q);
     });
-    $('a-count').textContent = `${items.length} issue${items.length === 1 ? '' : 's'}`;
+    const weaponItems = weapons.filter((w) => {
+      const haystack = [w.id, w.houseId, w.characterId, w.characterName, w.itemName,
+        w.status, w.reason].join(' ').toLowerCase();
+      return !q || haystack.includes(q);
+    });
+    const total = items.length + weaponItems.length;
+    $('a-count').textContent = `${total} recovery row${total === 1 ? '' : 's'}`;
     rows = items.map((v) => {
       const r = document.createElement('div');
       r.className = 'row recovery-row';
@@ -560,6 +545,24 @@ function renderAdmin() {
       r.querySelector('.row__name').textContent = `${v.label || 'Vehicle'} · Owner ${v.ownerCid || 'unknown'}`;
       return r;
     });
+    rows.push(...weaponItems.map((w) => {
+      const r = document.createElement('div');
+      r.className = 'row recovery-row';
+      r.dataset.weaponRecovery = String(w.id);
+      const state = w.resolved ? 'RESOLVED' : String(w.status || 'pending').toUpperCase();
+      r.innerHTML = `
+        <div class="row__plate">W${String(w.id || '?')}</div>
+        <div>
+          <div class="row__name"></div>
+          <div class="row__meta"></div>
+        </div>
+        <div class="row__acts recovery-actions">
+          ${!w.resolved ? `<button class="mini" data-wr="restore" ${w.online ? '' : 'disabled'}>${w.online ? 'Restore' : 'Character offline'}</button>` : ''}
+        </div>`;
+      r.querySelector('.row__name').textContent = `${w.itemName || 'Weapon'} ×${w.amount || 1} · ${w.characterName || 'Unknown'} (CID ${w.characterId || '?'})`;
+      r.querySelector('.row__meta').textContent = `${state} · House ${w.houseId || '?'} · ${w.reason || 'No failure reason recorded'}${w.resolvedAt ? ' · ' + w.resolvedAt : ''}`;
+      return r;
+    }));
   }
 
   $('a-add').style.display = A.tab === 'houses' && adminCan('create') ? '' : 'none';
@@ -626,6 +629,18 @@ $('admin').addEventListener('click', async (e) => {
     recoveryBtn.disabled = true;
     await post('admin:vehicleRecovery', { identity, action, data: {} });
     recoveryBtn.disabled = false;
+    return;
+  }
+
+  const weaponRecoveryBtn = e.target.closest('[data-wr]');
+  if (weaponRecoveryBtn) {
+    e.stopPropagation();
+    const row = weaponRecoveryBtn.closest('[data-weapon-recovery]');
+    const id = Number(row.dataset.weaponRecovery);
+    if (!window.confirm(`Restore weapon recovery row ${id} to its online character?`)) return;
+    weaponRecoveryBtn.disabled = true;
+    await post('admin:weaponRecovery', { id });
+    weaponRecoveryBtn.disabled = false;
     return;
   }
 

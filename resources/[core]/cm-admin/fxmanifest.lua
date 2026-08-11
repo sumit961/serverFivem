@@ -3,9 +3,9 @@ game 'gta5'
 lua54 'yes'
 
 name 'cm-admin'
-description 'CM Admin v2.6.5: calibrated live GTA map UI, selectable players/vehicles, staff actions, logs, GPS teleport, playerdata-owned admin tags'
+description 'CM Admin v2.9.0: EMS mission studio launcher and audit permissions'
 author 'CM Framework'
-version '2.6.5-playerdata-owned-admin-tags'
+version '2.9.0-ems-mission-studio'
 
 shared_script 'config.lua'
 
@@ -19,6 +19,7 @@ client_scripts {
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
     'server/devtools.lua',
+    'server/organizations.lua',
     'server/main.lua'
 }
 

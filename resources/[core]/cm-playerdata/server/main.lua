@@ -8,6 +8,7 @@ local Config = CMPlayerData.Config
 local PlayerData = {}
 local PendingHandshakes = {} -- [targetSrc] = { from = src, expires = ms }
 local PendingTreatments = {} -- [treaterSrc] = { target = src, startedAt = ms, duration = ms }
+local PendingTreatmentOffers = {} -- [targetSrc] = { from = src, expires = ms }
 local LastEventUse = {}
 local ExtensionInteractionActions = {} -- [actionId] = { event = serverEventName, allowDeadTarget = bool, deadOnly = bool }
 
@@ -74,6 +75,11 @@ local function RegisterInteractionAction(meta)
         event = eventName,
         allowDeadTarget = meta.allowDeadTarget == true,
         deadOnly = meta.deadOnly == true,
+        -- Opt-in only: the default (false) preserves the existing "use the
+        -- vehicle interaction menu instead" block for every action that
+        -- doesn't explicitly need a target who IS in a vehicle (e.g. an
+        -- action whose entire purpose is acting on someone already seated).
+        allowVehicleTarget = meta.allowVehicleTarget == true,
         resource = meta.resource and tostring(meta.resource) or 'unknown'
     }
 
@@ -233,8 +239,58 @@ local function SetState(src, key, value, replicated)
     Player(src).state:set(key, value, replicated ~= false)
 end
 
+-- Revive/Heal/RevivePartial set data.health authoritatively and tell the
+-- client to apply it, but the client's own periodic health sync (syncVitals)
+-- can still have one stale reading in flight from before the ped's health was
+-- actually changed locally -- e.g. a still-unconscious-level health captured
+-- moments before SetEntityHealth ran. If that stale sync lands after the
+-- server-side revive, it silently overwrites the fresh full-health value with
+-- the old low one. Guarding downward syncs for a short window after any
+-- revive/heal skips exactly that one stale reading without meaningfully
+-- delaying real damage taken afterward.
+local function GuardVitalsAfterRevive(data)
+    data.vitalsGuardUntil = GetGameTimer() + 4500
+end
+
 local function PushUpdate(src, key, value)
     TriggerClientEvent('cm-playerdata:client:update', src, key, value)
+end
+
+-- Wanted stars: clamp, store, and push -- same one path used by every
+-- gain (unmasked kill), clear (death/busted), and decay tick below, so
+-- none of those call sites can drift out of sync with each other.
+local function SetWantedStars(src, stars)
+    local data = PlayerData[src]
+    if not data then return end
+    local maxStars = (Config.WantedStars and Config.WantedStars.Max) or 6
+    stars = math.max(0, math.min(maxStars, math.floor(tonumber(stars) or 0)))
+    if data.wantedStars == stars then return end
+    local previous = data.wantedStars
+    data.wantedStars = stars
+    data.metadata = data.metadata or {}
+    data.metadata.cmWanted = data.metadata.cmWanted or {}
+    data.metadata.cmWanted.stars = stars
+    data.metadata.cmWanted.nextDecayAt = stars > 0
+        and (os.time() + math.max(60, math.floor(((Config.WantedStars and Config.WantedStars.DecayIntervalMs) or 3600000) / 1000))) or 0
+    data.wantedStarChangedAt = GetGameTimer()
+    data.dirty = true
+    PushUpdate(src, 'wantedStars', stars)
+    local persisted, persistError = pcall(function()
+        MySQL.update.await('UPDATE characters SET metadata = ? WHERE id = ?', {
+            EncodeJson(data.metadata), data.charId
+        })
+    end)
+    if not persisted then
+        Log('error', 'Wanted state persistence failed', { src = src, error = tostring(persistError) })
+    end
+    pcall(function() exports['cm-police']:SyncWantedStars(data.charId, stars) end)
+    -- Auto-generated arrest warrant the moment max wanted is first reached
+    -- (not on every subsequent tick while already at max). pcall-guarded,
+    -- no fxmanifest dependency added -- cm-police already depends on
+    -- cm-playerdata, so the reverse would be a circular dependency.
+    if stars >= maxStars and (previous or 0) < maxStars then
+        pcall(function() exports['cm-police']:AutoIssueWarrant(data.charId, 'Reached maximum wanted level (6 stars)') end)
+    end
 end
 
 local function EnsureSchema()
@@ -409,6 +465,8 @@ local function ClonePlayerData(data)
         deathRemainingMs = data.deathDeadline and math.max(0, data.deathDeadline - GetGameTimer()) or nil,
         deathDeadlineAt = data.deathDeadlineAt,
         ambulanceCalled = data.ambulanceCalled == true,
+        emsProtected = data.emsProtection ~= nil,
+        emsEtaMs = data.emsProtection and math.max(0, (data.emsProtection.etaDeadline or GetGameTimer()) - GetGameTimer()) or nil,
         deathReason = data.deathReason,
         deathLocation = DecodeJson(EncodeJson(data.deathLocation)) or data.deathLocation,
         lastPosition = DecodeJson(EncodeJson(data.lastPosition)) or data.lastPosition,
@@ -437,6 +495,7 @@ local function ApplyState(src)
     SetState(src, 'armor', data.armor)
     SetState(src, 'isDead', data.isDead)
     SetState(src, 'deathRemainingMs', data.deathDeadline and math.max(0, data.deathDeadline - GetGameTimer()) or nil)
+    SetState(src, 'emsProtected', data.emsProtection ~= nil)
     SetState(src, 'deathLocation', data.isDead and NormalizeCoords(data.deathLocation) or nil)
     SetState(src, 'playerDataLoaded', true)
     SetState(src, 'identityReady', true)
@@ -486,10 +545,30 @@ local function LoadPlayerData(src)
         PlayerData[src] = nil
     end
 
+    local dirtyAfterLoad = false
+    local persistedMetadata = DecodeJson(row.metadata) or {}
+    local persistedWanted = type(persistedMetadata.cmWanted) == 'table' and persistedMetadata.cmWanted or {}
+    local wantedStars = math.max(0, math.min((Config.WantedStars and Config.WantedStars.Max) or 6,
+        math.floor(tonumber(persistedWanted.stars) or 0)))
+    local decaySeconds = math.max(60, math.floor(((Config.WantedStars and Config.WantedStars.DecayIntervalMs) or 3600000) / 1000))
+    local nextDecayAt = tonumber(persistedWanted.nextDecayAt) or 0
+    if wantedStars > 0 and nextDecayAt <= 0 then
+        nextDecayAt = os.time() + decaySeconds
+        persistedWanted.nextDecayAt = nextDecayAt
+        persistedMetadata.cmWanted = persistedWanted
+        dirtyAfterLoad = true
+    elseif wantedStars > 0 and os.time() >= nextDecayAt then
+        local elapsedIntervals = math.floor((os.time() - nextDecayAt) / decaySeconds) + 1
+        wantedStars = math.max(0, wantedStars - elapsedIntervals)
+        nextDecayAt = wantedStars > 0 and (nextDecayAt + elapsedIntervals * decaySeconds) or 0
+        persistedWanted.stars, persistedWanted.nextDecayAt = wantedStars, nextDecayAt
+        persistedMetadata.cmWanted = persistedWanted
+        dirtyAfterLoad = true
+    end
+
     local isDead = (tonumber(row.is_dead) or 0) == 1
     local deathDeadlineAt = tonumber(row.death_deadline_at)
     local deathDeadline = nil
-    local dirtyAfterLoad = false
 
     if isDead then
         local now = NowMs()
@@ -537,7 +616,10 @@ local function LoadPlayerData(src)
         deathReason = row.death_reason,
         deathLocation = NormalizeCoords(DecodeJson(row.death_location)),
         lastPosition = NormalizeCoords(DecodeJson(row.last_position)),
-        metadata = DecodeJson(row.metadata) or {},
+        metadata = persistedMetadata,
+
+        wantedStars = wantedStars,
+        wantedStarChangedAt = GetGameTimer(),
 
         loaded = true,
         dirty = dirtyAfterLoad,
@@ -554,6 +636,7 @@ local function LoadPlayerData(src)
     ))
 
     NotifyLoaded(src)
+    pcall(function() exports['cm-police']:SyncWantedStars(charId, wantedStars) end)
 
     if PlayerData[src].isDead and PlayerData[src].deathDeadline then
         ScheduleBleedOut(src)
@@ -771,6 +854,7 @@ local function SetDead(src, isDead, reason)
     local data = PlayerData[src]
     if not data then return false end
 
+    local wasDead = data.isDead == true
     data.isDead = isDead == true
     if data.isDead then
         data.health = Config.Vitals.DamageThreshold or 101
@@ -788,6 +872,7 @@ local function SetDead(src, isDead, reason)
         data.deathDeadline = nil
         data.deathDeadlineAt = nil
         data.ambulanceCalled = false
+        data.emsProtection = nil
         data.dieChosen = false
         data.deathReason = nil
     end
@@ -797,6 +882,11 @@ local function SetDead(src, isDead, reason)
     SyncInventoryDeathState(src, data.isDead)
     Audit(src, data.isDead and 'death' or 'revive', { reason = reason })
     SavePlayerData(src, reason or (data.isDead and 'death' or 'revive'))
+    if data.isDead and not wasDead then
+        -- Local-only authoritative lifecycle signal. Consumers must not expose
+        -- a network event that lets clients spoof this state transition.
+        TriggerEvent('cm-playerdata:server:deathStateChanged', src, true, reason or 'death')
+    end
     return true
 end
 
@@ -907,6 +997,10 @@ AddEventHandler('playerDropped', function()
     ClearPlayerData(src)
     PendingHandshakes[src] = nil
     PendingTreatments[src] = nil
+    PendingTreatmentOffers[src] = nil
+    for target, offer in pairs(PendingTreatmentOffers) do
+        if offer.from == src then PendingTreatmentOffers[target] = nil end
+    end
     -- Server IDs are recycled: tell every client to forget this identity so a
     -- future player reusing the ID never inherits the old name/character ID.
     TriggerClientEvent('cm-playerdata:client:identityRemove', -1, src)
@@ -1003,6 +1097,13 @@ RegisterNetEvent('cm-playerdata:server:syncVitals', function(clientHealth, clien
     -- Prefer server-observed ped health when available and lower than the client value.
     if serverHealth and serverHealth < nextHealth then
         nextHealth = Clamp(serverHealth, 0, Config.Vitals.MaxHealth)
+    end
+
+    -- Right after a revive/heal, a lower reading here is almost always one
+    -- stale sync still in flight from before the client actually applied the
+    -- new health, not real new damage -- see GuardVitalsAfterRevive.
+    if data.vitalsGuardUntil and GetGameTimer() < data.vitalsGuardUntil and nextHealth < previousHealth then
+        nextHealth = previousHealth
     end
 
     if nextHealth ~= data.health or nextArmor ~= data.armor then
@@ -1140,6 +1241,7 @@ RegisterNetEvent('cm-playerdata:server:playerDied', function(killerSrc, weaponHa
     data.deathDeadline = GetGameTimer() + bleedMs
     data.deathDeadlineAt = NowMs() + bleedMs
     data.ambulanceCalled = false
+    data.emsProtection = nil
     data.dieChosen = false
     ScheduleBleedOut(src)
     SavePlayerData(src, 'death_deadline')
@@ -1162,6 +1264,22 @@ RegisterNetEvent('cm-playerdata:server:playerDied', function(killerSrc, weaponHa
                 distance = killerRecord.distance
             })
         end
+    end
+
+    -- GTA5-style wanted stars: gained here, deliberately OUTSIDE the
+    -- Config.Logging.LogDeaths gate above -- disabling death audit logging
+    -- shouldn't silently disable the wanted system too. killerRecord is
+    -- only ever populated for a real, currently-connected killing player
+    -- (see validation above), so this can never fire for an NPC/suicide/
+    -- environmental death.
+    if killerRecord and killerRecord.character_id and PlayerData[killerSrc] then
+        if Player(killerSrc).state.cm_masked ~= true then
+            SetWantedStars(killerSrc, (PlayerData[killerSrc].wantedStars or 0) + 1)
+        end
+    end
+    -- Dying clears your OWN wanted level -- matches vanilla GTA5's "wasted" reset.
+    if data.wantedStars and data.wantedStars > 0 then
+        SetWantedStars(src, 0)
     end
 
     TriggerClientEvent('cm-playerdata:client:playerDied', src, killerSrc, weaponHash, killedBy, bleedMs)
@@ -1203,6 +1321,77 @@ local function RequestAmbulance(src, reason, metadata)
     local remaining = data.deathDeadline - GetGameTimer()
     TriggerClientEvent('cm-playerdata:client:ambulanceConfirmed', src, remaining)
     return true, remaining
+end
+
+-- Trusted server-resource contract used by an assigned medical responder.
+-- It never shortens the bleed-out clock: it only guarantees enough time for
+-- the promised ETA plus treatment, then keeps the client's timers in sync.
+local function ProtectDeathTimer(src, minimumRemainingMs, etaMs, label, token)
+    src = tonumber(src)
+    minimumRemainingMs = math.max(0, math.floor(tonumber(minimumRemainingMs) or 0))
+    etaMs = math.max(0, math.floor(tonumber(etaMs) or 0))
+    local data = src and PlayerData[src] or nil
+    if not data or not data.loaded or not data.isDead or not data.deathDeadline then
+        return false, 'not_dead'
+    end
+
+    local nowGame, nowReal = GetGameTimer(), NowMs()
+    local currentRemaining = math.max(0, data.deathDeadline - nowGame)
+    if currentRemaining < minimumRemainingMs then
+        data.deathDeadline = nowGame + minimumRemainingMs
+        data.deathDeadlineAt = nowReal + minimumRemainingMs
+        data.dirty = true
+        ScheduleBleedOut(src)
+        SavePlayerData(src, 'ems_timer_protected')
+        currentRemaining = minimumRemainingMs
+    end
+
+    data.emsProtection = {
+        token = tostring(token or 'medical_response'),
+        label = tostring(label or 'AI EMS RESPONDING'),
+        etaDeadline = nowGame + etaMs,
+    }
+    ApplyState(src)
+    TriggerClientEvent('cm-playerdata:client:emsProtectionUpdated', src, {
+        remainingMs = currentRemaining,
+        etaMs = etaMs,
+        label = data.emsProtection.label,
+        protected = true,
+    })
+    return true, currentRemaining
+end
+
+local function ReleaseDeathTimerProtection(src, token, label)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    if not data or not data.emsProtection then return false end
+    if token and tostring(token) ~= tostring(data.emsProtection.token) then return false end
+    data.emsProtection = nil
+    ApplyState(src)
+    if data.isDead and data.deathDeadline then
+        TriggerClientEvent('cm-playerdata:client:emsProtectionUpdated', src, {
+            remainingMs = math.max(0, data.deathDeadline - GetGameTimer()),
+            etaMs = 0,
+            label = tostring(label or 'EMS CALLED'),
+            protected = false,
+        })
+    end
+    return true
+end
+
+-- Local server contract for medical resources. Always emitted on death
+-- resolution (not gated on data.ambulanceCalled, which only tracks the
+-- death-screen "Call Ambulance" button) so a call placed through another
+-- path — e.g. cm-ems's own /ambulance command — still gets cleaned up here.
+-- The receiving side (cm-ems) already no-ops when it has no active call for
+-- this character, so this is safe to fire unconditionally.
+local function ResolveAmbulanceRequest(src, data, reason)
+    if not data then return end
+    data.emsProtection = nil
+    TriggerEvent('cm-playerdata:server:ambulanceResolved', tonumber(src), {
+        characterId = data.charId,
+        reason = tostring(reason or 'revived')
+    })
 end
 
 RegisterNetEvent('cm-playerdata:server:callAmbulance', function()
@@ -1472,7 +1661,7 @@ local function PushIdentityUpdate(viewerSrc, targetSrc)
     TriggerClientEvent('cm-playerdata:client:identityUpdate', viewerSrc, BuildIdentityForViewer(viewerSrc, targetSrc))
 end
 
-local function ValidatePlayerInteraction(src, targetSrc, rateKey, rateMs)
+local function ValidatePlayerInteraction(src, targetSrc, rateKey, rateMs, allowVehicleTarget)
     targetSrc = tonumber(targetSrc)
     if not targetSrc or targetSrc <= 0 or src == targetSrc then
         return false, nil, 'Invalid target.'
@@ -1504,7 +1693,7 @@ local function ValidatePlayerInteraction(src, targetSrc, rateKey, rateMs)
         return false, targetSrc, 'Target player is too far away.'
     end
 
-    if Config.Interactions and Config.Interactions.BlockInteractionWhenTargetInVehicle ~= false and IsServerPlayerInVehicle(targetSrc) then
+    if not allowVehicleTarget and Config.Interactions and Config.Interactions.BlockInteractionWhenTargetInVehicle ~= false and IsServerPlayerInVehicle(targetSrc) then
         return false, targetSrc, 'Use the vehicle interaction menu for players inside vehicles.'
     end
 
@@ -1547,9 +1736,13 @@ local function SanitizeExtensionPayload(payload)
     return cleaned
 end
 
-exports('GetCharacterId', function(src)
-    return GetPublicCharacterId(src)
-end)
+-- Note: a duplicate `exports('GetCharacterId', ...)` used to also be
+-- registered further below (using GetCharId instead of
+-- GetPublicCharacterId) -- the second registration silently wins in
+-- FiveM's export system, shadowing this one entirely. Removed this one
+-- since cm-police and others depend on this exact export name; keeping two
+-- divergent definitions around risked one drifting from the other with no
+-- warning.
 
 exports('ValidateInteractionTarget', function(src, targetSrc, rateKey, rateMs)
     return ValidatePlayerInteraction(tonumber(src), targetSrc, rateKey or 'export_validate_interaction', rateMs)
@@ -1569,7 +1762,7 @@ RegisterNetEvent('cm-playerdata:server:extensionInteraction', function(targetSrc
         return
     end
 
-    local ok, target, errorMessage = ValidatePlayerInteraction(src, targetSrc, 'ext_' .. actionId, 750)
+    local ok, target, errorMessage = ValidatePlayerInteraction(src, targetSrc, 'ext_' .. actionId, 750, registered.allowVehicleTarget)
     if not ok then
         NotifyPlayer(src, errorMessage or 'Interaction failed.', 'error')
         return
@@ -1648,6 +1841,32 @@ RegisterNetEvent('cm-playerdata:server:giveCashToPlayer', function(targetSrc, am
     NotifyPlayer(target, ('%s gave you $%s cash.'):format(GetPublicPlayerLabel(src), amount), 'success')
 end)
 
+local function FindPatchItem(src)
+    local medCfg = Config.Medical or {}
+    if medCfg.RequireTreatmentItem == false then return true, nil end
+    local items = medCfg.TreatmentItems or { 'medikit', 'medkit' }
+    for _, itemName in ipairs(items) do
+        local hasItem = false
+        local ok = pcall(function() hasItem = exports['cm-inventory']:HasItem(src, itemName, 1) == true end)
+        if ok and hasItem then return true, tostring(itemName) end
+    end
+    return false, nil
+end
+
+local function BeginPatchTreatment(src, target)
+    if PendingTreatments[src] then return false, 'You are already treating someone.' end
+    local hasItem, itemName = FindPatchItem(src)
+    if not hasItem then return false, 'You need a medikit to patch or treat a player.' end
+    local duration = (Config.Medical and Config.Medical.TreatDuration) or 8000
+    PendingTreatments[src] = { target = target, startedAt = GetGameTimer(), duration = duration, itemName = itemName }
+    NotifyPlayer(src, ('You are patching up %s.'):format(GetPublicPlayerLabel(target)), 'inform')
+    NotifyPlayer(target, ('%s is treating you.'):format(GetPublicPlayerLabel(src)), 'inform')
+    TriggerClientEvent('cm-playerdata:client:startTreatment', src, duration)
+    TriggerClientEvent('cm-playerdata:client:treatmentProgress', target, 'started', duration, GetPublicPlayerLabel(src))
+    TriggerEvent('cm-playerdata:server:treatRequested', src, target)
+    return true
+end
+
 RegisterNetEvent('cm-playerdata:server:playerInteraction', function(targetSrc, action)
     local src = source
     action = tostring(action or 'unknown')
@@ -1667,38 +1886,21 @@ RegisterNetEvent('cm-playerdata:server:playerInteraction', function(targetSrc, a
 
     if action == 'treat_player' then
         local medCfg = Config.Medical or {}
-
-        -- One treatment at a time per treater.
-        if PendingTreatments[src] then
-            NotifyPlayer(src, 'You are already treating someone.', 'error')
-            return
-        end
-
-        -- Bandage requirement via cm-inventory (graceful: skipped if the
-        -- inventory resource or export is unavailable).
-        if medCfg.RequireBandage ~= false then
-            local hasItem = nil
-            local ok = pcall(function()
-                hasItem = exports['cm-inventory']:HasItem(src, medCfg.BandageItem or 'bandage', 1)
-            end)
-            if ok and hasItem == false then
-                NotifyPlayer(src, ('You need a %s to patch someone up.'):format(medCfg.BandageItem or 'bandage'), 'error')
-                return
+        local hasItem = FindPatchItem(src)
+        if not hasItem then return NotifyPlayer(src, 'You need a medikit to patch or treat a player.', 'error') end
+        if PlayerData[target].isDead then
+            local started, reason = BeginPatchTreatment(src, target)
+            if not started then NotifyPlayer(src, reason, 'error') end
+        else
+            local existing = PendingTreatmentOffers[target]
+            if existing and GetGameTimer() < existing.expires then
+                return NotifyPlayer(src, 'That player already has a treatment request.', 'error')
             end
+            local timeout = tonumber(medCfg.TreatmentRequestTimeout) or 15000
+            PendingTreatmentOffers[target] = { from = src, expires = GetGameTimer() + timeout }
+            NotifyPlayer(src, ('Treatment request sent to %s.'):format(GetPublicPlayerLabel(target)), 'inform')
+            TriggerClientEvent('cm-playerdata:client:treatmentRequest', target, GetPublicPlayerLabel(src), timeout)
         end
-
-        local duration = medCfg.TreatDuration or 8000
-        PendingTreatments[src] = {
-            target = target,
-            startedAt = GetGameTimer(),
-            duration = duration
-        }
-
-        NotifyPlayer(src, ('You are patching up %s.'):format(GetPublicPlayerLabel(target)), 'inform')
-        NotifyPlayer(target, ('%s is patching you up.'):format(GetPublicPlayerLabel(src)), 'inform')
-        TriggerClientEvent('cm-playerdata:client:startTreatment', src, duration)
-        -- Bridge for the future EMS/medic resource (full revive, items, payouts).
-        TriggerEvent('cm-playerdata:server:treatRequested', src, target)
     elseif action == 'handshake' then
         -- Consent flow: the target must accept before names are exchanged.
         PendingHandshakes[target] = {
@@ -1754,6 +1956,28 @@ RegisterNetEvent('cm-playerdata:server:playerInteraction', function(targetSrc, a
     TriggerEvent('cm-playerdata:server:interactionSelected', src, target, action)
 end)
 
+RegisterNetEvent('cm-playerdata:server:treatmentResponse', function(accepted)
+    local target = source
+    if not RateLimit(target, 'treatment_response', 700) then return end
+    local offer = PendingTreatmentOffers[target]
+    PendingTreatmentOffers[target] = nil
+    if not offer or GetGameTimer() >= offer.expires then return end
+    local src = tonumber(offer.from)
+    if not src or not GetPlayerName(src) or not PlayerData[src] or not PlayerData[target] then return end
+    if accepted ~= true then return NotifyPlayer(src, ('%s declined your treatment request.'):format(GetPublicPlayerLabel(target)), 'error') end
+    local dist = GetPlayerDistance(src, target)
+    local maxDistance = ((Config.Interactions and Config.Interactions.ServerMaxDistance) or 5.0) + 2.0
+    if not dist or dist > maxDistance then
+        NotifyPlayer(src, 'Treatment failed: the player moved too far away.', 'error')
+        return NotifyPlayer(target, 'Treatment failed because you moved too far away.', 'error')
+    end
+    local started, reason = BeginPatchTreatment(src, target)
+    if not started then
+        NotifyPlayer(src, reason, 'error')
+        NotifyPlayer(target, reason, 'error')
+    end
+end)
+
 RegisterNetEvent('cm-playerdata:server:treatComplete', function(finished)
     local src = source
     local pending = PendingTreatments[src]
@@ -1762,6 +1986,7 @@ RegisterNetEvent('cm-playerdata:server:treatComplete', function(finished)
 
     if finished ~= true then
         NotifyPlayer(src, 'Treatment cancelled.', 'error')
+        if GetPlayerName(pending.target) then TriggerClientEvent('cm-playerdata:client:treatmentProgress', pending.target, 'cancelled') end
         return
     end
 
@@ -1769,12 +1994,13 @@ RegisterNetEvent('cm-playerdata:server:treatComplete', function(finished)
     local elapsed = GetGameTimer() - pending.startedAt
     if elapsed < math.floor(pending.duration * 0.85) then
         Log('warn', 'Rejected suspicious treatComplete (too fast)', { src = src, elapsed = elapsed })
+        if GetPlayerName(pending.target) then TriggerClientEvent('cm-playerdata:client:treatmentProgress', pending.target, 'cancelled') end
         return
     end
 
     local target = pending.target
     local targetData = PlayerData[target]
-    if not targetData or not targetData.loaded or not targetData.isDead then
+    if not targetData or not targetData.loaded then
         NotifyPlayer(src, 'They no longer need treatment.', 'error')
         return
     end
@@ -1784,16 +2010,24 @@ RegisterNetEvent('cm-playerdata:server:treatComplete', function(finished)
     local maxDistance = ((Config.Interactions and Config.Interactions.ServerMaxDistance) or 5.0) + 2.0
     if not dist or dist > maxDistance then
         NotifyPlayer(src, 'You moved too far away from them.', 'error')
+        TriggerClientEvent('cm-playerdata:client:treatmentProgress', target, 'cancelled')
         return
     end
 
     local medCfg = Config.Medical or {}
-
-    -- Consume the bandage now, at success time (never on a cancelled attempt).
-    if medCfg.RequireBandage ~= false then
-        pcall(function()
-            exports['cm-inventory']:RemoveItem(src, medCfg.BandageItem or 'bandage', 1)
-        end)
+    if medCfg.RequireTreatmentItem ~= false then
+        local stillHas = false
+        pcall(function() stillHas = exports['cm-inventory']:HasItem(src, pending.itemName, 1) == true end)
+        if not stillHas then
+            TriggerClientEvent('cm-playerdata:client:treatmentProgress', target, 'cancelled')
+            return NotifyPlayer(src, 'You no longer have the medikit.', 'error')
+        end
+        local removed = false
+        pcall(function() removed = exports['cm-inventory']:RemoveItem(src, pending.itemName, 1, nil, 'player_patch') == true end)
+        if not removed then
+            TriggerClientEvent('cm-playerdata:client:treatmentProgress', target, 'cancelled')
+            return NotifyPlayer(src, 'The medikit could not be consumed.', 'error')
+        end
     end
 
     -- Street patch: fully revive in place ("back from death"). Set
@@ -1802,6 +2036,8 @@ RegisterNetEvent('cm-playerdata:server:treatComplete', function(finished)
     local health = fullPatch and (Config.Vitals.MaxHealth or 200)
         or GetHealthFromPercent(medCfg.StreetPatchHealthPercent or 30)
 
+    local wasDead = targetData.isDead == true
+    if wasDead then ResolveAmbulanceRequest(target, targetData, 'treated') end
     targetData.isDead = false
     targetData.health = health
     targetData.armor = 0
@@ -1814,16 +2050,22 @@ RegisterNetEvent('cm-playerdata:server:treatComplete', function(finished)
 
     ApplyState(target)
     SyncInventoryDeathState(target, false)
-    SavePlayerData(target, 'street_patch')
-    if fullPatch then
+    SavePlayerData(target, wasDead and 'street_patch' or 'player_treatment')
+    if wasDead and fullPatch then
         TriggerClientEvent('cm-playerdata:client:revive', target)
-    else
+    elseif wasDead then
         TriggerClientEvent('cm-playerdata:client:revivePartial', target, health)
+    else
+        TriggerClientEvent('cm-playerdata:client:setHealth', target, health)
     end
 
-    NotifyPlayer(src, ('You patched up %s.'):format(GetPublicPlayerLabel(target)), 'success')
-    NotifyPlayer(target, ('%s patched you up. You are back on your feet.'):format(GetPublicPlayerLabel(src)), 'success')
-    Audit(src, 'treat_success', { target_character_id = GetPublicCharacterId(target), health = health, full = fullPatch })
+    NotifyPlayer(src, wasDead and ('You revived %s with a medikit.'):format(GetPublicPlayerLabel(target)) or ('You treated %s.'):format(GetPublicPlayerLabel(target)), 'success')
+    NotifyPlayer(target, wasDead and ('%s revived you with a medikit.'):format(GetPublicPlayerLabel(src)) or ('%s treated you.'):format(GetPublicPlayerLabel(src)), 'success')
+    TriggerClientEvent('cm-playerdata:client:treatmentProgress', target, 'completed')
+    Audit(src, 'treat_success', { target_character_id = GetPublicCharacterId(target), health = health, full = fullPatch, revived = wasDead, item = pending.itemName })
+    TriggerEvent('cm-playerdata:server:treatCompleted', src, target, {
+        revived = wasDead, item = pending.itemName, targetCharacterId = GetPublicCharacterId(target)
+    })
 end)
 
 RegisterNetEvent('cm-playerdata:server:handshakeResponse', function(accepted)
@@ -1974,6 +2216,70 @@ exports('GetBank', function(src)
     return PlayerData[src] and PlayerData[src].bank or 0
 end)
 
+exports('GetWantedStars', function(src)
+    src = tonumber(src)
+    return PlayerData[src] and PlayerData[src].wantedStars or 0
+end)
+
+-- "Busted" reset (GTA5-style) -- called by cm-police's booking flow once a
+-- suspect is successfully jailed. pcall-wrapped by the caller, same as
+-- every other cross-resource export call in this codebase.
+exports('ClearWantedStars', function(src)
+    src = tonumber(src)
+    if not src or not PlayerData[src] then return end
+    SetWantedStars(src, 0)
+end)
+
+-- Arbitrary-value setter, unlike ClearWantedStars above (always 0) -- lets
+-- cm-police's MDT "Mark Wanted" action push its stars rating straight onto
+-- the target's live HUD wanted level, reusing this same clamp/store/push
+-- path every other gain/clear/decay call site already goes through.
+exports('SetWantedStars', function(src, stars)
+    src = tonumber(src)
+    if not src or not PlayerData[src] then return end
+    SetWantedStars(src, stars)
+end)
+
+AddEventHandler('onResourceStart', function(resourceName)
+    if resourceName ~= 'cm-police' then return end
+    CreateThread(function()
+        Wait(500)
+        for _, data in pairs(PlayerData) do
+            if data.loaded then
+                pcall(function() exports['cm-police']:SyncWantedStars(data.charId, data.wantedStars or 0) end)
+            end
+        end
+    end)
+end)
+
+-- Passive decay -- the "wait it out" path. Only ticks players who haven't
+-- gained a new star since the last check, same "periodic sweep over
+-- currently-loaded players" shape used elsewhere in this codebase (e.g.
+-- cm-police's dispatch auto-expire sweep).
+CreateThread(function()
+    while true do
+        Wait(60000)
+        local decaySeconds = math.max(60, math.floor(((Config.WantedStars and Config.WantedStars.DecayIntervalMs) or 3600000) / 1000))
+        local now = os.time()
+        for src, data in pairs(PlayerData) do
+            local wanted = data.metadata and data.metadata.cmWanted
+            if data.loaded and (data.wantedStars or 0) > 0 and wanted
+                and now >= (tonumber(wanted.nextDecayAt) or (now + decaySeconds)) then
+                SetWantedStars(src, data.wantedStars - 1)
+            end
+        end
+    end
+end)
+
+RegisterNetEvent('cm-playerdata:server:aiWantedChaseEscaped', function()
+    local src = source
+    local data = PlayerData[src]
+    local minimumMs = (Config.WantedStars and Config.WantedStars.AiEscapeMinimumMs) or 120000
+    if not data or (data.wantedStars or 0) ~= ((Config.WantedStars and Config.WantedStars.Max) or 6) then return end
+    if GetGameTimer() - (data.wantedStarChangedAt or GetGameTimer()) < minimumMs then return end
+    SetWantedStars(src, data.wantedStars - 1)
+end)
+
 exports('GetMoney', function(src, account)
     src = tonumber(src)
     account = NormalizeAccount(account)
@@ -2078,6 +2384,8 @@ end)
 
 exports('RequestAmbulance', RequestAmbulance)
 exports('CallAmbulance', RequestAmbulance)
+exports('ProtectDeathTimer', ProtectDeathTimer)
+exports('ReleaseDeathTimerProtection', ReleaseDeathTimerProtection)
 
 exports('SetDead', SetDead)
 
@@ -2122,6 +2430,7 @@ exports('Heal', function(src, amountOrPercent, reason)
     -- teleport, no hospital. Full heal -> full revive; a partial heal gets them
     -- up weak at the same spot.
     if data.isDead then
+        ResolveAmbulanceRequest(src, data, reason or 'healed')
         data.isDead = false
         data.health = targetHealth
         data.armor = 0
@@ -2131,6 +2440,7 @@ exports('Heal', function(src, amountOrPercent, reason)
         data.dieChosen = false
         data.deathReason = nil
         data.dirty = true
+        GuardVitalsAfterRevive(data)
 
         ApplyState(src)
         SyncInventoryDeathState(src, false)
@@ -2146,6 +2456,7 @@ exports('Heal', function(src, amountOrPercent, reason)
 
     data.health = targetHealth
     data.dirty = true
+    GuardVitalsAfterRevive(data)
     SetState(src, 'health', data.health)
     SavePlayerData(src, reason or 'heal')
     TriggerClientEvent('cm-playerdata:client:setHealth', src, data.health)
@@ -2159,6 +2470,7 @@ exports('RevivePartial', function(src, percent, reason)
     if not data or not data.loaded then return false end
 
     local health = GetHealthFromPercent(percent or (Config.Medical and Config.Medical.StreetPatchHealthPercent) or 30)
+    ResolveAmbulanceRequest(src, data, reason or 'revived_partial')
     data.isDead = false
     data.health = health
     data.armor = 0
@@ -2168,6 +2480,7 @@ exports('RevivePartial', function(src, percent, reason)
     data.dieChosen = false
     data.deathReason = nil
     data.dirty = true
+    GuardVitalsAfterRevive(data)
 
     ApplyState(src)
     SyncInventoryDeathState(src, false)
@@ -2181,6 +2494,7 @@ exports('Revive', function(src)
     local data = PlayerData[src]
     if not data then return false end
 
+    ResolveAmbulanceRequest(src, data, 'revived')
     data.isDead = false
     data.health = Config.Vitals.MaxHealth
     data.armor = 0
@@ -2190,6 +2504,7 @@ exports('Revive', function(src)
     data.dieChosen = false
     data.deathReason = nil
     data.dirty = true
+    GuardVitalsAfterRevive(data)
 
     ApplyState(src)
     SyncInventoryDeathState(src, false)
@@ -2202,8 +2517,32 @@ exports('Respawn', function(src, spawnCoords, cost)
     local data = PlayerData[src]
     if not data then return false end
 
+    local hospitalReservation
+    if not spawnCoords and GetResourceState('cm-doctor') == 'started' then
+        local callOk, reserved, result = pcall(function()
+            return exports['cm-doctor']:ReserveRespawnBed(src, GetDeadLocation(data))
+        end)
+        if callOk and reserved == true and type(result) == 'table' and type(result.spawn) == 'table' then
+            hospitalReservation = result
+            spawnCoords = result.spawn
+            if cost == nil then cost = tonumber(result.bill) end
+        elseif callOk and reserved == false and tostring(result or ''):find('occupied', 1, true) then
+            -- Keep the patient in the death state until one of the 11 real beds
+            -- becomes free. Never overlap them on a fallback coordinate.
+            local retryMs = 5000
+            data.deathDeadline = GetGameTimer() + retryMs
+            data.deathDeadlineAt = NowMs() + retryMs
+            ScheduleBleedOut(src)
+            TriggerClientEvent('cm-playerdata:client:emsProtectionUpdated', src, {
+                remainingMs = retryMs, etaMs = retryMs,
+                label = 'WAITING FOR HOSPITAL BED', protected = true,
+            })
+            return false
+        end
+    end
+
     spawnCoords = spawnCoords or Config.Respawn.HospitalSpawn
-    cost = tonumber(cost or Config.Respawn.Cost) or 0
+    cost = tonumber(cost ~= nil and cost or Config.Respawn.Cost) or 0
 
     if cost > 0 then
         local bankBalance = tonumber(data.bank) or 0
@@ -2221,6 +2560,7 @@ exports('Respawn', function(src, spawnCoords, cost)
         end
     end
 
+    ResolveAmbulanceRequest(src, data, 'hospital_respawn')
     data.isDead = false
     data.health = GetRespawnHealth()
     data.armor = 0
@@ -2234,7 +2574,11 @@ exports('Respawn', function(src, spawnCoords, cost)
     ApplyState(src)
     SyncInventoryDeathState(src, false)
     SavePlayerData(src, 'respawn')
-    Audit(src, 'hospital_respawn', { health = data.health, cost = cost })
+    Audit(src, 'hospital_respawn', {
+        health = data.health, cost = cost,
+        hospital = hospitalReservation and hospitalReservation.hospitalId or 'fallback',
+        bed = hospitalReservation and hospitalReservation.bedId or nil,
+    })
     TriggerClientEvent('cm-playerdata:client:respawn', src, spawnCoords, data.health)
     return true
 end)

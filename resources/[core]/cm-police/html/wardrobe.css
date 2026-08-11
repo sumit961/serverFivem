@@ -1,0 +1,125 @@
+/* Police Wardrobe dressing room -- a full-screen overlay separate from the
+   #app dashboard shell (not nested inside it), since it needs to fully take
+   over the screen while the client-side camera (client/wardrobe.lua) frames
+   the officer's character. The middle viewport is left transparent on
+   purpose -- the "3D preview" is the real game rendered behind this NUI,
+   same way the rest of the dashboard already sits over a visible game world. */
+
+.wardrobe-room {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: stretch;
+  font-family: var(--cm-font, "DM Sans", sans-serif);
+  background:linear-gradient(90deg,rgba(3,11,17,.82) 0,rgba(3,11,17,.18) 25%,transparent 44%,transparent 58%,rgba(3,11,17,.2) 75%,rgba(3,11,17,.84) 100%);
+}
+.wardrobe-room[hidden] { display: none !important; }
+
+.wardrobe-sidebar {
+  width: 310px;
+  flex-shrink: 0;
+  padding: 42px 28px 30px;
+  background: linear-gradient(180deg, rgba(7, 17, 24, .96), rgba(7, 18, 26, .88));
+  border-right: 1px solid rgba(255, 255, 255, .07);
+  overflow-y: auto;
+}
+.wardrobe-sidebar-head { margin-bottom: 18px; }
+.wardrobe-sidebar-head small { color: #55e7f6; letter-spacing: .15em; font-size: 11px; font-weight:900 }
+.wardrobe-sidebar-head h2 { margin: 5px 0 0; color: #f4fbff; font-size: 32px; text-transform:uppercase;letter-spacing:.03em }
+.wardrobe-sidebar-head p{margin:2px 0 0;color:#7e929d;text-transform:uppercase;letter-spacing:.14em}
+
+.wardrobe-category-list { display: flex; flex-direction: column; gap: 7px; }
+.wardrobe-category-item {
+  padding: 14px 16px;
+  border-radius: 4px;
+  color: #b7bcd8;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  text-align: left;display:flex;align-items:center;gap:13px;text-transform:uppercase;
+}
+.wardrobe-category-item b{width:20px;color:#718791;text-align:center}.wardrobe-category-item span{flex:1}
+.wardrobe-category-item:hover { background: rgba(255, 255, 255, .05); }
+.wardrobe-category-item.active {
+  background: linear-gradient(90deg, rgba(69,226,241,.17), rgba(69,226,241,.04));
+  border-color: rgba(69,226,241,.3);
+  border-left:3px solid #55e7f6;
+  color: #eafcff;
+}
+.wardrobe-category-item.active b{color:#55e7f6}.wardrobe-instructions{margin-top:24px;padding-top:18px;border-top:1px solid rgba(255,255,255,.08);display:grid;gap:10px;color:#7f949e;font-size:11px;text-transform:uppercase;letter-spacing:.06em}.wardrobe-instructions span{display:flex;align-items:center;gap:6px}.wardrobe-instructions kbd{min-width:25px;padding:5px;border:1px solid rgba(255,255,255,.13);background:rgba(255,255,255,.05);color:#cce0e7;text-align:center}
+
+.wardrobe-viewport {
+  flex: 1;
+  position: relative;
+  cursor: grab;
+}
+.wardrobe-viewport:active { cursor: grabbing; }
+.wardrobe-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: rgba(15, 17, 32, .6);
+  border: 1px solid rgba(255, 255, 255, .1);
+  color: #969bb8;
+  font-size: 12px;
+  letter-spacing: .05em;
+  pointer-events: none;
+}
+
+.wardrobe-controls {
+  width: 370px;
+  flex-shrink: 0;
+  padding: 42px 28px 30px;
+  background: linear-gradient(180deg, rgba(7, 17, 24, .96), rgba(7, 18, 26, .88));
+  border-left: 1px solid rgba(255, 255, 255, .07);
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.wardrobe-title small { color: #55e7f6; letter-spacing: .14em; font-size: 11px;font-weight:900 }
+.wardrobe-title h2 { margin: 5px 0 0; color: #f4fbff; font-size: 25px;text-transform:uppercase }
+.wardrobe-title p{color:#80949e;font-size:12px;line-height:1.5}
+
+.wardrobe-control-group span:first-child {
+  display: block;
+  margin-bottom: 8px;
+  color: #969bb8;
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.wardrobe-arrow-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(10,25,34,.86);
+  border: 1px solid rgba(255, 255, 255, .1);
+}
+.wardrobe-arrow-row span { color: #f4f6ff; font-size: 13px; text-align: center; flex: 1; }
+.wardrobe-arrow {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(85, 231, 246, .3);
+  background: rgba(85, 231, 246, .08);
+  color: #55e7f6;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.wardrobe-arrow:hover { background: rgba(91, 134, 255, .18); }
+.wardrobe-arrow:disabled { opacity: .35; cursor: not-allowed; }
+
+.wardrobe-done { margin-top: auto; }
+.wardrobe-favorite-actions{display:grid;gap:9px}.wardrobe-favorite-actions[hidden],.wardrobe-favorites[hidden]{display:none!important}.wardrobe-favorite-actions input{padding:11px 12px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:#17192b;color:#f4f6ff}.wardrobe-favorites{display:flex;min-height:0;flex-direction:column;gap:10px}.wardrobe-favorites-head{display:flex;align-items:center;justify-content:space-between;color:#f4f6ff}.wardrobe-favorites-list,#wardrobeFavoritesList{display:grid;gap:8px;overflow-y:auto}.wardrobe-favorite-slot{padding:11px;border:1px solid rgba(91,134,255,.25);border-radius:10px;background:rgba(23,25,43,.92);color:#f4f6ff}.wardrobe-favorite-slot small{display:block;color:#969bb8;margin-top:3px}.wardrobe-favorite-slot-actions{display:flex;gap:6px;margin-top:9px}

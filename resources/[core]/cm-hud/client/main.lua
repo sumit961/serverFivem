@@ -4,6 +4,7 @@ local currentHealth = 200
 local currentArmor = 0
 local currentCash = 0
 local currentBank = 0
+local currentWantedStars = 0
 local currentArea = 'Unknown'
 local currentStreet = 'Unknown'
 local currentDir = 'N'
@@ -301,6 +302,10 @@ RegisterCommand('hud', function(_, args)
 
     TriggerEvent('cm-hud:client:notify', 'Use /hud admin, /hud speedo 1-30, or /hud reset', 'info')
 end, false)
+
+RegisterNetEvent('cm-hud:client:openAdminLauncher', function()
+    openHudAdmin()
+end)
 
 
 
@@ -725,6 +730,7 @@ RegisterNetEvent('cm-playerdata:client:loaded', function(data)
     currentArmor = data.armor or 0
     currentCash = data.cash or 0
     currentBank = data.bank or 0
+    currentWantedStars = math.max(0, math.min(6, math.floor(tonumber(data.wantedStars) or 0)))
 
     local serverId = characterId or ''
 
@@ -740,6 +746,7 @@ RegisterNetEvent('cm-playerdata:client:loaded', function(data)
             bank = currentBank,
             health = currentHealth,
             armor = currentArmor,
+            wantedStars = currentWantedStars,
             area = currentArea,
             street = currentStreet
         }
@@ -749,6 +756,18 @@ RegisterNetEvent('cm-playerdata:client:loaded', function(data)
     TriggerServerEvent('cm-hud:server:requestCharacterHud', characterId, characterHints)
     if characterId then TriggerServerEvent('cm-hud:server:setCharacter', characterId) end
     hudDebug('[CM-HUD] Initialized | ID:' .. tostring(serverId))
+end)
+
+-- Recover the display if cm-hud is restarted after the character-loaded
+-- event has already fired.
+CreateThread(function()
+    Wait(1500)
+    if GetResourceState('cm-playerdata') ~= 'started' then return end
+    local ok, stars = pcall(function() return exports['cm-playerdata']:GetWantedStars() end)
+    if ok then
+        currentWantedStars = math.max(0, math.min(6, math.floor(tonumber(stars) or 0)))
+        SendNUIMessage({ action = 'updateWanted', stars = currentWantedStars })
+    end
 end)
 
 -- ============================================================
@@ -769,6 +788,10 @@ RegisterNetEvent('cm-playerdata:client:update', function(key, value)
         currentCash = tonumber(value) or currentCash
     elseif key == 'bank' then
         currentBank = tonumber(value) or currentBank
+    elseif key == 'wantedStars' then
+        currentWantedStars = tonumber(value) or currentWantedStars
+        SendNUIMessage({ action = 'updateWanted', stars = currentWantedStars })
+        return
     end
 
     SendNUIMessage({

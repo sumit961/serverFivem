@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Doctor</title>
+  <link rel="stylesheet" href="style.css?v=240">
+</head>
+<body>
+  <div id="app" hidden>
+    <section class="dialogue" id="dialogue">
+      <div class="dialogue__identity">
+        <small id="dialogueRole">CM MEDICAL</small>
+        <h1 id="dialogueName">Doctor</h1>
+      </div>
+      <div class="dialogue__choices">
+        <div class="dialogue__quote">
+          <p id="dialogueQuote">Welcome. How can I help you today?</p>
+          <span id="dialogueSignature">— Doctor</span>
+        </div>
+        <button class="dialogue-option dialogue-option--primary" id="continueDialogue">I need medical assistance</button>
+        <button class="dialogue-option" id="leaveDialogue">I’m not interested right now</button>
+      </div>
+    </section>
+    <div class="panel" id="servicePanel" hidden>
+      <div class="panel__head">
+        <div>
+          <small id="hospitalName">MEDICAL CENTER</small>
+          <h1 id="doctorName">Doctor</h1>
+        </div>
+        <button class="icon-btn" id="close" title="Close">&times;</button>
+      </div>
+
+      <div class="occupancy" id="occupancy">
+        <span><b id="availableBeds">0</b> beds available</span>
+        <span><b id="waitingPatients">0</b> waiting</span>
+      </div>
+
+      <section class="stock-card" id="stockCard">
+        <div class="stock-card__top">
+          <div>
+            <small>SHARED HOSPITAL STOCK</small>
+            <strong id="stockPercent">0%</strong>
+          </div>
+          <span id="stockUnits">0 / 100 units</span>
+        </div>
+        <div class="stock-meter"><i id="stockFill"></i></div>
+        <p id="stockMessage">Medicine stock is loading.</p>
+      </section>
+
+      <section class="card treatment" id="treatmentCard">
+        <div class="card__text">
+          <h2 id="treatmentLabel">Get treated</h2>
+          <p id="treatmentInfo">Heals you to full health.</p>
+        </div>
+        <button class="primary" id="getTreated">Check in</button>
+      </section>
+
+      <section class="card" id="medkitCard">
+        <div class="card__text">
+          <h2>Medical kit</h2>
+          <p id="medkitInfo"></p>
+        </div>
+        <div class="buy-row">
+          <input type="number" id="medkitQty" min="1" value="1">
+          <button class="primary" id="buyMedkit">Buy</button>
+        </div>
+      </section>
+
+      <section class="card card--column" id="medicineCard">
+        <div class="card__text"><h2>Medicine</h2></div>
+        <div class="list" id="medicineList"></div>
+      </section>
+
+      <section class="card supply-run" id="runCard" hidden>
+        <div class="card__text">
+          <small>EMS DELIVERY TASK</small>
+          <h2>Medicine supply run</h2>
+          <p id="runInfo">A run becomes available when shared medicine stock reaches 40%.</p>
+        </div>
+        <button class="primary" id="takeMedicineRun">Take task</button>
+      </section>
+    </div>
+  </div>
+  <script src="app.js?v=240"></script>
+</body>
+</html>

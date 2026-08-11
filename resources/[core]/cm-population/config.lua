@@ -13,6 +13,10 @@ CMPopulationConfig = {
 
     disableRandomCops = true,
     disableDispatch = true,
+    -- CM wanted stars 1-5 are handled by real officers. At star 6 only,
+    -- temporarily restore GTA's native Police/SWAT dispatch for that player.
+    enablePoliceDispatchAtSixStars = true,
+    aiWantedThreshold = 6,
     disableGarbageTrucks = true,
     disableRandomBoats = true,
     disableRandomTrains = true,

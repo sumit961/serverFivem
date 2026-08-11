@@ -1,7 +1,7 @@
 -- ============================================================
 --  cm-house | cl_create.lua   |  the whole wizard, one command
 --
---  /cmhouse
+--  cm-admin Developer > House Admin > Add property
 --    1  FEATURES   type, garden, pool, helipad + saved garage template [UI]
 --                  -> capacity comes from the template's placed cars
 --    2  EXTERIOR   door -> garage zone -> vehicle exit -> helipad
@@ -17,7 +17,7 @@ local W = nil    -- the whole wizard state, or nil when idle
 
 local function blank()
     return {
-        -- Where the admin was standing when they typed /cmhouse. The wizard
+        -- Where the admin was standing when they opened the creator. The wizard
         -- teleports them into interiors and garages; cancelling halfway must
         -- put them back, not abandon them inside a motel room they cannot
         -- leave.
@@ -1082,13 +1082,10 @@ stepPublish = function()
     })
 end
 
-RegisterNUICallback('wizard:publish', function(form, cb)
+RegisterNUICallback('wizard:publish', function(_, cb)
     SetNuiFocus(false, false)
 
     local ok, msg = lib.callback.await('cm-house:server:createHouse', false, {
-        houseNumber = form.houseNumber,
-        label       = form.label,
-
         features    = W.features,
         door        = W.door,
         garageZone  = W.garageZone,
@@ -1157,11 +1154,4 @@ AddEventHandler('onResourceStop', function(res)
     ClearGarageCars()
     clearHelipadPlacer()
     if W then reset() end
-end)
-
---- Live address check while the admin types, so a clash is caught before the
---- Publish button is ever pressed.
-RegisterNUICallback('wizard:checkAddress', function(d, cb)
-    local ok, msg = lib.callback.await('cm-house:server:checkAddress', false, d.number)
-    cb({ ok = ok, message = msg })
 end)

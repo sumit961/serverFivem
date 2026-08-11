@@ -6,6 +6,15 @@
 -- resolve them like any built-in item.
 
 local CATALOG_IMAGE_DIR = 'ui/images/catalog'
+local MEDICAL_IMAGES = {
+    bandage = 'nui://cm-items/ui/images/medical_bandage.svg',
+    medkit = 'nui://cm-items/ui/images/medical_kit.svg',
+    medikit = 'nui://cm-items/ui/images/medical_kit.svg',
+    armor = 'nui://cm-items/ui/images/medical_armor.svg',
+    painkillers = 'nui://cm-items/ui/images/medical_painkillers.svg',
+    antibiotics = 'nui://cm-items/ui/images/medical_antibiotics.svg',
+    adrenaline_shot = 'nui://cm-items/ui/images/medical_adrenaline.svg',
+}
 
 CMItems = CMItems or {}
 CMItems.CatalogItems = CMItems.CatalogItems or {}
@@ -63,14 +72,15 @@ end
 -- Convert a catalog DB row into the in-memory item def shape cm-inventory expects.
 local function rowToDef(row)
     local meta = decodeMeta(row.metadata)
+    local image = MEDICAL_IMAGES[tostring(row.name or ''):lower()] or row.image or 'placeholder.png'
     return {
         name = row.name,
         label = row.label or row.name,
         category = row.category or 'misc',
         itemType = row.item_type or 'normal',
         type = row.item_type or 'normal',
-        image = row.image or 'placeholder.png',
-        icon = row.image or 'placeholder.png',
+        image = image,
+        icon = image,
         weight = tonumber(row.weight) or 0,
         stack = tonumber(row.stack) == 1,
         unique = tonumber(row.stack) ~= 1,
@@ -291,7 +301,7 @@ local function ensureImageTable()
 end
 
 local function applyImageOverride(name)
-    local image = CMItems.ItemImages[name]
+    local image = MEDICAL_IMAGES[tostring(name or ''):lower()] or CMItems.ItemImages[name]
     if not image or image == '' then return end
     CMItems.Items = CMItems.Items or {}
     if CMItems.Items[name] then

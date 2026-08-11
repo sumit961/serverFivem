@@ -220,6 +220,16 @@ RegisterNetEvent('cm-vehicles:client:openMenu', function(info)
     local veh = info.netId and NetworkGetEntityFromNetworkId(info.netId) or nil
     if (not veh or veh == 0 or not DoesEntityExist(veh)) and info.plate then veh = CMVehicles.Client.FindVehicleByPlate(info.plate) end
     if veh and veh ~= 0 and DoesEntityExist(veh) then
+        if GetResourceState('cm-police') == 'started' then
+            local ok, target = pcall(function()
+                return exports['cm-police']:GetDraggedSuspectForVehicle(veh)
+            end)
+            info.policeDraggedSuspect = ok and tonumber(target) or nil
+            local occupantOk, occupant = pcall(function()
+                return exports['cm-police']:GetCuffedSuspectInVehicle(veh)
+            end)
+            info.policeCuffedOccupant = occupantOk and tonumber(occupant) or nil
+        end
         info.fuel = math.floor(((CMVehicles.Client.GetVehicleFuel(veh) or 100.0) * 10) + 0.5) / 10
         local state = Entity(veh).state
         local nativeEngine = tonumber(GetVehicleEngineHealth(veh)) or 0.0
@@ -372,6 +382,16 @@ RegisterNUICallback('vehicleAction', function(data, cb)
         TriggerServerEvent('cm-vehicles:server:forceOutTrunk', plate, netId)
     elseif action == 'ejectPassenger' then
         TriggerServerEvent('cm-vehicles:server:ejectPassenger', plate, netId, tonumber(data.target))
+    elseif action == 'policePutDragged' then
+        if GetResourceState('cm-police') == 'started' and netId then
+            TriggerEvent('cm-police:client:putDraggedInSelectedVehicle', netId)
+            CMVehicles.Client.CloseNui()
+        end
+    elseif action == 'policeRemoveCuffed' then
+        if GetResourceState('cm-police') == 'started' and netId then
+            TriggerEvent('cm-police:client:removeCuffedFromSelectedVehicle', netId)
+            CMVehicles.Client.CloseNui()
+        end
     elseif action == 'windows' then
         if veh and veh ~= 0 then for i = 0, 3 do if IsVehicleWindowIntact(veh, i) then RollDownWindow(veh, i) else RollUpWindow(veh, i) end end end
     elseif action == 'doors' then

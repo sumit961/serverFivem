@@ -252,7 +252,11 @@ function CMVehicles.Spawn.RegisterEntity(src, row, netId, opts)
         if not sameEntity then state:set('cmGarageDriving', false, true) end
     end
 
-    pcall(function() SetVehicleNumberPlateText(ent, '        ') end)
+    -- Plate text stays blank unless police have issued this vehicle a
+    -- registration (cm-police MDT) -- vehicle identity is never read from
+    -- this text (see docs/API.md), so showing the license number here is
+    -- purely cosmetic/roleplay, safe to change without touching lookups.
+    pcall(function() SetVehicleNumberPlateText(ent, row.license_number or '        ') end)
     return true
 end
 
@@ -516,6 +520,7 @@ local function finalizeGarageCondition(src, row, netId)
         model        = row.model,
         label        = row.label,
         plate        = U.NormalizePlate(row.plate),
+        licenseNumber = row.licenseNumber or row.license_number,
 
         -- Straight from cm_owned_vehicles. This is the whole point.
         fuel         = tonumber(row.fuel) or 100.0,
@@ -821,15 +826,16 @@ function CMVehicles.Spawn.PromoteHouseGarageVehicle(identity, src, spawn)
     local h = tonumber(spawn.h or spawn.w or spawn.heading) or 0.0
     if not x or not y or not z then return false, 'The outside vehicle exit is invalid.' end
 
-    -- A non-owner may take the car only after cm-family confirms the car is
-    -- shared and the member tier/permissions are sufficient. Grant the
-    -- revocable family session key BEFORE moving the entity out of the garage.
-    if tonumber(src) and tonumber(src) > 0 and CMVehicles.API and CMVehicles.API.GrantFamilySessionKey then
+    -- A non-owner may take the car only after the authoritative integration
+    -- owner (family, EMS, police, admin) confirms access. CanUseVehicle also
+    -- grants/revalidates the family session key where that integration needs
+    -- one, while EMS fleet access remains tied to duty and rank permissions.
+    if tonumber(src) and tonumber(src) > 0 and CMVehicles.API and CMVehicles.API.CanUseVehicle then
         local row = CMVehicles.Server.GetVehicleById(tonumber(active.vehicleId))
         if row and not CMVehicles.Server.IsOwner(src, row.plate) then
-            local granted, why = CMVehicles.API.GrantFamilySessionKey(src, row.id, 'vehicle.drive')
-            if granted ~= true then
-                return false, ('Family vehicle access denied: %s'):format(tostring(why or 'not_allowed'))
+            local allowed, why = CMVehicles.API.CanUseVehicle(src, row.id, 'vehicle.drive')
+            if allowed ~= true then
+                return false, ('Vehicle access denied: %s'):format(tostring(why or 'not_allowed'))
             end
         end
     end
@@ -883,7 +889,23 @@ function CMVehicles.Spawn.PromoteHouseGarageVehicle(identity, src, spawn)
     active.updatedAt = os.time()
     registrySet(active.vehicleId, active)
 
-    if destroyed then
+    local conditionReady = state.cmConditionReady == true
+    if not conditionReady then
+        -- A persistent world vehicle can have been registered before its first
+        -- streaming client verified the saved condition. Recalling it moves the
+        -- same entity into range, so explicitly replay the trusted pending
+        -- payload to the requester instead of waiting for another state-bag
+        -- change that may never occur.
+        local pendingFinalize = state.cmPendingFinalize
+        if tonumber(src) and tonumber(src) > 0 and type(pendingFinalize) == 'table' then
+            local payload = {}
+            for key, value in pairs(pendingFinalize) do payload[key] = value end
+            payload.netId = netId
+            TriggerClientEvent('cm-vehicles:client:finalizeSpawn', tonumber(src), payload)
+        end
+    end
+
+    if destroyed or not conditionReady then
         pcall(function() SetVehicleEngineOn(entity, false, true, true) end)
         pcall(function() SetVehicleUndriveable(entity, true) end)
     else
@@ -1057,7 +1079,7 @@ function CMVehicles.Spawn.CreateForPlayer(src, row, opts)
     if targetBucket == nil then targetBucket = GetPlayerRoutingBucket(src) end
     SetEntityRoutingBucket(veh, targetBucket)
     if SetEntityOrphanMode then pcall(SetEntityOrphanMode, veh, 2) end
-    if SetVehicleNumberPlateText then SetVehicleNumberPlateText(veh, '        ') end
+    if SetVehicleNumberPlateText then SetVehicleNumberPlateText(veh, row.license_number or '        ') end
 
     local locked = opts.locked
     if locked == nil then locked = row.is_locked == true or row.is_locked == 1 end
@@ -1087,6 +1109,7 @@ function CMVehicles.Spawn.CreateForPlayer(src, row, opts)
         model = row.model,
         label = row.label,
         plate = plate,
+        licenseNumber = row.licenseNumber or row.license_number,
         fuel = tonumber(row.fuel) or 100,
         engineHealth = (U.NormalizeSavedHealth or U.NormalizeHealth)(opts.engineHealth or row.engineHealth or row.engine_health, 1000.0),
         bodyHealth = (U.NormalizeSavedHealth or U.NormalizeHealth)(opts.bodyHealth or row.bodyHealth or row.body_health, 1000.0),
@@ -1163,8 +1186,15 @@ function CMVehicles.Spawn.SpawnFromParking(src, vehicleId, lotId, spawn, options
     options = type(options) == 'table' and options or {}
     local row = CMVehicles.Server.GetVehicleById(vehicleId)
     if not row then return false, 'Vehicle not found.' end
-    if tostring(row.owner_character_id) ~= tostring(CMVehicles.Server.GetCharacterId(src)) then
-        return false, 'You do not own this vehicle.'
+    local isCharacterOwner = tostring(row.owner_type or 'character') == 'character'
+        and tostring(row.owner_character_id) == tostring(CMVehicles.Server.GetCharacterId(src))
+    if not isCharacterOwner then
+        local accessAllowed = false
+        if options.allowAuthorizedAccess == true and CMVehicles.API and CMVehicles.API.CanUseVehicle then
+            local okAccess, allowed = pcall(CMVehicles.API.CanUseVehicle, src, row, 'vehicle.drive')
+            accessAllowed = okAccess and allowed == true
+        end
+        if not accessAllowed then return false, 'You do not own this vehicle.' end
     end
 
     local wasStored = row.is_stored == true or row.is_stored == 1
@@ -1281,7 +1311,8 @@ function CMVehicles.Spawn.SpawnFromParking(src, vehicleId, lotId, spawn, options
         bodyHealth = targetBody,
         tankHealth = targetTank,
         dirtLevel = targetDirt,
-        locked = finalLocked
+        locked = finalLocked,
+        vehicleType = options.vehicleType,
     })
     if not ok then
         if wasStored then

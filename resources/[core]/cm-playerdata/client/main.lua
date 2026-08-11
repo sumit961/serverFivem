@@ -14,6 +14,27 @@ local isSpawning = false
 local deathPending = false
 local ambulanceCalled = false
 local dieChosen = false
+local sixStarChaseStarted = false
+
+local function applyNativeWantedLevel(stars)
+    local maxStars = (Config.WantedStars and Config.WantedStars.Max) or 6
+    local nativeLevel = (Config.WantedStars and Config.WantedStars.NativeLevelAtMax) or 5
+    local target = (tonumber(stars) or 0) >= maxStars and nativeLevel or 0
+    SetPlayerWantedLevel(PlayerId(), target, false)
+    SetPlayerWantedLevelNow(PlayerId(), false)
+    sixStarChaseStarted = target > 0
+end
+
+CreateThread(function()
+    while true do
+        Wait(2000)
+        if sixStarChaseStarted and (tonumber(PlayerData.wantedStars) or 0) >= ((Config.WantedStars and Config.WantedStars.Max) or 6)
+            and GetPlayerWantedLevel(PlayerId()) == 0 then
+            sixStarChaseStarted = false
+            TriggerServerEvent('cm-playerdata:server:aiWantedChaseEscaped')
+        end
+    end
+end)
 local deathCam = nil
 local pendingDeathData = nil
 local hasSpawnCompleted = false
@@ -180,17 +201,25 @@ end
 -- "finished" and is sent straight to hospital respawn, skipping the bleed-out.
 local function StartDownedFinishMonitor()
     finishedOffSent = false
+    local monitorStartedAt = GetGameTimer()
     CreateThread(function()
         local threshold = Config.Vitals.DamageThreshold or 101
+        -- The death-interception handler ragdolls the ped for up to 2s right as
+        -- this monitor starts (see SetPedToRagdoll in the engine-death thread
+        -- below). That settling can still burn fall/impact damage into the
+        -- unconscious buffer for a moment after entering the death state, which
+        -- must never be mistaken for another player finishing off the body.
+        local graceMs = 2500
         local armed = false
         while isDead do
             Wait(50)
             local ped = PlayerPedId()
             local hp = GetEntityHealth(ped)
             if not armed then
-                -- Arm only once the unconscious buffer is confirmed in place, so a
-                -- one-frame stale read can never false-trigger a finish.
-                if hp > threshold then armed = true end
+                -- Arm only once the unconscious buffer is confirmed in place AND
+                -- the post-death ragdoll grace period has elapsed, so neither a
+                -- one-frame stale read nor settling fall damage can false-trigger.
+                if hp > threshold and GetGameTimer() - monitorStartedAt > graceMs then armed = true end
             elseif (hp <= threshold or IsEntityDead(ped)) and not finishedOffSent and not respawnRequestSent then
                 finishedOffSent = true
                 respawnRequestSent = true
@@ -242,6 +271,8 @@ function EnterDeathState(killedBy, bleedMs, alreadyAmbulanceCalled)
             Wait(0)
             DisableAllControlActions(0)
             EnableControlAction(0, 245, true) -- chat stays available
+            EnableControlAction(0, 199, true) -- pause/map
+            EnableControlAction(0, 200, true) -- pause/map alternate (ESC)
         end
     end)
 
@@ -291,6 +322,7 @@ end
 -- ---------------------------------------------------------------------------
 local function ApplyLoadedData(data)
     PlayerData = data or {}
+    applyNativeWantedLevel(PlayerData.wantedStars)
     lastHealth = PlayerData.health or Config.Vitals.MaxHealth
     lastArmor = PlayerData.armor or 0
 
@@ -323,6 +355,7 @@ RegisterNetEvent('cm-playerdata:client:characterLoaded', ApplyLoadedData)
 
 RegisterNetEvent('cm-playerdata:client:unloaded', function()
     PlayerData = {}
+    applyNativeWantedLevel(0)
     pendingDeathData = nil
     hasSpawnCompleted = false
     lastHealth = Config.Vitals.MaxHealth
@@ -331,6 +364,7 @@ RegisterNetEvent('cm-playerdata:client:unloaded', function()
 end)
 RegisterNetEvent('cm-playerdata:client:characterUnloaded', function()
     PlayerData = {}
+    applyNativeWantedLevel(0)
     pendingDeathData = nil
     hasSpawnCompleted = false
     lastHealth = Config.Vitals.MaxHealth
@@ -340,6 +374,20 @@ end)
 
 RegisterNetEvent('cm-playerdata:client:update', function(key, value)
     PlayerData[key] = value
+    -- GTA5-style wanted stars: only star Config.WantedStars.Max (6) sets a
+    -- real native wanted level -- 1-5 stay a HUD-only counter (cm-hud's own
+    -- listener on this same event handles that side). Nothing here ever
+    -- touches spawned police entities directly; the native level is all
+    -- native GTA needs to spawn AND disperse its own police on its own.
+    if key == 'wantedStars' then
+        applyNativeWantedLevel(value)
+    end
+end)
+
+-- Read-only client contract used by cm-population to recover the current
+-- threshold after that resource is restarted and missed the original event.
+exports('GetWantedStars', function()
+    return math.max(0, math.floor(tonumber(PlayerData.wantedStars) or 0))
 end)
 
 RegisterNetEvent('cm-playerdata:client:moneyChanged', function(account, before, after, reason)
@@ -472,6 +520,22 @@ RegisterNetEvent('cm-playerdata:client:ambulanceConfirmed', function(newRemainin
     })
 end)
 
+RegisterNetEvent('cm-playerdata:client:emsProtectionUpdated', function(payload)
+    if not isDead or type(payload) ~= 'table' then return end
+    local remainingMs = math.max(0, tonumber(payload.remainingMs) or 0)
+    ambulanceCalled = true
+    respawnRequestSent = false
+    localDeathDeadline = GetGameTimer() + remainingMs
+    SetNuiFocus(false, false)
+    SendNUIMessage({
+        action = 'emsProtection',
+        remainingMs = remainingMs,
+        etaMs = math.max(0, tonumber(payload.etaMs) or 0),
+        label = tostring(payload.label or 'AI EMS RESPONDING'),
+        protected = payload.protected == true,
+    })
+end)
+
 RegisterNetEvent('cm-playerdata:client:canRespawn', function()
     -- kept for backward compatibility; bleed-out handles respawn now
 end)
@@ -589,8 +653,7 @@ RegisterNetEvent('cm-playerdata:client:startTreatment', function(duration)
             position = 'bottom',
             useWhileDead = false,
             canCancel = true,
-            disable = { move = true, car = true, combat = true },
-            anim = { dict = 'amb@medic@standing@kneel@base', clip = 'base' }
+            disable = { car = true, combat = true }
         })
     else
         RequestAnimDict('amb@medic@standing@kneel@base')
@@ -605,6 +668,31 @@ RegisterNetEvent('cm-playerdata:client:startTreatment', function(duration)
     end
 
     TriggerServerEvent('cm-playerdata:server:treatComplete', finished == true)
+end)
+
+local receivingTreatment = false
+RegisterNetEvent('cm-playerdata:client:treatmentProgress', function(status, duration, medicLabel)
+    status = tostring(status or '')
+    if status == 'started' then
+        receivingTreatment = true
+        if lib and lib.notify then
+            lib.notify({ title = 'Treatment', description = ('%s is treating you. Stay nearby.'):format(tostring(medicLabel or 'A player')), type = 'inform' })
+        end
+        CreateThread(function()
+            if lib and lib.progressBar then
+                lib.progressBar({ duration = math.max(3000, tonumber(duration) or 8000), label = 'Receiving treatment...', useWhileDead = true, canCancel = false })
+            else
+                Wait(math.max(3000, tonumber(duration) or 8000))
+            end
+            receivingTreatment = false
+        end)
+    else
+        if receivingTreatment and lib and lib.cancelProgress then pcall(lib.cancelProgress) end
+        receivingTreatment = false
+        if lib and lib.notify then
+            lib.notify({ title = 'Treatment', description = status == 'completed' and 'Treatment completed.' or 'Treatment cancelled.', type = status == 'completed' and 'success' or 'error' })
+        end
+    end
 end)
 
 -- ---------------------------------------------------------------------------
@@ -697,6 +785,24 @@ RegisterNUICallback('deathExpired', function(_, cb)
         respawnRequestSent = true
         TriggerServerEvent('cm-playerdata:server:requestRespawn')
     end
+end)
+
+RegisterNUICallback('deathOpenMap', function(_, cb)
+    cb({})
+    if not isDead or IsPauseMenuActive() then return end
+    SetNuiFocus(false, false)
+    SendNUIMessage({ action = 'deathMapVisibility', hidden = true })
+    ActivateFrontendMenu(joaat('FE_MENU_VERSION_MP_PAUSE'), false, -1)
+    CreateThread(function()
+        Wait(500)
+        while isDead and IsPauseMenuActive() do Wait(200) end
+        if not isDead then return end
+        SendNUIMessage({ action = 'deathMapVisibility', hidden = false })
+        if not ambulanceCalled and not dieChosen then
+            SetNuiFocusKeepInput(false)
+            SetNuiFocus(true, true)
+        end
+    end)
 end)
 
 RegisterCommand('pdstatus', function()

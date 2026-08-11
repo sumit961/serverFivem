@@ -39,12 +39,30 @@ Config.AutoDiscoverVehicles = {
     enabled = true,
     cacheSeconds = 60,
     maxDepth = 7,
-    maxMetaFilesPerResource = 80,
+    -- Some packs ship a vehicles.meta per car under stream/[Brand]/[Model]/
+    -- (600-DebadgedCars alone ships 604). Raised from 80 so a single large
+    -- pack does not get silently truncated; the scanner's own hard ceiling is
+    -- 1000 (see findVehicleMetaFiles in server.lua) if you need more headroom.
+    maxMetaFilesPerResource = 700,
     maxVehicles = 5000,
     -- Resource names containing one of these strings are skipped.
     excludeResources = { 'rn-vehicleshop' },
     -- Optional allow-list. Leave empty to scan all started resources.
     includeResources = {}
+}
+
+Config.RuntimeCatalogSeed = {
+    enabled = true,
+    defaultTrunkLevel = 1,
+    -- Suggested Manage Vehicles prices only. Runtime discovery always inserts
+    -- hidden rows; taking a photo and explicitly selecting a destination is what
+    -- allows a vehicle into the store, server/event, EMS, or Police catalog.
+    classPrices = {
+        [0] = 18000, [1] = 35000, [2] = 55000, [3] = 60000, [4] = 70000,
+        [5] = 85000, [6] = 125000, [7] = 350000, [8] = 35000, [9] = 65000,
+        [10] = 90000, [11] = 45000, [12] = 50000, [13] = 1500,
+        [17] = 50000, [20] = 95000
+    }
 }
 
 -- Structured audit adapter. The resource first tries the configured cm-admin
@@ -636,4 +654,3 @@ Config.Colors = {
     colorName = color's name (put whatever you want).
     gtaColor = the color number from gta list.
 ]]
-

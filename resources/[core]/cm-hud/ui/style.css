@@ -612,6 +612,32 @@ body {
     clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 80%, 0 100%);
 }
 
+/* GTA5-style wanted stars, shown above the money block only while the
+   player has at least 1 star (cm-playerdata's own transient wanted-stars
+   system -- unrelated to cm-police's MDT wanted flag). */
+.wanted-stars-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 3px;
+    margin-bottom: 6px;
+}
+
+.wanted-star {
+    font-size: 20px;
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.18);
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.9);
+}
+
+.wanted-star-filled {
+    color: #f5b642;
+}
+
+.wanted-star-hot {
+    color: #ff3b30;
+    text-shadow: 0 0 8px rgba(255, 59, 48, 0.85), 2px 2px 4px rgba(0, 0, 0, 0.9);
+}
+
 .money-block-new {
     text-align: right;
     margin-bottom: 30px;

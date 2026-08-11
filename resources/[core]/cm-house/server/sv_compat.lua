@@ -831,20 +831,8 @@ local function hasCore()
     return GetResourceState('cm-core') == 'started'
 end
 
---- Admin gate. cm-core:ACLCheck delegates to cm-admin:HasPermission, which is
---- the export that actually exists -- the original GetRank guess was wrong,
---- and that silent throw is why /cmhouse did nothing at all.
---- Is this player REALLY staff? Asks the ACL, and never lies.
----
---- Kept separate from IsHouseAdmin because two different questions were
---- sharing one function:
----   "may they build houses?"        -- relaxed during development
----   "may they override a player's property rights?"  -- must NEVER be relaxed
----
---- With Config.RequireAdmin = false, IsHouseAdmin says yes to everyone. If the
---- staff override in CanAccessProperty also used it, EVERY player would be able
---- to enter, unlock and even SELL houses they do not own -- while the audit log
---- filled with staff_override lines explaining exactly that.
+--- Admin gate. cm-core:ACLCheck delegates to cm-admin:HasPermission. Building
+--- and sensitive staff overrides remain separate granular permission checks.
 local function adminPermissionKey(scope)
     scope = tostring(scope or 'panel')
     return tostring((Config.AdminPermissions and Config.AdminPermissions[scope])
@@ -871,17 +859,9 @@ local function aclAllows(src, permission)
     return false
 end
 
---- Granular, rank-ready staff permission gate. The legacy house.create/ACE
---- fallback can remain enabled while existing admin ranks are migrated.
+--- Granular cm-admin rank/ACE staff permission gate.
 function HasHouseStaffPermission(src, scope)
     if not src or src == 0 then return true end
-
-    -- Explicit local-development bypass. This is intentionally isolated from
-    -- IsRealStaff so public admin-panel testing never turns every player into
-    -- a property owner during normal gameplay.
-    if Config.DevelopmentPublicAdmin == true then
-        return true
-    end
 
     local permission = adminPermissionKey(scope)
     if aclAllows(src, permission) or IsPlayerAceAllowed(src, adminAceKey(scope)) then
@@ -920,13 +900,8 @@ function IsRealStaff(src)
     return false
 end
 
---- May this player use the building tools? Relaxed by Config.RequireAdmin so a
---- solo dev can test without setting up an ACL.
----
---- This is NOT an authority over other people's property. Use the granular
---- HasHouseStaffPermission function for admin panel actions.
+--- May this player use the building tools? Always requires the create scope.
 function IsHouseAdmin(src)
-    if not Config.RequireAdmin then return true end
     return HasHouseStaffPermission(src, 'create')
 end
 

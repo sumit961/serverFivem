@@ -158,7 +158,8 @@ function buildHexMenu(data) {
         hex.innerHTML =
             '<div class="num">' + (i + 1) + '</div>' +
             '<div class="icon">' + (ICONS[opt.icon] || ICONS.dot) + '</div>' +
-            '<div class="lbl">' + escapeHtml(opt.label || '') + '</div>';
+            '<div class="lbl">' + escapeHtml(opt.label || '') + '</div>' +
+            (opt.description ? '<div class="desc">' + escapeHtml(opt.description) + '</div>' : '');
         hex.addEventListener('click', () => post('selectOption', { index: i + 1 }));
         row.appendChild(hex);
     });
@@ -187,6 +188,11 @@ function post(name, payload) {
 
 // Keyboard: 1-9 select, ESC close.
 window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !deathScreen.classList.contains('hidden')) {
+        e.preventDefault();
+        post('deathOpenMap');
+        return;
+    }
     if (!menuVisible) return;
 
     if (e.key === 'Escape') {
@@ -251,6 +257,8 @@ const deathScreen = document.getElementById('deathscreen');
 const deathMini = document.getElementById('deathmini');
 const dsTimer = document.getElementById('ds-timer');
 const dmTimer = document.getElementById('dm-timer');
+const dmLabel = document.getElementById('dm-label');
+const dmEta = document.getElementById('dm-eta');
 const dsKilledBy = document.getElementById('ds-killedby');
 const dsOptions = document.getElementById('ds-options');
 const dsStatus = document.getElementById('ds-status');
@@ -259,6 +267,7 @@ let deathDeadline = 0;
 let deathTick = null;
 let deathMode = 'screen'; // 'screen' | 'mini'
 let deathExpiredPosted = false;
+let emsEtaDeadline = 0;
 
 function fmtTime(ms) {
     if (ms < 0) ms = 0;
@@ -282,6 +291,10 @@ function tickDeath() {
             clearInterval(deathTick);
             deathTick = null;
         }
+    }
+    if (deathMode === 'mini' && emsEtaDeadline > 0) {
+        const etaRemaining = emsEtaDeadline - Date.now();
+        dmEta.textContent = etaRemaining > 0 ? 'ARRIVAL ' + fmtTime(etaRemaining) : 'ON SCENE';
     }
 }
 
@@ -313,8 +326,24 @@ function ambulanceMode(msg) {
     deathMode = 'mini';
     deathExpiredPosted = false;
     deathDeadline = Date.now() + (msg.remainingMs || 0);
+    emsEtaDeadline = 0;
+    dmLabel.textContent = 'EMS CALLED';
+    dmEta.classList.add('hidden');
     deathScreen.classList.add('hidden');
     deathMini.classList.remove('hidden');
+    tickDeath();
+}
+
+function emsProtection(msg) {
+    deathMode = 'mini';
+    deathExpiredPosted = false;
+    deathDeadline = Date.now() + (msg.remainingMs || 0);
+    emsEtaDeadline = msg.protected ? Date.now() + (msg.etaMs || 0) : 0;
+    dmLabel.textContent = String(msg.label || (msg.protected ? 'AI EMS RESPONDING' : 'EMS CALLED')).toUpperCase();
+    dmEta.classList.toggle('hidden', !msg.protected);
+    deathScreen.classList.add('hidden');
+    deathMini.classList.remove('hidden');
+    if (!deathTick) deathTick = setInterval(tickDeath, 250);
     tickDeath();
 }
 
@@ -325,6 +354,16 @@ function deathChoice(msg) {
         dsStatus.textContent = 'WAITING FOR BLEED OUT...';
         dsStatus.classList.remove('hidden');
     }
+}
+
+function deathMapVisibility(msg) {
+    if (msg.hidden) {
+        deathScreen.classList.add('hidden');
+        deathMini.classList.add('hidden');
+        return;
+    }
+    if (deathMode === 'mini') deathMini.classList.remove('hidden');
+    else deathScreen.classList.remove('hidden');
 }
 
 function closeDeathScreen() {
@@ -339,7 +378,9 @@ window.addEventListener('message', (event) => {
     switch (msg.action) {
         case 'openDeathScreen': openDeathScreen(msg); break;
         case 'ambulanceMode': ambulanceMode(msg); break;
+        case 'emsProtection': emsProtection(msg); break;
         case 'deathChoice': deathChoice(msg); break;
+        case 'deathMapVisibility': deathMapVisibility(msg); break;
         case 'closeDeathScreen': closeDeathScreen(); break;
     }
 });

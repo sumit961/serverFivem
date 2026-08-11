@@ -7,10 +7,10 @@
 
 -- Presets (only FOV is used; positions are computed around the player)
 local CAM_PRESET = {
-  face = { fov = 15.0 },
-  head = { fov = 28.0 },
-  body = { fov = 34.0 },
-  feet = { fov = 42.0 },
+  face = { fov = 28.0 },
+  head = { fov = 32.0 },
+  body = { fov = 38.0 },
+  feet = { fov = 34.0 },
 }
 
 -- State
@@ -32,10 +32,10 @@ end
 
 local function fixedCameraConfig(preset)
   local fixed = {
-    face = { dist = 1.55, z = 0.66, fov = 21.0 },
-    head = { dist = 1.90, z = 0.76, fov = 28.0 },
-    body = { dist = 3.45, z = 0.22, fov = 34.0 },
-    feet = { dist = 2.45, z = -0.58, fov = 42.0 },
+    face = { dist = 2.25, z = 0.66, fov = 28.0 },
+    head = { dist = 2.60, z = 0.74, fov = 32.0 },
+    body = { dist = 4.35, z = 0.18, fov = 38.0 },
+    feet = { dist = 3.10, z = -0.78, fov = 34.0 },
   }
   return fixed[preset] or fixed.body
 end
@@ -76,8 +76,8 @@ local function setOrMoveSkinCam(camPos, target, fov, instant)
   end
 end
 
-function CreateSkinCamCapture(preset, cameraHeading, zOffset)
-  local ped = PlayerPedId()
+function CreateSkinCamCapture(preset, cameraHeading, zOffset, targetPed)
+  local ped = targetPed and DoesEntityExist(targetPed) and targetPed or PlayerPedId()
   local pPos = GetEntityCoords(ped)
   preset = tostring(preset or 'body')
   currentPreset = preset
@@ -106,28 +106,40 @@ end
 ---@param cfg table   -- { dist = number, z = number, fov = number }
 ---@param cameraHeading number
 ---@param extraZ number|nil  -- optional per-item zOffset from the preset/config
-function CreateSkinCamCaptureConfig(cfg, cameraHeading, extraZ)
+function CreateSkinCamCaptureConfig(cfg, cameraHeading, extraZ, targetPed)
   cfg = type(cfg) == 'table' and cfg or {}
-  local ped = PlayerPedId()
+  local ped = targetPed and DoesEntityExist(targetPed) and targetPed or PlayerPedId()
   local pPos = GetEntityCoords(ped)
 
   local dist = tonumber(cfg.dist) or 2.6
-  -- z is the height (relative to the ped root) that the camera AIMS at.
-  -- Positive = higher up the body (head/torso), negative = lower (legs/feet).
-  local targetZ = pPos.z + (tonumber(cfg.z) or 0.25) + (tonumber(extraZ) or 0.0)
+  -- Most slots aim at a height relative to the ped root. Wrist accessories use
+  -- OP's bone targets so a tiny floating watch/bracelet stays exactly centred.
+  local targetX, targetY
+  local targetZ
+  local bone = tonumber(cfg.bone)
+  if bone and bone > 0 then
+    local bonePos = GetPedBoneCoords(ped, bone, 0.0, 0.0, 0.0)
+    targetX, targetY = bonePos.x, bonePos.y
+    targetZ = bonePos.z + (tonumber(cfg.z) or 0.0) + (tonumber(extraZ) or 0.0)
+  else
+    targetX, targetY = pPos.x, pPos.y
+    -- z is the height (relative to the ped root) that the camera AIMS at.
+    -- Positive = higher up the body (head/torso), negative = lower (legs/feet).
+    targetZ = pPos.z + (tonumber(cfg.z) or 0.25) + (tonumber(extraZ) or 0.0)
+  end
   local fov = tonumber(cfg.fov) or 32.0
 
   local rad = math.rad(tonumber(cameraHeading) or GetEntityHeading(ped))
   local camPos = vector3(
-    pPos.x - math.sin(rad) * dist,
-    pPos.y + math.cos(rad) * dist,
+    targetX - math.sin(rad) * dist,
+    targetY + math.cos(rad) * dist,
     targetZ + 0.05
   )
 
   currentPreset = 'capture'
   -- Remember the live parameters so manual pose (WASD) can move/zoom this camera.
   LiveCaptureCam = {
-    pedX = pPos.x, pedY = pPos.y, pedZ = pPos.z,
+    pedX = targetX, pedY = targetY, pedZ = pPos.z,
     dist = dist, targetZ = targetZ, fov = fov,
     heading = tonumber(cameraHeading) or GetEntityHeading(ped),
   }
@@ -135,10 +147,10 @@ function CreateSkinCamCaptureConfig(cfg, cameraHeading, extraZ)
   -- shot's frame (fixes tight/low/side shots like glasses, shoes, watch, bags).
   CaptureCamGeom = {
     cam = camPos,
-    target = vector3(pPos.x, pPos.y, targetZ),
+    target = vector3(targetX, targetY, targetZ),
     fov = fov,
   }
-  setOrMoveSkinCam(camPos, vector3(pPos.x, pPos.y, targetZ), fov, true)
+  setOrMoveSkinCam(camPos, vector3(targetX, targetY, targetZ), fov, true)
 end
 
 -- Rebuild the capture camera from LiveCaptureCam params. Used by manual WASD moves.
@@ -166,29 +178,36 @@ local function rebuildLiveCaptureCam()
 end
 
 -- Return a shallow copy of the current live capture-camera params (for pose memory).
-function GetLiveCaptureCamParams()
+function GetLiveCaptureCamParams(targetPed)
   if not LiveCaptureCam then return nil end
+  local ped = targetPed and DoesEntityExist(targetPed) and targetPed or PlayerPedId()
+  local pPos = GetEntityCoords(ped)
   return {
     dist = LiveCaptureCam.dist,
     targetZ = LiveCaptureCam.targetZ,
     fov = LiveCaptureCam.fov,
     heading = LiveCaptureCam.heading,
-    -- relative aim height above the ped root, so it transfers across ped positions
-    relZ = LiveCaptureCam.targetZ - (LiveCaptureCam.pedZ or 0.0),
+    -- Camera target relative to the posed ped. This preserves intentional
+    -- off-centre framing after the ped is moved in manual setup.
+    targetOffsetX = LiveCaptureCam.pedX - pPos.x,
+    targetOffsetY = LiveCaptureCam.pedY - pPos.y,
+    relZ = LiveCaptureCam.targetZ - pPos.z,
   }
 end
 
 -- Re-apply remembered camera params to the current ped/capture (used to replay a
 -- manual pose for the remaining textures). pedPos anchors the camera to where the
 -- ped stands for this shot.
-function ApplyLiveCaptureCamParams(params)
+function ApplyLiveCaptureCamParams(params, targetPed)
   if type(params) ~= 'table' then return false end
-  local ped = PlayerPedId()
+  local ped = targetPed and DoesEntityExist(targetPed) and targetPed or PlayerPedId()
   local pPos = GetEntityCoords(ped)
+  local anchorX = pPos.x + (tonumber(params.targetOffsetX) or 0.0)
+  local anchorY = pPos.y + (tonumber(params.targetOffsetY) or 0.0)
   local relZ = tonumber(params.relZ)
   local targetZ = relZ and (pPos.z + relZ) or (tonumber(params.targetZ) or (pPos.z + 0.25))
   LiveCaptureCam = {
-    pedX = pPos.x, pedY = pPos.y, pedZ = pPos.z,
+    pedX = anchorX, pedY = anchorY, pedZ = pPos.z,
     dist = tonumber(params.dist) or 2.6,
     targetZ = targetZ,
     fov = tonumber(params.fov) or 32.0,
@@ -218,19 +237,28 @@ function AdjustLiveCaptureCam(action, amount)
 end
 
 --========================================================
--- Capture-camera overrides (tuned live in the clothing admin panel)
--- RuntimeCaptureCameras is filled from the DB (server) and by the admin sliders.
+-- Capture-camera overrides saved by the optional live position editor.
+-- RuntimeCaptureCameras is filled from the DB after the editor confirms a shot.
 -- Capture reads GetCaptureCameraConfig() so tuned values apply without a restart.
 --========================================================
 RuntimeCaptureCameras = RuntimeCaptureCameras or {}
 
 function GetCaptureCameraConfig(category)
   category = tostring(category or ''):lower()
+  local configured = Config.IconCapture and Config.IconCapture.captureCameras
+    and Config.IconCapture.captureCameras[category] or nil
   local override = RuntimeCaptureCameras[category]
   if type(override) == 'table' and override.dist and override.z and override.fov then
-    return override
+    -- Keep non-editable slot metadata (notably wrist bone targets) even when an
+    -- admin has saved custom distance/Z/FOV values for the category.
+    local merged = {}
+    if type(configured) == 'table' then
+      for key, value in pairs(configured) do merged[key] = value end
+    end
+    for key, value in pairs(override) do merged[key] = value end
+    return merged
   end
-  return Config.IconCapture and Config.IconCapture.captureCameras and Config.IconCapture.captureCameras[category] or nil
+  return configured
 end
 
 local function captureBaseHeading()
@@ -238,19 +266,51 @@ local function captureBaseHeading()
   return (studio and studio.w) or GetEntityHeading(PlayerPedId())
 end
 
--- Push the effective per-category cameras (defaults merged with overrides) to the UI.
-function SendCaptureCamerasToNui()
-  local cams = {}
-  local defaults = (Config.IconCapture and Config.IconCapture.captureCameras) or {}
-  for cat, cfg in pairs(defaults) do
-    cams[cat] = { dist = cfg.dist, z = cfg.z, fov = cfg.fov, overridden = false }
-  end
-  for cat, cfg in pairs(RuntimeCaptureCameras) do
-    if type(cfg) == 'table' then
-      cams[cat] = { dist = cfg.dist, z = cfg.z, fov = cfg.fov, overridden = true }
-    end
-  end
-  SendNUIMessage({ type = 'captureCameras', cameras = cams })
+local CAPTURE_VIEW_OFFSETS = {
+  front = 0.0, back = 180.0, left = 90.0, right = -90.0,
+  ['front-left'] = 45.0, ['front-right'] = -45.0,
+  ['back-left'] = 135.0, ['back-right'] = -135.0,
+}
+
+local function defaultCaptureHeading(category)
+  local presets = Config.IconCapture and Config.IconCapture.presets or {}
+  local preset = presets[tostring(category or ''):lower()] or {}
+  local offset = tonumber(preset.viewAngle)
+  if offset == nil then offset = CAPTURE_VIEW_OFFSETS[tostring(preset.view or 'front'):lower()] or 0.0 end
+  return (captureBaseHeading() + offset) % 360.0
+end
+
+-- Complete effective preset used by automatic capture and the optional editor.
+function GetEffectiveStudioSettings(category)
+  category = tostring(category or ''):lower()
+  local cameras = Config.IconCapture and Config.IconCapture.captureCameras or {}
+  local presets = Config.IconCapture and Config.IconCapture.presets or {}
+  local lifts = Config.IconCapture and Config.IconCapture.groundLift or {}
+  local lighting = Config.IconCapture and Config.IconCapture.lighting or {}
+  local camera = cameras[category] or { dist = 2.6, z = 0.0, fov = 32.0 }
+  local preset = presets[category] or {}
+  local saved = RuntimeCaptureCameras and RuntimeCaptureCameras[category] or nil
+
+  return {
+    dist = tonumber(saved and saved.dist) or tonumber(camera.dist) or 2.6,
+    z = tonumber(saved and saved.z) or tonumber(camera.z) or 0.0,
+    fov = tonumber(saved and saved.fov) or tonumber(camera.fov) or 32.0,
+    poseHeading = saved and saved.poseHeading ~= nil and tonumber(saved.poseHeading)
+      or tonumber(camera.poseHeading) or defaultCaptureHeading(category),
+    poseLift = saved and saved.poseLift ~= nil and tonumber(saved.poseLift)
+      or tonumber(camera.poseLift) or tonumber(lifts[category]) or 0.0,
+    lightStrength = saved and saved.lightStrength ~= nil and tonumber(saved.lightStrength)
+      or tonumber(lighting.timecycleStrength) or 0.0,
+    backdrop = saved and saved.backdrop or tostring(preset.backgroundColor or 'green'):lower(),
+    camRelZ = saved and saved.camRelZ ~= nil and tonumber(saved.camRelZ) or tonumber(camera.z) or 0.0,
+    camHeading = saved and saved.camHeading ~= nil and tonumber(saved.camHeading)
+      or tonumber(camera.camHeading) or captureBaseHeading(),
+    camTargetX = saved and saved.camTargetX ~= nil and tonumber(saved.camTargetX)
+      or -(tonumber(camera.playerOffsetX) or 0.0),
+    camTargetY = saved and saved.camTargetY ~= nil and tonumber(saved.camTargetY)
+      or -(tonumber(camera.playerOffsetY) or 0.0),
+    overridden = type(saved) == 'table',
+  }
 end
 
 RegisterNetEvent('nvCloth:client:captureCameras', function(overrides)
@@ -260,46 +320,88 @@ RegisterNetEvent('nvCloth:client:captureCameras', function(overrides)
       if type(cfg) == 'table' and cfg.dist and cfg.z and cfg.fov then
         RuntimeCaptureCameras[tostring(cat):lower()] = {
           dist = cfg.dist + 0.0, z = cfg.z + 0.0, fov = cfg.fov + 0.0,
+          poseHeading = cfg.poseHeading and (cfg.poseHeading + 0.0) or nil,
+          poseLift = cfg.poseLift and (cfg.poseLift + 0.0) or nil,
+          lightStrength = cfg.lightStrength and (cfg.lightStrength + 0.0) or nil,
+          backdrop = cfg.backdrop and tostring(cfg.backdrop) or nil,
+          camRelZ = cfg.camRelZ and (cfg.camRelZ + 0.0) or nil,
+          camHeading = cfg.camHeading and (cfg.camHeading + 0.0) or nil,
+          camTargetX = cfg.camTargetX and (cfg.camTargetX + 0.0) or nil,
+          camTargetY = cfg.camTargetY and (cfg.camTargetY + 0.0) or nil,
         }
       end
     end
   end
-  SendCaptureCamerasToNui()
 end)
 
--- Live preview: move the browsing camera so the admin sees the framing on the
--- real ped as they drag the sliders (this is the live preview, not the capture).
-RegisterNUICallback('previewCaptureCamera', function(data, cb)
-  data = type(data) == 'table' and data or {}
-  local cfg = { dist = tonumber(data.dist), z = tonumber(data.z), fov = tonumber(data.fov) }
-  if cfg.dist and cfg.z and cfg.fov and CreateSkinCamCaptureConfig then
-    CreateSkinCamCaptureConfig(cfg, captureBaseHeading(), 0.0)
-  end
-  cb({ success = true })
-end)
+-- Unified studio settings for a category (camera + pose + lighting + backdrop).
+function GetStudioSettings(category)
+  return GetEffectiveStudioSettings(category)
+end
 
-RegisterNUICallback('saveCaptureCamera', function(data, cb)
-  data = type(data) == 'table' and data or {}
-  local category = tostring(data.category or ''):lower()
-  local cfg = { dist = tonumber(data.dist), z = tonumber(data.z), fov = tonumber(data.fov) }
-  if category ~= '' and cfg.dist and cfg.z and cfg.fov then
-    RuntimeCaptureCameras[category] = cfg -- apply locally immediately
-    TriggerServerEvent('nvCloth:server:saveCaptureCamera', {
-      category = category, dist = cfg.dist, z = cfg.z, fov = cfg.fov,
-    })
+-- Expose saved pose (heading + lift) for a category so capture can reuse it.
+function GetSavedPose(category)
+  category = tostring(category or ''):lower()
+  local configured = Config.IconCapture and Config.IconCapture.captureCameras
+    and Config.IconCapture.captureCameras[category] or nil
+  local o = RuntimeCaptureCameras[category] or configured
+  if type(o) == 'table' and (o.poseHeading ~= nil or o.poseLift ~= nil) then
+    local cam = nil
+    if o.dist ~= nil and o.fov ~= nil then
+      cam = {
+        dist = o.dist,
+        fov = o.fov,
+        relZ = o.camRelZ or o.z,
+        heading = o.camHeading,
+        targetOffsetX = o.camTargetX ~= nil and o.camTargetX or -(tonumber(o.playerOffsetX) or 0.0),
+        targetOffsetY = o.camTargetY ~= nil and o.camTargetY or -(tonumber(o.playerOffsetY) or 0.0),
+      }
+    end
+    return { heading = o.poseHeading, lift = o.poseLift, cam = cam }
   end
-  cb({ success = true })
-end)
+  return nil
+end
 
-RegisterNUICallback('resetCaptureCamera', function(data, cb)
-  data = type(data) == 'table' and data or {}
-  local category = tostring(data.category or ''):lower()
-  if category ~= '' then
-    RuntimeCaptureCameras[category] = nil
-    TriggerServerEvent('nvCloth:server:resetCaptureCamera', category)
+
+-- Normal admin browsing preview. This camera is completely separate from the
+-- inventory-icon camera: selecting a section or receiving saved capture presets
+-- must never zoom the middle character into capture framing.
+function RestoreAdminCategoryPreview(category, instant)
+  -- Capture cleanup can finish a frame after the menu closes. Never let that
+  -- delayed cleanup recreate the camera or reapply the last preview clothe.
+  if opened ~= true or not (NvCloth_IsAdminShop and NvCloth_IsAdminShop()) then
+    return false
   end
-  cb({ success = true })
-end)
+  category = tostring(category or 'torso'):lower()
+  if category == 'arms' then category = 'torso' end
+
+  local previews = Config.IconCapture and Config.IconCapture.previewCameras or {}
+  local cfg = previews[category] or previews.torso
+    or { dist = 4.35, z = 0.18, fov = 38.0, viewAngle = 0.0 }
+  local ped = PlayerPedId()
+  if not DoesEntityExist(ped) then return false end
+
+  local baseHeading = captureBaseHeading()
+  local pedHeading = (baseHeading + (tonumber(cfg.viewAngle) or 0.0)) % 360.0
+  SetEntityHeading(ped, pedHeading)
+
+  local pPos = GetEntityCoords(ped)
+  local dist = math.max(1.25, math.min(7.0, tonumber(cfg.dist) or 4.35))
+  local targetZ = pPos.z + (tonumber(cfg.z) or 0.18)
+  local fov = math.max(18.0, math.min(65.0, tonumber(cfg.fov) or 38.0))
+  local rad = math.rad(baseHeading)
+  local camPos = vector3(
+    pPos.x - math.sin(rad) * dist,
+    pPos.y + math.cos(rad) * dist,
+    targetZ + 0.15
+  )
+
+  LiveCaptureCam = nil
+  CaptureCamGeom = nil
+  currentPreset = 'admin-preview:' .. category
+  setOrMoveSkinCam(camPos, vector3(pPos.x, pPos.y, targetZ), fov, instant ~= false)
+  return true
+end
 
 --========================================================
 -- Per-category saved crops (set once, reused for every capture of that category)
@@ -410,6 +512,7 @@ function CreateSkinCam(preset)
   -- Distance from player and target height (Z) per preset
   local dist = 4.0
   local targetZ
+  local configuredFov = nil
 
   currentPreset = preset
   if preset == "face" then
@@ -430,14 +533,15 @@ function CreateSkinCam(preset)
   -- Small interiors make shape tests snap the camera into the player.
   if useFixedShopCamera then
     local fixed = {
-      face = { dist = 1.25, z = 0.68, fov = 18.0 },
-      head = { dist = 1.65, z = 0.78, fov = 24.0 },
-      body = { dist = 3.25, z = 0.25, fov = 32.0 },
-      feet = { dist = 2.15, z = -0.55, fov = 38.0 },
+      face = { dist = 2.25, z = 0.66, fov = 28.0 },
+      head = { dist = 2.60, z = 0.74, fov = 32.0 },
+      body = { dist = 4.35, z = 0.18, fov = 38.0 },
+      feet = { dist = 3.10, z = -0.78, fov = 34.0 },
     }
     local cfg = fixed[preset] or fixed.body
     dist = cfg.dist
     targetZ = pPos.z + cfg.z
+    configuredFov = cfg.fov
     local rad = math.rad(pHeading)
     camPos = vector3(
       pPos.x - math.sin(rad) * dist,
@@ -468,7 +572,7 @@ function CreateSkinCam(preset)
     TaskAchieveHeading(ped, faceHeading, 1000)
   end
 
-  local fov = CAM_PRESET[preset].fov or 30.0
+  local fov = configuredFov or CAM_PRESET[preset].fov or 30.0
 
   if skinCam then
     -- Smoothly interpolate to a new camera
@@ -526,8 +630,8 @@ function DestroySkinCam()
 
   skinCam = nil
   currentPreset = nil
+  LiveCaptureCam = nil
   isBusy = false
-  useFixedShopCamera = false
   ClearFocus()
   ClearTimecycleModifier()
   RenderScriptCams(false, false, 0, true, true)
@@ -547,7 +651,12 @@ RegisterNUICallback("changeCamera", function(data, cb)
   if preset ~= "face" and preset ~= "head" and preset ~= "body" and preset ~= "feet" then
     preset = "body"
   end
-  CreateSkinCam(preset)
+  local category = tostring(data.category or ''):lower()
+  if NvCloth_IsAdminShop and NvCloth_IsAdminShop() and category ~= '' then
+    RestoreAdminCategoryPreview(category, true)
+  else
+    CreateSkinCam(preset)
+  end
   cb({ success = true })
 end)
 

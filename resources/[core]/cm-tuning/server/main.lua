@@ -734,3 +734,19 @@ CreateThread(function()
         end
     end
 end)
+
+-- Read-only visual/color catalog for other trusted CM resources that need to
+-- offer the same paint/livery/wheel/tyre/neon options without duplicating this
+-- list (e.g. cm-ems's fleet vehicle configurator). No pricing or mod-application
+-- logic is exposed here -- those stay owned by cm-tuning.
+exports('GetVisualCatalog', function()
+    return {
+        colors = CMTuning.Config.Colors,
+        visual = CMTuning.Config.Visual,
+        tyres = CMTuning.Config.Tyres,
+        windowTints = CMTuning.Config.WindowTints,
+        plateStyles = CMTuning.Config.PlateStyles,
+        neonColors = CMTuning.Config.NeonColors,
+        headlightColors = CMTuning.Config.HeadlightColors,
+    }
+end)

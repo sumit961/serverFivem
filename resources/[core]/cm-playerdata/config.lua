@@ -12,7 +12,9 @@ CMPlayerData.Config = {
     Respawn = {
         Time = 30000, -- legacy, no longer used (bleed-out below drives respawn)
         Cost = 500,
-        HospitalSpawn = { x = 341.0, y = -1397.0, z = 33.0, h = 50.0 },
+        -- Fallback only. When cm-doctor is running it assigns the nearest free
+        -- bed at Pillbox or Sandy Shores and prevents two patients sharing it.
+        HospitalSpawn = { x = 316.9794, y = -583.0529, z = 43.2677, h = 269.6746 },
         -- Player respawns weak. GTA/FiveM health uses ~100 as the alive baseline,
         -- so 20% means about 20% of usable health above the downed threshold.
         HealthPercent = 20,
@@ -20,6 +22,21 @@ CMPlayerData.Config = {
         BleedOutTime = 120000,      -- 2 minutes
         AmbulanceExtraTime = 120000, -- calling an ambulance adds 2 more minutes
         MinimumRejoinBleedOut = 15000 -- if relogging dead, never show 00:00/stuck; give a small valid timer
+    },
+
+    -- GTA5-style wanted stars (0-6), gained only from killing another player
+    -- while not wearing a mask (cm_masked state bag, set by cm-inventory).
+    -- Persisted per character and mirrored into cm-police's MDT record.
+    WantedStars = {
+        Max = 6,
+        -- At Max stars, the native GTA wanted level is set to this (5 is the
+        -- real native max) so the game's own police AI takes over -- no
+        -- custom spawn/despawn code. Below Max, native wanted level is 0.
+        NativeLevelAtMax = 5,
+        -- Passive decay: lose 1 star every this many ms since the last star
+        -- was gained, as long as no new star has been gained since.
+        DecayIntervalMs = 3600000, -- lose one star per hour
+        AiEscapeMinimumMs = 120000 -- earliest a completed six-star AI chase may reduce 6 -> 5
     },
 
     Medical = {
@@ -34,8 +51,10 @@ CMPlayerData.Config = {
 
         -- Street patch (Patch/Treat on a body via the G menu)
         TreatDuration = 8000,
-        RequireBandage = true,
-        BandageItem = 'bandage',
+        RequireTreatmentItem = true,
+        -- Your live item is named "medikit". Legacy "medkit" is accepted too.
+        TreatmentItems = { 'medikit', 'medkit' },
+        TreatmentRequestTimeout = 15000,
         -- A successful patch now fully revives the body in place ("back from death"):
         -- full health, same location, no hospital trip. Set false to fall back to the
         -- old weak-revive using StreetPatchHealthPercent below.

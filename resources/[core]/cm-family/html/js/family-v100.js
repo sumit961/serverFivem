@@ -6,6 +6,8 @@
   const content = document.getElementById('content');
   const createContent = document.getElementById('create-content');
   const toast = document.getElementById('invite-toast');
+  const adminRoot = document.getElementById('family-admin');
+  let adminState = null;
 
   let state = null;          // last menu snapshot
   let activeTab = 'overview';
@@ -72,6 +74,11 @@
   }
 
   function closeAll() {
+    if (adminRoot.classList.contains('is-open')) {
+      adminRoot.classList.remove('is-open');
+      post('familyAdminClose', {});
+      return;
+    }
     root.classList.remove('is-open');
     createRoot.classList.remove('is-open');
     post('close', {});
@@ -85,8 +92,6 @@
       (f.tag ? '[' + f.tag + ']  ' : '') + state.members.length + ' member' + (state.members.length === 1 ? '' : 's');
     document.getElementById('crest').style.background = f.color || '#00f0ff22';
     document.getElementById('crest').style.borderColor = f.color || '#00f0ff';
-    document.getElementById('bank-value').textContent = money(f.bankBalance);
-    document.getElementById('bank-chip').style.display = state.viewer.permissions['bank.view'] ? 'flex' : 'none';
   }
 
   // ---------------- tabs ----------------
@@ -100,15 +105,157 @@
 
   function renderTab(tab) {
     if (!state) return;
+    const titles = { overview: 'Family information', manage: 'Management', members: 'Members', ranks: 'Ranks & access', vehicles: 'Family vehicles', logs: 'Activity logs' };
+    const heading = document.getElementById('workspace-title');
+    if (heading) heading.textContent = titles[tab] || titles.overview;
     ({
-      overview: renderOverview, members: renderMembers, ranks: renderRanks,
-      vehicles: renderVehicles, bank: renderBank, logs: renderLogs,
-    }[tab] || renderOverview)();
+      overview: renderInformation, manage: renderManagementHub, members: renderMembers, ranks: renderRanks,
+      vehicles: renderVehicles, logs: renderLogs,
+    }[tab] || renderInformation)();
   }
 
   const can = key => state.viewer.permissions[key] === true;
   const isFounder = () => state.viewer.isFounder === true;
   const myTier = () => state.viewer.tier;
+
+  function goTab(tab) {
+    activeTab = tab;
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    renderTab(tab);
+  }
+
+  function renderManagementHub() {
+    const f = state.family;
+    const online = state.members.filter(member => member.online).length;
+    const rank = (state.ranks.find(item => item.id === state.viewer.rankId) || {}).name || 'Member';
+    const symbol = f.symbol || state.viewer.symbol || 'shield';
+    const color = f.color || state.viewer.symbolColor || '#00f0ff';
+    const tile = (group, title, description, action, enabled, danger) => enabled ? `
+      <button class="hub-action ${danger ? 'hub-action--danger' : ''}" data-hub-action="${esc(action)}">
+        <span class="hub-action__group">${esc(group)}</span><strong>${esc(title)}</strong>
+        <small>${esc(description)}</small><span class="hub-action__arrow">›</span>
+      </button>` : '';
+
+    content.innerHTML = `
+      <section class="hub-hero">
+        <div><span class="hub-eyebrow">FAMILY MANAGEMENT</span><h2>${esc(f.name)}</h2>
+          <p>${state.members.length} members · ${online} online · ${esc(rank)} · ${f.houseId ? 'House #' + f.houseId : 'No linked house'}</p></div>
+        <div class="hub-symbol" style="color:${esc(color)}">${symbolSvg(symbol)}</div>
+      </section>
+      <div class="hub-grid">
+        <section class="hub-group"><h3>Garage</h3>
+          ${tile('GARAGE', 'Manage family transport', 'Shared vehicles and minimum rank tiers.', 'vehicles', can('garage.access') || can('family.manage_vehicles'))}
+          ${tile('GARAGE', 'Recall family transport', 'Return available vehicles to their assigned garage slots.', 'recall', can('family.manage_vehicles'))}
+        </section>
+        <section class="hub-group"><h3>Control</h3>
+          ${tile('CONTROL', 'Online family', `${online} of ${state.members.length} members online.`, 'members', true)}
+          ${tile('CONTROL', 'Display family on map', 'Toggle nearby family-member minimap markers.', 'tracking', true)}
+          ${tile('CONTROL', 'Set meeting point', 'Send your position to every online member.', 'meeting', can('family.set_meeting'))}
+          ${tile('CONTROL', 'Manage ranks', 'Configure tiers and exact house permissions.', 'ranks', can('family.manage_ranks') || can('family.manage_perms'))}
+        </section>
+        <section class="hub-group"><h3>Family</h3>
+          ${tile('FAMILY', 'Manage members', 'Invite, promote, demote, title, or remove members.', 'members', can('family.invite') || can('family.promote') || can('family.demote') || can('family.kick'))}
+          ${tile('FAMILY', 'Customize family identity', 'Change the shared overhead icon and colour.', 'identity', can('family.manage_tags'))}
+          ${tile('FAMILY', 'Rename family', 'Change the family display name.', 'rename', can('family.rename'))}
+        </section>
+        <section class="hub-group"><h3>Other</h3>
+          ${tile('OTHER', 'Activity logs', 'Review membership, house, vehicle, and security events.', 'logs', can('family.view_logs'))}
+          ${tile('OTHER', 'Leave family', 'Leave your current family membership.', 'leave', !isFounder(), true)}
+          ${tile('OTHER', 'Delete family', 'Permanently disband this family.', 'disband', isFounder(), true)}
+        </section>
+      </div>`;
+
+    document.querySelectorAll('[data-hub-action]').forEach(button => button.onclick = () => {
+      const action = button.dataset.hubAction;
+      if (['members', 'ranks', 'vehicles', 'logs'].includes(action)) return goTab(action);
+      if (action === 'recall') return confirmAct('Recall every available outside car into the family garage?', 'recallAllFamilyCars', {});
+      if (action === 'meeting') return confirmAct('Send your current location to all online family members?', 'setMeetingPoint', {});
+      if (action === 'tracking') {
+        const next = !(state.clientTracking && state.clientTracking.memberBlipsEnabled);
+        return post('setMemberTracking', { enabled: next }).then(result => {
+          if (!result.ok) return flash('Could not update member tracking.', 'error');
+          state.clientTracking = state.clientTracking || {};
+          state.clientTracking.memberBlipsEnabled = result.enabled === true;
+          flash(result.enabled ? 'Nearby family markers enabled.' : 'Nearby family markers disabled.', 'ok');
+          renderManagementHub();
+        });
+      }
+      if (action === 'identity') return renderIdentityManager();
+      if (action === 'rename') return renderRenameManager();
+      if (action === 'leave') return confirmAct('Leave this family?', 'leave', {});
+      if (action === 'disband') return confirmAct('Disband the whole family? This cannot be undone.', 'disband', {});
+    });
+  }
+
+  function renderInformation() {
+    const f = state.family;
+    const online = state.members.filter(member => member.online).length;
+    const week = state.weeklyStats || {};
+    const rank = (state.ranks.find(item => item.id === state.viewer.rankId) || {}).name || 'Member';
+    const founder = state.members.find(member => String(member.cid) === String(f.founderCid));
+    const symbol = f.symbol || state.viewer.symbol || 'shield';
+    const color = f.color || state.viewer.symbolColor || '#00f0ff';
+    content.innerHTML = `
+      <section class="family-info-hero">
+        <div class="family-info-hero__copy"><span class="hub-eyebrow">FAMILY INFORMATION</span><h2>${esc(f.name)}</h2><p>${f.tag ? `[${esc(f.tag)}] ` : ''}Your family home, members, shared transport, and access in one place.</p></div>
+        <div class="family-info-emblem" style="color:${esc(color)}">${symbolSvg(symbol)}</div>
+      </section>
+      <section class="family-facts">
+        <div class="family-fact"><span>Head of family</span><strong>${esc(founder ? founder.name : 'Character ' + f.founderCid)}</strong><small>CID ${esc(f.founderCid)}</small></div>
+        <div class="family-fact"><span>Family members</span><strong>${state.members.length}</strong><small>${online} online now</small></div>
+        <div class="family-fact"><span>Your access level</span><strong>${esc(rank)}</strong><small>Rank tier ${Number(state.viewer.tier) || 0}</small></div>
+        <div class="family-fact"><span>Family home</span><strong>${f.houseId ? 'House #' + f.houseId : 'Not linked'}</strong><small>${f.houseId ? 'Property access active' : 'No family property'}</small></div>
+      </section>
+      <section class="family-dashboard-grid">
+        <article class="family-status-card"><div><span class="hub-eyebrow">THIS WEEK</span><h3>Family activity</h3><p>${Number(week.actions) || 0} recorded actions across ${Number(week.activeMembers) || 0} active members.</p></div><div class="family-status-stats"><span><strong>${Number(week.newMembers) || 0}</strong> new members</span><span><strong>${online}</strong> online</span></div></article>
+        <article class="family-status-card"><div><span class="hub-eyebrow">QUICK STATUS</span><h3>Family network</h3><p>Nearby member markers are ${(state.clientTracking && state.clientTracking.memberBlipsEnabled) ? 'enabled' : 'disabled'} for this character.</p></div><button class="btn ghost" id="open-management-btn">Open management</button></article>
+      </section>
+      <section class="family-announcement">
+        <div class="family-announcement__head"><div><span class="hub-eyebrow">MESSAGE FROM THE FAMILY</span><h3>${f.announcement ? 'Latest announcement' : 'No announcement yet'}</h3></div>${can('family.manage_announcement') ? '<button class="btn ghost sm" id="announcement-edit">Edit message</button>' : ''}</div>
+        <p class="family-announcement__message">${esc(f.announcement || 'The family leadership has not posted a message.')}</p>
+        ${f.announcement ? `<small>${esc(f.announcementByName || 'Family leadership')} · ${esc(formatTimestamp(f.announcementAt, 16))}</small>` : ''}
+        <div class="family-announcement__editor" id="announcement-editor" hidden><textarea class="input" id="announcement-message" maxlength="280" rows="4" placeholder="Write a short message for your family...">${esc(f.announcement || '')}</textarea><div class="family-announcement__actions"><span id="announcement-count">${String(f.announcement || '').length}/280</span><button class="btn ghost sm" id="announcement-cancel">Cancel</button><button class="btn sm" id="announcement-save">Save message</button></div></div>
+      </section>`;
+    document.getElementById('open-management-btn').onclick = () => goTab('manage');
+    const editAnnouncement = document.getElementById('announcement-edit');
+    if (editAnnouncement) editAnnouncement.onclick = () => {
+      const editor = document.getElementById('announcement-editor');
+      editor.hidden = false;
+      editAnnouncement.hidden = true;
+      document.getElementById('announcement-message').focus();
+    };
+    const messageInput = document.getElementById('announcement-message');
+    if (messageInput) messageInput.oninput = () => { document.getElementById('announcement-count').textContent = `${messageInput.value.length}/280`; };
+    const cancelAnnouncement = document.getElementById('announcement-cancel');
+    if (cancelAnnouncement) cancelAnnouncement.onclick = renderInformation;
+    const saveAnnouncement = document.getElementById('announcement-save');
+    if (saveAnnouncement) saveAnnouncement.onclick = () => act('setFamilyAnnouncement', { message: messageInput.value });
+  }
+
+  function renderIdentityManager() {
+    const symbol = state.family.symbol || 'shield';
+    const color = state.family.color || '#00f0ff';
+    content.innerHTML = `<button class="btn ghost hub-back" id="hub-back">← Management</button>
+      <div class="section-title">Family identity</div><div class="card">
+      <div class="symbol-picker">${(state.symbolCatalog || []).map(item => `<button type="button" class="symbol-choice ${symbol === item.key ? 'selected' : ''}" title="${esc(item.label)}" data-family-symbol="${esc(item.key)}" style="color:${esc(color)}">${symbolSvg(item.key)}</button>`).join('')}</div>
+      <div class="inline" style="margin-top:14px"><label>Colour</label><input id="family-symbol-color" class="input symbol-color-input" type="color" value="${esc(color)}"><button class="btn" id="family-symbol-save">Save identity</button></div></div>`;
+    document.getElementById('hub-back').onclick = renderManagementHub;
+    document.querySelectorAll('[data-family-symbol]').forEach(button => button.onclick = () => document.querySelectorAll('[data-family-symbol]').forEach(item => item.classList.toggle('selected', item === button)));
+    const colorInput = document.getElementById('family-symbol-color');
+    colorInput.oninput = () => document.querySelectorAll('[data-family-symbol]').forEach(item => { item.style.color = colorInput.value; });
+    document.getElementById('family-symbol-save').onclick = () => {
+      const selected = document.querySelector('[data-family-symbol].selected');
+      act('setFamilySymbol', { symbol: selected ? selected.dataset.familySymbol : 'shield', color: colorInput.value });
+    };
+  }
+
+  function renderRenameManager() {
+    content.innerHTML = `<button class="btn ghost hub-back" id="hub-back">← Management</button>
+      <div class="section-title">Rename family</div><div class="card"><div class="inline">
+      <input class="input" id="rename-input" maxlength="32" value="${esc(state.family.name)}"><button class="btn" id="rename-btn">Save name</button></div></div>`;
+    document.getElementById('hub-back').onclick = renderManagementHub;
+    document.getElementById('rename-btn').onclick = () => act('rename', { name: document.getElementById('rename-input').value });
+  }
 
   // ---------------- overview ----------------
   function renderOverview() {
@@ -286,10 +433,6 @@
             ${r.isFounder ? '<span class="badge founder">Head</span>' : ''}
           </div>
           <div class="inline">
-            ${!r.isFounder ? `<div class="field" style="margin:0"><div class="inline">
-              <label style="font-size:11px">Daily bank limit</label>
-              <input class="input" style="width:120px" type="number" value="${r.bankDailyLimit}" ${editable && can('family.manage_ranks') ? '' : 'disabled'} data-ranklimit="${r.id}">
-            </div></div>` : ''}
             ${editable && can('family.manage_ranks') && !r.isFounder ? `<button class="btn danger sm" data-delrank="${r.id}">Delete</button>` : ''}
           </div>
         </div>
@@ -321,8 +464,6 @@
       act('setRankPermission', { rankId: Number(cb.dataset.perm), key: cb.dataset.key, enabled: cb.checked }, true));
     content.querySelectorAll('[data-rankname]').forEach(inp => inp.onchange = () =>
       act('renameRank', { rankId: Number(inp.dataset.rankname), name: inp.value.trim() }, true));
-    content.querySelectorAll('[data-ranklimit]').forEach(inp => inp.onchange = () =>
-      act('setRankBankLimit', { rankId: Number(inp.dataset.ranklimit), limit: Number(inp.value) }, true));
     content.querySelectorAll('[data-delrank]').forEach(b => b.onclick = () =>
       confirmAct('Delete this rank? Members on it drop to the lowest rank.', 'deleteRank', { rankId: Number(b.dataset.delrank) }));
   }
@@ -592,14 +733,53 @@
     setTimeout(() => toast.classList.remove('is-open'), 6000);
   }
 
+  function renderFamilyAdmin() {
+    if (!adminState) return;
+    const query = String(document.getElementById('family-admin-search').value || '').toLowerCase();
+    const families = (adminState.families || []).filter(family => !query ||
+      [family.id, family.name, family.tag, family.founderCid, family.founderName, family.houseId].join(' ').toLowerCase().includes(query));
+    document.getElementById('family-admin-count').textContent = `${families.length} famil${families.length === 1 ? 'y' : 'ies'}`;
+    document.getElementById('family-admin-list').innerHTML = families.map(family => `
+      <article class="family-admin-card ${family.healthy ? '' : 'family-admin-card--issue'}" data-admin-family="${family.id}">
+        <div class="family-admin-card__head"><div><span class="hub-eyebrow">FAMILY #${family.id}</span><h3>${esc(family.name)} ${family.tag ? `[${esc(family.tag)}]` : ''}</h3></div><span class="badge ${family.healthy ? '' : 'founder'}">${family.healthy ? 'Healthy' : `${family.issues.length} issue${family.issues.length === 1 ? '' : 's'}`}</span></div>
+        <div class="family-admin-metrics"><span>Founder <strong>${esc(family.founderName)}</strong> · CID ${esc(family.founderCid)}</span><span>House <strong>${family.houseId || 'none'}</strong></span><span>${family.memberCount} members · ${family.rankCount} ranks · ${family.pendingInvites} pending invites</span></div>
+        ${family.issues.length ? `<ul class="family-admin-issues">${family.issues.map(issue => `<li>${esc(issue)}</li>`).join('')}</ul>` : ''}
+        ${adminState.canRecover ? `<div class="row__actions family-admin-actions"><button class="btn sm" data-family-recovery="refresh">Refresh state</button>${family.issues.some(issue => issue.includes('Founder membership')) ? '<button class="btn sm" data-family-recovery="repair_founder">Repair founder</button>' : ''}${family.expiredInvites > 0 ? '<button class="btn ghost sm" data-family-recovery="clear_expired_invites">Clear expired invites</button>' : ''}</div>` : ''}
+      </article>`).join('') || '<div class="empty">No families match this search.</div>';
+    document.getElementById('family-admin-logs').innerHTML = (adminState.highRisk || []).map(row => `
+      <div class="activity-row activity-row--risk"><div class="activity-row__head"><strong>${esc(row.action)}</strong><span class="audit-severity audit-severity--${esc(row.severity || 'critical')}">${esc(row.severity || 'critical')}</span></div><div class="activity-row__meta">Family #${esc(row.family_id)} · ${esc(row.actor_name || row.actor_cid || 'System')} · ${esc(formatTimestamp(row.created_at))}</div></div>`).join('') || '<div class="empty">No high-risk activity available for your admin rank.</div>';
+  }
+
+  document.getElementById('family-admin-search').addEventListener('input', renderFamilyAdmin);
+  document.getElementById('family-admin-close').addEventListener('click', () => post('familyAdminClose').then(() => adminRoot.classList.remove('is-open')));
+  adminRoot.addEventListener('click', event => {
+    const button = event.target.closest('[data-family-recovery]');
+    if (!button) return;
+    const familyId = Number(button.closest('[data-admin-family]').dataset.adminFamily);
+    const action = button.dataset.familyRecovery;
+    if (action === 'repair_founder' && !window.confirm(`Repair verified founder membership for family ${familyId}?`)) return;
+    button.disabled = true;
+    post('familyAdminAction', { action, familyId }).then(result => {
+      if (!result.ok) flash(result.message || 'Family recovery failed.', 'error');
+      button.disabled = false;
+    });
+  });
+
   // ---------------- message bus ----------------
   window.addEventListener('message', e => {
     const m = e.data || {};
     if (m.action === 'family:open') openMenu(m.data);
+    else if (m.action === 'family:adminOpen' || m.action === 'family:adminRefresh') {
+      adminState = m.data || {};
+      root.classList.remove('is-open'); createRoot.classList.remove('is-open');
+      adminRoot.classList.add('is-open'); adminRoot.setAttribute('aria-hidden', 'false');
+      renderFamilyAdmin();
+    }
+    else if (m.action === 'family:adminClose') adminRoot.classList.remove('is-open');
     else if (m.action === 'family:create') openCreate(m.data);
     else if (m.action === 'family:invite') openInvitePrompt(m.data);
     else if (m.action === 'family:inviteToast') showToast(m.data);
-    else if (m.action === 'family:close') { root.classList.remove('is-open'); createRoot.classList.remove('is-open'); }
+    else if (m.action === 'family:close') { root.classList.remove('is-open'); createRoot.classList.remove('is-open'); adminRoot.classList.remove('is-open'); }
   });
 
   document.getElementById('btn-close').onclick = closeAll;

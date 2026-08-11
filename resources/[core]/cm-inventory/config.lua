@@ -49,6 +49,7 @@ CMInventory.Config = {
         cooldowns = {
             bandage = 5000,
             medkit = 8000,
+            medikit = 8000,
             armor = 5000,
             body_armor = 5000,
             weapon_pistol = 1200,
@@ -65,6 +66,7 @@ CMInventory.Config = {
         progress = {
             bandage = { ms = 3000, label = 'Using bandage...' },
             medkit = { ms = 5000, label = 'Using medkit...' },
+            medikit = { ms = 5000, label = 'Using medikit...' },
             armor = { ms = 3000, label = 'Equipping body armor...' },
             body_armor = { ms = 3000, label = 'Equipping body armor...' },
             weapon_pistol = { ms = 900, label = 'Equipping weapon...' },
@@ -156,7 +158,7 @@ CMInventory.Config = {
     -- these, so we resolve them by name prefix to a sensible default def.
     -- Metadata stored on the actual item (label, image, weight) overrides these.
     DynamicItemPatterns = {
-        { prefix = 'armor_',  def = { label = 'Armor Vest', category = 'armor',  equipmentSlot = 'bodyarmor', itemType = 'rare',   rarity = 'rare',   weight = 2500, stack = false, usable = true, image = 'armor.png',         description = 'Wearable armor vest.' } },
+        { prefix = 'armor_',  def = { label = 'Armor Vest', category = 'armor',  equipmentSlot = 'bodyarmor', itemType = 'rare',   rarity = 'rare',   weight = 2500, stack = false, usable = true, image = 'nui://cm-items/ui/images/medical_armor.svg', description = 'Wearable armor vest.' } },
         { prefix = 'weapon_', def = { label = 'Weapon',     category = 'weapon', equipmentSlot = 'weapon',    itemType = 'unique', rarity = 'unique', weight = 1500, stack = false, usable = true, image = 'weapon_pistol.png', description = 'A firearm.' } },
         { prefix = 'ammo_',   def = { label = 'Ammo',       category = 'ammo',   equipmentSlot = 'ammo',      itemType = 'normal', rarity = 'normal', weight = 15,   stack = true,  usable = true, image = 'ammo_9mm.png',     description = 'Ammunition.' } },
     },
@@ -181,8 +183,9 @@ CMInventory.Config = {
     DefaultImages = {
         water = 'water.png',
         sandwich = 'sandwich.png',
-        bandage = 'bandage.png',
-        medkit = 'medkit.png',
+        bandage = 'nui://cm-items/ui/images/medical_bandage.svg',
+        medkit = 'nui://cm-items/ui/images/medical_kit.svg',
+        medikit = 'nui://cm-items/ui/images/medical_kit.svg',
         armor = 'armor.png',
         repairkit = 'repairkit.png',
         lockpick = 'lockpick.png',
@@ -212,9 +215,10 @@ CMInventory.Config = {
     FallbackItems = {
         water = { label = 'Water Bottle', category = 'drink', itemType = 'normal', rarity = 'normal', weight = 500, stack = true, usable = true, image = 'water.png', description = 'Clean drinking water.' },
         sandwich = { label = 'Sandwich', category = 'food', itemType = 'normal', rarity = 'normal', weight = 350, stack = true, usable = true, image = 'sandwich.png', description = 'A simple sandwich.' },
-        bandage = { label = 'Bandage', category = 'medical', itemType = 'normal', rarity = 'normal', weight = 100, stack = true, usable = true, image = 'bandage.png', description = 'Used to recover small injuries.' },
-        medkit = { label = 'Medkit', category = 'medical', itemType = 'rare', rarity = 'rare', weight = 900, stack = true, usable = true, image = 'medkit.png', description = 'Medical kit for bigger injuries.' },
-        armor = { label = 'Body Armor', category = 'armor', equipmentSlot = 'bodyarmor', itemType = 'rare', rarity = 'rare', weight = 2500, stack = false, usable = true, image = 'armor.png', description = 'Protective body armor.', durability = 100 },
+        bandage = { label = 'Bandage', category = 'medical', itemType = 'normal', rarity = 'normal', weight = 100, stack = true, usable = true, image = 'nui://cm-items/ui/images/medical_bandage.svg', description = 'Used to recover small injuries.' },
+        medkit = { label = 'Medkit', category = 'medical', itemType = 'rare', rarity = 'rare', weight = 900, stack = true, usable = true, image = 'nui://cm-items/ui/images/medical_kit.svg', description = 'Medical kit for bigger injuries.' },
+        medikit = { label = 'Medikit', category = 'medical', itemType = 'rare', rarity = 'rare', weight = 900, stack = true, usable = true, image = 'nui://cm-items/ui/images/medical_kit.svg', description = 'Fully heals you or revives a nearby player.' },
+        armor = { label = 'Body Armor', category = 'armor', equipmentSlot = 'bodyarmor', itemType = 'rare', rarity = 'rare', weight = 2500, stack = false, usable = true, image = 'nui://cm-items/ui/images/medical_armor.svg', description = 'Protective body armor.', durability = 100 },
         repairkit = { label = 'Repair Kit', category = 'tool', itemType = 'normal', rarity = 'normal', weight = 1800, stack = true, usable = true, image = 'repairkit.png', description = 'Used to repair a vehicle.', durability = 100 },
         lockpick = { label = 'Lockpick', category = 'tool', itemType = 'normal', rarity = 'normal', weight = 80, stack = true, usable = true, image = 'lockpick.png', description = 'A small lockpicking tool.', durability = 100 },
         id_card = { label = 'ID Card', category = 'document', itemType = 'unique', rarity = 'unique', weight = 50, stack = false, usable = true, image = 'id_card.png', description = 'Personal identification card.' },

@@ -1,0 +1,427 @@
+.admin-panel { margin-top: 18px; }
+
+/* NPC-only Armory mode: reuse the secure Police NUI callbacks without opening
+   or visually embedding the F7 organization dashboard. Kept in app.css so the
+   standalone layout cannot be lost to a stale auxiliary stylesheet cache. */
+body.armory-standalone #app{padding:3vh;background:rgba(2,9,12,.72)}
+body.armory-standalone .shell{display:block;width:94vw;height:94vh;border-radius:18px;background:linear-gradient(145deg,#071116,#07272a);border-color:rgba(74,225,241,.28)}
+body.armory-standalone .side,body.armory-standalone .workspace>header{display:none!important}
+body.armory-standalone .workspace{height:100%;display:block}
+body.armory-standalone .content{height:100%;padding:18px;overflow:hidden}
+body.armory-standalone .page{display:none!important}
+body.armory-standalone .page[data-view="armory"].active{display:block!important;height:100%;padding:0}
+body.dispatch-standalone #app{padding:3vh;background:rgba(2,7,11,.76)}
+body.dispatch-standalone .shell{display:block;width:94vw;height:94vh;border-radius:18px;background:linear-gradient(135deg,#080d13,#0b1921);border-color:rgba(83,218,239,.3)}
+body.dispatch-standalone .side,body.dispatch-standalone .workspace>header{display:none!important}
+body.dispatch-standalone .workspace{height:100%;display:block}
+body.dispatch-standalone .content{height:100%;padding:18px;overflow:hidden}
+body.dispatch-standalone .page{display:none!important}
+body.dispatch-standalone .page[data-view="dispatch"].active{display:grid!important;height:100%;padding:0}
+.admin-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 14px 0; }
+.admin-grid label { color: #969bb8; font-size: 14px; }
+.admin-grid input, .admin-grid select { width: 100%; margin-top: 7px; padding: 12px; color: #fff; background: #17192b; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; }
+.location-status { margin: 12px 0; color: #aebbd1; }
+.location-status p { margin: 5px 0; overflow-wrap: anywhere; }
+.danger-text { color: #ff8f8f; }
+.check-field { display: flex; align-items: center; gap: 9px; }
+.check-field input { width: auto; margin: 0; }
+.operations, .operation-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  color: #f4f6ff;
+  font-family: var(--cm-font, "DM Sans", sans-serif);
+}
+button,
+input {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+#app {
+  position: fixed;
+  inset: 0;
+  padding: 3vh 3vw;
+  background: rgba(94, 103, 157, 0.43);
+}
+#app[hidden] {
+  display: none;
+}
+.shell {
+  width: 94vw;
+  height: 94vh;
+  margin: auto;
+  display: grid;
+  grid-template-columns: clamp(300px, 19vw, 390px) 1fr;
+  overflow: hidden;
+  border: 1px solid rgba(91, 134, 255, 0.3);
+  border-radius: 36px;
+  background: #141625;
+  box-shadow: 0 38px 110px rgba(3, 6, 20, 0.58);
+}
+.side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: linear-gradient(180deg, #191b2d, #111321);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+.brand {
+  min-height: 132px;
+  padding: 28px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.logo {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 15px;
+  background: linear-gradient(145deg, #5b86ff, #52dce9);
+  color: #07121d;
+  font: 800 30px var(--cm-font-display, "Poppins", sans-serif);
+}
+small {
+  color: #52dce9;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+}
+.brand h1 {
+  margin: 3px 0 0;
+  font: 700 23px var(--cm-font-display, "Poppins", sans-serif);
+}
+.brand p {
+  margin: 2px 0;
+  color: #969bb8;
+  font-size: 14px;
+}
+nav {
+  flex: 1;
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+}
+.nav {
+  min-height: 78px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  color: #969bb8;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  text-align: left;
+}
+.nav:hover {
+  background: #20233a;
+}
+.nav.active {
+  color: #fff;
+  background: linear-gradient(135deg, #5b86ff, #3f63e0);
+  box-shadow: 0 18px 36px -15px rgba(72, 111, 235, 0.86);
+}
+.nav b {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  font: 700 14px var(--cm-font-display, "Poppins", sans-serif);
+}
+.nav span {
+  font: 600 17px var(--cm-font-display, "Poppins", sans-serif);
+}
+.nav span small {
+  display: block;
+  margin-top: 4px;
+  color: inherit;
+  font: 400 14px var(--cm-font, "DM Sans", sans-serif);
+  letter-spacing: 0;
+}
+.side footer {
+  padding: 22px 28px;
+  color: #969bb8;
+  font-size: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+kbd {
+  margin-right: 8px;
+  padding: 5px 10px;
+  border-radius: 7px;
+  background: #23263f;
+}
+.workspace {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #17192b;
+}
+.workspace > header {
+  min-height: 142px;
+  padding: 28px 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: #151726;
+}
+.workspace h2 {
+  margin: 5px 0 0;
+  font: 700 32px var(--cm-font-display, "Poppins", sans-serif);
+}
+#close {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 13px;
+  color: #c3c6de;
+  background: #23263f;
+  font-size: 28px;
+}
+.content {
+  flex: 1;
+  height: 0;
+  min-height: 0;
+  padding: 32px 44px 42px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.page {
+  display: none;
+}
+.page.active {
+  display: block;
+}
+.hero {
+  min-height: 245px;
+  padding: 38px 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-radius: 22px;
+  background: linear-gradient(120deg, #3954ba, #5b86ff 62%, #39a9d2);
+  box-shadow: 0 28px 68px -29px rgba(73, 115, 240, 0.76);
+}
+.hero small {
+  color: rgba(244, 246, 255, 0.78);
+}
+.hero h2 {
+  margin: 12px 0;
+  font-size: 48px;
+}
+.hero p {
+  margin: 0;
+  color: rgba(244, 246, 255, 0.82);
+  font-size: 17px;
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-top: 18px;
+}
+.stat,
+.card,
+.member,
+.rank {
+  padding: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 18px;
+  background: linear-gradient(155deg, #23263f, #1c1e33);
+}
+.stat span {
+  color: #969bb8;
+  font-size: 14px;
+}
+.stat strong {
+  display: block;
+  margin-top: 9px;
+  font: 700 25px var(--cm-font-display, "Poppins", sans-serif);
+}
+.stat small {
+  display: block;
+  margin-top: 5px;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+.duty {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 27px;
+}
+.card h3,
+.section-head h3 {
+  margin: 6px 0;
+  font: 700 23px var(--cm-font-display, "Poppins", sans-serif);
+}
+.card p,
+.section-head p {
+  margin: 0;
+  color: #969bb8;
+  font-size: 15px;
+}
+.primary,
+.mini {
+  padding: 12px 20px;
+  border: 1px solid rgba(151, 183, 255, 0.42);
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(135deg, #5b86ff, #3f63e0);
+  font: 600 15px var(--cm-font-display, "Poppins", sans-serif);
+}
+.mini {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.mini.danger,
+.primary.danger {
+  background: linear-gradient(135deg, #f87171, #dc2626);
+}
+.section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.member {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.avatar {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  background: linear-gradient(145deg, #5b86ff, #52dce9);
+  font-weight: 800;
+}
+.member-main {
+  flex: 1;
+}
+.member-main strong {
+  font: 600 17px var(--cm-font-display, "Poppins", sans-serif);
+}
+.member-main small {
+  display: block;
+  margin-top: 3px;
+  color: #969bb8;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+.member-actions {
+  display: flex;
+  gap: 7px;
+}
+.rank-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+.rank h4 {
+  margin: 0 0 10px;
+  font: 700 20px var(--cm-font-display, "Poppins", sans-serif);
+}
+.permissions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.permission {
+  padding: 6px 9px;
+  border-radius: 999px;
+  color: #52dce9;
+  background: rgba(82, 220, 233, 0.1);
+  font-size: 12px;
+}
+.form {
+  max-width: 620px;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+.form label {
+  flex: 1;
+  color: #969bb8;
+  font-size: 14px;
+}
+.form input {
+  width: 100%;
+  margin-top: 8px;
+  padding: 13px 15px;
+  color: #fff;
+  background: #17192b;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  outline: 0;
+}
+.form input:focus {
+  border-color: #5b86ff;
+}
+.admin-only[hidden],
+.fleet-only[hidden],
+.logs-only[hidden],
+.manage-outfits-only[hidden],
+.manage-booking-only[hidden],
+.mdt-only[hidden] {
+  display: none !important;
+}
+@media (max-width: 900px) {
+  .shell {
+    grid-template-columns: 210px 1fr;
+  }
+  .stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .rank-grid {
+    grid-template-columns: 1fr;
+  }
+  .content {
+    padding: 24px;
+  }
+  .workspace > header {
+    padding: 22px 28px;
+  }
+}
+
+/* Police Armory is bundled into the primary stylesheet because FiveM did not
+   consistently mount the former auxiliary armory.css in its NUI cache. */
+.police-armory{height:100%;min-height:0;display:grid;grid-template-columns:minmax(290px,30%) 1fr;gap:18px;color:#edfaff}
+.armory-feature,.armory-catalog{min-height:0;border:1px solid rgba(88,220,255,.2);border-radius:14px;background:linear-gradient(155deg,rgba(7,20,27,.98),rgba(5,38,43,.94));box-shadow:0 24px 70px rgba(0,0,0,.3)}
+.armory-feature{position:relative;overflow:hidden;padding:28px;display:flex;flex-direction:column;background:radial-gradient(circle at 28% 78%,rgba(0,226,211,.25),transparent 42%),linear-gradient(160deg,#081116,#092b2c)}
+.armory-feature:after{content:"POLICE";position:absolute;left:-20px;bottom:155px;transform:rotate(-90deg);font-size:58px;font-weight:900;letter-spacing:.16em;color:rgba(255,255,255,.04)}
+.armory-feature-copy{position:relative;z-index:1}.armory-feature-copy small,.armory-header small,.armory-item-copy small{color:#54e6f7;font-size:11px;font-weight:900;letter-spacing:.14em}.armory-feature-copy h2{margin:8px 0;font-size:clamp(26px,2vw,40px)}.armory-feature-copy p{color:#94abb5;line-height:1.5}
+.armory-feature-image{flex:1;min-height:200px;display:grid;place-items:center;position:relative;z-index:1}.armory-feature-image img{width:90%;height:90%;object-fit:contain;filter:drop-shadow(0 28px 26px rgba(0,0,0,.5))}.armory-no-image{display:grid;place-items:center;width:86px;height:86px;border:1px solid rgba(84,230,247,.3);border-radius:24px;color:#54e6f7;font-weight:900;background:rgba(84,230,247,.07)}
+.armory-feature-stats{display:grid;gap:9px;margin:16px 0;color:#a8bbc3;font-size:12px;letter-spacing:.08em}.armory-feature-stats span{display:flex;justify-content:space-between;border-top:1px solid rgba(255,255,255,.09);padding-top:10px}.armory-feature-stats b{color:#6df5bb}.armory-checkout,.armory-item button{border:0!important;background:#48dff1!important;color:#061217!important;font-weight:900!important;letter-spacing:.06em}.armory-checkout{position:relative;z-index:2;padding:15px 16px;border-radius:8px}.armory-checkout:hover,.armory-item button:hover{background:#8ff3ff!important}
+.armory-catalog{display:flex;flex-direction:column;padding:24px;overflow:hidden}.armory-header{display:flex;justify-content:space-between;gap:24px;align-items:flex-start}.armory-header h2{margin:4px 0;font-size:32px}.armory-header p{margin:0;color:#8fa6af}.armory-status{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.armory-status span{padding:10px 12px;border:1px solid rgba(84,230,247,.2);border-radius:7px;background:rgba(255,255,255,.04);font-size:10px;font-weight:800;color:#b9ced5}.armory-status #armoryStandaloneClose{display:none;width:38px;height:38px;border:1px solid rgba(255,255,255,.16);border-radius:8px;background:rgba(255,255,255,.07);color:#eafcff;font-size:22px;line-height:1}body.armory-standalone .armory-status #armoryStandaloneClose{display:block}
+.armory-filters{display:flex;gap:9px;margin:22px 0 16px;border-bottom:1px solid rgba(255,255,255,.09);padding-bottom:13px}.armory-filters button{width:auto!important;border:1px solid transparent!important;border-radius:7px!important;background:transparent!important;color:#8199a2!important;padding:10px 14px!important;font-weight:800!important}.armory-filters button.active{color:#65ecfb!important;border-color:rgba(84,230,247,.3)!important;background:rgba(84,230,247,.1)!important}
+.armory-grid{min-height:0;overflow-y:auto;display:grid;grid-template-columns:repeat(3,minmax(190px,1fr));align-content:start;gap:13px;padding-right:7px}.armory-item{min-height:168px;border:1px solid rgba(255,255,255,.09);border-radius:10px;background:rgba(1,13,17,.48);padding:14px;display:grid;grid-template-columns:88px 1fr;grid-template-rows:1fr auto;gap:11px;transition:.16s}.armory-item:hover,.armory-item.selected{border-color:rgba(84,230,247,.5);background:rgba(31,100,108,.22);transform:translateY(-1px)}.armory-item-image{display:grid;place-items:center}.armory-item-image img{max-width:82px;max-height:80px;object-fit:contain;filter:drop-shadow(0 12px 12px rgba(0,0,0,.42))}.armory-item-image .armory-no-image{width:58px;height:58px;border-radius:16px}.armory-item-copy{display:flex;flex-direction:column;gap:5px}.armory-item-copy strong{font-size:15px}.armory-item-copy span{color:#7f969f;font-size:12px}.armory-item button{grid-column:1/-1;padding:9px;border-radius:6px}.armory-empty,.armory-empty-feature{display:grid;place-items:center;color:#8299a1;min-height:180px}.armory-empty-feature{height:100%;align-content:center;gap:8px}.armory-empty-feature b{color:#54e6f7;font-size:28px}.armory-admin-image{width:64px;height:48px;display:grid;place-items:center;flex:0 0 auto}.armory-admin-image img{max-width:60px;max-height:44px;object-fit:contain}.armory-admin-image .armory-no-image{width:42px;height:42px;border-radius:10px}
+@media(max-width:1250px){.armory-grid{grid-template-columns:repeat(2,minmax(180px,1fr))}.armory-status span{display:none}}@media(max-width:900px){.police-armory{grid-template-columns:1fr}.armory-feature{display:none}.armory-grid{grid-template-columns:1fr 1fr}}

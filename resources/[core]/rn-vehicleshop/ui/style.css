@@ -2144,6 +2144,9 @@ body.admin-active{background:transparent !important;}
 }
 .admin-car.enabled em,.admin-car.store em{color:#66f8c5 !important;background:rgba(34,197,94,.12);}
 .admin-car.server em{color:#8ee8ff !important;background:rgba(0,174,239,.12);}
+.admin-car.ems em{color:#ffcf5d !important;background:rgba(255,207,93,.13);}
+.admin-car.police em{color:#7fa8ff !important;background:rgba(91,134,255,.13);}
+.admin-car.legal-org em{color:#c9a8ff !important;background:rgba(168,91,255,.13);}
 .admin-car.disabled em,.admin-car.hidden em{color:#ff9a9a !important;background:rgba(239,68,68,.11);}
 .admin-left-footer{
   display:flex;
@@ -2199,6 +2202,8 @@ body.admin-active{background:transparent !important;}
 }
 .admin-status-pill[data-status=store]{color:#72f6b2;border-color:rgba(34,197,94,.36);background:rgba(34,197,94,.11);}
 .admin-status-pill[data-status=server]{color:#8ee8ff;border-color:rgba(0,174,239,.34);background:rgba(0,174,239,.10);}
+.admin-status-pill[data-status=ems]{color:#ffcf5d;border-color:rgba(255,207,93,.38);background:rgba(255,207,93,.12);}
+.admin-status-pill[data-status=police]{color:#7fa8ff;border-color:rgba(91,134,255,.38);background:rgba(91,134,255,.12);}
 .admin-status-pill[data-status=hidden],.admin-status-pill[data-status=notset]{color:#ff9b9b;border-color:rgba(239,68,68,.28);background:rgba(239,68,68,.09);}
 .admin-form-scroll{
   flex:1;
@@ -2317,6 +2322,29 @@ body.admin-active{background:transparent !important;}
 }
 .admin-switch input:checked + span{background:rgba(0,229,240,.2);border-color:rgba(0,229,240,.5);}
 .admin-switch input:checked + span::after{transform:translateX(19px);background:var(--va-cyan-bright);box-shadow:0 0 10px rgba(0,229,240,.55);}
+
+/* EMS appearance editor swatches/checklist (#admin-ems-section) */
+.va-swatch-label{
+  margin:12px 0 6px;
+  color:var(--va-dim);
+  font-size:9.5px;
+  font-weight:850;
+  letter-spacing:.065em;
+  text-transform:uppercase;
+}
+.va-swatch-row{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:4px;}
+.va-swatch{
+  width:26px;height:26px;border-radius:8px;padding:0;cursor:pointer;
+  border:2px solid rgba(255,255,255,.14);
+}
+.va-swatch.active{border-color:var(--va-cyan-bright);box-shadow:0 0 0 2px rgba(0,229,240,.35);}
+.va-check-row{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px;}
+.va-check-row label{
+  display:flex !important;flex-direction:row !important;align-items:center;gap:7px;
+  padding:7px 9px;border-radius:8px;background:rgba(255,255,255,.04);
+  color:var(--va-text) !important;font-size:10px !important;text-transform:none !important;
+  letter-spacing:0 !important;font-weight:650 !important;
+}
 .admin-actions{
   flex:none;
   display:grid !important;
@@ -2468,6 +2496,10 @@ body.admin-active #admin-panel{
   content:'NOT LOADED';position:absolute;inset:auto 8px 7px auto;color:#ff9b9b;font-size:7px;font-weight:900;
 }
 #admin-list{scroll-behavior:smooth;}
+.admin-capture-mode .admin-form-scroll > .admin-section:not(.admin-media-section),
+.admin-capture-mode .admin-actions,
+.admin-capture-mode #admin-current-status{display:none !important;}
+body:not(.admin-capture-mode) #admin-capture{display:none !important;}
 .admin-form-scroll{overscroll-behavior:contain;}
 @media (max-width:1280px){
   #admin-panel > .admin-shell{grid-template-columns:300px minmax(260px,1fr) 350px !important;padding:18px !important;gap:14px !important;}

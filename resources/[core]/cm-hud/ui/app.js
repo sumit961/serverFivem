@@ -46,6 +46,9 @@ let state = {
     // Money
     cash: 0,
     bank: 0,
+
+    // GTA5-style wanted stars (0-6), from cm-playerdata
+    wantedStars: 0,
     
     // Health / Armor
     health: 200,
@@ -401,6 +404,17 @@ function bindHudAdminEvents() {
 
 // ========== RENDER FUNCTIONS ==========
 
+function renderWantedStars() {
+    if (!state.wantedStars || state.wantedStars <= 0) return '';
+    let stars = '';
+    for (let n = 1; n <= 6; n++) {
+        const filled = n <= state.wantedStars;
+        const hot = n === 6 && filled ? ' wanted-star-hot' : '';
+        stars += `<span class="wanted-star${filled ? ' wanted-star-filled' : ''}${hot}">★</span>`;
+    }
+    return `<div class="wanted-stars-row">${stars}</div>`;
+}
+
 function renderTopRight() {
     const el = document.getElementById(HUD_MODULES.topRight.id);
     if (!el) return;
@@ -419,7 +433,9 @@ function renderTopRight() {
                 <span>${state.level}</span>
             </div>
         </div>
-        
+
+        ${renderWantedStars()}
+
         <div class="money-block-new">
             <div class="money-cash-new">$${formatMoney(state.cash)}</div>
             <div class="money-bank-new"><svg class="money-bank-icon" viewBox="0 0 24 24"><path d="M12 3l9 4.5V9H3V7.5L12 3z" fill="currentColor"/><path d="M5 10v7M9 10v7M15 10v7M19 10v7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 19.5h18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>$${formatMoney(state.bank)}</span></div>
@@ -1373,6 +1389,11 @@ window.addEventListener('message', function(event) {
         case 'updateMoney':
             state.cash = Number(data.cash ?? state.cash) || 0;
             state.bank = Number(data.bank ?? state.bank) || 0;
+            updateModule('topRight');
+            break;
+
+        case 'updateWanted':
+            state.wantedStars = Number(data.stars ?? state.wantedStars) || 0;
             updateModule('topRight');
             break;
 

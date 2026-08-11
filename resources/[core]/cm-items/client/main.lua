@@ -369,7 +369,14 @@ RegisterNetEvent('cm-items:client:previewGiveResult', function(requestId, succes
         cb({ success = success == true, message = message, itemName = itemName })
     end
 
-    local text = success and ('Added %s to inventory'):format(tostring(itemName or 'item')) or tostring(message or 'Could not add item')
+    local text
+    if success and message == 'existing_item_reused' then
+        text = ('Updated existing %s; no duplicate was added'):format(tostring(itemName or 'item'))
+    elseif success then
+        text = ('Added %s to inventory'):format(tostring(itemName or 'item'))
+    else
+        text = tostring(message or 'Could not add item')
+    end
     if lib and lib.notify then
         lib.notify({ title = 'CM Items', description = text, type = success and 'success' or 'error' })
     else

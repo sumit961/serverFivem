@@ -1,19 +1,14 @@
 -- ============================================================
 --  cm-house | sv_admin.lua
---  /cmadmin -- manage every property, layout and garage in one place.
+--  Rank-gated panel launched from cm-admin's Developer section.
 -- ============================================================
 
---- /cmadminhouse -- the records office.
---- (/cmadmin kept as an alias; both open the same panel.)
 local ADMIN_TABS = { houses = true, interiors = true, garages = true, recovery = true }
 local ADMIN_TAB_SCOPE = {
     houses = 'properties', interiors = 'interiors', garages = 'garages', recovery = 'recovery',
 }
 
 local function hasAdminScope(src, scope)
-    -- Hard local-development bypass. Keep this check here as well as in
-    -- sv_compat so the panel still opens even if an ACL bridge is unavailable.
-    if Config.DevelopmentPublicAdmin == true then return true end
     return HasHouseStaffPermission(src, scope or 'panel') == true
 end
 
@@ -44,7 +39,6 @@ local function decodeAdminJson(value, fallback)
 end
 
 local function adminInvokerAllowed()
-    if Config.DevelopmentPublicAdmin == true then return true end
     local invoker = GetInvokingResource()
     if not invoker or invoker == GetCurrentResourceName() then return true end
     local configured = Config.Integration and Config.Integration.authorizedResources or {}
@@ -79,21 +73,6 @@ local function openPanel(src, tab)
     end
     TriggerClientEvent('cm-house:client:openAdmin', src, tab)
     return true
-end
-
-local registeredAdminCommands = {}
-local function registerAdminCommand(name)
-    name = tostring(name or '')
-    if name == '' or registeredAdminCommands[name] then return end
-    registeredAdminCommands[name] = true
-    RegisterCommand(name, function(src) openPanel(src, 'houses') end, false)
-end
-
--- /cmadmin is retained for compatibility. The unique aliases avoid command
--- collisions with cm-admin or another server resource.
-registerAdminCommand('cmadmin')
-for _, commandName in ipairs(Config.PublicAdminCommands or { 'cmadminhouse', 'cmhouseadmin', 'houseadmin' }) do
-    registerAdminCommand(commandName)
 end
 
 -- Button-ready entry points. A UI button in cm-admin can call the client export,
@@ -131,8 +110,28 @@ exports('GetHouseAdminPanelTabs', function()
         { id = 'houses', label = 'Properties', permission = GetHouseAdminPermissionKey('properties') },
         { id = 'interiors', label = 'Interior layouts', permission = GetHouseAdminPermissionKey('interiors') },
         { id = 'garages', label = 'Garage layouts', permission = GetHouseAdminPermissionKey('garages') },
-        { id = 'recovery', label = 'Vehicle recovery', permission = GetHouseAdminPermissionKey('recovery') },
+        { id = 'recovery', label = 'Vehicle & weapon recovery', permission = GetHouseAdminPermissionKey('recovery') },
     }
+end)
+
+-- cm-admin only launches this resource-owned panel. All panel actions continue
+-- through cm-house's existing server callbacks and granular ACL checks.
+AddEventHandler('cm-house:dev:openAdmin', function(src)
+    openPanel(tonumber(src), 'houses')
+end)
+
+CreateThread(function()
+    while GetResourceState('cm-admin') ~= 'started' do Wait(5000) end
+    pcall(function()
+        exports['cm-admin']:RegisterDevTool({
+            id = 'house', label = 'House Admin', category = 'World', icon = 'house',
+            permission = 'house.admin.open',
+            actions = {
+                { id = 'open', label = 'Open House Admin', type = 'launcher', realm = 'server',
+                  event = 'cm-house:dev:openAdmin', hint = 'Opens the cm-house admin panel.' }
+            }
+        })
+    end)
 end)
 
 -- ------------------------------------------------------------
@@ -223,7 +222,7 @@ lib.callback.register('cm-house:server:adminData', function(src)
         }
     end
 
-    local recovery = {}
+    local recovery, weaponRecovery = {}, {}
     if capabilities.recovery and GetResourceState('cm-vehicles') == 'started' then
         local ok, rows = pcall(function()
             return exports['cm-vehicles']:ListVehicleRecoveryProblems(150)
@@ -247,12 +246,49 @@ lib.callback.register('cm-house:server:adminData', function(src)
             end
         end
     end
+    if capabilities.recovery then
+        local ok, rows = pcall(function() return exports['cm-house']:ListWeaponStorageRecovery(150) end)
+        if ok and type(rows) == 'table' then
+            for _, row in ipairs(rows) do
+                weaponRecovery[#weaponRecovery + 1] = {
+                    id = tonumber(row.id), houseId = tonumber(row.house_id),
+                    pointIndex = tonumber(row.point_index), characterId = tostring(row.character_id or ''),
+                    characterName = row.character_id and GetCharName(row.character_id) or 'Unknown character',
+                    itemName = tostring(row.item_name or 'weapon'), amount = tonumber(row.amount) or 1,
+                    reason = tostring(row.last_error or row.reason or ''),
+                    status = DbBool(row.resolved) and 'resolved' or tostring(row.status or 'pending'),
+                    resolved = DbBool(row.resolved), createdAt = tostring(row.created_at or ''),
+                    resolvedAt = row.resolved_at and tostring(row.resolved_at) or nil,
+                    online = row.character_id and GetSrcByCid(row.character_id) ~= nil or false,
+                }
+            end
+        end
+    end
 
     if not capabilities.properties then houses = {} end
     if not capabilities.interiors then interiors = {} end
     if not capabilities.garages then garages = {} end
     if not capabilities.recovery then recovery = {} end
-    return { houses = houses, interiors = interiors, garages = garages, recovery = recovery, capabilities = capabilities }
+    return { houses = houses, interiors = interiors, garages = garages, recovery = recovery,
+        weaponRecovery = weaponRecovery, capabilities = capabilities }
+end)
+
+lib.callback.register('cm-house:server:adminWeaponRecovery', function(src, recoveryId)
+    if not hasAdminScope(src, 'recovery') then return false, 'Not permitted.' end
+    recoveryId = tonumber(recoveryId)
+    if not recoveryId then return false, 'Invalid recovery row.' end
+    local row = MySQL.single.await(
+        'SELECT character_id FROM cm_house_weapon_recovery WHERE id = ? AND resolved = 0 LIMIT 1', { recoveryId })
+    if not row then return false, 'That recovery row is already resolved or missing.' end
+    local targetSrc = GetSrcByCid(row.character_id)
+    if not targetSrc then return false, 'That character must be online before the weapon can be restored.' end
+    local ok, restored, reason = pcall(function()
+        return exports['cm-house']:RestoreWeaponStorageRecovery(recoveryId, targetSrc)
+    end)
+    if not ok then return false, 'Weapon recovery integration failed: ' .. tostring(restored) end
+    if restored ~= true then return false, reason or 'Weapon recovery failed.' end
+    Audit(src, 'weapon_storage_recovery', { recoveryId = recoveryId, targetCid = row.character_id })
+    return true, reason or 'Weapon restored.'
 end)
 
 lib.callback.register('cm-house:server:adminVehicleRecovery', function(src, identity, action, data)
@@ -703,8 +739,7 @@ lib.callback.register('cm-house:server:adminPricing', function(src, changes)
     return true, 'Pricing updated. New properties use it immediately.'
 end)
 
---- The records-office Add button always requires real staff. The separate
---- /cmhouse command may be relaxed only in deliberate development mode.
+--- The records-office Add button always requires the granular create scope.
 RegisterNetEvent('cm-house:server:startWizard', function()
     local src = source
     if not hasAdminScope(src, 'create') then
@@ -714,10 +749,10 @@ RegisterNetEvent('cm-house:server:startWizard', function()
     TriggerClientEvent('cm-house:client:startPlacement', src)
 end)
 
---- /cmhousecheck -- what is actually wired up.
+--- Internal dependency diagnostic retained for future admin-panel health UI.
 --- The "no SpawnAdminVehicle export" message could mean cm-vehicles is old, or
 --- not started, or that its admin.lua failed to load. Say which.
-RegisterCommand('cmhousecheck', function(src)
+local function printHouseDependencyCheck(src)
     if src ~= 0 and not hasAdminScope(src, 'panel') then return end
 
     local function line(s) 
@@ -784,4 +819,4 @@ RegisterCommand('cmhousecheck', function(src)
     if nsel == 0 then
         line('  ^1No garage sizes! Run sql/005_features.sql^7')
     end
-end, false)
+end

@@ -7,11 +7,11 @@
 
   <link rel="stylesheet" href="vendor/slick-lite.css"/>
   <link rel="stylesheet" href="vendor/fa-lite.css"/>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=310">
 
     <script src="vendor/jquery.min.js"></script>
   <script src="vendor/slick-lite.js"></script>
-  <script src="main.js" defer></script>
+  <script src="main.js?v=311" defer></script>
   
 </head>
   <body>
@@ -249,7 +249,7 @@
           <div class="admin-logo">CM</div>
           <div class="admin-brand-copy">
             <span class="admin-kicker">Catalog manager</span>
-            <h1>Vehicle Admin</h1>
+            <h1>Manage Vehicles</h1>
           </div>
           <button id="admin-close" type="button" aria-label="Close">×</button>
         </div>
@@ -326,15 +326,61 @@
                   <option value="hidden">Hidden / disabled</option>
                   <option value="server">Server only / event-task</option>
                   <option value="store">Store buyable</option>
+                  <option value="ems">EMS fleet vehicle</option>
+                  <option value="police">Police fleet vehicle</option>
                 </select>
               </label>
             </div>
+          </section>
+
+          <section class="admin-section" id="admin-ems-section" style="display:none;">
+            <div class="admin-section-title"><div><strong>Fleet appearance</strong><span>Paint, livery, wheels &amp; more (cm-tuning catalog)</span></div></div>
+            <div class="admin-field-grid admin-two-cols">
+              <label>Wheel type<select id="admin-ems-wheeltype"></select></label>
+              <label>Tyre level
+                <select id="admin-ems-tyrelevel">
+                  <option value="0">Stock</option><option value="1">Level 1</option>
+                  <option value="2">Level 2</option><option value="3">Level 3</option>
+                  <option value="4">Level 4 (bulletproof)</option>
+                </select>
+              </label>
+              <label>Window tint<select id="admin-ems-tint"></select></label>
+              <label>Plate style<select id="admin-ems-plate"></select></label>
+            </div>
+            <label>Livery<select id="admin-ems-livery"><option value="-1">None</option></select></label>
+
+            <div class="va-swatch-label">Body parts <small>(options shown are only what this vehicle actually supports)</small></div>
+            <div class="admin-field-grid admin-two-cols" id="admin-ems-parts">
+              <label>Spoiler<select data-part="spoiler"></select></label>
+              <label>Front bumper<select data-part="frontBumper"></select></label>
+              <label>Rear bumper<select data-part="rearBumper"></select></label>
+              <label>Side skirts<select data-part="skirts"></select></label>
+              <label>Exhaust<select data-part="exhaust"></select></label>
+              <label>Roll cage<select data-part="rollcage"></select></label>
+              <label>Grille<select data-part="grille"></select></label>
+              <label>Hood<select data-part="hood"></select></label>
+              <label>Fenders<select data-part="fender"></select></label>
+              <label>Roof<select data-part="roof"></select></label>
+              <label>Horn<select data-part="horn"></select></label>
+              <label>Wheels (visual)<select data-part="wheels"></select></label>
+            </div>
+
+            <div class="va-swatch-label">Primary color</div>
+            <div class="va-swatch-row" id="admin-ems-primary" data-target="primaryColor"></div>
+            <div class="va-swatch-label">Secondary color</div>
+            <div class="va-swatch-row" id="admin-ems-secondary" data-target="secondaryColor"></div>
+            <div class="va-swatch-label">Extras</div>
+            <div class="va-check-row" id="admin-ems-extras"></div>
+            <div class="va-swatch-label">Neon</div>
+            <div class="va-check-row" id="admin-ems-neons"></div>
+            <div class="va-swatch-row" id="admin-ems-neoncolor" data-target="neonColor"></div>
           </section>
 
           <section class="admin-section">
             <div class="admin-section-title"><div><strong>Store configuration</strong><span>Price and storage capacity</span></div></div>
             <div class="admin-field-grid admin-two-cols">
               <label>Purchase price<input id="admin-price" type="number" min="0" max="250000000" step="1" /></label>
+              <label>Top speed <small>km/h; 0 uses handling default</small><input id="admin-speed" type="number" min="0" max="1000" step="1" /></label>
               <label>Trunk level <small>0 none · 1 six cells · 6 thirty</small><input id="admin-trunk" type="number" min="0" max="6" step="1" /></label>
             </div>
           </section>

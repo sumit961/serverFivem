@@ -1,6 +1,6 @@
 -- ============================================================
 --  cm-house | cl_admin_templates.lua
---  /cmadminhouse -> Layouts / Garages -> "+ Walk new" or "Re-walk".
+--  cm-admin Developer > House Admin > Layouts / Garages > "+ Walk new" or "Re-walk".
 --
 --  Standalone template capture: the admin stands wherever the layout should
 --  live (any MLO, shell or world GPS location) and places

@@ -3,8 +3,8 @@ game 'gta5'
 lua54 'yes'
 
 author 'CM Development'
-description 'CM-Items: item registry for CM Roleplay framework'
-version '1.5.0-ctxmenu-cm-ui'
+description 'CM-Items: item registry with authoritative medical item imagery'
+version '1.5.1-medical-images'
 
 shared_scripts {
     'config.lua',

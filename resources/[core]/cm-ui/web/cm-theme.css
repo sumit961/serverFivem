@@ -1,11 +1,23 @@
 /*
-    CM Framework Central Theme v1.0.0
+    CM Framework Central Theme v1.1.0
     Use in any NUI page:
     <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
     <link rel="stylesheet" href="nui://cm-ui/web/cm-components.css">
 
     IMPORTANT: No backdrop-filter. FiveM NUI may render black/buggy panels with it.
+
+    Fonts: self-hosted DM Sans / Poppins (see fonts/ below), shared across every
+    resource that links this stylesheet so the whole framework reads as one UI
+    instead of each resource silently falling back to Segoe UI/Arial.
 */
+
+@font-face { font-family: 'DM Sans'; src: url('fonts/dm-sans-400.ttf') format('truetype'); font-style: normal; font-weight: 400; font-display: swap; }
+@font-face { font-family: 'DM Sans'; src: url('fonts/dm-sans-500.ttf') format('truetype'); font-style: normal; font-weight: 500; font-display: swap; }
+@font-face { font-family: 'DM Sans'; src: url('fonts/dm-sans-600.ttf') format('truetype'); font-style: normal; font-weight: 600; font-display: swap; }
+@font-face { font-family: 'DM Sans'; src: url('fonts/dm-sans-700.ttf') format('truetype'); font-style: normal; font-weight: 700; font-display: swap; }
+@font-face { font-family: 'Poppins'; src: url('fonts/poppins-600.ttf') format('truetype'); font-style: normal; font-weight: 600; font-display: swap; }
+@font-face { font-family: 'Poppins'; src: url('fonts/poppins-700.ttf') format('truetype'); font-style: normal; font-weight: 700; font-display: swap; }
+@font-face { font-family: 'Poppins'; src: url('fonts/poppins-800.ttf') format('truetype'); font-style: normal; font-weight: 800; font-display: swap; }
 
 :root {
     --cm-bg: #07111f;
@@ -14,8 +26,8 @@
     --cm-panel-soft: rgba(12, 26, 46, 0.92);
     --cm-panel-hover: rgba(16, 35, 60, 0.96);
 
-    --cm-primary: #00e5ff;
-    --cm-primary-rgb: 0, 229, 255;
+    --cm-primary: #00f0ff;
+    --cm-primary-rgb: 0, 240, 255;
     --cm-primary-dark: #0891b2;
     --cm-blue: #2563eb;
     --cm-blue-soft: rgba(37, 99, 235, 0.28);
@@ -34,7 +46,7 @@
     --cm-muted: #8aa4b8;
     --cm-muted-2: #5f7488;
 
-    --cm-border: rgba(0, 229, 255, 0.32);
+    --cm-border: rgba(var(--cm-primary-rgb), 0.32);
     --cm-border-soft: rgba(143, 190, 220, 0.14);
     --cm-border-danger: rgba(239, 68, 68, 0.42);
 
@@ -48,7 +60,8 @@
     --cm-shadow-soft: 0 10px 35px rgba(0, 0, 0, 0.28);
     --cm-glow: 0 0 22px rgba(var(--cm-primary-rgb), 0.22);
 
-    --cm-font: Inter, Segoe UI, Roboto, Arial, sans-serif;
+    --cm-font: "DM Sans", "Segoe UI", Arial, sans-serif;
+    --cm-font-display: "Poppins", "DM Sans", "Segoe UI", Arial, sans-serif;
     --cm-mono: Consolas, Monaco, 'Courier New', monospace;
 
     --cm-space-1: 4px;

@@ -1,0 +1,1 @@
+Bodycam capture images are saved here at runtime (server/cuffs.lua's captureBodycamEvidence). This file only keeps the directory present before the first capture.

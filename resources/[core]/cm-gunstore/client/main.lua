@@ -149,6 +149,7 @@ local function openNpcDialog(shop)
         clerkName = shop and shop._clerkName or 'Gun Store Clerk',
         title = dialog.title or 'How can I help you today?',
         optionStore = dialog.optionStore or 'Show me what you have got',
+        optionLicense = dialog.optionLicense or 'Buy a firearms license',
         optionClose = dialog.optionClose or 'No thanks'
     })
 end
@@ -386,6 +387,11 @@ end)
 
 RegisterNUICallback('dialogOpenStore', function(_, cb)
     requestCatalog('store')
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('dialogBuyLicense', function(_, cb)
+    TriggerServerEvent('cm-gunstore:server:buyLicense')
     cb({ ok = true })
 end)
 

@@ -69,6 +69,7 @@ CMVehicles.Config = {
             ['cm-parking'] = true,
             ['cm-impound'] = true,
             ['cm-police'] = true,
+            ['cm-ems'] = true,
         }
     },
 
@@ -86,9 +87,13 @@ CMVehicles.Config = {
     -- Temporary placement vehicles requested by trusted server resources.
     -- This lets a rank-limited cm-house interior/garage creator use the real
     -- placement car/helicopter without also granting vehicle-admin powers.
+    -- cm-ems uses the same path for its fleet vehicle configurator/spawner:
+    -- an EMS rank with ems.manage_vehicles/ems.spawn_vehicles does not need
+    -- the separate, broader cm-vehicles.admin permission.
     Placement = {
         authorizedResources = {
             ['cm-house'] = true,
+            ['cm-ems'] = true,
         }
     },
 

@@ -1,0 +1,203 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Arial, Helvetica, sans-serif; background: transparent; color: #eaf6fb; }
+#app { width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
+#app[hidden] { display: none !important; }
+
+.dialogue {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  color: #eefcff;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.9);
+}
+.dialogue::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(90deg, rgba(0, 8, 12, 0.38), transparent 42%),
+    linear-gradient(0deg, rgba(0, 8, 12, 0.48), transparent 48%);
+}
+.dialogue__identity {
+  position: absolute;
+  top: 9vh;
+  left: 7vw;
+  transform: skew(-5deg);
+}
+.dialogue__identity small { color: #69eaff; font-size: 12px; font-weight: 800; letter-spacing: .2em; }
+.dialogue__identity h1 { margin: 5px 0 0; font-size: clamp(34px, 4vw, 66px); font-weight: 900; letter-spacing: -.04em; text-transform: uppercase; }
+.dialogue__choices {
+  position: absolute;
+  right: 7vw;
+  bottom: 9vh;
+  width: min(560px, 40vw);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  pointer-events: auto;
+}
+.dialogue__quote {
+  grid-column: 1 / -1;
+  margin-bottom: 5px;
+  padding: 16px 18px;
+  border-left: 3px solid #4de1ff;
+  background: rgba(5, 16, 21, .76);
+}
+.dialogue__quote p { margin: 0; font-size: 14px; line-height: 1.55; }
+.dialogue__quote span { display: block; margin-top: 8px; color: #7fd8ec; text-align: right; font-size: 12px; }
+.dialogue-option {
+  min-height: 64px;
+  padding: 14px 18px;
+  border: 1px solid rgba(190, 241, 250, .42);
+  border-radius: 7px;
+  background: rgba(7, 19, 24, .78);
+  color: #eefcff;
+  font-weight: 700;
+  cursor: pointer;
+}
+.dialogue-option:hover, .dialogue-option:focus { border-color: #4de1ff; background: rgba(35, 196, 225, .22); outline: none; }
+.dialogue-option--primary { border-color: #4de1ff; background: #4de1ff; color: #04161b; text-shadow: none; }
+.dialogue-option--primary:hover, .dialogue-option--primary:focus { background: #7aeaff; color: #04161b; }
+.dialogue-option:last-child { grid-column: 1 / -1; }
+
+.panel {
+  width: 460px;
+  max-height: 82vh;
+  overflow-y: auto;
+  background: rgba(8, 15, 19, 0.96);
+  border: 1px solid rgba(77, 225, 255, 0.35);
+  border-radius: 14px;
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.55);
+}
+
+.panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px;
+  background: rgba(77, 225, 255, 0.08);
+  border-bottom: 1px solid rgba(77, 225, 255, 0.18);
+}
+.panel__head small { color: #7fd8ec; letter-spacing: 0.12em; font-size: 11px; }
+.panel__head h1 { margin: 2px 0 0; font-size: 21px; color: #eaf6fb; }
+
+.occupancy {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+  background: rgba(77, 225, 255, 0.14);
+  border-bottom: 1px solid rgba(77, 225, 255, 0.18);
+}
+.occupancy span { padding: 10px 20px; color: #9db3bd; font-size: 12px; background: rgba(8, 15, 19, 0.96); }
+.occupancy b { margin-right: 5px; color: #4de1ff; font-size: 15px; }
+
+.icon-btn {
+  width: 34px; height: 34px;
+  border: 0; border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #eaf6fb; font-size: 20px; line-height: 1;
+  cursor: pointer;
+}
+.icon-btn:hover { background: rgba(255, 255, 255, 0.16); }
+
+.card {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.card__text { flex: 1; }
+.card__text h2 { margin: 0 0 4px; font-size: 15px; color: #eaf6fb; }
+.card__text p { margin: 0; font-size: 12.5px; color: #9db3bd; }
+
+.primary {
+  border: 0; border-radius: 9px;
+  padding: 10px 16px;
+  background: #4de1ff; color: #05171c;
+  font-weight: 700; font-size: 13px;
+  cursor: pointer; white-space: nowrap;
+}
+.primary:hover { filter: brightness(1.08); }
+.primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.buy-row { display: flex; align-items: center; gap: 8px; }
+.buy-row input[type="number"] {
+  width: 56px; padding: 9px 6px;
+  border: 1px solid rgba(77, 225, 255, 0.25); border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06); color: #eaf6fb;
+  text-align: center; font-size: 13px;
+}
+
+.list { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.medicine-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.medicine-row:last-child { border-bottom: 0; }
+.medicine-row__text { flex: 1; }
+.medicine-row__text strong { display: block; font-size: 13.5px; color: #eaf6fb; }
+.medicine-row__text span { display: block; font-size: 11.5px; color: #9db3bd; margin-top: 2px; }
+.medicine-row__price { font-size: 12px; color: #7fd8ec; margin-top: 2px; display: block; }
+
+
+[hidden] { display: none !important; }
+.card--column { flex-direction: column; align-items: stretch; }
+.muted { color: #9db3bd; font-size: 12.5px; margin: 0; }
+
+.stock-card {
+  padding: 14px 20px;
+  border-bottom: 1px solid rgba(77, 225, 255, 0.18);
+  background: rgba(77, 225, 255, 0.045);
+}
+.stock-card__top {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+.stock-card__top small {
+  display: block;
+  margin-bottom: 3px;
+  color: #7fd8ec;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+.stock-card__top strong {
+  display: block;
+  color: #eaf6fb;
+  font-size: 21px;
+}
+.stock-card__top span {
+  color: #9db3bd;
+  font-size: 12px;
+}
+.stock-meter {
+  height: 7px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.stock-meter i {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: #4de1ff;
+  transition: width 180ms ease;
+}
+.stock-card p {
+  margin: 8px 0 0;
+  color: #9db3bd;
+  font-size: 11.5px;
+}
+.supply-run small {
+  display: block;
+  margin-bottom: 4px;
+  color: #7fd8ec;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+@media (max-width: 800px) {
+  .dialogue__choices { right: 5vw; bottom: 6vh; width: 90vw; }
+  .dialogue__identity { top: 6vh; left: 5vw; }
+}

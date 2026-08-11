@@ -13,6 +13,12 @@ local returnCoords = nil
 local interactionVisible = false
 local hudHidden = false
 local hudStoreLock = false
+
+-- EMS fleet vehicle appearance: accumulated locally and applied to the
+-- (purely local, non-networked) admin preview vehicle via cm-vehicles'
+-- ApplyVehicleMods export -- same reuse cm-ems's configurator uses, just
+-- against this resource's own preview vehicle instead of a spawned one.
+local currentAdminMods = {}
 local hudLoopToken = 0
 local testDriveHudTransition = false
 local purchaseNotifyAfterExit = nil
@@ -1346,8 +1352,11 @@ RegisterNUICallback('deletevehicle', function(_, cb)
     cb('ok')
 end)
 
-RegisterNetEvent('rn-vehicleshop:client:requestAdmin', function()
-    TriggerServerEvent('rn-vehicleshop:server:openAdmin')
+local activeAdminMode = 'manage'
+
+RegisterNetEvent('rn-vehicleshop:client:requestAdmin', function(mode)
+    activeAdminMode = mode == 'capture' and 'capture' or 'manage'
+    TriggerServerEvent('rn-vehicleshop:server:openAdmin', activeAdminMode)
 end)
 
 local vehicleClassLabels = {
@@ -1383,14 +1392,45 @@ local function enrichAdminSourceVehicles(sourceList)
     return out
 end
 
-RegisterNetEvent('rn-vehicleshop:client:openAdmin', function(sourceList, catalog, discoveryInfo)
+local runtimeModelsSent = false
+local function sendRuntimeVehicleModels()
+    if runtimeModelsSent or not Config.RuntimeCatalogSeed or Config.RuntimeCatalogSeed.enabled ~= true then return end
+    runtimeModelsSent = true
+    CreateThread(function()
+        local models = GetAllVehicleModels()
+        local batch = {}
+        for _, model in ipairs(type(models) == 'table' and models or {}) do
+            model = tostring(model or ''):lower()
+            local hash = joaat(model)
+            if model ~= '' and IsModelInCdimage(hash) and IsModelAVehicle(hash) then
+                local code = GetDisplayNameFromVehicleModel(hash)
+                local label = code and GetLabelText(code) or nil
+                if not label or label == '' or label == 'NULL' or label == 'CARNOTFOUND' then label = model end
+                batch[#batch + 1] = {
+                    model = model, label = label, classId = GetVehicleClassFromName(hash),
+                    speedKph = math.floor((GetVehicleModelEstimatedMaxSpeed(hash) or 0.0) * 3.6 + 0.5)
+                }
+                if #batch >= 150 then
+                    TriggerServerEvent('rn-vehicleshop:server:runtimeVehicleModels', batch, false)
+                    batch = {}
+                    Wait(0)
+                end
+            end
+        end
+        TriggerServerEvent('rn-vehicleshop:server:runtimeVehicleModels', batch, true)
+    end)
+end
+
+RegisterNetEvent('rn-vehicleshop:client:openAdmin', function(sourceList, catalog, discoveryInfo, mode)
     -- Put the admin into the showroom camera view so the Capture Image button
     -- always has a cleanly framed car against the backdrop, even when /vehicleadmin
     -- is run from elsewhere on the map.
     if not inShop or previewMode ~= 'admin' then changeCam('admin') end
     SetNuiFocus(true, true)
     beginHudStoreLock('vehicle_admin')
-    SendNUIMessage({ action = 'adminOpen', sourceVehicles = enrichAdminSourceVehicles(sourceList), catalog = catalog or {}, discovery = discoveryInfo or {} })
+    activeAdminMode = mode == 'capture' and 'capture' or 'manage'
+    SendNUIMessage({ action = 'adminOpen', sourceVehicles = enrichAdminSourceVehicles(sourceList), catalog = catalog or {}, discovery = discoveryInfo or {}, mode = activeAdminMode })
+    sendRuntimeVehicleModels()
 end)
 
 RegisterNetEvent('rn-vehicleshop:client:adminData', function(sourceList, catalog, discoveryInfo)
@@ -1403,26 +1443,105 @@ RegisterNetEvent('rn-vehicleshop:client:adminNeedsImage', function(model, pendin
     SendNUIMessage({ action = 'adminNeedsImage', model = model, pendingSave = pendingSave or {} })
 end)
 
+-- Shallow-merge a patch into the accumulated EMS mods table. `extras`/`mods`/
+-- `neons` merge key-by-key instead of replacing the whole sub-table, so one
+-- extra toggle does not wipe every other extra already chosen. Same approach
+-- as cm-ems's fleet configurator (client/vehicles.lua mergeMods).
+local function mergeAdminMods(base, patch)
+    if type(patch) ~= 'table' then return base end
+    for key, value in pairs(patch) do
+        if (key == 'extras' or key == 'mods') and type(value) == 'table' then
+            base[key] = base[key] or {}
+            for k, v in pairs(value) do base[key][k] = v end
+        elseif key == 'neons' and type(value) == 'table' then
+            base.neons = base.neons or {}
+            for i, v in pairs(value) do base.neons[i] = v end
+        else
+            base[key] = value
+        end
+    end
+    return base
+end
+
+local function applyAdminPreviewMods()
+    if not newVehicle or not DoesEntityExist(newVehicle) then return end
+    pcall(function() exports['cm-vehicles']:ApplyVehicleMods(newVehicle, currentAdminMods) end)
+end
+
+-- How many liveries/wheel-visual-indices/body-part options THIS SPECIFIC
+-- vehicle actually supports, so the NUI never offers an index GTA will just
+-- ignore. Same live-introspection approach as cm-ems's configurator
+-- (client/vehicles.lua introspectVehicle) and what cm-tuning's own shop does
+-- instead of a static ceiling.
+local ADMIN_MOD_SLOT_TYPES = {
+    { type = 0,  key = 'spoiler' },     { type = 1,  key = 'frontBumper' },
+    { type = 2,  key = 'rearBumper' },  { type = 3,  key = 'skirts' },
+    { type = 4,  key = 'exhaust' },     { type = 5,  key = 'rollcage' },
+    { type = 6,  key = 'grille' },      { type = 7,  key = 'hood' },
+    { type = 8,  key = 'fender' },      { type = 10, key = 'roof' },
+    { type = 14, key = 'horn' },        { type = 23, key = 'wheels' },
+}
+
+local function introspectAdminVehicle()
+    local out = { liveries = 0, slots = {}, extras = {} }
+    if not newVehicle or not DoesEntityExist(newVehicle) then return out end
+    local ok, num = pcall(GetNumVehicleLiveries, newVehicle)
+    out.liveries = (ok and tonumber(num)) or 0
+    for _, entry in ipairs(ADMIN_MOD_SLOT_TYPES) do
+        local sok, count = pcall(GetNumVehicleMods, newVehicle, entry.type)
+        out.slots[entry.key] = { modType = entry.type, count = (sok and tonumber(count)) or 0 }
+    end
+    for id = 1, 14 do
+        local eok, exists = pcall(DoesExtraExist, newVehicle, id)
+        out.extras[tostring(id)] = eok and exists == true
+    end
+    return out
+end
+
 RegisterNUICallback('adminSaveVehicle', function(data, cb)
-    TriggerServerEvent('rn-vehicleshop:server:saveAdminVehicle', data or {})
+    data = type(data) == 'table' and data or {}
+    data.mods = currentAdminMods
+    TriggerServerEvent('rn-vehicleshop:server:saveAdminVehicle', data)
     cb('ok')
+end)
+
+RegisterNUICallback('adminModPatch', function(data, cb)
+    data = type(data) == 'table' and data or {}
+    currentAdminMods = mergeAdminMods(currentAdminMods, data.patch)
+    applyAdminPreviewMods()
+    cb('ok')
+end)
+
+RegisterNUICallback('adminModIntrospect', function(_, cb)
+    cb({ ok = true, introspect = introspectAdminVehicle() })
 end)
 
 RegisterNUICallback('adminPreviewVehicle', function(data, cb)
     data = type(data) == 'table' and data or {}
     local model = tostring(data.model or '')
-    if model ~= '' then
-        previewMode = 'admin'
-        local requestedHash = joaat(model)
-        local hash
-        if newVehicle and DoesEntityExist(newVehicle) and GetEntityModel(newVehicle) == requestedHash then
-            hash = requestedHash
-        else
-            hash = spawnPreviewVehicle(model)
-        end
-        if hash then sendPreviewStats(hash) end
+    if model == '' then cb({ ok = true }); return end
+
+    previewMode = 'admin'
+    local requestedHash = joaat(model)
+    local hash
+    local reused = newVehicle and DoesEntityExist(newVehicle) and GetEntityModel(newVehicle) == requestedHash
+    if reused then
+        hash = requestedHash
+    else
+        hash = spawnPreviewVehicle(model)
+        -- A different vehicle now exists (or none) -- do not carry the
+        -- previous vehicle's EMS appearance over onto this one.
+        currentAdminMods = {}
     end
-    cb('ok')
+    if hash then sendPreviewStats(hash) end
+    -- Re-apply this catalog row's saved EMS mods (if any) so switching
+    -- between vehicles in the admin list shows each one's own paint/livery
+    -- instead of stock or a leftover appearance from the last selection.
+    if type(data.mods) == 'table' and next(data.mods) ~= nil then
+        currentAdminMods = data.mods
+        applyAdminPreviewMods()
+    end
+    cb({ ok = true, introspect = introspectAdminVehicle() })
 end)
 
 RegisterNUICallback('adminTestVehicle', function(data, cb)
@@ -1450,11 +1569,12 @@ RegisterNUICallback('adminRescanVehicles', function(_, cb)
 end)
 
 RegisterNUICallback('adminRefresh', function(_, cb)
-    TriggerServerEvent('rn-vehicleshop:server:openAdmin')
+    TriggerServerEvent('rn-vehicleshop:server:openAdmin', activeAdminMode)
     cb('ok')
 end)
 
 RegisterNUICallback('adminClose', function(_, cb)
+    TriggerServerEvent('rn-vehicleshop:server:adminClosed')
     SendNUIMessage({ action = 'closeAdmin' })
     -- Leave the showroom view and restore the player if the admin panel put us there.
     if inShop then

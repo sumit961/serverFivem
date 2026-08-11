@@ -11,11 +11,32 @@ local vehicleDensity = clampDensity(Config.vehicleDensity)
 local randomVehicleDensity = clampDensity(Config.randomVehicleDensity)
 local parkedVehicleDensity = clampDensity(Config.parkedVehicleDensity)
 local reapplyIntervalMs = math.max(1000, tonumber(Config.reapplyIntervalMs) or 5000)
+local wantedStars = 0
+
+local policeDispatchServices = { 1, 2, 4, 6, 7, 8, 9, 10, 12, 13 }
+
+local function aiPoliceActive()
+    return Config.enablePoliceDispatchAtSixStars == true
+        and wantedStars >= (tonumber(Config.aiWantedThreshold) or 6)
+end
+
+RegisterNetEvent('cm-playerdata:client:update', function(key, value)
+    if key == 'wantedStars' then wantedStars = math.max(0, math.floor(tonumber(value) or 0)) end
+end)
+
+local function applyLoadedWanted(data)
+    wantedStars = math.max(0, math.floor(tonumber(type(data) == 'table' and data.wantedStars or 0) or 0))
+end
+
+RegisterNetEvent('cm-playerdata:client:loaded', applyLoadedWanted)
+RegisterNetEvent('cm-playerdata:client:characterLoaded', applyLoadedWanted)
+RegisterNetEvent('cm-playerdata:client:unloaded', function() wantedStars = 0 end)
+RegisterNetEvent('cm-playerdata:client:characterUnloaded', function() wantedStars = 0 end)
 
 -- This event is only raised for peds created by GTA's population system.
 -- Canceling it does not affect peds created explicitly by CM resources.
 AddEventHandler('populationPedCreating', function()
-    if Config.blockPopulationPedCreation then
+    if Config.blockPopulationPedCreation and not aiPoliceActive() then
         CancelEvent()
     end
 end)
@@ -34,17 +55,24 @@ CreateThread(function()
 end)
 
 local function applyPersistentSuppression()
+    if GetResourceState('cm-playerdata') == 'started' then
+        pcall(function() wantedStars = tonumber(exports['cm-playerdata']:GetWantedStars()) or wantedStars end)
+    end
+    local enableAiPolice = aiPoliceActive()
     if Config.disableRandomCops then
-        SetCreateRandomCops(false)
-        SetCreateRandomCopsNotOnScenarios(false)
-        SetCreateRandomCopsOnScenarios(false)
+        SetCreateRandomCops(enableAiPolice)
+        SetCreateRandomCopsNotOnScenarios(enableAiPolice)
+        SetCreateRandomCopsOnScenarios(enableAiPolice)
     end
 
     if Config.disableDispatch then
-        SetDispatchCopsForPlayer(PlayerId(), false)
+        SetDispatchCopsForPlayer(PlayerId(), enableAiPolice)
 
         for service = 1, 15 do
             EnableDispatchService(service, false)
+        end
+        if enableAiPolice then
+            for _, service in ipairs(policeDispatchServices) do EnableDispatchService(service, true) end
         end
     end
 

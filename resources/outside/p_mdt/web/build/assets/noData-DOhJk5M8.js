@@ -1,0 +1,1 @@
+import{j as e,F as n,n as o}from"./mantine-uy5lBGry.js";import{aF as t}from"./tabler-DUj1lYm8.js";const m=({message:s,icon:r})=>e.jsxs(n,{direction:"column",justify:"center",align:"center",h:"100%",gap:".5rem",children:[r||e.jsx(t,{stroke:1.2,size:"2rem"}),e.jsx(o,{size:"xs",c:"dimmed",children:s})]});export{m as n};
