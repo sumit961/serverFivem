@@ -44,6 +44,8 @@ local vehicleHasOccupant
 local function actorFor(src)
     local member, characterId = activeMemberForSource(src)
     if not member then return nil, characterId, 'You are not a member of a legal organization.' end
+    if member.suspended then return nil, characterId, 'Your organization access is suspended.' end
+    if not LawCapabilityEnabled(member.organizationId, 'fleet') then return nil, characterId, 'Fleet is disabled for this organization.' end
     return member, characterId, nil
 end
 
@@ -77,6 +79,24 @@ local function fleetSettingsByModel(orgId)
     local byModel = {}
     for _, row in ipairs(rows) do byModel[tostring(row.model):lower()] = row end
     return byModel
+end
+
+local function adminFleetRows(orgId)
+    orgId = validOrgId(orgId)
+    if not orgId then return { ok = false, error = 'Unknown organization.' } end
+    local settings, out = fleetSettingsByModel(orgId), {}
+    for _, catalogRow in ipairs(getOrgCatalog(orgId)) do
+        local row = settings[tostring(catalogRow.model):lower()]
+        local merged = mergedRow and mergedRow(catalogRow, row) or {
+            model = catalogRow.model, label = catalogRow.label, category = catalogRow.category,
+            enabled = row and dbBoolean(row.enabled) or false,
+            minTier = row and tonumber(row.min_tier) or 0,
+            configured = row and row.vehicle_id ~= nil or false,
+        }
+        merged.savedLocation = row and row.spawn_x and { x = row.spawn_x, y = row.spawn_y, z = row.spawn_z, heading = row.spawn_h } or nil
+        out[#out + 1] = merged
+    end
+    return { ok = true, organizationId = orgId, vehicles = out }
 end
 
 exports('GetVehicleAccessDecision', function(characterId, vehicleId, action)
@@ -125,6 +145,36 @@ local function mergedRow(catalogRow, settingsRow)
     end
     return merged
 end
+
+exports('AdminGetFleet', function(src, orgId)
+    if not adminAllowed(tonumber(src)) then return { ok = false, error = 'Permission denied.' } end
+    return adminFleetRows(orgId)
+end)
+
+exports('AdminConfigureFleetVehicle', function(src, orgId, data)
+    src, orgId, data = tonumber(src), validOrgId(orgId), type(data) == 'table' and data or {}
+    if not adminAllowed(src) then return false, 'Permission denied.' end
+    local model = tostring(data.model or ''):lower()
+    if not orgId or not findCatalogRow(getOrgCatalog(orgId), model) then return false, 'Unknown organization vehicle.' end
+    local tier = math.max(0, math.min(100, math.floor(tonumber(data.minTier) or 0)))
+    local existing = MySQL.single.await('SELECT model FROM cm_legal_fleet_vehicles WHERE organization_id=? AND model=?', { orgId, model })
+    if not existing then return false, 'Set the vehicle location before enabling it.' end
+    MySQL.update.await('UPDATE cm_legal_fleet_vehicles SET enabled=?, min_tier=?, updated_by=? WHERE organization_id=? AND model=?',
+        { data.enabled == true and 1 or 0, tier, characterIdFor(src), orgId, model })
+    return true, 'Fleet vehicle configuration saved.'
+end)
+
+exports('AdminResetFleetLocation', function(src, orgId, model)
+    src, orgId, model = tonumber(src), validOrgId(orgId), tostring(model or ''):lower()
+    if not adminAllowed(src) then return false, 'Permission denied.' end
+    if not orgId or model == '' then return false, 'Invalid vehicle.' end
+    local row = MySQL.single.await('SELECT vehicle_id FROM cm_legal_fleet_vehicles WHERE organization_id=? AND model=?', { orgId, model })
+    if not row then return true, 'Fleet location was already reset.' end
+    if tonumber(row.vehicle_id) then pcall(function() exports[VEHICLES_RESOURCE]:DeleteSpawnedVehicle(tonumber(row.vehicle_id)) end) end
+    MySQL.update.await([[UPDATE cm_legal_fleet_vehicles SET enabled=0, spawn_x=NULL,spawn_y=NULL,spawn_z=NULL,spawn_h=0
+        WHERE organization_id=? AND model=?]], { orgId, model })
+    return true, 'Fleet location reset; persistent vehicle identity was preserved.'
+end)
 
 lib.callback.register('cm-law:server:fleetCatalog', function(src)
     local actor = select(1, actorFor(src))

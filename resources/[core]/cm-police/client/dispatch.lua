@@ -114,7 +114,8 @@ end)
 RegisterCommand('policepanic', function()
     PoliceRequestBackup('panic', true)
 end, false)
-RegisterKeyMapping('policepanic', 'Police: Panic button', 'keyboard', tostring(Config.Backup.PanicKey or 'F9'))
+-- Physical F9 belongs to cm-core's organization dispatch router. The command
+-- remains available to menus and manual/admin bindings.
 
 AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end

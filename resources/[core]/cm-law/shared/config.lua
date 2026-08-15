@@ -4,10 +4,15 @@ Config.AdminResource = 'cm-admin'
 Config.PlayerDataResource = 'cm-playerdata'
 Config.AdminPermission = 'orgs.manage'
 Config.MenuCommand = 'laworg'
-Config.MenuKey = 'F7' -- physical mapping is owned centrally by cm-police/client/org_keys.lua
+Config.MenuKey = 'F6' -- physical mapping is owned centrally by cm-core/client/organization-keys.lua
 Config.FacilityInteractDistance = 2.5
 Config.FacilityDrawDistance = 18.0
 Config.CinematicResponseDuration = 2200
+Config.Capabilities = {
+    'dispatch', 'mdt', 'arrest', 'search', 'citations', 'impound', 'radar',
+    'spikes', 'barricades', 'clamp', 'k9', 'alpr', 'armory', 'fleet',
+    'evidence', 'prisonIntake',
+}
 Config.FacilityTypes = {
     front_desk = { label = 'Front Desk', role = 'Public Services', icon = 'shield', public = true },
     wardrobe = { label = 'Wardrobe', role = 'Uniform Specialist', icon = 'shirt', allowOffDuty = true },

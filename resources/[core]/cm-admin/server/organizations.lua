@@ -159,10 +159,25 @@ local function registerOrganization(org)
         if Config.QuietConsoleLogs ~= true then print(('[CM-ADMIN:ORGS] Rejected organization registration: %s'):format(err)) end
         return false
     end
+    local facilityTypes = {}
+    if type(org.facilityTypes) == 'table' then
+        for _, facility in ipairs(org.facilityTypes) do
+            if type(facility) == 'table' and type(facility.id) == 'string' and facility.id ~= '' then
+                facilityTypes[#facilityTypes + 1] = {
+                    id = facility.id,
+                    label = type(facility.label) == 'string' and facility.label or facility.id,
+                }
+            end
+        end
+    end
     organizations[org.id] = {
         id = org.id, label = org.label, resource = org.resource, icon = org.icon,
         canRemoveLeader = org.canRemoveLeader == true,
         canManageFacilities = org.canManageFacilities == true,
+        canManageArmory = org.canManageArmory == true,
+        canManageCapabilities = org.canManageCapabilities == true,
+        canManageFleet = org.canManageFleet == true,
+        facilityTypes = facilityTypes,
     }
     orgOwner[org.id] = GetInvokingResource() or GetCurrentResourceName()
     if Config.QuietConsoleLogs ~= true then print(('[CM-ADMIN:ORGS] Registered organization "%s" (%s) from %s'):format(org.label, org.id, orgOwner[org.id])) end
@@ -202,6 +217,10 @@ function CMOrganizations.forAdminPayload(src)
             memberCount = tonumber(summary.memberCount) or 0, onDutyCount = tonumber(summary.onDutyCount) or 0,
             canRemoveLeader = org.canRemoveLeader == true,
             canManageFacilities = org.canManageFacilities == true,
+            canManageArmory = org.canManageArmory == true,
+            canManageCapabilities = org.canManageCapabilities == true,
+            canManageFleet = org.canManageFleet == true,
+            facilityTypes = org.facilityTypes,
         }
     end
     table.sort(out, function(a, b) return a.label < b.label end)
@@ -212,6 +231,72 @@ function CMOrganizations.forAdminPayload(src)
             allowSameLeaderAcrossOrgs = getOrgPolicySetting('allowSameLeaderAcrossOrgs') == true,
         },
     }
+end
+
+function CMOrganizations.getArmory(src, orgId)
+    if not hasPerm(src, 'orgs.manage') then return { ok = false, error = 'No permission: orgs.manage' } end
+    local org = organizations[tostring(orgId or '')]
+    if not org or not org.canManageArmory then return { ok = false, error = 'This organization does not support armory configuration.' } end
+    if GetResourceState(org.resource) ~= 'started' then return { ok = false, error = org.resource .. ' is not running.' } end
+    local ok, result = pcall(function() return exports[org.resource]:AdminGetArmory(src, org.id) end)
+    return ok and type(result) == 'table' and result or { ok = false, error = 'Armory configuration failed safely.' }
+end
+
+function CMOrganizations.configureArmory(src, orgId, data)
+    if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
+    local org = organizations[tostring(orgId or '')]
+    if not org or not org.canManageArmory then return false, 'This organization does not support armory configuration.' end
+    if GetResourceState(org.resource) ~= 'started' then return false, org.resource .. ' is not running.' end
+    local ok, result, message = pcall(function() return exports[org.resource]:AdminConfigureArmory(src, org.id, data) end)
+    if not ok then return false, 'Armory configuration failed safely.' end
+    if result == true then log(src, 'org_armory_configured', { orgId = org.id, itemName = data and data.itemName }) end
+    return result == true, message
+end
+
+function CMOrganizations.getCapabilities(src, orgId)
+    if not hasPerm(src, 'orgs.manage') then return { ok = false, error = 'No permission: orgs.manage' } end
+    local org = organizations[tostring(orgId or '')]
+    if not org or not org.canManageCapabilities then return { ok = false, error = 'This organization does not support capability configuration.' } end
+    if GetResourceState(org.resource) ~= 'started' then return { ok = false, error = org.resource .. ' is not running.' } end
+    local ok, result = pcall(function() return exports[org.resource]:AdminGetCapabilities(src, org.id) end)
+    return ok and type(result) == 'table' and result or { ok = false, error = 'Capability configuration failed safely.' }
+end
+
+function CMOrganizations.configureCapability(src, orgId, capability, enabled)
+    if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
+    local org = organizations[tostring(orgId or '')]
+    if not org or not org.canManageCapabilities then return false, 'This organization does not support capability configuration.' end
+    if GetResourceState(org.resource) ~= 'started' then return false, org.resource .. ' is not running.' end
+    local ok, result, message = pcall(function()
+        return exports[org.resource]:AdminConfigureCapability(src, org.id, capability, enabled == true)
+    end)
+    if not ok then return false, 'Capability configuration failed safely.' end
+    if result == true then log(src, 'org_capability_configured', { orgId = org.id, capability = capability, enabled = enabled == true }) end
+    return result == true, message
+end
+
+function CMOrganizations.getFleet(src, orgId)
+    if not hasPerm(src, 'orgs.manage') then return { ok = false, error = 'No permission: orgs.manage' } end
+    local org = organizations[tostring(orgId or '')]
+    if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return { ok = false, error = 'Fleet configuration is unavailable.' } end
+    local ok, result = pcall(function() return exports[org.resource]:AdminGetFleet(src, org.id) end)
+    return ok and type(result) == 'table' and result or { ok = false, error = 'Fleet configuration failed safely.' }
+end
+
+function CMOrganizations.configureFleet(src, orgId, data)
+    if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
+    local org = organizations[tostring(orgId or '')]
+    if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
+    local ok, result, message = pcall(function() return exports[org.resource]:AdminConfigureFleetVehicle(src, org.id, data) end)
+    return ok and result == true, ok and message or 'Fleet configuration failed safely.'
+end
+
+function CMOrganizations.resetFleet(src, orgId, model)
+    if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
+    local org = organizations[tostring(orgId or '')]
+    if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
+    local ok, result, message = pcall(function() return exports[org.resource]:AdminResetFleetLocation(src, org.id, model) end)
+    return ok and result == true, ok and message or 'Fleet reset failed safely.'
 end
 
 function CMOrganizations.removeLeader(src, orgId)
@@ -234,6 +319,11 @@ function CMOrganizations.setFacility(src, orgId, facilityType, reset)
     local org = organizations[tostring(orgId or '')]
     if not org then return false, 'Unknown organization.' end
     if not org.canManageFacilities then return false, 'This organization does not support facility configuration.' end
+    local supported = false
+    for _, facility in ipairs(org.facilityTypes or {}) do
+        if facility.id == tostring(facilityType or '') then supported = true; break end
+    end
+    if not supported then return false, 'That facility is not supported by this organization.' end
     if GetResourceState(org.resource) ~= 'started' then return false, ('%s is not running.'):format(org.resource) end
     local ok, result, message = pcall(function()
         return exports[org.resource]:AdminSetFacility(src, org.id, facilityType, reset == true)

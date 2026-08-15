@@ -42,7 +42,10 @@ end
 
 local function dispatchMemberForSource(src)
     local member, characterId = activeMemberForSource(src)
-    if member then return member, characterId end
+    if member then
+        if not LawCapabilityEnabled(member.organizationId, 'dispatch') then return nil, characterId end
+        return member, characterId
+    end
     if GetResourceState('cm-police') ~= 'started' then return nil, characterId end
     characterId = characterId or characterIdFor(src)
     if not characterId then return nil, nil end

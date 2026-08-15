@@ -20,6 +20,7 @@ end
 local function authorized(src)
     local member, characterId = activeMemberForSource(src)
     if not member or member.suspended or not member.onDuty
+        or not LawCapabilityEnabled(member.organizationId, 'arrest')
         or not (member.isLeader or member.permissions['law.cuff'] == true) then
         return nil, characterId
     end

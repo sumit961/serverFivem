@@ -9,13 +9,18 @@
 -- thread below is independent of any one player's connection, matching the
 -- same reasoning booking.lua's own auto-release sweep already established.
 
-local ActiveStrips = {} -- [stripId] = { netId, officerCid, expiresAt }
+local ActiveStrips = {} -- [deploymentId] = { organizationId, officerCid, netId, routingBucket, entityType, createdAt, expiresAt }
 local OfficerCounts = {} -- [officerCid] = count
 local NextStripId = 0
 
 local function deleteStrip(netId)
     local entity = netId and NetworkGetEntityFromNetworkId(netId) or 0
-    if entity ~= 0 and DoesEntityExist(entity) and Entity(entity).state.cmSpikeStrip == true then DeleteEntity(entity) end
+    if entity == 0 or not DoesEntityExist(entity) or Entity(entity).state.cmSpikeStrip ~= true then return end
+    for _ = 1, 3 do
+        DeleteEntity(entity)
+        if not DoesEntityExist(entity) then return end
+        Wait(0)
+    end
 end
 
 local function validPlacementNumber(value, limit)
@@ -26,7 +31,7 @@ local function authorizedOfficer(src)
     local characterId = cid(tonumber(src))
     local member = characterId and memberFor(characterId)
     if member and not dbBoolean(member.is_suspended) and dbBoolean(member.on_duty) and has(member, 'police.spike') then
-        return member, tostring(characterId)
+        return member, tostring(characterId), 'police'
     end
     local legalState = Player(src).state.cmLegalOrg
     local orgId = type(legalState) == 'table' and (legalState.id or legalState.organizationId) or nil
@@ -34,7 +39,7 @@ local function authorizedOfficer(src)
         local ok, legalMember = pcall(function() return exports['cm-law']:GetMember(characterId, orgId) end)
         if ok and legalMember and not legalMember.suspended and legalMember.onDuty
             and (legalMember.isLeader or legalMember.permissions['law.spike'] == true) then
-            return legalMember, tostring(characterId)
+            return legalMember, tostring(characterId), tostring(orgId)
         end
     end
     return nil, characterId
@@ -42,7 +47,7 @@ end
 
 lib.callback.register('cm-police:server:deploySpikeStrip', function(src)
     if not rateLimit(src, 'police_deploy_spike', 1500) then return false, 'Please wait.' end
-    local actor, actorCid = authorizedOfficer(src)
+    local actor, actorCid, orgId = authorizedOfficer(src)
     if not actor then return false, 'You must be an on-duty officer with spike strip permission.' end
     if (OfficerCounts[actorCid] or 0) >= (Config.SpikeStrips.MaxActive or 3) then
         return false, ('You already have the maximum of %d spike strips deployed.'):format(Config.SpikeStrips.MaxActive or 3)
@@ -56,17 +61,20 @@ lib.callback.register('cm-police:server:deploySpikeStrip', function(src)
     -- placement is still in progress. If the client never confirms at all
     -- (dropped connection, client-side error), the sweep below reclaims
     -- this slot instead of leaking it forever.
-    ActiveStrips[stripId] = { netId = nil, officerCid = actorCid, officerSource = src, expiresAt = os.time() + math.ceil((Config.SpikeStrips.PlacementTimeoutMs or 45000) / 1000) }
+    ActiveStrips[stripId] = { deploymentId = stripId, organizationId = orgId, netId = nil,
+        officerCid = actorCid, officerSource = src, routingBucket = GetPlayerRoutingBucket(src),
+        entityType = 'spike', createdAt = os.time(),
+        expiresAt = os.time() + math.ceil((Config.SpikeStrips.PlacementTimeoutMs or 45000) / 1000) }
     return true, stripId
 end)
 
 RegisterNetEvent('cm-police:server:spikeStripDeployed')
 AddEventHandler('cm-police:server:spikeStripDeployed', function(stripId, x, y, z, heading)
     local src = source
-    local actor, actorCid = authorizedOfficer(src)
+    local actor, actorCid, orgId = authorizedOfficer(src)
     local entry = ActiveStrips[tonumber(stripId)]
     x, y, z, heading = tonumber(x), tonumber(y), tonumber(z), tonumber(heading) or 0.0
-    if not actor or not entry or entry.netId or entry.officerCid ~= actorCid then return end
+    if not actor or not entry or entry.netId or entry.officerCid ~= actorCid or entry.organizationId ~= orgId then return end
     if not validPlacementNumber(x, 10000.0) or not validPlacementNumber(y, 10000.0)
         or not validPlacementNumber(z, 2500.0) or not validPlacementNumber(heading, 100000.0) then return end
     local ped = GetPlayerPed(src)
@@ -75,7 +83,7 @@ AddEventHandler('cm-police:server:spikeStripDeployed', function(stripId, x, y, z
     if entity == 0 or not DoesEntityExist(entity) then return end
     SetEntityHeading(entity, heading % 360.0)
     FreezeEntityPosition(entity, true)
-    SetEntityRoutingBucket(entity, GetPlayerRoutingBucket(src))
+    SetEntityRoutingBucket(entity, entry.routingBucket)
     Entity(entity).state:set('cmSpikeStrip', true, true)
     local netId = NetworkGetNetworkIdFromEntity(entity)
     if not netId or netId <= 0 then DeleteEntity(entity) return end
@@ -83,6 +91,21 @@ AddEventHandler('cm-police:server:spikeStripDeployed', function(stripId, x, y, z
     entry.expiresAt = os.time() + math.floor((Config.SpikeStrips.LifetimeMs or 120000) / 1000)
     TriggerClientEvent('cm-playerdata:client:interactionNotify', src, 'Spike strip deployed.', 'success')
 end)
+
+local function cleanupOfficer(characterId)
+    characterId = tostring(characterId or '')
+    if characterId == '' then return end
+    for stripId, entry in pairs(ActiveStrips) do
+        if entry.officerCid == characterId then
+            deleteStrip(entry.netId)
+            ActiveStrips[stripId] = nil
+        end
+    end
+    OfficerCounts[characterId] = nil
+end
+
+AddEventHandler('cm-police:server:memberWentOffDuty', function(_, characterId) cleanupOfficer(characterId) end)
+AddEventHandler('cm-law:server:memberWentOffDuty', function(_, characterId) cleanupOfficer(characterId) end)
 
 -- Fired when the client backs out of placement (Backspace) before ever
 -- confirming a position -- frees the reserved slot immediately instead of

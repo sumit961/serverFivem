@@ -130,6 +130,7 @@ RegisterNetEvent('cm-law:client:dutyUniformState', function(uniform)
 end)
 
 AddEventHandler('cm-spawn:client:spawned', function() SetTimeout(700, recoverDutyUniform) end)
+RegisterNetEvent('cm-spawn:client:spawnComplete')
 AddEventHandler('cm-spawn:client:spawnComplete', function() SetTimeout(700, recoverDutyUniform) end)
 AddEventHandler('playerSpawned', function() SetTimeout(700, recoverDutyUniform) end)
 

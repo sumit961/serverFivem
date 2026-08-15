@@ -5,14 +5,19 @@
 -- LifetimeMs is a long safety-net sweep (leak prevention if an officer
 -- disconnects mid-scene), not a real gameplay timer.
 
-local ActiveBarricades = {} -- [barricadeId] = { netId, officerCid, expiresAt }
+local ActiveBarricades = {} -- [deploymentId] = { organizationId, officerCid, netId, routingBucket, entityType, createdAt, expiresAt }
 local OfficerCounts = {} -- [officerCid] = count
 local NextBarricadeId = 0
 local CatalogReady = false
 
 local function deleteBarricade(netId)
     local entity = netId and NetworkGetEntityFromNetworkId(netId) or 0
-    if entity ~= 0 and DoesEntityExist(entity) and Entity(entity).state.cmBarricade == true then DeleteEntity(entity) end
+    if entity == 0 or not DoesEntityExist(entity) or Entity(entity).state.cmBarricade ~= true then return end
+    for _ = 1, 3 do
+        DeleteEntity(entity)
+        if not DoesEntityExist(entity) then return end
+        Wait(0)
+    end
 end
 
 local function validPlacementNumber(value, limit)
@@ -23,7 +28,7 @@ local function authorizedOfficer(src)
     local characterId = cid(tonumber(src))
     local member = characterId and memberFor(characterId)
     if member and not dbBoolean(member.is_suspended) and dbBoolean(member.on_duty) and has(member, 'police.barricade') then
-        return member, tostring(characterId)
+        return member, tostring(characterId), 'police'
     end
     local legalState = Player(src).state.cmLegalOrg
     local orgId = type(legalState) == 'table' and (legalState.id or legalState.organizationId) or nil
@@ -31,7 +36,7 @@ local function authorizedOfficer(src)
         local ok, legalMember = pcall(function() return exports['cm-law']:GetMember(characterId, orgId) end)
         if ok and legalMember and not legalMember.suspended and legalMember.onDuty
             and (legalMember.isLeader or legalMember.permissions['law.barricade'] == true) then
-            return legalMember, tostring(characterId)
+            return legalMember, tostring(characterId), tostring(orgId)
         end
     end
     return nil, characterId
@@ -39,7 +44,7 @@ end
 
 lib.callback.register('cm-police:server:deployBarricade', function(src)
     if not rateLimit(src, 'police_deploy_barricade', 1500) then return false, 'Please wait.' end
-    local actor, actorCid = authorizedOfficer(src)
+    local actor, actorCid, orgId = authorizedOfficer(src)
     if not actor then return false, 'You must be an on-duty officer with barricade permission.' end
     if (OfficerCounts[actorCid] or 0) >= (Config.Barricades.MaxActive or 2) then
         return false, ('You already have the maximum of %d barricades deployed.'):format(Config.Barricades.MaxActive or 2)
@@ -50,18 +55,21 @@ lib.callback.register('cm-police:server:deployBarricade', function(src)
     -- Grace period matches Config.Barricades.PlacementTimeoutMs exactly --
     -- same reservation-vs-client-timeout reasoning as spikes.lua's own
     -- deploySpikeStrip.
-    ActiveBarricades[barricadeId] = { netId = nil, officerCid = actorCid, officerSource = src, expiresAt = os.time() + math.ceil((Config.Barricades.PlacementTimeoutMs or 45000) / 1000) }
+    ActiveBarricades[barricadeId] = { deploymentId = barricadeId, organizationId = orgId, netId = nil,
+        officerCid = actorCid, officerSource = src, routingBucket = GetPlayerRoutingBucket(src),
+        entityType = 'barricade', createdAt = os.time(),
+        expiresAt = os.time() + math.ceil((Config.Barricades.PlacementTimeoutMs or 45000) / 1000) }
     return true, barricadeId
 end)
 
 RegisterNetEvent('cm-police:server:barricadeDeployed')
 AddEventHandler('cm-police:server:barricadeDeployed', function(barricadeId, x, y, z, heading, modelName)
     local src = source
-    local actor, actorCid = authorizedOfficer(src)
+    local actor, actorCid, orgId = authorizedOfficer(src)
     local entry = ActiveBarricades[tonumber(barricadeId)]
     x, y, z, heading = tonumber(x), tonumber(y), tonumber(z), tonumber(heading) or 0.0
     modelName = tostring(modelName or '')
-    if not actor or not entry or entry.netId or entry.officerCid ~= actorCid then return end
+    if not actor or not entry or entry.netId or entry.officerCid ~= actorCid or entry.organizationId ~= orgId then return end
     if not validPlacementNumber(x, 10000.0) or not validPlacementNumber(y, 10000.0)
         or not validPlacementNumber(z, 2500.0) or not validPlacementNumber(heading, 100000.0) then return end
     if not CatalogReady then return end
@@ -73,7 +81,7 @@ AddEventHandler('cm-police:server:barricadeDeployed', function(barricadeId, x, y
     if entity == 0 or not DoesEntityExist(entity) then return end
     SetEntityHeading(entity, heading % 360.0)
     FreezeEntityPosition(entity, true)
-    SetEntityRoutingBucket(entity, GetPlayerRoutingBucket(src))
+    SetEntityRoutingBucket(entity, entry.routingBucket)
     Entity(entity).state:set('cmBarricade', true, true)
     local netId = NetworkGetNetworkIdFromEntity(entity)
     if not netId or netId <= 0 then DeleteEntity(entity) return end
@@ -81,6 +89,21 @@ AddEventHandler('cm-police:server:barricadeDeployed', function(barricadeId, x, y
     entry.expiresAt = os.time() + math.floor((Config.Barricades.LifetimeMs or 1800000) / 1000)
     TriggerClientEvent('cm-playerdata:client:interactionNotify', src, 'Barricade deployed.', 'success')
 end)
+
+local function cleanupOfficer(characterId)
+    characterId = tostring(characterId or '')
+    if characterId == '' then return end
+    for barricadeId, entry in pairs(ActiveBarricades) do
+        if entry.officerCid == characterId then
+            deleteBarricade(entry.netId)
+            ActiveBarricades[barricadeId] = nil
+        end
+    end
+    OfficerCounts[characterId] = nil
+end
+
+AddEventHandler('cm-police:server:memberWentOffDuty', function(_, characterId) cleanupOfficer(characterId) end)
+AddEventHandler('cm-law:server:memberWentOffDuty', function(_, characterId) cleanupOfficer(characterId) end)
 
 RegisterNetEvent('cm-police:server:cancelBarricade')
 AddEventHandler('cm-police:server:cancelBarricade', function(barricadeId)

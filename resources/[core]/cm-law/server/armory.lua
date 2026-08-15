@@ -29,6 +29,7 @@ end
 
 local function gunstoreRows()
     local map = {}
+    if GetResourceState('cm-gunstore') ~= 'started' then return map end
     local ok, rows = pcall(function() return exports['cm-gunstore']:GetCatalog(true) end)
     if not ok or type(rows) ~= 'table' then return map end
     for _, row in ipairs(rows) do
@@ -103,17 +104,33 @@ local function rowsFor(orgId)
     return map
 end
 
-local function enabledItemNames()
-    local rows = MySQL.query.await('SELECT item_name FROM cm_legal_armory_catalog WHERE enabled = 1') or {}
+local function enabledItemNames(orgId)
+    local rows = MySQL.query.await([[SELECT item_name FROM cm_legal_armory_stock
+        WHERE organization_id = ? AND enabled = 1]], { orgId }) or {}
     local enabled = {}
     for _, row in ipairs(rows) do enabled[tostring(row.item_name)] = true end
     return enabled
 end
 
+local function adminArmoryPayload(orgId)
+    orgId = validOrgId(orgId)
+    if not orgId then return { ok = false, error = 'Unknown organization.' } end
+    local stored, enabled, items = rowsFor(orgId), enabledItemNames(orgId), baseCatalog()
+    for _, item in ipairs(items) do
+        local row = stored[item.itemName]
+        item.enabled = enabled[item.itemName] == true
+        item.stock = row and math.max(0, tonumber(row.stock) or 0) or 0
+        item.issueAmount = row and math.max(1, tonumber(row.issue_amount) or item.defaultIssue) or item.defaultIssue
+        item.minTier = row and math.max(0, tonumber(row.min_tier) or 0) or 0
+    end
+    return { ok = true, organizationId = orgId, items = items }
+end
+
 local function payload(src, orgId)
+    if not LawCapabilityEnabled(orgId, 'armory') then return { ok = false, error = 'Armory is disabled for this organization.' } end
     local member, _, reason = armoryMember(src, orgId, false)
     if not member then return { ok = false, error = reason } end
-    local stored, enabled, items = rowsFor(orgId), enabledItemNames(), {}
+    local stored, enabled, items = rowsFor(orgId), enabledItemNames(orgId), {}
     for _, item in ipairs(baseCatalog()) do
         local row = stored[item.itemName]
         if enabled[item.itemName] then
@@ -136,9 +153,10 @@ end)
 
 lib.callback.register('cm-law:server:armoryManagement', function(src, orgId)
     orgId = validOrgId(orgId)
+    if not orgId or not LawCapabilityEnabled(orgId, 'armory') then return { ok = false, error = 'Armory is disabled for this organization.' } end
     local member, _, reason = armoryMember(src, orgId, true)
     if not member then return { ok = false, error = reason } end
-    local stored, enabled, items = rowsFor(orgId), enabledItemNames(), baseCatalog()
+    local stored, enabled, items = rowsFor(orgId), enabledItemNames(orgId), baseCatalog()
     for _, item in ipairs(items) do
         local row = stored[item.itemName]
         item.enabled = enabled[item.itemName] == true
@@ -150,6 +168,33 @@ lib.callback.register('cm-law:server:armoryManagement', function(src, orgId)
     return { ok = true, items = items }
 end)
 
+exports('AdminGetArmory', function(src, orgId)
+    if not ArmoryReady then return { ok = false, error = 'Armory stock is still loading.' } end
+    if not adminAllowed(tonumber(src)) then return { ok = false, error = 'Permission denied.' } end
+    return adminArmoryPayload(orgId)
+end)
+
+exports('AdminConfigureArmory', function(src, orgId, data)
+    src, orgId, data = tonumber(src), validOrgId(orgId), type(data) == 'table' and data or {}
+    if not ArmoryReady then return false, 'Armory stock is still loading.' end
+    if not adminAllowed(src) then return false, 'Permission denied.' end
+    local characterId = characterIdFor(src)
+    local item = catalogItem(data.itemName)
+    if not orgId or not item then return false, 'Unknown organization equipment.' end
+    local minTier = math.max(0, math.min(1000, math.floor(tonumber(data.minTier) or 0)))
+    local issueAmount = math.max(1, math.min(item.itemType == 'ammo' and 1000 or 25,
+        math.floor(tonumber(data.issueAmount) or item.defaultIssue)))
+    MySQL.insert.await([[INSERT INTO cm_legal_armory_stock
+        (organization_id,item_name,enabled,stock,max_stock,issue_amount,min_tier,updated_by)
+        VALUES (?,?,?,0,100,?,?,?) ON DUPLICATE KEY UPDATE enabled=VALUES(enabled),
+        issue_amount=VALUES(issue_amount),min_tier=VALUES(min_tier),updated_by=VALUES(updated_by)]],
+        { orgId, item.itemName, data.enabled == true and 1 or 0, issueAmount, minTier, characterId })
+    logActivity(orgId, characterId, 'admin_armory_configured', {
+        itemName = item.itemName, enabled = data.enabled == true, minTier = minTier, issueAmount = issueAmount,
+    })
+    return true, 'Organization armory equipment saved.'
+end)
+
 lib.callback.register('cm-law:server:saveArmoryItem', function(src, orgId, data)
     if not rateLimit(src, 'law_armory_manage', 500) then return { ok = false, error = 'Please wait.' } end
     orgId = validOrgId(orgId)
@@ -158,23 +203,29 @@ lib.callback.register('cm-law:server:saveArmoryItem', function(src, orgId, data)
     data = type(data) == 'table' and data or {}
     local item = catalogItem(data.itemName)
     if not item then return { ok = false, error = 'That equipment is not in the authoritative catalog.' } end
-    MySQL.insert.await([[INSERT INTO cm_legal_armory_catalog (item_name,enabled,set_by)
-        VALUES (?,?,?) ON DUPLICATE KEY UPDATE enabled=VALUES(enabled),set_by=VALUES(set_by)]],
-        { item.itemName, data.enabled == true and 1 or 0, characterId })
+    local minTier = math.max(0, math.min(1000, math.floor(tonumber(data.minTier) or 0)))
+    local issueAmount = math.max(1, math.min(item.itemType == 'ammo' and 1000 or 25,
+        math.floor(tonumber(data.issueAmount) or item.defaultIssue)))
+    MySQL.insert.await([[INSERT INTO cm_legal_armory_stock
+        (organization_id,item_name,enabled,stock,max_stock,issue_amount,min_tier,updated_by)
+        VALUES (?,?,?,0,100,?,?,?) ON DUPLICATE KEY UPDATE enabled=VALUES(enabled),
+        issue_amount=VALUES(issue_amount),min_tier=VALUES(min_tier),updated_by=VALUES(updated_by)]],
+        { orgId, item.itemName, data.enabled == true and 1 or 0, issueAmount, minTier, characterId })
     local linkedAmmo
     if data.enabled == true and item.itemType == 'weapon' and item.ammoItem ~= '' then
         local ammo = catalogItem(item.ammoItem)
         if ammo and ammo.itemType == 'ammo' then
             linkedAmmo = ammo.itemName
-            MySQL.insert.await([[INSERT INTO cm_legal_armory_catalog (item_name,enabled,set_by)
-                VALUES (?,1,?) ON DUPLICATE KEY UPDATE enabled=1,set_by=VALUES(set_by)]],
-                { linkedAmmo, characterId })
+            MySQL.insert.await([[INSERT INTO cm_legal_armory_stock
+                (organization_id,item_name,enabled,stock,max_stock,issue_amount,min_tier,updated_by)
+                VALUES (?,?,1,0,100,?,0,?) ON DUPLICATE KEY UPDATE enabled=1,updated_by=VALUES(updated_by)]],
+                { orgId, linkedAmmo, ammo.defaultIssue, characterId })
         end
     end
     logActivity(orgId, characterId, 'shared_armory_catalog_configured', {
         itemName = item.itemName, enabled = data.enabled == true, linkedAmmo = linkedAmmo,
     })
-    return { ok = true, message = linkedAmmo and ('Saved for every organization. Matching ammunition ' .. linkedAmmo .. ' was enabled.') or 'Shared armory item saved for every organization.' }
+    return { ok = true, message = linkedAmmo and ('Saved for this organization. Matching ammunition ' .. linkedAmmo .. ' was enabled.') or 'Organization armory item saved.' }
 end)
 
 lib.callback.register('cm-law:server:loadArmoryStock', function(src, orgId)
@@ -182,7 +233,7 @@ lib.callback.register('cm-law:server:loadArmoryStock', function(src, orgId)
     orgId = validOrgId(orgId)
     local member, characterId, reason = armoryMember(src, orgId, true)
     if not member then return { ok = false, error = reason } end
-    local enabled, loaded = enabledItemNames(), { weapons = 0, ammunition = 0, vests = 0 }
+    local enabled, loaded = enabledItemNames(orgId), { weapons = 0, ammunition = 0, vests = 0 }
     for _, item in ipairs(baseCatalog()) do
         if enabled[item.itemName] then
             local amount = item.itemType == 'ammo' and 1000 or 10
@@ -209,7 +260,7 @@ lib.callback.register('cm-law:server:armoryCheckout', function(src, orgId, itemN
     if not member then return { ok = false, error = reason } end
     local item = catalogItem(itemName)
     if not item then return { ok = false, error = 'That equipment no longer exists.' } end
-    if not enabledItemNames()[item.itemName] then return { ok = false, error = 'That equipment is not enabled.' } end
+    if not enabledItemNames(orgId)[item.itemName] then return { ok = false, error = 'That equipment is not enabled.' } end
     local row = MySQL.single.await([[SELECT stock,max_stock,issue_amount,min_tier FROM cm_legal_armory_stock
         WHERE organization_id=? AND item_name=? LIMIT 1]], { orgId, item.itemName })
     if not row then return { ok = false, error = 'That equipment is out of stock.' } end
@@ -254,7 +305,8 @@ AddEventHandler('cm-law:server:memberWentOffDuty', function(src, characterId, or
         print(('[cm-law] failed to reclaim %s equipment for character %s'):format(orgId, tostring(characterId)))
         return
     end
-    for _, item in ipairs(type(removed) == 'table' and removed or {}) do
+    removed = type(removed) == 'table' and removed or {}
+    for _, item in ipairs(removed) do
         if item.issueId then
             local changed = MySQL.update.await([[UPDATE cm_legal_armory_issues SET status='returned'
                 WHERE id=? AND organization_id=? AND character_id=? AND status='issued']],

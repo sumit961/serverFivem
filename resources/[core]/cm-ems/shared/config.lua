@@ -11,7 +11,7 @@ Config.InventoryResource = 'cm-inventory'
 Config.OrganizationId = 'ems'
 Config.AdminPermission = 'ems.admin.manage'
 Config.MenuCommand = 'ems'
-Config.MenuKey = 'F7' -- physical mapping is owned centrally by cm-police/client/org_keys.lua
+Config.MenuKey = 'F6' -- physical mapping is owned centrally by cm-core/client/organization-keys.lua
 Config.InviteSeconds = 120
 Config.LogLimit = 100
 
@@ -421,7 +421,7 @@ Config.Dispatch = {
     responseKey = 'Y',
     menuKey = 'F10',
     backupKey = 'B',
-    panicKey = 'F9',
+    panicKey = '', -- no physical default; F9 is shared organization dispatch
     onSceneDistance = 30.0,
     governmentDoctor = {
         enabled = true,

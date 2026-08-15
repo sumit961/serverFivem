@@ -36,6 +36,7 @@ server_scripts {
     'server/booking.lua', -- cm-prison is an optional soft dependency (exports['cm-prison']:JailSuspect, pcall-guarded) -- booking fails closed with a clear message if it isn't running
     'server/frontdesk.lua',
     'server/dispatch.lua',
+    'server/scene_equipment.lua',
 }
 
 dependencies {
@@ -46,10 +47,13 @@ dependencies {
     'cm-inventory',
     'cm-items',
     'cm-weapons',
-    'cm-gunstore',
     'cm-vehicles',
     'rn-vehicleshop',
 }
+
+-- Optional runtime integration: cm-gunstore supplies armor artwork/catalog
+-- enrichment when started. Weapon and ammunition definitions remain owned by
+-- cm-weapons, and server/armory.lua guards the optional export.
 
 ui_page 'html/index.html'
 

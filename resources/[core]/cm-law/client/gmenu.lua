@@ -36,6 +36,7 @@ local function rebuild(targetServerId)
     if mine == false or type(mine) ~= 'table' then return end
     if mine.suspended or mine.onDuty ~= true then return end
     local permissions = mine.permissions or {}
+    local capabilities = mine.capabilities or {}
     if SearchResult and SearchTarget == targetServerId then
         addSearchRow('law_search_license', 'Firearms licence', SearchResult.firearmsLicensed
             and ('ACTIVE · ' .. tostring(SearchResult.firearmsLicenseNumber or 'number unavailable')) or 'NOT ACTIVE', 1)
@@ -56,8 +57,8 @@ local function rebuild(targetServerId)
     -- capabilities (a manager isn't necessarily also cuff-authorized, and
     -- vice versa) -- only bail out entirely when NEITHER applies, so a
     -- manager without law.cuff still sees invite/promote/demote.
-    local canCuff = mine.isLeader or permissions['law.cuff'] == true
-    local canSearch = mine.isLeader or permissions['law.search'] == true
+    local canCuff = capabilities.arrest ~= false and (mine.isLeader or permissions['law.cuff'] == true)
+    local canSearch = capabilities.search ~= false and (mine.isLeader or permissions['law.search'] == true)
     local canManageMembers = mine.isLeader or permissions['law.manage_members'] == true
     if not canCuff and not canSearch and not canManageMembers then return end
 

@@ -306,8 +306,8 @@ function orgsPage() {
             <td>${o.leaderCid ? `${esc(o.leaderName || 'Unknown')} (CID ${esc(o.leaderCid)})` : 'Not assigned'}</td>
             <td>${Number(o.memberCount || 0)}</td>
             <td>${Number(o.onDutyCount || 0)}</td>
-            <td>${canManage && o.running ? `<div class="form" style="gap:8px"><input id="orgLeaderCid_${esc(o.id)}" class="input" placeholder="Character ID" style="width:120px" /><button class="btn small primary" onclick="cmAssignOrgLeader('${esc(o.id)}')">Assign</button>${o.leaderCid && o.canRemoveLeader ? `<button class="btn small danger" onclick="cmRemoveOrgLeader('${esc(o.id)}','${esc(o.label)}')">Remove current</button>` : ''}</div>` : '-'}</td>
-            <td>${canManage&&o.running&&o.canManageFacilities?`<div class="form" style="gap:8px"><select id="orgFacility_${esc(o.id)}" class="select"><option value="front_desk">Front desk</option><option value="wardrobe">Wardrobe</option><option value="armory">Armory</option><option value="storage">Storage</option><option value="fleet">Fleet</option>${o.resource==='cm-law'?'<option value="intake">Organization prison intake</option><option value="jail_spawn">Shared jail: add spawn</option><option value="jail_release">Shared jail: release point</option><option value="jail_spawns">Shared jail: all spawns</option>':''}</select><button class="btn small primary" onclick="cmSetOrgFacility('${esc(o.id)}',false)">Set here</button><button class="btn small danger" onclick="cmSetOrgFacility('${esc(o.id)}',true)">Reset</button></div>`:'-'}</td>
+            <td>${canManage && o.running ? `<div class="form" style="gap:8px"><input id="orgLeaderCid_${esc(o.id)}" class="input" placeholder="Character ID" style="width:120px" /><button class="btn small primary" onclick="cmAssignOrgLeader('${esc(o.id)}')">Assign</button>${o.leaderCid && o.canRemoveLeader ? `<button class="btn small danger" onclick="cmRemoveOrgLeader('${esc(o.id)}')">Remove current</button>` : ''}</div>` : '-'}</td>
+            <td>${canManage&&o.running&&o.canManageFacilities&&Array.isArray(o.facilityTypes)&&o.facilityTypes.length?`<div class="form" style="gap:8px"><select id="orgFacility_${esc(o.id)}" class="select">${o.facilityTypes.map(f=>`<option value="${esc(f.id)}">${esc(f.label)}</option>`).join('')}</select><button class="btn small primary" onclick="cmSetOrgFacility('${esc(o.id)}',false)">Set here</button><button class="btn small danger" onclick="cmSetOrgFacility('${esc(o.id)}',true)">Reset</button>${o.canManageArmory?`<button class="btn small" onclick="cmOpenOrgArmory('${esc(o.id)}')">Equipment</button>`:''}${o.canManageCapabilities?`<button class="btn small" onclick="cmOpenOrgCapabilities('${esc(o.id)}')">Capabilities</button>`:''}${o.canManageFleet?`<button class="btn small" onclick="cmOpenOrgFleet('${esc(o.id)}')">Fleet</button>`:''}</div>`:'-'}</td>
           </tr>`).join('') || `<tr><td colspan="7">No organizations have registered yet.</td></tr>`}
         </tbody></table>
       </div>
@@ -329,8 +329,8 @@ window.cmAssignOrgLeader = function(orgId) {
   if (!characterId) return;
   action('orgsAssignLeader', { orgId, characterId });
 };
-window.cmRemoveOrgLeader = function(orgId, label) {
-  if (confirm(`Remove the current leader of ${label}? Their organization membership will also be removed and the organization will remain without a leader.`)) {
+window.cmRemoveOrgLeader = function(orgId) {
+  if (confirm('Remove the current organization leader? Their organization membership will also be removed and the organization will remain without a leader.')) {
     action('orgsRemoveLeader', { orgId });
   }
 };
@@ -339,6 +339,30 @@ window.cmSetOrgFacility = function(orgId, reset) {
   if (!select) return;
   if (reset && !confirm(`Reset the selected ${select.options[select.selectedIndex].text} location?`)) return;
   action('orgsSetFacility', { orgId, facilityType: select.value, reset: reset === true });
+};
+window.cmOpenOrgArmory = function(orgId) {
+  action('orgsGetArmory', { orgId });
+};
+window.cmOpenOrgCapabilities = function(orgId) {
+  action('orgsGetCapabilities', { orgId });
+};
+window.cmOpenOrgFleet = orgId => action('orgsGetFleet', {orgId});
+window.cmSaveOrgFleet = function(orgId, model) { const k=`${orgId}_${model}`.replace(/[^a-zA-Z0-9_]/g,'_'); action('orgsConfigureFleet',{orgId,model,enabled:document.getElementById(`orgFleetEnabled_${k}`).checked,minTier:Number(document.getElementById(`orgFleetTier_${k}`).value||0)}); };
+window.cmResetOrgFleet = (orgId,model) => { if(confirm('Reset this saved fleet location?')) action('orgsResetFleet',{orgId,model}); };
+window.cmSaveOrgCapability = function(orgId, capability) {
+  const key = `${orgId}_${capability}`.replace(/[^a-zA-Z0-9_]/g, '_');
+  action('orgsConfigureCapability', {
+    orgId, capability, enabled: document.getElementById(`orgCap_${key}`).checked,
+  });
+};
+window.cmSaveOrgArmoryItem = function(orgId, itemName) {
+  const key = `${orgId}_${itemName}`.replace(/[^a-zA-Z0-9_]/g, '_');
+  action('orgsConfigureArmory', {
+    orgId, itemName,
+    enabled: document.getElementById(`orgArmEnabled_${key}`).checked,
+    minTier: Number(document.getElementById(`orgArmTier_${key}`).value || 0),
+    issueAmount: Number(document.getElementById(`orgArmIssue_${key}`).value || 1),
+  });
 };
 window.cmSaveOrgPolicy = function() {
   action('orgsSavePolicy', {
@@ -639,6 +663,35 @@ window.addEventListener('message', (event) => {
       state.tab = 'offline';
       render();
       return;
+    }
+    if (state.detail && state.detail.type === 'orgArmory') {
+      const result = state.detail.data || {};
+      const orgId = state.detail.orgId;
+      const items = result.items || [];
+      state.detail = null;
+      if (result.ok !== true) return;
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `<h3>${esc(orgId)} Armory Equipment</h3><div class="table-wrap"><table><thead><tr><th>Equipment</th><th>Type</th><th>Enabled</th><th>Minimum tier</th><th>Issue amount</th><th></th></tr></thead><tbody>${items.map(item => { const key=`${orgId}_${item.itemName}`.replace(/[^a-zA-Z0-9_]/g,'_'); return `<tr><td>${esc(item.label)}</td><td>${esc(item.itemType)}</td><td><input id="orgArmEnabled_${key}" type="checkbox" ${item.enabled?'checked':''}></td><td><input id="orgArmTier_${key}" class="input" type="number" min="0" value="${Number(item.minTier||0)}"></td><td><input id="orgArmIssue_${key}" class="input" type="number" min="1" value="${Number(item.issueAmount||1)}"></td><td><button class="btn small primary" onclick="cmSaveOrgArmoryItem('${esc(orgId)}','${esc(item.itemName)}')">Save</button></td></tr>`; }).join('')}</tbody></table></div>`;
+      page.prepend(card);
+      return;
+    }
+    if (state.detail && state.detail.type === 'orgCapabilities') {
+      const result = state.detail.data || {};
+      const orgId = state.detail.orgId;
+      const items = result.items || [];
+      state.detail = null;
+      if (result.ok !== true) return;
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `<h3>${esc(orgId)} Capabilities</h3><p class="mini-label">Capability enables the organization feature; rank permissions still gate each member.</p><div class="table-wrap"><table><thead><tr><th>Capability</th><th>Enabled</th><th></th></tr></thead><tbody>${items.map(item => { const key=`${orgId}_${item.id}`.replace(/[^a-zA-Z0-9_]/g,'_'); return `<tr><td>${esc(item.id)}</td><td><input id="orgCap_${key}" type="checkbox" ${item.enabled?'checked':''}></td><td><button class="btn small primary" onclick="cmSaveOrgCapability('${esc(orgId)}','${esc(item.id)}')">Save</button></td></tr>`; }).join('')}</tbody></table></div>`;
+      page.prepend(card);
+      return;
+    }
+    if (state.detail && state.detail.type === 'orgFleet') {
+      const result=state.detail.data||{},orgId=state.detail.orgId,items=result.vehicles||[]; state.detail=null;
+      if(result.ok!==true)return; const card=document.createElement('div'); card.className='card';
+      card.innerHTML=`<h3>${esc(orgId)} Fleet</h3><div class="table-wrap"><table><thead><tr><th>Vehicle</th><th>Configured</th><th>Enabled</th><th>Tier</th><th></th></tr></thead><tbody>${items.map(v=>{const k=`${orgId}_${v.model}`.replace(/[^a-zA-Z0-9_]/g,'_');return `<tr><td>${esc(v.label||v.model)}</td><td>${v.configured?'Yes':'No'}</td><td><input id="orgFleetEnabled_${k}" type="checkbox" ${v.enabled?'checked':''}></td><td><input id="orgFleetTier_${k}" class="input" type="number" min="0" value="${Number(v.minTier||0)}"></td><td><button class="btn small primary" onclick="cmSaveOrgFleet('${esc(orgId)}','${esc(v.model)}')">Save</button><button class="btn small danger" onclick="cmResetOrgFleet('${esc(orgId)}','${esc(v.model)}')">Reset location</button></td></tr>`}).join('')}</tbody></table></div>`; page.prepend(card); return;
     }
     if (state.detail && state.detail.type === 'logs') state.tab = 'logs';
     if (state.detail && state.detail.type === 'inventory') state.tab = 'inventory';

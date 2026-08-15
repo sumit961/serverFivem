@@ -102,6 +102,8 @@ end, false)
 RegisterNetEvent('cm-law:client:openDashboard', function() openMenu('overview') end)
 
 RegisterNetEvent('cm-law:client:openMdt', function()
+    local state = LocalPlayer.state.cmLegalOrg
+    if type(state) ~= 'table' or state.onDuty ~= true or state.suspended or (state.capabilities and state.capabilities.mdt == false) then return end
     -- openMenu performs the authoritative dashboard/member check. Failed
     -- membership, duty and permission checks are intentionally silent for the
     -- shared Tab key.
@@ -109,6 +111,8 @@ RegisterNetEvent('cm-law:client:openMdt', function()
 end)
 
 RegisterNetEvent('cm-law:client:openDispatch', function()
+    local state = LocalPlayer.state.cmLegalOrg
+    if type(state) ~= 'table' or state.onDuty ~= true or state.suspended or (state.capabilities and state.capabilities.dispatch == false) then return end
     openMenu('dispatch')
 end)
 

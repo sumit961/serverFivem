@@ -29,7 +29,6 @@ client_scripts {
     'client/barricades.lua',
     'client/clamp.lua',
     'client/quickmenu.lua',
-    'client/org_keys.lua', -- single J/F7/TAB router for every organization
     'client/wardrobe.lua',
     'client/jail_npc.lua',
     'client/mdt_terminal.lua',
@@ -52,8 +51,7 @@ server_scripts {
     'server/booking.lua',
     'server/citations.lua',
     'server/impound.lua',
-    'server/spikes.lua',
-    'server/barricades.lua',
+    'server/barricade_catalog.lua',
     'server/clamp.lua',
     'server/mdt.lua',
     'server/dispatch.lua',

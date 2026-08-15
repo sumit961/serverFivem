@@ -12,7 +12,7 @@ Config.ShopResource = 'rn-vehicleshop'
 -- see server/main.lua.
 Config.OrganizationId = 'police'
 Config.MenuCommand = 'police'
-Config.MenuKey = 'F7'
+Config.MenuKey = 'F6'
 -- Dedicated Police administration entry; server permission is checked before
 -- the admin workspace can be opened.
 Config.AdminMenuCommand = 'policeadmin'
@@ -329,7 +329,7 @@ Config.Dispatch = {
 Config.Backup = {
     Cooldown = 60000, -- ms between backup requests per officer
     PanicCooldown = 30000,
-    PanicKey = 'F9',
+    PanicKey = '', -- no physical default; F9 is shared organization dispatch
     BlipLifetimeMs = 60000,
     BlipSprite = 161, -- same sprite family as the dispatch call blip
     BlipColour = 1, -- red -- visually distinct from Config.Dispatch.BlipColour (3)

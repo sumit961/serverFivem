@@ -227,7 +227,8 @@ RegisterCommand('emspanicbutton', function()
     if type(LocalPlayer.state.cmEms) ~= 'table' then return end
     TriggerServerEvent('cm-ems:server:activatePanic')
 end, false)
-RegisterKeyMapping('emspanicbutton', 'EMS: Panic button', 'keyboard', tostring(Config.Dispatch.panicKey or 'F9'))
+-- Physical F9 belongs to cm-core's organization dispatch router. The command
+-- remains available to menus and manual/admin bindings.
 
 RegisterNUICallback('dispatchClose', function(_, cb) closeDispatchMenu(); cb({ ok = true }) end)
 RegisterNUICallback('dispatchRefresh', function(_, cb) refreshDispatchBoard(); cb({ ok = true }) end)

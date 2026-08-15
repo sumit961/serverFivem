@@ -41,6 +41,7 @@ client_scripts {
     'client/state-bridge.lua',
     'client/callbacks.lua',
     'client/notify.lua',
+    'client/organization-keys.lua',
     'client/main.lua',
 }
 

@@ -76,6 +76,41 @@ RegisterNetEvent('cm-police:client:removeSpikeStrip', function(netId)
     end
 end)
 
+RegisterNetEvent('cm-law:client:deleteSceneEquipment', function(payload)
+    if type(payload) ~= 'table' or payload.equipmentType ~= 'spike' then return end
+    local deploymentId, netId = tonumber(payload.deploymentId), tonumber(payload.networkId)
+    if not deploymentId or not netId then return end
+    local object, resolveDeadline = 0, GetGameTimer() + 3000
+    repeat
+        object = NetworkGetEntityFromNetworkId(netId)
+        if object ~= 0 and DoesEntityExist(object) then break end
+        Wait(50)
+    until GetGameTimer() >= resolveDeadline
+    if object == 0 or not DoesEntityExist(object) then return end
+    local state = Entity(object).state
+    if tonumber(state.cmLawSceneEquipment) ~= deploymentId or state.cmSpikeStrip ~= true then return end
+    local deadline = GetGameTimer() + 5000
+    while DoesEntityExist(object) and not NetworkHasControlOfEntity(object) and GetGameTimer() < deadline do
+        NetworkRequestControlOfEntity(object)
+        Wait(50)
+    end
+    if not DoesEntityExist(object) or not NetworkHasControlOfEntity(object) then return end
+    for _ = 1, 4 do
+        SetEntityAsMissionEntity(object, true, true)
+        DeleteObject(object)
+        if not DoesEntityExist(object) then
+            TriggerServerEvent('cm-law:server:sceneEquipmentDeleteResult', deploymentId, netId, 'spike')
+            return
+        end
+        DeleteEntity(object)
+        if not DoesEntityExist(object) then
+            TriggerServerEvent('cm-law:server:sceneEquipmentDeleteResult', deploymentId, netId, 'spike')
+            return
+        end
+        Wait(50)
+    end
+end)
+
 -- Standard GTA5 wheel-bone-to-tyre-index mapping for a 4-wheel vehicle
 -- (indices 2/3 belong to a 6-wheel vehicle's middle axle, not used here).
 local wheelTyreIndex = { wheel_lf = 0, wheel_rf = 1, wheel_lr = 4, wheel_rr = 5 }

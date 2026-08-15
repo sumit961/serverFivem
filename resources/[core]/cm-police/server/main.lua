@@ -1593,6 +1593,13 @@ CreateThread(function()
         exports[Config.AdminResource]:RegisterOrganization({
             id = Config.OrganizationId, label = 'Police Department',
             resource = GetCurrentResourceName(), icon = 'shield-alt', canRemoveLeader = true,
+            canManageFacilities = true,
+            facilityTypes = {
+                { id = 'front_desk', label = 'Front desk NPC' },
+                { id = 'armory', label = 'Armory NPC' },
+                { id = 'storage', label = 'Storage NPC' },
+                { id = 'intake', label = 'Prison intake NPC' },
+            },
         })
     end)
 end)

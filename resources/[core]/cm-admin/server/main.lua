@@ -1265,6 +1265,49 @@ RegisterNetEvent('cm-admin:server:nuiAction', function(payload)
         return
     end
 
+    if action == 'orgsGetArmory' then
+        if not CMOrganizations then return notify(src, 'Organizations registry is unavailable.', 'error') end
+        TriggerClientEvent('cm-admin:client:detailResult', src, {
+            type = 'orgArmory', orgId = data.orgId, data = CMOrganizations.getArmory(src, data.orgId),
+        })
+        return
+    end
+
+    if action == 'orgsConfigureArmory' then
+        if not CMOrganizations then return notify(src, 'Organizations registry is unavailable.', 'error') end
+        local ok, message = CMOrganizations.configureArmory(src, data.orgId, data)
+        notify(src, message or (ok and 'Armory saved.' or 'Armory update failed.'), ok and 'success' or 'error')
+        if ok then refreshMenu(src) end
+        return
+    end
+
+    if action == 'orgsGetCapabilities' then
+        if not CMOrganizations then return notify(src, 'Organizations registry is unavailable.', 'error') end
+        TriggerClientEvent('cm-admin:client:detailResult', src, {
+            type = 'orgCapabilities', orgId = data.orgId, data = CMOrganizations.getCapabilities(src, data.orgId),
+        })
+        return
+    end
+
+    if action == 'orgsConfigureCapability' then
+        if not CMOrganizations then return notify(src, 'Organizations registry is unavailable.', 'error') end
+        local ok, message = CMOrganizations.configureCapability(src, data.orgId, data.capability, data.enabled == true)
+        notify(src, message or (ok and 'Capability saved.' or 'Capability update failed.'), ok and 'success' or 'error')
+        return
+    end
+    if action == 'orgsGetFleet' then
+        TriggerClientEvent('cm-admin:client:detailResult', src, { type='orgFleet', orgId=data.orgId, data=CMOrganizations.getFleet(src,data.orgId) })
+        return
+    end
+    if action == 'orgsConfigureFleet' then
+        local ok,message=CMOrganizations.configureFleet(src,data.orgId,data)
+        notify(src,message or 'Fleet update failed.',ok and 'success' or 'error'); return
+    end
+    if action == 'orgsResetFleet' then
+        local ok,message=CMOrganizations.resetFleet(src,data.orgId,data.model)
+        notify(src,message or 'Fleet reset failed.',ok and 'success' or 'error'); return
+    end
+
     -- ------------------------------------------------------------------
     -- Offline characters: search + inventory/vehicles through the DB bridge.
     -- ------------------------------------------------------------------

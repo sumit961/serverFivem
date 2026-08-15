@@ -1121,6 +1121,34 @@ end
 
 exports('AdminRemoveLeader', doRemoveLeader)
 
+exports('AdminSetFacility', function(src, _, facilityType, reset)
+    src, facilityType = tonumber(src), tostring(facilityType or '')
+    local allowed = false
+    if src then
+        local ok, result = pcall(function()
+            return exports[Config.AdminResource]:HasPermission(src, Config.AdminPermission)
+        end)
+        allowed = ok and result == true
+    end
+    if not allowed then return false, 'Permission denied.' end
+    local actor = { is_leader = 1, permissions = '{}' }
+    if reset == true then
+        local key = facilityType == 'wardrobe' and 'clothing_npc' or facilityType == 'mission' and 'daily_mission_npc' or nil
+        if not key then return false, 'That EMS facility is not centrally configurable yet.' end
+        EMSSettingsCache[key] = nil
+        MySQL.update.await('DELETE FROM cm_ems_settings WHERE setting_key = ?', { key })
+        if key == 'clothing_npc' then TriggerClientEvent('cm-ems:client:clothingNpcUpdated', -1, false) end
+        return true, 'EMS facility reset.'
+    end
+    local ped = GetPlayerPed(src)
+    if not ped or ped == 0 then return false, 'Character is not loaded.' end
+    local coords = GetEntityCoords(ped)
+    local payload = { x = coords.x, y = coords.y, z = coords.z, heading = GetEntityHeading(ped) }
+    if facilityType == 'wardrobe' then return SetClothingNpcLocation(src, actor, payload) end
+    if facilityType == 'mission' then return SetDailyMissionNpcLocation(src, actor, payload) end
+    return false, 'That EMS facility is not centrally configurable yet.'
+end)
+
 local function isEmsAdmin(src)
     local ok, allowed = pcall(function() return exports[Config.AdminResource]:HasPermission(src, Config.AdminPermission) end)
     return ok and allowed == true
@@ -1335,6 +1363,11 @@ CreateThread(function()
         exports[Config.AdminResource]:RegisterOrganization({
             id = Config.OrganizationId, label = 'Emergency Medical Services',
             resource = GetCurrentResourceName(), icon = 'briefcase-medical', canRemoveLeader = true,
+            canManageFacilities = true,
+            facilityTypes = {
+                { id = 'wardrobe', label = 'Wardrobe / clothing NPC' },
+                { id = 'mission', label = 'Daily mission NPC' },
+            },
         })
     end)
 end)

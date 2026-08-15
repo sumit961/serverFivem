@@ -8,6 +8,7 @@ local function authorized(src)
     if not MdtReady then return nil, nil, 'Shared MDT is still loading.' end
     local member, characterId = activeMemberForSource(src)
     if not member or member.suspended or not member.onDuty
+        or not LawCapabilityEnabled(member.organizationId, 'mdt')
         or not (member.isLeader or member.permissions['law.mdt'] == true) then
         return nil, characterId, 'You must be on duty with MDT permission.'
     end

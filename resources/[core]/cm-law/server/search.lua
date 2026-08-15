@@ -4,6 +4,7 @@ local function authority(src, targetSrc)
     src, targetSrc = tonumber(src), tonumber(targetSrc)
     local member, actorCid = activeMemberForSource(src)
     if not member or member.suspended or not member.onDuty
+        or not LawCapabilityEnabled(member.organizationId, 'search')
         or not (member.isLeader or member.permissions['law.search'] == true) then
         return nil, nil, nil, 'You must be on duty with search authority.'
     end

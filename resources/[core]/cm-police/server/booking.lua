@@ -259,6 +259,40 @@ lib.callback.register('cm-police:server:resetAdminLocation', function(src, locat
     return true, messages[locationType]
 end)
 
+exports('AdminSetFacility', function(src, _, facilityType, reset)
+    src, facilityType = tonumber(src), tostring(facilityType or '')
+    local map = {
+        front_desk = 'service_npc', armory = 'armory_npc', storage = 'storage_npc',
+        intake = 'jail_intake', prison_intake = 'jail_intake',
+    }
+    local locationType = map[facilityType]
+    if not locationType then return false, 'That Police facility is managed by another Police configuration section.' end
+    if not policeAdmin(src) or not rateLimit(src, 'police_admin_facility_export', 800) then return false, 'Permission denied.' end
+    if reset == true then
+        if locationType == 'jail_intake' then JailLocation = nil
+        elseif locationType == 'service_npc' then ServiceNpcLocation = nil
+        elseif type(SetPoliceFacilityNpcLocation) == 'function' then SetPoliceFacilityNpcLocation(locationType, nil) end
+        MySQL.update.await('DELETE FROM cm_police_settings WHERE setting_key = ?', { locationType })
+        if locationType == 'service_npc' then TriggerClientEvent('cm-police:client:serviceNpcUpdated', -1, false) end
+        if locationType == 'jail_intake' then TriggerClientEvent('cm-police:client:jailNpcUpdated', -1) end
+        return true, 'Police facility reset.'
+    end
+    local ped = GetPlayerPed(src)
+    if not ped or ped == 0 then return false, 'Character is not loaded.' end
+    local coords = GetEntityCoords(ped)
+    local names = { service_npc = 'Police Front Desk', armory_npc = 'Police Armory', storage_npc = 'Police Storage', jail_intake = 'Prison Intake NPC' }
+    local value = { x = coords.x, y = coords.y, z = coords.z, heading = GetEntityHeading(ped),
+        name = names[locationType], bucket = GetPlayerRoutingBucket(src) }
+    if locationType == 'jail_intake' then JailLocation = value
+    elseif locationType == 'service_npc' then ServiceNpcLocation = value
+    elseif type(SetPoliceFacilityNpcLocation) == 'function' then SetPoliceFacilityNpcLocation(locationType, value)
+    else return false, 'Police facility service is unavailable.' end
+    saveSetting(locationType, value, tostring(cid(src) or 'admin'))
+    if locationType == 'service_npc' then TriggerClientEvent('cm-police:client:serviceNpcUpdated', -1, locationPayload(value)) end
+    if locationType == 'jail_intake' then TriggerClientEvent('cm-police:client:jailNpcUpdated', -1) end
+    return true, 'Police facility saved from your current position.'
+end)
+
 lib.callback.register('cm-police:server:teleportAdminLocation', function(src, locationType)
     if not policeAdmin(src) or not rateLimit(src, 'police_admin_location_teleport', 1500) then return false, 'Permission denied.' end
     local facilityLocation = type(GetPoliceFacilityNpcLocation) == 'function' and GetPoliceFacilityNpcLocation(locationType) or nil

@@ -88,7 +88,10 @@ local function bookingAuthority(src, targetSrc)
     src, targetSrc = tonumber(src), tonumber(targetSrc)
     if not src or not targetSrc or src == targetSrc then return nil, 'Invalid suspect.' end
     local actor, actorCid = activeMemberForSource(src)
-    if not actor or actor.suspended or not actor.onDuty or not (actor.isLeader or actor.permissions['law.cuff'] == true) then
+    if not actor or actor.suspended or not actor.onDuty
+        or not LawCapabilityEnabled(actor.organizationId, 'arrest')
+        or not LawCapabilityEnabled(actor.organizationId, 'prisonIntake')
+        or not (actor.isLeader or actor.permissions['law.cuff'] == true) then
         return nil, 'You must be an on-duty member with cuffing permission.'
     end
     local targetCid = characterIdFor(targetSrc)

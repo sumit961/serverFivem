@@ -20,9 +20,11 @@ server.cfg.bkp
 local-security-backup/
 
 # Large/private asset folders
-# Large/private asset folders
 resources/\[mlo\]/
 resources/\[clothes\]/
+
+# Safe placeholder template remains tracked.
+!server.local.example.cfg
 
 # Backup zip files
 *.zip

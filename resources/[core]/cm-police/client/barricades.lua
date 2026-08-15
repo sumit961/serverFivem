@@ -82,3 +82,38 @@ RegisterNetEvent('cm-police:client:removeBarricade', function(netId)
         DeleteEntity(object)
     end
 end)
+
+RegisterNetEvent('cm-law:client:deleteSceneEquipment', function(payload)
+    if type(payload) ~= 'table' or payload.equipmentType ~= 'barricade' then return end
+    local deploymentId, netId = tonumber(payload.deploymentId), tonumber(payload.networkId)
+    if not deploymentId or not netId then return end
+    local object, resolveDeadline = 0, GetGameTimer() + 3000
+    repeat
+        object = NetworkGetEntityFromNetworkId(netId)
+        if object ~= 0 and DoesEntityExist(object) then break end
+        Wait(50)
+    until GetGameTimer() >= resolveDeadline
+    if object == 0 or not DoesEntityExist(object) then return end
+    local state = Entity(object).state
+    if tonumber(state.cmLawSceneEquipment) ~= deploymentId or state.cmBarricade ~= true then return end
+    local deadline = GetGameTimer() + 5000
+    while DoesEntityExist(object) and not NetworkHasControlOfEntity(object) and GetGameTimer() < deadline do
+        NetworkRequestControlOfEntity(object)
+        Wait(50)
+    end
+    if not DoesEntityExist(object) or not NetworkHasControlOfEntity(object) then return end
+    for _ = 1, 4 do
+        SetEntityAsMissionEntity(object, true, true)
+        DeleteObject(object)
+        if not DoesEntityExist(object) then
+            TriggerServerEvent('cm-law:server:sceneEquipmentDeleteResult', deploymentId, netId, 'barricade')
+            return
+        end
+        DeleteEntity(object)
+        if not DoesEntityExist(object) then
+            TriggerServerEvent('cm-law:server:sceneEquipmentDeleteResult', deploymentId, netId, 'barricade')
+            return
+        end
+        Wait(50)
+    end
+end)

@@ -105,15 +105,39 @@ local function activeUniform(characterId, orgId)
     return { organizationId = orgId, sex = row.sex == 'female' and 'female' or 'male', outfit = outfit }
 end
 
+local CapabilityCache = {}
+
+function LawCapabilityEnabled(orgId, capability)
+    orgId, capability = validOrgId(orgId), tostring(capability or '')
+    if not orgId or capability == '' then return false end
+    local orgCache = CapabilityCache[orgId]
+    if orgCache and orgCache[capability] ~= nil then return orgCache[capability] end
+    local value = MySQL.scalar.await([[SELECT enabled FROM cm_legal_capabilities
+        WHERE organization_id = ? AND capability = ? LIMIT 1]], { orgId, capability })
+    CapabilityCache[orgId] = CapabilityCache[orgId] or {}
+    -- Missing rows preserve the pre-capability behavior during upgrades.
+    CapabilityCache[orgId][capability] = value == nil or dbBoolean(value)
+    return CapabilityCache[orgId][capability]
+end
+
+exports('HasOrganizationCapability', function(orgId, capability)
+    return LawCapabilityEnabled(orgId, capability)
+end)
+
 local function statePayload(member, uniformIsActive)
     if not member then return false end
     local org = Config.Organizations[member.organizationId]
+    local capabilities = {}
+    for _, capability in ipairs(Config.Capabilities or {}) do
+        capabilities[capability] = LawCapabilityEnabled(member.organizationId, capability)
+    end
     return {
         id = member.organizationId, label = org.label, shortLabel = org.shortLabel,
         rankId = member.rankId, rankName = member.rankName, tier = member.tier,
         isLeader = member.isLeader, onDuty = member.onDuty,
         uniformActive = member.onDuty and uniformIsActive == true,
         suspended = member.suspended, permissions = member.permissions,
+        capabilities = capabilities,
         canStartPlainclothes = tonumber(org.plainclothesMinTier) ~= nil
             and member.tier >= tonumber(org.plainclothesMinTier),
     }
@@ -263,6 +287,19 @@ local function ensureSchema()
         PRIMARY KEY (organization_id, facility_type),
         KEY idx_cm_legal_facility_type (facility_type)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]])
+    MySQL.query.await([[CREATE TABLE IF NOT EXISTS cm_legal_capabilities (
+        organization_id VARCHAR(32) NOT NULL, capability VARCHAR(32) NOT NULL,
+        enabled TINYINT(1) NOT NULL DEFAULT 1, updated_by VARCHAR(64) NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (organization_id, capability)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]])
+    for orgId in pairs(Config.Organizations) do
+        for _, capability in ipairs(Config.Capabilities or {}) do
+            MySQL.insert.await([[INSERT IGNORE INTO cm_legal_capabilities
+                (organization_id, capability, enabled, updated_by) VALUES (?, ?, 1, 'migration')]],
+                { orgId, capability })
+        end
+    end
     MySQL.query.await([[CREATE TABLE IF NOT EXISTS cm_legal_jail_settings (
         setting_key VARCHAR(32) NOT NULL,setting_value LONGTEXT NOT NULL,updated_by VARCHAR(64) NULL,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -704,6 +741,13 @@ local function facilityAccess(src, orgId, facilityType)
         return nil, characterId, ('You are not a member of %s. This service is restricted.'):format(org.label)
     end
     if member.suspended then return nil, characterId, 'Your organization access is suspended.' end
+    local capability = facilityType == 'armory' and 'armory'
+        or facilityType == 'evidence' and 'evidence'
+        or facilityType == 'fleet' and 'fleet'
+        or facilityType == 'intake' and 'prisonIntake' or nil
+    if capability and not LawCapabilityEnabled(orgId, capability) then
+        return nil, characterId, 'This service is disabled for your organization.'
+    end
     if Config.FacilityTypes[facilityType].allowOffDuty ~= true and not member.onDuty then
         return nil, characterId, 'Visit your wardrobe and wear an approved uniform before using this service.'
     end
@@ -874,6 +918,37 @@ exports('AdminSetFacility', function(src, orgId, facilityType, reset)
         return LawAdminSetSharedJail(tonumber(src), facilityType, reset == true)
     end
     return setFacility(tonumber(src), orgId, facilityType, reset == true)
+end)
+
+exports('AdminGetCapabilities', function(src, orgId)
+    src, orgId = tonumber(src), validOrgId(orgId)
+    if not adminAllowed(src) then return { ok = false, error = 'Permission denied.' } end
+    if not orgId then return { ok = false, error = 'Unknown organization.' } end
+    local items = {}
+    for _, capability in ipairs(Config.Capabilities or {}) do
+        items[#items + 1] = { id = capability, enabled = LawCapabilityEnabled(orgId, capability) }
+    end
+    return { ok = true, organizationId = orgId, items = items }
+end)
+
+exports('AdminConfigureCapability', function(src, orgId, capability, enabled)
+    src, orgId, capability = tonumber(src), validOrgId(orgId), tostring(capability or '')
+    if not adminAllowed(src) then return false, 'Permission denied.' end
+    local known = false
+    for _, value in ipairs(Config.Capabilities or {}) do
+        if value == capability then known = true; break end
+    end
+    if not orgId or not known then return false, 'Unknown organization capability.' end
+    local actorCid = characterIdFor(src)
+    MySQL.insert.await([[INSERT INTO cm_legal_capabilities
+        (organization_id, capability, enabled, updated_by) VALUES (?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), updated_by = VALUES(updated_by)]],
+        { orgId, capability, enabled == true and 1 or 0, actorCid })
+    CapabilityCache[orgId] = CapabilityCache[orgId] or {}
+    CapabilityCache[orgId][capability] = enabled == true
+    logActivity(orgId, actorCid, 'admin_capability_configured', { capability = capability, enabled = enabled == true })
+    syncOrganization(orgId)
+    return true, 'Organization capability saved.'
 end)
 
 lib.callback.register('cm-law:server:facilities', function()
@@ -1074,7 +1149,21 @@ CreateThread(function()
     for orgId, org in pairs(Config.Organizations) do
         exports[Config.AdminResource]:RegisterOrganization({
             id = orgId, label = org.label, resource = RESOURCE, icon = org.icon,
-            canRemoveLeader = true, canManageFacilities = true,
+            canRemoveLeader = true, canManageFacilities = true, canManageArmory = true,
+            canManageCapabilities = true,
+            canManageFleet = true,
+            facilityTypes = {
+                { id = 'front_desk', label = 'Front desk NPC' },
+                { id = 'wardrobe', label = 'Wardrobe' },
+                { id = 'armory', label = 'Armory' },
+                { id = 'storage', label = 'Storage' },
+                { id = 'evidence', label = 'Evidence' },
+                { id = 'fleet', label = 'Fleet' },
+                { id = 'intake', label = 'Prison intake' },
+                { id = 'jail_spawn', label = 'Shared jail: add spawn' },
+                { id = 'jail_release', label = 'Shared jail: release point' },
+                { id = 'jail_spawns', label = 'Shared jail: all spawns' },
+            },
         })
     end
     print('[cm-law] SAHP, Sheriff, FIB, and Army organization foundations are ready')

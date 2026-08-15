@@ -152,16 +152,17 @@ end, false)
 RegisterNetEvent('cm-police:client:openLawQuickMenu', function(state)
     if type(state) ~= 'table' or state.onDuty ~= true then return end
     local permissions = type(state.permissions) == 'table' and state.permissions or {}
+    local capabilities = type(state.capabilities) == 'table' and state.capabilities or {}
     local leader = state.isLeader == true
     local options = {
         { title = 'Go Off Duty', description = 'End your shift and restore personal clothing', icon = 'right-from-bracket',
           onSelect = function() TriggerEvent('cm-law:client:quickMenuOffDuty') end },
     }
-    if leader or permissions['law.mdt'] == true then
+    if capabilities.mdt ~= false and (leader or permissions['law.mdt'] == true) then
         table.insert(options, 1, { title = 'Shared MDT', description = 'Open the cross-agency legal terminal', icon = 'laptop-file',
             onSelect = function() TriggerEvent('cm-law:client:openMdt') end })
     end
-    if leader or permissions['law.receive_dispatch'] == true then
+    if capabilities.dispatch ~= false and (leader or permissions['law.receive_dispatch'] == true) then
         options[#options + 1] = { title = 'Dispatch', description = 'Open shared legal dispatch', icon = 'tower-broadcast',
             onSelect = function() TriggerEvent('cm-law:client:openDispatch') end }
         options[#options + 1] = { title = 'Request Backup', description = 'Alert available legal units', icon = 'people-group',
@@ -169,19 +170,18 @@ RegisterNetEvent('cm-police:client:openLawQuickMenu', function(state)
         options[#options + 1] = { title = 'Panic Button', description = 'Send an urgent officer-in-distress alert', icon = 'triangle-exclamation',
             onSelect = function() TriggerEvent('cm-law:client:quickMenuAlert', 'panic') end }
     end
-    if leader or permissions['law.spike'] == true then
-        options[#options + 1] = { title = 'Deploy Spike Strip', description = 'Preview placement, then press E', icon = 'road-barrier', onSelect = PoliceDeploySpike }
-        options[#options + 1] = { title = 'Recall My Spike Strip', description = 'Pick up your deployed strips', icon = 'broom',
-            onSelect = function()
-                if PoliceConfirm('Recall Spike Strips', 'Pick up your deployed spike strips?', 'Recall', 'Cancel') then PoliceRecallSpikes() end
-            end }
+    local road = {}
+    if capabilities.spikes ~= false and (leader or permissions['law.spike'] == true) then
+        road[#road + 1] = { title = 'Deploy Spike Strip', icon = 'road-barrier', onSelect = PoliceDeploySpike }
+        road[#road + 1] = { title = 'Remove My Spike Strips', icon = 'broom', onSelect = PoliceRecallSpikes }
     end
-    if leader or permissions['law.barricade'] == true then
-        options[#options + 1] = { title = 'Deploy Barricade', description = 'Preview placement, then press E', icon = 'road-barrier', onSelect = PoliceDeployBarricade }
-        options[#options + 1] = { title = 'Recall My Barricades', description = 'Pick up your deployed barricades', icon = 'broom',
-            onSelect = function()
-                if PoliceConfirm('Recall Barricades', 'Pick up your deployed barricades?', 'Recall', 'Cancel') then PoliceRecallBarricades() end
-            end }
+    if capabilities.barricades ~= false and (leader or permissions['law.barricade'] == true) then
+        road[#road + 1] = { title = 'Deploy Barricade', icon = 'road-barrier', onSelect = PoliceDeployBarricade }
+        road[#road + 1] = { title = 'Remove My Barricades', icon = 'broom', onSelect = PoliceRecallBarricades }
+    end
+    if #road > 0 then
+        options[#options + 1] = { title = 'Road Equipment', description = 'Spike strips and barricades', icon = 'road-barrier',
+            onSelect = function() PoliceQuickMenu('Road Equipment', road) end }
     end
     PoliceQuickMenu((state.label or state.shortLabel or 'Legal Organization') .. ' Quick Actions', options)
 end)
