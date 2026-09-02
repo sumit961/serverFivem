@@ -149,29 +149,92 @@ lib.callback.register('cm-police:server:mdtWantedList', function(src)
     return list
 end)
 
+-- MySQL LIKE treats % and _ as wildcards. The query goes in as a bound
+-- parameter (so this was never SQL injection), but an officer typing a bare %
+-- still matched every character on the server. Escaping them here keeps a
+-- literal % literal; \\ must be escaped first or it would double-escape the
+-- backslashes the other two replacements introduce.
+local function escapeLike(value)
+    return (tostring(value or '')
+        :gsub('\\', '\\\\')
+        :gsub('%%', '\\%%')
+        :gsub('_', '\\_'))
+end
+
 lib.callback.register('cm-police:server:mdtSearch', function(src, query)
     local authorized = authorizedForMdt(src)
     if not authorized or not rateLimit(src, 'police_mdt_search', 600) then return {} end
     query = tostring(query or ''):gsub('^%s+', ''):gsub('%s+$', '')
     if query == '' then return {} end
     local limit = math.max(1, math.min(tonumber(Config.Mdt.SearchLimit) or 20, 50))
-    local like = '%' .. query .. '%'
     local numericId = tonumber(query)
-    local rows
-    if numericId then
-        rows = MySQL.query.await('SELECT id, first_name, last_name FROM characters WHERE id = ? OR first_name LIKE ? OR last_name LIKE ? LIMIT ?', { numericId, like, like, limit })
-    else
-        rows = MySQL.query.await('SELECT id, first_name, last_name FROM characters WHERE first_name LIKE ? OR last_name LIKE ? LIMIT ?', { like, like, limit })
+
+    -- Match against the full name as well as each part. Previously the query
+    -- was only ever tested against first_name and last_name separately, so
+    -- "John Smith" -- the thing an officer actually types -- matched nothing,
+    -- because neither column contains both words.
+    --
+    -- Multi-word queries are also matched token-by-token (AND), so "smith
+    -- john" and "jo smi" both find John Smith.
+    local like = '%' .. escapeLike(query) .. '%'
+    local conditions = { "CONCAT_WS(' ', c.first_name, c.last_name) LIKE ?" }
+    local params = { like }
+
+    local tokens = {}
+    for word in query:gmatch('%S+') do tokens[#tokens + 1] = word end
+    if #tokens > 1 then
+        local perToken = {}
+        for _, word in ipairs(tokens) do
+            perToken[#perToken + 1] = "CONCAT_WS(' ', c.first_name, c.last_name) LIKE ?"
+            params[#params + 1] = '%' .. escapeLike(word) .. '%'
+        end
+        conditions[#conditions + 1] = '(' .. table.concat(perToken, ' AND ') .. ')'
     end
+    if numericId then
+        conditions[#conditions + 1] = 'c.id = ?'
+        params[#params + 1] = numericId
+    end
+
+    -- Plate lookup folded into the same box: an officer holding a plate can go
+    -- straight to the owner's profile instead of detouring through the vehicle
+    -- search. cm-vehicles owns plate storage, so this asks it for the owner and
+    -- then matches that character id.
+    local plateOwner
+    if #tokens == 1 and #query >= 2 then
+        pcall(function()
+            local vehicle = exports[Config.VehiclesResource]:GetVehicleByPlate(query:gsub('%s+', ''):upper())
+            plateOwner = vehicle and vehicle.owner_character_id and tostring(vehicle.owner_character_id) or nil
+        end)
+    end
+    if plateOwner then
+        conditions[#conditions + 1] = 'CONVERT(c.id, CHAR) = ?'
+        params[#params + 1] = plateOwner
+    end
+
+    params[#params + 1] = limit
+
+    -- characters.id is numeric while cm_police_criminal_status.character_id is
+    -- VARCHAR(64). CONVERT is applied to c.id rather than to s.character_id on
+    -- purpose: converting the indexed column would make MySQL scan that table,
+    -- converting the other side leaves the index on s.character_id usable.
+    -- (The leading-wildcard LIKE still scans `characters` itself -- fixing that
+    -- properly needs a FULLTEXT index, noted in INSTALL.md.)
+    local rows = MySQL.query.await(([[
+        SELECT c.id, c.first_name, c.last_name, s.stars, s.wanted
+        FROM characters c
+        LEFT JOIN cm_police_criminal_status s ON s.character_id = CONVERT(c.id, CHAR)
+        WHERE %s
+        LIMIT ?]]):format(table.concat(conditions, ' OR ')), params)
+
     local results = {}
     for _, row in ipairs(rows or {}) do
         local name = (('%s %s'):format(row.first_name or '', row.last_name or '')):gsub('^%s+', ''):gsub('%s+$', '')
-        local status = MySQL.single.await('SELECT stars, wanted FROM cm_police_criminal_status WHERE character_id = ? LIMIT 1', { tostring(row.id) })
         results[#results + 1] = {
             characterId = tostring(row.id),
             name = name ~= '' and name or ('Character #%s'):format(row.id),
-            stars = status and tonumber(status.stars) or 0,
-            wanted = status and dbBoolean(status.wanted) or false,
+            stars = tonumber(row.stars) or 0,
+            wanted = row.wanted ~= nil and dbBoolean(row.wanted) or false,
+            matchedPlate = plateOwner ~= nil and plateOwner == tostring(row.id) or nil,
         }
     end
     return results
@@ -187,6 +250,7 @@ lib.callback.register('cm-police:server:mdtCitizenProfile', function(src, charac
     for _, row in ipairs(citations) do
         row.id, row.fine = tonumber(row.id), tonumber(row.fine)
         row.createdAt = tostring(row.created_at or ''); row.created_at = nil
+        row.agency = 'Police'
     end
 
     local bookings = MySQL.query.await([[SELECT id, reason, charges, wanted_stars, sentence_minutes,
@@ -206,6 +270,30 @@ lib.callback.register('cm-police:server:mdtCitizenProfile', function(src, charac
         row.releasedAt = row.released_at and tostring(row.released_at) or nil
         row.wanted_stars, row.sentence_minutes, row.handoff_status, row.release_reason, row.mugshot_url, row.cinematic_status = nil, nil, nil, nil, nil, nil
         row.completed_at, row.booked_at, row.release_at, row.released_at = nil, nil, nil, nil
+        row.agency = 'Police'
+    end
+
+    -- Records created by legal organizations (SAHP and friends). cm-law's MDT
+    -- has always read the police tables; this is the return leg, so an officer
+    -- sees a citizen's whole enforcement history rather than only the half
+    -- this department produced. Merged newest-first by timestamp and tagged
+    -- with the issuing agency.
+    --
+    -- pcall'd: a server running cm-police without cm-law just gets nil here
+    -- and the profile behaves exactly as it did before.
+    local legalRecords
+    pcall(function() legalRecords = exports['cm-law']:GetCitizenLegalRecords(characterId) end)
+    local legalCustody, legalWarrants, legalReports
+    if type(legalRecords) == 'table' then
+        legalWarrants = legalRecords.warrants
+        legalReports = legalRecords.reports
+        for _, row in ipairs(legalRecords.citations or {}) do citations[#citations + 1] = row end
+        for _, row in ipairs(legalRecords.bookings or {}) do bookings[#bookings + 1] = row end
+        legalCustody = legalRecords.custody
+        -- Sort on the raw timestamp strings: they are all MySQL DATETIME in
+        -- the same format, so lexical order is chronological order.
+        table.sort(citations, function(a, b) return tostring(a.createdAt or '') > tostring(b.createdAt or '') end)
+        table.sort(bookings, function(a, b) return tostring(a.bookedAt or '') > tostring(b.bookedAt or '') end)
     end
 
     local impounds = MySQL.query.await([[SELECT i.id, i.plate, i.fee, i.impounded_at, i.released_at,
@@ -303,6 +391,9 @@ lib.callback.register('cm-police:server:mdtCitizenProfile', function(src, charac
         wanted = status and dbBoolean(status.wanted) or false,
         photoUrl = status and status.photo_url or nil,
         bank = bankRow and tonumber(bankRow.bank) or 0,
+        legalCustody = legalCustody,
+        legalWarrants = legalWarrants,
+        legalReports = legalReports,
     }
 end)
 
@@ -492,6 +583,7 @@ local function issueSingleFine(actorCid, characterId, violation)
 end
 
 lib.callback.register('cm-police:server:mdtIssueFine', function(src, characterId, violationId)
+    if type(PoliceCapabilityEnabled) == 'function' and not PoliceCapabilityEnabled('citations') then return false, 'Police citations are disabled.' end
     local authorized, actorCid = authorizedForMdt(src)
     if not authorized then return false, 'You must be an on-duty officer with MDT permission.' end
     local actor = memberFor(actorCid)
@@ -514,6 +606,7 @@ end)
 -- skipping it, so the officer knows exactly how many of the selected
 -- charges actually went through.
 lib.callback.register('cm-police:server:mdtIssueFines', function(src, characterId, violationIds)
+    if type(PoliceCapabilityEnabled) == 'function' and not PoliceCapabilityEnabled('citations') then return false, 'Police citations are disabled.' end
     local authorized, actorCid = authorizedForMdt(src)
     if not authorized then return false, 'You must be an on-duty officer with MDT permission.' end
     local actor = memberFor(actorCid)

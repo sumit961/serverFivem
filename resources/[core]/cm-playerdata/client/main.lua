@@ -250,6 +250,10 @@ function EnterDeathState(killedBy, bleedMs, alreadyAmbulanceCalled)
     SetPlayerHealthRechargeMultiplier(PlayerId(), 0.0)
     SetPlayerHealthRechargeLimit(PlayerId(), 0.0)
 
+    -- Supply War deaths are immediately resolved through the authoritative
+    -- hospital-bed respawn path. Avoid flashing or focusing the normal death UI.
+    if LocalPlayer.state.cmSupplyWarParticipant == true then return end
+
     IgnoreNextRestart(true)
     StartDeathEffect()
     StartDeathCam()

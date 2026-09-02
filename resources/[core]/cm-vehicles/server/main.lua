@@ -504,7 +504,11 @@ function CMVehicles.Server.ResolvePlate(plate, netId)
         local statePlate = ''
         local ok = pcall(function() statePlate = U.NormalizePlate(Entity(ent).state.cmPlate) end)
         if not ok or statePlate == '' then return '' end
-        if plate ~= '' and plate ~= statePlate then return '' end
+        if plate ~= '' and plate ~= statePlate then
+            local isLicenseTest = false
+            pcall(function() isLicenseTest = Entity(ent).state.cmLicenseTest == true end)
+            if not isLicenseTest or plate ~= 'LICENSE' then return '' end
+        end
         if not CMVehicles.Server.GetVehicleByPlate(statePlate) then return '' end
         return statePlate
     end
@@ -785,6 +789,18 @@ local TRUSTED_ORGANIZATIONS = {
     sheriff = { resource = 'cm-law', prefix = 'BCSO', name = 'Sheriff' },
     fib = { resource = 'cm-law', prefix = 'FIB', name = 'FIB' },
     army = { resource = 'cm-law', prefix = 'ARMY', name = 'Army' },
+    -- Legacy pre-migration slots kept so any not-yet-migrated cm-gang fleet
+    -- rows (and cm-admin's manual legacy migration path) keep working.
+    gang_1 = { resource = 'cm-gang', prefix = 'GNG1', name = 'Gang One' },
+    gang_2 = { resource = 'cm-gang', prefix = 'GNG2', name = 'Gang Two' },
+    gang_3 = { resource = 'cm-gang', prefix = 'GNG3', name = 'Gang Three' },
+    gang_4 = { resource = 'cm-gang', prefix = 'GNG4', name = 'Gang Four' },
+    -- Canonical five-gang identities.
+    marabunta = { resource = 'cm-gang', prefix = 'MRB', name = 'Marabunta' },
+    bloods    = { resource = 'cm-gang', prefix = 'BLD', name = 'Bloods' },
+    ballas    = { resource = 'cm-gang', prefix = 'BAL', name = 'Ballas' },
+    families  = { resource = 'cm-gang', prefix = 'FAM', name = 'Families' },
+    vagos     = { resource = 'cm-gang', prefix = 'VGS', name = 'Vagos' },
 }
 
 local function trustedOrgInfo(organization, invokingResource)
@@ -795,19 +811,21 @@ end
 
 function CMVehicles.Server.CreateOwnedVehicle(src, model, label, trunkLevel, metadata)
     local charId = CMVehicles.Server.GetCharacterId(src)
-    if not charId then return false, 'Character is not loaded.' end
     model = tostring(model or ''):lower()
     if model == '' then return false, 'Invalid model.' end
     label = tostring(label or model)
     trunkLevel = tonumber(trunkLevel) or Config.DefaultTrunkLevel or 1
     if trunkLevel < 0 then trunkLevel = 0 end
     metadata = type(metadata) == 'table' and metadata or {}
-    local ownerType, ownerId, ownerCharacterId = 'character', tostring(charId), tostring(charId)
+    local ownerType, ownerId, ownerCharacterId
     local organization = tostring(metadata.organization or ''):lower()
     local invokingResource = GetInvokingResource()
     local orgInfo = trustedOrgInfo(organization, invokingResource)
     if orgInfo then
         ownerType, ownerId, ownerCharacterId = 'organization', organization, ('organization:%s'):format(organization)
+    else
+        if not charId then return false, 'Character is not loaded.' end
+        ownerType, ownerId, ownerCharacterId = 'character', tostring(charId), tostring(charId)
     end
     local platePrefix = ownerType == 'organization' and orgInfo.prefix or nil
     local plate = CMVehicles.Server.GeneratePlate(platePrefix, platePrefix and (8 - #platePrefix) or nil)
@@ -825,6 +843,103 @@ function CMVehicles.Server.CreateOwnedVehicle(src, model, label, trunkLevel, met
 
     CMVehicles.Server.Audit(charId, plate, 'vehicle_created', { model = model, label = label, trunkLevel = trunkLevel, stateValue = stateValue })
     return true, { id = id, owner_character_id = ownerCharacterId, owner_type = ownerType, owner_id = ownerId, owner_name = tostring(ownerName or ''), model = model, label = label, plate = plate, trunk_level = trunkLevel, insurance_days = insuranceDays, state_value = stateValue, is_locked = true, fuel = 100, metadata = metadata or {} }
+end
+
+function CMVehicles.Server.CreateOrganizationVehicle(request)
+    if GetConvar('cm_environment', GetConvar('cm_env', 'production')) == 'development' then
+        print(('[cm-vehicles] CreateOrganizationVehicle request actorSource=%s organizationId=%s model=%s label=%s trunkLevel=%s metadataType=%s'):format(
+            type(request) == 'table' and tostring(request.actorSource) or '<unavailable>',
+            type(request) == 'table' and tostring(request.organizationId) or '<unavailable>',
+            type(request) == 'table' and tostring(request.model) or '<unavailable>',
+            type(request) == 'table' and tostring(request.label) or '<unavailable>',
+            type(request) == 'table' and tostring(request.trunkLevel) or '<unavailable>',
+            type(request) == 'table' and type(request.metadata) or '<unavailable>'))
+    end
+    if type(request) ~= 'table' then return false, 'invalid_request_type' end
+
+    local src = tonumber(request.actorSource)
+    if not src or src <= 0 then return false, 'invalid_actor_source' end
+    src = math.floor(src)
+
+    local organization = tostring(request.organizationId or ''):lower():match('^%s*(.-)%s*$')
+    if organization == '' or not organization:match('^[a-z0-9_]+$') then return false, 'invalid_organization_id' end
+    local orgInfo = TRUSTED_ORGANIZATIONS[organization]
+    if not orgInfo then return false, 'unsupported_organization' end
+
+    local model = tostring(request.model or ''):lower():match('^%s*(.-)%s*$')
+    if model == '' or not model:match('^[a-z0-9_]+$') then return false, 'invalid_model' end
+
+    local label = request.label == nil and model or tostring(request.label):match('^%s*(.-)%s*$')
+    if label == '' or #label > 100 then return false, 'invalid_label' end
+    local trunkLevel = request.trunkLevel == nil and (Config.DefaultTrunkLevel or 1) or tonumber(request.trunkLevel)
+    if not trunkLevel then return false, 'invalid_trunk_level' end
+    trunkLevel = math.max(0, math.min(6, math.floor(trunkLevel)))
+    if request.metadata ~= nil and type(request.metadata) ~= 'table' then return false, 'invalid_metadata' end
+    local metadata = request.metadata or {}
+
+    if GetResourceState('rn-vehicleshop') ~= 'started' then return false, 'authorization_owner_unavailable' end
+    local checked, authorized, authorizationError = pcall(function()
+        return exports['rn-vehicleshop']:ConsumeOrganizationVehicleGrant(src, model, organization)
+    end)
+    if not checked then return false, 'authorization_owner_error' end
+    if authorized ~= true then return false, tostring(authorizationError or 'authorization_missing') end
+
+    metadata.source, metadata.organization = 'vehicle_admin_org_grant', organization
+    local plate = CMVehicles.Server.GeneratePlate(orgInfo.prefix, 8 - #orgInfo.prefix)
+    local actorCharacterId = CMVehicles.Server.GetCharacterId(src)
+    local inserted, insertResult = pcall(function()
+        return MySQL.insert.await([[INSERT INTO cm_owned_vehicles
+            (owner_character_id,owner_type,owner_id,owner_name,model,label,plate,trunk_level,metadata)
+            VALUES (?,'organization',?,?,?,?,?,?,?)]], {
+            ('organization:%s'):format(organization), organization, orgInfo.name, model, label, plate,
+            trunkLevel, U.Encode(metadata)
+        })
+    end)
+    if not inserted then
+        if GetConvar('cm_environment', GetConvar('cm_env', 'production')) == 'development' then
+            print(('[cm-vehicles] CreateOrganizationVehicle database insert failed organizationId=%s model=%s'):format(organization, model))
+        end
+        return false, 'database_insert_failed'
+    end
+    local id = tonumber(insertResult)
+    if not id then return false, 'database_insert_failed' end
+    CMVehicles.Server.Audit(actorCharacterId, plate, 'organization_vehicle_created', {
+        vehicleId=id, model=model, organization=organization, actorSource=src
+    })
+    return true, {success=true,id=id,vehicle_id=id,owner_character_id=('organization:%s'):format(organization),
+        owner_type='organization',owner_id=organization,owner_name=orgInfo.name,model=model,label=label,
+        plate=plate,trunk_level=trunkLevel,is_locked=true,fuel=100,metadata=metadata}
+end
+
+function CMVehicles.Server.DeleteOrganizationVehicle(request)
+    if GetInvokingResource() ~= 'cm-gang' or type(request) ~= 'table' then return false, 'untrusted_request' end
+    local vehicleId, organization = tonumber(request.vehicleId), tostring(request.organizationId or ''):lower()
+    local actorSource = tonumber(request.actorSource)
+    if not vehicleId or not TRUSTED_ORGANIZATIONS[organization] or not actorSource or actorSource <= 0 then
+        return false, 'invalid_request'
+    end
+    local row = CMVehicles.Server.GetVehicleById(vehicleId)
+    if not row then return false, 'persistent_vehicle_missing' end
+    if tostring(row.owner_type) ~= 'organization' or tostring(row.owner_id) ~= organization then
+        return false, 'vehicle_ownership_mismatch'
+    end
+    local active, info = CMVehicles.Spawn and CMVehicles.Spawn.GetSpawnedVehicleInfo(vehicleId)
+    if active == true and type(info) == 'table' and tonumber(info.entity) and DoesEntityExist(tonumber(info.entity)) then
+        local entity = tonumber(info.entity)
+        if GetPedInVehicleSeat(entity, -1) ~= 0 or GetVehicleNumberOfPassengers(entity) > 0 then return false, 'vehicle_occupied' end
+    end
+    local committed = MySQL.transaction.await({
+        { query='DELETE FROM inventory_items WHERE owner_type=? AND owner_id=?', values={'vehicle_trunk',tostring(vehicleId)} },
+        { query=[[DELETE FROM cm_owned_vehicles WHERE id=? AND owner_type='organization' AND owner_id=?]], values={vehicleId,organization} },
+    })
+    if committed ~= true or MySQL.scalar.await('SELECT id FROM cm_owned_vehicles WHERE id=? LIMIT 1',{vehicleId}) then
+        return false, 'persistent_delete_failed'
+    end
+    if CMVehicles.Spawn and CMVehicles.Spawn.DeleteVehicle then pcall(CMVehicles.Spawn.DeleteVehicle, vehicleId) end
+    CMVehicles.Server.Audit(CMVehicles.Server.GetCharacterId(actorSource), row.plate, 'organization_vehicle_deleted', {
+        vehicleId=vehicleId,organization=organization,model=row.model
+    })
+    return true, 'organization_vehicle_deleted'
 end
 
 function CMVehicles.Server.EnsureOrganizationOwnership(vehicleId, organization)
@@ -1635,6 +1750,8 @@ AddEventHandler('onResourceStop', function(resource)
 end)
 
 exports('CreateOwnedVehicle', CMVehicles.Server.CreateOwnedVehicle)
+exports('CreateOrganizationVehicle', CMVehicles.Server.CreateOrganizationVehicle)
+exports('DeleteOrganizationVehicle', CMVehicles.Server.DeleteOrganizationVehicle)
 exports('GetVehicleByPlate', CMVehicles.Server.GetVehicleByPlate)
 exports('IssueVehicleLicense', CMVehicles.Server.IssueVehicleLicense)
 exports('HasVehicleAccess', CMVehicles.Server.HasAccess)

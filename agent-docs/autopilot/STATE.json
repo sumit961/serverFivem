@@ -1,0 +1,16 @@
+{
+    "schemaVersion":  1,
+    "status":  "blocked",
+    "cycle":  30,
+    "phase":  "review",
+    "currentPlanItem":  "GANG-011",
+    "reviewDefect":  null,
+    "repairAttempts":  {
+                           "GANG-008/lua_validation_harness":  1,
+                           "GANG-009/lua_validation_harness":  3,
+                           "GANG-004/lua_validation_harness":  1
+                       },
+    "startedAt":  "2026-08-19T03:48:49.8132172Z",
+    "updatedAt":  "2026-08-19T05:58:47.7178825Z",
+    "lastResult":  "Cycle 30 final review is complete. No fixable static defect was found.\n\nThe project is now correctly marked `blocked` pending the mandatory non-production FXServer runtime suite in [RUNTIME_TESTS.md](C:/Users/xumit/Desktop/FIVEM/txData/FiveMBasicServerCFXDefault_23CBE7.base/agent-docs/autopilot/RUNTIME_TESTS.md).\n\nValidation results:\n\n- Validator: 0 errors, 3 unrelated baseline warnings\n- CM scanner `--check`: current\n- Lua syntax: 15 files passed\n- JavaScript syntax: 2 files passed\n- Manifest references: passed\n- `STATE.json`: valid\n- `git diff --check`: passed; line-ending notices only\n- No new dependency-cycle or gang contract defect identified\n\nUpdated review artifacts:\n\n- [STATE.json](C:/Users/xumit/Desktop/FIVEM/txData/FiveMBasicServerCFXDefault_23CBE7.base/agent-docs/autopilot/STATE.json)\n- [BLOCKED.md](C:/Users/xumit/Desktop/FIVEM/txData/FiveMBasicServerCFXDefault_23CBE7.base/agent-docs/autopilot/BLOCKED.md)\n- [DECISIONS.md](C:/Users/xumit/Desktop/FIVEM/txData/FiveMBasicServerCFXDefault_23CBE7.base/agent-docs/autopilot/DECISIONS.md)\n\nNo gameplay code, production data, protected files, or unrelated dirty work was changed. No commit, push, or deployment occurred."
+}

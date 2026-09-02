@@ -4,6 +4,7 @@ local useLocks = {}
 local leaderAssignmentBusy = false
 local rankMutationBusy = false
 local meetingCooldowns = {}
+local inviteCooldowns = {}
 local MAX_OUTFIT_PRESETS_PER_SEX = 12
 
 -- Not `local`: shared with server/vehicles.lua (both files share this
@@ -284,6 +285,22 @@ function rateLimit(src, action, waitMs)
     return true
 end
 
+local function invitePlayersNearby(actorSrc, targetSrc)
+    actorSrc, targetSrc = tonumber(actorSrc), tonumber(targetSrc)
+    if not actorSrc or not targetSrc or actorSrc == targetSrc or not GetPlayerName(actorSrc) or not GetPlayerName(targetSrc) then return false end
+    if GetPlayerRoutingBucket(actorSrc) ~= GetPlayerRoutingBucket(targetSrc) then return false end
+    local actorPed, targetPed = GetPlayerPed(actorSrc), GetPlayerPed(targetSrc)
+    if actorPed <= 0 or targetPed <= 0 then return false end
+    return #(GetEntityCoords(actorPed) - GetEntityCoords(targetPed)) <= 4.0
+end
+
+local function inviteThrottled(actorCid, targetCid)
+    local key, now = ('%s:%s'):format(actorCid, targetCid), GetGameTimer()
+    if inviteCooldowns[key] and now - inviteCooldowns[key] < 10000 then return true end
+    inviteCooldowns[key] = now
+    return false
+end
+
 local function setupDatabase()
     local statements = {
         [[CREATE TABLE IF NOT EXISTS cm_police_organization (id TINYINT UNSIGNED NOT NULL DEFAULT 1, name VARCHAR(64) NOT NULL DEFAULT 'Police Department', leader_cid VARCHAR(64) NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]],
@@ -312,7 +329,7 @@ local function setupDatabase()
         -- Police-specific: where a vehicle spawns, whether it's a car or
         -- helicopter (for cm-vehicles' trusted-placement path), the minimum
         -- rank tier required to spawn it, and whether it's currently enabled.
-        [[CREATE TABLE IF NOT EXISTS cm_police_fleet_vehicles (model VARCHAR(64) NOT NULL, vehicle_id BIGINT UNSIGNED NULL, kind ENUM('car','helicopter') NOT NULL DEFAULT 'car', min_tier SMALLINT UNSIGNED NOT NULL DEFAULT 0, enabled TINYINT(1) NOT NULL DEFAULT 1, spawn_x FLOAT NOT NULL, spawn_y FLOAT NOT NULL, spawn_z FLOAT NOT NULL, spawn_h FLOAT NOT NULL DEFAULT 0, updated_by VARCHAR(64) NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (model), UNIQUE KEY uniq_cm_police_fleet_vehicle_id (vehicle_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]],
+        [[CREATE TABLE IF NOT EXISTS cm_police_fleet_vehicles (model VARCHAR(64) NOT NULL, vehicle_id BIGINT UNSIGNED NULL, kind ENUM('car','helicopter') NOT NULL DEFAULT 'car', min_tier SMALLINT UNSIGNED NOT NULL DEFAULT 0, enabled TINYINT(1) NOT NULL DEFAULT 1, location_configured TINYINT(1) NOT NULL DEFAULT 1, spawn_x FLOAT NOT NULL, spawn_y FLOAT NOT NULL, spawn_z FLOAT NOT NULL, spawn_h FLOAT NOT NULL DEFAULT 0, updated_by VARCHAR(64) NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (model), UNIQUE KEY uniq_cm_police_fleet_vehicle_id (vehicle_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]],
         -- Reserved for future rank/permission migrations as new features are
         -- added (same convention cm-ems uses) -- empty on a fresh install.
         [[CREATE TABLE IF NOT EXISTS cm_police_migrations (migration_key VARCHAR(64) NOT NULL, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (migration_key)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]],
@@ -322,6 +339,7 @@ local function setupDatabase()
     -- pcall (same idempotent-alter pattern cm-gunstore uses) so re-running
     -- on an already-migrated install is a silent no-op.
     pcall(function() MySQL.query.await('ALTER TABLE cm_police_organization ADD COLUMN fund_balance BIGINT NOT NULL DEFAULT 0') end)
+    pcall(function() MySQL.query.await('ALTER TABLE cm_police_fleet_vehicles ADD COLUMN location_configured TINYINT(1) NOT NULL DEFAULT 1 AFTER enabled') end)
     -- FTO/cadet mode. Defaults to 0 (restricted) so EXISTING cadets on an
     -- already-running server don't suddenly gain unrestricted access on
     -- upgrade -- a Captain+ has to explicitly sign each of them off, same
@@ -694,7 +712,9 @@ local function dashboard(src, adminMode, requestedSex)
     local org = MySQL.single.await('SELECT leader_cid, fund_balance FROM cm_police_organization WHERE id = 1') or {}
     local outfitSex = requestedSex == 'female' and 'female' or 'male'
     local outfitPresets = presetRows(outfitSex)
-    local canViewLogs = isAdmin or has(member, 'police.view_logs')
+    local memberSuspended = member and dbBoolean(member.is_suspended) or false
+    local activeMember = member and not memberSuspended and member or nil
+    local canViewLogs = isAdmin or has(activeMember, 'police.view_logs')
     local logs = {}
     if canViewLogs then
         local limit = math.max(1, math.min(tonumber(Config.LogLimit) or 100, 250))
@@ -725,15 +745,31 @@ local function dashboard(src, adminMode, requestedSex)
             isLeader = true, onDuty = false, suspended = false, permissions = adminPermissions,
         }
     end
+    local summary = MySQL.single.await([[SELECT COUNT(*) AS member_count,
+        SUM(CASE WHEN on_duty = 1 AND (suspended_until IS NULL OR suspended_until <= NOW()) THEN 1 ELSE 0 END) AS on_duty_count
+        FROM cm_police_members]]) or {}
+    local fleetSummary = MySQL.single.await([[
+        SELECT
+            SUM(CASE WHEN enabled = 1 AND location_configured = 1 THEN 1 ELSE 0 END) AS configured_count,
+            SUM(CASE WHEN enabled = 1 AND location_configured = 1 AND min_tier <= ? THEN 1 ELSE 0 END) AS available_count
+        FROM cm_police_fleet_vehicles
+    ]], { tonumber(dashboardSelf and dashboardSelf.tier) or 0 }) or {}
+    local featureCapabilities = {}
+    for _, capability in ipairs({ 'citations','impound','radar','spikes','barricades','clamp','k9','alpr','armory' }) do
+        featureCapabilities[capability] = type(PoliceCapabilityEnabled) ~= 'function' or PoliceCapabilityEnabled(capability)
+    end
+
     return {
         organization = { name = 'Police Department', leaderCid = org.leader_cid and tostring(org.leader_cid) or nil, leaderName = org.leader_cid and nameFor(org.leader_cid) or 'Not assigned' },
+        summary = { memberCount = tonumber(summary.member_count) or 0, onDutyCount = tonumber(summary.on_duty_count) or 0, fleetConfigured = tonumber(fleetSummary.configured_count) or 0, fleetAvailable = tonumber(fleetSummary.available_count) or 0 },
+        featureCapabilities = featureCapabilities,
         self = dashboardSelf,
         -- police.view_members was declared/grantable in Ranks & Permissions
         -- but the roster used to be returned unconditionally regardless of
         -- it -- every default rank happens to already have this permission,
         -- so this changes nothing out of the box, but it makes the toggle
         -- meaningful for a custom rank an admin creates without it.
-        members = (isAdmin or has(member, 'police.view_members')) and roster() or {},
+        members = (isAdmin or has(activeMember, 'police.view_members')) and roster() or {},
         ranks = rankRows(),
         outfitSex = outfitSex, outfitPresets = outfitPresets,
         permissions = Config.Permissions, adminMode = isAdmin,
@@ -752,26 +788,26 @@ local function dashboard(src, adminMode, requestedSex)
         -- render immediately from the dashboard payload.
         useOfForceTypes = Config.Mdt.UseOfForceTypes,
         capabilities = {
-            manageRanks = isAdmin or has(member, 'police.manage_ranks'),
-            managePermissions = isAdmin or has(member, 'police.manage_permissions'),
-            manageOutfits = isAdmin or has(member, 'police.manage_outfits'),
-            manageVehicles = isAdmin or has(member, 'police.manage_vehicles'),
-            spawnVehicles = isAdmin or has(member, 'police.spawn_vehicles'),
-            viewMemberMap = has(member, 'police.view_member_map'),
-            setMeeting = has(member, 'police.set_meeting'),
-            suspendMembers = isAdmin or has(member, 'police.suspend_members'),
+            manageRanks = isAdmin or has(activeMember, 'police.manage_ranks'),
+            managePermissions = isAdmin or has(activeMember, 'police.manage_permissions'),
+            manageOutfits = isAdmin or has(activeMember, 'police.manage_outfits'),
+            manageVehicles = isAdmin or has(activeMember, 'police.manage_vehicles'),
+            spawnVehicles = isAdmin or has(activeMember, 'police.spawn_vehicles'),
+            viewMemberMap = has(activeMember, 'police.view_member_map'),
+            setMeeting = has(activeMember, 'police.set_meeting'),
+            suspendMembers = isAdmin or has(activeMember, 'police.suspend_members'),
             viewFund = canViewLogs,
-            useMdt = isAdmin or has(member, 'police.mdt'),
-            receiveDispatch = isAdmin or has(member, 'police.receive_dispatch'),
+            useMdt = isAdmin or has(activeMember, 'police.mdt'),
+            receiveDispatch = isAdmin or has(activeMember, 'police.receive_dispatch'),
             -- Any real member can check out an enabled armory weapon (no
             -- special permission needed, same baseline as radio status) --
             -- manageArmory gates the separate enable/disable weapon list.
-            useArmory = isAdmin or member ~= nil,
-            manageArmory = isAdmin or has(member, 'police.manage_armory'),
-            manageAlpr = isAdmin or has(member, 'police.manage_alpr'),
-            signOffCadets = isAdmin or has(member, 'police.sign_off_cadets'),
-            manageImpound = isAdmin or has(member, 'police.manage_impound'),
-            manageBarricades = isAdmin or has(member, 'police.manage_barricades'),
+            useArmory = isAdmin or activeMember ~= nil,
+            manageArmory = isAdmin or has(activeMember, 'police.manage_armory'),
+            manageAlpr = isAdmin or has(activeMember, 'police.manage_alpr'),
+            signOffCadets = isAdmin or has(activeMember, 'police.sign_off_cadets'),
+            manageImpound = isAdmin or has(activeMember, 'police.manage_impound'),
+            manageBarricades = isAdmin or has(activeMember, 'police.manage_barricades'),
         },
         canViewLogs = canViewLogs, logs = logs,
         impoundKiosk = GetImpoundKioskStatus(),
@@ -891,6 +927,7 @@ local function hasIllegalItems(items)
 end
 
 policeK9Member = function(src)
+    if type(PoliceCapabilityEnabled) == 'function' and not PoliceCapabilityEnabled('k9') then return nil, cid(src) end
     local characterId = cid(src)
     local member = characterId and memberFor(characterId)
     if not member or dbBoolean(member.is_suspended) or not dbBoolean(member.on_duty) or not has(member, 'police.k9') then
@@ -900,6 +937,7 @@ policeK9Member = function(src)
 end
 
 lib.callback.register('cm-police:server:deployK9', function(src)
+    if type(PoliceCapabilityEnabled)=='function' and not PoliceCapabilityEnabled('k9') then return false,'Police K9 is disabled.' end
     local member, characterId = policeK9Member(src)
     if not member then return false, 'You must be an on-duty officer with K9 permission.' end
     if PoliceK9BySource[src] and DoesEntityExist(PoliceK9BySource[src].entity) then
@@ -1269,6 +1307,9 @@ lib.callback.register('cm-police:server:action', function(src, action, payload)
     local isAdmin = exports[Config.AdminResource]:HasPermission(src, Config.AdminPermission) == true
     if not actor and isAdmin then actor = { tier = 101, is_leader = 1, permissions = '{}' } end
     if not actor then return false, 'You are not a Police member.' end
+    if not isAdmin and dbBoolean(actor.is_suspended) then
+        return false, 'Your Police organization access is suspended.'
+    end
 
     if action == 'save_outfit_preset' then
         if not has(actor, 'police.manage_outfits') then return false, 'Your rank cannot manage Police clothing.' end
@@ -1329,6 +1370,21 @@ lib.callback.register('cm-police:server:action', function(src, action, payload)
         end
         log(actorCid, 'meeting_point_set', { recipients = recipients })
         return true, ('Meeting point sent to %d online Police members.'):format(recipients)
+    elseif action == 'clear_meeting' then
+        -- The meeting blip used to live until the resource restarted: there
+        -- was no way to take it down once the callout was over, only to
+        -- overwrite it with a new one. Same permission as setting it.
+        if not has(actor, 'police.set_meeting') then return false, 'Your rank cannot clear Police meeting points.' end
+        local cleared = 0
+        for _, player in ipairs(GetPlayers()) do
+            local memberCid = cid(player)
+            if memberCid and memberFor(memberCid) then
+                TriggerClientEvent('cm-police:client:clearMeetingPoint', tonumber(player))
+                cleared = cleared + 1
+            end
+        end
+        log(actorCid, 'meeting_point_cleared', { recipients = cleared })
+        return true, ('Meeting point cleared for %d online Police members.'):format(cleared)
     elseif action == 'set_impound_kiosk' then
         return SetImpoundKioskLocation(src, actor, payload)
     elseif action == 'reset_impound_kiosks' then
@@ -1477,11 +1533,16 @@ AddEventHandler('cm-police:server:gMenuAction', function(src, targetSrc, action,
     if not actor or not targetCid or actorCid == targetCid then return end
     if action == 'police_invite' then
         if not has(actor, 'police.invite') then return notify(src, 'Your rank cannot invite Police members.', 'error') end
+        if dbBoolean(actor.is_suspended) then return notify(src, 'Suspended members cannot invite recruits.', 'error') end
+        if cid(src) ~= actorCid or cid(targetSrc) ~= targetCid or not invitePlayersNearby(src, targetSrc) then return notify(src, 'That player is no longer nearby.', 'error') end
+        if inviteThrottled(actorCid, targetCid) then return notify(src, 'Please wait before inviting that player again.', 'error') end
         if memberFor(targetCid) then return notify(src, 'That character is already in Police.', 'error') end
         local rival = rivalMember(targetCid)
         if rival then return notify(src, ('That character is already a member of %s.'):format(rival.orgLabel), 'error') end
+        local recruit = MySQL.single.await('SELECT name FROM cm_police_ranks WHERE is_leader = 0 ORDER BY tier ASC LIMIT 1')
+        if not recruit then return notify(src, 'Police has no entry rank configured.', 'error') end
         MySQL.insert.await([[INSERT INTO cm_police_invites (character_id, invited_by, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND)) ON DUPLICATE KEY UPDATE invited_by = VALUES(invited_by), expires_at = VALUES(expires_at)]], { targetCid, actorCid, Config.InviteSeconds })
-        TriggerClientEvent('cm-police:client:invite', targetSrc, { inviter = nameFor(actorCid), expires = Config.InviteSeconds })
+        TriggerClientEvent('cm-police:client:invite', targetSrc, { inviter = nameFor(actorCid), rank = recruit.name, expires = Config.InviteSeconds })
         log(actorCid, 'invite_sent', { targetCid = targetCid })
         return notify(src, ('Police invitation sent to %s.'):format(nameFor(targetCid)), 'success')
     end
@@ -1505,9 +1566,18 @@ lib.callback.register('cm-police:server:respondInvite', function(src, accept)
     local invite = MySQL.single.await('SELECT invited_by FROM cm_police_invites WHERE character_id = ? AND expires_at > NOW() LIMIT 1', { characterId })
     if not invite then return false, 'This Police invitation expired.' end
     if not accept then MySQL.update.await('DELETE FROM cm_police_invites WHERE character_id = ?', { characterId }); return true, 'Police invitation declined.' end
+    local inviterSrc = sourceFor(invite.invited_by)
+    local inviter = inviterSrc and memberFor(invite.invited_by) or nil
+    if not inviterSrc or not inviter or dbBoolean(inviter.is_suspended) or not has(inviter, 'police.invite') then
+        MySQL.update.await('DELETE FROM cm_police_invites WHERE character_id = ?', { characterId })
+        return false, 'This Police invitation is no longer valid.'
+    end
+    if not invitePlayersNearby(inviterSrc, src) then return false, 'Return to the inviting officer before accepting.' end
+    if memberFor(characterId) then return false, 'You are already a Police member.' end
     local rival = rivalMember(characterId)
     if rival then return false, ('You are already a member of %s. Leave that organization before joining Police.'):format(rival.orgLabel) end
     local recruit = MySQL.single.await('SELECT id, name FROM cm_police_ranks WHERE is_leader = 0 ORDER BY tier ASC LIMIT 1')
+    if not recruit then return false, 'Police has no entry rank configured.' end
     local ok = MySQL.transaction.await({
         { query = 'INSERT INTO cm_police_members (character_id, rank_id) VALUES (?, ?)', values = { characterId, recruit.id } },
         { query = 'DELETE FROM cm_police_invites WHERE character_id = ?', values = { characterId } },
@@ -1594,6 +1664,8 @@ CreateThread(function()
             id = Config.OrganizationId, label = 'Police Department',
             resource = GetCurrentResourceName(), icon = 'shield-alt', canRemoveLeader = true,
             canManageFacilities = true,
+            canManageNpcs = true, canManageFleet = true, canManageCapabilities = true, canManageArmory = true, canManageAlpr = true,
+            canManageBarricades = true,
             facilityTypes = {
                 { id = 'front_desk', label = 'Front desk NPC' },
                 { id = 'armory', label = 'Armory NPC' },

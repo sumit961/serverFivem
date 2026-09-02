@@ -16,6 +16,37 @@ local function add(id, label, order)
     exports[Config.PlayerDataResource]:RegisterInteractionOption(PAGE, { id = id, action = id, label = label, icon = 'gavel', type = 'extension', order = order, close = true })
 end
 
+local function addInvite(label)
+    exports[Config.PlayerDataResource]:RegisterInteractionOption(PAGE, {
+        id = 'law_invite', action = 'law_invite', label = label, icon = 'gavel', order = 30, close = true,
+        type = 'clientEvent', event = 'cm-law:client:confirmInvite',
+    })
+end
+
+RegisterNetEvent('cm-law:client:confirmInvite', function(targetServerId)
+    local mine = LocalPlayer.state.cmLegalOrg
+    local label = type(mine) == 'table' and (mine.shortLabel or mine.label) or 'Organization'
+    local result = lib.alertDialog({
+        header = ('%s Invitation'):format(label), content = ('Invite the selected nearby player to %s?'):format(label),
+        centered = true, cancel = true, labels = { confirm = 'Send Invite', cancel = 'Cancel' },
+    })
+    if result == 'confirm' then TriggerServerEvent('cm-playerdata:server:extensionInteraction', targetServerId, 'law_invite', {}) end
+end)
+
+RegisterNetEvent('cm-law:client:invite', function(data)
+    data = type(data) == 'table' and data or {}
+    CreateThread(function()
+        local result = lib.alertDialog({
+            header = 'Organization Invitation',
+            content = ('%s invited you to join **%s** as **%s**.'):format(
+                tostring(data.inviter or 'An authorized member'), tostring(data.organization or 'a legal organization'), tostring(data.rank or 'Recruit')),
+            centered = true, cancel = true, labels = { confirm = 'Accept', cancel = 'Decline' },
+        })
+        local ok, message = lib.callback.await('cm-law:server:respondInvite', false, data.organizationId, result == 'confirm')
+        TriggerEvent('cm-hud:client:notify', message or 'Invitation response failed.', ok and 'success' or 'error')
+    end)
+end)
+
 local function addSearchRow(id, label, description, order)
     exports[Config.PlayerDataResource]:RegisterInteractionOption(PAGE, {
         id = id, label = label, description = description, icon = 'gavel', type = 'noop', order = order, close = false,
@@ -108,7 +139,7 @@ local function rebuild(targetServerId)
         local theirs = Player(targetServerId).state.cmLegalOrg
         if theirs == false then theirs = nil end
         if not theirs then
-            add('law_invite', ('Invite to %s'):format(mine.shortLabel or 'Organization'), 30)
+            addInvite(('Invite to %s'):format(mine.shortLabel or 'Organization'))
         elseif theirs.id == mine.id and theirs.isLeader ~= true and (tonumber(mine.tier) or 0) > (tonumber(theirs.tier) or 0) then
             add('law_promote', 'Promote Member', 31)
             add('law_demote', 'Demote Member', 32)

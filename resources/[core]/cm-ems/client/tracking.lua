@@ -60,6 +60,17 @@ RegisterNetEvent('cm-ems:client:setMeetingPoint', function(data)
     if lib then lib.notify({ title = 'EMS meeting point', description = tostring(data.setterName or 'EMS leadership') .. ' set a meeting point.', type = 'inform' }) end
 end)
 
+RegisterNetEvent('cm-ems:client:clearMeetingPoint', function()
+    if meetingBlip and DoesBlipExist(meetingBlip) then
+        -- Only drop the route if it is still ours: the player may have set
+        -- their own waypoint since, and clearing that would be rude.
+        SetBlipRoute(meetingBlip, false)
+        RemoveBlip(meetingBlip)
+    end
+    meetingBlip = nil
+    if lib then lib.notify({ title = 'EMS meeting point', description = 'Meeting point cleared.', type = 'inform' }) end
+end)
+
 AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end
     clearMembers()

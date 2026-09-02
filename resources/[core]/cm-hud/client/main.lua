@@ -1,5 +1,9 @@
 -- cm-hud/client/main.lua
 
+-- Keep the HUD notification layer above focused resource NUIs. External UI
+-- hiding still suppresses every normal HUD module in CSS.
+SetNuiZindex(1000)
+
 local currentHealth = 200
 local currentArmor = 0
 local currentCash = 0
@@ -1349,6 +1353,82 @@ RegisterNetEvent('cm-hud:notify', function(text, type)
     Notify(text, type)
 end)
 
+-- Reusable local-only event announcement contract. The owning event resource
+-- decides which clients are eligible; cm-hud only sanitizes and presents it.
+local function eventText(value, fallback, maxLength)
+    local text = tostring(value or fallback or ''):gsub('[\r\n\t]', ' ')
+    return text:sub(1, maxLength)
+end
+
+local function ShowEventNotification(payload)
+    if type(payload) ~= 'table' then return false end
+    local accent = tostring(payload.accent or '#4fd1ff')
+    if not accent:match('^#%x%x%x%x%x%x$') then accent = '#4fd1ff' end
+    SendNUIMessage({
+        action = 'showEventNotification',
+        event = {
+            id = eventText(payload.id, 'event', 64),
+            eyebrow = eventText(payload.eyebrow, 'EVENT STARTING', 30),
+            title = eventText(payload.title, 'SERVER EVENT', 64),
+            subtitle = eventText(payload.subtitle, '', 96),
+            primaryKey = eventText(payload.primaryKey, '', 8),
+            primaryText = eventText(payload.primaryText, '', 32),
+            secondaryKey = eventText(payload.secondaryKey, '', 8),
+            secondaryText = eventText(payload.secondaryText, '', 32),
+            startsAt = tonumber(payload.startsAt) or 0,
+            duration = math.floor(clampNumber(payload.duration, 3000, 60000, 7000)),
+            accent = accent,
+            image = eventText(payload.image, '', 180),
+            notificationKey = eventText(payload.notificationKey or payload.id, '', 96)
+        }
+    })
+    return true
+end
+
+exports('ShowEventNotification', ShowEventNotification)
+
+-- Shared offer presentation. The calling resource remains authoritative for
+-- eligibility, expiry and accept/decline handling; cm-hud never performs the
+-- offered operation and never trusts this display payload as permission.
+local function ShowOffer(payload)
+    if type(payload) ~= 'table' or not isPlayerLoggedIn() then return false end
+    local offerId = eventText(payload.id, '', 64)
+    if offerId == '' then return false end
+
+    SendNUIMessage({
+        action = 'showOffer',
+        offer = {
+            id = offerId,
+            eyebrow = eventText(payload.eyebrow, 'NEW OFFER', 36),
+            title = eventText(payload.title, 'Do you want to accept?', 72),
+            sender = eventText(payload.sender, '', 48),
+            senderId = eventText(payload.senderId, '', 18),
+            distance = eventText(payload.distance, '', 18),
+            icon = eventText(payload.icon, 'offer', 18),
+            acceptKey = eventText(payload.acceptKey, 'Y', 8),
+            acceptText = eventText(payload.acceptText, 'Accept', 24),
+            declineKey = eventText(payload.declineKey, 'N', 8),
+            declineText = eventText(payload.declineText, 'Decline', 24),
+            duration = math.floor(clampNumber(payload.duration, 3000, 60000, 15000)),
+            accent = (function()
+                local accent = tostring(payload.accent or '#4fd1ff')
+                return accent:match('^#%x%x%x%x%x%x$') and accent or '#4fd1ff'
+            end)()
+        }
+    })
+    return true
+end
+
+local function HideOffer(offerId)
+    SendNUIMessage({ action = 'hideOffer', id = eventText(offerId, '', 64) })
+    return true
+end
+
+exports('ShowOffer', ShowOffer)
+exports('HideOffer', HideOffer)
+AddEventHandler('cm-hud:client:showOffer', ShowOffer)
+AddEventHandler('cm-hud:client:hideOffer', HideOffer)
+
 -- ============================================================
 -- WEAPON AMMO (authoritative source = cm-inventory ammo slot)
 -- cm-inventory sends the real bullet count. We never use GetAmmoInPedWeapon
@@ -1383,6 +1463,14 @@ end)
 RegisterNetEvent('cm-hud:client:updateWeapon', function(data)
     data = type(data) == 'table' and data or {}
     sendWeaponAmmo(data.equipped == false and nil or data.weapon, data.ammo, data.ammoItem)
+end)
+
+RegisterNetEvent('cm-hud:client:updateDevBucket', function(bucket, visible)
+    SendNUIMessage({
+        action = 'updateDevBucket',
+        bucket = tonumber(bucket) or 0,
+        visible = visible == true
+    })
 end)
 
 -- When the weapon is holstered/unequipped, hide the panel.

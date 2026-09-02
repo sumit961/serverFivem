@@ -16,6 +16,7 @@ local function authorizedOfficer(src)
 end
 
 lib.callback.register('cm-police:server:toggleClamp', function(src, netId)
+    if type(PoliceCapabilityEnabled) == 'function' and not PoliceCapabilityEnabled('clamp') then return false, 'Police clamps are disabled.' end
     if not rateLimit(src, 'police_toggle_clamp', 1000) then return false, 'Please wait.' end
     local actor, actorCid = authorizedOfficer(src)
     if not actor then return false, 'You must be an on-duty officer with clamp permission.' end
@@ -27,12 +28,17 @@ lib.callback.register('cm-police:server:toggleClamp', function(src, netId)
 
     local officerPed = GetPlayerPed(src)
     if not officerPed or officerPed == 0 then return false, 'Officer not found.' end
+    if GetEntityRoutingBucket(officerPed) ~= GetEntityRoutingBucket(vehicle) then return false, 'Vehicle is in another routing instance.' end
     if #(GetEntityCoords(officerPed) - GetEntityCoords(vehicle)) > (Config.Clamp.MaxDistance or 3.0) then
         return false, 'You are too far from the vehicle.'
     end
 
     local clamped = Entity(vehicle).state.cmWheelClamped == true
     Entity(vehicle).state:set('cmWheelClamped', not clamped, true)
-    log(actorCid, clamped and 'vehicle_unclamped' or 'vehicle_clamped', {})
+    Entity(vehicle).state:set('cmWheelClampAuthority', not clamped and {
+        organizationId = 'police', officerCid = actorCid,
+        vehicleId = tonumber(Entity(vehicle).state.cmVehicleId), timestamp = os.time(),
+    } or false, true)
+    log(actorCid, clamped and 'vehicle_unclamped' or 'vehicle_clamped', { vehicleId = tonumber(Entity(vehicle).state.cmVehicleId) })
     return true, clamped and 'Wheel clamp removed.' or 'Wheel clamp applied.'
 end)

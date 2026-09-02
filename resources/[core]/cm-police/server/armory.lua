@@ -149,7 +149,53 @@ lib.callback.register('cm-police:server:setArmoryWeapon', function(src, itemName
     return true, message
 end)
 
+exports('AdminGetArmory', function(src)
+    src = tonumber(src)
+    local permitted = false
+    pcall(function() permitted = exports[Config.AdminResource]:HasPermission(src, Config.AdminPermission) == true end)
+    if not permitted then return {ok=false,error='Permission denied.'} end
+    local enabled, stock, items = enabledItemNames(), {}, armoryCatalog()
+    for _,row in ipairs(MySQL.query.await("SELECT item_name,min_tier,issue_amount FROM cm_legal_armory_stock WHERE organization_id='police'") or {}) do stock[tostring(row.item_name)]=row end
+    for _,item in ipairs(items) do local row=stock[item.itemName]; item.enabled=enabled[item.itemName]==true; item.minTier=row and tonumber(row.min_tier) or 0; item.issueAmount=row and tonumber(row.issue_amount) or item.issueAmount or 1 end
+    return {ok=true,items=items}
+end)
+
+exports('AdminConfigureArmory', function(src, _, data)
+    src,data=tonumber(src),type(data)=='table' and data or {}
+    local permitted = false
+    pcall(function() permitted = exports[Config.AdminResource]:HasPermission(src, Config.AdminPermission) == true end)
+    if not permitted then return false,'Permission denied.' end
+    local characterId = tostring(cid(src) or 'admin')
+    local item=armoryItem(data.itemName); if not item then return false,'That item is not in the Police equipment catalog.' end
+    local tier=math.max(0,math.min(100,math.floor(tonumber(data.minTier) or 0)))
+    local issue=math.max(1,math.min(250,math.floor(tonumber(data.issueAmount) or item.issueAmount or 1)))
+    MySQL.insert.await([[INSERT INTO cm_legal_armory_catalog (item_name,enabled,set_by) VALUES (?,?,?)
+        ON DUPLICATE KEY UPDATE enabled=VALUES(enabled),set_by=VALUES(set_by)]],{item.itemName,data.enabled==true and 1 or 0,characterId})
+    MySQL.insert.await([[INSERT INTO cm_legal_armory_stock (organization_id,item_name,enabled,stock,max_stock,issue_amount,min_tier,updated_by)
+        VALUES ('police',?,?,0,10,?,?,?) ON DUPLICATE KEY UPDATE enabled=VALUES(enabled),issue_amount=VALUES(issue_amount),min_tier=VALUES(min_tier),updated_by=VALUES(updated_by)]],
+        {item.itemName,data.enabled==true and 1 or 0,issue,tier,characterId})
+    local linkedAmmoName
+    if data.enabled == true and item.itemType == 'weapon' and GetResourceState('cm-gunstore') == 'started' then
+        local ok, ammo = pcall(function() return exports['cm-gunstore']:GetWeaponAmmo(item.itemName) end)
+        linkedAmmoName = ok and type(ammo) == 'table' and tostring(ammo.item_name or ammo.itemName or '') or nil
+        local linkedItem = linkedAmmoName and linkedAmmoName ~= '' and armoryItem(linkedAmmoName) or nil
+        if linkedItem and linkedItem.itemType == 'ammo' then
+            MySQL.insert.await([[INSERT INTO cm_legal_armory_catalog (item_name,enabled,set_by) VALUES (?,1,?)
+                ON DUPLICATE KEY UPDATE enabled=1,set_by=VALUES(set_by)]], { linkedAmmoName, characterId })
+            MySQL.insert.await([[INSERT INTO cm_legal_armory_stock
+                (organization_id,item_name,enabled,stock,max_stock,issue_amount,min_tier,updated_by)
+                VALUES ('police',?,1,0,1000,1,?,?) ON DUPLICATE KEY UPDATE enabled=1,min_tier=VALUES(min_tier),updated_by=VALUES(updated_by)]],
+                { linkedAmmoName, tier, characterId })
+        else
+            linkedAmmoName = nil
+        end
+    end
+    return true, linkedAmmoName and ('Police armory configuration saved. Linked ammunition %s was enabled.'):format(linkedAmmoName)
+        or 'Police armory configuration saved.'
+end)
+
 lib.callback.register('cm-police:server:armoryAvailable', function(src)
+    if type(PoliceCapabilityEnabled)=='function' and not PoliceCapabilityEnabled('armory') then return {} end
     local member = authorizedMember(src)
     if not member then return {} end
     local enabled = enabledItemNames()
@@ -230,45 +276,9 @@ local function grantArmoryWeapon(src, characterId, itemName, itemType, amount)
 end
 
 lib.callback.register('cm-police:server:armoryCheckout', function(src, itemName)
-    local member, characterId = authorizedMember(src)
-    if not member then return false, 'You must be an on-duty officer.' end
-    if not IsNearPoliceFacilityNpc(src, 'armory_npc') then return false, 'You must be at the Police armory NPC.' end
-    if not rateLimit(src, 'police_armory_checkout', 1000) then return false, 'Please wait.' end
-    itemName = tostring(itemName or '')
-    local lockKey = ('armory:%s:%s'):format(characterId, itemName)
-    if not AcquirePoliceOperationLock(lockKey, src, 10000) then return false, 'That checkout is already being processed.' end
-    local function finish(ok, message)
-        ReleasePoliceOperationLock(lockKey, src)
-        return ok, message
-    end
-    local enabled = enabledItemNames()
-    if not enabled[itemName] then return finish(false, 'That weapon is not available in the armory.') end
-    local item = armoryItem(itemName)
-    if not item then return finish(false, 'That item is no longer available from the equipment catalog.') end
-    local stock = MySQL.single.await([[SELECT stock,issue_amount FROM cm_legal_armory_stock
-        WHERE organization_id='police' AND item_name=? LIMIT 1]], { itemName })
-    local issueAmount = stock and math.max(1, tonumber(stock.issue_amount) or item.issueAmount or 1) or (item.issueAmount or 1)
-    if not stock or tonumber(stock.stock) < issueAmount then return finish(false, 'That equipment is out of stock.') end
-    local operationId = BeginPoliceOperation('armory_checkout', characterId, nil, 0, { itemName = itemName })
-    if not operationId then return finish(false, 'Could not start the checkout operation.') end
-    local changed = MySQL.update.await([[UPDATE cm_legal_armory_stock SET stock=stock-?
-        WHERE organization_id='police' AND item_name=? AND stock>=?]], { issueAmount, itemName, issueAmount })
-    if tonumber(changed) ~= 1 then
-        FinishPoliceOperation(operationId, 'refunded', { reason = 'out_of_stock', itemGranted = false })
-        return finish(false, 'That equipment is out of stock.')
-    end
-    local ok, err = grantArmoryWeapon(src, characterId, itemName, item.itemType, issueAmount)
-    if not ok then
-        MySQL.update.await([[UPDATE cm_legal_armory_stock SET stock=stock+?,max_stock=GREATEST(max_stock,stock)
-            WHERE organization_id='police' AND item_name=?]], { issueAmount, itemName })
-        FinishPoliceOperation(operationId, 'refunded', { reason = tostring(err), itemGranted = false })
-        return finish(false, ('Could not issue that weapon (%s).'):format(tostring(err)))
-    end
-    -- The accountability log the whole feature is for -- already visible in
-    -- the existing F7 Activity Logs tab, no separate armory-log UI needed.
-    log(characterId, 'armory_checkout', { itemName = itemName, amount = issueAmount, itemType = item.itemType })
-    FinishPoliceOperation(operationId, 'completed', { itemName = itemName, amount = issueAmount, itemType = item.itemType, itemGranted = true })
-    return finish(true, 'Department equipment checked out.')
+    if type(PoliceCapabilityEnabled)=='function' and not PoliceCapabilityEnabled('armory') then return false,'Police armory is disabled.' end
+    if GetResourceState('cm-law') ~= 'started' then return false, 'Shared Law armory is unavailable.' end
+    return exports['cm-law']:CheckoutOrganizationArmoryItem(src, 'police', itemName)
 end)
 
 AddEventHandler('cm-police:server:memberWentOffDuty', function(src, characterId, reason)
@@ -284,13 +294,16 @@ AddEventHandler('cm-police:server:memberWentOffDuty', function(src, characterId,
         print(('[cm-police] failed to reclaim department equipment for character %s'):format(tostring(characterId)))
         return
     end
-    for _, item in ipairs(type(removed) == 'table' and removed or {}) do
+    removed = type(removed) == 'table' and removed or {}
+    for _, item in ipairs(removed) do
         if item.issueId then
-            MySQL.update.await([[UPDATE cm_legal_armory_issues SET status='returned'
+            local changed = MySQL.update.await([[UPDATE cm_legal_armory_issues SET status='returned'
                 WHERE id=? AND organization_id='police' AND character_id=? AND status='issued']],
                 { item.issueId, tostring(characterId) })
-            MySQL.update.await([[UPDATE cm_legal_armory_stock SET stock=stock+?,max_stock=GREATEST(max_stock,stock)
-                WHERE organization_id='police' AND item_name=?]], { item.quantity, item.itemName })
+            if tonumber(changed) == 1 then
+                MySQL.update.await([[UPDATE cm_legal_armory_stock SET stock=LEAST(max_stock,stock+?)
+                    WHERE organization_id='police' AND item_name=?]], { item.quantity, item.itemName })
+            end
         end
     end
     if #removed > 0 then log(characterId, 'armory_automatic_return', { reason = reason, items = removed }) end

@@ -12,8 +12,14 @@ Config.OrganizationId = 'ems'
 Config.AdminPermission = 'ems.admin.manage'
 Config.MenuCommand = 'ems'
 Config.MenuKey = 'F6' -- physical mapping is owned centrally by cm-core/client/organization-keys.lua
-Config.InviteSeconds = 120
+Config.InviteSeconds = 60
 Config.LogLimit = 100
+
+-- Retention sweep (server/retention.lua). The dashboard only ever reads the
+-- newest Config.LogLimit rows, so older activity is unreachable dead weight.
+Config.LogRetentionDays = 90        -- delete cm_ems_activity rows after this many days
+Config.IncidentRetentionDays = 30   -- delete closed/expired dispatch calls after this many days
+Config.RetentionSweepMs = 21600000  -- how often to sweep (6 hours)
 
 -- Public hospital appearance services. cm-characters remains authoritative
 -- for editing and saving the active character's appearance.

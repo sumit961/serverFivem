@@ -1,0 +1,15 @@
+{
+  "fxServerPath": "",
+  "txDataPath": "",
+  "txAdminProfile": "default",
+  "serverDataRoot": "",
+  "host": "127.0.0.1",
+  "fivemPort": 30120,
+  "rconPasswordEnvironmentVariable": "CM_FIVEM_RCON_PASSWORD",
+  "rconResponseTimeoutMilliseconds": 1500,
+  "logDirectory": "",
+  "startupTimeoutSeconds": 120,
+  "consoleObservationSeconds": 15,
+  "expectedCoreResources": ["cm-core", "cm-playerdata"],
+  "developmentOnly": true
+}

@@ -164,6 +164,8 @@ RegisterNUICallback('facilityDialogueContinue', function(_, cb)
             TriggerEvent('cm-law:client:openArmory', result.organizationId, result.label)
         elseif result.action == 'fleet' then
             OpenLawMenu('fleet')
+        elseif result.action == 'impound' then
+            TriggerEvent('cm-law:client:openImpoundRelease')
         elseif result.message then notify(result.message, 'success') end
     end)
 end)

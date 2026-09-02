@@ -149,7 +149,7 @@ RegisterCommand('policequickmenu', function()
     PoliceQuickMenu('Police Quick Actions', options)
 end, false)
 
-RegisterNetEvent('cm-police:client:openLawQuickMenu', function(state)
+local function openLawQuickMenu(state)
     if type(state) ~= 'table' or state.onDuty ~= true then return end
     local permissions = type(state.permissions) == 'table' and state.permissions or {}
     local capabilities = type(state.capabilities) == 'table' and state.capabilities or {}
@@ -183,5 +183,56 @@ RegisterNetEvent('cm-police:client:openLawQuickMenu', function(state)
         options[#options + 1] = { title = 'Road Equipment', description = 'Spike strips and barricades', icon = 'road-barrier',
             onSelect = function() PoliceQuickMenu('Road Equipment', road) end }
     end
+    local enforcement = {}
+    if capabilities.citations ~= false and (leader or permissions['law.cite'] == true) then
+        enforcement[#enforcement + 1] = { title = 'Issue Citation', description = 'Fine the nearest citizen from the approved catalog', icon = 'file-invoice-dollar',
+            onSelect = function()
+                local closest, closestDistance
+                local myCoords = GetEntityCoords(PlayerPedId())
+                for _, player in ipairs(GetActivePlayers()) do
+                    if player ~= PlayerId() then
+                        local distance = #(myCoords - GetEntityCoords(GetPlayerPed(player)))
+                        if distance <= 4.0 and (not closestDistance or distance < closestDistance) then
+                            closest, closestDistance = GetPlayerServerId(player), distance
+                        end
+                    end
+                end
+                if not closest then return PoliceNotify('No citizen is close enough.', 'error') end
+                local catalog = lib.callback.await('cm-law:server:citationCatalog', false) or {}
+                local choices = {}
+                for _, violation in ipairs(catalog) do
+                    choices[#choices + 1] = { value = violation.id, label = ('%s - $%d'):format(violation.label, violation.fine) }
+                end
+                if #choices == 0 then return PoliceNotify('No citations are available to your rank.', 'error') end
+                local input = lib.inputDialog('Issue Citation', {
+                    { type = 'select', label = 'Violation', options = choices, required = true },
+                })
+                if not input or not input[1] then return end
+                local ok, message = lib.callback.await('cm-law:server:issueCitation', false, closest, input[1])
+                PoliceNotify(message or 'Citation failed.', ok and 'success' or 'error')
+            end }
+    end
+    if capabilities.radar ~= false and (leader or permissions['law.radar'] == true) then
+        enforcement[#enforcement + 1] = { title = 'Speed Radar', icon = 'gauge-high', onSelect = PoliceToggleRadar }
+    end
+    if capabilities.clamp ~= false and (leader or permissions['law.clamp'] == true) then
+        enforcement[#enforcement + 1] = { title = 'Wheel Clamp', icon = 'lock', onSelect = PoliceToggleClamp }
+    end
+    if capabilities.impound ~= false and (leader or permissions['law.impound'] == true) then
+        enforcement[#enforcement + 1] = { title = 'Start Vehicle Impound', description = 'Document and photograph the nearest vehicle before towing', icon = 'truck-ramp-box',
+            onSelect = function() TriggerEvent('cm-police:client:startSharedImpound') end }
+        enforcement[#enforcement + 1] = { title = 'Attach / Detach Tow', description = 'Operate the current organization tow truck', icon = 'truck-tow',
+            onSelect = function() ExecuteCommand('policetow') end }
+    end
+    if #enforcement > 0 then
+        options[#options + 1] = { title = 'Enforcement', description = 'Citations, radar, and vehicle clamp', icon = 'scale-balanced',
+            onSelect = function() PoliceQuickMenu('Enforcement', enforcement) end }
+    end
+    if capabilities.k9 ~= false and (leader or permissions['law.k9'] == true) then
+        options[#options + 1] = { title = 'K9 Commands', description = 'Deploy and command an authorized K9', icon = 'dog', onSelect = PoliceK9Menu }
+    end
     PoliceQuickMenu((state.label or state.shortLabel or 'Legal Organization') .. ' Quick Actions', options)
-end)
+end
+
+RegisterNetEvent('cm-law:client:openLawQuickMenu', openLawQuickMenu)
+RegisterNetEvent('cm-police:client:openLawQuickMenu', openLawQuickMenu)

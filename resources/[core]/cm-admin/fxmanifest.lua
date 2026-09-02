@@ -20,6 +20,7 @@ server_scripts {
     '@oxmysql/lib/MySQL.lua',
     'server/devtools.lua',
     'server/organizations.lua',
+    'server/gangs.lua',
     'server/main.lua'
 }
 

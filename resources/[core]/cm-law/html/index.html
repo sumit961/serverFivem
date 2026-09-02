@@ -3,14 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css"><link rel="stylesheet" href="nui://cm-ui/web/cm-dashboard.css"><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="police-dashboard.css"><link rel="stylesheet" href="dispatch-board.css">
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-dashboard.css">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="police-dashboard.css?v=5">
+  <link rel="stylesheet" href="dispatch-board.css">
+  <link rel="stylesheet" href="command-center.css?v=17">
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-armory.css?v=7">
+  <link rel="stylesheet" href="law-armory-v4.css?v=2">
   <title>CM Legal Organization</title>
 </head>
 <body>
   <main id="app" class="hidden">
     <section class="shell">
       <aside class="side">
-        <div class="brand"><div class="logo">★</div><div><small id="shortLabel">LEGAL ORGANIZATION</small><h1 id="orgLabel">Organization</h1><p id="jurisdiction"></p></div></div>
+        <div class="brand">
+          <div class="brand-mark"><img id="brandLogo" src="assets/org/default.svg" alt="Organization emblem"></div>
+          <div class="brand-copy"><small id="shortLabel">LEGAL ORGANIZATION</small><h1 id="orgLabel">Organization</h1><p id="jurisdiction"></p></div>
+        </div>
         <div class="identity">
           <div><span>YOUR RANK</span><strong id="rankName">—</strong></div>
           <div><span>DUTY STATUS</span><strong id="dutyStatus">Off duty</strong></div>
@@ -21,18 +31,68 @@
           <button class="tab" data-tab="ranks" id="ranksTab"><b>03</b><span>Ranks &amp; access<small>Manage permissions</small></span></button>
           <button class="tab hidden" data-tab="fleet" id="fleetTab"><b>04</b><span>Fleet vehicles<small>Rank and parking</small></span></button>
           <button class="tab hidden" data-tab="logs" id="logsTab"><b>05</b><span>Activity logs<small>Organization history</small></span></button>
-          <button class="tab hidden" data-tab="dispatch" id="dispatchTab"><b>06</b><span>Dispatch<small>Shared law calls</small></span></button>
-          <button class="tab hidden" data-tab="mdt" id="mdtTab"><b>07</b><span>MDT<small>Shared legal records</small></span></button>
-          <button class="tab" data-tab="staffing" id="staffingTab"><b>08</b><span>Staffing<small>Hire and manage</small></span></button>
+          <button class="tab hidden" data-tab="logistics" id="logisticsTab"><b>08</b><span>Logistics<small>Routine Army supply</small></span></button>
         </nav>
         <div class="side-foot">ESC to close</div>
       </aside>
       <div class="workspace">
         <header><h2 id="pageTitle">Overview</h2><button class="icon" data-close aria-label="Close">×</button></header>
         <div class="content">
-          <section id="overviewView" class="view">
-            <div class="section-head"><div><small>ORGANIZATION CONTROL</small><h3>Operational overview</h3><p>Membership, rank, dispatch, fleet and shared records.</p></div></div>
-            <div id="overviewStats" class="stats"></div>
+          <section id="overviewView" class="view org-overview command-center-overview">
+            <div class="command-stage">
+              <div class="command-stage__content">
+                <div class="command-stage__eyebrow"><span class="eyebrow-dot"></span><span id="overviewShortLabel">LEGAL ORGANIZATION</span><span>COMMAND DESK</span></div>
+                <div class="command-stage__title-row">
+                  <div>
+                    <h2 id="overviewOrgName">Organization</h2>
+                    <p id="overviewJurisdiction">Authorized jurisdiction</p>
+                  </div>
+                  <span id="overviewDutyBadge" class="status-pill">OFF DUTY</span>
+                </div>
+                <div class="command-stage__identity">
+                  <div><small>YOUR RANK</small><strong id="overviewRank">—</strong></div>
+                  <div><small>CHARACTER</small><strong id="overviewCharacterId">CID —</strong></div>
+                  <div><small>TERMINAL</small><strong>F6 / ORGANIZATION</strong></div>
+                </div>
+                <div id="overviewStats" class="stats command-stats"></div>
+                <article class="command-shift-card">
+                  <div class="panel-title"><div><small>YOUR SHIFT</small><h3>Current assignment</h3></div><span class="panel-kicker" id="overviewShiftKicker">READY</span></div>
+                  <div id="overviewShift" class="shift-summary"></div>
+                </article>
+              </div>
+              <div class="command-stage__visual" aria-hidden="true">
+                <div class="command-geo command-geo--one"></div><div class="command-geo command-geo--two"></div><div class="command-geo command-geo--three"></div>
+                <img id="overviewCharacterArt" src="assets/org/default-officer.svg" alt="">
+                <div class="command-stage__watermark"><span id="overviewWatermark">LAW</span><small>FIELD OPERATIONS</small></div>
+              </div>
+            </div>
+            <div class="command-panels">
+              <article class="command-panel command-panel--capabilities">
+                <div class="panel-title"><div><small>ACTIVE CAPABILITIES</small><h3>Agency tools</h3></div><span class="panel-kicker" id="overviewCapabilityCount">0 ACTIVE</span></div>
+                <div id="overviewCapabilities" class="capability-pills"></div>
+              </article>
+              <article class="command-panel">
+                <div class="panel-title"><div><small>ON DUTY NOW</small><h3>Available units</h3></div><span class="panel-kicker" id="overviewDutyCount">0 UNIT</span></div>
+                <div id="overviewDutyRoster" class="duty-preview"></div>
+              </article>
+              <article id="overviewToolsPanel" class="command-panel command-panel--tools operations">
+                <div><small>FIELD COORDINATION</small><h3>Command tools</h3></div>
+                <div class="operation-actions">
+                  <button class="primary" id="memberMap">Member map</button>
+                  <button class="primary" id="meetingPoint">Meeting point</button>
+                  <button class="mini" id="clearMeeting">Clear meeting</button>
+                </div>
+              </article>
+              <article id="overviewActivityPanel" class="command-panel command-panel--activity">
+                <div class="panel-title"><div><small>RECENT ACTIVITY</small><h3>Organization feed</h3></div><span class="panel-kicker">LATEST</span></div>
+                <div id="overviewRecentActivity" class="activity-preview"></div>
+              </article>
+            </div>
+            <div class="command-keybar">
+              <div><kbd>F9</kbd><span><b>Dispatch</b><small>Open dedicated dispatch</small></span></div>
+              <div><kbd>TAB</kbd><span><b>MDT</b><small>Open records terminal</small></span></div>
+              <div><kbd>J</kbd><span><b>Quick Actions</b><small>Field tools &amp; Road Equipment</small></span></div>
+            </div>
           </section>
           <section id="rosterView" class="view hidden"><div id="roster" class="roster"></div></section>
           <section id="ranksView" class="view hidden">
@@ -55,6 +115,18 @@
             <div id="fleetRoster" class="fleet-roster"></div>
           </section>
           <section id="logsView" class="view hidden"><div id="activityLogList" class="log-list"></div></section>
+          <section id="logisticsView" class="view hidden">
+            <div class="section-head"><div><small>ARMY QUARTERMASTER</small><h3>Routine supply orders</h3><p>Requests reserve real Army armory stock before a temporary shipment is prepared.</p></div></div>
+            <form id="logisticsOrderForm" class="logistics-order-form hidden">
+              <label>Supply item<select id="logisticsItem"></select></label>
+              <label>Quantity<input id="logisticsQuantity" type="number" min="1" max="1000" value="1"></label>
+              <button type="submit">Submit request</button>
+            </form>
+            <p id="logisticsHint" class="hint"></p>
+            <div id="logisticsOrders" class="logistics-orders"></div>
+            <div class="section-head"><div><small>ARSENAL RESUPPLY</small><h3>Arsenal History</h3><p>Incoming stock secured by Army, extracted by gangs, or lost.</p></div><button id="arsenalHistoryRefresh" type="button">Refresh</button></div>
+            <div id="arsenalHistory" class="logistics-orders"><p class="hint">Open Logistics to load Arsenal history.</p></div>
+          </section>
             <section id="dispatchView" class="view hidden law-dispatch-board">
               <aside class="law-dispatch-summary"><small>CM LAW ENFORCEMENT</small><h2>EMERGENCY<br>CALLS</h2><p>One live feed shared by Police, Sheriff, FIB, Army, and authorized legal units.</p><div class="law-dispatch-counts"><div><span>ACTIVE CALLS</span><strong id="lawDispatchActiveCount">0</strong></div><div><span>ASSIGNED</span><strong id="lawDispatchAssignedCount">0</strong></div></div><div class="law-dispatch-mark"><span>★</span><b>LAW<br>DISPATCH</b></div></aside>
               <main class="law-dispatch-main"><div class="dispatch-toolbar"><div><small>LIVE OPERATIONS</small><h3>Law enforcement requests</h3></div><div class="actions"><button id="dispatchBackup">Request backup</button><button id="dispatchPanic" class="danger">Panic button</button></div></div><div class="law-dispatch-columns"><span>CALLER / LOCATION</span><span>STATUS / UNITS</span><span>ACTION</span></div><div id="dispatchActiveList" class="dispatch-list"></div><h3 class="dispatch-heading">Recent history</h3><div id="dispatchHistoryList" class="dispatch-list"></div></main>
@@ -65,10 +137,6 @@
               <aside id="lawMdtResults" class="law-mdt-results"><p class="hint">Search for a citizen or vehicle.</p></aside>
               <div id="lawMdtWorkspace" class="law-mdt-workspace"><div class="card"><p class="hint">Shared records are visible to every authorized legal organization.</p></div></div>
             </div>
-          </section>
-          <section id="staffingView" class="view hidden">
-            <form id="hireForm" class="hire"><label>Character ID<input id="hireCid" required maxlength="64" autocomplete="off"></label><label>Starting rank<select id="hireRank"></select></label><button type="submit">Add member</button></form>
-            <p class="hint">Leaders can only assign ranks below their own. Every staffing change is logged.</p>
           </section>
         </div>
       </div>
@@ -87,19 +155,29 @@
     <aside class="wardrobe-controls"><small>DUTY CLOTHING</small><h2 id="wardrobeTitle">Select clothing</h2><p>Outerwear, pants and shoes are required.</p><label>OPTION</label><div class="wardrobe-selector"><button id="wardrobePrev">&#8249;</button><strong id="wardrobeOption">--</strong><button id="wardrobeNext">&#8250;</button></div><label>COLOR</label><div class="wardrobe-selector"><button id="wardrobeColorPrev">&#8249;</button><strong id="wardrobeColor">--</strong><button id="wardrobeColorNext">&#8250;</button></div><button id="wardrobeDone" class="wardrobe-done">Wear uniform &amp; start duty</button><button id="wardrobeCancel">Cancel</button></aside>
   </section>
   <section id="legalArmory" class="legal-armory hidden">
-    <header class="legal-armory__header">
-      <div><small id="armoryOrg">LEGAL ORGANIZATION</small><h1>Department Armory</h1><p>Weapons, matching ammunition and protective vests</p></div>
-      <div class="legal-armory__status"><span>ON-DUTY ACCESS</span><span>LIVE STOCK</span><span>ISSUES LOGGED</span><button id="armoryManage" class="hidden">Manage stock</button><button id="armoryClose" aria-label="Close">&times;</button></div>
-    </header>
-    <nav id="armoryFilters" class="legal-armory__filters">
-      <button class="active" data-armory-filter="all">All equipment</button><button data-armory-filter="weapon">Weapons</button><button data-armory-filter="ammo">Ammunition</button><button data-armory-filter="vest">Protective vests</button>
-    </nav>
-    <div id="armoryGrid" class="legal-armory__grid"></div>
+    <aside class="legal-armory__rail">
+      <div class="legal-armory__vertical">ARMORY</div>
+      <div class="legal-armory__rail-head"><span>PROTECTIVE EQUIPMENT</span><strong id="lawArmorCount">0 MODELS</strong></div>
+      <div id="lawArmorList" class="legal-armory__armor-list"><p>No armor is enabled.</p></div>
+      <small id="armoryRailOrg">LEGAL ORGANIZATION</small>
+    </aside>
+    <main class="legal-armory__catalog">
+      <header class="legal-armory__header">
+        <div><small id="armoryOrg">LEGAL ORGANIZATION</small><h1>Armory Control</h1><p>Rank-controlled weapons, ammunition and protective equipment</p></div>
+        <div class="legal-armory__status"><span>LIVE STOCK</span><span>ISSUES LOGGED</span><button id="armoryManage" class="hidden">Manage stock</button><button id="armoryClose" aria-label="Close">&times;</button></div>
+      </header>
+      <nav id="armoryFilters" class="legal-armory__filters">
+        <button class="active" data-armory-filter="all">ALL <b id="lawArmoryCountAll">0</b></button><button data-armory-filter="weapon">WEAPONS <b id="lawArmoryCountWeapon">0</b></button><button data-armory-filter="ammo">AMMO <b id="lawArmoryCountAmmo">0</b></button><button data-armory-filter="vest">ARMOR <b id="lawArmoryCountVest">0</b></button>
+      </nav>
+      <div class="legal-armory__live"><span><i></i> LIVE SHARED STOCK</span><small>Only equipment authorized for your rank is shown</small></div>
+      <div id="armoryGrid" class="legal-armory__grid"></div>
+    </main>
     <section id="armoryManager" class="armory-manager hidden">
       <div class="armory-manager__head"><div><small>SHARED QUARTERMASTER CONTROL</small><h2>Equipment catalogue</h2><p>Enabled equipment appears in every legal organization. Stock remains separate.</p></div><div><button id="armoryLoadStock">Load this organization (+10 guns / +1,000 ammo)</button><button id="armoryManagerClose">Back to checkout</button></div></div>
       <div id="armoryManagerGrid" class="armory-manager__grid"></div>
     </section>
   </section>
-  <script src="app.js"></script>
+  <script src="app.js?v=9"></script>
+  <script src="dashboard-filters.js?v=1"></script>
 </body>
 </html>

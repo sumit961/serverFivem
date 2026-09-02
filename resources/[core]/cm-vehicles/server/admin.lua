@@ -409,8 +409,9 @@ exports('SpawnAdminVehicle', function(src, model, coords, opts)
     local invoker = GetInvokingResource()
     local allowlist = CMVehicles.Config.Placement
         and CMVehicles.Config.Placement.authorizedResources or {}
+    local trustedKinds = { car = true, boat = true, helicopter = true, airplane = true }
     local trustedPlacement = invoker and allowlist[invoker] == true
-        and (opts.placementKind == 'car' or opts.placementKind == 'helicopter')
+        and trustedKinds[tostring(opts.placementKind or '')] == true
     -- Never trust a caller-supplied internal flag. It is derived only from the
     -- invoking server resource allowlist above.
     opts.__trustedPlacement = trustedPlacement == true

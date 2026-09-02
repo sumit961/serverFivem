@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
   <link rel="stylesheet" href="nui://cm-ui/web/cm-dashboard.css">
-  <link rel="stylesheet" href="app.css?v=3">
+  <link rel="stylesheet" href="app.css?v=6">
   <link rel="stylesheet" href="ranks.css?v=1">
   <link rel="stylesheet" href="fleet.css?v=1">
   <link rel="stylesheet" href="outfits.css?v=1">
@@ -15,6 +15,8 @@
   <link rel="stylesheet" href="ui.css?v=2">
   <link rel="stylesheet" href="mdt-terminal.css?v=2">
   <link rel="stylesheet" href="theme.css?v=1">
+  <link rel="stylesheet" href="command-center.css?v=17">
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-armory.css?v=7">
 </head>
 <body>
   <aside class="npc-interaction" id="npcInteraction" hidden>
@@ -29,7 +31,7 @@
   <main id="app" hidden>
     <section class="shell">
       <aside class="side">
-        <div class="brand"><div class="logo">&#9733;</div><div><small>CM POLICE</small><h1>Police</h1><p id="memberRank">Organization</p></div></div>
+        <div class="brand"><div class="brand-mark"><img src="assets/org/lspd.svg" alt="LSPD emblem"></div><div class="brand-copy"><small>CM POLICE</small><h1>Los Santos Police</h1><p id="memberRank">Organization</p></div></div>
         <nav>
           <button class="nav active" data-page="overview"><b>01</b><span>Overview<small>Duty and status</small></span></button>
           <button class="nav" data-page="members"><b>02</b><span>Members<small>Roster and ranks</small></span></button>
@@ -38,8 +40,6 @@
           <button class="nav fleet-only" data-page="fleet"><b>05</b><span>Fleet vehicles<small>Patrol cars and more</small></span></button>
           <button class="nav logs-only" data-page="logs"><b>06</b><span>Activity logs<small>Organization history</small></span></button>
           <button class="nav logs-only" data-page="stats"><b>07</b><span>Officer stats<small>Activity leaderboard</small></span></button>
-          <button class="nav mdt-only" data-page="mdt"><b>08</b><span>MDT<small>Citizen and vehicle records</small></span></button>
-          <button class="nav dispatch-only" data-page="dispatch"><b>09</b><span>Dispatch<small>911 calls</small></span></button>
           <button class="nav armory-only" data-page="armory"><b>10</b><span>Armory<small>NPC checkout</small></span></button>
           <button class="nav admin-only" data-page="admin"><b>11</b><span>Administration<small>Assign Police leader</small></span></button>
         </nav>
@@ -48,11 +48,42 @@
       <div class="workspace">
         <header><div><small>POLICE ORGANIZATION</small><h2 id="pageTitle">Police operations</h2></div><button id="close">&times;</button></header>
         <div class="content">
-          <section class="page active" data-view="overview">
-            <div class="hero"><small>POLICE DEPARTMENT</small><h2>Police operations</h2><p>Manage your organization roster, ranks, and uniform access. Go on/off duty from the J quick-menu.</p></div>
-            <div class="stats" id="stats"></div>
-            <article class="card operations"><div><small>POLICE CONTROL</small><h3>Field coordination</h3><p>Live member map and meeting point. Fleet handling remains at the Fleet NPC.</p></div><div class="operation-actions"><button class="primary" id="memberMap">Toggle member map</button><button class="primary" id="meetingPoint">Set meeting point</button></div></article>
-            <article class="card operations manage-alpr-only"><div><small>ALPR</small><h3>Camera locations</h3><p>Every camera watches for vehicles on an active BOLO plate.</p></div><div class="list" id="alprCameraList"></div><div class="operation-actions"><button class="primary" id="addAlprCamera">Add camera (stand here)</button></div></article>
+          <section class="page active police-overview command-center-overview" data-view="overview">
+            <div class="command-stage police-command-stage">
+              <div class="command-stage__content">
+                <div class="command-stage__eyebrow"><span class="eyebrow-dot"></span><span>LOS SANTOS POLICE DEPARTMENT</span><span>COMMAND DESK</span></div>
+                <div class="command-stage__title-row">
+                  <div><h2>Police operations</h2><p>Department readiness, personnel and field capability in one view.</p></div>
+                  <span id="policeDutyBadge" class="status-pill">OFF DUTY</span>
+                </div>
+                <div class="command-stage__identity">
+                  <div><small>YOUR RANK</small><strong id="policeOverviewRank">—</strong></div>
+                  <div><small>CHARACTER</small><strong id="policeOverviewCid">CID —</strong></div>
+                  <div><small>TERMINAL</small><strong>F6 / ORGANIZATION</strong></div>
+                </div>
+                <div class="stats command-stats" id="stats"></div>
+                <article class="command-shift-card">
+                  <div class="overview-panel__head"><div><small>YOUR SHIFT</small><h3>Current assignment</h3></div><span class="panel-kicker" id="policeShiftKicker">READY</span></div>
+                  <div id="policeShiftSummary" class="shift-summary"></div>
+                </article>
+              </div>
+              <div class="command-stage__visual" aria-hidden="true">
+                <div class="command-geo command-geo--one"></div><div class="command-geo command-geo--two"></div><div class="command-geo command-geo--three"></div>
+                <img src="assets/org/lspd-officer.png" alt="">
+                <div class="command-stage__watermark"><span>LSPD</span><small>LOS SANTOS OPERATIONS</small></div>
+              </div>
+            </div>
+            <div class="command-panels">
+              <article class="command-panel command-panel--capabilities"><div class="overview-panel__head"><div><small>ACTIVE CAPABILITIES</small><h3>Department tools</h3></div><span class="panel-kicker" id="policeCapabilityCount">0 ACTIVE</span></div><div id="policeCapabilityPills" class="capability-pills"></div></article>
+              <article class="command-panel"><div class="overview-panel__head"><div><small>ON DUTY NOW</small><h3>Available officers</h3></div><span class="panel-kicker" id="policeDutyCount">0 UNIT</span></div><div id="policeDutyPreview" class="duty-preview"></div></article>
+              <article class="command-panel command-panel--activity"><div class="overview-panel__head"><div><small>RECENT ACTIVITY</small><h3>Department feed</h3></div><span class="panel-kicker">LATEST</span></div><div id="policeRecentActivity" class="activity-preview"></div></article>
+              <article id="policeCommandPanel" class="command-panel command-panel--tools"><div class="overview-panel__head"><div><small>COMMAND TOOLS</small><h3>Field coordination</h3></div><span class="panel-kicker">COMMAND</span></div><div class="operation-actions"><button class="primary" id="memberMap">Member map</button><button class="primary" id="meetingPoint">Meeting point</button><button class="mini" id="clearMeeting">Clear meeting</button></div></article>
+            </div>
+            <div class="command-keybar">
+              <div><kbd>F9</kbd><span><b>Dispatch</b><small>Dedicated dispatch screen</small></span></div>
+              <div><kbd>TAB</kbd><span><b>MDT</b><small>Dedicated records terminal</small></span></div>
+              <div><kbd>J</kbd><span><b>Quick Actions</b><small>Enforcement &amp; Road Equipment</small></span></div>
+            </div>
           </section>
           <section class="page" data-view="members"><div class="section-head"><div><small>ORGANIZATION ROSTER</small><h3>Police members</h3></div></div><div class="list" id="members"></div></section>
           <section class="page" data-view="ranks">
@@ -101,6 +132,8 @@
               <div class="mdt-profile-grid">
                 <div><h4>Citations</h4><div class="list" id="mdtCitations"></div></div>
                 <div><h4>Bookings</h4><div class="list" id="mdtBookings"></div></div>
+                <div><h4>Warrants</h4><div class="list" id="mdtWarrants"></div></div>
+                <div><h4>Reports</h4><div class="list" id="mdtReports"></div></div>
                 <div><h4>Impound history</h4><div class="list" id="mdtImpounds"></div></div>
                 <div><h4>Registered vehicles</h4><div class="list" id="mdtVehicles"></div></div>
               </div>
@@ -133,10 +166,11 @@
           <section class="page admin-only" data-view="admin">
             <div class="section-head"><div><small>ADMIN AUTHORITY</small><h3>Police management</h3><p>Leadership and staffing.</p></div></div>
             <article class="card form"><label>Leader character ID<input id="leaderCid" inputmode="numeric" placeholder="Character ID"></label><button class="primary danger" id="assignLeader">Assign leader</button></article>
-            <article class="card admin-panel"><h3>Staffing</h3><div class="admin-grid"><label>Character ID<input id="staffCid" inputmode="numeric"></label><label>Starting rank<select id="staffRank"></select></label><label>Suspension minutes<input id="staffMinutes" type="number" min="5" max="43200" value="60"></label><label>Reason<input id="staffReason" maxlength="160" placeholder="Administrative suspension"></label></div><div class="operation-actions"><button class="mini" data-staff-action="hire">Hire</button><button class="mini danger" data-staff-action="fire">Fire</button><button class="mini danger" data-staff-action="suspend">Suspend</button><button class="mini" data-staff-action="reinstate">Reinstate</button></div></article>
+              <article class="card admin-panel"><h3>Existing member administration</h3><p>New recruits must accept a nearby-player G-menu invitation. These controls only recover or manage existing members.</p><div class="admin-grid"><label>Character ID<input id="staffCid" inputmode="numeric"></label><label>Current member rank<select id="staffRank"></select></label><label>Suspension minutes<input id="staffMinutes" type="number" min="5" max="43200" value="60"></label><label>Reason<input id="staffReason" maxlength="160" placeholder="Administrative suspension"></label></div><div class="operation-actions"><button class="mini danger" data-staff-action="fire">Fire</button><button class="mini danger" data-staff-action="suspend">Suspend</button><button class="mini" data-staff-action="reinstate">Reinstate</button></div></article>
             <article class="card admin-panel"><h3>Booking, jail, and front desk configuration</h3><p>Stand at a location before saving it. Changes apply immediately and persist after restart.</p><div class="admin-grid"><label>Booking location name<input id="adminBookingName" maxlength="48" value="Police Booking Desk"></label><label>Jail location name<input id="adminJailName" maxlength="48" value="Prison Intake"></label><label>Service NPC location name<input id="adminServiceNpcName" maxlength="48" value="Police Front Desk"></label><label>Minutes per wanted star<input id="adminMinutesPerStar" type="number" min="1" max="120"></label><label>Booking radius (metres)<input id="adminBookingRadius" type="number" min="2" max="25" step="0.5"></label><label>Prison confirmation timeout (ms)<input id="adminHandoffTimeout" type="number" min="2000" max="15000" step="250"></label></div><div class="location-status"><p id="adminBookingDeskStatus">Booking desk: not configured</p><p id="adminJailIntakeStatus">Jail intake: not configured</p><p id="adminServiceNpcStatus">Police front desk: not configured</p><p id="adminJailWarning" class="danger-text"></p></div><div class="operation-actions"><button class="mini" id="adminSetBookingDesk">Set booking desk here</button><button class="mini" id="adminPreviewBookingDesk">Waypoint</button><button class="mini" id="adminTeleportBookingDesk">Teleport</button><button class="mini danger" id="adminResetBookingDesk">Reset</button></div><div class="operation-actions"><button class="mini" id="adminSetJailIntake">Set jail intake here</button><button class="mini" id="adminPreviewJailIntake">Waypoint</button><button class="mini" id="adminTeleportJailIntake">Teleport</button><button class="mini danger" id="adminResetJailIntake">Reset</button></div><div class="operation-actions"><button class="mini" id="adminSetServiceNpc">Set Police front desk here</button><button class="mini" id="adminPreviewServiceNpc">Waypoint</button><button class="mini" id="adminTeleportServiceNpc">Teleport</button><button class="mini danger" id="adminResetServiceNpc">Reset</button><button class="primary" id="adminSaveBookingRules">Save rules</button></div><div class="admin-grid"><label>Administrative custody release — Character ID<input id="adminCustodyReleaseCid" maxlength="64" placeholder="Character ID"></label></div><div class="operation-actions"><button class="mini danger" id="adminReleaseCustody">Clear cuffed/processing custody</button></div></article>
             <article class="card admin-panel" data-police-facilities><h3>Police facility NPCs</h3><p>Stand where each NPC should spawn, facing the direction it should look.</p><div class="location-status"><p id="adminArmoryNpcStatus">Armory NPC: not configured</p><p id="adminStorageNpcStatus">Storage NPC: not configured</p><p id="adminClothingNpcStatus">Clothing NPC: not configured</p></div><div class="operation-actions"><button class="mini" id="adminSetArmoryNpc">Set armory NPC here</button><button class="mini" id="adminPreviewArmoryNpc">Waypoint</button><button class="mini" id="adminTeleportArmoryNpc">Teleport</button><button class="mini danger" id="adminResetArmoryNpc">Reset</button></div><div class="operation-actions"><button class="mini" id="adminSetStorageNpc">Set storage NPC here</button><button class="mini" id="adminPreviewStorageNpc">Waypoint</button><button class="mini" id="adminTeleportStorageNpc">Teleport</button><button class="mini danger" id="adminResetStorageNpc">Reset</button></div><div class="operation-actions"><button class="mini" id="adminSetClothingNpc">Set clothing NPC here</button><button class="primary" id="adminOpenClothingMenu">Open clothing menu</button></div></article>
             <article class="card admin-panel"><h3>Impound Operator NPCs</h3><p id="impoundKioskStatus">No Impound Operators configured.</p><div class="operation-actions"><button class="primary" id="setImpoundKiosk">Add operator here</button><button class="mini danger" id="resetImpoundKiosks">Reset all operators</button></div></article>
+            <article class="card admin-panel manage-alpr-only"><div class="section-head"><div><small>ALPR CONFIGURATION</small><h3>Camera locations</h3><p>Every configured camera checks vehicles against active BOLO plates.</p></div></div><div class="list" id="alprCameraList"></div><div class="operation-actions"><button class="primary" id="addAlprCamera">Add camera (stand here)</button></div></article>
             <article class="card admin-panel"><div class="section-head"><div><small>ROAD CONTROL</small><h3>Barricade prop models</h3><p>Configure the prop models officers can cycle through with E/Q while placing barricades.</p></div></div><div class="list" id="barricadeCatalogList"></div><div class="operation-actions"><input id="barricadeModelInput" placeholder="Model name, e.g. prop_barrier_work05"><button class="primary" id="addBarricadeModel">Add model</button></div></article>
             <article class="card admin-panel"><h3>Police cinematic settings</h3><p>Controls apply immediately to Front Desk, booking, jail and impound sequences.</p><div class="admin-grid"><label><input id="adminCinematicEnabled" type="checkbox"> Enable cinematics</label><label><input id="adminCinematicSkip" type="checkbox"> Allow hold-ESC skip</label><label><input id="adminCinematicCollision" type="checkbox"> Prevent camera wall clipping</label><label><input id="adminCinematicSound" type="checkbox"> Enable cinematic sounds</label><label>Sequence speed<input id="adminCinematicSpeed" type="number" min="0.5" max="2" step="0.1"></label><label>Camera field of view<input id="adminCinematicFov" type="number" min="30" max="70"></label><label>NPC response duration (ms)<input id="adminCinematicResponse" type="number" min="1000" max="8000" step="100"></label><label>Sound volume gate<input id="adminCinematicVolume" type="number" min="0" max="1" step="0.1"></label></div><div class="operation-actions"><button class="primary" id="adminSaveCinematics">Save cinematic settings</button><button class="mini" id="adminPreviewBookingCinematic">Preview booking camera</button><button class="mini" id="adminPreviewImpoundCinematic">Preview impound camera</button></div></article>
             <article class="card admin-panel"><div class="section-head"><div><small>SHARED ARMORY MANAGEMENT</small><h3>All-organization equipment catalogue</h3><p>Configure equipment once for Police, Sheriff, FIB, Army, and every legal armory. Each organization keeps separate stock.</p></div><button class="primary" id="armoryLoadStock">Load Police stock (+10 guns / +1,000 ammo)</button></div><div class="list" id="armoryManageList"></div></article>
@@ -341,6 +375,12 @@
                   </div>
                 </div>
                 <div class="mdt-term-panel">
+                  <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">Warrants</span></div>
+                  <div class="mdt-term-panel-body">
+                    <div class="mdt-term-list mdt-term-list-scroll" id="mdtTermWarrants"></div>
+                  </div>
+                </div>
+                <div class="mdt-term-panel">
                   <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">Impound History</span></div>
                   <div class="mdt-term-panel-body">
                     <div class="mdt-term-list mdt-term-list-scroll" id="mdtTermImpounds"></div>
@@ -491,6 +531,7 @@
       <div class="impound-camera-controls"><b>ENTER</b> TAKE PHOTO <span></span> <b>ESC</b> CANCEL</div>
     </div>
   </div>
-  <script src="app.js?v=1"></script>
+  <script src="app.js?v=11"></script>
+  <script src="dashboard-filters.js?v=1"></script>
 </body>
 </html>

@@ -13,6 +13,7 @@ files {
     'web/cm-theme.css',
     'web/cm-dashboard.css',
     'web/cm-components.css',
+    'web/cm-armory.css',
     'web/cm-ui.js',
     'web/cm-icons.css',
     'web/fonts/*.ttf',

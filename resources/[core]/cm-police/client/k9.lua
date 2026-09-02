@@ -5,6 +5,9 @@ local scentBlip, scentToken = nil, 0
 local function notify(message, kind) PoliceNotify(message, kind) end
 
 local function serverCallback(name, ...)
+    if type(LocalPlayer.state.cmPolice) ~= 'table' and type(LocalPlayer.state.cmLegalOrg) == 'table' then
+        name = tostring(name):gsub('^cm%-police:', 'cm-law:')
+    end
     local result = table.pack(pcall(lib.callback.await, name, false, ...))
     if not result[1] then
         notify(('Police K9 callback failed: %s'):format(tostring(result[2] or 'unknown error')), 'error')
@@ -15,9 +18,15 @@ end
 
 local function canUseK9()
     local state = LocalPlayer.state.cmPolice
+    if type(state) == 'table' and state.onDuty == true then
+        local permissions = state.permissions or {}
+        return state.isLeader == true or permissions['police.k9'] == true
+    end
+    state = LocalPlayer.state.cmLegalOrg
     local permissions = type(state) == 'table' and (state.permissions or {}) or {}
-    return type(state) == 'table' and state.onDuty == true
-        and (state.isLeader == true or permissions['police.k9'] == true)
+    return type(state) == 'table' and state.onDuty == true and not state.suspended
+        and (not state.capabilities or state.capabilities.k9 ~= false)
+        and (state.isLeader == true or permissions['law.k9'] == true)
 end
 
 local function controlDog()
@@ -150,9 +159,12 @@ function PoliceK9StopAttack()
     if ok then heel() end
 end
 
-RegisterNetEvent('cm-police:client:k9ForceStop', function()
+local function forceStopK9()
     if PoliceIsK9Deployed() then heel(); notify('K9 attack authorization ended; K9 recalled to heel.', 'info') end
-end)
+end
+
+RegisterNetEvent('cm-law:client:k9ForceStop', forceStopK9)
+RegisterNetEvent('cm-police:client:k9ForceStop', forceStopK9)
 
 function PoliceK9Track()
     if not PoliceIsK9Deployed() then return notify('Deploy your K9 first.', 'error') end

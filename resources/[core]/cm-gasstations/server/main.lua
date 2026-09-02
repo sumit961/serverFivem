@@ -240,6 +240,9 @@ end
 local function validateManagedVehicle(src, netId, suppliedPlate, options)
     options = type(options) == 'table' and options or {}
     local entity = getNetworkVehicle(netId)
+    if entity and Entity(entity).state.cmLicenseTest == true then
+        return false, 'License examination vehicles cannot use fuel stations.'
+    end
     if not entity then return false, 'Vehicle is not available.' end
 
     local ped = GetPlayerPed(src)

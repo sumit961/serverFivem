@@ -1,0 +1,10 @@
+/* Family-specific armory delta. The full skin lives in the shared
+   nui://cm-ui/web/cm-armory.css (loaded before this file in index.html);
+   this only restores the sidebar's exit-button layout, mirroring
+   cm-gang/html/gang-armory-v4.css's #armory-exit rule. */
+body.armory-mode #armory-exit {
+  position: relative !important; left: auto !important; bottom: auto !important;
+  z-index: 3; margin-top: auto; width: max-content;
+  background: transparent !important; border: 1px solid rgba(255,122,69,.28) !important;
+  color: var(--cm-armory-text, #f2efec) !important;
+}

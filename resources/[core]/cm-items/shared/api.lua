@@ -41,12 +41,18 @@ local function applyDefaults(name, item, virtual)
     output.close = output.close ~= false
     output.virtual = virtual == true or output.virtual == true
     output.inventory = output.virtual and false or output.inventory ~= false
+    output.robberyProtected = output.robberyProtected == true
 
     if output.unique then
         output.stack = false
     end
 
     return output
+end
+
+function CMItems.IsRobberyProtected(name)
+    local item = CMItems.GetPhysicalItem(name)
+    return item ~= nil and item.robberyProtected == true
 end
 
 function CMItems.NormalizeName(name)

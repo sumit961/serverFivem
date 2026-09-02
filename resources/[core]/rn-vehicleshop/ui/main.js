@@ -22,6 +22,7 @@ let adminDiscoveryInfo = {};
 let adminSelectedModel = null;
 let visualCatalog = {}; // cm-tuning's paint/livery/wheel/tyre/neon option catalog
 let legalOrganizations = []; // cm-law's org list ({id,label}[]), for the admin-status-mode dropdown's legal:<id> options
+let gangOrganizations = [];
 let adminEmsMods = {};  // currently edited EMS vehicle's mods (mirrors client.lua currentAdminMods for display only)
 let adminIntrospect = { liveries: 0, slots: {} }; // live per-vehicle option counts from client.lua introspectAdminVehicle
 let adminMode = 'manage';
@@ -238,6 +239,12 @@ function renderLegalOrgOptions(){
     select.append($('<option>').attr('value', 'legal:' + org.id).text(org.label + ' fleet vehicle'));
   });
 }
+function renderGrantOrgOptions(){
+  const select=$('#admin-grant-org').empty();
+  const addGroup=(label,rows)=>{const group=$('<optgroup>').attr('label',label);rows.filter((org,index,all)=>org&&org.id&&all.findIndex(x=>x&&x.id===org.id)===index).forEach(org=>group.append($('<option>').attr('value',org.id).text(org.label||org.id)));if(group.children().length)select.append(group)};
+  addGroup('GANGS',gangOrganizations||[]);
+  addGroup('PUBLIC ORGANIZATIONS',[{id:'police',label:'Police'},{id:'ems',label:'EMS'}].concat(legalOrganizations||[]));
+}
 function legalOrgLabel(id){
   const org = (legalOrganizations || []).find(o => o.id === id);
   return org ? org.label : String(id || '').toUpperCase();
@@ -247,6 +254,7 @@ function statusFor(row){
   if(row.availableEms) return 'EMS fleet vehicle';
   if(row.availablePolice) return 'Police fleet vehicle';
   if(row.legalOrg) return legalOrgLabel(row.legalOrg) + ' fleet vehicle';
+  if(row.gangId) return String(row.gangId).replace(/^./,c=>c.toUpperCase()) + ' gang vehicle';
   if(row.availableStore) return 'Store: buyable';
   if(row.availableServer) return 'Server only';
   return 'Disabled';
@@ -256,6 +264,7 @@ function statusClass(row){
   if(row.availableEms) return 'ems';
   if(row.availablePolice) return 'police';
   if(row.legalOrg) return 'legal-org';
+  if(row.gangId) return 'gang';
   if(row.availableStore) return 'store';
   if(row.availableServer) return 'server';
   return 'disabled';
@@ -413,7 +422,9 @@ addEventListener('message', (e) => {
     adminDiscoveryInfo = msg.discovery || {};
     visualCatalog = (msg.discovery && msg.discovery.visualCatalog) || visualCatalog;
     legalOrganizations = (msg.discovery && msg.discovery.legalOrganizations) || legalOrganizations;
+    gangOrganizations = (msg.discovery && msg.discovery.gangs) || gangOrganizations;
     renderLegalOrgOptions();
+    renderGrantOrgOptions();
     adminMode = msg.mode === 'capture' ? 'capture' : 'manage';
     adminPreviewedModel = '';
     openAdminPanel();
@@ -423,12 +434,18 @@ addEventListener('message', (e) => {
     adminDiscoveryInfo = msg.discovery || adminDiscoveryInfo || {};
     visualCatalog = (msg.discovery && msg.discovery.visualCatalog) || visualCatalog;
     legalOrganizations = (msg.discovery && msg.discovery.legalOrganizations) || legalOrganizations;
+    gangOrganizations = (msg.discovery && msg.discovery.gangs) || gangOrganizations;
     renderLegalOrgOptions();
+    renderGrantOrgOptions();
     renderAdmin();
   } else if(msg.action === 'closeAdmin'){
     closeAdminPanel(false);
   } else if(msg.action === 'toast'){
     showToast(msg.message || '');
+  } else if(msg.action === 'organizationGrantResult'){
+    const result=msg.result||{},box=$('#admin-grant-result');
+    if(result.ok){const warning=result.status==='needs_home_location'?'⚠ Gang home location not configured':result.partial?`⚠ Fleet link failed: ${safe(result.reason||'unknown')}`:'';box.attr('data-state',result.partial?'warning':'success').html(`<strong>✓ ORGANIZATION VEHICLE CREATED</strong><span>${safe(result.label||result.model||'Vehicle')} · ${safe(result.organization||'')}</span><b>vehicle_id: ${safe(result.vehicleId||'')}</b>${warning?`<small>${warning}</small>`:''}`)}
+    else box.attr('data-state','error').html(`<strong>ORGANIZATION VEHICLE FAILED</strong><small>${safe(result.stage||'creation')}: ${safe(result.reason||'unknown error')}</small>`);
   } else if(msg.action === 'prepareVehicleCapture'){
     // Hide all NUI while screenshot-basic captures, so no UI bleeds into the PNG.
     $('body').toggleClass('capture-hidden', msg.value === true);
@@ -1727,6 +1744,7 @@ function fillAdminForm(model, preview = true){
   const statusMode = row.availableEms === true ? 'ems'
     : row.availablePolice === true ? 'police'
     : row.legalOrg ? ('legal:' + row.legalOrg)
+    : row.gangId ? ('gang:' + row.gangId)
     : row.availableStore === true ? 'store'
     : (row.availableServer === true ? 'server' : 'hidden');
   $('#admin-status-mode').val(row.model ? statusMode : 'hidden');
@@ -1768,12 +1786,13 @@ $(document).on('click', '#admin-save', function(){
   const availableEms = mode === 'ems';
   const availablePolice = mode === 'police';
   const legalOrg = mode.indexOf('legal:') === 0 ? mode.slice(6) : null;
+  const gangId = mode.indexOf('gang:') === 0 ? mode.slice(5) : null;
   const availableStore = mode === 'store';
   const availableServer = mode === 'server' || availableStore;
   const payload = {
     model: $('#admin-model').val(), label: $('#admin-label').val(), category: $('#admin-category').val(),
     price: Number($('#admin-price').val() || 0), speedKph: Number($('#admin-speed').val() || 0), trunkLevel: clampTrunkLevel($('#admin-trunk').val()),
-    availableServer, availableStore, availableEms, availablePolice, legalOrg,
+    availableServer, availableStore, availableEms, availablePolice, legalOrg, gangId,
     testDriveEnabled: $('#admin-test-enabled').is(':checked'),
     testDriveTimer: Number($('#admin-test-duration').val() || 60),
     testDriveCost: Number($('#admin-test-cost').val() || 0)
@@ -1798,6 +1817,15 @@ $(document).on('click', '#admin-test', function(){
   post('adminTestVehicle', payload).fail(() => { setTestDriveProcessing(false); showToast('Admin test request failed.'); });
 });
 $(document).on('click', '#admin-disable', function(){ post('adminDisableVehicle', { model: $('#admin-model').val() }); });
+$(document).on('click', '#admin-grant-org-vehicle', function(){
+  const model=String($('#admin-model').val()||'').trim(),organization=String($('#admin-grant-org').val()||'').trim();
+  const minimumTier=Math.max(1,Math.min(100,Math.floor(Number($('#admin-grant-drive-tier').val())||1)));
+  const trunkMinimumTier=Math.max(1,Math.min(100,Math.floor(Number($('#admin-grant-trunk-tier').val())||1)));
+  if(!model||!organization){showToast('Select a vehicle and organization first.');return;}
+  if(!confirm(`Give ${model} to ${organization}? This creates a new persistent vehicle.`))return;
+  $('#admin-grant-result').attr('data-state','working').text('Creating organization vehicle…');
+  post('adminGrantOrganizationVehicle',{model,organization,minimumTier,trunkMinimumTier});
+});
 $(document).on('click', '#admin-capture', function(){
   const model = String($('#admin-model').val() || '').trim();
   if(!model){ showToast('Enter / select a model first.'); return; }

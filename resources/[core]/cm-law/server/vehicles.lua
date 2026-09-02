@@ -37,6 +37,7 @@ local FleetPlacementBySource = {} -- [src] = { model, kind, plate, netId, entity
 local FleetLocationBusy = {} -- [orgId .. ':' .. model] = true
 local FleetAssignments = {} -- [orgId .. ':' .. model] = { characterId, name }
 local vehicleHasOccupant
+local mergedRow
 
 -- A character is only ever an active member of one organization, so every
 -- fleet action derives its org from the caller instead of trusting a
@@ -91,7 +92,7 @@ local function adminFleetRows(orgId)
             model = catalogRow.model, label = catalogRow.label, category = catalogRow.category,
             enabled = row and dbBoolean(row.enabled) or false,
             minTier = row and tonumber(row.min_tier) or 0,
-            configured = row and row.vehicle_id ~= nil or false,
+            configured = row and row.vehicle_id ~= nil and dbBoolean(row.location_configured) or false,
         }
         merged.savedLocation = row and row.spawn_x and { x = row.spawn_x, y = row.spawn_y, z = row.spawn_z, heading = row.spawn_h } or nil
         out[#out + 1] = merged
@@ -117,7 +118,16 @@ exports('GetVehicleAccessDecision', function(characterId, vehicleId, action)
     return true, 'legal_fleet', { organization = orgId, vehicleId = vehicleId, requiredTier = required }
 end)
 
-local function mergedRow(catalogRow, settingsRow)
+exports('CanUseOrganizationVehicle', function(src, vehicleId, action)
+    local characterId = characterIdFor(tonumber(src))
+    if not characterId then return false, 'character_not_loaded' end
+    return exports[GetCurrentResourceName()]:GetVehicleAccessDecision(characterId, vehicleId, action)
+end)
+exports('CanUseOrganisationVehicle', function(src, vehicleId, action)
+    return exports[GetCurrentResourceName()]:CanUseOrganizationVehicle(src, vehicleId, action)
+end)
+
+mergedRow = function(catalogRow, settingsRow)
     local orgId = settingsRow and tostring(settingsRow.organization_id or '') or ''
     local key = orgId .. ':' .. tostring(catalogRow.model):lower()
     local merged = {
@@ -126,7 +136,7 @@ local function mergedRow(catalogRow, settingsRow)
         category = catalogRow.category,
         minTier = settingsRow and math.floor(tonumber(settingsRow.min_tier) or 0) or 0,
         enabled = settingsRow and dbBoolean(settingsRow.enabled) or false,
-        configured = settingsRow ~= nil and settingsRow.vehicle_id ~= nil,
+        configured = settingsRow ~= nil and settingsRow.vehicle_id ~= nil and dbBoolean(settingsRow.location_configured),
         assignedOfficer = FleetAssignments[key] and FleetAssignments[key].name or nil,
     }
     local vehicleId = settingsRow and tonumber(settingsRow.vehicle_id)
@@ -157,8 +167,8 @@ exports('AdminConfigureFleetVehicle', function(src, orgId, data)
     local model = tostring(data.model or ''):lower()
     if not orgId or not findCatalogRow(getOrgCatalog(orgId), model) then return false, 'Unknown organization vehicle.' end
     local tier = math.max(0, math.min(100, math.floor(tonumber(data.minTier) or 0)))
-    local existing = MySQL.single.await('SELECT model FROM cm_legal_fleet_vehicles WHERE organization_id=? AND model=?', { orgId, model })
-    if not existing then return false, 'Set the vehicle location before enabling it.' end
+    local existing = MySQL.single.await('SELECT model,location_configured FROM cm_legal_fleet_vehicles WHERE organization_id=? AND model=?', { orgId, model })
+    if not existing or not dbBoolean(existing.location_configured) then return false, 'Set the vehicle location before enabling it.' end
     MySQL.update.await('UPDATE cm_legal_fleet_vehicles SET enabled=?, min_tier=?, updated_by=? WHERE organization_id=? AND model=?',
         { data.enabled == true and 1 or 0, tier, characterIdFor(src), orgId, model })
     return true, 'Fleet vehicle configuration saved.'
@@ -171,7 +181,7 @@ exports('AdminResetFleetLocation', function(src, orgId, model)
     local row = MySQL.single.await('SELECT vehicle_id FROM cm_legal_fleet_vehicles WHERE organization_id=? AND model=?', { orgId, model })
     if not row then return true, 'Fleet location was already reset.' end
     if tonumber(row.vehicle_id) then pcall(function() exports[VEHICLES_RESOURCE]:DeleteSpawnedVehicle(tonumber(row.vehicle_id)) end) end
-    MySQL.update.await([[UPDATE cm_legal_fleet_vehicles SET enabled=0, spawn_x=NULL,spawn_y=NULL,spawn_z=NULL,spawn_h=0
+    MySQL.update.await([[UPDATE cm_legal_fleet_vehicles SET enabled=0, location_configured=0, spawn_x=NULL,spawn_y=NULL,spawn_z=NULL,spawn_h=0
         WHERE organization_id=? AND model=?]], { orgId, model })
     return true, 'Fleet location reset; persistent vehicle identity was preserved.'
 end)
@@ -219,9 +229,11 @@ lib.callback.register('cm-law:server:setFleetVehicleMinTier', function(src, mode
     return true
 end)
 
-lib.callback.register('cm-law:server:beginFleetLocationEdit', function(src, model)
+local function beginFleetLocationEdit(src, model, adminOrgId)
     local actor, _, err = actorFor(src)
-    if not actor or not (actor.isLeader or actor.permissions['law.fleet'] == true) then
+    local admin = adminOrgId ~= nil and adminAllowed(src)
+    if admin then actor = { organizationId = validOrgId(adminOrgId), isLeader = true, permissions = {} } end
+    if not actor or not actor.organizationId or not (actor.isLeader or actor.permissions['law.fleet'] == true) then
         return false, err or 'Your rank cannot manage this organization\'s fleet.'
     end
     if not rateLimit(src, 'law_fleet_edit', 1500) then return false, 'Please wait.' end
@@ -230,6 +242,7 @@ lib.callback.register('cm-law:server:beginFleetLocationEdit', function(src, mode
     if not catalogRow then return false, 'That vehicle is not tagged for this organization in /vehicleadmin.' end
     local previous = FleetPlacementBySource[src]
     if previous then pcall(function() exports[VEHICLES_RESOURCE]:DeleteAdminVehicle(previous.plate) end) end
+    FleetPlacementBySource[src] = nil
     local ped = GetPlayerPed(src)
     if not ped or ped == 0 then return false, 'Character is not loaded.' end
     local coords, heading = GetEntityCoords(ped), GetEntityHeading(ped)
@@ -240,9 +253,29 @@ lib.callback.register('cm-law:server:beginFleetLocationEdit', function(src, mode
         label = ('Fleet location dummy: %s'):format(catalogRow.label), placementKind = kind, engineOn = true,
     })
     if type(result) ~= 'table' or result.ok ~= true then return false, tostring(result and result.error or 'Could not create the location dummy.') end
-    FleetPlacementBySource[src] = { model = model, kind = kind, plate = result.plate, netId = result.netId, entity = result.entity, organizationId = actor.organizationId }
+    FleetPlacementBySource[src] = { model = model, kind = kind, plate = result.plate, netId = result.netId, entity = result.entity, organizationId = actor.organizationId, admin = admin, expiresAt = os.time() + 300 }
     if result.entity and DoesEntityExist(result.entity) then Entity(result.entity).state:set('cmLegalFleet', { model = model, organizationId = actor.organizationId, placement = true }, true) end
-    return true, { netId = result.netId, model = model, message = 'Drive the dummy to the vehicle location and press H to save.' }
+    return true, { netId = result.netId, model = model, message = 'Drive to the location. Press H to save or Backspace to cancel.' }
+end
+
+lib.callback.register('cm-law:server:beginFleetLocationEdit', function(src, model)
+    return beginFleetLocationEdit(src, model, nil)
+end)
+
+exports('AdminBeginFleetPlacement', function(src, orgId, model)
+    src, orgId = tonumber(src), validOrgId(orgId)
+    if not adminAllowed(src) or not orgId then return false, 'Permission denied.' end
+    local ok, result = beginFleetLocationEdit(src, model, orgId)
+    if ok and type(result) == 'table' then TriggerClientEvent('cm-law:client:adminFleetPlacement', src, result) end
+    return ok, type(result) == 'table' and result.message or result
+end)
+
+lib.callback.register('cm-law:server:cancelFleetLocationEdit', function(src)
+    local placement = FleetPlacementBySource[src]
+    if not placement then return false, 'No legal fleet placement is active.' end
+    FleetPlacementBySource[src] = nil
+    pcall(function() exports[VEHICLES_RESOURCE]:DeleteAdminVehicle(placement.plate) end)
+    return true, 'Fleet placement cancelled.'
 end)
 
 -- Location save/update: the player must be DRIVING the exact dummy being
@@ -251,6 +284,16 @@ end)
 -- coordinates always come from the server's own view of the vehicle).
 lib.callback.register('cm-law:server:saveFleetVehicleLocation', function(src, model, kind)
     local actor, actorCid, err = actorFor(src)
+    local placement = FleetPlacementBySource[src]
+    if placement and tonumber(placement.expiresAt) and os.time() >= tonumber(placement.expiresAt) then
+        FleetPlacementBySource[src] = nil
+        pcall(function() exports[VEHICLES_RESOURCE]:DeleteAdminVehicle(placement.plate) end)
+        return false, 'That fleet placement expired. Start it again.'
+    end
+    if placement and placement.admin == true and adminAllowed(src) then
+        actor = { organizationId = validOrgId(placement.organizationId), isLeader = true, permissions = {} }
+        actorCid = characterIdFor(src)
+    end
     if not actor or not (actor.isLeader or actor.permissions['law.fleet'] == true) then
         return false, err or 'Your rank cannot manage this organization\'s fleet.'
     end
@@ -266,14 +309,14 @@ lib.callback.register('cm-law:server:saveFleetVehicleLocation', function(src, mo
     if vehicle == 0 or not DoesEntityExist(vehicle) then return false, 'Get in the fleet vehicle first.' end
     if GetPedInVehicleSeat(vehicle, -1) ~= ped then return false, 'Only the driver can save this vehicle\'s location.' end
     if GetHashKey(catalogRow.model) ~= GetEntityModel(vehicle) then return false, 'You are not driving that vehicle.' end
-    local placement = FleetPlacementBySource[src]
+    placement = FleetPlacementBySource[src]
     if not placement or placement.model ~= model or placement.organizationId ~= actor.organizationId or tonumber(placement.entity) ~= tonumber(vehicle) then
         return false, 'This is not your active fleet location dummy.'
     end
 
     local coords = GetEntityCoords(vehicle)
     local heading = GetEntityHeading(vehicle)
-    kind = kind == 'helicopter' and 'helicopter' or 'car'
+    kind = placement.kind == 'helicopter' and 'helicopter' or 'car'
 
     local settings = MySQL.single.await('SELECT * FROM cm_legal_fleet_vehicles WHERE organization_id = ? AND model = ? LIMIT 1', { actor.organizationId, model })
     local vehicleId = settings and tonumber(settings.vehicle_id) or nil
@@ -305,10 +348,10 @@ lib.callback.register('cm-law:server:saveFleetVehicleLocation', function(src, mo
         return false, 'Could not assign the persistent vehicle to this organization.'
     end
     MySQL.insert.await([[
-        INSERT INTO cm_legal_fleet_vehicles (organization_id, model, vehicle_id, kind, min_tier, enabled, spawn_x, spawn_y, spawn_z, spawn_h, updated_by)
-        VALUES (?, ?, ?, ?, 0, 1, ?, ?, ?, ?, ?)
+        INSERT INTO cm_legal_fleet_vehicles (organization_id, model, vehicle_id, kind, min_tier, enabled, location_configured, spawn_x, spawn_y, spawn_z, spawn_h, updated_by)
+        VALUES (?, ?, ?, ?, 0, 1, 1, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
-            vehicle_id = VALUES(vehicle_id), kind = VALUES(kind),
+            vehicle_id = VALUES(vehicle_id), kind = VALUES(kind), location_configured = 1,
             spawn_x = VALUES(spawn_x), spawn_y = VALUES(spawn_y), spawn_z = VALUES(spawn_z), spawn_h = VALUES(spawn_h),
             updated_by = VALUES(updated_by)
     ]], { actor.organizationId, model, vehicleId, kind, coords.x, coords.y, coords.z, heading, actorCid })
@@ -488,6 +531,27 @@ AddEventHandler('playerDropped', function()
     local placement = FleetPlacementBySource[source]
     FleetPlacementBySource[source] = nil
     if placement then pcall(function() exports[VEHICLES_RESOURCE]:DeleteAdminVehicle(placement.plate) end) end
+end)
+
+CreateThread(function()
+    while true do
+        Wait(30000)
+        local now = os.time()
+        for src, placement in pairs(FleetPlacementBySource) do
+            if tonumber(placement.expiresAt) and now >= tonumber(placement.expiresAt) then
+                FleetPlacementBySource[src] = nil
+                pcall(function() exports[VEHICLES_RESOURCE]:DeleteAdminVehicle(placement.plate) end)
+            end
+        end
+    end
+end)
+
+AddEventHandler('onResourceStop', function(resourceName)
+    if resourceName ~= GetCurrentResourceName() then return end
+    for src, placement in pairs(FleetPlacementBySource) do
+        FleetPlacementBySource[src] = nil
+        pcall(function() exports[VEHICLES_RESOURCE]:DeleteAdminVehicle(placement.plate) end)
+    end
 end)
 
 -- ── Auto-respawn on server (re)start ─────────────────────────────────────

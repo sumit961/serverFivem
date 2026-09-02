@@ -105,12 +105,14 @@
 
   function renderTab(tab) {
     if (!state) return;
-    const titles = { overview: 'Family information', manage: 'Management', members: 'Members', ranks: 'Ranks & access', vehicles: 'Family vehicles', logs: 'Activity logs' };
+    document.body.classList.toggle('armory-mode', tab === 'armory');
+    if (tab !== 'armory') armoryManaging = false;
+    const titles = { overview: 'Family information', manage: 'Management', members: 'Members', ranks: 'Ranks & access', vehicles: 'Family vehicles', armory: 'Armory', logs: 'Activity logs' };
     const heading = document.getElementById('workspace-title');
     if (heading) heading.textContent = titles[tab] || titles.overview;
     ({
       overview: renderInformation, manage: renderManagementHub, members: renderMembers, ranks: renderRanks,
-      vehicles: renderVehicles, logs: renderLogs,
+      vehicles: renderVehicles, armory: renderArmory, logs: renderLogs,
     }[tab] || renderInformation)();
   }
 
@@ -607,6 +609,252 @@
       const list = document.getElementById('activity-list');
       if (list) list.innerHTML = renderRows(filter.value) || '<div class="empty">No activity in this category.</div>';
     };
+  }
+
+  // ---------------- armory ----------------
+  let armoryItems = [];
+  let armoryFilter = 'all';
+  let armoryManaging = false;
+  let armoryManageItems = null;
+
+  function armoryImage(value) {
+    const image = String(value || '');
+    if (!image) return '';
+    if (/^https?:|^data:/.test(image)) return image;
+    if (image.startsWith('nui://')) return image.replace(/^nui:\/\/([^/]+)\//, 'https://cfx-nui-$1/');
+    return image;
+  }
+
+  function armoryTakeBtn(i, available, label) {
+    return can('family.armory')
+      ? `<button class="primary" data-armory-take="${esc(i.itemId)}" ${available ? '' : 'disabled'}>${available ? label : 'OUT OF STOCK'}</button>`
+      : '';
+  }
+
+  function armoryPutBtn(i) {
+    return can('family.armory_deposit')
+      ? `<input type="number" min="1" max="1000" value="${Number(i.quantity || 1)}" data-armory-qty="${esc(i.itemId)}">
+         <button class="tertiary" data-armory-put="${esc(i.itemId)}" title="Return to armory">↩</button>`
+      : '';
+  }
+
+  function armoryCard(i, allItems) {
+    const image = armoryImage(i.image);
+    const imageBlock = `
+      <div class="armory-item-image">
+        ${image ? `<img src="${esc(image)}" alt="${esc(i.label)}" onerror="this.hidden=true">` : `<span>${esc(String(i.group || i.itemType).toUpperCase())}</span>`}
+        <small><i></i>${esc(i.label)}</small>
+      </div>`;
+
+    if (i.itemType === 'armor') {
+      const stock = Number(i.stockQuantity || 0);
+      const available = stock > 0;
+      return `
+        <article class="armory-item ${available ? '' : 'empty'}">
+          ${imageBlock}
+          <div class="armory-item-data">
+            <em>ARMOR</em>
+            <div class="armory-item-stats-row">
+              <div class="armory-item-stat"><label>STRENGTH</label><strong>${Number(i.armorValue || 0)}<small>%</small></strong></div>
+              <div class="armory-item-stat"><label>IN STOCK</label><strong>${stock}<small>PCS</small></strong></div>
+            </div>
+            <div class="armory-item-name">${esc(i.label)}</div>
+            <div class="armory-item-actions">${armoryTakeBtn(i, available, 'TAKE')}${armoryPutBtn(i)}</div>
+          </div>
+        </article>`;
+    }
+
+    if (i.itemType === 'ammo') {
+      const stock = Number(i.stockQuantity || 0);
+      const available = stock >= Number(i.quantity || 1);
+      return `
+        <article class="armory-item ${available ? '' : 'empty'}">
+          ${imageBlock}
+          <div class="armory-item-data">
+            <em>AMMO</em>
+            <div class="armory-item-stat">
+              <label>IN VAULT</label>
+              <strong>${stock.toLocaleString()} <small>ROUNDS</small></strong>
+              <div class="armory-stock-line"><i style="width:${Math.min(100, stock)}%"></i></div>
+            </div>
+            <div class="armory-item-actions">${armoryTakeBtn(i, available, 'TAKE AMMO')}${armoryPutBtn(i)}</div>
+          </div>
+        </article>`;
+    }
+
+    const stock = Number(i.stockQuantity || 0);
+    const available = stock >= Number(i.quantity || 1);
+    const ammo = i.ammoItem ? (allItems || []).find(x => x.itemId === i.ammoItem && x.itemType === 'ammo') : null;
+    const ammoStock = ammo ? Number(ammo.stockQuantity || 0) : 0;
+    const ammoAvailable = ammo ? ammoStock >= Number(ammo.quantity || 1) : false;
+    return `
+      <article class="armory-item ${available ? '' : 'empty'}">
+        ${imageBlock}
+        <div class="armory-item-data">
+          <em>WEAPON</em>
+          <div class="armory-item-stat">
+            <label>WEAPON IN VAULT</label>
+            <strong>${stock.toLocaleString()} <small>PCS</small></strong>
+          </div>
+          ${ammo ? `
+          <div class="armory-item-stat">
+            <label>AMMO <span>${esc(ammo.label)}</span></label>
+            <strong>${ammoStock.toLocaleString()} <small>ROUNDS</small></strong>
+            <div class="armory-stock-line"><i style="width:${Math.min(100, ammoStock)}%"></i></div>
+          </div>` : ''}
+          <div class="armory-item-actions">
+            ${armoryTakeBtn(i, available, 'TAKE GUN')}
+            ${ammo ? `<button class="secondary" data-armory-take="${esc(ammo.itemId)}" ${ammoAvailable ? '' : 'disabled'}>${ammoAvailable ? `+${Number(ammo.quantity || 1)} AMMO` : 'NO AMMO'}</button>` : ''}
+            ${armoryPutBtn(i)}
+          </div>
+        </div>
+      </article>`;
+  }
+
+  function bindArmoryCardActions(root) {
+    root.querySelectorAll('[data-armory-take]:not(:disabled)').forEach(b => b.onclick = async () => {
+      b.disabled = true;
+      const res = await post('armoryCheckout', { itemId: b.dataset.armoryTake });
+      flash(res.ok ? 'Issued from the family armory.' : (res.reason || 'Checkout failed.'), res.ok ? 'ok' : 'error');
+      if (res.ok) loadArmory(); else b.disabled = false;
+    });
+    root.querySelectorAll('[data-armory-put]').forEach(b => b.onclick = async () => {
+      const qty = Math.floor(Number(root.querySelector(`[data-armory-qty="${b.dataset.armoryPut}"]`)?.value) || 1);
+      if (qty < 1) return;
+      b.disabled = true;
+      const res = await post('armoryDeposit', { itemId: b.dataset.armoryPut, quantity: qty });
+      flash(res.ok ? 'Returned to the family armory.' : (res.reason || 'Deposit failed.'), res.ok ? 'ok' : 'error');
+      if (res.ok) loadArmory(); else b.disabled = false;
+    });
+  }
+
+  function renderArmoryItems() {
+    const box = document.getElementById('armory-grid');
+    if (!box) return;
+    const items = armoryItems.filter(item => armoryFilter === 'all' || item.itemType === armoryFilter);
+    box.innerHTML = items.map(i => armoryCard(i, armoryItems)).join('') || '<div class="armory-loading">No equipment is available in this category.</div>';
+    bindArmoryCardActions(box);
+    const armor = armoryItems.filter(item => item.itemType === 'armor');
+    const armorBox = document.getElementById('armory-armor-list');
+    const armorCount = document.getElementById('armory-armor-count');
+    if (armorCount) armorCount.textContent = `${armor.length} MODELS`;
+    if (armorBox) {
+      armorBox.innerHTML = armor.map(i => armoryCard(i, armoryItems)).join('') ||
+        '<div class="armory-armor-empty"><strong>NO ARMOR CONFIGURED</strong><span>Protective equipment will appear here when enabled.</span></div>';
+      bindArmoryCardActions(armorBox);
+    }
+  }
+
+  async function loadArmory() {
+    const box = document.getElementById('armory-grid');
+    if (!box) return;
+    const res = await post('getArmory', {});
+    if (!res.ok) {
+      box.innerHTML = `<div class="armory-loading error">${esc(res.reason || 'Armory unavailable.')}</div>`;
+      return;
+    }
+    armoryItems = res.items || [];
+    const stocked = armoryItems.filter(item => Number(item.stockQuantity || 0) > 0).length;
+    const modelStock = document.getElementById('armory-model-stock');
+    if (modelStock) modelStock.textContent = `${stocked} OF ${armoryItems.length} MODELS IN STOCK`;
+    for (const type of ['all', 'weapon', 'ammo', 'armor']) {
+      const count = type === 'all' ? armoryItems.length : armoryItems.filter(item => item.itemType === type).length;
+      const el = document.getElementById(`armory-count-${type}`);
+      if (el) el.textContent = count;
+    }
+    renderArmoryItems();
+  }
+
+  function renderArmoryCatalog() {
+    const f = state.family;
+    const rankName = (state.ranks.find(r => r.id === state.viewer.rankId) || {}).name || 'Member';
+    content.innerHTML = `
+      <section class="armory-catalog armory-catalog-v4">
+        <aside class="armory-sidebar">
+          <div class="armory-vertical">ARMOR</div>
+          <div class="armory-sidebar-head"><span>PROTECTIVE EQUIPMENT</span><strong id="armory-armor-count">0 MODELS</strong></div>
+          <div id="armory-armor-list" class="armory-armor-list"><div class="armory-loading">Loading armor…</div></div>
+          <button id="armory-exit" class="quiet">← BACK TO FAMILY</button>
+        </aside>
+        <main class="armory-main-panel">
+          <header class="armory-title">
+            <div><small>${esc(f.name.toUpperCase())} QUARTERMASTER</small><h2><i></i> CONTROL</h2><span id="armory-model-stock">0 MODELS IN STOCK</span></div>
+            <nav class="armory-category-tabs" aria-label="Armory categories">
+              <button class="active" data-armory-filter="all">ALL <b id="armory-count-all">0</b></button>
+              <button data-armory-filter="weapon">WEAPONS <b id="armory-count-weapon">0</b></button>
+              <button data-armory-filter="ammo">AMMO <b id="armory-count-ammo">0</b></button>
+              <button data-armory-filter="armor">ARMOR <b id="armory-count-armor">0</b></button>
+            </nav>
+            ${can('family.manage_armory') ? '<button id="armory-manage-toggle">MANAGE CATALOG</button>' : ''}
+          </header>
+          <div class="armory-toolbar"><span><i></i> LIVE SHARED STOCK</span><small>AUTHORIZED FOR ${esc(rankName)}</small></div>
+          <div id="armory-grid" class="armory-catalog-grid"><div class="armory-loading">Loading armory stock…</div></div>
+        </main>
+      </section>`;
+
+    document.querySelectorAll('[data-armory-filter]').forEach(button => button.addEventListener('click', () => {
+      armoryFilter = button.dataset.armoryFilter;
+      document.querySelectorAll('[data-armory-filter]').forEach(item => item.classList.toggle('active', item === button));
+      renderArmoryItems();
+    }));
+    document.getElementById('armory-exit').onclick = () => goTab('overview');
+    const manageBtn = document.getElementById('armory-manage-toggle');
+    if (manageBtn) manageBtn.onclick = () => { armoryManaging = true; renderArmory(); };
+    loadArmory();
+  }
+
+  function renderArmoryManage() {
+    content.innerHTML = `
+      <div class="inline" style="justify-content:space-between;margin-bottom:14px">
+        <div><div class="section-title" style="margin:0">Armory catalog</div><div class="row__sub">Choose what's stocked, the minimum rank tier, and how much is issued per checkout.</div></div>
+        <div class="inline">
+          <button class="btn" id="armory-load-stock">Load stock</button>
+          <button id="armory-manage-back">← Back to armory</button>
+        </div>
+      </div>
+      <div class="list" id="armory-manage-list"><div class="armory-loading">Loading catalog…</div></div>`;
+
+    document.getElementById('armory-manage-back').onclick = () => { armoryManaging = false; renderArmory(); };
+    document.getElementById('armory-load-stock').onclick = async () => {
+      const res = await post('armoryLoadStock', {});
+      flash(res.ok ? (res.message || 'Stock loaded.') : (res.reason || 'Failed to load stock.'), res.ok ? 'ok' : 'error');
+    };
+
+    (armoryManageItems ? Promise.resolve({ ok: true, items: armoryManageItems }) : post('armoryManagement', {})).then(res => {
+      const list = document.getElementById('armory-manage-list');
+      if (!res.ok) { list.innerHTML = `<div class="empty">${esc(res.reason || 'Armory unavailable.')}</div>`; return; }
+      armoryManageItems = res.items || [];
+      list.innerHTML = armoryManageItems.map(i => `
+        <div class="row" data-manage-row="${esc(i.itemId)}">
+          <div class="row__main">
+            <label class="permission-check"><input type="checkbox" data-manage-enabled ${i.enabled ? 'checked' : ''}>${esc(i.label)}</label>
+            <span class="row__sub">${esc(String(i.itemType).toUpperCase())} · Currently ${Number(i.stock || 0)} in stock</span>
+          </div>
+          <div class="inline">
+            <input class="input" type="number" min="0" max="1000" data-manage-tier value="${Number(i.minTier || 0)}" style="width:90px" title="Minimum tier">
+            <input class="input" type="number" min="1" max="1000" data-manage-issue value="${Number(i.issueAmount || 1)}" style="width:90px" title="Issue amount">
+            <button data-manage-save="${esc(i.itemId)}">Save</button>
+          </div>
+        </div>`).join('') || '<div class="empty">No catalog items available.</div>';
+
+      list.querySelectorAll('[data-manage-save]').forEach(btn => btn.onclick = async () => {
+        const row = btn.closest('[data-manage-row]');
+        const itemId = row.dataset.manageRow;
+        const enabled = row.querySelector('[data-manage-enabled]').checked;
+        const minTier = Number(row.querySelector('[data-manage-tier]').value) || 0;
+        const issueAmount = Number(row.querySelector('[data-manage-issue]').value) || 1;
+        btn.disabled = true;
+        const res = await post('armorySave', { itemId, enabled, minTier, issueAmount });
+        flash(res.ok ? 'Armory item saved.' : (res.reason || 'Save failed.'), res.ok ? 'ok' : 'error');
+        armoryManageItems = null;
+        btn.disabled = false;
+      });
+    });
+  }
+
+  function renderArmory() {
+    if (armoryManaging && can('family.manage_armory')) renderArmoryManage();
+    else renderArmoryCatalog();
   }
 
   // ---------------- action helper ----------------

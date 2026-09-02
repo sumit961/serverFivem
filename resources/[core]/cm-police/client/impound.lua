@@ -37,7 +37,7 @@ local function configuredTowTruck(vehicle)
     for _, name in ipairs(Config.Impound.TowModels or {}) do
         if model == GetHashKey(name) then return true end
     end
-    local fleet = Entity(vehicle).state.cmPoliceFleet
+    local fleet = Entity(vehicle).state.cmPoliceFleet or Entity(vehicle).state.cmLegalFleet
     local fleetModel = type(fleet) == 'table' and tostring(fleet.model or ''):lower() or ''
     if fleetModel:find('tow', 1, true) and model == GetHashKey(fleetModel) then return true end
     return false
@@ -70,7 +70,7 @@ RegisterCommand('policetow', function()
     end
     local ped = PlayerPedId()
     local towTruck = GetVehiclePedIsIn(ped, false)
-    if towTruck == 0 then return notify('Enter a Police tow truck first.', 'error') end
+    if towTruck == 0 then return notify('Enter an authorized organization tow truck first.', 'error') end
     if GetPedInVehicleSeat(towTruck, -1) ~= ped then return notify('You must be in the tow truck driver seat.', 'error') end
     if not configuredTowTruck(towTruck) then return notify('This fleet vehicle is not recognized as a tow truck. Its model name must contain "tow" or be in TowModels.', 'error') end
     local target = closestTowTarget(towTruck)
@@ -88,7 +88,7 @@ RegisterCommand('policetow', function()
 end, false)
 
 RegisterCommand('policeimpound', function()
-    if not TowTarget or not DoesEntityExist(TowTarget) then return notify('Bring a hooked vehicle into the Police impound drop-off first.', 'error') end
+    if not TowTarget or not DoesEntityExist(TowTarget) then return notify('Bring a hooked vehicle into an authorized impound drop-off first.', 'error') end
     local target, truck = TowTarget, TowTruck
     local netId = NetworkGetNetworkIdFromEntity(target)
     PolicePlayImpoundArrival(truck, target)
@@ -109,6 +109,9 @@ local function openImpoundMenu()
     SetNuiFocus(true, true)
     SendNUIMessage({ action = 'impoundRelease:open', vehicles = vehicles })
 end
+
+RegisterNetEvent('cm-law:client:openImpoundRelease', openImpoundMenu)
+RegisterNetEvent('cm-police:client:openImpoundRelease', openImpoundMenu)
 
 local function closeImpoundRelease()
     if not impoundReleaseOpen then return end
@@ -163,7 +166,7 @@ local function refreshOperators()
     local deadline = GetGameTimer() + 5000
     while not HasModelLoaded(model) and GetGameTimer() < deadline do Wait(50) end
     for index, location in ipairs(KioskLocations) do
-        if HasModelLoaded(model) then
+        if HasModelLoaded(model) and not location.organizationId then
             local ped = CreatePed(4, model, location.x, location.y, location.z - 1.0, location.heading or 0.0, false, true)
             if ped ~= 0 then
                 FreezeEntityPosition(ped, true); SetEntityInvincible(ped, true); SetBlockingOfNonTemporaryEvents(ped, true)
@@ -186,6 +189,17 @@ end)
 CreateThread(function()
     KioskLocations = lib.callback.await('cm-police:server:impoundKioskLocation', false) or {}
     refreshOperators()
+end)
+
+CreateThread(function()
+    while true do
+        Wait(30000)
+        local nextLocations = lib.callback.await('cm-police:server:impoundKioskLocation', false) or {}
+        if json.encode(nextLocations) ~= json.encode(KioskLocations) then
+            KioskLocations = nextLocations
+            refreshOperators()
+        end
+    end
 end)
 
 CreateThread(function()

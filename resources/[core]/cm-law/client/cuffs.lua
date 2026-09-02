@@ -195,4 +195,4 @@ RegisterCommand('lawcuffkey', function()
     local action = targetCuffed and 'law_uncuff' or 'law_cuff'
     TriggerServerEvent('cm-playerdata:server:extensionInteraction', currentTarget, action, {})
 end, false)
-RegisterKeyMapping('lawcuffkey', 'Legal org: Cuff/uncuff nearest target', 'keyboard', 'X')
+RegisterKeyMapping('lawcuffkey', 'Legal org: Cuff/uncuff nearest target', 'keyboard', tostring(Config.CuffKey or 'X'))

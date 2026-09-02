@@ -81,6 +81,13 @@ Config.Permissions = {
     { key = 'family.manage_announcement', label = 'Edit family announcement', group = 'management' },
     { key = 'vehicle.track',        label = 'Track shared vehicles', group = 'vehicles' },
 
+    -- Armory (stocked quartermaster: admin/leader-curated catalog, shared
+    -- stock pool, rank-tier gating -- distinct from the personal/shared
+    -- weapon_storage locker below, which has no catalog or stock concept).
+    { key = 'family.armory',          label = 'Access the family armory', group = 'armory' },
+    { key = 'family.armory_deposit',  label = 'Return equipment to stock', group = 'armory' },
+    { key = 'family.manage_armory',   label = 'Manage armory equipment',  group = 'armory' },
+
     -- Bank
     { key = 'bank.view',            label = 'View bank',             group = 'bank' },
     { key = 'bank.deposit',         label = 'Deposit',               group = 'bank' },
@@ -156,6 +163,7 @@ Config.DefaultRanks = {
             'garage.manage_shared', 'trunk.access', 'weapon_storage.access', 'weapon_storage.deposit',
             'weapon_storage.withdraw', 'storage.access', 'helipad.use',
             'house.view_logs',
+            'family.armory', 'family.armory_deposit', 'family.manage_armory',
         },
     },
     {
@@ -165,6 +173,7 @@ Config.DefaultRanks = {
             'bank.view', 'bank.deposit',
             'door.enter', 'garage.access', 'garage.take', 'garage.store',
             'trunk.access', 'weapon_storage.access', 'storage.access',
+            'family.armory', 'family.armory_deposit',
         },
     },
     {

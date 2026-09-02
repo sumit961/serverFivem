@@ -65,7 +65,7 @@ function OpenLawQuickMenu()
         TriggerEvent('cm-hud:client:notify', 'Go on duty through your organization wardrobe to use quick actions.', 'inform')
         return false
     end
-    TriggerEvent('cm-police:client:openLawQuickMenu', state)
+    TriggerEvent('cm-law:client:openLawQuickMenu', state)
     return true
 end
 
@@ -137,6 +137,24 @@ end)
 
 -- Activity Logs page (html/app.js) -- on-demand fetch, same shape as
 -- fleetCatalog/dispatchActiveCalls.
+RegisterNUICallback('toggleMemberMap', function(_, cb)
+    local enabled = CMLawTrackingToggle and CMLawTrackingToggle()
+    -- Tell the server whether to keep pushing positions to us, so an
+    -- organization with nobody watching costs nothing to broadcast.
+    if enabled ~= nil then TriggerServerEvent('cm-law:server:toggleMemberMap', enabled == true) end
+    cb({ ok = enabled ~= nil, enabled = enabled == true })
+end)
+
+RegisterNUICallback('setMeetingPoint', function(data, cb)
+    local payload = { clear = type(data) == 'table' and data.clear == true }
+    if not payload.clear then
+        local coords = GetEntityCoords(PlayerPedId())
+        payload.x, payload.y, payload.z = coords.x, coords.y, coords.z
+    end
+    local ok, message = lib.callback.await('cm-law:server:setMeetingPoint', false, payload)
+    cb({ ok = ok == true, message = message })
+end)
+
 RegisterNUICallback('activityLog', function(_, cb)
     cb({ list = lib.callback.await('cm-law:server:activityLog', false) or {} })
 end)

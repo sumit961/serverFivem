@@ -1,1 +1,0 @@
-Bridge = exports['p_bridge']:getObject()

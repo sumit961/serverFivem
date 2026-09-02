@@ -54,6 +54,7 @@ Config.CharacterLastNameColumn = 'last_name'
 -- OR call exports['cm-chat']:SetPlayerChatGroup(source, 'family', familyId, 'green')
 Config.GroupStateKeys = {
     family = { 'cmFamily', 'familyId', 'family_id', 'family', 'familyName', 'family_name' },
+    gang   = { 'cmGang' },
     org    = { 'orgId', 'org_id', 'organisationId', 'organizationId', 'organization_id', 'org', 'organisation', 'organization' },
     club   = { 'clubId', 'club_id', 'club', 'clubName', 'club_name' }
 }
@@ -79,13 +80,28 @@ Config.Channels = {
     },
 
     nonrp = {
-        id = 'nonrp', label = 'NON-RP', type = 'global',
+        id = 'nonrp', label = 'Non-RP', type = 'global',
         always = true, color = '#9bb8c8', format = 'nonrp'
     },
 
     family = {
-        id = 'family', label = 'FAMILY', type = 'group', group = 'family',
+        id = 'family', label = 'Family', type = 'group', group = 'family',
         color = '#72ff8c', format = 'family'
+    },
+
+    gang = {
+        id = 'gang', label = 'GANG', type = 'group', group = 'gang', hiddenTab = true,
+        color = '#67e8f9', format = 'group'
+    },
+
+    gang_rp = {
+        id = 'gang_rp', label = 'Gang RP', type = 'group', group = 'gang',
+        color = '#67e8f9', format = 'group_rp'
+    },
+
+    gang_nonrp = {
+        id = 'gang_nonrp', label = 'Gang Non-RP', type = 'group', group = 'gang',
+        color = '#9bb8c8', format = 'group_nonrp'
     },
 
     org = {
@@ -119,7 +135,7 @@ Config.Channels = {
     },
 
     admin = {
-        id = 'admin', label = 'ADMIN', type = 'staff', staff = true,
+        id = 'admin', label = 'Admin', type = 'staff', staff = true,
         color = '#ff5cf7', format = 'admin'
     },
 
@@ -144,7 +160,7 @@ Config.Channels = {
     }
 }
 
-Config.ChannelOrder = { 'rp', 'nonrp', 'family', 'org', 'ems_rp', 'ems_nonrp', 'police_rp', 'police_nonrp', 'club', 'admin' }
+Config.ChannelOrder = { 'rp', 'nonrp', 'family', 'gang_rp', 'gang_nonrp', 'org', 'ems_rp', 'ems_nonrp', 'police_rp', 'police_nonrp', 'club', 'admin' }
 
 Config.CommandAliases = {
     ooc = 'nonrp',

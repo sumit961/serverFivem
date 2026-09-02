@@ -1,0 +1,291 @@
+{
+    "schemaVersion":  1,
+    "executionId":  "runtime-20260902-001",
+    "status":  "startup_failed_or_timed_out",
+    "startTimestamp":  "2026-09-02T02:32:30.5853557Z",
+    "process":  {
+                    "id":  7596,
+                    "executable":  "C:\\Users\\xumit\\Desktop\\FIVEM\\server file\\FXServer.exe",
+                    "profile":  "default"
+                },
+    "logPath":  "C:\\Users\\xumit\\Desktop\\FIVEM\\txData\\default\\logs\\fxserver.log",
+    "logStartOffset":  77574,
+    "changedResources":  [
+                             "cm-license"
+                         ],
+    "commandsSent":  [
+                         {
+                             "timestamp":  "2026-09-02T02:45:32.3842685Z",
+                             "command":  "restart cm-license",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:49:31.2268490Z",
+                             "command":  "restart cm-license",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:57:39.9575190Z",
+                             "command":  "restart cm-vehicles",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:04.8034902Z",
+                             "command":  "restart cm-gasstations",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:22.3247130Z",
+                             "command":  "restart cm-license",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:39.4168258Z",
+                             "command":  "ensure cm-tuning",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:40.2897480Z",
+                             "command":  "ensure cm-tuning",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:41.4332333Z",
+                             "command":  "ensure rn-vehicleshop",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:42.3071390Z",
+                             "command":  "ensure rn-vehicleshop",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:43.4366516Z",
+                             "command":  "ensure cm-house",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:44.2484309Z",
+                             "command":  "ensure cm-house",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:45.4416021Z",
+                             "command":  "ensure cm-law",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:46.2940926Z",
+                             "command":  "ensure cm-law",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:47.4156256Z",
+                             "command":  "ensure cm-family",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:48.2891692Z",
+                             "command":  "ensure cm-family",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:49.4345257Z",
+                             "command":  "ensure cm-gang",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:50.3731958Z",
+                             "command":  "ensure cm-gang",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:51.5065689Z",
+                             "command":  "ensure cm-police",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:52.3257776Z",
+                             "command":  "ensure cm-police",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:53.4643653Z",
+                             "command":  "ensure cm-gunstore",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:54.3262126Z",
+                             "command":  "ensure cm-gunstore",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:55.4008576Z",
+                             "command":  "ensure cm-parking",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:56.3138495Z",
+                             "command":  "ensure cm-parking",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:57.3258855Z",
+                             "command":  "ensure cm-ems",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:58.2589316Z",
+                             "command":  "ensure cm-ems",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:58:59.2332957Z",
+                             "command":  "ensure cm-doctor",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:59:00.2265448Z",
+                             "command":  "ensure cm-doctor",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:59:08.4567042Z",
+                             "command":  "ensure cm-house",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:59:10.4638068Z",
+                             "command":  "ensure cm-family",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:59:12.4965702Z",
+                             "command":  "ensure cm-gang",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:59:14.5193703Z",
+                             "command":  "ensure cm-police",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T02:59:16.5236267Z",
+                             "command":  "ensure cm-gunstore",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T03:05:14.6978406Z",
+                             "command":  "restart cm-license",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T03:17:14.7930421Z",
+                             "command":  "restart cm-license",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T03:21:24.1121030Z",
+                             "command":  "restart cm-license",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T05:43:17.2837782Z",
+                             "command":  "restart cm-license",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T05:47:53.2094437Z",
+                             "command":  "restart cm-license",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         },
+                         {
+                             "timestamp":  "2026-09-02T15:27:26.2512753Z",
+                             "command":  "restart cm-license",
+                             "transport":  "FiveM UDP OOB",
+                             "host":  "127.0.0.1",
+                             "port":  30120
+                         }
+                     ],
+    "errorsFound":  [
+
+                    ],
+    "repairsAttempted":  [
+
+                         ],
+    "updatedAt":  "2026-09-02T15:27:41.8727590Z"
+}

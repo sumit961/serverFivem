@@ -13,6 +13,7 @@ local serverFiles = {
     'server/drops.lua',
     'server/events.lua',
     'server/tier2.lua',
+    'server/robbery.lua',
     'server/exports.lua'
 }
 

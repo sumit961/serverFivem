@@ -19,12 +19,20 @@ server.cfg.bkp
 # Local security backup snapshots (never tracked)
 local-security-backup/
 
+# Local embedded database state (never commit live data)
+db/default/
+
 # Large/private asset folders
 resources/\[mlo\]/
 resources/\[clothes\]/
 
 # Safe placeholder template remains tracked.
 !server.local.example.cfg
+
+# CM runtime controller local configuration/state
+tools/cm-runtime/runtime.local.json
+tools/cm-runtime/logs/
+tools/cm-runtime/STOP
 
 # Backup zip files
 *.zip

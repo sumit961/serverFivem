@@ -1,0 +1,8 @@
+{
+  "maxCycles": 0,
+  "maxRepairAttempts": 3,
+  "cycleDelaySeconds": 5,
+  "autoCheckpointCommit": false,
+  "autoPush": false,
+  "requirePlanApproval": true
+}

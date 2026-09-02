@@ -5,6 +5,8 @@ local ActiveShopPlayers = {}
 local CharacterCache = {}
 local RateLimits = {}
 local AdminModes = {}
+local PendingOrganizationGrants = {}
+local ConsumedOrganizationGrants = {}
 local CatalogCache = { sourceList = nil, sourceByModel = nil, adminCatalog = nil, publicCatalog = nil, shopVehicles = nil, vehicleByModel = nil, loadedAt = 0 }
 local RuntimeVehicleCache = { list = {}, byModel = {} }
 
@@ -807,6 +809,13 @@ local function legalOrgOptions()
     return out
 end
 
+local function gangOptions()
+    return {
+        {id='marabunta',label='Marabunta'}, {id='bloods',label='Bloods'},
+        {id='ballas',label='Ballas'}, {id='families',label='Families'}, {id='vagos',label='Vagos'}
+    }
+end
+
 -- Shared metadata table sent alongside every rn-vehicleshop:client:adminData
 -- push -- factored out so legalOrganizations doesn't need repeating at each
 -- of this file's several call sites. Must be declared after
@@ -818,6 +827,7 @@ local function adminMeta(extra)
         metaFiles = VehicleDiscoveryCache.metaFiles or 0,
         visualCatalog = getVisualCatalog(),
         legalOrganizations = legalOrgOptions(),
+        gangs = gangOptions(),
     }
     if type(extra) == 'table' then for key, value in pairs(extra) do meta[key] = value end end
     return meta
@@ -1126,6 +1136,7 @@ local function parseCatalogRow(row)
         availableEms = truthy(row.available_ems),
         availablePolice = truthy(row.available_police),
         legalOrg = (row.legal_org and tostring(row.legal_org) ~= '') and tostring(row.legal_org) or nil,
+        gangId = (row.gang_id and tostring(row.gang_id) ~= '') and tostring(row.gang_id) or nil,
         image = (row.image and tostring(row.image) ~= '' ) and tostring(row.image) or nil,
         metadata = decode(row.metadata),
         mods = decode(row.mods)
@@ -1142,7 +1153,7 @@ local function loadCatalogCache(force)
     local rows = MySQL.query.await([[
         SELECT id, model, label, category, price, speed_kph, trunk_level,
                available_store, available_server, available_ems, available_police,
-               legal_org, image, metadata, mods
+               legal_org, gang_id, image, metadata, mods
         FROM cm_vehicle_catalog
         WHERE (image IS NOT NULL AND TRIM(image) <> '')
            OR available_store = 1
@@ -1150,6 +1161,7 @@ local function loadCatalogCache(force)
            OR available_ems = 1
            OR available_police = 1
            OR legal_org IS NOT NULL
+           OR gang_id IS NOT NULL
         ORDER BY category ASC, label ASC
     ]]) or {}
     local admin, public, byModel = {}, {}, {}
@@ -1773,15 +1785,19 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
     local availablePolice = truthy(data.availablePolice or data.available_police)
     local legalOrg = tostring(data.legalOrg or data.legal_org or ''):lower():gsub('[^a-z0-9_]', '')
     if legalOrg == '' then legalOrg = nil end
+    local gangId=tostring(data.gangId or ''):lower()
+    local validGangs={marabunta=true,bloods=true,ballas=true,families=true,vagos=true}
+    if not validGangs[gangId] then gangId=nil end
     if availableStore then availableServer = true end
     -- EMS, Police, and any cm-law organization are each their own
     -- mutually-exclusive catalog status (hidden/server/store/ems/police/
     -- legal:<org>), matching the single #admin-status-mode select in the
     -- NUI -- never let a vehicle be both a public store item and a fleet
     -- vehicle, and never assigned to more than one fleet at once.
-    if availableEms then availableStore = false; availableServer = false; availablePolice = false; legalOrg = nil end
-    if availablePolice then availableStore = false; availableServer = false; availableEms = false; legalOrg = nil end
-    if legalOrg then availableStore = false; availableServer = false; availableEms = false; availablePolice = false end
+    if availableEms then availableStore=false; availableServer=false; availablePolice=false; legalOrg=nil; gangId=nil end
+    if availablePolice then availableStore=false; availableServer=false; availableEms=false; legalOrg=nil; gangId=nil end
+    if legalOrg then availableStore=false; availableServer=false; availableEms=false; availablePolice=false; gangId=nil end
+    if gangId then availableStore=false; availableServer=false; availableEms=false; availablePolice=false; legalOrg=nil end
 
     local vehicleMods = sanitizeVehicleMods(data.mods)
     if speedKph then vehicleMods.catalogMaxSpeedKph = speedKph end
@@ -1805,7 +1821,7 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
     end
 
     -- A car can only be enabled (store, server, ems, police, or a legal org) once it has a captured image.
-    if (availableStore or availableServer or availableEms or availablePolice or legalOrg ~= nil) and (not image or image == '') then
+    if (availableStore or availableServer or availableEms or availablePolice or legalOrg ~= nil or gangId ~= nil) and (not image or image == '') then
         notify(src, 'Capture an image first. A vehicle cannot be enabled without an image.', 'error')
         TriggerClientEvent('rn-vehicleshop:client:adminNeedsImage', src, model, {
             label = label, category = category, price = price, speedKph = speedKph, trunkLevel = trunkLevel,
@@ -1816,8 +1832,8 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
     end
 
     MySQL.insert.await([[
-        INSERT INTO cm_vehicle_catalog (model, label, category, price, speed_kph, trunk_level, available_store, available_server, available_ems, available_police, legal_org, image, metadata, mods)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO cm_vehicle_catalog (model, label, category, price, speed_kph, trunk_level, available_store, available_server, available_ems, available_police, legal_org, gang_id, image, metadata, mods)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
             label = VALUES(label),
             category = VALUES(category),
@@ -1829,10 +1845,11 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
             available_ems = VALUES(available_ems),
             available_police = VALUES(available_police),
             legal_org = VALUES(legal_org),
+            gang_id = VALUES(gang_id),
             image = VALUES(image),
             metadata = VALUES(metadata),
             mods = VALUES(mods)
-    ]], { model, label, category, price, speedKph, trunkLevel, availableStore and 1 or 0, availableServer and 1 or 0, availableEms and 1 or 0, availablePolice and 1 or 0, legalOrg, image, encode({
+    ]], { model, label, category, price, speedKph, trunkLevel, availableStore and 1 or 0, availableServer and 1 or 0, availableEms and 1 or 0, availablePolice and 1 or 0, legalOrg, gangId, image, encode({
         savedBy = GetPlayerName(src),
         savedAt = os.time(),
         testDrive = {
@@ -1843,6 +1860,7 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
     }), (availableEms or availablePolice or legalOrg ~= nil) and encode(vehicleMods) or nil })
 
     invalidateCatalogCache()
+    if GetResourceState('cm-gang')=='started' then pcall(function() exports['cm-gang']:AssignCatalogVehicle(src,model,gangId) end) end
     notify(src, ('Saved %s.'):format(label), 'success')
     structuredAdminLog('catalog', 'saved', src, { model = model, label = label, category = category, price = price, trunkLevel = trunkLevel, availableStore = availableStore, availableServer = availableServer, availableEms = availableEms, availablePolice = availablePolice, legalOrg = legalOrg, testDrive = { enabled = testDriveEnabled, duration = testDriveTimer, cost = testDriveCost } }, 'success')
     local sourceList = flattenSourceVehicles()
@@ -2174,6 +2192,94 @@ exports('GiveCatalogVehicle', function(src, model, metadata)
         return false, vehicleData or createOk or 'CreateOwnedVehicle failed.'
     end
     return true, vehicleData
+end)
+
+exports('ConsumeOrganizationVehicleGrant', function(src, model, organization)
+    src, model, organization = tonumber(src), normalizeModel(model), tostring(organization or ''):lower()
+    if not src or src <= 0 then return false, 'invalid_actor_source' end
+    local pending = PendingOrganizationGrants[src]
+    if not pending then
+        local consumedAt = ConsumedOrganizationGrants[src]
+        if consumedAt and consumedAt >= os.time() then return false, 'authorization_already_consumed' end
+        return false, 'authorization_missing'
+    end
+    if pending.expiresAt < os.time() then
+        PendingOrganizationGrants[src] = nil
+        return false, 'authorization_expired'
+    end
+    if pending.model ~= model or pending.organization ~= organization then
+        PendingOrganizationGrants[src] = nil
+        return false, 'authorization_mismatch'
+    end
+    PendingOrganizationGrants[src] = nil
+    ConsumedOrganizationGrants[src] = os.time() + 5
+    return true
+end)
+
+RegisterNetEvent('rn-vehicleshop:server:grantOrganizationVehicle', function(model, organization, minimumTier, trunkMinimumTier)
+    local src = source
+    if not isAdmin(src) then return notify(src, 'No permission.', 'error') end
+    if AdminModes[src] ~= 'manage' then return notify(src, 'Use /managevehicle to give organization vehicles.', 'error') end
+    if not checkRateLimit(src, 'grantOrganizationVehicle', 1500) then return notify(src, 'Please wait before giving another vehicle.', 'error') end
+    model, organization = normalizeModel(model), tostring(organization or ''):lower():gsub('[^a-z0-9_]', '')
+    minimumTier = math.max(1, math.min(100, math.floor(tonumber(minimumTier) or 1)))
+    trunkMinimumTier = math.max(1, math.min(100, math.floor(tonumber(trunkMinimumTier) or minimumTier)))
+    local allowed = { police=true, ems=true, marabunta=true, bloods=true, ballas=true, families=true, vagos=true }
+    for _, org in ipairs(legalOrgOptions()) do allowed[tostring(org.id)] = true end
+    if not allowed[organization] then return notify(src, 'Invalid organization.', 'error') end
+    local vehicle = getCatalogVehicle(model, false)
+    if not vehicle then return notify(src, 'Vehicle is not saved in Vehicle Manage.', 'error') end
+    if GetResourceState('cm-vehicles') ~= 'started' then return notify(src, 'Vehicle owner service is unavailable.', 'error') end
+    structuredAdminLog('organization_vehicle', 'grant_requested', src, {model=model,organization=organization,stage='authorization'}, 'info')
+    PendingOrganizationGrants[src] = { model=vehicle.model, organization=organization, expiresAt=os.time()+5 }
+    structuredAdminLog('organization_vehicle', 'authorization_granted', src, {model=model,organization=organization,stage='authorization'}, 'success')
+    local request = {
+        actorSource=tonumber(src), organizationId=organization, model=vehicle.model,
+        label=vehicle.label or vehicle.model, trunkLevel=tonumber(vehicle.trunkLevel) or 1,
+        metadata={catalogModel=vehicle.model}
+    }
+    structuredAdminLog('organization_vehicle', 'persistent_request', src, {
+        actorSource=request.actorSource, model=request.model, organization=request.organizationId,
+        trunkLevel=request.trunkLevel, metadataType=type(request.metadata), stage='persistent_validation'
+    }, 'info')
+    local called, created, result = pcall(function()
+        return exports['cm-vehicles']:CreateOrganizationVehicle(request)
+    end)
+    PendingOrganizationGrants[src] = nil
+    if not called or created ~= true or type(result) ~= 'table' or not tonumber(result.id) then
+        local reason = not called and ('export_error:' .. tostring(created)) or tostring(result or created)
+        local stage = reason:find('authorization_', 1, true) == 1 and 'authorization' or 'persistent_validation'
+        if reason == 'database_insert_failed' then stage = 'persistent_creation' end
+        structuredAdminLog('organization_vehicle', 'grant_failed', src, {model=model,organization=organization,stage=stage,error=reason}, 'error')
+        TriggerClientEvent('rn-vehicleshop:client:organizationGrantResult',src,{ok=false,stage=stage,reason=reason})
+        return notify(src, 'Organization vehicle creation failed.', 'error')
+    end
+    local vehicleId=tonumber(result.id)
+    structuredAdminLog('organization_vehicle', 'persistent_created', src, {model=model,organization=organization,vehicleId=vehicleId}, 'success')
+    local gangTargets={marabunta=true,bloods=true,ballas=true,families=true,vagos=true}
+    local fleetStatus='not_applicable'
+    if gangTargets[organization] then
+        if GetResourceState('cm-gang')~='started' then
+            fleetStatus='fleet_owner_unavailable'
+        else
+            local linkCalled,linked,linkResult=pcall(function()
+                return exports['cm-gang']:LinkGrantedOrganizationVehicle(src,organization,model,vehicleId,minimumTier,trunkMinimumTier)
+            end)
+            if not linkCalled or linked~=true then
+                fleetStatus=tostring(linkResult or linked or 'fleet_link_failed')
+                structuredAdminLog('organization_vehicle','fleet_link_failed',src,{model=model,organization=organization,vehicleId=vehicleId,stage='fleet_link',error=fleetStatus},'error')
+                TriggerClientEvent('rn-vehicleshop:client:organizationGrantResult',src,{ok=true,partial=true,organization=organization,
+                    model=model,label=vehicle.label,vehicleId=vehicleId,status='vehicle_created_fleet_link_failed',reason=fleetStatus})
+                return notify(src,('Vehicle ID %d created, but gang fleet link failed: %s'):format(vehicleId,fleetStatus),'error')
+            end
+            fleetStatus=type(linkResult)=='table' and linkResult.status or 'needs_home_location'
+            structuredAdminLog('organization_vehicle','fleet_linked',src,{model=model,organization=organization,vehicleId=vehicleId,status=fleetStatus},'success')
+        end
+    end
+    structuredAdminLog('organization_vehicle', 'granted', src, {model=model,organization=organization,vehicleId=vehicleId,plate=result.plate}, 'success')
+    TriggerClientEvent('rn-vehicleshop:client:organizationGrantResult',src,{ok=true,organization=organization,
+        model=model,label=vehicle.label,vehicleId=vehicleId,status=fleetStatus})
+    notify(src, ('Gave %s to %s. Vehicle ID: %d'):format(vehicle.label or model, organization, vehicleId), 'success')
 end)
 
 

@@ -130,6 +130,113 @@ For a diagnosis-only request, do not implement unless asked.
 For a review request, report findings before changing code.
 Do not deploy to a live server without explicit approval.
 
+## Mandatory post-edit FiveM runtime validation
+
+For every future FiveM development task, editing files is not the end of
+the task. Unless the user explicitly says `do not restart` or
+`do not runtime test`, complete this workflow before reporting completion:
+
+```text
+INSPECT
+-> EDIT
+-> STATIC VALIDATION
+-> RESTART AFFECTED RESOURCE
+-> READ NEW SERVER CONSOLE OUTPUT
+-> FIX RUNTIME ERRORS
+-> RESTART AGAIN
+-> RECHECK
+-> REPORT RESULT
+```
+
+The user must not need to repeatedly ask Codex to restart, test, check the
+console, fix the next runtime error, or restart again. This is a mandatory
+post-edit validation step attached to normal development tasks; it is not
+authorization to create an autonomous project-development loop or generate
+new feature prompts.
+
+### Changed-resource identification
+
+- Determine every affected FiveM resource from the current edits and
+  `git diff`, mapping paths such as `resources/[core]/cm-gang/...` to
+  `cm-gang`.
+- Do not infer impact from filenames alone when contracts cross resource
+  boundaries. Inspect dependencies, events, exports and consumers.
+- For multiple changed resources, restart in dependency order rather than
+  alphabetically. Restart an owning dependency before its consumers.
+
+### Static validation before runtime
+
+- Always run `git diff --check` before restarting anything.
+- Validate changed Lua syntax where supported.
+- Run `node --check` on changed JavaScript.
+- Validate manifest syntax, referenced files and dependencies when a
+  manifest changes.
+- For larger or cross-resource work, also run
+  `python tools/cm-validate/validate.py` and, where relevant,
+  `python tools/cm-fivem-map/scan.py --root . --out cm-agent-out --check`.
+- Fix static failures before attempting a runtime restart.
+
+### Development server and restart procedure
+
+- Check the local server with
+  `.\tools\cm-runtime\server-status.ps1`. If it is not running, use
+  `.\tools\cm-runtime\start-server.ps1`.
+- Never start a duplicate FXServer/txAdmin instance and never operate a
+  production server.
+- After static validation succeeds, prefer
+  `.\tools\cm-runtime\runtime-controller.ps1 -StartIfNeeded -ChangedResource <resource>`
+  or `.\tools\cm-runtime\send-command.ps1 "restart <resource>"`.
+- Use the smallest safe resource restart. Do not restart the full server
+  merely because it is easier.
+- Use a full development FXServer restart only when technically required,
+  including startup-only initialization, material manifest/dependency-order
+  changes, convar/startup changes, schema initialization that needs fresh
+  startup, tightly coupled foundational changes, or global state that a
+  resource restart cannot safely recreate.
+
+### New console output and automatic repair
+
+- After restart, inspect only the new execution/offset window with
+  `.\tools\cm-runtime\read-errors.ps1` and, when useful,
+  `.\tools\cm-runtime\tail-console.ps1 -Tail 100 -Resource <resource>`.
+- Do not repeatedly diagnose historical errors from earlier executions.
+- For a new code-level failure such as a script error, nil value, missing
+  export/function, invalid callback/query/argument, resource startup error,
+  or server-visible NUI startup error: inspect the exact stack, find and fix
+  the root cause, rerun static validation, restart the affected resource,
+  and inspect only the next new console window. Do this without waiting for
+  another user prompt.
+- Make at most three meaningful speculative repair attempts for the same
+  distinct runtime failure. If it still fails, stop changing code and report
+  `RUNTIME BLOCKER` with the exact error, affected resource and source
+  file/line, attempted repairs, and remaining verification needed.
+
+### Database and client-side boundaries
+
+- Never automatically run destructive migrations. For `DATABASE NOT READY`,
+  missing table/column/index, or schema-version errors, first determine
+  whether code is wrong or a migration is genuinely unapplied. If a migration
+  is required, report the exact SQL migration file and do not alter an
+  unknown or production database without explicit authorization.
+- A clean FXServer/txAdmin console does not prove that client F8 errors are
+  absent or that NUI appearance, NPC placement, vehicle handling, G-menu
+  interaction, animation, two-player gameplay, or OneSync visual streaming
+  works. Finish all available server-side automatic testing, then report
+  `MANUAL FIVEM TEST REQUIRED` with short, exact gameplay steps.
+- Use accurate result language: `STATIC PASS`, `SERVER RUNTIME PASS`, and
+  `MANUAL GAMEPLAY TEST REQUIRED`. Never say `FULLY TESTED` unless the
+  required real gameplay test was actually performed.
+
+### Required post-development response
+
+Before responding after every FiveM development task, report:
+
+- `CHANGED` — affected resources and files.
+- `STATIC` — checks and pass/fail result.
+- `RUNTIME` — resources restarted and whether the new console was clean.
+- `AUTO-FIXES` — runtime errors repaired, if any.
+- `MANUAL TEST` — exact remaining gameplay verification, if any.
+
 ## Validation expectations
 
 Where applicable, verify:

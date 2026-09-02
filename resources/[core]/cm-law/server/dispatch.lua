@@ -46,18 +46,7 @@ local function dispatchMemberForSource(src)
         if not LawCapabilityEnabled(member.organizationId, 'dispatch') then return nil, characterId end
         return member, characterId
     end
-    if GetResourceState('cm-police') ~= 'started' then return nil, characterId end
-    characterId = characterId or characterIdFor(src)
-    if not characterId then return nil, nil end
-    local ok, police = pcall(function() return exports['cm-police']:GetMember(characterId) end)
-    if not ok or type(police) ~= 'table' or police.onDuty ~= true or police.suspended == true then return nil, characterId end
-    police.organizationId = 'police'
-    police.isLeader = police.isLeader == true
-    police.permissions = type(police.permissions) == 'table' and police.permissions or {}
-    local permitted = false
-    pcall(function() permitted = exports['cm-police']:HasPermission(characterId, 'police.receive_dispatch') == true end)
-    police.permissions['law.receive_dispatch'] = permitted
-    return police, characterId
+    return nil, characterId
 end
 
 local function recipients(permission, routingBucket, audienceOrganizationId)

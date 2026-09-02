@@ -1,8 +1,8 @@
 -- cm-police standalone MDT terminal (Tab key). A second, differently-
 -- skinned entry point onto the exact same server-side MDT callbacks the F7
--- dashboard's own MDT tab already uses (server/mdt.lua) -- this file only
--- owns opening/closing the overlay, not any records logic. The F7 tab is
--- untouched and still works independently ("keep both" entry points).
+-- MDT server callbacks also use (server/mdt.lua). This file owns the dedicated
+-- TAB terminal overlay only; the F6 organization dashboard intentionally does
+-- not expose a duplicate MDT navigation entry.
 
 local open = false
 

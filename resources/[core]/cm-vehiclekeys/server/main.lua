@@ -130,6 +130,22 @@ local function isFamilyKey(record)
     return type(record) == 'table' and tostring(record.kind or '') == 'family'
 end
 
+local function isOrganizationKey(record)
+    return type(record) == 'table' and tostring(record.kind or '') == 'organization'
+end
+
+local function validateOrganizationKey(characterId, record, action)
+    if not isOrganizationKey(record) then return true, 'not_organization_key', nil end
+    local resource = tostring(record.ownerResource or '')
+    if resource == '' or GetResourceState(resource) ~= 'started' then return false, 'organization_resource_not_started', nil end
+    local ok, allowed, reason, context = pcall(function()
+        return exports[resource]:GetVehicleAccessDecision(tostring(characterId), tonumber(record.vehicleId), tostring(action or 'vehicle.drive'))
+    end)
+    if not ok or allowed ~= true then return false, ok and tostring(reason or 'organization_access_revoked') or 'organization_validation_failed', context end
+    if tostring(record.organizationId or '') ~= tostring(context and context.gangId or '') then return false, 'organization_changed', context end
+    return true, 'organization_key_valid', context
+end
+
 local function validateFamilyKey(characterId, record, action)
     if not isFamilyKey(record) then return true, 'not_family_key', nil end
     if GetResourceState('cm-family') ~= 'started' then
@@ -175,6 +191,10 @@ local function getKeyRecordByCharacter(characterId, plate, action)
             removePlateKey(characterId, plate)
             return nil
         end
+    end
+    if isOrganizationKey(record) then
+        local valid = validateOrganizationKey(characterId, record, action)
+        if valid ~= true then removePlateKey(characterId, plate); return nil end
     end
 
     return record
@@ -339,6 +359,41 @@ local function grantFamilyKey(targetSrc, plate, context)
     return true, nil, TempKeys[targetCharacterId][plate]
 end
 
+local function grantOrganizationKey(targetSrc, plate, context)
+    targetSrc, context = tonumber(targetSrc), type(context) == 'table' and context or {}
+    if not targetSrc or targetSrc <= 0 or not GetPlayerName(targetSrc) then return false, 'target_offline' end
+    plate = normalizePlate(plate)
+    local characterId, vehicleId = resolveCharacterId(targetSrc), tonumber(context.vehicleId)
+    local organizationId, ownerResource = tostring(context.organizationId or ''), tostring(context.ownerResource or '')
+    if plate == '' or not characterId or not vehicleId or organizationId == '' or ownerResource == '' then return false, 'organization_context_incomplete' end
+    local valid, reason = validateOrganizationKey(characterId, {
+        kind='organization', vehicleId=vehicleId, organizationId=organizationId, ownerResource=ownerResource,
+    }, context.action or 'vehicle.drive')
+    if valid ~= true then return false, reason end
+    TempKeys[characterId] = TempKeys[characterId] or {}
+    TempKeys[characterId][plate] = { kind='organization', plate=plate, characterId=characterId, vehicleId=vehicleId,
+        organizationId=organizationId, ownerResource=ownerResource, grantedAt=os.time(), expiresAt=0 }
+    return true, nil, TempKeys[characterId][plate]
+end
+
+local function revokeOrganizationKeys(filter)
+    filter = type(filter) == 'table' and filter or {}
+    local removed = 0
+    for characterId, keys in pairs(TempKeys) do
+        for plate, record in pairs(keys) do
+            if isOrganizationKey(record)
+                and (not filter.characterId or tostring(characterId) == tostring(filter.characterId))
+                and (not filter.vehicleId or tonumber(record.vehicleId) == tonumber(filter.vehicleId))
+                and (not filter.organizationId or tostring(record.organizationId) == tostring(filter.organizationId))
+                and (not filter.ownerResource or tostring(record.ownerResource) == tostring(filter.ownerResource)) then
+                keys[plate], removed = nil, removed + 1
+            end
+        end
+        if next(keys) == nil then TempKeys[characterId] = nil end
+    end
+    return removed
+end
+
 local function revokeFamilyKeysForCharacter(characterId, reason)
     characterId = normalizeCharacterId(characterId)
     if not characterId then return 0 end
@@ -405,6 +460,8 @@ local function copyRecord(record)
         familyName = record.familyName,
         vehicleId = record.vehicleId,
         requiredTier = record.requiredTier,
+        organizationId = record.organizationId,
+        ownerResource = record.ownerResource,
         grantedAt = record.grantedAt,
         refreshedAt = record.refreshedAt,
         expiresAt = record.expiresAt
@@ -506,6 +563,16 @@ exports('GrantFamilyKey', function(targetSrc, plate, context)
     return grantFamilyKey(targetSrc, plate, context)
 end)
 
+exports('GrantOrganizationKey', function(targetSrc, plate, context)
+    if not invokingResourceAllowed(Settings.trustedOrganizationResources) then return false, 'resource_not_authorized' end
+    return grantOrganizationKey(targetSrc, plate, context)
+end)
+
+exports('RevokeOrganizationKeys', function(filter)
+    if not invokingResourceAllowed(Settings.trustedOrganizationResources) then return 0 end
+    return revokeOrganizationKeys(filter)
+end)
+
 exports('RevokeFamilyKeysForCharacter', function(characterId, reason)
     if not invokingResourceAllowed(Settings.trustedFamilyResources) then return 0 end
     return revokeFamilyKeysForCharacter(characterId, reason)
@@ -597,7 +664,7 @@ CreateThread(function()
             for plate, record in pairs(keys) do
                 if isExpired(record, now) then
                     removePlateKey(characterId, plate)
-                elseif isFamilyKey(record) then
+                elseif isFamilyKey(record) or isOrganizationKey(record) then
                     getKeyRecordByCharacter(characterId, plate, 'vehicle.drive')
                 end
             end
@@ -614,6 +681,7 @@ AddEventHandler('onResourceStop', function(resourceName)
         end
         return
     end
+    if resourceName == 'cm-gang' then revokeOrganizationKeys({ ownerResource = 'cm-gang' }); return end
     if resourceName ~= RESOURCE then return end
     TempKeys = {}
     ActiveCharacters = {}

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CM Gang</title>
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
+  <link rel="stylesheet" href="app.css?v=5">
+  <link rel="stylesheet" href="supply-war-v2.css?v=4">
+  <link rel="stylesheet" href="gang-v300.css?v=12">
+  <link rel="stylesheet" href="gang-dashboard-v600.css?v=1">
+  <link rel="stylesheet" href="gang-dashboard-v800.css?v=4">
+  <link rel="stylesheet" href="gang-dashboard-v1300.css?v=8">
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-armory.css?v=7">
+  <link rel="stylesheet" href="gang-armory-v4.css?v=19">
+</head>
+<body>
+  <div id="dashboard-backdrop" aria-hidden="true"><span></span></div>
+  <main class="shell" aria-label="Gang dashboard">
+    <aside class="rail">
+      <div class="brand">
+        <div class="brand-mark" id="tag">CM</div>
+        <div><small>PRIVATE NETWORK</small><strong id="rail-name">Gang</strong></div>
+        <p class="rail-description">Private gang network. Manage members, ranks, access and turf activity.</p>
+      </div>
+      <nav id="nav"></nav>
+      <div class="rail-foot">
+        <div class="rail-player">
+          <div class="rail-avatar" id="rail-avatar">CM</div>
+          <div class="rail-player-copy"><strong id="rail-player-name">Gang Member</strong><small id="rail-player-rank">Member</small></div>
+        </div>
+        <div class="rail-shortcuts"><span>ESC</span><small>to go back</small><span>F8</span><small>menu</small></div>
+        <button id="close" class="quiet">Close Network</button>
+      </div>
+    </aside>
+
+    <section class="workspace">
+      <header>
+        <div>
+          <p class="eyebrow">GANG ORGANIZATION</p>
+          <h1 id="gang-name">Overview</h1>
+          <p id="page-subtitle" class="page-subtitle">Organization status, shared account and turf income at a glance.</p>
+        </div>
+        <div class="header-actions"><span id="online-chip" class="online-chip">0 ONLINE</span><span id="rank-badge" class="rank-badge">Member</span><button id="refresh">Refresh</button></div>
+      </header>
+      <div id="content" class="content"></div>
+    </section>
+
+    <aside class="gang-visual" id="gang-visual" aria-hidden="true">
+      <div class="info-heading">INFORMATION</div>
+      <div class="info-player" id="info-player-name">GANG MEMBER</div>
+      <div class="info-rule"></div>
+      <dl class="info-list">
+        <div><dt>TITLE</dt><dd id="info-rank">MEMBER</dd></div>
+        <div><dt>LEADER</dt><dd id="info-leader">UNASSIGNED</dd></div>
+        <div><dt>GANG ACCOUNT</dt><dd id="info-profit">$0</dd></div>
+      </dl>
+      <div class="info-rule"></div>
+      <div class="info-notice">
+        <small>NOTICES</small>
+        <p>Bonus payouts are logged to the gang account. Only an authorized rank can issue them.</p>
+        <div class="info-notice-meta"><strong id="info-notice-author">GANG MEMBER</strong><time id="info-notice-time">--:--</time></div>
+      </div>
+      <div class="info-rule"></div>
+      <div class="info-actions-title">QUICK ACTIONS</div>
+      <div class="info-actions">
+        <button type="button" id="quick-invite" class="info-action-primary">INVITE</button>
+        <button type="button" id="quick-set-meeting">MEETING POINT</button>
+        <button type="button" data-dashboard-nav="ranks">EDIT RANKS</button>
+        <button type="button" data-dashboard-nav="blacklist">BLACKLIST</button>
+        <button type="button" id="quick-leave-gang" class="info-action-danger">LEAVE GANG</button>
+      </div>
+      <div class="gang-visual-watermark" id="gang-visual-watermark">CM</div>
+      <img id="gang-hero-image" class="gang-hero-image" alt="" draggable="false">
+      <div class="info-bottom">
+        <strong id="info-bottom-name">GANG MEMBER</strong>
+        <span id="info-bottom-rank">MEMBER · TIER 1</span>
+      </div>
+      <div id="gang-visual-kicker" hidden>PRIVATE NETWORK</div>
+      <div id="gang-visual-name" hidden>GANG</div>
+      <div id="gang-visual-rank" hidden>Member</div>
+      <div id="gang-visual-online" hidden>0 ONLINE</div>
+    </aside>
+  </main>
+  <div id="toast" role="status"></div>
+  <section id="gang-search" class="gang-search" hidden><div class="gang-search-card"><header><div><small>GANG ACTION</small><h2>PLAYER SEARCH</h2></div><button id="gang-search-close" type="button">ESC</button></header><p>Contraband, weapons and ammunition</p><div id="gang-search-items" class="gang-search-items"></div></div></section>
+  <section id="gang-event-hud" aria-live="polite">
+    <div class="ge-event-panel">
+      <div class="ge-summary"><strong id="ge-title"><i aria-hidden="true"></i>GANG SUPPLY WAR</strong><span id="ge-timer">--:--</span><small id="ge-next">FINAL PHASE</small><div class="ge-progress" aria-hidden="true"><span id="ge-progress-fill"></span></div></div>
+      <div class="ge-participants"><div class="ge-participant-head"><small>LIVE IN CIRCLE</small><small>LIVE</small></div><ol id="ge-live-counts"></ol></div>
+    </div>
+    <div class="ge-legacy" hidden><strong id="ge-leading">--</strong><ol id="ge-standings"></ol><div id="ge-your"></div><ol id="ge-top-list"></ol></div>
+    <div id="ge-results" class="ge-results" hidden></div>
+    <div id="ge-kill-feed" class="ge-feed"></div><div id="ge-banner" class="ge-banner"></div>
+  </section>
+  <section id="supply-result-modal" class="supply-result-modal" hidden aria-label="Supply War result"></section>
+  <script src="app.js?v=42"></script>
+  <script src="supply-war-v2.js?v=4"></script>
+</body>
+</html>

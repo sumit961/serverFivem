@@ -32,6 +32,10 @@ Config.VehicleKeys = {
         'cm-house',
         'cm-admin',
     },
+    trustedOrganizationResources = {
+        ['cm-gang'] = true,
+        ['cm-vehicles'] = true,
+    },
 
     debug = false
 }

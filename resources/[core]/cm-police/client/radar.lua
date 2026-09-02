@@ -42,9 +42,16 @@ end
 
 local function canUseRadar()
     local state = LocalPlayer.state.cmPolice
-    if type(state) ~= 'table' or state.onDuty ~= true then return false end
+    if type(state) == 'table' and state.onDuty == true then
+        if type(PoliceCapabilityClientEnabled)=='function' and not PoliceCapabilityClientEnabled('radar') then return false end
+        local permissions = state.permissions or {}
+        return state.isLeader == true or permissions['police.radar'] == true
+    end
+    state = LocalPlayer.state.cmLegalOrg
+    if type(state) ~= 'table' or state.onDuty ~= true or state.suspended
+        or (state.capabilities and state.capabilities.radar == false) then return false end
     local permissions = state.permissions or {}
-    return state.isLeader == true or permissions['police.radar'] == true
+    return state.isLeader == true or permissions['law.radar'] == true
 end
 
 -- Same rotation-to-direction formula cm-vehicles/client/main.lua already

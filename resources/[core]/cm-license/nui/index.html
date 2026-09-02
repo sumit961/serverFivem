@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CM License System</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="npcInteraction" class="npc-interaction hidden"><kbd>E</kbd><div><small>INTERACTION</small><strong id="npcInteractionName">Alex Morgan</strong><span id="npcInteractionRole">CM License Instructor</span></div></div>
+    <!-- License Menu Dialog -->
+    <div id="licenseMenu" class="dialog hidden">
+        <div class="panel">
+            <div class="header">
+                <h1>License Instructor</h1>
+                <p>Good afternoon. Which license would you like to apply for today?</p>
+            </div>
+            
+            <div class="options">
+                <button class="option-btn" data-license="driver">
+                    <span class="icon">🚗</span>
+                    <span class="label">Driver License</span>
+                    <span class="price" data-price="500">$500</span>
+                </button>
+                
+                <button class="option-btn" data-license="boat">
+                    <span class="icon">🚤</span>
+                    <span class="label">Boat License</span>
+                    <span class="price" data-price="1000">$1,000</span>
+                </button>
+                
+                <button class="option-btn" data-license="air">
+                    <span class="icon">✈️</span>
+                    <span class="label">Air License</span>
+                    <span class="price" data-price="5000">$5,000</span>
+                </button>
+                
+                <button class="option-btn" id="myLicensesBtn">
+                    <span class="icon">📄</span>
+                    <span class="label">My Licenses</span>
+                </button>
+                
+                <button class="option-btn danger" id="closeBtn">
+                    <span class="icon">❌</span>
+                    <span class="label">Leave</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- My Licenses Dialog -->
+    <div id="myLicensesDialog" class="dialog hidden">
+        <div class="panel">
+            <div class="header">
+                <h1>My Licenses</h1>
+            </div>
+            
+            <div id="licensesList" class="licenses-list">
+                <!-- License items will be populated here -->
+            </div>
+            
+            <div class="footer">
+                <button class="btn btn-secondary" onclick="closeDialog('myLicensesDialog')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Test Confirmation Dialog -->
+    <div id="testConfirmation" class="dialog hidden">
+        <div class="panel">
+            <div class="header">
+                <h1 id="testTitle">Driver License Test</h1>
+            </div>
+            
+            <div class="content">
+                <div class="info-row">
+                    <span class="label">Test Fee:</span>
+                    <span class="value" id="testFee">$500</span>
+                </div>
+                
+                <div class="info-row">
+                    <span class="label">Duration:</span>
+                    <span class="value">20 minutes</span>
+                </div>
+                
+                <div class="info-row">
+                    <span class="label">Requirements:</span>
+                    <span class="value">Complete all checkpoints in order</span>
+                </div>
+                
+                <div class="warning">
+                    ⚠️ Test fee will be deducted upon confirmation. You will not be refunded if you fail.
+                </div>
+            </div>
+            
+            <div class="footer">
+                <button class="btn btn-primary" id="startTestBtn">Start Test</button>
+                <button class="btn btn-secondary" onclick="cancelTest()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Test Result Dialog -->
+    <div id="testResult" class="dialog hidden">
+        <div class="panel">
+            <div class="header" id="resultHeader">
+                <h1>TEST PASSED</h1>
+            </div>
+            
+            <div class="content">
+                <div id="resultMessage" class="result-message">
+                    <!-- Message content -->
+                </div>
+                
+                <div id="resultDetails" class="result-details">
+                    <!-- Additional details -->
+                </div>
+            </div>
+            
+            <div class="footer">
+                <button class="btn btn-primary" onclick="closeDialog('testResult')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Menu -->
+    <div id="adminMenu" class="dialog hidden">
+        <div class="panel">
+            <div class="header">
+                <h1>License Test Setup</h1>
+                <p>Manage license test configurations</p>
+            </div>
+            
+            <div id="adminLicensesList" class="licenses-list">
+                <!-- License test items -->
+            </div>
+            
+            <div class="footer">
+                <button class="btn btn-secondary" onclick="closeDialog('adminMenu')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- License Editor (Admin) -->
+    <div id="licenseEditor" class="dialog hidden">
+        <div class="panel">
+            <div class="header">
+                <h1 id="editorTitle">Create License Test</h1>
+            </div>
+            
+            <div class="content">
+                <form id="licenseForm">
+                    <div class="form-group">
+                        <label for="licenseName">License Name</label>
+                        <input type="text" id="licenseName" placeholder="e.g., Driver License" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="licenseType">License Type</label>
+                        <select id="licenseType" required>
+                            <option value="">Select type</option>
+                            <option value="driver">Driver</option>
+                            <option value="boat">Boat</option>
+                            <option value="air">Air</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="licensePrice">Price ($)</label>
+                        <input type="number" id="licensePrice" min="0" placeholder="500" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="licenseValidity">Validity (days)</label>
+                        <input type="number" id="licenseValidity" min="1" value="30" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="vehicleModel">Vehicle Model</label>
+                        <input type="text" id="vehicleModel" placeholder="e.g., blista" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="vehicleCategory">Vehicle Category</label>
+                        <select id="vehicleCategory" required><option value="car">Car</option><option value="boat">Boat</option><option value="helicopter">Helicopter</option><option value="airplane">Airplane</option></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="itemName">License Item</label>
+                        <input type="text" id="itemName" placeholder="driver_license" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="npcModel">Instructor Ped Model</label>
+                        <input type="text" id="npcModel" value="s_m_m_autoshop_01" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="npcScenario">Instructor Scenario</label>
+                        <input type="text" id="npcScenario" value="WORLD_HUMAN_CLIPBOARD">
+                    </div>
+                    <div class="form-group">
+                        <label><input type="checkbox" id="licenseEnabled" checked> Enabled</label>
+                    </div>
+                </form>
+            </div>
+            
+            <div class="footer">
+                <button class="btn btn-primary" onclick="saveLicense()">Save</button>
+                <button class="btn btn-secondary" onclick="closeDialog('licenseEditor')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Screen -->
+    <div id="loadingScreen" class="dialog hidden">
+        <div class="panel">
+            <div class="header">
+                <h1>Loading...</h1>
+            </div>
+            <div class="content">
+                <div class="spinner"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="builderHint" class="hidden" style="position:fixed;left:50%;bottom:8%;transform:translateX(-50%);background:#071723;border:1px solid #34d5ff;color:#dff8ff;padding:12px 18px;border-radius:8px"></div>
+    <script src="script.js"></script>
+</body>
+</html>

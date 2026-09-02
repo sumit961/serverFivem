@@ -6,8 +6,20 @@ Config.AdminPermission = 'orgs.manage'
 Config.MenuCommand = 'laworg'
 Config.MenuKey = 'F6' -- physical mapping is owned centrally by cm-core/client/organization-keys.lua
 Config.FacilityInteractDistance = 2.5
+-- Default key for the cuff/uncuff bind. cm-law and cm-police both ship 'X',
+-- which gives players two entries on the same key in the keybind settings.
+-- The shared cmCuffed statebag means the systems interoperate correctly
+-- either way -- this only exists so one of them can be moved off X without
+-- editing client code. Players can also rebind it themselves in Settings.
+Config.CuffKey = 'X'
 Config.FacilityDrawDistance = 18.0
 Config.CinematicResponseDuration = 2200
+
+-- Retention sweep (server/retention.lua). The dashboard only reads the newest
+-- slice of cm_legal_activity_logs, so older rows are unreachable dead weight.
+Config.LogRetentionDays = 90        -- delete cm_legal_activity_logs rows after this many days
+Config.IncidentRetentionDays = 30   -- delete closed/expired dispatch calls after this many days
+Config.RetentionSweepMs = 21600000  -- how often to sweep (6 hours)
 Config.Capabilities = {
     'dispatch', 'mdt', 'arrest', 'search', 'citations', 'impound', 'radar',
     'spikes', 'barricades', 'clamp', 'k9', 'alpr', 'armory', 'fleet',
@@ -20,6 +32,7 @@ Config.FacilityTypes = {
     storage = { label = 'Storage', role = 'Department Storekeeper', icon = 'box' },
     evidence = { label = 'Evidence Storage', role = 'Evidence Custodian', icon = 'fingerprint' },
     fleet = { label = 'Fleet', role = 'Fleet Coordinator', icon = 'car' },
+    impound = { label = 'Impound Operator', role = 'Vehicle Impound', icon = 'truck-ramp-box', public = true },
     intake = { label = 'Prison Intake', role = 'Booking Officer', icon = 'building-lock' },
 }
 
@@ -33,18 +46,27 @@ local recruitPermissions = { 'law.view_members', 'law.chat', 'law.radio' }
 local memberPermissions = {
     'law.view_members', 'law.chat', 'law.radio', 'law.receive_dispatch',
     'law.mdt', 'law.cuff', 'law.drag', 'law.search', 'law.vehicle',
-    'law.spike', 'law.barricade',
+    'law.spike', 'law.barricade', 'law.cite', 'law.impound', 'law.radar',
+    'law.clamp',
+    'law.logistics.request',
 }
 local supervisorPermissions = {
     'law.view_members', 'law.chat', 'law.radio', 'law.receive_dispatch',
     'law.mdt', 'law.cuff', 'law.drag', 'law.search', 'law.vehicle',
-    'law.armory', 'law.storage', 'law.spike', 'law.barricade',
+    'law.armory', 'law.storage', 'law.spike', 'law.barricade', 'law.cite',
+    'law.impound', 'law.radar', 'law.clamp', 'law.alpr',
+    'law.logistics.request', 'law.logistics.accept', 'law.logistics.prepare',
+    'law.logistics.load', 'law.logistics.deliver', 'law.logistics.cancel', 'law.logistics.recover',
 }
 local commandPermissions = {
     'law.view_members', 'law.chat', 'law.radio', 'law.receive_dispatch',
     'law.mdt', 'law.cuff', 'law.drag', 'law.search', 'law.vehicle',
-    'law.armory', 'law.storage', 'law.spike', 'law.barricade', 'law.fleet', 'law.manage_members',
+    'law.armory', 'law.storage', 'law.spike', 'law.barricade', 'law.fleet',
+    'law.cite', 'law.manage_citations', 'law.impound', 'law.manage_impound',
+    'law.radar', 'law.clamp', 'law.k9', 'law.alpr', 'law.manage_alpr', 'law.manage_members',
     'law.manage_ranks', 'law.manage_permissions', 'law.manage_armory',
+    'law.logistics.request', 'law.logistics.accept', 'law.logistics.prepare',
+    'law.logistics.load', 'law.logistics.deliver', 'law.logistics.cancel', 'law.logistics.recover',
 }
 
 -- LSPD remains owned by cm-police while its mature gameplay modules are
@@ -116,6 +138,10 @@ Config.Organizations = {
         chatChannel = 'army_nonrp', radioChannel = 'army_rp',
         fleetNamespace = 'army', armoryNamespace = 'army', wardrobeNamespace = 'army',
         serviceNpc = { name = 'Sergeant Harris', role = 'Army Administration', model = 's_m_y_marine_01' },
+        -- New enforcement powers are opt-in for Army. Existing administrator
+        -- overrides are retained by the seed migration.
+        capabilityDefaults = { citations = false, impound = false, radar = false,
+            clamp = false, k9 = false, alpr = false },
         ranks = {
             { tier = 100, name = 'General', leader = true, permissions = commandPermissions },
             { tier = 80, name = 'Colonel', permissions = commandPermissions },
@@ -128,6 +154,24 @@ Config.Organizations = {
 
 -- Cuffing/escort mechanic (server/cuffs.lua, client/cuffs.lua+escort.lua).
 Config.Cuffs = { InteractDistance = 2.5, VehicleSeatDistance = 6.0 }
+Config.Enforcement = {
+    DirectDistance = 4.0,
+    ClampDistance = 3.0,
+    CitationCooldownMs = 1500,
+    K9 = {
+        Model = 'a_c_shepherd', TrackRadius = 150.0, ChaseDistance = 75.0,
+        AttackDistance = 20.0, SearchDistance = 4.0,
+        ThreatMemoryMs = 120000,
+    },
+    Violations = {
+        { id = 'speeding', label = 'Speeding', fine = 250, jailMinutes = 0, description = 'Operating above the posted speed limit.' },
+        { id = 'reckless_driving', label = 'Reckless Driving', fine = 500, jailMinutes = 10, description = 'Driving with disregard for public safety.' },
+        { id = 'failure_to_comply', label = 'Failure to Comply', fine = 300, jailMinutes = 10, description = 'Failure to comply with a lawful direction.' },
+        { id = 'no_license', label = "No Driver's License", fine = 150, jailMinutes = 0, description = 'Operating without a valid driving licence.' },
+        { id = 'illegal_parking', label = 'Illegal Parking', fine = 100, jailMinutes = 0, description = 'Parking contrary to traffic restrictions.' },
+        { id = 'resisting_arrest', label = 'Resisting Arrest', fine = 750, jailMinutes = 20, description = 'Resisting a lawful arrest.' },
+    },
+}
 -- Every organization has its own intake NPC, while these settings govern one
 -- shared physical jail spawn pool and release point owned by cm-law.
 -- Booking sentences are calculated from server-owned charge definitions.
@@ -173,6 +217,111 @@ Config.DefaultPermissions = {
     'law.view_members', 'law.receive_dispatch', 'law.radio', 'law.chat',
     'law.mdt', 'law.cuff', 'law.drag', 'law.search', 'law.vehicle',
     'law.armory', 'law.storage', 'law.spike', 'law.barricade', 'law.fleet',
+    'law.cite', 'law.impound', 'law.radar', 'law.clamp',
+    'law.logistics.request',
+}
+
+Config.Logistics = {
+    SourceOrganization = 'army',
+    SourceFacilityType = 'armory',
+    ReceivingFacilityType = 'armory',
+    MaxOpenOrdersPerOrganization = 3,
+    MaxLinesPerOrder = 8,
+    MaxQuantityPerLine = 1000,
+    MaxTotalQuantity = 5000,
+    RequestCooldownMs = 1500,
+    DeliveryRadius = 15.0,
+    ShipmentVehicleModel = 'barracks',
+    ShipmentVehicleLabel = 'Army Logistics Transport',
+    DefaultReceivingMaxStock = 10000,
+    -- Phase 4 uses the same temporary shipment vehicle and order rows as
+    -- Phase 3.  Empty extraction points intentionally disable the final
+    -- gang-credit step until an operator configures safe world locations.
+    Robbery = {
+        Enabled = true,
+        GangPermission = 'gang.rob_items',
+        BreachSeconds = 20,
+        MaxStoppedSpeed = 0.75,
+        RearDistance = 3.5,
+        InteractionDistance = 2.5,
+        VisualRadius = 100.0,
+        CargoModel = 'prop_cs_cardbox_01',
+        CargoUnits = {
+            ammo_9mm = 250, ammo_9x19_smg = 250, ammo_556nato = 250,
+            armor_light = 5,
+        },
+        CargoExpirySeconds = 1800,
+        DroppedExpirySeconds = 1800,
+        ReconcileIntervalMs = 3000,
+        HeartbeatIntervalMs = 2500,
+        ExtractionRadius = 4.0,
+        NotifyDestination = true,
+        RecoveryRadius = 6.0,
+        -- Entries use { id, x, y, z, bucket }.  No extraction location is
+        -- inferred from a gang HQ or a law facility.
+        ExtractionPoints = {},
+    },
+    Permissions = {
+        request = 'law.logistics.request', accept = 'law.logistics.accept',
+        prepare = 'law.logistics.prepare', load = 'law.logistics.load',
+        deliver = 'law.logistics.deliver', cancel = 'law.logistics.cancel',
+        recover = 'law.logistics.recover',
+    },
+    RequestableItems = {
+        'ammo_9mm', 'ammo_9x19_smg', 'ammo_556nato', 'armor_light',
+    },
+    ReceivingPoints = {},
+}
+
+-- Phase 5 is a separate, rare major event. It never changes the routine
+-- logistics order state machine above. Coordinates and manifests are
+-- operator-owned; the empty database tables are deliberately fail-closed.
+Config.ArsenalResupply = {
+    Enabled = false,
+    DailySchedule = { enabled = true, hour = 22, minute = 0, warmupSeconds = 300 },
+    MinimumArmyOnline = 2,
+    PreparationSeconds = 120,
+    MaximumDurationSeconds = 3600,
+    IntelIntervalSeconds = 75,
+    IntelEnabled = true,
+    ApproximateSearchRadius = 750.0,
+    UnloadSeconds = 20,
+    LeadEscortCount = 1,
+    CargoTruckCount = 2,
+    RearEscortCount = 1,
+    MaxStoppedSpeed = 0.75,
+    ArrivalRadius = 28.0,
+    InteractionDistance = 2.5,
+    BreachSeconds = 20,
+    CargoExpirySeconds = 1800,
+    DroppedExpirySeconds = 1800,
+    ReconcileIntervalMs = 3000,
+    ResultQuickViewSeconds = 60,
+    Presentation = {
+        id = 'arsenal_resupply',
+        title = 'Arsenal Resupply',
+        subtitle = 'Major military shipment',
+        description = 'A major military shipment is preparing to move. Intercept military cargo before Army forces secure it.',
+        image = 'nui://cm-gang/html/assets/events/arsenal-resupply-placeholder.svg',
+        rules = {
+            'Army must secure physical cargo at its warehouse.',
+            'Multiple gangs compete independently by extracted cargo value.',
+            'Stolen cargo must reach a configured extraction point.',
+            'Temporary convoy vehicles cannot be stored or claimed.',
+        },
+    },
+    LeadVehicleModel = 'barracks',
+    CargoVehicleModel = 'barracks',
+    RearVehicleModel = 'barracks',
+    VehicleSpacing = 12.0,
+    Manifest = {
+        { item = 'ammo_9x19_smg', quantity = 500, crateSize = 250, valueWeight = 1 },
+        { item = 'ammo_556nato', quantity = 500, crateSize = 250, valueWeight = 1 },
+    },
+    -- Route rows and extraction points should normally be captured by the
+    -- restricted cm-law admin exports documented in docs/ARSENAL_RESUPPLY.md.
+    Routes = {},
+    ExtractionPoints = {},
 }
 
 -- Flat, ungrouped id -> label map (matches cm-police's own Config.Permissions
@@ -191,9 +340,27 @@ Config.Permissions = {
     ['law.vehicle'] = 'Call fleet vehicles',
     ['law.armory'] = 'Access the armory',
     ['law.manage_armory'] = 'Manage armory equipment and stock',
+    ['law.logistics.request'] = 'Request routine Army supplies',
+    ['law.logistics.accept'] = 'Accept Army supply orders',
+    ['law.logistics.prepare'] = 'Prepare supply shipments',
+    ['law.logistics.load'] = 'Load supply shipments',
+    ['law.logistics.deliver'] = 'Deliver supply shipments',
+    ['law.logistics.cancel'] = 'Cancel or release supply orders',
+    ['law.logistics.recover'] = 'Recover interrupted supply shipments',
     ['law.storage'] = 'Access department storage',
     ['law.spike'] = 'Deploy and recall spike strips',
     ['law.barricade'] = 'Deploy and recall barricades',
+    ['law.cite'] = 'Issue citations from the legal catalog',
+    ['law.manage_citations'] = 'Void and manage organization citations',
+    ['law.impound'] = 'Tow and impound vehicles',
+    ['law.manage_impound'] = 'Manage impound configuration and releases',
+    ['law.radar'] = 'Use speed radar',
+    ['law.clamp'] = 'Apply and remove wheel clamps',
+    ['law.k9'] = 'Deploy and command a K9 unit',
+    ['law.alpr'] = 'Receive and use ALPR intelligence',
+    ['law.manage_alpr'] = 'Manage ALPR cameras and settings',
+    ['law.view_member_map'] = 'View organization members on the map',
+    ['law.set_meeting'] = 'Set and clear organization meeting points',
     ['law.fleet'] = 'Manage fleet vehicles (location, rank, recall all)',
     ['law.manage_members'] = 'Hire, rank, suspend, and remove members',
     ['law.manage_ranks'] = 'Create, edit, and delete ranks',

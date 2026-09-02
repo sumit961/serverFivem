@@ -518,3 +518,10 @@ kbd {
 .npc-dialogue__option--primary:hover,.npc-dialogue__option--primary:focus { background: #7aeaff; color: #04161b; }
 .npc-dialogue__option:last-child { grid-column: 1/-1; }
 @media(max-width:800px){.npc-dialogue__choices{right:5vw;bottom:6vh;width:90vw}.npc-dialogue__identity{top:6vh;left:5vw}}
+.npc-interaction { position: fixed; right: 3.2vw; top: 50%; transform: translateY(-50%); z-index: 80; display: flex; align-items: center; gap: 12px; color: #eefcff; pointer-events: none; }
+.npc-interaction[hidden] { display: none !important; }
+.npc-interaction__key { width: 38px; height: 38px; border: 1px solid rgba(94,224,255,.8); border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: rgba(5,18,25,.82); }
+.npc-interaction__line { width: 42px; height: 1px; background: linear-gradient(90deg,rgba(94,224,255,.95),rgba(255,255,255,.15)); }
+.npc-interaction__copy { display: flex; flex-direction: column; gap: 2px; min-width: 155px; }
+.npc-interaction__copy b { font-size: 13px; letter-spacing: .12em; }
+.npc-interaction__copy small { color: rgba(223,237,241,.72); font-size: 10px; }

@@ -1,0 +1,449 @@
+/* Shared CM armory skin: visual-only. Resource callbacks and authority stay local.
+   v2: dark/industrial "Control" redesign (see design canvas "Gang Armory v4").
+   Fonts intentionally reuse the already self-hosted --cm-font/--cm-font-display
+   variables from cm-theme.css (DM Sans / Poppins) instead of adding a new
+   webfont dependency -- this project moved off Google Fonts CDN links on
+   purpose (see cm-house/html/index.html) because they silently fall back to
+   Segoe UI for any client with no route to fonts.googleapis.com. */
+:root {
+  --cm-armory-accent: #ff7a45;
+  --cm-armory-accent-strong: #ff9166;
+  --cm-armory-accent-rgb: 255, 122, 69;
+  --cm-armory-bg: #100f0e;
+  --cm-armory-panel: rgba(26, 24, 23, .97);
+  --cm-armory-panel-soft: rgba(21, 19, 18, .92);
+  --cm-armory-line: rgba(255, 255, 255, .08);
+  --cm-armory-text: #f2efec;
+  --cm-armory-muted: #8d8681;
+  --cm-armory-muted-2: #7d7671;
+  --cm-armory-texture: repeating-linear-gradient(135deg, rgba(255,255,255,.035) 0 8px, transparent 8px 19px);
+  --cm-armory-font: var(--cm-font, 'DM Sans', 'Segoe UI', Arial, sans-serif);
+  --cm-armory-font-display: var(--cm-font-display, 'Poppins', 'DM Sans', 'Segoe UI', Arial, sans-serif);
+}
+
+body.armory-mode,
+body.armory-standalone,
+#legalArmory,
+.weapon-storage-screen {
+  color: var(--cm-armory-text);
+  font-family: var(--cm-armory-font);
+  background:
+    radial-gradient(circle at 88% 0%, rgba(var(--cm-armory-accent-rgb), .10), transparent 42%),
+    radial-gradient(circle at 12% 88%, rgba(var(--cm-armory-accent-rgb), .05), transparent 30%),
+    var(--cm-armory-texture),
+    var(--cm-armory-bg) !important;
+}
+
+body.armory-mode { --gang: var(--cm-armory-accent) !important; }
+body.armory-mode #dashboard-backdrop,
+body.armory-mode .gang-visual,
+body.armory-mode .rail,
+body.armory-mode .workspace > header { display: none !important; }
+body.armory-mode .shell,
+body.armory-mode .workspace,
+body.armory-mode .content,
+body.armory-mode .armory-catalog-v4 {
+  background: var(--cm-armory-bg) !important;
+  inset: 0 !important;
+  margin: 0 !important;
+  max-height: none !important;
+  max-width: none !important;
+  opacity: 1 !important;
+  padding: 0 !important;
+  position: fixed !important;
+  width: 100vw !important;
+}
+body.armory-mode .armory-catalog-v4 { grid-template-columns: 23vw minmax(0,1fr) !important; }
+
+body.armory-mode .armory-catalog-v4 .armory-title {
+  align-items: center;
+  border-bottom: 1px solid var(--cm-armory-line);
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 18px;
+}
+body.armory-mode .armory-catalog-v4 .armory-title > div { align-items: center; display: flex; gap: 14px; min-width: 0; }
+body.armory-mode .armory-catalog-v4 .armory-title h2 { margin: 0; font-family: var(--cm-armory-font-display); font-weight: 700; letter-spacing: .04em; }
+body.armory-mode .armory-catalog-v4 .armory-title h2 i { background: var(--cm-armory-accent); display: inline-block; height: 3px; margin-right: 14px; vertical-align: middle; width: 38px; }
+body.armory-mode .armory-catalog-v4 .armory-title > div > span { white-space: nowrap; }
+body.armory-mode .armory-category-tabs { display: flex !important; flex: 1; flex-wrap: nowrap; gap: 8px; justify-content: flex-end; padding: 0 12px !important; width: auto !important; }
+body.armory-mode .armory-category-tabs button {
+  background: rgba(255,255,255,.03) !important;
+  border: 1px solid rgba(255,255,255,.08) !important;
+  border-radius: 999px;
+  color: var(--cm-armory-muted) !important;
+  font-family: var(--cm-armory-font-display);
+  font-weight: 600;
+  min-width: 126px;
+  padding: 11px 17px;
+  width: auto !important;
+}
+body.armory-mode .armory-category-tabs button b { color: inherit; margin-left: 8px; }
+body.armory-mode .armory-category-tabs button.active {
+  background: rgba(var(--cm-armory-accent-rgb),.12) !important;
+  border-color: rgba(var(--cm-armory-accent-rgb),.5) !important;
+  color: var(--cm-armory-accent-strong) !important;
+}
+body.armory-mode .armory-sidebar-note { color: var(--cm-armory-muted); font-size: 11px; line-height: 1.6; margin-top: auto; }
+body.armory-mode .armory-toolbar { align-items: center; display: flex; justify-content: space-between; }
+body.armory-mode .armory-toolbar span i,
+body.armory-mode .armory-item-image small i { background: var(--cm-armory-accent); border-radius: 50%; display: inline-block; height: 6px; margin-right: 7px; width: 6px; }
+body.armory-mode .armory-stock-line { background: rgba(255,255,255,.06); height: 4px; overflow: hidden; width: 100%; border-radius: 3px; }
+body.armory-mode .armory-stock-line i { background: var(--cm-armory-accent); display: block; height: 100%; border-radius: 3px; }
+body.armory-mode .armory-item-data strong small { color: var(--cm-armory-muted) !important; font-size: 12px; font-weight: 500; }
+body.armory-mode .armory-catalog-v4 .armory-sidebar {
+  background: var(--cm-armory-bg) !important;
+  border-right: 1px solid var(--cm-armory-line) !important;
+  padding: 7vh 2vw 7vh 5.5vw !important;
+}
+body.armory-mode .armory-sidebar:after { opacity: .14 !important; }
+body.armory-mode .armory-sidebar-head { display: flex; justify-content: space-between; margin-bottom: 16px; position: relative; z-index: 2; }
+body.armory-mode .armory-sidebar-head span { color: var(--cm-armory-text); font-size: 11px; font-weight: 800; letter-spacing: .12em; }
+body.armory-mode .armory-sidebar-head strong { color: var(--cm-armory-muted); font-size: 10px; }
+body.armory-mode .armory-armor-list { display: grid; gap: 12px; max-height: 76vh; overflow-y: auto; padding-right: 5px; position: relative; z-index: 2; }
+body.armory-mode .armory-armor-empty { border: 1px solid var(--cm-armory-line); color: var(--cm-armory-muted); display: grid; gap: 8px; padding: 28px 18px; }
+body.armory-mode .armory-armor-empty strong { color: var(--cm-armory-text); font-size: 12px; }
+body.armory-mode .armory-main-panel { background: #141211 !important; padding: 4.5vh 2.5vw 3vh !important; }
+body.armory-mode .armory-item { background: #1a1817 !important; }
+body.armory-mode .armory-loading { color: var(--cm-armory-muted); grid-column: 1 / -1; padding: 10vh 4px; text-align: center; }
+body.armory-mode .armory-loading.error { color: #ff8a7a; }
+
+/* ---- Card grid: weapons pair their linked ammo inline (stat + "+N AMMO"
+   take action), ammo/armor keep a single stat. Scoped to .armory-catalog-v4
+   so cm-law's #legalArmory and cm-police's own DOM (separate redesign pass)
+   are untouched by this structural rework. ---- */
+body.armory-mode .armory-catalog-grid {
+  display: grid !important;
+  gap: 18px !important;
+  grid-template-columns: repeat(3, minmax(0,1fr)) !important;
+  height: calc(100vh - 30vh) !important;
+  padding: 4px 8px 4vh 0 !important;
+}
+body.armory-mode .armory-catalog-v4 .armory-item {
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 300px;
+  padding: 0;
+}
+body.armory-mode .armory-catalog-v4 .armory-item.empty { opacity: .6; }
+body.armory-mode .armory-catalog-v4 .armory-item-image {
+  align-items: center; display: flex; flex: none; height: 170px; justify-content: center; margin: 0; position: relative; width: 100%;
+}
+body.armory-mode .armory-catalog-v4 .armory-item-image img { max-height: 78%; max-width: 88%; object-fit: contain; }
+body.armory-mode .armory-catalog-v4 .armory-item-image > span { color: var(--cm-armory-muted-2); font-family: var(--cm-armory-font-display); font-size: 12px; font-weight: 800; letter-spacing: .1em; }
+body.armory-mode .armory-catalog-v4 .armory-item-image small {
+  align-items: center; bottom: 10px; color: var(--cm-armory-text) !important; display: flex; font-size: 10.5px;
+  left: 12px; overflow: hidden; position: absolute; right: 12px; text-overflow: ellipsis; white-space: nowrap;
+}
+body.armory-mode .armory-catalog-v4 .armory-item-data {
+  border-top: 1px solid var(--cm-armory-line); display: flex; flex: 1; flex-direction: column; gap: 10px; padding: 14px 16px;
+}
+body.armory-mode .armory-catalog-v4 .armory-item-data em { font-size: 10px; }
+body.armory-mode .armory-catalog-v4 .armory-item-stat { display: block; }
+body.armory-mode .armory-catalog-v4 .armory-item-stat + .armory-item-stat { border-top: 1px solid var(--cm-armory-line); padding-top: 10px; }
+body.armory-mode .armory-catalog-v4 .armory-item-stat label { display: block; font-size: 9.5px; }
+body.armory-mode .armory-catalog-v4 .armory-item-stat label span { color: var(--cm-armory-text); font-weight: 600; letter-spacing: normal; text-transform: none; }
+body.armory-mode .armory-catalog-v4 .armory-item-stat strong { display: block; font-size: 22px; margin: 4px 0 6px; }
+body.armory-mode .armory-catalog-v4 .armory-item-stats-row { display: flex; gap: 14px; }
+body.armory-mode .armory-catalog-v4 .armory-item-stats-row .armory-item-stat { flex: 1; }
+body.armory-mode .armory-catalog-v4 .armory-item-name { color: var(--cm-armory-text); font-family: var(--cm-armory-font-display); font-size: 13px; font-weight: 700; }
+body.armory-mode .armory-catalog-v4 .armory-item-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; }
+body.armory-mode .armory-catalog-v4 .armory-item-actions button { flex: 1; font-size: 11px; min-height: 36px; min-width: 90px; padding: 9px 10px; }
+body.armory-mode .armory-catalog-v4 .armory-item-actions button.primary:not(:disabled) {
+  background: var(--cm-armory-accent) !important; border-color: transparent !important; color: #1b0d06 !important;
+}
+body.armory-mode .armory-catalog-v4 .armory-item-actions button.primary:hover:not(:disabled) { background: var(--cm-armory-accent-strong) !important; }
+body.armory-mode .armory-catalog-v4 .armory-item-actions button.secondary:not(:disabled) {
+  background: rgba(255,255,255,.04) !important; border: 1px solid rgba(var(--cm-armory-accent-rgb),.35) !important; color: var(--cm-armory-accent-strong) !important;
+}
+body.armory-mode .armory-catalog-v4 .armory-item-actions button.tertiary:not(:disabled) {
+  background: transparent !important; border: 1px solid var(--cm-armory-line) !important; color: var(--cm-armory-muted) !important;
+}
+body.armory-mode .armory-catalog-v4 .armory-item-actions button.tertiary { flex: 0 0 auto; min-width: 0; padding: 9px 6px; width: 40px; }
+body.armory-mode .armory-catalog-v4 .armory-item-actions input[type="number"] {
+  background: rgba(255,255,255,.03); border: 1px solid var(--cm-armory-line); border-radius: 4px; color: var(--cm-armory-text);
+  flex: 0 0 52px; min-width: 0; padding: 4px 6px; text-align: center;
+}
+
+/* Sidebar vest cards: compact and side-by-side (image | strength+stock, name, take). */
+body.armory-mode .armory-armor-list .armory-item { flex-direction: row !important; min-height: 130px; }
+body.armory-mode .armory-armor-list .armory-item-image { height: auto; width: 42%; }
+body.armory-mode .armory-armor-list .armory-item-data { border-left: 1px solid var(--cm-armory-line); border-top: 0; gap: 8px; padding: 12px; }
+body.armory-mode .armory-armor-list .armory-item-stats-row .armory-item-stat strong { font-size: 18px; margin: 2px 0 0; }
+body.armory-mode .armory-armor-list .armory-item-name { font-size: 12px; }
+body.armory-mode .armory-armor-list .armory-item-actions button { min-height: 30px; }
+
+body.armory-mode .armory-catalog,
+#legalArmory,
+body.armory-standalone #app,
+.weapon-storage-card {
+  border: 1px solid var(--cm-armory-line) !important;
+  box-shadow: 0 24px 80px rgba(0,0,0,.55), inset 0 1px rgba(255,255,255,.02) !important;
+}
+
+body.armory-mode .armory-sidebar,
+body.armory-mode .armory-main-panel,
+#legalArmory .legal-armory__header,
+#legalArmory .legal-armory__filters,
+.police-armory .armory-feature,
+.police-armory .armory-catalog,
+.weapon-storage-card,
+.weapon-storage-pane {
+  background-color: var(--cm-armory-panel) !important;
+}
+
+body.armory-mode .armory-title small,
+body.armory-mode .armory-item-data em,
+#legalArmory .legal-armory__header small,
+#legalArmory .armory-card__body > small,
+.police-armory small,
+.weapon-storage-eyebrow,
+.weapon-storage-pane-head span,
+.ws-item__type {
+  color: var(--cm-armory-accent) !important;
+  font-weight: 600;
+  letter-spacing: .15em !important;
+  text-transform: uppercase;
+}
+
+body.armory-mode .armory-title h1,
+#legalArmory .legal-armory__header h1,
+.police-armory .armory-header h2,
+.weapon-storage-heading h2 {
+  color: var(--cm-armory-text) !important;
+  font-family: var(--cm-armory-font-display);
+  font-weight: 700;
+  letter-spacing: .045em;
+  text-transform: uppercase;
+  text-shadow: none;
+}
+
+body.armory-mode .armory-status,
+#legalArmory .legal-armory__status,
+.police-armory .armory-status,
+.weapon-storage-foot {
+  color: var(--cm-armory-muted) !important;
+  border-color: var(--cm-armory-line) !important;
+}
+
+body.armory-mode .armory-item,
+#legalArmory .armory-card,
+.police-armory .armory-item,
+.ws-item {
+  background: #1a1817 !important;
+  border: 1px solid #262320 !important;
+  box-shadow: none !important;
+  transition: border-color .16s ease, transform .16s ease !important;
+}
+
+body.armory-mode .armory-item:hover,
+#legalArmory .armory-card:hover,
+.police-armory .armory-item:hover,
+.ws-item:hover {
+  border-color: #3a332c !important;
+  box-shadow: none !important;
+  transform: translateY(-2px);
+}
+
+body.armory-mode .armory-item-image,
+#legalArmory .armory-card__image,
+.police-armory .armory-item-image,
+.police-armory .armory-feature-image,
+.ws-item__image {
+  background: var(--cm-armory-texture), #191715 !important;
+  border: 1px solid rgba(255,255,255,.04) !important;
+  box-shadow: none !important;
+}
+
+body.armory-mode .armory-item-image img,
+#legalArmory .armory-card__image img,
+.police-armory .armory-item-image img,
+.police-armory .armory-feature-image img,
+.ws-item__image img {
+  filter: drop-shadow(0 12px 15px rgba(0,0,0,.6));
+}
+
+body.armory-mode .armory-item-data label,
+body.armory-mode .armory-item-data small,
+#legalArmory .armory-card__body p,
+.police-armory .armory-item-copy span,
+.ws-item__meta {
+  color: var(--cm-armory-muted) !important;
+}
+
+body.armory-mode .armory-item-data strong,
+#legalArmory .armory-stock,
+.police-armory .armory-feature-stats b,
+.weapon-storage-pane-head strong,
+.ws-item__qty {
+  color: var(--cm-armory-text) !important;
+  font-family: var(--cm-armory-font-display);
+}
+
+body.armory-mode button,
+#legalArmory button,
+.police-armory button,
+.weapon-storage-card button {
+  border-color: rgba(255,255,255,.1) !important;
+  color: var(--cm-armory-text) !important;
+  font-family: var(--cm-armory-font-display);
+  font-weight: 600;
+}
+
+body.armory-mode .armory-item-actions button:first-child,
+#legalArmory .armory-card button:not(:disabled),
+.police-armory .armory-checkout:not(:disabled),
+.police-armory .armory-item button:not(:disabled),
+.ws-item__button:not(:disabled),
+.weapon-storage-refresh {
+  background: var(--cm-armory-accent) !important;
+  border-color: transparent !important;
+  color: #1b0d06 !important;
+  box-shadow: none !important;
+}
+
+body.armory-mode button:hover:not(:disabled),
+#legalArmory button:hover:not(:disabled),
+.police-armory button:hover:not(:disabled),
+.weapon-storage-card button:hover:not(:disabled) {
+  border-color: var(--cm-armory-accent) !important;
+  box-shadow: none !important;
+}
+body.armory-mode .armory-item-actions button:first-child:hover:not(:disabled),
+#legalArmory .armory-card button:not(:disabled):hover,
+.police-armory .armory-checkout:not(:disabled):hover,
+.ws-item__button:not(:disabled):hover,
+.weapon-storage-refresh:hover {
+  background: var(--cm-armory-accent-strong) !important;
+}
+
+body.armory-mode button:disabled,
+#legalArmory button:disabled,
+.police-armory button:disabled,
+.weapon-storage-card button:disabled {
+  background: transparent !important;
+  border-color: var(--cm-armory-line) !important;
+  color: #4e4844 !important;
+  box-shadow: none !important;
+}
+
+#legalArmory .legal-armory__filters button,
+.police-armory .armory-filters button,
+.weapon-storage-tabs button {
+  background: rgba(255,255,255,.03) !important;
+  border: 1px solid rgba(255,255,255,.08) !important;
+  color: var(--cm-armory-muted) !important;
+}
+
+#legalArmory .legal-armory__filters button.active,
+.police-armory .armory-filters button.active,
+.weapon-storage-tabs button.active,
+.weapon-storage-tabs button[aria-selected="true"] {
+  background: rgba(var(--cm-armory-accent-rgb),.12) !important;
+  border-color: rgba(var(--cm-armory-accent-rgb),.5) !important;
+  color: var(--cm-armory-accent-strong) !important;
+}
+
+.weapon-storage-screen { padding: clamp(16px, 3vw, 48px) !important; }
+.weapon-storage-card { width: min(1500px, 96vw) !important; max-height: 92vh !important; }
+.weapon-storage-head,
+.weapon-storage-tools,
+.weapon-storage-foot { background: var(--cm-armory-panel) !important; }
+.weapon-storage-head,
+.weapon-storage-tools,
+.weapon-storage-pane,
+.weapon-storage-foot { border-color: var(--cm-armory-line) !important; }
+.weapon-storage-mark {
+  background: rgba(var(--cm-armory-accent-rgb),.12) !important;
+  border-color: rgba(var(--cm-armory-accent-rgb),.4) !important;
+  color: var(--cm-armory-accent) !important;
+}
+.weapon-storage-search input {
+  background: #141211 !important;
+  border-color: var(--cm-armory-line) !important;
+  color: var(--cm-armory-text) !important;
+}
+.weapon-storage-divider span { color: var(--cm-armory-accent) !important; border-color: var(--cm-armory-line) !important; }
+
+#legalArmory .legal-armory__grid,
+.police-armory .armory-grid,
+.weapon-storage-list,
+body.armory-mode .armory-catalog-grid {
+  scrollbar-color: rgba(var(--cm-armory-accent-rgb),.5) rgba(255,255,255,.03);
+}
+
+#legalArmory.legal-armory {
+  background: var(--cm-armory-bg) !important;
+  border-radius: 0 !important;
+  display: grid !important;
+  grid-template-columns: 250px minmax(0,1fr) !important;
+  inset: 0 !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+}
+#legalArmory.hidden { display: none !important; }
+#legalArmory .legal-armory__rail {
+  background: var(--cm-armory-bg);
+  border-right: 1px solid var(--cm-armory-line);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+  padding: 30px 25px;
+}
+#legalArmory .legal-armory__rail-head { display: flex; justify-content: space-between; }
+#legalArmory .legal-armory__rail-head span { color: var(--cm-armory-text); font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+#legalArmory .legal-armory__rail-head strong { color: var(--cm-armory-muted); font-size: 9px; }
+#legalArmory .legal-armory__armor-list { display: grid; gap: 12px; min-height: 0; overflow-y: auto; }
+#legalArmory .legal-armory__armor-list .armory-card { grid-template-rows: 115px auto; }
+#legalArmory .legal-armory__armor-list .armory-card__body { padding: 11px; }
+#legalArmory .legal-armory__armor-list .armory-card__body h3 { font-size: 14px; }
+#legalArmory .legal-armory__armor-list .armory-card__body p { display: none; }
+#legalArmory .legal-armory__armor-list .armory-vault-count { font-size: 19px; }
+#legalArmory .legal-armory__armor-empty { border: 1px solid var(--cm-armory-line); color: var(--cm-armory-muted); display: grid; gap: 7px; padding: 24px 14px; }
+#legalArmory .legal-armory__armor-empty strong { color: var(--cm-armory-text); font-size: 11px; }
+#legalArmory .legal-armory__catalog { background: #141211 !important; }
+#legalArmory .legal-armory__vertical,
+body.armory-mode .armory-vertical {
+  color: rgba(255,255,255,.15); font-size: 13px; font-weight: 800; letter-spacing: .5em; writing-mode: vertical-rl;
+}
+body.armory-mode .armory-vertical {
+  position: absolute; left: 2.5vw; top: 10vh; z-index: 2; transform: rotate(180deg);
+}
+#legalArmory .legal-armory__emblem { align-items: center; background: rgba(var(--cm-armory-accent-rgb),.1); border: 1px solid rgba(var(--cm-armory-accent-rgb),.4); color: var(--cm-armory-accent); display: flex; font-family: var(--cm-armory-font-display); font-size: 28px; font-weight: 900; height: 80px; justify-content: center; width: 80px; }
+#legalArmory .legal-armory__rail p { color: var(--cm-armory-muted); font-size: 10px; letter-spacing: .13em; line-height: 1.7; }
+#legalArmory .legal-armory__rail p strong { color: var(--cm-armory-text); font-size: 13px; }
+#legalArmory .legal-armory__rail dl { display: grid; gap: 12px; margin: 0; }
+#legalArmory .legal-armory__rail dl div { border-top: 1px solid var(--cm-armory-line); display: grid; gap: 4px; padding-top: 12px; }
+#legalArmory .legal-armory__rail dt { color: var(--cm-armory-muted); font-size: 9px; letter-spacing: .14em; }
+#legalArmory .legal-armory__rail dd { color: var(--cm-armory-text); font-family: var(--cm-armory-font-display); font-size: 20px; font-weight: 800; margin: 0; }
+#legalArmory .legal-armory__rail > small { color: var(--cm-armory-muted); line-height: 1.6; margin-top: auto; }
+#legalArmory .legal-armory__catalog { display: flex; flex-direction: column; min-height: 0; min-width: 0; padding: 28px 32px; }
+#legalArmory .legal-armory__header { flex: 0 0 auto; padding: 0 0 20px !important; }
+#legalArmory .legal-armory__filters { flex: 0 0 auto; gap: 10px; padding: 16px 0 !important; }
+#legalArmory .legal-armory__filters button { border-radius: 999px !important; min-width: 125px; }
+#legalArmory .legal-armory__filters button b { color: inherit; margin-left: 7px; }
+#legalArmory .legal-armory__live { align-items: center; border-bottom: 1px solid var(--cm-armory-line); color: var(--cm-armory-muted); display: flex; font-size: 10px; justify-content: space-between; letter-spacing: .12em; padding: 4px 0 14px; }
+#legalArmory .legal-armory__live i,
+#legalArmory .armory-card__image span i { background: var(--cm-armory-accent); border-radius: 50%; display: inline-block; height: 6px; margin-right: 7px; width: 6px; }
+#legalArmory .legal-armory__grid { align-content: start; flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 18px 4px 24px 0 !important; }
+#legalArmory .armory-card__image { position: relative; }
+#legalArmory .armory-card__image > span { bottom: 12px; color: var(--cm-armory-text); font-size: 11px; left: 12px; position: absolute; }
+#legalArmory .armory-card__body > label { color: var(--cm-armory-muted); font-size: 9px; letter-spacing: .14em; }
+#legalArmory .armory-vault-count { color: var(--cm-armory-text); display: block; font-family: var(--cm-armory-font-display); font-size: 25px; margin: 3px 0 8px; }
+#legalArmory .armory-vault-count small { color: var(--cm-armory-muted); font-size: 10px; }
+#legalArmory .armory-stock-line { background: rgba(255,255,255,.06); border-radius: 3px; height: 4px; overflow: hidden; }
+#legalArmory .armory-stock-line i { background: var(--cm-armory-accent); border-radius: 3px; display: block; height: 100%; }
+#legalArmory .armory-manager { grid-column: 1 / -1; z-index: 20; }
+
+@media (max-width: 980px) {
+  .weapon-storage-columns { grid-template-columns: 1fr !important; }
+  .weapon-storage-divider { display: none !important; }
+  #legalArmory .legal-armory__grid { grid-template-columns: repeat(2, minmax(0,1fr)) !important; }
+  #legalArmory.legal-armory { grid-template-columns: 190px minmax(0,1fr) !important; }
+}
+
+@media (max-width: 620px) {
+  #legalArmory .legal-armory__grid { grid-template-columns: 1fr !important; }
+  .weapon-storage-tools { align-items: stretch !important; flex-direction: column !important; }
+}

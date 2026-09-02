@@ -823,6 +823,7 @@ local AllPermissions = {
     'dev.view', 'dev.tools', 'dev.clothing', 'dev.vehicles', 'dev.weapons', 'dev.climatime', 'dev.hud',
     'house.admin.open', 'house.create', 'house.admin.properties', 'house.admin.interiors',
     'house.admin.garages', 'house.admin.pricing', 'house.admin.photos', 'house.admin.recovery'
+    ,'gang.admin.view', 'gang.admin.manage'
 }
 
 local function currentAdminUi(src)
@@ -868,6 +869,7 @@ local function buildMenuPayload(src)
     if hasPermission(src, 'ranks.view') then payload.ranks = getRanksForUi() end
     if hasPermission(src, 'logs.view') then payload.logs = getLogsForUi(80, src); payload.logCategories = getLogCategoriesForUi(src) end
     if hasPermission(src, 'orgs.view') and CMOrganizations then payload.orgs = CMOrganizations.forAdminPayload(src) end
+    if hasPermission(src, 'gang.admin.view') and CMGangs then payload.gangs = CMGangs.payload(src) end
 
     return payload
 end
@@ -1265,6 +1267,15 @@ RegisterNetEvent('cm-admin:server:nuiAction', function(payload)
         return
     end
 
+    if action == 'gangAdminAction' then
+        if not CMGangs then return notify(src,'Gang administration is unavailable.','error') end
+        if onActionCooldown(src, 'gang_admin', 500) then return notify(src, 'Please wait before another gang action.', 'error') end
+        local ok,message=CMGangs.invoke(src,tostring(data.operation or ''),data)
+        notify(src,message or (ok and 'Gang updated.' or 'Gang update failed.'),ok and 'success' or 'error')
+        if ok and tostring(data.operation or '')~='fleetBegin' then refreshMenu(src) end
+        return
+    end
+
     if action == 'orgsGetArmory' then
         if not CMOrganizations then return notify(src, 'Organizations registry is unavailable.', 'error') end
         TriggerClientEvent('cm-admin:client:detailResult', src, {
@@ -1299,6 +1310,10 @@ RegisterNetEvent('cm-admin:server:nuiAction', function(payload)
         TriggerClientEvent('cm-admin:client:detailResult', src, { type='orgFleet', orgId=data.orgId, data=CMOrganizations.getFleet(src,data.orgId) })
         return
     end
+    if action == 'orgsBeginFleetPlacement' then
+        local ok,message=CMOrganizations.beginFleetPlacement(src,data.orgId,data.model)
+        notify(src,message or 'Fleet placement failed.',ok and 'success' or 'error'); return
+    end
     if action == 'orgsConfigureFleet' then
         local ok,message=CMOrganizations.configureFleet(src,data.orgId,data)
         notify(src,message or 'Fleet update failed.',ok and 'success' or 'error'); return
@@ -1306,6 +1321,26 @@ RegisterNetEvent('cm-admin:server:nuiAction', function(payload)
     if action == 'orgsResetFleet' then
         local ok,message=CMOrganizations.resetFleet(src,data.orgId,data.model)
         notify(src,message or 'Fleet reset failed.',ok and 'success' or 'error'); return
+    end
+    if action == 'orgsGetNpcs' then
+        TriggerClientEvent('cm-admin:client:detailResult', src, { type='orgNpcs', orgId=data.orgId, data=CMOrganizations.getNpcs(src,data.orgId) })
+        return
+    end
+    if action == 'orgsConfigureNpc' then
+        local ok,message=CMOrganizations.configureNpc(src,data.orgId,data)
+        notify(src,message or 'NPC update failed.',ok and 'success' or 'error')
+        if ok then TriggerClientEvent('cm-admin:client:detailResult', src, { type='orgNpcs', orgId=data.orgId, data=CMOrganizations.getNpcs(src,data.orgId) }) end
+        return
+    end
+    if action == 'orgsGetAlpr' then TriggerClientEvent('cm-admin:client:detailResult',src,{type='orgAlpr',orgId=data.orgId,data=CMOrganizations.getAlpr(src,data.orgId)}); return end
+    if action == 'orgsConfigureAlpr' then
+        local ok,message=CMOrganizations.configureAlpr(src,data.orgId,data); notify(src,message or 'ALPR update failed.',ok and 'success' or 'error')
+        if ok then TriggerClientEvent('cm-admin:client:detailResult',src,{type='orgAlpr',orgId=data.orgId,data=CMOrganizations.getAlpr(src,data.orgId)}) end; return
+    end
+    if action == 'orgsGetBarricades' then TriggerClientEvent('cm-admin:client:detailResult',src,{type='orgBarricades',orgId=data.orgId,data=CMOrganizations.getBarricades(src,data.orgId)}); return end
+    if action == 'orgsConfigureBarricade' then
+        local ok,message=CMOrganizations.configureBarricade(src,data.orgId,data); notify(src,message or 'Barricade update failed.',ok and 'success' or 'error')
+        if ok then TriggerClientEvent('cm-admin:client:detailResult',src,{type='orgBarricades',orgId=data.orgId,data=CMOrganizations.getBarricades(src,data.orgId)}) end; return
     end
 
     -- ------------------------------------------------------------------

@@ -216,7 +216,7 @@ RegisterCommand('policecuffkey', function()
     local action = targetCuffed and 'police_uncuff' or 'police_cuff'
     TriggerServerEvent('cm-playerdata:server:extensionInteraction', currentTarget, action, {})
 end, false)
-RegisterKeyMapping('policecuffkey', 'Police: Cuff/uncuff nearest target', 'keyboard', 'X')
+RegisterKeyMapping('policecuffkey', 'Police: Cuff/uncuff nearest target', 'keyboard', tostring(Config.CuffKey or 'X'))
 
 local function draggedSuspectNearVehicle(vehicle)
     if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then return nil end

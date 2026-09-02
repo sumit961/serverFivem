@@ -48,7 +48,8 @@ local function loadDashboard(initialPage, options)
     local data, reason = lib.callback.await('cm-ems:server:dashboard', false, adminMode, sex())
     if not data then notify(reason or 'Unable to open EMS.', 'error'); return false end
     SendNUIMessage({ action = 'open', data = data, initialPage = initialPage,
-        fleetStandalone = options and options.fleetStandalone == true })
+        fleetStandalone = options and options.fleetStandalone == true,
+        medicalStandalone = options and options.medicalStandalone == true })
     return true
 end
 
@@ -78,10 +79,17 @@ end)
 RegisterNetEvent('cm-ems:client:openMedicalRecords', function()
     if type(LocalPlayer.state.cmEms) ~= 'table' then return end
     adminMode = false
-    if not loadDashboard('medical') then return end
+    if not loadDashboard('medical', { medicalStandalone = true }) then return end
     open = true
     SetNuiFocus(true, true)
 end)
+
+-- Shared with client/wardrobe.lua, which is loaded later by the manifest.
+function OpenEmsWardrobe()
+    if type(LocalPlayer.state.cmEms) ~= 'table' then return end
+    SetNuiFocus(true, true)
+    SendNUIMessage({ action = 'openWardrobeRoom', npcMode = true })
+end
 
 RegisterNetEvent('cm-ems:client:openQuickMenu', function()
     local state = LocalPlayer.state.cmEms
@@ -208,9 +216,21 @@ RegisterNUICallback('previewWardrobeItem', function(data, cb)
     cb({ ok = true })
 end)
 
+RegisterNUICallback('finishWardrobeDuty', function(_, cb)
+    local state = LocalPlayer.state.cmEms
+    if type(state) ~= 'table' then return cb({ ok = false }) end
+    if state.onDuty == true then return cb({ ok = true }) end
+    local ok, message = lib.callback.await('cm-ems:server:action', false, 'finish_wardrobe_duty', {
+        sex = sex(),
+        currentOutfit = captureOutfit(),
+    })
+    notify(message, ok and 'success' or 'error')
+    cb({ ok = ok == true })
+end)
+
 RegisterNetEvent('cm-ems:client:invite', function(data)
     CreateThread(function()
-        local result = lib.alertDialog({ header = 'EMS Invitation', content = ('%s invited you to join Emergency Medical Services.'):format(tostring(data.inviter or 'EMS')), centered = true, cancel = true, labels = { confirm = 'Join EMS', cancel = 'Decline' } })
+        local result = lib.alertDialog({ header = 'EMS Invitation', content = ('%s invited you to join Emergency Medical Services as %s.'):format(tostring(data.inviter or 'EMS'), tostring(data.rank or 'Recruit')), centered = true, cancel = true, labels = { confirm = 'Join EMS', cancel = 'Decline' } })
         local ok, message = lib.callback.await('cm-ems:server:respondInvite', false, result == 'confirm')
         notify(message, ok and 'success' or 'error')
     end)

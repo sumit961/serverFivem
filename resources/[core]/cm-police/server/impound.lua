@@ -22,7 +22,31 @@ local KioskLocations = {} -- unlimited admin-configured operator/drop-off locati
 local ReleaseLocks = {} -- [vehicleId] = source; prevents duplicate concurrent payment/release attempts
 local TowSessions = {} -- [source] = { towNetId, targetNetId }; server-verified physical delivery
 
-local function captureImpoundPhoto(src, vehicleId, targetNetId, plate, actorCid, message)
+local function lawImpoundLocations()
+    local rows = {}
+    if GetResourceState('cm-law') ~= 'started' then return rows end
+    for _, orgId in ipairs({ 'sahp', 'sheriff', 'fib', 'army' }) do
+        local ok, location = pcall(function() return exports['cm-law']:GetFacilityLocation(orgId, 'impound') end)
+        if ok and type(location) == 'table' then rows[#rows + 1] = location end
+    end
+    return rows
+end
+
+local function allImpoundLocations()
+    local rows = {}
+    for _, location in ipairs(KioskLocations) do rows[#rows + 1] = location end
+    for _, location in ipairs(lawImpoundLocations()) do rows[#rows + 1] = location end
+    return rows
+end
+
+local function enforcementLog(src, actorCid, action, detail)
+    local ok, context = pcall(function() return exports['cm-law']:AuthorizeEnforcement(src, 'impound', 'law.impound') end)
+    if ok and type(context) == 'table' then
+        pcall(function() exports['cm-law']:LogEnforcementAction(context, action, detail or {}) end)
+    else log(actorCid, action, detail or {}) end
+end
+
+local function captureImpoundPhoto(src, vehicleId, targetNetId, plate, actorCid, organizationId, message)
     if GetResourceState('screenshot-basic') ~= 'started' then
         return false, 'Vehicle photo service is unavailable. Start screenshot-basic and try again.'
     end
@@ -47,15 +71,15 @@ local function captureImpoundPhoto(src, vehicleId, targetNetId, plate, actorCid,
     local evidenceId
     if vehicleId then
         evidenceId = MySQL.insert.await([[INSERT INTO cm_police_impound_evidence
-            (vehicle_id, target_net_id, plate, officer_cid, image_url, message) VALUES (?, ?, ?, ?, ?, ?)]],
-            { vehicleId, targetNetId, plate, actorCid, imageUrl, message })
+            (vehicle_id, target_net_id, organization_id, plate, officer_cid, image_url, message) VALUES (?, ?, ?, ?, ?, ?, ?)]],
+            { vehicleId, targetNetId, organizationId or 'police', plate, actorCid, imageUrl, message })
     else
         evidenceId = MySQL.insert.await([[INSERT INTO cm_police_impound_evidence
-            (vehicle_id, target_net_id, plate, officer_cid, image_url, message) VALUES (NULL, ?, ?, ?, ?, ?)]],
-            { targetNetId, plate, actorCid, imageUrl, message })
+            (vehicle_id, target_net_id, organization_id, plate, officer_cid, image_url, message) VALUES (NULL, ?, ?, ?, ?, ?, ?)]],
+            { targetNetId, organizationId or 'police', plate, actorCid, imageUrl, message })
     end
     if not evidenceId then return false, 'The photo was taken but its MDT record could not be saved.' end
-    log(actorCid, 'vehicle_impound_evidence_captured', { vehicleId = vehicleId, plate = plate, evidenceId = evidenceId })
+    enforcementLog(src, actorCid, 'vehicle_impound_evidence_captured', { vehicleId = vehicleId, plate = plate, evidenceId = evidenceId })
     return true, 'Vehicle image and impound report saved. You may now attach it to the tow truck.'
 end
 
@@ -105,18 +129,20 @@ end
 
 local function nearKiosk(ped)
     local coords, bucket = GetEntityCoords(ped), GetEntityRoutingBucket(ped)
-    for _, location in ipairs(KioskLocations) do
+    for _, location in ipairs(allImpoundLocations()) do
         if bucket == (tonumber(location.bucket) or 0)
             and #(coords - vector3(location.x, location.y, location.z)) <= (Config.Impound.KioskRadius or 2.5) then return true end
     end
     return false
 end
 
-local function nearDropoff(entity)
+local function nearDropoff(entity, organizationId)
     local coords, bucket = GetEntityCoords(entity), GetEntityRoutingBucket(entity)
-    for _, location in ipairs(KioskLocations) do
+    for _, location in ipairs(allImpoundLocations()) do
+        if not organizationId or not location.organizationId or location.organizationId == organizationId then
         if bucket == (tonumber(location.bucket) or 0)
             and #(coords - vector3(location.x, location.y, location.z)) <= (Config.Impound.DropoffRadius or 18.0) then return true end
+        end
     end
     return false
 end
@@ -124,7 +150,7 @@ end
 -- Any player, no permission gate -- purely public info, same spirit as the
 -- release flow itself (usable by any citizen, not just Police).
 lib.callback.register('cm-police:server:impoundKioskLocation', function(src)
-    return KioskLocations
+    return allImpoundLocations()
 end)
 
 local function resolveNearbyVehicle(src, netId)
@@ -154,17 +180,20 @@ end
 local function towAuthority(src)
     local actorCid = cid(src)
     local actor = actorCid and memberFor(actorCid)
-    if not actor or dbBoolean(actor.is_suspended) or not dbBoolean(actor.on_duty) or not has(actor, 'police.impound') then
-        return nil, nil, 'You must be an on-duty officer with impound permission.'
+    if actor and not dbBoolean(actor.is_suspended) and dbBoolean(actor.on_duty) and has(actor, 'police.impound') then
+        if type(PoliceCapabilityEnabled)=='function' and not PoliceCapabilityEnabled('impound') then return nil,nil,'Police impound is disabled.' end
+        if isFtoRestricted(actor) then return nil, nil, 'Cadets must be signed off before towing vehicles.' end
+        return actorCid, actor, nil, 'police'
     end
-    if isFtoRestricted(actor) then return nil, nil, 'Cadets must be signed off before towing vehicles.' end
-    return actorCid, actor
+    local ok, context, failure = pcall(function() return exports['cm-law']:AuthorizeEnforcement(src, 'impound', 'law.impound') end)
+    if ok and type(context) == 'table' then return context.characterId, context.member, nil, context.organizationId end
+    return nil, nil, failure or 'You must be an on-duty legal officer with impound permission.'
 end
 
 lib.callback.register('cm-police:server:captureImpoundEvidence', function(src, netId, requestedPlate, message)
     if TowSessions[src] then return false, 'The evidence file is locked because towing has already begun.' end
     if not rateLimit(src, 'police_impound_evidence', 2500) then return false, 'Please wait before taking another photo.' end
-    local actorCid, _, failure = towAuthority(src)
+    local actorCid, _, failure, organizationId = towAuthority(src)
     if not actorCid then return false, failure end
     message = tostring(message or ''):gsub('[%c]', ' '):gsub('%s+', ' '):sub(1, 500)
     if #message < 5 then return false, 'Write an impound reason of at least 5 characters.' end
@@ -181,12 +210,13 @@ lib.callback.register('cm-police:server:captureImpoundEvidence', function(src, n
     if submittedPlate ~= '' and plate ~= submittedPlate then
         return false, 'The photographed vehicle does not match the MDT plate record.'
     end
-    return captureImpoundPhoto(src, row and tonumber(row.id) or nil, tonumber(netId), plate, actorCid, message)
+    local ok, result = captureImpoundPhoto(src, row and tonumber(row.id) or nil, tonumber(netId), plate, actorCid, organizationId, message)
+    return ok, result
 end)
 
 lib.callback.register('cm-police:server:beginTow', function(src, towNetId, targetNetId)
     if not rateLimit(src, 'police_begin_tow', 800) then return false, 'Please wait.' end
-    local actorCid, _, failure = towAuthority(src)
+    local actorCid, _, failure, organizationId = towAuthority(src)
     if not actorCid then return false, failure end
     local towTruck = NetworkGetEntityFromNetworkId(tonumber(towNetId) or 0)
     local target = NetworkGetEntityFromNetworkId(tonumber(targetNetId) or 0)
@@ -196,7 +226,7 @@ lib.callback.register('cm-police:server:beginTow', function(src, towNetId, targe
     end
     local allowed = false
     for _, name in ipairs(Config.Impound.TowModels or {}) do if GetEntityModel(towTruck) == GetHashKey(name) then allowed = true break end end
-    local fleet = Entity(towTruck).state.cmPoliceFleet
+    local fleet = Entity(towTruck).state.cmPoliceFleet or Entity(towTruck).state.cmLegalFleet
     local fleetModel = type(fleet) == 'table' and tostring(fleet.model or ''):lower() or ''
     if not allowed and fleetModel:find('tow', 1, true) and GetEntityModel(towTruck) == GetHashKey(fleetModel) then allowed = true end
     if GetVehiclePedIsIn(ped, false) ~= towTruck then return false, 'You are not inside the submitted tow truck.' end
@@ -210,44 +240,44 @@ lib.callback.register('cm-police:server:beginTow', function(src, towNetId, targe
     if targetFailure then return false, targetFailure end
     if targetRow and tonumber(targetRow.id) then
         local evidence = MySQL.single.await([[SELECT id FROM cm_police_impound_evidence
-            WHERE vehicle_id = ? AND officer_cid = ? AND used_at IS NULL
+            WHERE vehicle_id = ? AND officer_cid = ? AND organization_id = ? AND used_at IS NULL
               AND captured_at >= DATE_SUB(NOW(), INTERVAL 30 MINUTE)
-            ORDER BY id DESC LIMIT 1]], { targetRow.id, actorCid })
+            ORDER BY id DESC LIMIT 1]], { targetRow.id, actorCid, organizationId or 'police' })
         if not evidence then
             return false, 'Use the MDT Vehicle Registry to photograph this vehicle and write an impound report before lifting it.'
         end
-        TowSessions[src] = { towNetId = tonumber(towNetId), targetNetId = tonumber(targetNetId),
+        TowSessions[src] = { towNetId = tonumber(towNetId), targetNetId = tonumber(targetNetId), organizationId = organizationId,
             vehicleId = tonumber(targetRow.id), evidenceId = tonumber(evidence.id), started = os.time() }
         MySQL.update.await('UPDATE cm_police_impound_evidence SET locked_at = COALESCE(locked_at, NOW()) WHERE id = ? AND used_at IS NULL', { evidence.id })
     else
         local plate = ''
         pcall(function() plate = tostring(Entity(target).state.cmPlate or ''):gsub('%s+', ''):upper() end)
         local evidence = MySQL.single.await([[SELECT id FROM cm_police_impound_evidence
-            WHERE target_net_id = ? AND officer_cid = ? AND used_at IS NULL
+            WHERE target_net_id = ? AND officer_cid = ? AND organization_id = ? AND used_at IS NULL
               AND captured_at >= DATE_SUB(NOW(), INTERVAL 30 MINUTE)
-            ORDER BY id DESC LIMIT 1]], { targetNetId, actorCid })
+            ORDER BY id DESC LIMIT 1]], { targetNetId, actorCid, organizationId or 'police' })
         if not evidence then
             return false, 'Use the MDT to photograph this vehicle and write an impound report before lifting it.'
         end
-        TowSessions[src] = { towNetId = tonumber(towNetId), targetNetId = tonumber(targetNetId),
+        TowSessions[src] = { towNetId = tonumber(towNetId), targetNetId = tonumber(targetNetId), organizationId = organizationId,
             evidenceId = tonumber(evidence.id), started = os.time() }
         MySQL.update.await('UPDATE cm_police_impound_evidence SET locked_at = COALESCE(locked_at, NOW()) WHERE id = ? AND used_at IS NULL', { evidence.id })
     end
-    log(actorCid, 'vehicle_tow_started', {})
+    enforcementLog(src, actorCid, 'vehicle_tow_started', { organizationId = organizationId })
     return true, 'Tow authorized.'
 end)
 
 lib.callback.register('cm-police:server:impoundVehicle', function(src, netId)
     if not rateLimit(src, 'police_impound', 1000) then return false, 'Please wait.' end
-    local actorCid, _, authorityFailure = towAuthority(src)
+    local actorCid, _, authorityFailure, organizationId = towAuthority(src)
     if not actorCid then return false, authorityFailure end
     local session = TowSessions[src]
     if not session or session.targetNetId ~= tonumber(netId) then return false, 'Tow this vehicle with a Police tow truck first.' end
     local veh, row, err = resolveNearbyVehicle(src, netId)
     if err then return false, err end
     local towTruck = NetworkGetEntityFromNetworkId(session.towNetId or 0)
-    if #KioskLocations == 0 or towTruck == 0 or not DoesEntityExist(towTruck)
-        or not nearDropoff(veh) or not nearDropoff(towTruck) then
+    if #allImpoundLocations() == 0 or towTruck == 0 or not DoesEntityExist(towTruck)
+        or not nearDropoff(veh, organizationId) or not nearDropoff(towTruck, organizationId) then
         return false, 'Deliver both the tow truck and vehicle to the configured impound drop-off.'
     end
 
@@ -260,7 +290,7 @@ lib.callback.register('cm-police:server:impoundVehicle', function(src, netId)
                 { session.evidenceId, actorCid })
         end
         TowSessions[src] = nil
-        log(actorCid, 'vehicle_towed', {})
+        enforcementLog(src, actorCid, 'vehicle_towed', { organizationId = organizationId })
         return true, 'Untracked vehicle towed.', {
             plate = 'UNREGISTERED', fee = 0, officerName = nameFor(actorCid),
             reason = 'Untracked vehicle removed from the roadway.',
@@ -281,7 +311,7 @@ lib.callback.register('cm-police:server:impoundVehicle', function(src, netId)
 
     local called, ok, transitionReason = pcall(function()
         return exports[Config.VehiclesResource]:TransitionVehicleLocation(row.id, 'IMPOUND', {
-            reason = 'police_impound', actorCharacterId = actorCid,
+            reason = 'legal_impound', actorCharacterId = actorCid,
         })
     end)
     if not called then
@@ -301,8 +331,8 @@ lib.callback.register('cm-police:server:impoundVehicle', function(src, netId)
     exports[Config.VehiclesResource]:DeleteSpawnedVehicle(row.id)
     local ownerCid = row.owner_character_id and tostring(row.owner_character_id) or nil
     local impoundId = MySQL.insert.await([[INSERT INTO cm_police_impounds
-        (vehicle_id, plate, owner_cid, officer_cid, fee, cinematic_status, completed_at) VALUES (?, ?, ?, ?, ?, 'server_completed', NOW())]],
-        { row.id, row.plate, ownerCid, actorCid, Config.Impound.Fee })
+        (vehicle_id, organization_id, plate, owner_cid, officer_cid, fee, cinematic_status, completed_at) VALUES (?, ?, ?, ?, ?, ?, 'server_completed', NOW())]],
+        { row.id, organizationId or 'police', row.plate, ownerCid, actorCid, Config.Impound.Fee })
     if session.evidenceId then
         MySQL.update.await([[UPDATE cm_police_impound_evidence SET used_at = NOW(), impound_id = ?
             WHERE id = ? AND vehicle_id = ? AND officer_cid = ? AND used_at IS NULL]],
@@ -311,7 +341,7 @@ lib.callback.register('cm-police:server:impoundVehicle', function(src, netId)
     local evidence = session.evidenceId and MySQL.single.await(
         'SELECT image_url, message FROM cm_police_impound_evidence WHERE id = ? LIMIT 1', { session.evidenceId }) or nil
     TowSessions[src] = nil
-    log(actorCid, 'vehicle_impounded', { plate = row.plate, ownerCid = ownerCid, fee = Config.Impound.Fee })
+    enforcementLog(src, actorCid, 'vehicle_impounded', { vehicleId = row.id, plate = row.plate, ownerCid = ownerCid, fee = Config.Impound.Fee, organizationId = organizationId })
     return true, ('Impounded %s. A $%d release fee applies.'):format(row.plate, Config.Impound.Fee), {
         plate = tostring(row.plate or ''), fee = tonumber(Config.Impound.Fee) or 0,
         officerName = nameFor(actorCid), imageUrl = evidence and tostring(evidence.image_url or '') or '',
@@ -328,7 +358,7 @@ lib.callback.register('cm-police:server:listImpoundedVehicles', function(src)
     if not PoliceDatabaseReady() then return {} end
     local characterId = cid(src)
     if not characterId then return {} end
-    if #KioskLocations == 0 then return {} end
+    if #allImpoundLocations() == 0 then return {} end
     local ped = GetPlayerPed(src)
     if not ped or ped == 0 or not nearKiosk(ped) then return {} end
     local owned = exports[Config.VehiclesResource]:GetVehiclesByOwner(characterId) or {}
@@ -362,7 +392,7 @@ lib.callback.register('cm-police:server:payImpound', function(src, vehicleId)
     vehicleId = tonumber(vehicleId)
     local characterId = cid(src)
     if not vehicleId or not characterId then return false, 'Invalid request.' end
-    if #KioskLocations == 0 then return false, 'No Impound Operator has been configured.' end
+    if #allImpoundLocations() == 0 then return false, 'No Impound Operator has been configured.' end
     local ped = GetPlayerPed(src)
     if not ped or ped == 0 or not nearKiosk(ped) then return false, 'You must be at the impound release kiosk to do this.' end
     if ReleaseLocks[vehicleId] then return false, 'That vehicle release is already being processed.' end
@@ -428,6 +458,7 @@ CreateThread(function()
     MySQL.query.await([[CREATE TABLE IF NOT EXISTS cm_police_impounds (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         vehicle_id BIGINT UNSIGNED NOT NULL,
+        organization_id VARCHAR(32) NOT NULL DEFAULT 'police',
         plate VARCHAR(12) NOT NULL,
         owner_cid VARCHAR(64) NULL,
         officer_cid VARCHAR(64) NULL,
@@ -445,6 +476,7 @@ CreateThread(function()
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         vehicle_id BIGINT UNSIGNED NULL,
         target_net_id INT UNSIGNED NULL,
+        organization_id VARCHAR(32) NOT NULL DEFAULT 'police',
         plate VARCHAR(12) NOT NULL,
         officer_cid VARCHAR(64) NOT NULL,
         image_url VARCHAR(300) NOT NULL,
@@ -461,7 +493,9 @@ CreateThread(function()
     pcall(function() MySQL.query.await('ALTER TABLE cm_police_impound_evidence MODIFY COLUMN vehicle_id BIGINT UNSIGNED NULL') end)
     pcall(function() MySQL.query.await('ALTER TABLE cm_police_impound_evidence ADD COLUMN target_net_id INT UNSIGNED NULL AFTER vehicle_id') end)
     pcall(function() MySQL.query.await('ALTER TABLE cm_police_impound_evidence ADD COLUMN locked_at TIMESTAMP NULL') end)
+    pcall(function() MySQL.query.await("ALTER TABLE cm_police_impound_evidence ADD COLUMN organization_id VARCHAR(32) NOT NULL DEFAULT 'police' AFTER target_net_id") end)
     pcall(function() MySQL.query.await('ALTER TABLE cm_police_impounds ADD COLUMN cinematic_status VARCHAR(32) NULL') end)
+    pcall(function() MySQL.query.await("ALTER TABLE cm_police_impounds ADD COLUMN organization_id VARCHAR(32) NOT NULL DEFAULT 'police' AFTER vehicle_id") end)
     pcall(function() MySQL.query.await('ALTER TABLE cm_police_impounds ADD COLUMN completed_at TIMESTAMP NULL') end)
     pcall(function() MySQL.query.await('ALTER TABLE cm_police_impound_evidence ADD KEY idx_cm_police_impound_evidence_entity (target_net_id, officer_cid, used_at, captured_at)') end)
     -- Same generic key/value table server/booking.lua's own CreateThread

@@ -1563,6 +1563,16 @@ RegisterNUICallback('adminDisableVehicle', function(data, cb)
     cb('ok')
 end)
 
+RegisterNUICallback('adminGrantOrganizationVehicle', function(data, cb)
+    data = type(data) == 'table' and data or {}
+    TriggerServerEvent('rn-vehicleshop:server:grantOrganizationVehicle', data.model, data.organization, data.minimumTier, data.trunkMinimumTier)
+    cb('ok')
+end)
+
+RegisterNetEvent('rn-vehicleshop:client:organizationGrantResult', function(result)
+    SendNUIMessage({ action = 'organizationGrantResult', result = type(result) == 'table' and result or {} })
+end)
+
 RegisterNUICallback('adminRescanVehicles', function(_, cb)
     TriggerServerEvent('rn-vehicleshop:server:rescanVehicles')
     cb('ok')

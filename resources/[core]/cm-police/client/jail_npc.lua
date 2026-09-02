@@ -11,13 +11,22 @@ local function deleteNpc()
     npc = nil
 end
 
-local function refresh()
+local function refresh(override)
+    if override == false then
+        location = nil
+        deleteNpc()
+        return
+    end
     if refreshing then return end
     refreshing = true
-    location = lib.callback.await('cm-police:server:jailNpcLocation', false)
+    if type(override) == 'table' then
+        location = override
+    else
+        location = lib.callback.await('cm-police:server:jailNpcLocation', false)
+    end
     deleteNpc()
     if type(location) ~= 'table' then refreshing = false return end
-    local model = `s_m_m_prisguard_01`
+    local model = GetHashKey((Config.JailNpc or {}).Model or 's_m_m_prisguard_01')
     RequestModel(model)
     local deadline = GetGameTimer() + 5000
     while not HasModelLoaded(model) and GetGameTimer() < deadline do Wait(50) end

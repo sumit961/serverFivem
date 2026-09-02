@@ -16,8 +16,22 @@ Config.MenuKey = 'F6'
 -- Dedicated Police administration entry; server permission is checked before
 -- the admin workspace can be opened.
 Config.AdminMenuCommand = 'policeadmin'
-Config.InviteSeconds = 120
+Config.InviteSeconds = 60
+-- Default key for the cuff/uncuff bind. cm-law and cm-police both ship 'X',
+-- which gives players two entries on the same key in the keybind settings.
+-- The shared cmCuffed statebag means the systems interoperate correctly
+-- either way -- this only exists so one of them can be moved off X without
+-- editing client code. Players can also rebind it themselves in Settings.
+Config.CuffKey = 'X'
 Config.LogLimit = 100
+
+-- Retention sweeps (server/retention.lua). Body-cam and impound captures are
+-- written into html/img/bodycam/ by screenshot-basic and were never cleaned
+-- up, so the folder grew without limit and shipped to every joining player.
+Config.EvidenceRetentionDays = 30   -- delete cm_police_evidence rows + their .jpg after this many days
+Config.LogRetentionDays = 90        -- delete cm_police_activity rows after this many days
+Config.IncidentRetentionDays = 30   -- delete closed/expired dispatch calls after this many days
+Config.RetentionSweepMs = 21600000  -- how often to sweep (6 hours)
 
 Config.Permissions = {
     ['police.invite'] = 'Invite members',

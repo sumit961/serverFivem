@@ -2,9 +2,14 @@
 -- Modular RP chat UI. Messages stay visible; input/tabs/actions only show when chat is open.
 
 local chatOpen = false
+local externalHideReasons = {}
 local loggedIn = false
 local characterId = nil
 local characterHints = {}
+
+local function externalChatHidden()
+    return next(externalHideReasons) ~= nil
+end
 
 local function cleanText(value, maxLen)
     value = tostring(value or ''):gsub('[\r\n\t]+', ' '):gsub('%s+', ' '):gsub('^%s+', ''):gsub('%s+$', '')
@@ -87,6 +92,7 @@ local function setChatOpen(open)
     open = open == true
 
     if open then
+        if externalChatHidden() then return end
         if not isPlayerLoggedIn() then return end
         if IsNuiFocused and IsNuiFocused() and not chatOpen then return end
         captureStateHints()
@@ -98,6 +104,33 @@ local function setChatOpen(open)
     SetNuiFocusKeepInput(false)
     SendNUIMessage({ action = 'setChatOpen', open = chatOpen })
 end
+
+local function setExternalChatHidden(hidden, reason)
+    reason = tostring(reason or 'external-ui')
+    if hidden == true then
+        externalHideReasons[reason] = true
+        setChatOpen(false)
+    else
+        externalHideReasons[reason] = nil
+    end
+    SendNUIMessage({ action = 'setChatVisible', visible = not externalChatHidden() })
+end
+
+RegisterNetEvent('cm-chat:client:hideForUi', function(reason)
+    setExternalChatHidden(true, reason)
+end)
+
+RegisterNetEvent('cm-chat:client:showAfterUi', function(reason)
+    setExternalChatHidden(false, reason)
+end)
+
+exports('HideForUi', function(reason)
+    setExternalChatHidden(true, reason)
+end)
+
+exports('ShowAfterUi', function(reason)
+    setExternalChatHidden(false, reason)
+end)
 
 RegisterCommand('cmchat', function()
     setChatOpen(true)

@@ -1215,18 +1215,48 @@ local function BuildPage(page)
     return BuildPage('main')
 end
 
-local function SendMenuPage()
+local lastMenuSignature = nil
+
+local function MenuOptionSignature(options)
+    local parts = {}
+    for index, option in ipairs(options or {}) do
+        parts[index] = table.concat({
+            tostring(option.id or ''),
+            tostring(option.label or ''),
+            tostring(option.description or ''),
+            tostring(option.icon or ''),
+            tostring(option.type or ''),
+            tostring(option.page or ''),
+            tostring(option.action or '')
+        }, '\31')
+    end
+    return table.concat(parts, '\30')
+end
+
+local function SendMenuPage(force)
     if not menuOpen or not menuTarget then return end
 
     currentOptions = BuildPage(currentPage)
+    local navigation = BuildPage('main')
 
     local nameLine, idLine = GetIdentityTitle(menuTarget.serverId, true)
+    local signature = table.concat({
+        tostring(currentPage),
+        tostring(nameLine or ''),
+        tostring(idLine or ''),
+        MenuOptionSignature(navigation),
+        MenuOptionSignature(currentOptions)
+    }, '\29')
+    if force ~= true and signature == lastMenuSignature then return end
+    lastMenuSignature = signature
+
     SendNUIMessage({
         action = 'openRadial',
         page = currentPage,
         title = nameLine,
         subtitle = idLine,
-        hint = 'CLICK OR PRESS 1-9 TO SELECT  |  RIGHT MOUSE = BACK  |  ESC = CLOSE',
+        hint = 'CLICK OR 1-9 ACTION  ·  RIGHT MOUSE BACK  ·  ESC CLOSE',
+        navigation = navigation,
         options = currentOptions
     })
 end
@@ -1242,6 +1272,7 @@ local function CloseMenu()
     currentPage = 'main'
     currentOptions = {}
     pageStack = {}
+    lastMenuSignature = nil
     SetNuiFocus(false, false)
     SendNUIMessage({ action = 'closeRadial' })
 end
@@ -1263,12 +1294,13 @@ local function OpenMenu(target)
     -- Unconscious body: only treatment actions make sense.
     currentPage = IsPedDowned(target.ped, target.serverId) and 'dead' or 'main'
     pageStack = {}
+    lastMenuSignature = nil
     -- Cursor visible, camera frozen, all keyboard/mouse input goes to the UI.
     -- KeepInput explicitly false: another resource may have toggled it globally,
     -- which would leak clicks/keys into the game (shooting/reloading in menu).
     SetNuiFocusKeepInput(false)
     SetNuiFocus(true, true)
-    SendMenuPage()
+    SendMenuPage(true)
 end
 
 local function BackMenu()
@@ -1551,6 +1583,26 @@ RegisterNUICallback('selectOption', function(payload, cb)
     end
 end)
 
+RegisterNUICallback('selectPage', function(payload, cb)
+    cb({})
+    if not menuOpen or type(payload) ~= 'table' then return end
+
+    local requestedPage = tostring(payload.page or '')
+    local requestedAction = tostring(payload.action or '')
+    for _, option in ipairs(BuildPage('main')) do
+        if option.type == 'page' and option.page == requestedPage then
+            pageStack = { 'main' }
+            currentPage = option.page
+            SendMenuPage()
+            return
+        end
+        if option.type == 'client' and option.action == requestedAction and requestedAction ~= '' then
+            HandleOption(option)
+            return
+        end
+    end
+end)
+
 RegisterNUICallback('backMenu', function(_, cb)
     cb({})
     if menuOpen then BackMenu() end
@@ -1648,58 +1700,120 @@ RegisterCommand('-cm_interact', function() end, false)
 RegisterKeyMapping('+cm_interact', 'Interact with player', 'keyboard', 'G')
 
 -- ---------------------------------------------------------------------------
--- Handshake consent: the target sees an accept prompt and must press E.
+-- Built-in G-menu consent offers use cm-hud for presentation. Response and
+-- expiry remain authoritative in cm-playerdata's server handlers.
 -- ---------------------------------------------------------------------------
 local handshakePending = false
+local handshakeOfferId = nil
+local treatmentRequestPending = false
+
+local function ShowHudOffer(payload)
+    if GetResourceState('cm-hud') ~= 'started' then return false end
+    local ok, shown = pcall(function() return exports['cm-hud']:ShowOffer(payload) end)
+    return ok and shown == true
+end
+
+local function HideHudOffer(offerId)
+    if not offerId or GetResourceState('cm-hud') ~= 'started' then return end
+    pcall(function() exports['cm-hud']:HideOffer(offerId) end)
+end
 
 RegisterNetEvent('cm-playerdata:client:handshakeRequest', function(fromLabel, timeoutMs)
-    if handshakePending then return end
+    if handshakePending or treatmentRequestPending then
+        TriggerServerEvent('cm-playerdata:server:handshakeResponse', false)
+        return
+    end
     handshakePending = true
-
-    local expires = GetGameTimer() + (tonumber(timeoutMs) or 15000)
+    local duration = tonumber(timeoutMs) or 15000
+    local expires = GetGameTimer() + duration
+    handshakeOfferId = ('playerdata:handshake:%s'):format(GetGameTimer())
+    local hudShown = ShowHudOffer({
+        id = handshakeOfferId,
+        eyebrow = 'HANDSHAKE OFFER',
+        title = ('Accept a handshake from %s?'):format(tostring(fromLabel or 'Someone')),
+        sender = tostring(fromLabel or 'Someone'),
+        icon = 'offer',
+        acceptKey = 'Y', acceptText = 'Accept',
+        declineKey = 'N', declineText = 'Decline',
+        duration = duration,
+    })
 
     CreateThread(function()
+        local answered = false
         while handshakePending and GetGameTimer() < expires do
             Wait(0)
-
             if not IsReadyForInteraction() then break end
-
-            BeginTextCommandDisplayHelp('STRING')
-            AddTextComponentSubstringPlayerName(('%s offers a handshake. Press ~INPUT_PICKUP~ to accept.'):format(tostring(fromLabel or 'Someone')))
-            EndTextCommandDisplayHelp(0, false, false, 1)
-
-            if IsControlJustPressed(0, 38) then -- E
+            if not hudShown then
+                BeginTextCommandDisplayHelp('STRING')
+                AddTextComponentSubstringPlayerName(('%s offers a handshake. Press Y to accept or N to decline.'):format(tostring(fromLabel or 'Someone')))
+                EndTextCommandDisplayHelp(0, false, false, 1)
+            end
+            DisableControlAction(0, 246, true)
+            DisableControlAction(0, 249, true)
+            DisableControlAction(2, 246, true)
+            DisableControlAction(2, 249, true)
+            if IsDisabledControlJustPressed(0, 246) or IsDisabledControlJustPressed(2, 246) then
+                answered = true
                 TriggerServerEvent('cm-playerdata:server:handshakeResponse', true)
                 Notify('You accepted the handshake.', 'success')
                 break
+            elseif IsDisabledControlJustPressed(0, 249) or IsDisabledControlJustPressed(2, 249) then
+                answered = true
+                TriggerServerEvent('cm-playerdata:server:handshakeResponse', false)
+                Notify('You declined the handshake.', 'inform')
+                break
             end
         end
+        if not answered then TriggerServerEvent('cm-playerdata:server:handshakeResponse', false) end
+        HideHudOffer(handshakeOfferId)
+        handshakeOfferId = nil
         handshakePending = false
     end)
 end)
 
-local treatmentRequestPending = false
+local treatmentOfferId = nil
 RegisterNetEvent('cm-playerdata:client:treatmentRequest', function(fromLabel, timeoutMs)
-    if treatmentRequestPending then return end
+    if treatmentRequestPending or handshakePending then
+        TriggerServerEvent('cm-playerdata:server:treatmentResponse', false)
+        return
+    end
     treatmentRequestPending = true
-    local expires = GetGameTimer() + (tonumber(timeoutMs) or 15000)
+    local duration = tonumber(timeoutMs) or 15000
+    local expires = GetGameTimer() + duration
+    treatmentOfferId = ('playerdata:treatment:%s'):format(GetGameTimer())
+    local hudShown = ShowHudOffer({
+        id = treatmentOfferId,
+        eyebrow = 'TREATMENT OFFER',
+        title = ('Allow %s to treat you?'):format(tostring(fromLabel or 'Someone')),
+        sender = tostring(fromLabel or 'Someone'),
+        icon = 'medical',
+        acceptKey = 'Y', acceptText = 'Accept',
+        declineKey = 'N', declineText = 'Decline',
+        duration = duration,
+    })
     CreateThread(function()
         local answered = false
         while treatmentRequestPending and GetGameTimer() < expires do
             Wait(0)
             if not IsReadyForInteraction() then break end
-            BeginTextCommandDisplayHelp('STRING')
-            AddTextComponentSubstringPlayerName(('%s requests to treat you. Press ~y~Y~s~ to accept or ~r~N~s~ to decline.'):format(tostring(fromLabel or 'Someone')))
-            EndTextCommandDisplayHelp(0, false, false, 1)
+            if not hudShown then
+                BeginTextCommandDisplayHelp('STRING')
+                AddTextComponentSubstringPlayerName(('%s requests treatment. Press Y to accept or N to decline.'):format(tostring(fromLabel or 'Someone')))
+                EndTextCommandDisplayHelp(0, false, false, 1)
+            end
             DisableControlAction(0, 246, true)
             DisableControlAction(0, 249, true)
-            if IsDisabledControlJustPressed(0, 246) then
+            DisableControlAction(2, 246, true)
+            DisableControlAction(2, 249, true)
+            if IsDisabledControlJustPressed(0, 246) or IsDisabledControlJustPressed(2, 246) then
                 answered = true; TriggerServerEvent('cm-playerdata:server:treatmentResponse', true); Notify('You accepted treatment.', 'success'); break
-            elseif IsDisabledControlJustPressed(0, 249) then
+            elseif IsDisabledControlJustPressed(0, 249) or IsDisabledControlJustPressed(2, 249) then
                 answered = true; TriggerServerEvent('cm-playerdata:server:treatmentResponse', false); Notify('You declined treatment.', 'error'); break
             end
         end
         if not answered then TriggerServerEvent('cm-playerdata:server:treatmentResponse', false) end
+        HideHudOffer(treatmentOfferId)
+        treatmentOfferId = nil
         treatmentRequestPending = false
     end)
 end)

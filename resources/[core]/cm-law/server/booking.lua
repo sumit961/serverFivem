@@ -99,13 +99,34 @@ local function bookingAuthority(src, targetSrc)
     if not targetCid or not officerPed or officerPed == 0 or not targetPed or targetPed == 0 then return nil, 'The suspect is unavailable.' end
     if GetPlayerRoutingBucket(src) ~= GetPlayerRoutingBucket(targetSrc) then return nil, 'The suspect is not in your routing instance.' end
     if Player(targetSrc).state.cmCuffed ~= true then return nil, 'The suspect must be cuffed first.' end
-    local intake = type(LawFacilityLocation) == 'function' and LawFacilityLocation(actor.organizationId, 'intake') or nil
-    if not intake then return nil, 'Your organization prison intake NPC is not configured.' end
+    -- ONE prison intake for every organization.
+    --
+    -- There is one prison on the map, so there should be one place suspects
+    -- are processed. The shared jail cells and release point were already
+    -- unified (cm-police reads GetSharedJailConfiguration from this resource);
+    -- the intake NPC was the last piece still configured per organization,
+    -- which meant SAHP and LSPD booked at different desks into the same jail.
+    --
+    -- cm-police owns the intake NPC placement, so we ask it first and only
+    -- fall back to this organization's own facility row if cm-police is not
+    -- running. Guarded by GetResourceState and pcall rather than declared as a
+    -- dependency: cm-police already depends on cm-law, so a hard dependency
+    -- here would be circular.
+    local intake, sharedIntake
+    if GetResourceState('cm-police') == 'started' then
+        pcall(function() sharedIntake = exports['cm-police']:GetJailLocation() end)
+    end
+    if type(sharedIntake) == 'table' and tonumber(sharedIntake.x) then
+        intake = sharedIntake
+    elseif type(LawFacilityLocation) == 'function' then
+        intake = LawFacilityLocation(actor.organizationId, 'intake')
+    end
+    if not intake then return nil, 'The shared Prison Intake NPC has not been configured.' end
     local intakeRadius = tonumber(Config.Custody.IntakeRadius) or 8.0
-    if GetPlayerRoutingBucket(src) ~= (tonumber(intake.bucket) or 0) then return nil, 'Move to your organization prison intake.' end
+    if GetPlayerRoutingBucket(src) ~= (tonumber(intake.bucket) or 0) then return nil, 'Move to the shared prison intake.' end
     local intakeCoords = vector3(intake.x, intake.y, intake.z)
     if #(GetEntityCoords(officerPed) - intakeCoords) > intakeRadius or #(GetEntityCoords(targetPed) - intakeCoords) > intakeRadius then
-        return nil, 'Bring the cuffed suspect to your organization prison intake NPC.'
+        return nil, 'Bring the cuffed suspect to the shared Prison Intake NPC.'
     end
     if #(GetEntityCoords(officerPed) - GetEntityCoords(targetPed)) > 3.0 then return nil, 'Move closer to the suspect.' end
     if #SharedJailSpawns < 1 then return nil, 'No shared jail spawn locations are configured.' end

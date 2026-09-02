@@ -44,6 +44,26 @@ lib.callback.register('cm-police:server:removeBarricadeModel', function(src, cat
     return true, 'Barricade model removed.'
 end)
 
+exports('AdminGetBarricades', function(src)
+    local permitted = manager(tonumber(src))
+    return permitted and { ok=true, items=catalog() } or { ok=false, error='Permission denied.' }
+end)
+
+exports('AdminConfigureBarricade', function(src, _, data)
+    src, data = tonumber(src), type(data)=='table' and data or {}
+    local permitted, actorCid = manager(src)
+    if not permitted then return false, 'Permission denied.' end
+    if tostring(data.operation)=='remove' then
+        local id=tonumber(data.catalogId); if not id then return false,'Invalid model.' end
+        MySQL.update.await('DELETE FROM cm_police_barricade_catalog WHERE id=?',{id})
+        log(actorCid,'barricade_model_removed',{catalogId=id}); broadcast(); return true,'Barricade model removed.'
+    end
+    local clean=tostring(data.modelName or ''):lower():gsub('%s+','')
+    if clean=='' or #clean>64 or not clean:match('^[%a_][%w_]*$') then return false,'Invalid model name.' end
+    MySQL.insert.await('INSERT IGNORE INTO cm_police_barricade_catalog (model_name,added_by) VALUES (?,?)',{clean,actorCid})
+    log(actorCid,'barricade_model_added',{model=clean}); broadcast(); return true,'Barricade model added.'
+end)
+
 CreateThread(function()
     MySQL.query.await([[CREATE TABLE IF NOT EXISTS cm_police_barricade_catalog (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, model_name VARCHAR(64) NOT NULL,

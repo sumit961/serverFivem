@@ -9,6 +9,21 @@ local function add(id, label, order)
     exports[Config.PlayerDataResource]:RegisterInteractionOption(PAGE, { id = id, action = id, label = label, icon = 'briefcase-medical', type = 'extension', order = order, close = true })
 end
 
+local function addInvite(label)
+    exports[Config.PlayerDataResource]:RegisterInteractionOption(PAGE, {
+        id = 'ems_invite', action = 'ems_invite', label = label, icon = 'briefcase-medical', order = 10, close = true,
+        type = 'clientEvent', event = 'cm-ems:client:confirmInvite',
+    })
+end
+
+RegisterNetEvent('cm-ems:client:confirmInvite', function(targetServerId)
+    local result = lib.alertDialog({
+        header = 'EMS Invitation', content = 'Invite the selected nearby player to EMS?',
+        centered = true, cancel = true, labels = { confirm = 'Send Invite', cancel = 'Cancel' },
+    })
+    if result == 'confirm' then TriggerServerEvent('cm-playerdata:server:extensionInteraction', targetServerId, 'ems_invite', {}) end
+end)
+
 local function rebuild(targetServerId)
     if GetResourceState(Config.PlayerDataResource) ~= 'started' then return end
     exports[Config.PlayerDataResource]:ClearInteractionOptions(PAGE)
@@ -18,6 +33,7 @@ local function rebuild(targetServerId)
     if mine == false then mine = nil end
     if theirs == false then theirs = nil end
     if not mine then return end
+    if mine.suspended == true then return end
     local permissions = mine.permissions or {}
     if mine.onDuty == true and (mine.isLeader or permissions['ems.treat_player']) then
         add('ems_stretcher_place', 'Place on Stretcher', 5)
@@ -44,7 +60,7 @@ local function rebuild(targetServerId)
                 11 + index)
         end
     end
-    if not theirs then if mine.isLeader or permissions['ems.invite'] then add('ems_invite', 'Invite to EMS', 10) end; return end
+    if not theirs then if mine.isLeader or permissions['ems.invite'] then addInvite('Invite to EMS') end; return end
     if theirs.isLeader or (tonumber(mine.tier) or 0) <= (tonumber(theirs.tier) or 0) then return end
     if mine.isLeader or permissions['ems.promote'] then add('ems_promote', 'Promote EMS Member', 20) end
     if mine.isLeader or permissions['ems.demote'] then add('ems_demote', 'Demote EMS Member', 30) end

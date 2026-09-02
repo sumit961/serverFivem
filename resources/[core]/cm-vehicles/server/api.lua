@@ -52,12 +52,27 @@ local function emsDecision(src, row, action)
     return allowed == true, tostring(reason or 'denied'), context
 end
 
+-- Mirrors the cm-gang entries in TRUSTED_ORGANIZATIONS (server/main.lua) --
+-- kept as a small local set here (not a cross-resource export call) since
+-- this only needs to answer "is this id a gang", not resolve gang state.
+-- Legacy gang_1..gang_4 stay recognized so any not-yet-migrated fleet rows
+-- keep working; families/vagos/etc. are the canonical five-gang ids.
+local GANG_ORGANIZATION_IDS = {
+    gang_1 = true, gang_2 = true, gang_3 = true, gang_4 = true,
+    marabunta = true, bloods = true, ballas = true, families = true, vagos = true,
+}
+
+local function isGangOrganization(organization)
+    return GANG_ORGANIZATION_IDS[tostring(organization or '')] == true
+end
+
 local function organizationDecision(src, row, action)
     if tostring(row.owner_type or '') ~= 'organization' then return nil, 'not_organization_vehicle', nil end
     local organization = tostring(row.owner_id or ''):lower()
     local resource = organization == 'ems' and 'cm-ems'
         or organization == 'police' and 'cm-police'
         or ((organization == 'sahp' or organization == 'sheriff' or organization == 'fib' or organization == 'army') and 'cm-law' or nil)
+        or (isGangOrganization(organization) and 'cm-gang' or nil)
     if not resource or GetResourceState(resource) ~= 'started' then
         return false, 'organization_access_unavailable', { organization = organization }
     end
@@ -249,7 +264,7 @@ function A.GetIntegrationContract()
         capabilities = {
             scopedHousePlacementVehicles = true,
             placementRoutingBucketAware = true,
-            placementKinds = { 'car', 'helicopter' },
+            placementKinds = { 'car', 'boat', 'helicopter', 'airplane' },
         },
         locationStates = CMVehicles.Location and CMVehicles.Location.States or {},
         accessActions = {

@@ -166,6 +166,21 @@ CMItems.Items = {
         description = 'A stronger lockpick for harder locks.'
     },
 
+    spray_can = {
+        label = 'Spray Can',
+        image = 'nui://cm-items/ui/images/spray_can.svg',
+        weight = 450,
+        stack = true,
+        unique = false,
+        usable = false,
+        close = false,
+        category = 'tool',
+        durability = 100,
+        worldModel = 'prop_cs_spray_can',
+        illegal = true,
+        description = 'A pressurized paint can used to repaint gang graffiti.'
+    },
+
     -- Documents can be inventory items if you want physical documents.
     -- ID/driver license can also be made virtual later, but physical docs are useful for RP/search/evidence.
     id_card = {
@@ -179,6 +194,7 @@ CMItems.Items = {
         category = 'document',
         worldModel = 'prop_cs_documents_01',
         metadataRequired = { 'characterId', 'firstname', 'lastname', 'dob' },
+        robberyProtected = true,
         description = 'Official identity card.'
     },
 
@@ -188,12 +204,30 @@ CMItems.Items = {
         weight = 30,
         stack = false,
         unique = true,
+        singleton = true,
         usable = true,
         close = true,
         category = 'document',
         worldModel = 'prop_cs_documents_01',
         metadataRequired = { 'characterId', 'licenseClass' },
+        robberyProtected = true,
         description = 'Driving license document.'
+    },
+
+    boat_license = {
+        label = 'Boat License', image = 'driver_license.png', weight = 30,
+        stack = false, unique = true, singleton = true, usable = true, close = true,
+        category = 'document', worldModel = 'prop_cs_documents_01',
+        metadataRequired = { 'characterId', 'licenseType' }, robberyProtected = true,
+        description = 'Official watercraft operator license.'
+    },
+
+    air_license = {
+        label = 'Air License', image = 'driver_license.png', weight = 30,
+        stack = false, unique = true, singleton = true, usable = true, close = true,
+        category = 'document', worldModel = 'prop_cs_documents_01',
+        metadataRequired = { 'characterId', 'licenseType' }, robberyProtected = true,
+        description = 'Official aircraft pilot license.'
     },
 
     -- Materials

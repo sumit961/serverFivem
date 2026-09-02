@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CM Bank</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside id="interaction" class="npc-interaction hidden" aria-hidden="true">
+    <span class="npc-interaction__key" id="interactionKey">E</span>
+    <span class="npc-interaction__line"></span>
+    <span class="npc-interaction__copy">
+      <b>INTERACTION</b>
+      <small id="interactionText"></small>
+    </span>
+  </aside>
+
+  <div id="bank-root" class="bank-root hidden" aria-hidden="true">
+    <div class="bg-grid" aria-hidden="true"></div>
+    <div class="bg-notes" aria-hidden="true">
+      <img class="note note-a" src="img/cash-1.png" alt="">
+      <img class="note note-b" src="img/cash-2.png" alt="">
+      <img class="note note-c" src="img/cash-1.png" alt="">
+    </div>
+
+    <main class="vault" role="dialog" aria-modal="true" aria-labelledby="panelTitle">
+      <header class="vault-header">
+        <div class="brand-block">
+          <div class="brand">
+            <span>CM</span><span class="brand-sep">//</span><span>BANK</span>
+          </div>
+          <div class="brand-sub">
+            <span class="brand-rule"></span>
+            <span>PERSONAL BANKING</span>
+          </div>
+        </div>
+        <div class="header-right">
+          <span class="header-id">•••• 2111</span>
+          <span class="header-clock" id="headerClock">00:00</span>
+          <button class="icon-button" id="btnClose" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="vault-grid">
+        <div class="col col-primary">
+          <div class="balance-row">
+            <span class="section-label" id="balanceLabel">AVAILABLE BALANCE</span>
+            <div class="balance-hero" id="balanceHero">$0</div>
+          </div>
+
+          <div class="access-context" id="accessContext">
+            <div class="access-context-main">
+              <span class="access-context-title" id="accessContextTitle">CM BANK</span>
+              <span class="access-context-sub" id="accessContextSub"></span>
+            </div>
+            <span class="access-context-badge" id="accessContextYours" hidden>YOUR ATM</span>
+          </div>
+
+          <nav class="tabs" id="tabs">
+            <button class="tab active" data-tab="deposit" type="button">Deposit</button>
+            <button class="tab" data-tab="withdraw" type="button">Withdraw</button>
+            <button class="tab" data-tab="transfer" type="button">Transfer</button>
+            <button class="tab" data-tab="payees" type="button">Payees</button>
+            <button class="tab" data-tab="own" type="button">Own</button>
+          </nav>
+
+          <div class="action-card">
+            <div class="action-top">
+              <div class="atm" id="atm">
+                <div class="atm-glow" aria-hidden="true"></div>
+                <div class="atm-shadow" aria-hidden="true"></div>
+                <img class="atm-img" src="img/atm-neon.png" alt="">
+              </div>
+
+              <div class="action-copy">
+                <div class="action-label" id="actionLabel">DEPOSIT</div>
+                <p class="action-hint" id="tabDescription">Move cash into your bank account.</p>
+                <p class="atm-number" id="atmNumber" hidden>ATM No. <span id="atmNumberValue"></span></p>
+              </div>
+            </div>
+
+            <div class="atm-status" id="atmStatus" hidden></div>
+
+            <div id="atmDisabledBanner" class="atm-disabled-banner" hidden>
+              <strong>OUT OF SERVICE</strong>
+              <p>This ATM has been disabled by an administrator.</p>
+            </div>
+
+            <div id="transactionForm">
+              <div class="quick-transfer" id="quickTransferRow" hidden>
+                <span class="quick-transfer-label">QUICK TRANSFER</span>
+                <div class="quick-transfer-chips" id="quickTransferChips"></div>
+              </div>
+
+              <div class="quick-transfer" id="recentPayeesRow" hidden>
+                <span class="quick-transfer-label">RECENT</span>
+                <div class="quick-transfer-chips" id="recentPayeesChips"></div>
+              </div>
+
+              <div class="field-group" id="targetGroup" hidden>
+                <input class="target-input" id="targetInput" type="number" inputmode="numeric" min="1" step="1" placeholder="Recipient character ID">
+              </div>
+
+              <div class="amount-row">
+                <span class="amount-prefix">$</span>
+                <input class="amount-input" id="amountInput" type="number" inputmode="numeric" min="1" step="1" placeholder="0">
+              </div>
+              <div class="amount-formatted" id="amountFormatted" hidden></div>
+
+              <div class="quick-amounts" id="quickAmounts">
+                <button type="button" class="quick-btn" data-add="1000">+$1,000</button>
+                <button type="button" class="quick-btn" data-add="5000">+$5,000</button>
+                <button type="button" class="quick-btn" data-add="10000">+$10,000</button>
+                <button type="button" class="quick-btn" data-add="50000">+$50,000</button>
+                <button type="button" class="quick-btn quick-btn-max" data-max="1">MAX</button>
+              </div>
+              <button type="button" class="quick-btn quick-btn-last" id="btnLastAmount" hidden></button>
+
+              <div class="field-group" id="noteGroup" hidden>
+                <input class="target-input" id="noteInput" type="text" maxlength="120" placeholder="Note (optional)">
+              </div>
+
+              <div class="available-row">
+                <span id="afterLabel">Available</span>
+                <b id="availableValue">$0</b>
+              </div>
+
+              <button id="btnSubmit" class="primary-button" type="button">
+                <span id="submitButtonText">Deposit</span>
+              </button>
+
+              <div class="status-line" id="statusLine"></div>
+            </div>
+
+            <div id="payeesPanel" class="own-panel" hidden>
+              <p class="own-copy">Save a Character ID with a nickname for faster transfers later. The nickname is only a label — transfers always use the Character ID.</p>
+
+              <div class="own-contact-row">
+                <input id="payeeCharIdInput" class="own-contact-input" type="number" inputmode="numeric" min="1" step="1" placeholder="Character ID" style="flex:0 0 110px">
+                <input id="payeeNicknameInput" class="own-contact-input" type="text" maxlength="40" placeholder="Nickname">
+                <button id="btnAddPayee" class="own-contact-save" type="button">Add</button>
+              </div>
+
+              <div class="payee-list" id="payeeList">
+                <p class="activity-empty" id="payeeListEmpty">No saved payees yet.</p>
+              </div>
+            </div>
+
+            <div id="ownPanel" class="own-panel" hidden>
+              <div id="ownUnowned" class="own-block" hidden>
+                <p class="own-copy">This ATM is unowned. Withdrawals pay a flat <span id="ownUnownedFee">2</span>% fee here — that money isn't collected by anyone.</p>
+                <p class="own-copy">Buy it to set your own withdrawal fee and keep the profit.</p>
+                <div class="own-price-row">
+                  <span>Purchase price</span>
+                  <b id="ownPriceValue">$0</b>
+                </div>
+                <div class="own-price-row">
+                  <span>Cash capacity</span>
+                  <b id="ownCapacityPreview">$0</b>
+                </div>
+                <div class="own-price-row">
+                  <span>Starting reserve</span>
+                  <b id="ownStartingReservePreview">$0</b>
+                </div>
+                <button id="btnBuyAtm" class="primary-button" type="button">
+                  <span>Buy this ATM</span>
+                </button>
+                <div id="ownNotForSale" class="own-copy own-muted" hidden>This ATM is not currently for sale.</div>
+                <div id="ownAlreadyOwn" class="own-copy own-muted" hidden>You already own ATM No. <span id="ownAlreadyOwnNumber"></span>. Sell it before buying another.</div>
+              </div>
+
+              <div id="ownByOther" class="own-block" hidden>
+                <p class="own-copy">Owned by <strong id="ownOtherName">someone else</strong>.</p>
+                <p class="own-copy own-muted" id="ownOtherContactRow" hidden>Contact: <span id="ownOtherContact"></span></p>
+              </div>
+
+              <div id="ownByMe" class="own-block" hidden>
+                <div class="own-status-row" id="ownReserveStatus">OPERATIONAL</div>
+
+                <div class="own-reserve-block">
+                  <div class="own-reserve-head">
+                    <span>Cash Reserve</span>
+                    <span id="ownReservePercent">0%</span>
+                  </div>
+                  <div class="own-reserve-bar"><div class="own-reserve-fill" id="ownReserveFill" style="width:0%"></div></div>
+                  <div class="own-reserve-value"><b id="ownReserveValue">$0</b> / <span id="ownCapacityValue">$0</span></div>
+                </div>
+
+                <p class="own-copy">You own this ATM. Pick the withdrawal fee other players pay here.</p>
+                <div class="own-fee-choices" id="ownFeeChoices">
+                  <button type="button" class="own-fee-choice" data-fee="1">1%</button>
+                  <button type="button" class="own-fee-choice" data-fee="2">2%</button>
+                  <button type="button" class="own-fee-choice" data-fee="3">3%</button>
+                  <button type="button" class="own-fee-choice" data-fee="4">4%</button>
+                </div>
+                <p class="own-copy own-muted" id="ownFeeExample"></p>
+
+                <div class="own-balance-row">
+                  <span>Pending earnings</span>
+                  <b id="ownBalanceValue">$0</b>
+                </div>
+                <button id="btnWithdrawEarnings" class="primary-button" type="button">
+                  <span>Withdraw to bank</span>
+                </button>
+
+                <button id="btnToggleRestock" class="own-contact-save own-full-btn" type="button">Restock ATM</button>
+                <div class="own-contact-row" id="restockRow" hidden>
+                  <input id="restockInput" class="own-contact-input" type="number" inputmode="numeric" min="1" step="1" placeholder="Cash to add">
+                  <button id="btnRestockMax" class="own-contact-save" type="button">MAX</button>
+                  <button id="btnSubmitRestock" class="own-contact-save" type="button">Add Cash</button>
+                </div>
+
+                <button id="btnViewBusiness" class="own-contact-save own-full-btn" type="button">View Business History</button>
+
+                <div class="own-contact-row">
+                  <input id="ownContactInput" class="own-contact-input" type="text" maxlength="100" placeholder="Contact info shown to other players (optional)">
+                  <button id="btnSaveContact" class="own-contact-save" type="button">Save</button>
+                </div>
+
+                <button id="btnSellAtm" class="sell-button" type="button">
+                  <span>Sell to government (<span id="sellPercentLabel">80</span>%)</span>
+                </button>
+              </div>
+
+              <div id="ownDisabledNotice" class="own-copy own-muted" hidden>ATM ownership is currently disabled by an administrator.</div>
+            </div>
+          </div>
+
+          <div class="tile-row">
+            <div class="account-card">
+              <div class="account-card-top">
+                <span class="section-label light">BANK ACCOUNT</span>
+                <span class="account-badge">CM</span>
+              </div>
+              <div class="account-number">•••• •••• •••• 2111</div>
+              <div class="account-balance-row">
+                <span>Balance</span>
+                <strong>$<span id="accountBankValue">0</span></strong>
+              </div>
+            </div>
+
+            <div class="cash-card">
+              <div class="cash-card-top">
+                <span class="section-label light">CASH ON HAND</span>
+              </div>
+              <div class="cash-card-value">$<span id="cashValue">0</span></div>
+            </div>
+          </div>
+
+          <div class="today-row">
+            <div class="today-tile">
+              <span class="section-label light">TODAY IN</span>
+              <div class="today-value positive" id="todayIn">+$0</div>
+            </div>
+            <div class="today-tile">
+              <span class="section-label light">TODAY OUT</span>
+              <div class="today-value negative" id="todayOut">-$0</div>
+            </div>
+            <div class="today-tile">
+              <span class="section-label light">FEES PAID</span>
+              <div class="today-value neutral" id="todayFees">$0</div>
+            </div>
+          </div>
+
+          <div class="financial-summary">
+            <button class="view-all-btn financial-toggle" id="btnToggleFinancial" type="button">Financial Summary ▾</button>
+            <div class="financial-body" id="financialBody" hidden>
+              <div class="today-row">
+                <div class="today-tile">
+                  <span class="section-label light">MONTH IN</span>
+                  <div class="today-value positive" id="monthIn">+$0</div>
+                </div>
+                <div class="today-tile">
+                  <span class="section-label light">MONTH OUT</span>
+                  <div class="today-value negative" id="monthOut">-$0</div>
+                </div>
+                <div class="today-tile">
+                  <span class="section-label light">MONTH FEES</span>
+                  <div class="today-value neutral" id="monthFees">$0</div>
+                </div>
+              </div>
+              <div class="cash-flow-row">
+                <span class="section-label light">MONTHLY CASH FLOW</span>
+                <b id="cashFlowValue" class="today-value">+$0</b>
+              </div>
+              <div class="transfer-summary-row">
+                <div><span class="section-label light">SENT</span><b id="transfersSentCount">0</b></div>
+                <div><span class="section-label light">RECEIVED</span><b id="transfersReceivedCount">0</b></div>
+                <div><span class="section-label light">MONEY SENT</span><b id="transfersMoneySent">$0</b></div>
+                <div><span class="section-label light">MONEY RECEIVED</span><b id="transfersMoneyReceived">$0</b></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col col-sidebar">
+          <div class="activity-head">
+            <span class="section-title">RECENT ACTIVITY</span>
+            <button class="view-all-btn" id="btnViewAllStatements" type="button">View All</button>
+          </div>
+          <div class="activity-filters" id="activityFilters">
+            <button class="filter-btn active" data-filter="all" type="button">All</button>
+            <button class="filter-btn" data-filter="in" type="button">Income</button>
+            <button class="filter-btn" data-filter="out" type="button">Expenses</button>
+          </div>
+          <div class="activity-list" id="activityList">
+            <p class="activity-empty" id="activityEmpty">No activity yet this session.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="key-hint"><kbd>ESC</kbd><span>Close</span></div>
+    </main>
+
+    <div id="confirmModal" class="confirm-modal hidden">
+      <div class="confirm-card">
+        <span class="section-label" id="confirmTitle">CONFIRM TRANSFER</span>
+        <div class="confirm-amount" id="confirmAmount">$0</div>
+        <p class="confirm-to" id="confirmTo"></p>
+        <div class="confirm-after-row" id="confirmFeeRow" hidden>
+          <span id="confirmFeeLabel">Fee</span>
+          <b id="confirmFeeValue">$0</b>
+        </div>
+        <div class="confirm-after-row" id="confirmNoteRow" hidden>
+          <span>Note</span>
+          <b id="confirmNoteValue"></b>
+        </div>
+        <div id="confirmBreakdown"></div>
+        <div class="confirm-after-row">
+          <span id="confirmAfterLabel">Balance after</span>
+          <b id="confirmAfter">$0</b>
+        </div>
+        <div class="confirm-actions">
+          <button class="confirm-cancel" id="btnConfirmCancel" type="button">Cancel</button>
+          <button class="confirm-accept" id="btnConfirmAccept" type="button"><span id="confirmAcceptLabel">Confirm Transfer</span></button>
+        </div>
+      </div>
+    </div>
+
+    <div id="largeTransferModal" class="confirm-modal hidden">
+      <div class="confirm-card">
+        <span class="section-label">LARGE TRANSFER</span>
+        <div class="confirm-amount" id="largeTransferAmount">$0</div>
+        <p class="confirm-to">You are sending this to Character ID <b id="largeTransferTargetId"></b>. Please verify the recipient before continuing.</p>
+        <div class="confirm-actions">
+          <button class="confirm-cancel" id="btnLargeTransferCancel" type="button">Cancel</button>
+          <button class="confirm-accept" id="btnLargeTransferConfirm" type="button">Continue</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="receiptModal" class="confirm-modal hidden">
+      <div class="confirm-card">
+        <span class="section-label" id="receiptTitle">TRANSFER COMPLETE</span>
+        <div class="confirm-amount" id="receiptAmount">$0</div>
+        <div id="receiptBreakdown"></div>
+        <p class="confirm-to" id="receiptReference"></p>
+        <p class="confirm-to" id="receiptTime"></p>
+        <div class="confirm-actions">
+          <button class="confirm-cancel" id="btnReceiptDone" type="button">Done</button>
+          <button class="confirm-accept" id="btnReceiptAgain" type="button">Transfer Again</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="transactionDetailModal" class="confirm-modal hidden">
+      <div class="confirm-card">
+        <span class="section-label" id="detailTitle">TRANSACTION DETAILS</span>
+        <div class="confirm-amount" id="detailAmount">$0</div>
+        <div id="detailBreakdown"></div>
+        <div class="confirm-actions">
+          <button class="confirm-cancel" id="btnDetailClose" type="button" style="flex:1.4">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="statementsModal" class="statements-modal hidden">
+      <div class="statements-card">
+        <div class="statements-header">
+          <span class="section-title">TRANSACTION HISTORY</span>
+          <button class="icon-button" id="btnCloseStatements" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <input class="statements-search" id="statementsSearch" type="text" placeholder="Search by TX ID, Character ID, or description">
+        <div class="statements-filters" id="statementsDateFilters">
+          <button class="filter-btn active" data-date-range="all" type="button">All Time</button>
+          <button class="filter-btn" data-date-range="today" type="button">Today</button>
+          <button class="filter-btn" data-date-range="week" type="button">Last 7 Days</button>
+          <button class="filter-btn" data-date-range="month30" type="button">Last 30 Days</button>
+          <button class="filter-btn" data-date-range="this_month" type="button">This Month</button>
+        </div>
+        <div class="statements-filters" id="statementsFilters">
+          <button class="filter-btn active" data-filter="all" type="button">All</button>
+          <button class="filter-btn" data-filter="deposit" type="button">Deposits</button>
+          <button class="filter-btn" data-filter="withdraw" type="button">Withdrawals</button>
+          <button class="filter-btn" data-filter="transfer_sent" type="button">Sent</button>
+          <button class="filter-btn" data-filter="transfer_received" type="button">Received</button>
+          <button class="filter-btn" data-filter="atm_earnings" type="button">ATM Earnings</button>
+          <button class="filter-btn" data-filter="atm_purchase" type="button">ATM Purchase</button>
+          <button class="filter-btn" data-filter="atm_sale" type="button">ATM Sale</button>
+        </div>
+        <div class="statements-list" id="statementsList">
+          <p class="activity-empty" id="statementsEmpty">No transactions found.</p>
+        </div>
+        <div class="statements-pager">
+          <button class="pager-btn" id="statementsPrev" type="button">Prev</button>
+          <span id="statementsPageLabel">Page 1 of 1</span>
+          <button class="pager-btn" id="statementsNext" type="button">Next</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="atmBusinessModal" class="statements-modal hidden">
+      <div class="statements-card">
+        <div class="statements-header">
+          <span class="section-title">ATM No. <span id="businessAtmNumber"></span> — BUSINESS</span>
+          <button class="icon-button" id="btnCloseBusiness" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+
+        <div class="statements-filters" id="businessRangeFilters">
+          <button class="filter-btn active" data-range="today" type="button">Today</button>
+          <button class="filter-btn" data-range="week" type="button">Last 7 Days</button>
+          <button class="filter-btn" data-range="all" type="button">All Time</button>
+        </div>
+
+        <div class="business-metrics" id="businessMetrics">
+          <div class="business-metric"><span>Transactions</span><b id="metricTransactions">0</b></div>
+          <div class="business-metric"><span>Withdrawals</span><b id="metricWithdrawalCount">0</b></div>
+          <div class="business-metric"><span>Deposits</span><b id="metricDepositCount">0</b></div>
+          <div class="business-metric"><span>Cash Withdrawn</span><b id="metricCashWithdrawn">$0</b></div>
+          <div class="business-metric"><span>Cash Deposited</span><b id="metricCashDeposited">$0</b></div>
+          <div class="business-metric"><span>Fee Revenue</span><b id="metricFeeRevenue">$0</b></div>
+          <div class="business-metric"><span>Avg Withdrawal</span><b id="metricAvgWithdrawal">$0</b></div>
+        </div>
+
+        <div class="statements-list" id="businessList">
+          <p class="activity-empty" id="businessEmpty">No business activity yet.</p>
+        </div>
+        <div class="statements-pager">
+          <button class="pager-btn" id="businessPrev" type="button">Prev</button>
+          <span id="businessPageLabel">Page 1 of 1</span>
+          <button class="pager-btn" id="businessNext" type="button">Next</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast hidden" role="status">
+      <span class="toast-dot"></span>
+      <p id="toastMessage"></p>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

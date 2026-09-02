@@ -840,9 +840,10 @@ local dailyNpcLocation
 local dailyNpcPed, dailyNpcBlip = nil, nil
 
 local function spawnDailyMissionNpc()
-    if not dailyNpcLocation then return end
     if dailyNpcPed and DoesEntityExist(dailyNpcPed) then DeleteEntity(dailyNpcPed) end
     if dailyNpcBlip and DoesBlipExist(dailyNpcBlip) then RemoveBlip(dailyNpcBlip) end
+    dailyNpcPed, dailyNpcBlip = nil, nil
+    if not dailyNpcLocation then return end
 
     local hash = GetHashKey(((Config.EMSMissions or {}).dailyNpcMission or {}).npcModel or 's_m_m_paramedic_01')
     RequestModel(hash)
@@ -862,7 +863,7 @@ local function spawnDailyMissionNpc()
     SetBlipColour(dailyNpcBlip, 2)
     SetBlipAsShortRange(dailyNpcBlip, true)
     BeginTextCommandSetBlipName('STRING')
-    AddTextComponentSubstringPlayerName('EMS Dispatch Coordinator')
+    AddTextComponentSubstringPlayerName(((Config.EMSMissions or {}).dailyNpcMission or {}).npcName or 'EMS Dispatch Coordinator')
     EndTextCommandSetBlipName(dailyNpcBlip)
 end
 

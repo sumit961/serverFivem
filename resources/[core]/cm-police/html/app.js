@@ -65,6 +65,8 @@ document.querySelector('[data-police-facilities]')?.insertAdjacentHTML('beforebe
 document.querySelector('[data-police-facilities]')?.insertAdjacentHTML('beforebegin', '<article class="card admin-panel"><div class="section-head"><div><small>PRISON CONTROL</small><h3>Active prisoners</h3><p>Reduce an active sentence or release a prisoner immediately. Every action is audited.</p></div><button class="mini" id="adminRefreshPrisoners">Refresh</button></div><div class="list" id="adminPrisonerList"><p>No active prisoners.</p></div></article>');
 
 function showPage(next) {
+  if (next === 'mdt') return;
+  if (next === 'dispatch' && dispatchStandalone !== true) return;
   if (next === 'admin' && !state?.adminMode) next = 'overview';
   page = next;
   document.querySelectorAll('.nav').forEach((item) => item.classList.toggle('active', item.dataset.page === page));
@@ -666,8 +668,25 @@ function renderMdtProfile() {
   wantedButton.classList.toggle('active', mdtProfile.wanted === true);
   renderMdtStars();
   renderMdtViolationOptions();
-  document.getElementById('mdtCitations').innerHTML = (mdtProfile.citations || []).map((c) => `<article class="mdt-record-row"><strong>${esc(c.violation_label)}</strong> · $${esc(c.fine)}<small>${esc(c.createdAt)}</small></article>`).join('') || '<article class="mdt-record-row">No citations.</article>';
-  document.getElementById('mdtBookings').innerHTML = (mdtProfile.bookings || []).map((b) => `<article class="mdt-record-row"><strong>${b.releasedAt ? 'Released' : b.handoffStatus === 'failed' ? 'Failed' : b.handoffStatus === 'processing' ? 'Processing' : 'Active'} · ${esc(b.sentenceMinutes)} min · ${esc(b.wantedStars)} star(s)</strong><small>Booked ${esc(b.bookedAt)}${b.reason ? ' · Reason: ' + esc(b.reason) : ''}${b.charges ? ' · Charges: ' + esc(b.charges) : ''} · Handoff: ${esc(b.handoffStatus)}${b.releaseReason ? ' · Release: ' + esc(b.releaseReason) : ''}</small></article>`).join('') || '<article class="mdt-record-row">No bookings.</article>';
+  // Citations and bookings now arrive from both this department and any legal
+  // organization (see cm-law/server/records.lua), so every row carries the
+  // issuing agency. Legal bookings have no wanted-star concept, hence the
+  // conditional rather than a printed "0 star(s)".
+  const agencyTag = (row) => row.agency ? `<span class="mdt-agency-tag">${esc(row.agency)}</span>` : '';
+  document.getElementById('mdtCitations').innerHTML = (mdtProfile.citations || []).map((c) => `<article class="mdt-record-row"><strong>${esc(c.violation_label)}</strong> · $${esc(c.fine)}${agencyTag(c)}<small>${esc(c.createdAt)}${c.status ? ' · ' + esc(c.status) : ''}</small></article>`).join('') || '<article class="mdt-record-row">No citations.</article>';
+  const custody = mdtProfile.legalCustody;
+  const custodyRow = custody ? `<article class="mdt-record-row mdt-record-row--alert"><strong>In custody · ${esc(custody.status)}</strong><span class="mdt-agency-tag">${esc(custody.agency)}</span><small>Since ${esc(custody.createdAt)}${custody.reason ? ' · ' + esc(custody.reason) : ''}${custody.bookingMinutes ? ' · ' + esc(custody.bookingMinutes) + ' min pending' : ''}</small></article>` : '';
+  document.getElementById('mdtBookings').innerHTML = custodyRow + ((mdtProfile.bookings || []).map((b) => `<article class="mdt-record-row"><strong>${b.releasedAt ? 'Released' : b.handoffStatus === 'failed' ? 'Failed' : b.handoffStatus === 'processing' ? 'Processing' : 'Active'} · ${esc(b.sentenceMinutes)} min${b.wantedStars ? ' · ' + esc(b.wantedStars) + ' star(s)' : ''}</strong>${agencyTag(b)}<small>Booked ${esc(b.bookedAt)}${b.reason ? ' · Reason: ' + esc(b.reason) : ''}${b.charges ? ' · Charges: ' + esc(b.charges) : ''} · Handoff: ${esc(b.handoffStatus)}${b.releaseReason ? ' · Release: ' + esc(b.releaseReason) : ''}</small></article>`).join('') || (custodyRow ? '' : '<article class="mdt-record-row">No bookings.</article>'));
+
+  // Warrants come from cm-law (cm-police has no warrants table of its own --
+  // only the `wanted` flag). Active ones are pulled to the top and flagged,
+  // since an outstanding warrant is the thing that authorises an arrest.
+  const warrants = (mdtProfile.legalWarrants || []).slice().sort((a, b) => (a.status === 'active' ? 0 : 1) - (b.status === 'active' ? 0 : 1));
+  document.getElementById('mdtWarrants').innerHTML = warrants.map((w) => `<article class="mdt-record-row${w.status === 'active' ? ' mdt-record-row--alert' : ''}"><strong>${w.status === 'active' ? 'ACTIVE' : 'Closed'} · ${esc(w.stars)} star(s)</strong>${agencyTag(w)}<small>${esc(w.reason)}<br>Issued by ${esc(w.authorName)} · ${esc(w.createdAt)}${w.closedByName ? ' · Closed by ' + esc(w.closedByName) : ''}</small></article>`).join('') || '<article class="mdt-record-row">No warrants.</article>';
+
+  // Report titles and metadata only -- the narrative body deliberately never
+  // leaves the issuing agency's own MDT.
+  document.getElementById('mdtReports').innerHTML = (mdtProfile.legalReports || []).map((r) => `<article class="mdt-record-row"><strong>${esc(r.title)}</strong>${agencyTag(r)}<small>${esc(r.status === 'open' ? 'Open' : 'Closed')} · Filed by ${esc(r.authorName)} · ${esc(r.createdAt)}</small></article>`).join('') || '<article class="mdt-record-row">No reports.</article>';
   document.getElementById('mdtImpounds').innerHTML = (mdtProfile.impounds || []).map((i) => `<article class="mdt-record-row"><strong>${esc(i.plate)}</strong> · $${esc(i.fee)}<small>${i.releasedAt ? `Released` : 'Still impounded'} · ${esc(i.impoundedAt)}</small></article>`).join('') || '<article class="mdt-record-row">No impound history.</article>';
   document.getElementById('mdtVehicles').innerHTML = (mdtProfile.vehicles || []).map((v) => `<article class="mdt-record-row"><strong>${esc(v.plate)}</strong> · ${esc(v.model)}<small>${esc(v.locationState)}</small></article>`).join('') || '<article class="mdt-record-row">No registered vehicles.</article>';
   document.getElementById('mdtNotes').innerHTML = (mdtProfile.notes || []).map((n) => {
@@ -764,6 +783,16 @@ document.getElementById('mdtNotes')?.addEventListener('click', async (event) => 
 });
 document.getElementById('mdtPlateSearchButton')?.addEventListener('click', () => mdtVehicleSearch());
 
+const policeOverviewActions = {
+  duty_started:'Started duty', duty_ended:'Ended duty', outfit_chosen:'Changed duty outfit',
+  member_promoted:'Promoted a member', member_demoted:'Demoted a member', member_removed:'Removed a member',
+  member_suspended:'Suspended a member', member_reinstated:'Reinstated a member',
+  fleet_vehicle_location_saved:'Updated fleet parking', fleet_vehicle_spawned:'Deployed a fleet vehicle',
+  fleet_recalled_all:'Recalled the fleet', citation_issued:'Issued a citation', vehicle_impounded:'Impounded a vehicle',
+  clamp_placed:'Placed a wheel clamp', clamp_removed:'Removed a wheel clamp', k9_deployed:'Deployed K9',
+  k9_recalled:'Recalled K9', meeting_point_set:'Set a meeting point', leader_assigned:'Assigned department leader'
+};
+function overviewActivityLabel(action){return policeOverviewActions[action]||String(action||'Activity').replaceAll('_',' ')}
 function render() {
   if (!state) return;
   const self = state.self;
@@ -789,20 +818,57 @@ function render() {
   if (page === 'armory') loadArmoryAvailable();
   if (page === 'admin' && state.adminMode) loadArmoryManageList();
   const online = state.members.filter((member) => member.online).length;
-  const duty = state.members.filter((member) => member.onDuty).length;
+  const duty = Number(state.summary?.onDutyCount ?? state.members.filter((member) => member.onDuty).length);
+  const memberCount = Number(state.summary?.memberCount ?? state.members.length);
+  const dutyText = self?.suspended ? 'SUSPENDED' : self?.onDuty ? 'ON DUTY' : 'OFF DUTY';
+  const dutyBadge = document.getElementById('policeDutyBadge');
+  dutyBadge.textContent = dutyText;
+  dutyBadge.className = `status-pill ${self?.suspended ? 'is-suspended' : self?.onDuty ? 'is-on' : 'is-off'}`;
+  document.getElementById('policeOverviewRank').textContent = self?.rankName || (state.adminMode ? 'Administrator' : '—');
+  document.getElementById('policeOverviewCid').textContent = `CID ${esc(self?.characterId || '—')}`;
   document.getElementById('stats').innerHTML = `
-    <div class="stat"><span>POLICE LEADER</span><strong>${esc(state.organization.leaderName)}</strong><small>CID ${esc(state.organization.leaderCid || '—')}</small></div>
-    <div class="stat"><span>MEMBERS</span><strong>${state.members.length}</strong><small>${online} online</small></div>
-    <div class="stat"><span>ON DUTY</span><strong>${duty}</strong><small>Available now</small></div>
-    <div class="stat"><span>YOUR RANK</span><strong>${esc(self?.rankName || 'Admin')}</strong><small>${self ? `Tier ${self.tier}` : 'Management access'}</small></div>
-    ${capabilities.viewFund ? `<div class="stat"><span>DEPARTMENT FUND</span><strong>$${esc((state.fund?.balance ?? 0).toLocaleString())}</strong><small>From citations</small></div>` : ''}`;
+    <div class="stat stat--command"><span class="stat-icon" aria-hidden="true"></span><div><span>COMMAND</span><strong>${esc(state.organization.leaderName)}</strong><small>${state.organization.leaderCid ? `CID ${esc(state.organization.leaderCid)}` : 'Chief not assigned'}</small></div></div>
+    <div class="stat stat--members"><span class="stat-icon" aria-hidden="true"></span><div><span>MEMBERS</span><strong>${memberCount}</strong><small>${state.members.length ? `${online} visible online` : 'Department total'}</small></div></div>
+    <div class="stat stat--duty"><span class="stat-icon" aria-hidden="true"></span><div><span>ON DUTY</span><strong>${duty}</strong><small>${duty === 1 ? '1 active unit' : 'Active personnel'}</small></div></div>
+    <div class="stat stat--fleet"><span class="stat-icon" aria-hidden="true"></span><div><span>FLEET AVAILABLE</span><strong>${Number(state.summary?.fleetAvailable || 0)}</strong><small>${Number(state.summary?.fleetConfigured || 0)} configured for department</small></div></div>`;
+  const featureLabels = { dispatch:'Dispatch',mdt:'MDT',arrest:'Arrest',search:'Search',citations:'Citations',impound:'Impound',radar:'Radar',spikes:'Spikes',barricades:'Barricades',clamp:'Clamp',k9:'K9',alpr:'ALPR',armory:'Armory',fleet:'Fleet',evidence:'Evidence',prisonIntake:'Prison Intake' };
+  const featureCaps = { ...(state.featureCapabilities || {}) };
+  if (capabilities.receiveDispatch === true) featureCaps.dispatch = true;
+  if (capabilities.useMdt === true) featureCaps.mdt = true;
+  if (capabilities.cuff === true || capabilities.arrest === true) featureCaps.arrest = true;
+  if (capabilities.search === true) featureCaps.search = true;
+  if (capabilities.useArmory === true) featureCaps.armory = true;
+  if (capabilities.spawnVehicles === true || capabilities.manageVehicles === true) featureCaps.fleet = true;
+  if (capabilities.evidence === true) featureCaps.evidence = true;
+  const enabledFeatures = Object.entries(featureCaps).filter(([,enabled]) => enabled === true);
+  document.getElementById('policeCapabilityCount').textContent = `${enabledFeatures.length} ACTIVE`;
+  document.getElementById('policeCapabilityPills').innerHTML = enabledFeatures.length
+    ? enabledFeatures.map(([id]) => `<span class="capability-pill"><i></i>${esc(featureLabels[id] || id)}</span>`).join('')
+    : '<span class="muted-inline">No department capabilities enabled.</span>';
+  const dutyPreview = state.members.filter((member) => member.onDuty && !member.suspended).slice(0, 5);
+  document.getElementById('policeDutyCount').textContent = `${duty} UNIT${duty===1?'':'S'}`;
+  document.getElementById('policeDutyPreview').innerHTML = state.members.length
+    ? (dutyPreview.length ? dutyPreview.map((member) => { const initials=String(member.name||'Officer').split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase(); return `<div class="duty-person"><span class="duty-avatar">${esc(initials||'PO')}</span><div><strong>${esc(member.name)}</strong><small>${esc(member.rankName)}${member.radioStatus ? ` · ${esc(member.radioStatus)}` : ''}</small></div><span class="duty-live">${member.radioStatus==='10-6'?'10-6':'10-8'}</span></div>`; }).join('') : '<p class="overview-copy">No visible officers are currently on duty.</p>')
+    : '<p class="overview-copy">Roster visibility is restricted for your rank.</p>';
+  document.getElementById('policeShiftKicker').textContent = self?.suspended ? 'ACCESS LIMITED' : self?.onDuty ? 'ACTIVE SHIFT' : 'NOT ACTIVE';
+  document.getElementById('policeShiftSummary').innerHTML = `
+    <div class="shift-row"><span>Rank</span><strong>${esc(self?.rankName || (state.adminMode?'Administrator':'—'))}</strong></div>
+    <div class="shift-row"><span>Tier</span><strong>${esc(self?.tier ?? '—')}</strong></div>
+    <div class="shift-row"><span>Status</span><strong class="shift-state ${self?.suspended?'danger':self?.onDuty?'live':''}">${dutyText}</strong></div>
+    <div class="shift-row"><span>Department fund</span><strong>${capabilities.viewFund ? `$${esc((state.fund?.balance ?? 0).toLocaleString())}` : 'Restricted'}</strong></div>`;
+  const recentLogs = state.canViewLogs === true ? (state.logs || []).slice(0,5) : [];
+  document.getElementById('policeRecentActivity').innerHTML = state.canViewLogs === true
+    ? (recentLogs.length ? recentLogs.map((row)=>`<div class="activity-item"><span class="activity-marker"></span><div><strong>${esc(row.actorName||'System')}</strong><p>${esc(overviewActivityLabel(row.action))}</p></div><time>${esc(row.createdAt||'')}</time></div>`).join('') : '<p class="overview-copy">No department activity recorded yet.</p>')
+    : '<div class="activity-restricted"><span>Restricted</span><p>Recent department activity is available to authorized command staff.</p></div>';
 
   document.getElementById('memberMap').hidden = capabilities.viewMemberMap !== true;
   document.getElementById('meetingPoint').hidden = capabilities.setMeeting !== true;
+  document.getElementById('clearMeeting').hidden = capabilities.setMeeting !== true;
+  document.getElementById('policeCommandPanel').hidden = capabilities.viewMemberMap !== true && capabilities.setMeeting !== true;
   document.querySelectorAll('.manage-alpr-only').forEach((item) => { item.hidden = capabilities.manageAlpr !== true; });
   document.querySelectorAll('.manage-impound-only').forEach((item) => { item.hidden = capabilities.manageImpound !== true; });
   document.querySelectorAll('.manage-barricades-only').forEach((item) => { item.hidden = capabilities.manageBarricades !== true; });
-  if (capabilities.manageAlpr) loadAlprCameras();
+  if (state.adminMode && capabilities.manageAlpr) loadAlprCameras();
   if (state.adminMode && capabilities.manageBarricades) loadBarricadeCatalog();
   const impoundKiosk = state.impoundKiosk || {};
   document.getElementById('impoundKioskStatus').textContent = impoundKiosk.set
@@ -871,8 +937,25 @@ function render() {
 
 document.querySelectorAll('.nav').forEach((item) => { item.onclick = () => showPage(item.dataset.page); });
 document.getElementById('close').onclick = () => post('close');
-document.getElementById('memberMap').onclick = () => post('action', { action: 'toggle_member_map', payload: {} });
-document.getElementById('meetingPoint').onclick = () => post('action', { action: 'set_meeting', payload: {} });
+document.getElementById('memberMap').onclick = async () => {
+  // The blip toggle is client-side, so the response tells us the new
+  // state -- surface it on the button instead of leaving it ambiguous.
+  const button = document.getElementById('memberMap');
+  const result = await post('action', { action: 'toggle_member_map', payload: {} });
+  if (result && result.ok === false) return;
+  const on = button.classList.toggle('is-active');
+  button.textContent = on ? 'Member map: on' : 'Member map';
+};
+document.getElementById('meetingPoint').onclick = () => {
+  // One click broadcasts a routed waypoint to every online Police member,
+  // so make it deliberate rather than instant.
+  if (!window.confirm('Set the Police meeting point at your current position? Every online member gets a map route to it.')) return;
+  post('action', { action: 'set_meeting', payload: {} });
+};
+document.getElementById('clearMeeting').onclick = () => {
+  if (!window.confirm('Clear the Police meeting point for everyone?')) return;
+  post('action', { action: 'clear_meeting', payload: {} });
+};
 document.getElementById('setImpoundKiosk').onclick = () => post('action', { action: 'set_impound_kiosk', payload: {} });
 document.getElementById('resetImpoundKiosks').onclick = async () => {
   if (!(await showConfirmOverlay('Reset Impound Operators', 'Remove every configured Impound Operator NPC?', 'Reset All', 'Cancel'))) return;
@@ -1242,8 +1325,13 @@ function renderMdtTermProfile() {
   renderMdtTermStars();
   mdtTermSelectedCharges = new Set();
   renderMdtTermCharges();
-  document.getElementById('mdtTermCitations').innerHTML = (mdtTermProfile.citations || []).map((c) => `<div class="mdt-term-record">${esc(c.violation_label)} · $${esc(c.fine)}<small>${esc(c.createdAt)}</small></div>`).join('') || '<div class="mdt-term-record">NO CITATIONS</div>';
-  document.getElementById('mdtTermBookings').innerHTML = (mdtTermProfile.bookings || []).map((b) => `<div class="mdt-term-record">${b.releasedAt ? 'RELEASED' : b.handoffStatus === 'failed' ? 'FAILED' : b.handoffStatus === 'processing' ? 'PROCESSING' : 'ACTIVE'} · ${esc(b.sentenceMinutes)} MIN · ${esc(b.wantedStars)} STAR(S)<small>Booked ${esc(b.bookedAt)}${b.reason ? ' · Reason: ' + esc(b.reason) : ''}${b.charges ? ' · Charges: ' + esc(b.charges) : ''} · Handoff: ${esc(b.handoffStatus)}${b.releaseReason ? ' · Release: ' + esc(b.releaseReason) : ''}</small></div>`).join('') || '<div class="mdt-term-record">NO BOOKINGS</div>';
+  const termAgency = (row) => row.agency ? `<span class="mdt-agency-tag">${esc(row.agency)}</span>` : '';
+  document.getElementById('mdtTermCitations').innerHTML = (mdtTermProfile.citations || []).map((c) => `<div class="mdt-term-record">${esc(c.violation_label)} · $${esc(c.fine)}${termAgency(c)}<small>${esc(c.createdAt)}${c.status ? ' · ' + esc(c.status).toUpperCase() : ''}</small></div>`).join('') || '<div class="mdt-term-record">NO CITATIONS</div>';
+  const termCustody = mdtTermProfile.legalCustody;
+  const termCustodyRow = termCustody ? `<div class="mdt-term-record mdt-term-record--alert">IN CUSTODY · ${esc(termCustody.status).toUpperCase()}<span class="mdt-agency-tag">${esc(termCustody.agency)}</span><small>Since ${esc(termCustody.createdAt)}${termCustody.reason ? ' · ' + esc(termCustody.reason) : ''}</small></div>` : '';
+  document.getElementById('mdtTermBookings').innerHTML = termCustodyRow + ((mdtTermProfile.bookings || []).map((b) => `<div class="mdt-term-record">${b.releasedAt ? 'RELEASED' : b.handoffStatus === 'failed' ? 'FAILED' : b.handoffStatus === 'processing' ? 'PROCESSING' : 'ACTIVE'} · ${esc(b.sentenceMinutes)} MIN${b.wantedStars ? ' · ' + esc(b.wantedStars) + ' STAR(S)' : ''}${termAgency(b)}<small>Booked ${esc(b.bookedAt)}${b.reason ? ' · Reason: ' + esc(b.reason) : ''}${b.charges ? ' · Charges: ' + esc(b.charges) : ''} · Handoff: ${esc(b.handoffStatus)}${b.releaseReason ? ' · Release: ' + esc(b.releaseReason) : ''}</small></div>`).join('') || (termCustodyRow ? '' : '<div class="mdt-term-record">NO BOOKINGS</div>'));
+  const termWarrants = (mdtTermProfile.legalWarrants || []).slice().sort((a, b) => (a.status === 'active' ? 0 : 1) - (b.status === 'active' ? 0 : 1));
+  document.getElementById('mdtTermWarrants').innerHTML = termWarrants.map((w) => `<div class="mdt-term-record${w.status === 'active' ? ' mdt-term-record--alert' : ''}">${w.status === 'active' ? 'ACTIVE' : 'CLOSED'} · ${esc(w.stars)} STAR(S)${termAgency(w)}<small>${esc(w.reason)} · ${esc(w.authorName)} · ${esc(w.createdAt)}</small></div>`).join('') || '<div class="mdt-term-record">NO WARRANTS</div>';
   document.getElementById('mdtTermImpounds').innerHTML = (mdtTermProfile.impounds || []).map((i) => `<div class="mdt-term-record">${esc(i.plate)} · $${esc(i.fee)}<small>${i.releasedAt ? 'Released' : 'Still impounded'} · ${esc(i.impoundedAt)}</small></div>`).join('') || '<div class="mdt-term-record">NO IMPOUND HISTORY</div>';
   // Only license-registered vehicles ever reach this list (unlicensed cars
   // are filtered out server-side) -- no location/storage badge shown here.
@@ -1620,7 +1708,7 @@ function openMdtTerminal() {
 }
 
 window.addEventListener('message', (event) => {
-  if (event.data.action === 'open') { state = event.data.data; armoryStandalone = event.data.armoryStandalone === true; fleetStandalone = event.data.fleetStandalone === true; dispatchStandalone = event.data.dispatchStandalone === true; fleetVehicles = []; mdtResults = []; mdtProfile = null; mdtVehicleResult = null; wardrobeItems = []; wardrobeCategories = []; wardrobeCategory = null; if (event.data.initialPage) page = event.data.initialPage; document.body.classList.toggle('armory-standalone', armoryStandalone); document.body.classList.toggle('dispatch-standalone', dispatchStandalone); app.hidden = false; closeRankEditor(); render(); }
+  if (event.data.action === 'open') { state = event.data.data; armoryStandalone = event.data.armoryStandalone === true; fleetStandalone = event.data.fleetStandalone === true; dispatchStandalone = event.data.dispatchStandalone === true; fleetVehicles = []; mdtResults = []; mdtProfile = null; mdtVehicleResult = null; wardrobeItems = []; wardrobeCategories = []; wardrobeCategory = null; page = event.data.initialPage || 'overview'; document.body.classList.toggle('armory-standalone', armoryStandalone); document.body.classList.toggle('dispatch-standalone', dispatchStandalone); app.hidden = false; closeRankEditor(); render(); }
   else if (event.data.action === 'close') {
     document.body.classList.remove('armory-standalone');
     document.body.classList.remove('dispatch-standalone');

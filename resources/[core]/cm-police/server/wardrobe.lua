@@ -44,6 +44,15 @@ function SetWardrobeNpcLocation(src, actor, payload)
     return true, 'Wardrobe NPC location saved.'
 end
 
+function ResetWardrobeNpcLocation(src, actor)
+    if not has(actor, 'police.manage_outfits') then return false, 'Your rank cannot configure the wardrobe NPC.' end
+    NpcLocation = nil
+    MySQL.update.await("DELETE FROM cm_police_settings WHERE setting_key = 'wardrobe_npc'")
+    TriggerClientEvent('cm-police:client:wardrobeNpcUpdated', -1, false)
+    log(cid(src), 'wardrobe_npc_reset', {})
+    return true, 'Wardrobe NPC reset.'
+end
+
 -- Any player, no permission gate -- deploy can happen before the F7
 -- dashboard has ever been opened, same reasoning as the impound kiosk
 -- location's own public pull callback.

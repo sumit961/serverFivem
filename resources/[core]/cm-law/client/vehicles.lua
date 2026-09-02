@@ -16,6 +16,8 @@ local function notify(message, kind)
     if lib and lib.notify then lib.notify({ title = 'Fleet', description = message, type = kind or 'inform' }) end
 end
 
+local fleetPlacementActive = false
+
 local function waitForVehicle(netId, timeoutMs)
     local deadline = GetGameTimer() + (timeoutMs or 8000)
     while not NetworkDoesNetworkIdExist(netId) and GetGameTimer() < deadline do Wait(0) end
@@ -48,8 +50,32 @@ RegisterNUICallback('setFleetVehicleLocation', function(data, cb)
     local vehicle = waitForVehicle(tonumber(result.netId), 10000)
     if not vehicle then notify('The fleet location dummy did not appear.', 'error'); cb({ ok = false }); return end
     TaskWarpPedIntoVehicle(PlayerPedId(), vehicle, -1)
-    notify(result.message or 'Drive to the location and press H.', 'inform')
+    fleetPlacementActive = true
+    notify(result.message or 'Drive to the location. Press H to save or Backspace to cancel.', 'inform')
     cb({ ok = true })
+end)
+
+RegisterNetEvent('cm-law:client:adminFleetPlacement', function(result)
+    if type(result) ~= 'table' then return end
+    TriggerEvent('cm-admin:client:forceClose')
+    local vehicle = waitForVehicle(tonumber(result.netId), 10000)
+    if not vehicle then return notify('The fleet placement vehicle did not appear.', 'error') end
+    TaskWarpPedIntoVehicle(PlayerPedId(), vehicle, -1)
+    fleetPlacementActive = true
+    notify(result.message or 'Drive to the location. Press H to save or Backspace to cancel.', 'inform')
+end)
+
+CreateThread(function()
+    while true do
+        if not fleetPlacementActive then Wait(500) else
+            Wait(0)
+            if IsControlJustPressed(0, 177) then
+                local ok, message = lib.callback.await('cm-law:server:cancelFleetLocationEdit', false)
+                fleetPlacementActive = false
+                notify(message, ok and 'success' or 'error')
+            end
+        end
+    end
 end)
 
 RegisterNUICallback('recallAllFleetVehicles', function(_, cb)
@@ -81,6 +107,7 @@ RegisterCommand('lawsavevehicle', function()
     local kind = class == 15 and 'helicopter' or 'car' -- 15 = GTA's Helicopters class
 
     local ok, message = lib.callback.await('cm-law:server:saveFleetVehicleLocation', false, fleet.model, kind)
+    if ok then fleetPlacementActive = false end
     notify(message, ok and 'success' or 'error')
 end, false)
 

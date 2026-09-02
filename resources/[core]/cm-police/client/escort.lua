@@ -110,7 +110,13 @@ end
 CreateThread(function()
     local nextScan = 0
     while true do
-        Wait(0)
+        -- Per-frame only while a prompt is on screen, because that is the only
+        -- time IsControlJustPressed below needs polling. This thread used to
+        -- run at Wait(0) permanently for every player on the server, including
+        -- civilians who will never be law enforcement -- a constant baseline
+        -- cost in resmon for no benefit. The 250ms rescan cadence below is
+        -- unchanged, and prompt response time is identical.
+        Wait(currentPrompt and 0 or 250)
         local now = GetGameTimer()
         if now >= nextScan then
             nextScan = now + 250

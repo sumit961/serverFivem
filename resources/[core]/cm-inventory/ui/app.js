@@ -382,6 +382,18 @@ function isLockedSlot(slot) {
 function metadataRows(item) {
   const meta = item?.metadata || {};
   const rows = [];
+  const itemName = String(item?.item_name || item?.name || '').toLowerCase();
+  const isLicense = itemName === 'driver_license' || itemName === 'boat_license' || itemName === 'air_license';
+  if (isLicense) {
+    const holder = [meta.firstName, meta.lastName].filter(Boolean).join(' ');
+    const expiresAt = Number(meta.expiresAt || 0);
+    const remainingDays = expiresAt ? Math.max(0, Math.ceil((expiresAt - Math.floor(Date.now() / 1000)) / 86400)) : 0;
+    if (holder) rows.push(['Holder', holder]);
+    rows.push(['Test Completed', meta.testCompletedDate || meta.issuedAtDate || 'Unknown']);
+    rows.push(['Expires', meta.expiresAtDate || 'Unknown']);
+    rows.push(['Remaining', `${remainingDays} days`]);
+    if (meta.licenseNumber) rows.push(['License No.', meta.licenseNumber]);
+  }
   const durability = itemDurability(item);
   if (durability !== null) rows.push(['Durability', `${durability}%`]);
 

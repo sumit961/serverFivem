@@ -1,0 +1,7 @@
+/* Law-org-specific armory deltas. The full skin now lives in the shared
+   nui://cm-ui/web/cm-armory.css (loaded before this file in index.html) so
+   every armory surface -- gang, law orgs, police, family -- reads as one
+   consistent design. Nothing law-only remains to override; kept as an
+   empty file (rather than removing the <link>/fxmanifest entry) so a future
+   law-only tweak has an obvious place to land without touching the shared
+   stylesheet. */

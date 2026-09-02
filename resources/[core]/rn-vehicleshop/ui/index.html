@@ -328,6 +328,11 @@
                   <option value="store">Store buyable</option>
                   <option value="ems">EMS fleet vehicle</option>
                   <option value="police">Police fleet vehicle</option>
+                  <option value="gang:marabunta">Marabunta gang vehicle</option>
+                  <option value="gang:bloods">Bloods gang vehicle</option>
+                  <option value="gang:ballas">Ballas gang vehicle</option>
+                  <option value="gang:families">Families gang vehicle</option>
+                  <option value="gang:vagos">Vagos gang vehicle</option>
                 </select>
               </label>
             </div>
@@ -397,6 +402,17 @@
               <label>Duration<input id="admin-test-duration" type="number" min="10" max="600" step="1" value="60" /><small>Seconds</small></label>
               <label>Test cost<input id="admin-test-cost" type="number" min="0" step="1" value="50" /><small>Uses cash + bank</small></label>
             </div>
+          </section>
+
+          <section class="admin-section">
+            <div class="admin-section-title"><div><strong>GIVE ORGANIZATION VEHICLE</strong><span>Create persistent organization ownership directly</span></div></div>
+            <div class="admin-field-grid">
+              <label>Organization<select id="admin-grant-org"></select></label>
+              <label>Drive rank tier<input id="admin-grant-drive-tier" type="number" min="1" max="100" value="1"></label>
+              <label>Trunk rank tier<input id="admin-grant-trunk-tier" type="number" min="1" max="100" value="1"></label>
+              <button id="admin-grant-org-vehicle" class="success" type="button"><span>Give vehicle</span><small>Create organization-owned vehicle</small></button>
+            </div>
+            <div id="admin-grant-result" class="admin-grant-result" data-state="idle">No organization vehicle created</div>
           </section>
         </div>
 

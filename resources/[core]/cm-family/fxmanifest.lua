@@ -20,6 +20,7 @@ client_scripts {
     'client/cl_chat.lua',
     'client/cl_tracking.lua',
     'client/cl_admin.lua',
+    'client/cl_armory.lua',
 }
 
 server_scripts {
@@ -32,6 +33,7 @@ server_scripts {
     'server/sv_ranks.lua',    -- rank create/edit with authority rules
     'server/sv_members.lua',  -- invite/kick/promote/succession
     'server/sv_bank.lua',     -- family bank
+    'server/sv_armory.lua',   -- stocked family quartermaster (shared cm-law backend)
     'server/sv_gmenu.lua',    -- cm-playerdata G-menu integration
     'server/sv_chat.lua',     -- private family chat + cm-chat integration event
     'server/sv_menu.lua',     -- NPC create flow + menu callbacks
@@ -54,11 +56,13 @@ dependencies {
     'cm-house',
     'cm-playerdata',
     'cm-vehiclekeys',
+    'cm-inventory', -- armory checkout/deposit now calls cm-inventory directly
+    'cm-ui',        -- shared cm-theme.css / cm-armory.css skin
+    'cm-law',       -- shared armory backend (server/sv_armory.lua); cm-law never depends on cm-family, so this is not a cycle
 }
 
 -- Soft/optional at runtime:
 --   cm-vehicles  -> vehicle metadata for the garage list (via cm-house exports)
---   cm-inventory -> only used indirectly through cm-house weapon/storage gates
 --
 -- cm-house must authorize cm-family in its Config.Integration.authorizedResources
 -- (already present by default) so SetFamilyHouseLink and family exports work.

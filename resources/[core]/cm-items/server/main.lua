@@ -102,6 +102,10 @@ exports('IsVirtualItem', exportSafe(function(name)
     return CMItems.IsVirtualItem(name)
 end))
 
+exports('IsRobberyProtected', exportSafe(function(name)
+    return CMItems.IsRobberyProtected(name)
+end))
+
 exports('GetAllItems', exportSafe(function()
     return CMItems.GetAllItems()
 end))

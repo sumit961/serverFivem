@@ -5,7 +5,7 @@ lua54 'yes'
 name 'cm-police'
 author 'Sumit'
 description 'CM Framework | Single Police organization'
-version '1.1.0'
+version '1.2.0'
 
 shared_scripts {
     '@ox_lib/init.lua',
@@ -39,6 +39,7 @@ client_scripts {
     'client/k9.lua',
     'client/service_npc.lua',
     'client/facility_npcs.lua',
+    'client/admin_config.lua',
 }
 
 server_scripts {
@@ -60,13 +61,19 @@ server_scripts {
     'server/wardrobe.lua',
     'server/service_npc.lua',
     'server/search.lua',
+    'server/admin_config.lua',
+    'server/retention.lua', -- periodic activity-log and evidence-file pruning
 }
 
 ui_page 'html/index.html'
 
 files {
     'html/index.html',
+    'html/dashboard-filters.js',   -- roster + activity log search (standalone, loads after app.js)
+    'html/assets/fonts/*.woff2',   -- optional self-hosted Archivo / JetBrains Mono
+
     'html/app.css',
+    'html/command-center.css',
     'html/ranks.css',
     'html/outfits.css',
     'html/fleet.css',
@@ -77,6 +84,8 @@ files {
     'html/mdt-terminal.css',
     'html/theme.css',
     'html/app.js',
+    'html/assets/org/*.svg',
+    'html/assets/org/*.png',
     -- Bodycam captures (server/cuffs.lua's captureBodycamEvidence,
     -- screenshot-basic) saved directly here at runtime, served as plain
     -- relative NUI URLs -- same wildcard-glob approach cm-house already

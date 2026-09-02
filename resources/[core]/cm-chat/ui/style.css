@@ -331,3 +331,58 @@ body {
         --chat-font-size: 16px;
     }
 }
+
+#chat-root.chat-external-hidden {
+    display: none !important;
+}
+
+/* Chat HUD v2: clean colored identity prefixes with white message bodies. */
+.chat-messages { gap: 7px; padding: 8px 10px 12px 5px; text-shadow: 0 2px 5px rgba(0,0,0,.96); }
+.chat-message { grid-template-columns: 9px minmax(0,1fr); column-gap: 9px; min-height: 20px; line-height: 1.22; font-weight: 700; }
+.chat-mark { display: block; width: 7px; height: 7px; margin-top: .42em; border-radius: 50%; background: var(--chat-color); box-shadow: 0 0 8px color-mix(in srgb,var(--chat-color) 34%,transparent); }
+.chat-prefix { color: var(--prefix-color,var(--cm-cyan)); font-weight: 900; }
+.chat-prefix .chat-author,.chat-prefix .chat-rank,.chat-prefix .chat-id { color:inherit; }
+.chat-text { color: #fff !important; font-weight: 700; }
+
+.chat-tabs { gap: 23px; padding: 0 5px 10px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.chat-tabs::-webkit-scrollbar { display: none; }
+.chat-tab { position: relative; flex: none; height: 30px; padding: 0 1px; border: 0; background: transparent; color: rgba(204,218,224,.55); font-size: 15px; font-weight: 900; letter-spacing: .025em; }
+.chat-tab::after { content:""; position:absolute; right:0; bottom:-5px; left:0; height:2px; background:var(--tab-color); opacity:0; transform:scaleX(.45); transition:opacity .14s ease,transform .14s ease; }
+.chat-tab:hover,.chat-tab.active { color:#fff; background:transparent; }
+.chat-tab.active::after { opacity:1; transform:scaleX(1); box-shadow:0 0 8px color-mix(in srgb,var(--tab-color) 36%,transparent); }
+
+.chat-input-row { height: 62px; padding: 7px; border: 1px solid rgba(184,220,231,.2); border-radius: 14px; background: linear-gradient(110deg,rgba(14,24,31,.7),rgba(8,16,22,.57)); box-shadow: 0 12px 34px rgba(0,0,0,.3), inset 0 1px rgba(255,255,255,.07); }
+#chat-input { padding: 0 13px; color:#fff; background:transparent; font-size:17px; }
+#chat-submit { width: 46px; border:1px solid rgba(202,233,242,.13); border-radius:10px; background:rgba(255,255,255,.045); color:rgba(218,235,241,.54); }
+#chat-submit:hover { color:#071217; border-color:rgba(49,230,255,.55); background:var(--cm-cyan); }
+.chat-actions-row { margin-top:10px; padding-left:5px; }
+.actions-toggle { padding:0; background:transparent; box-shadow:none; color:rgba(196,213,219,.58); font:800 10px 'PT Sans Narrow',sans-serif; letter-spacing:.2em; }
+.actions-toggle.active { color:var(--cm-cyan); background:transparent; }
+
+/* Authoritative component resets: prevent legacy button chrome leaking in. */
+#chat-tabs.chat-tabs { height: 34px; margin: 0; gap: 25px; padding: 0 5px 9px; }
+#chat-tabs .chat-tab {
+    min-width: 0;
+    height: 30px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    color: rgba(204,218,224,.55);
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 30px;
+    letter-spacing: .025em;
+    text-transform: none;
+}
+#chat-tabs .chat-tab:hover,#chat-tabs .chat-tab.active { color:#fff; background:transparent; box-shadow:none; }
+#chat-tabs .chat-tab.active::after { opacity:1; transform:scaleX(1); }
+.chat-controls .chat-input-row { width: min(var(--chat-input-width),100%); height:62px; padding:7px; border-radius:14px; overflow:hidden; }
+.chat-controls #chat-submit { width:46px; height:46px; flex:0 0 46px; border:1px solid rgba(202,233,242,.13); border-radius:10px; box-shadow:none; }
+.chat-actions-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.chat-actions { order:1; width:100%; max-width:none; display:flex; gap:7px; }
+.chat-actions-row .actions-toggle { order:2; width:100%; height:22px; text-align:left; cursor:default; }
+.chat-actions-row .actions-toggle::after { content:'  |  TAB to switch  ·  ENTER to send'; margin-left:10px; color:rgba(188,204,210,.38); font-family:'PT Sans Narrow',sans-serif; font-weight:700; }
+.chat-actions-row .action-chip { height:27px; padding:0 10px; border:1px solid rgba(190,220,230,.16); border-radius:6px; background:rgba(5,13,18,.48); box-shadow:none; color:rgba(220,233,238,.68); font-size:12px; font-weight:900; }
+.chat-actions-row .action-chip:hover { border-color:rgba(49,230,255,.48); background:rgba(49,230,255,.1); color:#fff; }

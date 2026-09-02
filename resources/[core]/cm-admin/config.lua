@@ -158,8 +158,11 @@ Config.DefaultRanks = {
         -- CM EMS organization leadership
         'ems.admin.manage',
 
+        -- CM Bank ATM ownership admin controls
+        'atm.admin.manage', 'atm.admin.kill_switch',
+
         -- Centralized Organizations tab (list orgs, assign leaders, cross-org policy)
-        'orgs.view', 'orgs.manage'
+        'orgs.view', 'orgs.manage', 'gang.admin.view', 'gang.admin.manage'
     }
 },
     senior_admin = {
@@ -169,7 +172,8 @@ Config.DefaultRanks = {
             'inventory.view', 'vehicles.view', 'vehicles.manage', 'vehicle_inventory.view',
             'admins.view', 'logs.view', 'logs.admin', 'logs.players', 'logs.vehicles', 'logs.ems', 'map.view', 'map.vehicles', 'map.admins', 'gps.teleport', 'noclip', 'teleport', 'tools.heal', 'tools.kill', 'dev.view',
             'family.admin.open', 'family.logs.view', 'ems.admin.manage',
-            'orgs.view', 'orgs.manage'
+            'atm.admin.manage', 'atm.admin.kill_switch',
+            'orgs.view', 'orgs.manage', 'gang.admin.view', 'gang.admin.manage'
         }
     },
     admin = {
@@ -177,7 +181,7 @@ Config.DefaultRanks = {
         permissions = {
             'menu.open', 'players.view', 'players.manage', 'players.teleport', 'players.freeze', 'money.manage',
             'inventory.view', 'vehicles.view', 'vehicle_inventory.view', 'logs.view', 'logs.players', 'map.view', 'gps.teleport',
-            'noclip', 'teleport', 'tools.heal', 'tools.kill'
+            'noclip', 'teleport', 'tools.heal', 'tools.kill', 'atm.admin.manage'
         }
     },
     senior_mod = {

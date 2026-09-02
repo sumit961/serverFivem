@@ -25,6 +25,7 @@ client_scripts {
     'client/missions.lua',
     'client/medicine_stock.lua',
     'client/appearance_services.lua',
+    'client/admin_config.lua',
 }
 
 server_scripts {
@@ -39,13 +40,19 @@ server_scripts {
     'server/stretcher.lua',
     'server/medicine.lua',
     'server/stock.lua',
+    'server/admin_config.lua',
+    'server/retention.lua', -- periodic activity-log pruning
 }
 
 ui_page 'html/index.html'
 
 files {
     'html/index.html',
+    'html/dashboard-filters.js',   -- roster + activity log search (standalone, loads after app.js)
+    'html/assets/fonts/*.woff2',   -- optional self-hosted Archivo / JetBrains Mono
+
     'html/app.css',
+    'html/command-center.css',
     'html/ranks.css',
     'html/ems-cyan.css',
     'html/theme-v130.css',
@@ -54,6 +61,8 @@ files {
     'html/wardrobe.css',
     'html/dispatch.css',
     'html/app.js',
+    'html/assets/org/*.svg',
+    'html/assets/org/*.png',
 }
 
 dependencies {

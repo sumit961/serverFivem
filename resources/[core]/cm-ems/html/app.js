@@ -1,5 +1,6 @@
 const app = document.getElementById('app');
 const npcDialogue = document.getElementById('npcDialogue');
+const npcInteraction = document.getElementById('npcInteraction');
 const res = typeof GetParentResourceName === 'function' ? GetParentResourceName() : 'cm-ems';
 let state = null;
 let page = 'overview';
@@ -26,6 +27,7 @@ window.addEventListener('keydown', (event) => {
 });
 
 function showPage(next) {
+  if (next === 'medical' && medicalStandalone !== true) return;
   page = next;
   document.querySelectorAll('.nav').forEach((item) => item.classList.toggle('active', item.dataset.page === page));
   document.querySelectorAll('.page').forEach((item) => item.classList.toggle('active', item.dataset.view === page));
@@ -200,7 +202,14 @@ function openRankEditor(rank = null) {
 // (client/vehicles.lua), and "Spawn" always recalls/replaces any existing
 // live instance instead of piling up duplicates.
 let fleetVehicles = [];
+let overviewFleetLoaded = false;
+async function loadOverviewFleet(){
+  const result = await post('fleetCatalog');
+  if (result?.vehicles) { fleetVehicles = result.vehicles; overviewFleetLoaded = true; if (state) render(); }
+}
+
 let fleetStandalone = false;
+let medicalStandalone = false;
 
 function renderFleetList() {
   const manage = can('ems.manage_vehicles');
@@ -279,11 +288,30 @@ function render() {
   if (page === 'tasks' && !self) page = 'overview';
   const online = state.members.filter((member) => member.online).length;
   const duty = state.members.filter((member) => member.onDuty).length;
+  const configuredFleet = fleetVehicles.filter((vehicle) => vehicle.configured && vehicle.enabled !== false);
+  const availableFleet = configuredFleet.filter((vehicle) => !['occupied','deployed'].includes(String(vehicle.status || '').toLowerCase()));
   document.getElementById('stats').innerHTML = `
     <div class="stat"><span>EMS LEADER</span><strong>${esc(state.organization.leaderName)}</strong><small>CID ${esc(state.organization.leaderCid || '—')}</small></div>
     <div class="stat"><span>MEMBERS</span><strong>${state.members.length}</strong><small>${online} online</small></div>
     <div class="stat"><span>ON DUTY</span><strong>${duty}</strong><small>Available now</small></div>
-    <div class="stat"><span>YOUR RANK</span><strong>${esc(self?.rankName || 'Admin')}</strong><small>${self ? `Tier ${self.tier}` : 'Management access'}</small></div>`;
+    <div class="stat"><span>FLEET AVAILABLE</span><strong>${overviewFleetLoaded ? availableFleet.length : '—'}</strong><small>${overviewFleetLoaded ? `${configuredFleet.length} configured` : 'Loading fleet'}</small></div>`;
+  document.getElementById('emsOverviewRank').textContent = self?.rankName || (state.adminMode ? 'Administrator' : '—');
+  const career = state.statistics || {};
+  document.getElementById('emsCareerLabel').textContent = career.careerLabel || career.levelLabel || 'EMS RESPONDER';
+  const dutyBadge = document.getElementById('emsDutyBadge');
+  const dutyLabel = self?.suspended ? 'SUSPENDED' : self?.onDuty ? 'ON DUTY' : 'OFF DUTY';
+  dutyBadge.textContent = dutyLabel;
+  dutyBadge.className = `status-pill ${self?.suspended ? 'is-suspended' : self?.onDuty ? 'is-on' : 'is-off'}`;
+  document.getElementById('emsShiftKicker').textContent = self?.suspended ? 'ACCESS LIMITED' : self?.onDuty ? 'ACTIVE SHIFT' : 'NOT ACTIVE';
+  const capabilityLabels = { manageRanks:'Ranks',managePermissions:'Permissions',manageOutfits:'Wardrobe',manageVehicles:'Fleet Admin',spawnVehicles:'Fleet',viewMemberMap:'Member Map',setMeeting:'Meeting Point',viewMedicalReports:'Medical Records',writeMedicalReports:'Reports',manageHospital:'Hospital',manageBilling:'Billing',suspendMembers:'Suspension',manageMissions:'Missions' };
+  const enabledCapabilities = Object.entries(capabilities).filter(([,enabled]) => enabled === true);
+  document.getElementById('emsCapabilityCount').textContent = `${enabledCapabilities.length} ACTIVE`;
+  document.getElementById('emsCapabilityPills').innerHTML = enabledCapabilities.length ? enabledCapabilities.map(([id]) => `<span class="capability-pill"><i></i>${esc(capabilityLabels[id] || id)}</span>`).join('') : '<span class="muted-inline">No additional service access.</span>';
+  const dutyPreview = state.members.filter((member) => member.onDuty && !member.suspended).slice(0, 5);
+  document.getElementById('emsDutyCount').textContent = `${duty} UNIT${duty === 1 ? '' : 'S'}`;
+  document.getElementById('emsDutyPreview').innerHTML = dutyPreview.length ? dutyPreview.map((member) => { const initials=String(member.name||'Medic').split(/\s+/).filter(Boolean).slice(0,2).map((part)=>part[0]).join('').toUpperCase(); return `<div class="duty-person"><span class="duty-avatar">${esc(initials || 'EM')}</span><div><strong>${esc(member.name)}</strong><small>${esc(member.rankName || 'EMS')}</small></div><span class="duty-live">READY</span></div>`; }).join('') : '<p class="overview-copy">No medics are currently on duty.</p>';
+  const recent = state.canViewLogs === true ? (state.logs || []).slice(0, 5) : [];
+  document.getElementById('emsRecentActivity').innerHTML = state.canViewLogs === true ? (recent.length ? recent.map((row)=>`<div class="activity-item"><span class="activity-marker"></span><div><strong>${esc(row.actorName || 'System')}</strong><p>${esc(String(row.action || 'Activity').replaceAll('_',' '))}</p></div><time>${esc(row.createdAt || '')}</time></div>`).join('') : '<p class="overview-copy">No recent EMS activity.</p>') : '<div class="activity-restricted"><span>Restricted</span><p>Recent activity is available to authorized ranks.</p></div>';
   const medicStats = state.statistics || {};
   const responseSeconds = Number(medicStats.averageResponseSeconds || 0);
   document.getElementById('medicStats').innerHTML = `
@@ -299,7 +327,7 @@ function render() {
   document.getElementById('dutyText').textContent = onDuty ? 'Your approved EMS uniform is active.' : 'Visit the EMS wardrobe NPC to choose an approved uniform and begin duty.';
   document.getElementById('memberMap').hidden = capabilities.viewMemberMap !== true;
   document.getElementById('meetingPoint').hidden = capabilities.setMeeting !== true;
-  document.getElementById('setDailyMissionNpc').hidden = capabilities.manageMissions !== true;
+  document.getElementById('clearMeeting').hidden = capabilities.setMeeting !== true;
   document.getElementById('dailyMissionNpcStatus').textContent = state.dailyMissionNpc
     ? 'Daily mission NPC location is set.' : 'Daily mission NPC location is not set yet.';
   document.getElementById('setClothingNpc').hidden = capabilities.manageOutfits !== true;
@@ -375,6 +403,7 @@ function render() {
 }
 
 let wardrobeItems = [], wardrobeCategories = [], wardrobeCategory = null, wardrobeOptionIndex = 0, wardrobeColorIndex = 0;
+let wardrobeNpcMode = false;
 const wardrobeDrawables = (category) => {
   const seen = new Set();
   return wardrobeItems.filter((item) => item.category === category && !seen.has(item.drawableId) && seen.add(item.drawableId));
@@ -399,18 +428,43 @@ async function openWardrobeRoom() {
   app.hidden = true; document.getElementById('wardrobeRoom').hidden = false; renderWardrobe();
 }
 async function closeWardrobeRoom() {
-  document.getElementById('wardrobeRoom').hidden = true; app.hidden = false;
-  await post('closeWardrobeDressingRoom');
+  document.getElementById('wardrobeRoom').hidden = true;
+  app.hidden = wardrobeNpcMode;
+  await post('closeWardrobeDressingRoom', { npcMode: wardrobeNpcMode });
+  wardrobeNpcMode = false;
 }
 
 document.querySelectorAll('.nav').forEach((item) => { item.onclick = () => showPage(item.dataset.page); });
 document.getElementById('close').onclick = () => post('close');
-document.getElementById('memberMap').onclick = () => post('action', { action: 'toggle_member_map', payload: {} });
-document.getElementById('meetingPoint').onclick = () => post('action', { action: 'set_meeting', payload: {} });
+document.getElementById('memberMap').onclick = async () => {
+  // The blip toggle is client-side, so the response tells us the new
+  // state -- surface it on the button instead of leaving it ambiguous.
+  const button = document.getElementById('memberMap');
+  const result = await post('action', { action: 'toggle_member_map', payload: {} });
+  if (result && result.ok === false) return;
+  const on = button.classList.toggle('is-active');
+  button.textContent = on ? 'Member map: on' : 'Member map';
+};
+document.getElementById('meetingPoint').onclick = () => {
+  // One click broadcasts a routed waypoint to every online EMS member,
+  // so make it deliberate rather than instant.
+  if (!window.confirm('Set the EMS meeting point at your current position? Every online member gets a map route to it.')) return;
+  post('action', { action: 'set_meeting', payload: {} });
+};
+document.getElementById('clearMeeting').onclick = () => {
+  if (!window.confirm('Clear the EMS meeting point for everyone?')) return;
+  post('action', { action: 'clear_meeting', payload: {} });
+};
 document.getElementById('setClothingNpc').onclick = () => post('action', { action: 'set_clothing_npc', payload: {} });
 document.getElementById('recallFleet').onclick = () => { if (window.confirm('Recall every free EMS fleet vehicle back to its spawn point?')) post('recallAllFleetVehicles', {}); };
 document.getElementById('openEmsClothingAdmin').onclick = () => post('openEmsClothingAdmin', {});
-document.getElementById('wardrobeDone').onclick = closeWardrobeRoom;
+document.getElementById('wardrobeDone').onclick = async () => {
+  if (wardrobeNpcMode) {
+    const result = await post('finishWardrobeDuty');
+    if (!result?.ok) return;
+  }
+  await closeWardrobeRoom();
+};
 document.getElementById('wardrobeCategoryList').onclick = (event) => { const item = event.target.closest('[data-wardrobe-category]'); if (item) { wardrobeCategory = item.dataset.wardrobeCategory; wardrobeOptionIndex = 0; wardrobeColorIndex = 0; renderWardrobe(); } };
 document.getElementById('wardrobeOptionPrev').onclick = () => { const list = wardrobeDrawables(wardrobeCategory); if (list.length) { wardrobeOptionIndex = (wardrobeOptionIndex - 1 + list.length) % list.length; wardrobeColorIndex = 0; renderWardrobe(); } };
 document.getElementById('wardrobeOptionNext').onclick = () => { const list = wardrobeDrawables(wardrobeCategory); if (list.length) { wardrobeOptionIndex = (wardrobeOptionIndex + 1) % list.length; wardrobeColorIndex = 0; renderWardrobe(); } };
@@ -542,8 +596,9 @@ window.addEventListener('message', (event) => {
   // Clearing the cached list here forces a fresh fleetCatalog fetch the next
   // time the Fleet page is shown, instead of silently keeping the
   // pre-location-save snapshot (still showing "Not configured").
-  if (event.data.action === 'open') { state = event.data.data; fleetStandalone = event.data.fleetStandalone === true; fleetVehicles = []; employeeTasks = null; missionBoardData = null; emsCallHistory = null; missionAdminData = null; if (event.data.initialPage) page = event.data.initialPage; app.hidden = false; closeRankEditor(); closeMissionEditor(); render(); }
-  else if (event.data.action === 'close') { app.hidden = true; state = null; employeeTasks = null; missionBoardData = null; emsCallHistory = null; missionAdminData = null; closeRankEditor(); closeMissionEditor(); }
+  if (event.data.action === 'open') { state = event.data.data; fleetStandalone = event.data.fleetStandalone === true; medicalStandalone = event.data.medicalStandalone === true; document.body.classList.toggle('medical-standalone', medicalStandalone); fleetVehicles = []; overviewFleetLoaded = false; employeeTasks = null; missionBoardData = null; emsCallHistory = null; missionAdminData = null; if (event.data.initialPage) page = event.data.initialPage; app.hidden = false; closeRankEditor(); closeMissionEditor(); render(); if (page === 'overview') loadOverviewFleet(); }
+  else if (event.data.action === 'openWardrobeRoom') { wardrobeNpcMode = event.data.npcMode === true; openWardrobeRoom(); }
+  else if (event.data.action === 'close') { app.hidden = true; document.body.classList.remove('medical-standalone'); medicalStandalone = false; state = null; employeeTasks = null; missionBoardData = null; emsCallHistory = null; missionAdminData = null; closeRankEditor(); closeMissionEditor(); }
 });
 window.addEventListener('message', (event) => {
   const message = event.data || {};
@@ -611,7 +666,13 @@ function addDispatchCard(call = {}) {
 
 window.addEventListener('message', (event) => {
   const message = event.data || {};
-  if (message.action === 'npcDialogue:open') {
+  if (message.action === 'npcInteraction:show') {
+    document.getElementById('npcInteractionText').textContent = `${message.name || 'Medical Staff'} · ${message.role || 'EMS'}`;
+    npcInteraction.hidden = false;
+  } else if (message.action === 'npcInteraction:hide') {
+    npcInteraction.hidden = true;
+  } else if (message.action === 'npcDialogue:open') {
+    npcInteraction.hidden = true;
     document.getElementById('npcDialogueName').textContent = message.name || 'Medical Staff';
     document.getElementById('npcDialogueRole').textContent = message.role || 'CM MEDICAL';
     document.getElementById('npcDialogueQuote').textContent = message.quote || 'How can I help you?';

@@ -104,6 +104,30 @@ local function getCmFamilyState(src)
     }
 end
 
+-- Fixed gang ids cm-gang's state bag can legitimately report. Legacy
+-- gang_1..gang_4 stay recognized so any not-yet-migrated membership keeps
+-- working; the rest are the canonical five-gang ids.
+local VALID_GANG_IDS = {
+    gang_1 = true, gang_2 = true, gang_3 = true, gang_4 = true,
+    marabunta = true, bloods = true, ballas = true, families = true, vagos = true,
+}
+
+local function getCmGangState(src)
+    src = tonumber(src)
+    if not src or src <= 0 or not Player then return nil end
+    local ok, state = pcall(function() return Player(src).state.cmGang end)
+    if not ok or type(state) ~= 'table' then return nil end
+    local gangId = tostring(state.gangId or '')
+    if not VALID_GANG_IDS[gangId] then return nil end
+    return {
+        id = gangId,
+        name = cleanText(state.displayName or 'Gang', 60),
+        tag = cleanText(state.shortTag or 'GANG', 12),
+        color = cleanColor(state.color, '#67e8f9'),
+        rankName = cleanText(state.rankName or 'Member', 32),
+    }
+end
+
 local function extractCharacterIdFromAny(...)
     local args = { ... }
     for _, value in ipairs(args) do
@@ -212,6 +236,11 @@ local function getGroupValue(src, groupName)
         return family and tostring(family.id) or nil
     end
 
+    if groupName == 'gang' then
+        local gang = getCmGangState(src)
+        return gang and gang.id or nil
+    end
+
     -- EMS radio access is always rebuilt from cm-ems's authoritative
     -- membership. Never accept a client/manual group assignment for it.
     if groupName == 'ems' then
@@ -279,6 +308,10 @@ local function getGroupColor(src, groupName, fallback)
     if groupName == 'family' then
         local family = getCmFamilyState(src)
         if family then return family.color end
+    end
+    if groupName == 'gang' then
+        local gang = getCmGangState(src)
+        if gang then return gang.color end
     end
     local manual = PlayerGroups[src] and PlayerGroups[src][groupName]
     if type(manual) == 'table' and manual.color then
@@ -526,6 +559,28 @@ local function buildPayload(channelId, active, text, overrideFormat, overrideCol
     }
 end
 
+local function applyAuthorRank(payload, src, channel)
+    if type(payload) ~= 'table' or not src or not channel then return payload end
+    local groupName = tostring(channel.group or ''):lower()
+    if groupName == 'family' then
+        local family = getCmFamilyState(src)
+        if family then payload.rankName = family.title ~= '' and family.title or family.rankName end
+    elseif groupName == 'gang' then
+        local gang = getCmGangState(src)
+        if gang then payload.rankName = gang.rankName end
+    elseif groupName == 'police' then
+        local state = Player(src).state.cmPolice
+        if type(state) == 'table' then payload.rankName = cleanText(state.rankName or (state.isLeader and 'Leader') or 'Member', 32) end
+    elseif groupName == 'ems' then
+        local state = Player(src).state.cmEms
+        if type(state) == 'table' then payload.rankName = cleanText(state.rankName or (state.isLeader and 'Leader') or 'Member', 32) end
+    elseif groupName:match('^legal_') or groupName == 'org' then
+        local state = Player(src).state.cmLegalOrg
+        if type(state) == 'table' then payload.rankName = cleanText(state.rankName or (state.isLeader and 'Leader') or 'Member', 32) end
+    end
+    return payload
+end
+
 local function sendPayloadToTargets(targets, payload)
     if type(targets) == 'table' then
         for _, playerId in ipairs(targets) do
@@ -665,6 +720,19 @@ local function sendPlayerMessage(src, channelId, text, formatOverride)
         return
     end
 
+
+    if channelId == 'gang' then
+        if GetResourceState('cm-gang') ~= 'started' then
+            sendSystemMessage(src, 'Gang chat is unavailable right now.', 'error')
+            return
+        end
+        local ok, accepted, reason = pcall(function() return exports['cm-gang']:SendGangChat(src, text) end)
+        if not ok or accepted == false then
+            sendSystemMessage(src, ok and tostring(reason or 'gang chat denied'):gsub('_', ' ') or 'Gang chat could not send the message.', 'error')
+        end
+        return
+    end
+
     getActiveCharacter(src, function(active)
         if not active or not active.id then
             sendSystemMessage(src, 'Character is not loaded yet. Select your character first.', 'warning')
@@ -672,7 +740,7 @@ local function sendPlayerMessage(src, channelId, text, formatOverride)
         end
 
         local colorOverride = ch.type == 'group' and getGroupColor(src, ch.group, ch.color) or nil
-        local payload = buildPayload(channelId, active, text, formatOverride or ch.format or 'rp', colorOverride)
+        local payload = applyAuthorRank(buildPayload(channelId, active, text, formatOverride or ch.format or 'rp', colorOverride), src, ch)
         local targetsMeta = nil
 
         if ch.type == 'staff' then
@@ -763,6 +831,36 @@ AddEventHandler('cm-chat:server:familyMessage', function(data, suppliedRecipient
     })
 end)
 
+-- Server-only owner integration. Recipients are rebuilt from authoritative
+-- replicated cmGang state; the supplied message cannot nominate targets.
+AddEventHandler('cm-chat:server:gangMessage', function(data)
+    if type(data) ~= 'table' then return end
+    local authorSource = tonumber(data.source)
+    local gangId = tostring(data.gangId or '')
+    local message = cleanText(data.message, Config.MaxMessageLength or 180)
+    local authorGang = authorSource and getCmGangState(authorSource)
+    if not authorGang or authorGang.id ~= gangId or message == '' then return end
+    local rpMode = data.mode == 'rp'
+    local payload = {
+        channel = rpMode and 'gang_rp' or 'gang_nonrp', channelLabel = rpMode and 'GANG RP RADIO' or 'GANG NON-RP', channelColor = cleanColor(data.color or authorGang.color, '#67e8f9'),
+        author = cleanText(data.name or GetPlayerName(authorSource) or 'Unknown', 60),
+        id = tonumber(data.characterId) or 0, text = message, type = 'group', format = rpMode and 'rp' or 'group', time = os.date('%H:%M'),
+        groupName = cleanText(data.gangName or authorGang.name, 60),
+        groupTag = cleanText(data.tag or authorGang.tag, 12),
+        rankName = cleanText(data.rankName or authorGang.rankName, 32),
+    }
+    local recipients = {}
+    for _, playerId in ipairs(GetPlayers()) do
+        local target = tonumber(playerId)
+        local targetGang = target and getCmGangState(target)
+        if targetGang and targetGang.id == gangId then recipients[#recipients + 1] = target end
+    end
+    if #recipients == 0 then return end
+    sendPayloadToTargets(recipients, payload)
+    logChat(authorSource, { id = payload.id, name = payload.author }, 'gang', message,
+        { gangId = gangId, gangTag = payload.groupTag, rankName = payload.rankName, recipients = #recipients })
+end)
+
 AddEventHandler('cm-chat:server:refreshPlayerChannels', function(target)
     target = tonumber(target)
     if target and target > 0 and GetPlayerName(target) then sendChannels(target) end
@@ -826,6 +924,16 @@ end, false)
 RegisterCommand('policenrp', function(src, args)
     if src <= 0 then return end
     sendPlayerMessage(src, 'police_nonrp', table.concat(args or {}, ' '), 'police_nonrp')
+end, false)
+
+RegisterCommand('gangrp', function(src, args)
+    if src <= 0 then return end
+    sendPlayerMessage(src, 'gang_rp', table.concat(args or {}, ' '), 'group_rp')
+end, false)
+
+RegisterCommand('gangnrp', function(src, args)
+    if src <= 0 then return end
+    sendPlayerMessage(src, 'gang_nonrp', table.concat(args or {}, ' '), 'group_nonrp')
 end, false)
 
 RegisterCommand('b', function(src, args)

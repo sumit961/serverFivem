@@ -54,6 +54,14 @@ local function AddItemInternal(src, itemName, amount, metadata, reason, preferre
     local ownerType, ownerId = getOwner(src)
     if not ownerId then return false, 'No character owner found.' end
 
+    if def.singleton == true then
+        local existingCount = tonumber(MySQL.scalar.await([[SELECT COALESCE(SUM(quantity),0)
+            FROM inventory_items WHERE owner_type=? AND owner_id=? AND item_name=?]],
+            { ownerType, tostring(ownerId), itemName })) or 0
+        if existingCount > 0 then return false, 'You can only carry one of this item.' end
+        if amount > 1 then return false, 'You can only carry one of this item.' end
+    end
+
     local okCarry, carryErr = canCarry(ownerType, ownerId, itemName, amount)
     if not okCarry then return false, carryErr end
 
@@ -403,7 +411,13 @@ local function DropItemInternal(src, slot, amount)
     end
 
     local dropId = createWorldDrop(src, row, drop)
-    audit(ownerId, 'drop', row.item_name, drop, slot, nil, dropId and ('world_drop_' .. dropId) or 'drop_item', decode(row.metadata))
+    local droppedMetadata = decode(row.metadata)
+    audit(ownerId, 'drop', row.item_name, drop, slot, nil, dropId and ('world_drop_' .. dropId) or 'drop_item', droppedMetadata)
+    if dropId then
+        -- Local server contract emitted only after the authoritative inventory
+        -- row has been removed and the world drop has been created.
+        TriggerEvent('cm-inventory:server:itemDropped', src, tostring(ownerId), row.item_name, drop, droppedMetadata, dropId)
+    end
     if dropId then sendDrops(-1) end
     return true
 end

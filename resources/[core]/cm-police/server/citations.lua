@@ -15,6 +15,10 @@
 -- otherwise win with zero warning).
 assert(rawget(_G, 'violationById') == nil, 'violationById is already defined elsewhere -- global name collision')
 function violationById(id)
+    if GetResourceState('cm-law') == 'started' then
+        local ok, shared = pcall(function() return exports['cm-law']:ResolveCitationViolation(id) end)
+        if ok and type(shared) == 'table' then return shared end
+    end
     for _, violation in ipairs(Config.Citations.Violations) do
         if violation.id == id then return violation end
     end

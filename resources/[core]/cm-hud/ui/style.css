@@ -7,6 +7,24 @@ body {
     color: white;
 }
 
+.hud-dev-bucket {
+    position: fixed;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 110;
+    padding: 4px 9px;
+    border: 1px solid rgba(103, 232, 249, 0.45);
+    border-top: 2px solid #67e8f9;
+    background: rgba(4, 20, 27, 0.88);
+    color: #bdf7ff;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    pointer-events: none;
+}
+
 /* ========== BASE MODULE SYSTEM ========== */
 .hud-module {
     position: fixed;
@@ -1280,8 +1298,7 @@ body.hud-hidden #hud-container {
 body.hud-hidden #hud-container,
 body.hud-hidden .hud-module,
 body.hud-hidden #hud-vehicle,
-body.hud-hidden #hud-death,
-body.hud-hidden #hud-notify {
+body.hud-hidden #hud-death {
     display: none !important;
     opacity: 0 !important;
     visibility: hidden !important;
@@ -3423,7 +3440,19 @@ body.cm-compact-mode .voice-radio-keys {
 }
 
 .notify-content {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    width: 100% !important;
     padding: 0 !important;
+}
+
+/* Notifications remain available while another CM interface hides the HUD. */
+body.hud-hidden #hud-notify {
+    display: flex !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    pointer-events: none !important;
 }
 
 .notify-title {
@@ -3434,6 +3463,7 @@ body.cm-compact-mode .voice-radio-keys {
     line-height: 0.94;
     letter-spacing: 0.045em !important;
     text-transform: uppercase;
+    text-align: center !important;
     text-shadow: 0 2px 5px rgba(0,0,0,0.85), 0 0 12px rgba(0,0,0,0.32);
 }
 
@@ -3441,7 +3471,7 @@ body.cm-compact-mode .voice-radio-keys {
     width: min(72%, 340px) !important;
     height: 5px !important;
     border-radius: 999px !important;
-    margin: 16px 0 0 clamp(8px, 1.2vw, 26px) !important;
+    margin: 16px auto 0 !important;
     background: rgba(255,255,255,0.50) !important;
     overflow: hidden;
     box-shadow: 0 2px 6px rgba(0,0,0,0.36);
@@ -3462,6 +3492,7 @@ body.cm-compact-mode .voice-radio-keys {
     font-weight: 700 !important;
     line-height: 1.25 !important;
     margin: 12px 0 0 0 !important;
+    text-align: center !important;
     text-shadow: 0 2px 4px rgba(0,0,0,0.86);
 }
 
@@ -3606,6 +3637,66 @@ body.cm-compact-mode .voice-radio-keys {
         width: min(300px, calc(100vw - 28px)) !important;
     }
 }
+
+/* Reusable event announcement built with translucent layers and highlights. */
+.hud-event-notify{position:fixed;top:7vh;left:50%;z-index:930;width:min(420px,calc(100vw - 32px));pointer-events:none;opacity:0;transform:translate(-50%,-18px);transition:opacity .2s ease;--event-accent:#4fd1ff}
+.hud-event-notify.visible{opacity:1}
+body.hud-hidden .hud-event-notify{display:none!important}
+.event-toast{position:relative;display:grid;grid-template-columns:4px 72px minmax(0,1fr);overflow:hidden;border:1px solid rgba(255,255,255,.13);border-radius:15px;background:linear-gradient(145deg,rgba(12,24,33,.82),rgba(5,10,16,.7));box-shadow:0 18px 46px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.09),0 0 28px color-mix(in srgb,var(--event-accent) 10%,transparent);animation:eventToastIn .45s cubic-bezier(.2,.8,.2,1) forwards}
+.event-toast.leaving{animation:eventToastOut .42s cubic-bezier(.4,0,.9,.3) forwards}
+.event-toast-accent{background:linear-gradient(180deg,var(--event-accent),color-mix(in srgb,var(--event-accent) 22%,transparent));box-shadow:0 0 16px color-mix(in srgb,var(--event-accent) 68%,transparent)}
+.event-toast-icon{position:relative;display:grid;place-items:center;overflow:hidden;background:radial-gradient(circle at 45% 42%,color-mix(in srgb,var(--event-accent) 24%,transparent),rgba(3,10,15,.25))}
+.event-toast-icon img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.event-toast-icon img:not([hidden])+span{display:none}
+.event-toast-icon::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(5,10,16,.64))}
+.event-toast-icon span{position:relative;z-index:1;color:var(--event-accent);font:800 18px "Unbounded","Nunito",sans-serif;letter-spacing:.08em;text-shadow:0 0 15px color-mix(in srgb,var(--event-accent) 60%,transparent)}
+.event-toast-copy{min-width:0;padding:11px 13px 12px;display:grid;gap:5px}
+.event-toast-meta{display:flex;align-items:center;gap:7px;min-width:0}
+.event-toast-meta i{width:6px;height:6px;flex:none;border-radius:50%;background:var(--event-accent);box-shadow:0 0 10px 3px color-mix(in srgb,var(--event-accent) 70%,transparent);animation:eventDotPulse 1.6s ease-in-out infinite}
+.event-toast-meta strong{color:var(--event-accent);font:700 9px "Roboto Mono",monospace;letter-spacing:.2em;white-space:nowrap}
+.event-toast-meta time{margin-left:auto;color:rgba(234,246,255,.62);font:700 11px "Roboto Mono",monospace}
+.event-toast h2{overflow:hidden;margin:0;color:#fff;font:800 18px/1.15 "Nunito",sans-serif;letter-spacing:.035em;text-overflow:ellipsis;text-transform:uppercase;white-space:nowrap}
+.event-toast p{overflow:hidden;margin:0;color:rgba(224,243,249,.68);font:700 10px/1.3 "Nunito",sans-serif;letter-spacing:.04em;text-overflow:ellipsis;white-space:nowrap}
+.event-toast-actions{display:flex;gap:7px;margin-top:3px}
+.event-toast-actions>span{min-width:0;flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:6px 8px;border:1px solid rgba(255,255,255,.13);border-radius:8px;background:rgba(255,255,255,.035)}
+.event-toast-actions .event-primary{border-color:color-mix(in srgb,var(--event-accent) 48%,transparent);background:color-mix(in srgb,var(--event-accent) 14%,transparent)}
+.event-toast-actions kbd{padding:1px 5px;border:1px solid currentColor;border-radius:3px;background:transparent;color:var(--event-accent);font:700 9px "Roboto Mono",monospace}
+.event-toast-actions b{overflow:hidden;color:#eaf6ff;font:800 10px "Nunito",sans-serif;letter-spacing:.05em;text-overflow:ellipsis;white-space:nowrap}
+.event-secondary kbd,.event-secondary b{color:rgba(234,246,255,.65)}
+.event-toast-life{position:absolute;right:0;bottom:0;left:4px;height:2px;background:rgba(255,255,255,.08)}
+.event-toast-life span{display:block;width:100%;height:100%;transform-origin:left;background:linear-gradient(90deg,var(--event-accent),color-mix(in srgb,var(--event-accent) 38%,transparent));box-shadow:0 0 10px color-mix(in srgb,var(--event-accent) 70%,transparent);animation:eventToastLife linear forwards}
+@keyframes eventToastIn{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:translateX(0)}}
+@keyframes eventToastOut{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(90px)}}
+@keyframes eventToastLife{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+@keyframes eventDotPulse{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.15)}}
+@media(max-width:700px){.hud-event-notify{top:5vh;width:min(350px,calc(100vw - 24px));transform:translate(-50%,-18px)}.event-toast{grid-template-columns:4px 54px minmax(0,1fr)}.event-toast h2{font-size:15px}.event-toast-actions b{font-size:8px}}
+
+/* External interfaces hide HUD modules, but operational feedback must remain visible. */
+body.hud-hidden #hud-container {
+    display: block !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    pointer-events: none !important;
+}
+body.hud-hidden #hud-notify {
+    display: flex !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+/* Shared offer prompt. Input remains owned by the calling gameplay resource. */
+.hud-offer{position:fixed;top:7vh;left:50%;z-index:940;width:min(510px,calc(100vw - 32px));pointer-events:none;opacity:0;transform:translate(-50%,-12px);transition:opacity .18s ease;--offer-accent:#4fd1ff}
+.hud-offer.visible{opacity:1}.hud-offer .offer-card.leaving{opacity:0;transform:translateY(-8px)}body.hud-hidden .hud-offer{display:none!important}
+.offer-card{position:relative;overflow:hidden;border:1px solid rgba(148,190,205,.17);border-left:3px solid var(--offer-accent);background:linear-gradient(110deg,rgba(8,17,24,.97),rgba(7,13,18,.94));box-shadow:0 18px 45px rgba(0,0,0,.48),inset 0 1px rgba(255,255,255,.035);transition:opacity .22s ease,transform .22s ease;animation:offerIn .25s ease-out backwards}
+.offer-head{display:grid;grid-template-columns:54px minmax(0,1fr) 30px;gap:13px;align-items:center;padding:16px 18px 11px}
+.offer-icon{display:grid;place-items:center;width:48px;height:48px;border:2px solid rgba(79,209,255,.13);border-radius:50%;color:var(--offer-accent);box-shadow:inset 0 0 18px rgba(79,209,255,.04)}
+.offer-icon svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.offer-eyebrow{display:flex;align-items:center;gap:8px;color:var(--offer-accent);font:800 9px 'Roboto Mono',monospace;letter-spacing:.24em;text-transform:uppercase}.offer-eyebrow i{width:7px;height:7px;border-radius:50%;background:var(--offer-accent);box-shadow:0 0 10px var(--offer-accent)}
+.offer-copy h2{margin:5px 0 0;color:#f2f7fa;font:800 20px/1.15 'Nunito',sans-serif;letter-spacing:.015em}.offer-count{align-self:start;color:#ff7388;font:800 22px 'Roboto Mono',monospace;text-align:right}
+.offer-meta{display:flex;align-items:center;gap:9px;min-height:43px;padding:0 18px;border-top:1px solid rgba(255,255,255,.06);color:rgba(181,197,204,.62);font:700 10px 'Roboto Mono',monospace;letter-spacing:.13em;text-transform:uppercase}.offer-meta>span+span::before{content:'·';margin-right:9px;color:rgba(181,197,204,.36)}.offer-meta .offer-avatar::before{content:none}.offer-avatar{display:grid;place-items:center;width:27px;height:27px;border:1px solid rgba(255,255,255,.14);border-radius:50%;background:rgba(255,255,255,.04);color:rgba(223,235,239,.68);font-size:8px;letter-spacing:0}
+.offer-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:15px 18px 18px;border-top:1px solid rgba(255,255,255,.06)}.offer-actions>div{display:flex;align-items:center;justify-content:center;gap:12px;min-height:52px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.035);color:rgba(226,236,240,.78);font:800 15px 'Nunito',sans-serif}.offer-actions .offer-accept{border-color:color-mix(in srgb,var(--offer-accent) 62%,transparent);background:color-mix(in srgb,var(--offer-accent) 25%,rgba(8,20,27,.9));color:#f5fbfd}.offer-actions kbd{display:grid;place-items:center;min-width:26px;height:26px;border:1px solid rgba(255,255,255,.18);border-radius:4px;background:rgba(255,255,255,.08);color:#fff;font:800 11px 'Roboto Mono',monospace}
+.offer-life{position:absolute;right:0;bottom:0;left:0;height:3px;background:rgba(255,255,255,.05)}.offer-life span{display:block;width:100%;height:100%;transform-origin:left;background:linear-gradient(90deg,var(--offer-accent),transparent);animation:offerLife linear forwards}
+@keyframes offerIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}@keyframes offerLife{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+@media(max-width:650px){.hud-offer{top:4vh;width:min(390px,calc(100vw - 22px))}.offer-head{grid-template-columns:44px minmax(0,1fr) 28px;padding:13px}.offer-icon{width:40px;height:40px}.offer-copy h2{font-size:17px}.offer-meta{padding:0 13px}.offer-actions{padding:12px 13px 15px}.offer-actions>div{min-height:46px}}
 
 @media (min-width: 2300px) and (min-height: 1200px) {
     :root {
@@ -3955,4 +4046,127 @@ body.hud-hidden #hud-weapon { display: none !important; }
 }
 @media (max-width: 1100px), (max-height: 650px) {
     .cm-twinarc { transform: scale(0.74); transform-origin: bottom right; }
+}
+
+/* Final offer presentation: top dropdown with layered transparent glass. */
+.hud-offer {
+    top: clamp(8px, 1.6vh, 20px) !important;
+    width: min(680px, calc(100vw - 32px)) !important;
+    opacity: 0;
+    transform: translate(-50%, -115%) !important;
+    transition: opacity .2s ease, transform .4s cubic-bezier(.18,.82,.22,1) !important;
+}
+.hud-offer.visible { opacity: 1; transform: translate(-50%, 0) !important; }
+.hud-offer .offer-card.leaving { opacity: 0; transform: translateY(-115%) !important; }
+.hud-offer .offer-card {
+    border-color: rgba(164,211,226,.22) !important;
+    border-left: 3px solid var(--offer-accent) !important;
+    background: linear-gradient(112deg, rgba(7,16,23,.70), rgba(8,16,22,.54) 54%, rgba(5,11,16,.66)) !important;
+    box-shadow: 0 20px 52px rgba(0,0,0,.34), inset 0 1px rgba(235,250,255,.10), inset 0 -1px rgba(0,0,0,.28), 0 0 30px color-mix(in srgb,var(--offer-accent) 7%,transparent) !important;
+    animation: offerDrop .42s cubic-bezier(.18,.82,.22,1) backwards !important;
+}
+.hud-offer .offer-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(125deg, rgba(255,255,255,.06), transparent 28%, transparent 68%, rgba(79,209,255,.025));
+}
+.hud-offer .offer-head { position: relative; grid-template-columns: 68px minmax(0,1fr) 38px; gap: 16px; padding: 18px 26px 12px; }
+.hud-offer .offer-icon { width: 58px; height: 58px; border-color: color-mix(in srgb,var(--offer-accent) 42%,transparent); background: radial-gradient(circle,rgba(79,209,255,.08),transparent 68%); }
+.hud-offer .offer-copy h2 { font-size: 25px; text-shadow: 0 2px 10px rgba(0,0,0,.45); }
+.hud-offer .offer-count { font-size: 25px; color: #ff8193; }
+.hud-offer .offer-meta { position: relative; min-height: 52px; padding: 0 26px; border-color: rgba(218,245,255,.08); background: rgba(2,9,13,.08); font-size: 11px; }
+.hud-offer .offer-avatar { width: 31px; height: 31px; background: rgba(255,255,255,.055); }
+.hud-offer .offer-actions { position: relative; gap: 14px; padding: 20px 26px 24px; border-color: rgba(218,245,255,.08); background: rgba(1,7,11,.14); }
+.hud-offer .offer-actions > div { min-height: 62px; border-color: rgba(225,247,255,.14); background: linear-gradient(120deg,rgba(255,255,255,.06),rgba(255,255,255,.025)); font-size: 17px; }
+.hud-offer .offer-actions .offer-accept { border-color: color-mix(in srgb,var(--offer-accent) 68%,transparent); background: linear-gradient(120deg,color-mix(in srgb,var(--offer-accent) 25%,transparent),color-mix(in srgb,var(--offer-accent) 12%,rgba(3,13,19,.32))); }
+@keyframes offerDrop { from { opacity: 0; transform: translateY(-110%); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 650px) {
+    .hud-offer { top: 7px !important; width: min(420px, calc(100vw - 18px)) !important; }
+    .hud-offer .offer-head { grid-template-columns: 46px minmax(0,1fr) 28px; gap: 10px; padding: 13px 15px 10px; }
+    .hud-offer .offer-icon { width: 42px; height: 42px; }
+    .hud-offer .offer-copy h2 { font-size: 17px; }
+    .hud-offer .offer-meta { min-height: 43px; padding: 0 15px; }
+    .hud-offer .offer-actions { gap: 8px; padding: 12px 15px 16px; }
+    .hud-offer .offer-actions > div { min-height: 48px; font-size: 14px; }
+}
+
+/* Offer v4: minimal transparent prompt over gameplay. */
+.hud-offer { top: clamp(18px, 4vh, 42px) !important; width: min(760px, calc(100vw - 28px)) !important; }
+.hud-offer .offer-card {
+    overflow: visible;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    text-align: center;
+}
+.hud-offer .offer-card::before { display: none; }
+.hud-offer .offer-head { display: block; padding: 0; }
+.hud-offer .offer-copy { display: grid; justify-items: center; }
+.hud-offer .offer-eyebrow { justify-content: center; gap: 8px; text-shadow: 0 1px 8px rgba(0,0,0,.9); }
+.hud-offer .offer-eyebrow > i { width: 5px; height: 5px; }
+.hud-offer .offer-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+.hud-offer .offer-icon svg { width: 14px; height: 14px; stroke-width: 1.8; }
+.hud-offer .offer-count {
+    margin-left: 3px;
+    color: rgba(223,234,238,.72);
+    font: 700 10px 'Roboto Mono',monospace;
+    letter-spacing: .08em;
+}
+.hud-offer .offer-count::before { content: '|'; margin-right: 8px; color: rgba(210,228,234,.35); }
+.hud-offer .offer-copy h2 {
+    margin-top: 10px;
+    color: #fff;
+    font-size: clamp(22px, 2.1vw, 31px);
+    text-shadow: 0 2px 10px rgba(0,0,0,.95), 0 0 20px rgba(0,0,0,.7);
+}
+.hud-offer .offer-meta {
+    justify-content: center;
+    min-height: auto;
+    margin-top: 12px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: rgba(218,232,237,.72);
+    text-shadow: 0 1px 7px rgba(0,0,0,.95);
+}
+.hud-offer .offer-avatar { display: none; }
+.hud-offer .offer-divider { width: 210px; height: 2px; margin: 13px auto 0; background: linear-gradient(90deg,transparent,var(--offer-accent) 20%,var(--offer-accent) 80%,transparent); box-shadow: 0 0 10px color-mix(in srgb,var(--offer-accent) 32%,transparent); }
+.hud-offer .offer-actions {
+    display: flex;
+    justify-content: center;
+    gap: 34px;
+    padding: 13px 0 0;
+    border: 0;
+    background: transparent;
+}
+.hud-offer .offer-actions > div {
+    min-height: 34px;
+    padding: 0 7px;
+    border: 0;
+    background: transparent;
+    color: rgba(228,238,242,.72);
+    font-size: 17px;
+    text-shadow: 0 1px 8px rgba(0,0,0,.95);
+}
+.hud-offer .offer-actions .offer-accept { border: 0; background: transparent; color: #fff; }
+.hud-offer .offer-actions kbd { min-width: 25px; height: 25px; border-color: rgba(230,247,252,.22); background: rgba(5,17,23,.66); }
+.hud-offer .offer-actions .offer-accept kbd { border-color: color-mix(in srgb,var(--offer-accent) 62%,transparent); background: var(--offer-accent); color: #061117; box-shadow: 0 0 12px color-mix(in srgb,var(--offer-accent) 32%,transparent); }
+.hud-offer .offer-life { display: none; }
+@media (max-width:650px) {
+    .hud-offer { top: 14px !important; }
+    .hud-offer .offer-copy h2 { font-size: 20px; }
+    .hud-offer .offer-meta { font-size: 9px; }
+    .hud-offer .offer-actions { gap: 16px; padding-top: 11px; }
+    .hud-offer .offer-actions > div { min-height: 30px; font-size: 14px; }
 }

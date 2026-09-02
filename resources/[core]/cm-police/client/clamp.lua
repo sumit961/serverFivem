@@ -10,9 +10,17 @@ end
 
 local function canUseClamp()
     local state = LocalPlayer.state.cmPolice
-    if type(state) ~= 'table' or state.onDuty ~= true then return false end
+    if type(state) == 'table' and state.onDuty == true then
+        if type(PoliceCapabilityClientEnabled)=='function' and not PoliceCapabilityClientEnabled('clamp') then return false end
+        local permissions = state.permissions or {}
+        return state.isLeader == true or permissions['police.clamp'] == true, 'cm-police:server:toggleClamp'
+    end
+    state = LocalPlayer.state.cmLegalOrg
+    if type(state) ~= 'table' or state.onDuty ~= true or state.suspended
+        or (state.capabilities and state.capabilities.clamp == false) then return false end
     local permissions = state.permissions or {}
-    return state.isLeader == true or permissions['police.clamp'] == true
+    if state.isLeader == true or permissions['law.clamp'] == true then return true, 'cm-law:server:toggleClamp' end
+    return false
 end
 
 -- Global (not local) so client/quickmenu.lua's J-key menu can call this
@@ -20,13 +28,14 @@ end
 -- thin wrapper around the same function. Same GetClosestVehicle shape
 -- client/impound.lua's /policeimpound command already uses.
 function PoliceToggleClamp()
-    if not canUseClamp() then return notify('You must be an on-duty officer with clamp permission.', 'error') end
+    local allowed, callbackName = canUseClamp()
+    if not allowed then return notify('You must be an on-duty officer with clamp permission.', 'error') end
     local ped = PlayerPedId()
     local coords = GetEntityCoords(ped)
     local vehicle = GetClosestVehicle(coords.x, coords.y, coords.z, Config.Clamp.MaxDistance or 3.0, 0, 71)
     if vehicle == 0 or not DoesEntityExist(vehicle) then return notify('No nearby vehicle found.', 'error') end
     local netId = NetworkGetNetworkIdFromEntity(vehicle)
-    local ok, message = lib.callback.await('cm-police:server:toggleClamp', false, netId)
+    local ok, message = lib.callback.await(callbackName, false, netId)
     notify(message or (ok and 'Done.' or 'Clamp toggle failed.'), ok and 'success' or 'error')
 end
 

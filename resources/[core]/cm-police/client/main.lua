@@ -295,7 +295,7 @@ RegisterNUICallback('mdtVehicleSearch', function(data, cb)
     local vehicle = lib.callback.await('cm-police:server:mdtVehicleSearch', false, data.plate)
     cb({ ok = vehicle ~= nil, vehicle = vehicle })
 end)
-RegisterNUICallback('mdtCaptureImpoundEvidence', function(data, cb)
+local function captureImpoundEvidence(data, cb)
     local message = tostring(data.message or '')
     local ped = PlayerPedId()
     local origin = GetEntityCoords(ped)
@@ -346,6 +346,20 @@ RegisterNUICallback('mdtCaptureImpoundEvidence', function(data, cb)
     SetFollowPedCamViewMode(impoundPhotoPreviousView ~= 4 and impoundPhotoPreviousView or 1)
     notify(messageResult or (ok and 'Impound evidence captured.' or 'Evidence capture failed.'), ok and 'success' or 'error')
     cb({ ok = ok == true })
+end
+
+RegisterNUICallback('mdtCaptureImpoundEvidence', captureImpoundEvidence)
+
+RegisterNetEvent('cm-police:client:startSharedImpound', function()
+    local state = LocalPlayer.state.cmLegalOrg
+    if type(state) ~= 'table' or state.onDuty ~= true or state.suspended
+        or (state.capabilities and state.capabilities.impound == false)
+        or (state.isLeader ~= true and (state.permissions or {})['law.impound'] ~= true) then return end
+    local input = lib.inputDialog('Start Vehicle Impound', {
+        { type = 'textarea', label = 'Impound reason', required = true, min = 5, max = 500 },
+    })
+    if not input or not input[1] then return end
+    captureImpoundEvidence({ message = input[1] }, function() end)
 end)
 RegisterNUICallback('mdtIssueVehicleLicense', function(data, cb)
     local ok, message, licenseNumber = lib.callback.await('cm-police:server:mdtIssueVehicleLicense', false, data.plate)
@@ -547,7 +561,7 @@ end)
 
 RegisterNetEvent('cm-police:client:invite', function(data)
     CreateThread(function()
-        local accepted = PoliceConfirm('Police Invitation', ('%s invited you to join the Police Department.'):format(tostring(data.inviter or 'Police')), 'Join Police', 'Decline')
+        local accepted = PoliceConfirm('Police Invitation', ('%s invited you to join the Police Department as %s.'):format(tostring(data.inviter or 'Police'), tostring(data.rank or 'Cadet')), 'Join Police', 'Decline')
         local ok, message = lib.callback.await('cm-police:server:respondInvite', false, accepted)
         notify(message, ok and 'success' or 'error')
     end)

@@ -177,6 +177,9 @@ local function registerOrganization(org)
         canManageArmory = org.canManageArmory == true,
         canManageCapabilities = org.canManageCapabilities == true,
         canManageFleet = org.canManageFleet == true,
+        canManageNpcs = org.canManageNpcs == true,
+        canManageAlpr = org.canManageAlpr == true,
+        canManageBarricades = org.canManageBarricades == true,
         facilityTypes = facilityTypes,
     }
     orgOwner[org.id] = GetInvokingResource() or GetCurrentResourceName()
@@ -220,6 +223,9 @@ function CMOrganizations.forAdminPayload(src)
             canManageArmory = org.canManageArmory == true,
             canManageCapabilities = org.canManageCapabilities == true,
             canManageFleet = org.canManageFleet == true,
+            canManageNpcs = org.canManageNpcs == true,
+            canManageAlpr = org.canManageAlpr == true,
+            canManageBarricades = org.canManageBarricades == true,
             facilityTypes = org.facilityTypes,
         }
     end
@@ -231,6 +237,59 @@ function CMOrganizations.forAdminPayload(src)
             allowSameLeaderAcrossOrgs = getOrgPolicySetting('allowSameLeaderAcrossOrgs') == true,
         },
     }
+end
+
+function CMOrganizations.getNpcs(src, orgId)
+    if not hasPerm(src, 'orgs.manage') then return { ok = false, error = 'No permission: orgs.manage' } end
+    local org = organizations[tostring(orgId or '')]
+    if not org or not org.canManageNpcs then return { ok = false, error = 'This organization does not support NPC configuration.' } end
+    if GetResourceState(org.resource) ~= 'started' then return { ok = false, error = org.resource .. ' is not running.' } end
+    local ok, result = pcall(function() return exports[org.resource]:AdminGetNpcs(src, org.id) end)
+    return ok and type(result) == 'table' and result or { ok = false, error = 'NPC configuration failed safely.' }
+end
+
+function CMOrganizations.configureNpc(src, orgId, data)
+    if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
+    local org = organizations[tostring(orgId or '')]
+    if not org or not org.canManageNpcs then return false, 'This organization does not support NPC configuration.' end
+    if GetResourceState(org.resource) ~= 'started' then return false, org.resource .. ' is not running.' end
+    local ok, result, message = pcall(function() return exports[org.resource]:AdminConfigureNpc(src, org.id, data) end)
+    if not ok then return false, 'NPC configuration failed safely.' end
+    if result == true then log(src, 'org_npc_configured', { orgId = org.id, npcId = data and data.npcId, operation = data and data.operation }) end
+    return result == true, message
+end
+
+function CMOrganizations.getAlpr(src,orgId)
+    if not hasPerm(src,'orgs.manage') then return {ok=false,error='No permission: orgs.manage'} end
+    local org=organizations[tostring(orgId or '')]
+    if not org or not org.canManageAlpr or GetResourceState(org.resource)~='started' then return {ok=false,error='ALPR configuration is unavailable.'} end
+    local ok,result=pcall(function() return exports[org.resource]:AdminGetAlpr(src,org.id) end)
+    return ok and type(result)=='table' and result or {ok=false,error='ALPR configuration failed safely.'}
+end
+function CMOrganizations.configureAlpr(src,orgId,data)
+    if not hasPerm(src,'orgs.manage') then return false,'No permission: orgs.manage' end
+    local org=organizations[tostring(orgId or '')]
+    if not org or not org.canManageAlpr or GetResourceState(org.resource)~='started' then return false,'ALPR configuration is unavailable.' end
+    local ok,result,message=pcall(function() return exports[org.resource]:AdminConfigureAlpr(src,org.id,data) end)
+    if ok and result==true then log(src,'org_alpr_configured',{orgId=org.id,operation=data and data.operation,cameraId=data and data.cameraId}) end
+    return ok and result==true,ok and message or 'ALPR configuration failed safely.'
+end
+
+function CMOrganizations.getBarricades(src,orgId)
+    if not hasPerm(src,'orgs.manage') then return {ok=false,error='No permission: orgs.manage'} end
+    local org=organizations[tostring(orgId or '')]
+    if not org or not org.canManageBarricades or GetResourceState(org.resource)~='started' then return {ok=false,error='Barricade configuration is unavailable.'} end
+    local ok,result=pcall(function() return exports[org.resource]:AdminGetBarricades(src,org.id) end)
+    return ok and type(result)=='table' and result or {ok=false,error='Barricade configuration failed safely.'}
+end
+
+function CMOrganizations.configureBarricade(src,orgId,data)
+    if not hasPerm(src,'orgs.manage') then return false,'No permission: orgs.manage' end
+    local org=organizations[tostring(orgId or '')]
+    if not org or not org.canManageBarricades or GetResourceState(org.resource)~='started' then return false,'Barricade configuration is unavailable.' end
+    local ok,result,message=pcall(function() return exports[org.resource]:AdminConfigureBarricade(src,org.id,data) end)
+    if ok and result==true then log(src,'org_barricade_configured',{orgId=org.id,operation=data and data.operation}) end
+    return ok and result==true,ok and message or 'Barricade configuration failed safely.'
 end
 
 function CMOrganizations.getArmory(src, orgId)
@@ -297,6 +356,16 @@ function CMOrganizations.resetFleet(src, orgId, model)
     if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
     local ok, result, message = pcall(function() return exports[org.resource]:AdminResetFleetLocation(src, org.id, model) end)
     return ok and result == true, ok and message or 'Fleet reset failed safely.'
+end
+
+function CMOrganizations.beginFleetPlacement(src, orgId, model)
+    if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
+    local org = organizations[tostring(orgId or '')]
+    if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
+    local ok, result, message = pcall(function() return exports[org.resource]:AdminBeginFleetPlacement(src, org.id, model) end)
+    if not ok then return false, 'Fleet placement failed safely.' end
+    if result == true then log(src, 'org_fleet_placement_started', { orgId = org.id, model = tostring(model or '') }) end
+    return result == true, message
 end
 
 function CMOrganizations.removeLeader(src, orgId)

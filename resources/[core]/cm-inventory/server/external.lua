@@ -5,6 +5,7 @@
 
 local ActiveExternalInventories = ActiveExternalInventories or {}
 local EXTERNAL_UI_PREFIX = 'external-'
+local validateExternalMovementAccess
 
 -- UI slots are intentionally kept separate from DB slots.
 -- UI sends external-1..external-30; DB stores trunk-1, warehouse-1, etc.
@@ -84,6 +85,11 @@ local function sanitizeExternalContext(src, context)
     if #slotPrefix > 35 then return nil, 'External slot prefix is too long.' end
     if slotPrefix:find(EXTERNAL_UI_PREFIX, 1, true) == 1 then return nil, 'External slot prefix is reserved.' end
 
+    local invokingResource = tostring(GetInvokingResource() or '')
+    local accessExport = tostring(context.accessExport or context.access_export or '')
+    if #accessExport > 64 or not accessExport:match('^[%w_]+$') then accessExport = '' end
+    local activityExport = tostring(context.activityExport or context.activity_export or '')
+    if #activityExport > 64 or not activityExport:match('^[%w_]+$') then activityExport = '' end
     return {
         ownerType = ownerType,
         ownerId = ownerId,
@@ -98,7 +104,9 @@ local function sanitizeExternalContext(src, context)
         noWeightLimit = context.noWeightLimit ~= false,
         canDeposit = context.canDeposit ~= false,
         canWithdraw = context.canWithdraw ~= false,
-        resource = tostring(context.resource or GetInvokingResource() or ''),
+        resource = invokingResource,
+        accessExport = accessExport ~= '' and accessExport or nil,
+        activityExport = activityExport ~= '' and activityExport or nil,
         data = type(context.data) == 'table' and context.data or {}
     }
 end
@@ -241,6 +249,9 @@ local function OpenExternalInventoryInternal(src, context)
     local ctx, err = sanitizeExternalContext(src, context)
     if not ctx then return false, err end
 
+    local accessOk, accessErr = validateExternalMovementAccess(src, ctx, 'storage.open')
+    if not accessOk then return false, accessErr end
+
     ActiveExternalInventories[src] = ctx
     dprint(('OPEN EXTERNAL src=%s ownerType=%s ownerId=%s prefix=%s slots=%s display=%s label=%s'):format(
         tostring(src), tostring(ctx.ownerType), tostring(ctx.ownerId), tostring(ctx.slotPrefix), tostring(ctx.slots), tostring(ctx.displaySlots), tostring(ctx.label)
@@ -265,7 +276,18 @@ end
 -- inventory can remain open while a player goes off duty, is suspended, or has
 -- their organization rank changed. The persistent vehicle ID is the storage
 -- owner ID, so no client-provided plate or network ID is trusted here.
-local function validateExternalMovementAccess(src, ctx, action)
+validateExternalMovementAccess = function(src, ctx, action)
+    if ctx and ctx.accessExport then
+        if ctx.resource == '' or GetResourceState(ctx.resource) ~= 'started' then
+            return false, 'Storage access authority is unavailable.'
+        end
+        local ok, allowed, reason = pcall(function()
+            return exports[ctx.resource][ctx.accessExport](src, ctx.ownerType, ctx.ownerId, action)
+        end)
+        if not ok or allowed ~= true then
+            return false, reason or 'You no longer have access to this storage.'
+        end
+    end
     if not ctx or tostring(ctx.ownerType or '') ~= 'vehicle_trunk' then return true end
     if GetResourceState('cm-vehicles') ~= 'started' then
         return false, 'Vehicle access is unavailable.'
@@ -448,15 +470,26 @@ local function MoveItemSmart(src, fromSlot, toSlot)
         ))
     end
 
-    if not fromExternal and not toExternal then
-        return MoveItemInternal(src, fromSlot, toSlot)
-    elseif not fromExternal and toExternal then
-        return moveFromPlayerToExternal(src, ctx, fromSlot, toSlot)
-    elseif fromExternal and not toExternal then
-        return moveFromExternalToPlayer(src, ctx, fromSlot, toSlot)
-    else
-        return moveInsideExternal(src, ctx, fromSlot, toSlot)
+    local movedRow, movement
+    if ctx and not fromExternal and toExternal then
+        local ownerType, ownerId = getPlayerOwner(src)
+        if ownerId then movedRow, movement = getItemAt(ownerType, ownerId, fromSlot), 'deposit' end
+    elseif ctx and fromExternal and not toExternal then
+        local storageSlot = storageSlotForExternal(ctx, fromSlot)
+        if storageSlot then movedRow, movement = getItemAt(ctx.ownerType, ctx.ownerId, storageSlot), 'withdraw' end
     end
+    local ok, reason
+    if not fromExternal and not toExternal then ok, reason = MoveItemInternal(src, fromSlot, toSlot)
+    elseif not fromExternal and toExternal then ok, reason = moveFromPlayerToExternal(src, ctx, fromSlot, toSlot)
+    elseif fromExternal and not toExternal then ok, reason = moveFromExternalToPlayer(src, ctx, fromSlot, toSlot)
+    else ok, reason = moveInsideExternal(src, ctx, fromSlot, toSlot) end
+    if ok and movedRow and movement and ctx.activityExport and ctx.resource ~= '' then
+        pcall(function()
+            exports[ctx.resource][ctx.activityExport](src, ctx.ownerType, ctx.ownerId, movement,
+                tostring(movedRow.item_name), tonumber(movedRow.quantity) or 1)
+        end)
+    end
+    return ok, reason
 end
 
 AddEventHandler('playerDropped', function()

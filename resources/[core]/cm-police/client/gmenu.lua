@@ -80,6 +80,7 @@ function rebuild(targetServerId)
     if mine == false then mine = nil end
     if theirs == false then theirs = nil end
     if not mine then return end
+    if mine.suspended == true then return end
     local permissions = mine.permissions or {}
     if SearchResult and SearchTarget == targetServerId then
         addSearchRow('search_license', 'Firearms licence', SearchResult.firearmsLicensed and 'ACTIVE' or 'NOT ACTIVE', 1, 'license')
@@ -128,7 +129,12 @@ function rebuild(targetServerId)
             })
         end
     end
-    if not theirs then if mine.isLeader or permissions['police.invite'] then add('police_invite', 'Invite to Police', 10) end; return end
+    if not theirs then
+        if mine.isLeader or permissions['police.invite'] then
+            addConfirm('police_invite', 'Invite to Police', 10, 'Police Invitation', 'Invite the selected nearby player to Police?')
+        end
+        return
+    end
     if theirs.isLeader or (tonumber(mine.tier) or 0) <= (tonumber(theirs.tier) or 0) then return end
     if mine.isLeader or permissions['police.promote'] then add('police_promote', 'Promote Police Member', 20) end
     if mine.isLeader or permissions['police.demote'] then
