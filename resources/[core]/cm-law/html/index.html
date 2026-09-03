@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Oswald:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css"><link rel="stylesheet" href="nui://cm-ui/web/cm-dashboard.css"><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="police-dashboard.css"><link rel="stylesheet" href="dispatch-board.css">
   <title>CM Legal Organization</title>
 </head>
@@ -10,29 +12,54 @@
   <main id="app" class="hidden">
     <section class="shell">
       <aside class="side">
-        <div class="brand"><div class="logo">★</div><div><small id="shortLabel">LEGAL ORGANIZATION</small><h1 id="orgLabel">Organization</h1><p id="jurisdiction"></p></div></div>
-        <div class="identity">
-          <div><span>YOUR RANK</span><strong id="rankName">—</strong></div>
-          <div><span>DUTY STATUS</span><strong id="dutyStatus">Off duty</strong></div>
-        </div>
+        <div class="brand"><div class="logo" id="orgLogo">★</div><div><small id="orgFullLabel">LEGAL ORGANIZATION</small><h1 id="orgShortLabel">Organization</h1><p id="jurisdiction"></p></div></div>
         <nav>
-          <button class="tab active" data-tab="overview"><b>01</b><span>Overview<small>Duty and status</small></span></button>
-          <button class="tab" data-tab="roster"><b>02</b><span>Members<small>Roster and ranks</small></span></button>
-          <button class="tab" data-tab="ranks" id="ranksTab"><b>03</b><span>Ranks &amp; access<small>Manage permissions</small></span></button>
-          <button class="tab hidden" data-tab="fleet" id="fleetTab"><b>04</b><span>Fleet vehicles<small>Rank and parking</small></span></button>
-          <button class="tab hidden" data-tab="logs" id="logsTab"><b>05</b><span>Activity logs<small>Organization history</small></span></button>
-          <button class="tab hidden" data-tab="dispatch" id="dispatchTab"><b>06</b><span>Dispatch<small>Shared law calls</small></span></button>
-          <button class="tab hidden" data-tab="mdt" id="mdtTab"><b>07</b><span>MDT<small>Shared legal records</small></span></button>
-          <button class="tab" data-tab="staffing" id="staffingTab"><b>08</b><span>Staffing<small>Hire and manage</small></span></button>
+          <button class="tab active" data-tab="overview"><b>O</b><span>Overview<small>Duty and status</small></span></button>
+          <button class="tab" data-tab="roster"><b>M</b><span>Members<small>Roster and ranks</small></span></button>
+          <button class="tab" data-tab="ranks" id="ranksTab"><b>R</b><span>Ranks &amp; access<small>Manage permissions</small></span></button>
+          <button class="tab hidden" data-tab="fleet" id="fleetTab"><b>F</b><span>Fleet vehicles<small>Rank and parking</small></span></button>
+          <button class="tab hidden" data-tab="logs" id="logsTab"><b>A</b><span>Activity logs<small>Organization history</small></span></button>
+          <button class="tab hidden" data-tab="dispatch" id="dispatchTab"><b>D</b><span>Dispatch<small>Shared law calls</small></span></button>
+          <button class="tab hidden" data-tab="mdt" id="mdtTab"><b>MDT</b><span>MDT<small>Shared legal records</small></span></button>
+          <button class="tab" data-tab="staffing" id="staffingTab"><b>S</b><span>Staffing<small>Hire and manage</small></span></button>
         </nav>
-        <div class="side-foot">ESC to close</div>
+        <div class="side-spacer"></div>
+        <div class="side-summary"><span class="side-summary__dot" id="sideDutyDot"></span><div class="side-summary__text"><strong id="sideSummaryName">—</strong><small id="sideSummaryDuty">Off duty</small></div></div>
+        <div class="side-foot"><span class="side-foot__key">ESC</span><span class="side-foot__label">close menu</span></div>
       </aside>
       <div class="workspace">
-        <header><h2 id="pageTitle">Overview</h2><button class="icon" data-close aria-label="Close">×</button></header>
+        <header>
+          <div class="header-titles"><h2 id="pageTitle">Overview</h2><p id="pageBlurb" class="hint"></p></div>
+          <div class="header-actions"><button id="dutyPill" class="duty-pill">Off duty</button><button id="refreshBtn" type="button">Refresh</button><button class="icon" data-close aria-label="Close">×</button></div>
+        </header>
         <div class="content">
           <section id="overviewView" class="view">
-            <div class="section-head"><div><small>ORGANIZATION CONTROL</small><h3>Operational overview</h3><p>Membership, rank, dispatch, fleet and shared records.</p></div></div>
-            <div id="overviewStats" class="stats"></div>
+            <div class="command-card">
+              <div class="command-ring"><svg viewBox="0 0 100 100"><circle class="command-ring__track" cx="50" cy="50" r="44"></circle><circle class="command-ring__fill" id="commandRingFill" cx="50" cy="50" r="44"></circle></svg><div class="command-ring__inner"><strong id="commandTier">0</strong><small>Tier</small></div></div>
+              <div class="command-id"><h3 id="commandName">—</h3><div class="command-pills" id="commandPills"></div></div>
+              <div class="command-divider"></div>
+              <div class="command-icons" id="commandIcons"></div>
+            </div>
+            <div class="duty-banner">
+              <div class="duty-banner__body">
+                <div class="duty-banner__head"><span>On duty coverage</span><strong id="dutyBannerFraction">0 / 0</strong></div>
+                <div class="duty-banner__track"><div class="duty-banner__fill" id="dutyBannerFill"></div></div>
+              </div>
+              <div class="duty-banner__total"><small>Total members</small><strong id="dutyBannerTotal">0 members</strong></div>
+            </div>
+            <div class="overview-columns">
+              <div class="tools-card"><small>AGENCY TOOLS</small><div class="tools-grid" id="agencyTools"></div></div>
+              <div class="onduty-card"><small>ON DUTY NOW</small><div class="onduty-body" id="onDutyBody"></div></div>
+            </div>
+            <div class="feed-card">
+              <div class="feed-card__head"><small>ORGANIZATION FEED</small><span>Latest</span></div>
+              <div id="overviewFeed" class="feed-list"></div>
+            </div>
+            <div class="footer-shortcuts">
+              <button class="footer-shortcut" data-shortcut="dispatch"><span class="footer-shortcut__key">F10</span><span class="footer-shortcut__text"><strong>Dispatch</strong><small>Open dedicated dispatch</small></span></button>
+              <button class="footer-shortcut" data-shortcut="mdt"><span class="footer-shortcut__key">TAB</span><span class="footer-shortcut__text"><strong>MDT</strong><small>Open records terminal</small></span></button>
+              <button class="footer-shortcut" data-shortcut="quickmenu"><span class="footer-shortcut__key">J</span><span class="footer-shortcut__text"><strong>Quick actions</strong><small>Field tools &amp; road equipment</small></span></button>
+            </div>
           </section>
           <section id="rosterView" class="view hidden"><div id="roster" class="roster"></div></section>
           <section id="ranksView" class="view hidden">
@@ -72,6 +99,14 @@
           </section>
         </div>
       </div>
+      <aside class="record">
+        <div class="record__head"><small id="recordTerminalLabel">TERMINAL</small><h2 id="recordTitle">MEMBER RECORD</h2></div>
+        <div class="record__portrait"><div class="record__mark" id="recordMark">★</div></div>
+        <div class="record__info" id="recordInfo"></div>
+        <div class="record__notice"><small>NOTICE</small><p>Dispatch calls route to F10. Vehicle and equipment logs are recorded automatically while on duty.</p></div>
+        <div class="record__actions" id="recordActions"></div>
+        <div class="record__foot"><div><strong id="recordName">—</strong><small id="recordRankTier">—</small></div><span class="record__you">You</span></div>
+      </aside>
     </section>
     <div id="toast" role="status"></div>
     <div id="facilities" class="hidden" aria-hidden="true"></div>

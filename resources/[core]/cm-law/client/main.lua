@@ -118,6 +118,27 @@ end)
 
 RegisterNUICallback('close', function(_, cb) closeMenu(); cb({ ok = true }) end)
 RegisterNUICallback('refresh', function(_, cb) cb(refresh() or { ok = false }) end)
+-- Overview dashboard quick actions: reuse the same off-duty/standalone/quick-menu
+-- entry points the physical F10/TAB/J keys and radial quick menu already call,
+-- so the dashboard's shortcut tiles never duplicate logic or bypass a check.
+RegisterNUICallback('setDutyOff', function(_, cb)
+    local result = lib.callback.await('cm-law:server:setDuty', false, false)
+    if result and result.ok then TriggerEvent('cm-law:client:restorePersonalOutfit') end
+    cb(result or { ok = false, error = 'No response from server.' })
+    if result and result.ok then refresh() end
+end)
+RegisterNUICallback('openStandalone', function(data, cb)
+    local tab = data and data.tab
+    closeMenu()
+    if tab == 'dispatch' then TriggerEvent('cm-law:client:openDispatch')
+    elseif tab == 'mdt' then TriggerEvent('cm-law:client:openMdt') end
+    cb({ ok = true })
+end)
+RegisterNUICallback('openQuickMenu', function(_, cb)
+    closeMenu()
+    OpenLawQuickMenu()
+    cb({ ok = true })
+end)
 RegisterNUICallback('staffAction', function(data, cb)
     local result = lib.callback.await('cm-law:server:staffAction', false, data.action, data)
     cb(result or { ok = false, error = 'No response from server.' })
