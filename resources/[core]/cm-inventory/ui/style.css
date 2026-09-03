@@ -1,2915 +1,451 @@
 /* ============================================================================
-   CM INVENTORY v2 — CENTERED FULL-SCREEN GLASS UI
-   ----------------------------------------------------------------------------
-   Fixes applied:
-   • Tight 3-column cluster: FAST ACCESS | POCKETS/BACKPACK | EQUIPMENT.
-   • Cluster is centered horizontally instead of stretching to screen edges.
-   • Whole inventory block is vertically centered and height-capped.
-   • Slot size is larger but safely clamped for 768px-tall screens.
-   • Existing class/id hooks are preserved for app.js.
-   ========================================================================== */
+   CM INVENTORY — companion-UI restyle (authoritative clean sheet)
+   Design language from the "Inventory UI Standalone" reference:
+     - dark steel canvas with fake-glass panels (NO backdrop-filter, CEF-safe)
+     - ice/cyan identity accent (#4dd8e8 / #45ecff)
+     - large full-screen slots with rounded translucent tiles
+     - staggered columns matching the 1920x1080 reference composition
+   Every app.js behaviour hook, slot class and grid geometry it uses for drag
+   math is preserved and re-stated here so layout logic remains untouched.
+   ========================================================================= */
+:root{
+    --text:#eef1f6;
+    --muted:rgba(238,242,248,.58);
+    --faint:rgba(238,242,248,.33);
+    --cyan:#4dd8e8;
+    --cyan2:#45ecff;
+    --cyan-ink:#062226;
+    --red:#ff5f6d;
+    --yellow:#ffe26a;
+    --green:#63d68c;
 
-:root {
-    --text: #f1fbff;
-    --muted: rgba(241, 251, 255, .62);
-    --soft: rgba(241, 251, 255, .30);
-    --line: rgba(235, 255, 255, .16);
-    --line-strong: rgba(235, 255, 255, .40);
-    --glass-dark: rgba(6, 18, 25, .55);
-    --panel-bg: rgba(7, 20, 27, .48);
-    --panel-border: rgba(210, 250, 255, .16);
+    /* The source mockup uses the same 112px card in every inventory group. */
+    /* Scale beyond 1080p instead of leaving most of ultrawide/high-DPI screens empty. */
+    --slot:clamp(76px, min(6.2vw, 10.4vh), 160px);
+    --gear-slot:var(--slot);
+    --quick-slot:var(--slot);
+    --gap:clamp(8px, .9vw, 13px);          /* gap INSIDE a grid             */
+    --layout-gap:clamp(16px, 1.8vw, 38px); /* gap BETWEEN the 3 columns     */
 
-    --cyan: #45ecff;
-    --cyan-soft: rgba(69, 236, 255, .28);
-    --red: #ff4d64;
-    --yellow: #ffe66b;
-    --green: #5dffaa;
-
-    /* Larger slots, but height-safe.
-       At 768px tall this stays around 78px so 6 slot rows + headers fit.
-       On 1080p it grows near 106px for a fuller screen. */
-    --slot: clamp(68px, min(7.2vw, 10.2vh), 106px);
-    --gear-slot: calc(var(--slot) * .82);
-    --quick-slot: calc(var(--slot) * .86);
-    --gap: clamp(8px, .9vh, 12px);
-    --layout-gap: clamp(30px, 2.4vw, 48px);
-
-    --radius-xl: 26px;
-    --radius-lg: 20px;
-    --radius-md: 16px;
+    --radius-panel:20px;
+    --radius-slot:15px;
+    --panel-brd:rgba(255,255,255,.07);
+    --panel-brd2:rgba(255,255,255,.13);
 }
+*{ box-sizing:border-box; user-select:none; }
+html,body{ width:100%; height:100%; margin:0; overflow:hidden; }
+body{ font-family:"Inter","Segoe UI",system-ui,Arial,sans-serif; color:var(--text); background:transparent; }
+.hidden{ display:none !important; }
 
-* { box-sizing: border-box; user-select: none; }
-html, body { width: 100%; height: 100%; }
-body {
-    margin: 0;
-    overflow: hidden;
-    font-family: 'Segoe UI', 'Inter', Arial, sans-serif;
-    color: var(--text);
-    background: transparent;
+/* ---------------------------------------------------------------- ROOT ---- */
+#inventory{
+    position:fixed; inset:0; width:100vw; height:100vh;
+    display:block;
+    isolation:isolate; overflow:hidden;
 }
-.hidden { display: none !important; }
+#inventory:not(.hidden){ animation:invRise .22s cubic-bezier(.2,.8,.2,1); }
+@keyframes invRise{ from{ opacity:0; transform:translateY(8px) scale(.995);} to{ opacity:1; transform:none;} }
 
-/* ---------------------------------------------------------------- ROOT --- */
-#inventory {
-    position: fixed;
-    inset: 0;
-    width: 100vw;
-    height: 100vh;
-    padding: clamp(10px, 1.8vh, 22px) clamp(14px, 2vw, 34px);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: clamp(10px, 1.35vh, 16px);
-    isolation: isolate;
-    overflow: hidden;
-}
-
-/* ------------------------------------------------------------ BACKDROP --- */
-.background {
-    position: absolute;
-    inset: 0;
-    z-index: 0;
+.background{
+    position:absolute; inset:0; z-index:0; overflow:hidden;
     background:
-        radial-gradient(circle at 17% 16%, rgba(54, 236, 255, .075), transparent 34%),
-        radial-gradient(circle at 82% 84%, rgba(88, 160, 255, .055), transparent 38%),
-        radial-gradient(120% 120% at 50% 50%, rgba(0,8,12,.25), rgba(0,6,10,.60));
-    backdrop-filter: blur(7px) saturate(1.08) brightness(.78);
-    -webkit-backdrop-filter: blur(7px) saturate(1.08) brightness(.78);
+        radial-gradient(120% 100% at 18% -6%, rgba(64,164,214,.18), transparent 46%),
+        radial-gradient(130% 120% at 50% 140%, rgba(14,26,46,.92), transparent 50%),
+        radial-gradient(150% 150% at 50% 40%, #151d29 0%, #0b1017 52%, #050709 100%);
 }
-.background::before {
-    content: '';
-    position: absolute;
-    inset: 0;
+.background::before{ /* vignette + subtle grid */
+    content:""; position:absolute; inset:0;
+    background:radial-gradient(125% 125% at 50% 44%, transparent 55%, rgba(0,0,0,.55) 100%),
+        linear-gradient(180deg, rgba(0,0,0,.2), transparent 14%, transparent 84%, rgba(0,0,0,.3));
+}
+.background::after{
+    content:""; position:absolute; right:0; bottom:0; width:34vw; height:58vh; opacity:.5;
+    background:repeating-linear-gradient(90deg,
+        rgba(255,255,255,.018) 0 22px, transparent 22px 48px,
+        rgba(255,255,255,.012) 48px 82px, transparent 82px 116px);
+    clip-path:polygon(0 28%,8% 28%,8% 7%,17% 7%,17% 36%,25% 36%,25% 18%,34% 18%,34% 0,43% 0,43% 31%,51% 31%,51% 12%,62% 12%,62% 38%,72% 38%,72% 23%,83% 23%,83% 5%,92% 5%,92% 33%,100% 33%,100% 100%,0 100%);
+}
+
+/* ---------------------------------------------------------------- TOPBAR --- */
+.topbar{
+    position:absolute; z-index:2; top:18px; left:18px; right:18px; height:42px;
+    display:block;
+}
+.topbar-brand{ position:absolute; left:0; top:0; display:flex; align-items:center; gap:12px; }
+.close{
+    width:42px; height:42px; border-radius:50%;
+    border:1px solid var(--panel-brd2); background:rgba(255,255,255,.05);
+    color:rgba(255,255,255,.78); font-size:17px; line-height:1; cursor:pointer;
+    transition:background .14s,color .14s,border-color .14s;
+}
+.close:hover{ background:rgba(255,255,255,.14); color:#fff; border-color:rgba(255,255,255,.3); }
+.glass-chip{
+    height:42px; padding:0 20px; display:grid; place-items:center; white-space:nowrap;
+    border-radius:10px; border:1px solid rgba(255,255,255,.1);
+    background:linear-gradient(150deg, rgba(255,255,255,.07), rgba(255,255,255,.02) 60%), rgba(18,30,44,.34);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.12), 0 10px 26px rgba(0,0,0,.22);
+    color:rgba(255,255,255,.9); font-size:12px; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
+}
+.hint{
+    position:absolute; left:50%; top:7px; transform:translateX(-50%); text-align:center; white-space:nowrap;
+    color:rgba(255,255,255,.4); font-size:10px; line-height:1.6;
+    font-weight:700; text-transform:uppercase; letter-spacing:.13em;
+}
+/* ---- backpack weight (right) ---- */
+.weight-card{
+    display:none;
+}
+.weight-card>span{ font-size:9.5px; font-weight:800; letter-spacing:.13em; color:var(--faint); text-transform:uppercase; }
+.weight-line{ display:flex; align-items:center; gap:8px; margin-top:7px; }
+.weight-line strong{ font-size:clamp(15px,1vw,19px); letter-spacing:.04em; }
+.weight-line small{ opacity:.42; }
+.weight-line span{ color:rgba(255,255,255,.66); font-size:11.5px; font-weight:700; }
+.gauge{ width:64px; height:13px; flex-shrink:0; border-radius:999px; overflow:hidden;
+    background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.12); }
+#weight-fill{ display:block; height:100%; width:0; border-radius:inherit;
+    background:linear-gradient(90deg, rgba(77,216,232,.5), rgba(69,236,255,.96));
+    box-shadow:0 0 14px rgba(69,236,255,.65); transition:width .18s ease; }
+
+/* ====================================================== 3-COLUMN BODY ====== */
+.inventory-layout{
+    position:absolute; z-index:2; left:clamp(18px,1.1vw,24px); top:clamp(120px,15.2vh,200px);
+    width:max-content;
+    display:grid; grid-template-columns:auto auto auto; column-gap:var(--layout-gap);
+    align-items:start;
+}
+
+/* shared translucent card panel */
+.fast-column, .section{
+    border-radius:var(--radius-panel);
+    border:1px solid var(--panel-brd);
+    background:linear-gradient(165deg, rgba(255,255,255,.025), rgba(255,255,255,0) 58%), rgba(6,12,18,.34);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.05), 0 22px 55px rgba(0,0,0,.28);
+}
+
+/* ---- COLUMN A : FAST ACCESS ---- */
+.fast-column{ padding:15px; display:flex; flex-direction:column; align-items:center; gap:13px; margin-top:clamp(70px,8.5vh,112px); }
+.fast-slots{ display:flex; flex-direction:column; gap:var(--gap); }
+
+/* ---- COLUMN B : POCKETS / BACKPACK ---- */
+.bag-column{ display:flex; flex-direction:column; align-items:center; gap:clamp(14px,1.5vw,26px); }
+.section{ padding:15px; }
+#inventory .pockets-section{ }
+.backpack-section{ flex:0 0 auto; }
+
+/* column titles */
+.section-title, .column-title{
+    margin:0 0 13px; width:100%;
+    font-size:11px; font-weight:800; letter-spacing:.15em; text-transform:uppercase;
+    color:rgba(255,255,255,.5);
+    display:flex; align-items:baseline; justify-content:space-between; gap:12px;
+}
+.section-title>span, .column-title>span{
+    font-size:10px; font-weight:700; color:var(--muted); text-align:right;
+    text-transform:none; letter-spacing:.02em; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis; max-width:260px;
+}
+#bag-level-label{ font-weight:700; }
+
+/* slot grids: POCKETS is a single full row; BACKPACK is a 6x5 board.
+   These exact cell sizes feed app.js drag + geometric drop math. */
+.slot-row{ display:grid; grid-template-columns:repeat(6, var(--slot)); grid-auto-rows:var(--slot); gap:var(--gap); }
+.slot-grid{ display:grid; grid-template-columns:repeat(6, var(--slot)); grid-template-rows:repeat(5, var(--slot)); gap:var(--gap); }
+
+/* ---- COLUMN C : EQUIPMENT (art + gear slots) ---- */
+.character-column.equipment-column{
+    position:relative; display:flex; flex-direction:column; align-items:center; min-width:0;
+    margin-top:clamp(42px,5.2vh,70px); overflow:visible;
+}
+.section-title-row{ width:auto; margin-bottom:10px; }
+.section-title-row h3{
+    width:max-content; margin:0 auto; display:flex; align-items:baseline; gap:14px;
+    font-size:11px; font-weight:800; letter-spacing:.16em; text-transform:uppercase;
+    color:rgba(255,255,255,.6);
+}
+.section-title-row h3 span{
+    font-size:9.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:rgba(255,255,255,.4);
+}
+/* The reference keeps equipment as a quiet translucent board. */
+.character-wrap{
+    position:relative; isolation:isolate;
+    display:flex; align-items:center; justify-content:center; padding:16px;
+    border-radius:var(--radius-panel);
+    border:1px solid var(--panel-brd);
+    background:linear-gradient(170deg, rgba(255,255,255,.02), rgba(255,255,255,0) 60%), rgba(255,255,255,.012);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.04), 0 24px 60px rgba(0,0,0,.26);
+}
+.character-wrap #gear-slots{ position:relative; z-index:1; }
+.character-art{
+    position:absolute; z-index:-1; left:calc(100% - 8px); top:clamp(-72px,-5.2vh,-48px);
+    width:clamp(330px,24vw,700px); height:auto; pointer-events:none;
+    object-fit:contain; opacity:.94; mix-blend-mode:screen;
+    filter:grayscale(1) contrast(1.75) brightness(.72);
+}
+.character-wrap.external-wrap + .character-art{ display:none; }
+
+/* gear grid (3-across) — stays centered atop the art */
+.gear-grid{ display:grid; grid-template-columns:repeat(3, var(--gear-slot)); grid-auto-rows:var(--gear-slot); gap:var(--gap); }
+
+/* EXTERNAL storage: app.js toggles #gear-slots class to .external-grid and adds
+   .external-wrap on .character-wrap. We render a fixed 6x5 board that exactly
+   mirrors the backpack geometry used by the geometric drop fallback.        */
+.character-wrap.external-wrap{ padding:16px; }
+.gear-grid.external-grid, #gear-slots.external-grid{
+    display:grid;
+    grid-template-columns:repeat(6, var(--slot));
+    grid-template-rows:repeat(5, var(--slot));
+    grid-auto-rows:var(--slot);
+    gap:var(--gap);
+    width:calc((var(--slot) * 6) + (var(--gap) * 5));
+    max-width:calc((var(--slot) * 6) + (var(--gap) * 5));
+}
+
+/* ================================================ SLOT CARDS ================ */
+.slot{
+    position:relative;
+    width:var(--slot); height:var(--slot); border-radius:var(--radius-slot);
+    border:1px solid rgba(255,255,255,.09);
     background:
-        linear-gradient(90deg, rgba(255,255,255,.022) 1px, transparent 1px),
-        linear-gradient(rgba(255,255,255,.016) 1px, transparent 1px);
-    background-size: 84px 84px, 84px 84px;
-    mask-image: radial-gradient(circle at 50% 46%, black, transparent 78%);
-    -webkit-mask-image: radial-gradient(circle at 50% 46%, black, transparent 78%);
-    opacity: .38;
+        radial-gradient(130% 130% at 50% 6%, rgba(255,255,255,.05), rgba(255,255,255,.008) 58%),
+        linear-gradient(180deg, rgba(14,24,36,.5), rgba(6,10,16,.55));
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.07), 0 12px 26px rgba(0,0,0,.2);
+    display:flex; align-items:center; justify-content:center;
+    transition:transform .12s, border-color .12s, box-shadow .12s, background .12s;
+    overflow:visible;
+}
+.slot.quick{ width:var(--quick-slot); height:var(--quick-slot); }
+.slot.equipment{ width:var(--gear-slot); height:var(--gear-slot); }
+.slot.external{ width:var(--slot); height:var(--slot); }
+
+.slot.empty{
+    background:radial-gradient(130% 120% at 50% 0%, rgba(255,255,255,.02), rgba(255,255,255,0) 60%);
+    border-color:rgba(255,255,255,.06); box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+.slot:hover{
+    border-color:rgba(77,216,232,.6);
+    box-shadow:0 0 22px rgba(77,216,232,.25), inset 0 0 0 1px rgba(77,216,232,.4);
+    transform:translateY(-1px);
+}
+.slot.drop-target{ border-color:var(--cyan); transform:translateY(-2px);
+    box-shadow:0 0 28px rgba(77,216,232,.55), inset 0 0 0 1px var(--cyan); }
+.slot.invalid-target{ border-color:rgba(255,95,109,.9); box-shadow:0 0 18px rgba(255,95,109,.45); }
+.slot.locked{ opacity:.4; border-style:dashed; }
+.slot.storage-locked{ opacity:.3; border-style:dashed; border-color:rgba(255,255,255,.14); }
+
+/* quick-slot hotkey tags */
+.hotkey{ position:absolute; top:6px; left:10px; z-index:4;
+    font-size:11px; font-weight:800; color:rgba(255,255,255,.45); }
+.lock-label{ position:absolute; inset:0; display:grid; place-items:center;
+    font-size:10px; font-weight:800; letter-spacing:.08em; color:rgba(255,255,255,.55); }
+
+/* empty-slot labels: equipment icons + external slot numbers */
+.slot-label{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px;
+    text-align:center; color:rgba(255,255,255,.34);
+    font-size:8.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; }
+.slot-label .equip-svg{ width:46%; height:42%; }
+.slot.equipment:hover .slot-label{ color:rgba(77,216,232,.85); }
+.slot.external.empty .slot-label span, .external-label span{ color:rgba(255,255,255,.45); font-size:12px; }
+
+/* =========================================================== ITEMS ========= */
+.item{
+    position:relative; width:100%; height:100%;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    border-radius:inherit; padding:12px 8px 18px; cursor:grab; isolation:isolate;
+}
+.item:active{ cursor:grabbing; }
+.item img{
+    width:66%; height:62%; object-fit:contain; pointer-events:none; transform:translateY(-7px);
+    filter:drop-shadow(0 8px 12px rgba(0,0,0,.45));
+}
+.item-info{
+    position:absolute; left:6px; right:6px; bottom:9px;
+    text-align:center; pointer-events:none; white-space:nowrap;
+}
+.slot.quick .item img, .slot.equipment .item img{ width:62%; height:58%; }
+.slot.quick .item-info, .slot.equipment .item-info{ bottom:7px; }
+.item.external-item{ box-shadow:inset 0 -3px 0 rgba(77,216,232,.72), 0 0 20px rgba(77,216,232,.16); }
+/* quantity chip (top-right) */
+.item .qty{ position:absolute; top:6px; right:9px; z-index:4; line-height:1;
+    font-size:clamp(13px,1vw,17px); font-weight:800; color:#fff; text-shadow:0 2px 6px rgba(0,0,0,.6); }
+/* name + weight under art */
+.item-name{ margin-top:5px; max-width:97%;
+    font-size:clamp(9px,.7vw,14px); font-weight:800; letter-spacing:.02em; text-transform:uppercase;
+    color:#fff; line-height:1.05; text-align:center;
+    overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.item-weight{ margin-top:3px; max-width:97%; color:var(--muted); font-size:clamp(8px,.55vw,12px);
+    text-align:center; text-transform:uppercase; letter-spacing:.03em;
+    overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+/* durability bar under the icon */
+.durability{ position:absolute; left:18px; right:18px; bottom:6px; height:3px; overflow:hidden;
+    border-radius:999px; background:rgba(255,255,255,.12); }
+.durability span{ display:block; height:100%;
+    background:linear-gradient(90deg, rgba(77,216,232,.5), var(--cyan));
+    box-shadow:0 0 8px rgba(77,216,232,.7); }
+.item.rarity-rare .durability span{ background:rgba(255,95,109,.9); box-shadow:0 0 8px rgba(255,95,109,.6); }
+
+/* badges (FIT / LVL) top-right */
+.item-badge{ position:absolute; top:7px; right:8px; z-index:4;
+    padding:2px 7px; border-radius:5px; font-size:8px; font-weight:800; letter-spacing:.04em; }
+.bag-badge{ background:var(--yellow); color:#2b2100; }
+.clothing-badge{ background:var(--cyan); color:var(--cyan-ink); }
+/* qty and badges may occupy same corner; app.js only adds badge OR qty not both */
+
+/* rarity rings */
+.item.rarity-unique{ box-shadow:inset 0 0 0 1px rgba(77,216,232,.55), 0 0 16px rgba(77,216,232,.16);
+    background:linear-gradient(180deg, rgba(77,216,232,.05), transparent 55%); }
+.item.rarity-rare{ box-shadow:inset 0 0 0 1px rgba(255,95,109,.55), 0 0 16px rgba(255,95,109,.14);
+    background:linear-gradient(180deg, rgba(255,95,109,.05), transparent 55%); }
+.item.rarity-unique .item-name{ color:#c9f6ff; }
+.item.rarity-rare .item-name{ color:#ffd2d7; }
+
+/* ============================================== CONTEXT (right-click) ===== */
+.context{ position:fixed; z-index:900; width:430px; max-width:94vw; overflow:hidden;
+    border-radius:16px; border:1px solid var(--panel-brd2);
+    background:linear-gradient(170deg, rgba(15,23,34,.98), rgba(8,12,19,.98));
+    box-shadow:0 26px 80px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.06);
+    font-size:13px; color:var(--text); }
+.context-head{ padding:15px 18px 13px; border-bottom:1px solid rgba(255,255,255,.08); }
+.context-title{ font-size:15px; font-weight:800; text-transform:uppercase; letter-spacing:.02em; }
+.context-meta{ margin-top:5px; color:var(--muted); font-size:11px; font-weight:700; line-height:1.5; }
+.context-desc{ margin-top:8px; color:rgba(255,255,255,.7); font-size:11.5px; line-height:1.45; }
+.context-head.rarity-unique{ border-left:3px solid var(--cyan); }
+.context-head.rarity-rare{ border-left:3px solid var(--red); }
+.context-head.rarity-normal{ border-left:3px solid rgba(255,255,255,.2); }
+.details-list{ margin-top:9px; display:grid; gap:5px; max-height:94px; overflow:hidden; }
+.detail-row{ display:flex; justify-content:space-between; gap:18px; color:var(--muted); font-size:11px; }
+.detail-row span{ color:rgba(255,255,255,.5); }
+.detail-row b{ color:rgba(255,255,255,.88); font-weight:800; text-align:right; }
+.context-actions{ display:grid; grid-template-columns:repeat(4,1fr); border-top:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.02); }
+.context-actions.compact{ grid-template-columns:repeat(auto-fit, minmax(86px, 1fr)); }
+.context button{ border:0; background:transparent; color:#fff; padding:11px 5px; cursor:pointer;
+    font-size:10px; font-weight:700; letter-spacing:.05em; border-right:1px solid rgba(255,255,255,.07);
+    transition:background .12s, color .12s; }
+.context button:last-child{ border-right:0; }
+.context button:hover{ background:rgba(77,216,232,.16); color:#d9fbff; }
+.context .icon{ display:block; font-size:17px; margin-bottom:5px; opacity:.85; }
+
+/* ========================================================= TOOLTIP ========= */
+.tooltip{ position:fixed; z-index:899; min-width:210px; max-width:310px; padding:12px 13px;
+    border-radius:13px; pointer-events:none;
+    background:linear-gradient(170deg, rgba(15,23,34,.97), rgba(8,12,19,.97));
+    border:1px solid var(--panel-brd2); box-shadow:0 18px 50px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06);
+    font-size:11px; color:var(--text); }
+.tooltip-header{ display:flex; align-items:center; gap:10px; padding-bottom:8px; border-bottom:1px solid rgba(255,255,255,.08); }
+.tooltip-img{ width:38px; height:38px; object-fit:contain; flex-shrink:0;
+    background:rgba(255,255,255,.06); border:1px solid var(--panel-brd); border-radius:10px; }
+.tooltip-title{ flex:1; min-width:0; }
+.tooltip strong{ display:block; color:#fff; margin-bottom:2px; font-size:13px; font-weight:800;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tooltip p{ margin:0; color:var(--muted); font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tooltip-meta{ padding-top:7px; display:grid; gap:4px; }
+.tooltip-meta div{ display:flex; justify-content:space-between; gap:16px; color:var(--muted); }
+.tooltip-meta b{ color:rgba(255,255,255,.85); font-weight:800; text-align:right; }
+
+/* ================================================ MODALS (share a skin) ==== */
+.modal{ position:fixed; inset:0; z-index:950; display:flex; align-items:center; justify-content:center;
+    background:rgba(4,8,12,.5); }
+.modal-card{ min-width:320px; max-width:92vw; padding:20px 20px 16px; border-radius:16px;
+    background:linear-gradient(165deg, rgba(15,23,34,.98), rgba(8,12,19,.98));
+    border:1px solid rgba(77,216,232,.38);
+    box-shadow:0 26px 80px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.07); color:var(--text); }
+.modal-card h3{ margin:0 0 6px; font-size:15px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; }
+.modal-card p{ margin:0 0 12px; color:var(--muted); font-size:12px; line-height:1.4; }
+.modal-card input{ width:100%; padding:9px 11px; border-radius:9px;
+    border:1px solid var(--panel-brd2); background:rgba(255,255,255,.04); color:#fff;
+    font-size:14px; font-weight:700; outline:none; }
+.modal-card input:focus{ border-color:rgba(77,216,232,.6); }
+.modal-actions{ display:flex; gap:10px; margin-top:14px; justify-content:flex-end; }
+.modal-actions button{ padding:8px 16px; border-radius:9px; cursor:pointer;
+    border:1px solid var(--panel-brd2); background:rgba(255,255,255,.05); color:#fff;
+    font-size:12px; font-weight:700; transition:background .12s; }
+.modal-actions button:hover{ background:rgba(255,255,255,.12); }
+.modal-actions button:first-child{ border-color:rgba(77,216,232,.6); background:rgba(77,216,232,.3); }
+.modal-actions button:first-child:hover{ background:rgba(77,216,232,.45); }
+
+/* give-target picker built at runtime by app.js */
+.cm-modal-overlay{ position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center;
+    background:rgba(4,10,14,.6); }
+.cm-modal-card{ min-width:320px; max-width:430px; padding:18px 18px 14px; border-radius:14px;
+    background:linear-gradient(170deg, rgba(15,23,34,.98), rgba(8,12,19,.98));
+    border:1px solid rgba(77,216,232,.4); color:#eaf6fb;
+    box-shadow:0 18px 60px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.07); }
+.cm-modal-title{ font-size:15px; font-weight:700; margin-bottom:12px; letter-spacing:.3px; }
+.cm-give-target-list{ display:flex; flex-direction:column; gap:8px; max-height:260px; overflow-y:auto; }
+.cm-give-target-row{ display:flex; align-items:center; justify-content:space-between; padding:11px 13px;
+    border-radius:10px; cursor:pointer; background:rgba(77,216,232,.06);
+    border:1px solid rgba(77,216,232,.2); color:#eaf6fb; font-size:14px; transition:background .12s,border-color .12s; }
+.cm-give-target-row:hover{ background:rgba(77,216,232,.15); border-color:rgba(77,216,232,.45); }
+.cm-give-name{ font-weight:700; }
+.cm-give-dist{ font-size:12px; opacity:.7; }
+.cm-modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:14px; }
+.cm-btn{ padding:8px 16px; border-radius:9px; cursor:pointer; font-size:13px; font-weight:700;
+    border:1px solid rgba(77,216,232,.35); background:rgba(77,216,232,.12); color:#eaf6fb; }
+.cm-btn-ghost{ background:transparent; border-color:var(--panel-brd2); opacity:.85; }
+.cm-btn:hover{ filter:brightness(1.15); }
+
+/* ================================================ USE PROGRESS ============= */
+.progress-overlay{ position:fixed; left:50%; bottom:24%; transform:translateX(-50%); z-index:960; }
+.progress-card{ min-width:260px; padding:14px 18px; border-radius:13px;
+    background:linear-gradient(170deg, rgba(15,23,34,.97), rgba(8,12,19,.97));
+    border:1px solid var(--panel-brd2); box-shadow:0 18px 50px rgba(0,0,0,.5); }
+#progress-label{ margin:0 0 12px; color:var(--text); font-weight:800; font-size:11.5px; letter-spacing:.05em; text-transform:uppercase; }
+.progress-bar{ height:6px; border-radius:999px; background:rgba(255,255,255,.12); overflow:hidden; }
+#progress-fill{ display:block; height:100%; width:0;
+    background:linear-gradient(90deg, rgba(77,216,232,.5), var(--cyan)); box-shadow:0 0 10px var(--cyan); border-radius:inherit; }
+
+/* =============================================================== TOAST ====== */
+.toast{ position:fixed; left:50%; bottom:8%; transform:translateX(-50%); z-index:970;
+    padding:11px 18px; border-radius:12px; background:rgba(10,16,22,.96);
+    border:1px solid rgba(77,216,232,.5); color:#dffaff; font-size:12.5px; font-weight:700; letter-spacing:.02em;
+    box-shadow:0 16px 44px rgba(0,0,0,.5); }
+.toast.error{ border-color:rgba(255,95,109,.65); color:#ffd3d8; }
+.toast.success{ border-color:rgba(99,214,140,.65); color:#d1ffe4; }
+
+/* ================================================= give-drop hint (bottom) */
+.give-drop-zone{ position:fixed; left:50%; bottom:2.6%; transform:translateX(-50%); z-index:800;
+    padding:12px 22px; border-radius:999px;
+    border:1px dashed rgba(77,216,232,.65); background:rgba(8,16,22,.7);
+    color:var(--cyan); font-size:11px; font-weight:700; letter-spacing:.07em; white-space:nowrap; }
+.give-drop-zone.active{ background:rgba(77,216,232,.22); border-style:solid; box-shadow:0 0 20px rgba(77,216,232,.3); }
+#inventory > .give-drop-zone{ position:absolute; }
+
+/* bottom hint */
+.bottom-hint{ position:absolute; z-index:2; left:50%; bottom:20px; transform:translateX(-50%); color:rgba(255,255,255,.3); font-size:10px;
+    font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+
+/* ============================================== DROP PICKUP (world items) === */
+.drop-pickup-panel{ position:fixed; left:50%; top:52%; transform:translate(-50%,-50%); z-index:900;
+    width:320px; max-width:92vw; padding:14px; border-radius:16px;
+    background:linear-gradient(170deg, rgba(12,18,26,.96), rgba(6,10,15,.96));
+    border:1px solid var(--panel-brd2); box-shadow:0 20px 60px rgba(0,0,0,.5);
+    color:var(--text); }
+.drop-pickup-panel.hidden{ display:none; }
+.drop-pickup-title{ font-size:12px; font-weight:800; letter-spacing:.06em; color:var(--cyan); margin-bottom:10px; }
+.drop-pickup-list{ display:flex; flex-direction:column; gap:7px; }
+.drop-pickup-row{ display:flex; align-items:center; gap:11px; padding:8px 10px; border-radius:10px;
+    background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.07); }
+.drop-pickup-row.selected{ border-color:rgba(77,216,232,.7); background:rgba(77,216,232,.1); }
+.drop-pickup-img{ width:40px; height:40px; display:grid; place-items:center; flex-shrink:0;
+    background:rgba(255,255,255,.04); border:1px solid var(--panel-brd); border-radius:9px; }
+.drop-pickup-img img{ width:34px; height:34px; object-fit:contain; }
+.drop-pickup-text{ flex:1; min-width:0; }
+.drop-pickup-text{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+.drop-pickup-text strong{ font-size:12.5px; font-weight:700; }
+.drop-pickup-text span{ color:var(--muted); font-size:12px; font-weight:700; }
+.drop-pickup-help{ margin-top:10px; text-align:center; color:rgba(255,255,255,.4); font-size:11px; }
+.drop-pickup-help b{ color:var(--cyan); font-weight:800; }
+
+/* bag unlock hint */
+.bag-unlock-hint{ margin:0 0 10px; color:var(--cyan2); font-size:11px; font-weight:600; }
+
+/* dragged ghost */
+.drag-ghost{ position:fixed; z-index:1000; opacity:.92; box-shadow:0 20px 60px rgba(0,0,0,.5);
+    pointer-events:none; transform:rotate(2deg); }
+.dragging-source{ opacity:.32; }
+
+/* ------------------------------------------------------------- responsive --- */
+@media (max-width:1366px),(max-height:800px){
+    :root{ --slot:clamp(64px, min(6.2vw,10.1vh), 86px); --gap:8px; --layout-gap:16px; }
+    .inventory-layout{ top:clamp(92px,13vh,108px); }
+    .character-art{ width:clamp(270px,23vw,330px); }
 }
-
-.topbar, .inventory-layout, .bottom-hint,
-.context, .tooltip, .modal, .toast, .progress-overlay { position: relative; z-index: 2; }
-
-/* ------------------------------------------------ TOPBAR / CHIPS --- */
-.weight-card,
-.hint {
-    border: 0;
-    background: none;
-    box-shadow: none;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-}
-.glass-chip {
-    border: 1px solid var(--panel-border);
-    background:
-        linear-gradient(145deg, rgba(255,255,255,.08), rgba(255,255,255,.02) 54%),
-        rgba(6, 18, 25, .28);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 8px 24px rgba(0,0,0,.24);
-    backdrop-filter: blur(16px) saturate(1.3);
-    -webkit-backdrop-filter: blur(16px) saturate(1.3);
-}
-
-/* Frameless main panels: slots float on the glass backdrop. */
-.section,
-.fast-column,
-.character-column {
-    border: 0;
-    background: none;
-    box-shadow: none;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-}
-
-/* ---------------------------------------------------------------- TOP --- */
-.topbar {
-    flex: 0 0 auto;
-    display: grid;
-    grid-template-columns: minmax(190px, 260px) minmax(280px, 1fr) auto auto;
-    align-items: center;
-    gap: clamp(10px, 1vw, 18px);
-    width: min(94vw, 1180px);
-    height: clamp(46px, 5.8vh, 60px);
-    margin: 0 auto;
-}
-.weight-card {
-    height: 100%;
-    padding: 0;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-}
-.weight-card > span {
-    font-size: clamp(9px, .68vw, 11px);
-    font-weight: 800;
-    color: rgba(255,255,255,.62);
-    letter-spacing: 1px;
-    text-shadow: 0 2px 8px rgba(0,0,0,.5);
-}
-.weight-line { display: flex; align-items: center; gap: 9px; margin-top: 6px; }
-.weight-line strong { font-size: clamp(16px, 1.08vw, 21px); letter-spacing: 1px; text-shadow: 0 2px 8px rgba(0,0,0,.5); }
-.weight-line small { opacity: .45; }
-.weight-line span { color: rgba(255,255,255,.66); font-weight: 800; font-size: clamp(11px, .78vw, 13px); }
-.gauge {
-    width: 68px;
-    height: 24px;
-    border: 1px solid rgba(255,255,255,.32);
-    border-radius: 999px;
-    overflow: hidden;
-    position: relative;
-    background: rgba(255,255,255,.04);
-    flex-shrink: 0;
-}
-#weight-fill {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 0;
-    height: 100%;
-    background: linear-gradient(90deg, rgba(69,236,255,.35), rgba(69,236,255,.9));
-    box-shadow: 0 0 20px var(--cyan);
-    transition: width .18s ease;
-}
-.hint {
-    height: 100%;
-    display: grid;
-    place-items: center;
-    text-align: center;
-    color: rgba(255,255,255,.42);
-    font-size: clamp(8px, .55vw, 10px);
-    line-height: 1.35;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    padding: 0 16px;
-    text-shadow: 0 2px 8px rgba(0,0,0,.5);
-}
-.glass-chip {
-    height: clamp(34px, 4.4vh, 40px);
-    display: grid;
-    place-items: center;
-    padding: 0 18px;
-    border-radius: 999px;
-    color: rgba(255,255,255,.85);
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: .9px;
-    white-space: nowrap;
-}
-.close {
-    width: clamp(36px, 4.8vh, 42px);
-    height: clamp(36px, 4.8vh, 42px);
-    border-radius: 50%;
-    border: 1px solid var(--line);
-    color: white;
-    background: rgba(255,255,255,.07);
-    cursor: pointer;
-    font-size: 17px;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 14px 38px rgba(0,0,0,.25);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    transition: background .15s, border-color .15s;
-}
-.close:hover { border-color: var(--line-strong); background: rgba(255,255,255,.14); }
-
-/* ------------------------------------------------------------- LAYOUT --- */
-.inventory-layout {
-    flex: 0 1 auto;
-    min-height: 0;
-    width: auto;
-    max-width: 96vw;
-    max-height: calc(100vh - 110px);
-    display: grid;
-    grid-template-columns: auto auto auto;
-    justify-content: center;
-    justify-items: center;
-    align-items: center;
-    gap: var(--layout-gap);
-    margin: 0 auto;
-    padding: 0;
-    overflow: visible;
-}
-
-/* -------------------------------------------------------- FAST ACCESS --- */
-.fast-column {
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--gap);
-    align-self: center;
-}
-.vertical-title {
-    writing-mode: horizontal-tb;
-    text-align: center;
-    margin: 0 0 5px;
-    color: rgba(255,255,255,.62);
-    font-weight: 800;
-    letter-spacing: 1px;
-    font-size: clamp(9px, .58vw, 10px);
-    text-shadow: 0 2px 8px rgba(0,0,0,.5);
-    white-space: nowrap;
-}
-.fast-slots { display: flex; flex-direction: column; gap: var(--gap); }
-
-/* ------------------------------------------------------- BAG / CENTER --- */
-.bag-column {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: clamp(10px, 1.25vh, 15px);
-}
-.section {
-    padding: 0;
-    position: relative;
-    width: max-content;
-    max-width: 100%;
-}
-.backpack-section { flex: 0 0 auto; }
-
-h3 {
-    margin: 0 0 clamp(8px, .9vh, 12px);
-    font-size: clamp(11px, .75vw, 13px);
-    color: rgba(255,255,255,.92);
-    font-weight: 800;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    text-shadow: 0 2px 8px rgba(0,0,0,.5);
-}
-h3 span {
-    font-size: clamp(8px, .53vw, 10px);
-    color: rgba(255,255,255,.5);
-    font-weight: 700;
-    text-align: right;
-    max-width: 350px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.slot-row {
-    display: grid;
-    grid-template-columns: repeat(6, var(--slot));
-    gap: var(--gap);
-}
-.slot-grid {
-    display: grid;
-    grid-template-columns: repeat(6, var(--slot));
-    grid-template-rows: repeat(5, var(--slot));
-    gap: var(--gap);
-}
-
-/* --------------------------------------------------------------- SLOT --- */
-.slot {
-    position: relative;
-    width: var(--slot);
-    height: var(--slot);
-    border: 1px solid rgba(200, 240, 250, .16);
-    border-radius: var(--radius-lg);
-    background:
-        linear-gradient(160deg, rgba(255,255,255,.075), rgba(255,255,255,.015) 55%),
-        rgba(8, 20, 27, .20);
-    box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.13),
-        0 6px 18px rgba(0,0,0,.23);
-    overflow: hidden;
-    backdrop-filter: blur(10px) saturate(1.12);
-    -webkit-backdrop-filter: blur(10px) saturate(1.12);
-    transition: transform .13s ease, border-color .13s ease, box-shadow .13s ease, background .13s ease;
-}
-.slot::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    height: 42%;
-    border-radius: inherit;
-    background: linear-gradient(180deg, rgba(255,255,255,.11), transparent);
-    pointer-events: none;
-}
-.slot::after {
-    content: '';
-    position: absolute;
-    right: -30%;
-    bottom: -30%;
-    width: 70%;
-    height: 70%;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(69,236,255,.12), transparent 70%);
-    pointer-events: none;
-}
-.slot:hover {
-    border-color: rgba(69,236,255,.5);
-    background:
-        linear-gradient(160deg, rgba(69,236,255,.10), rgba(255,255,255,.02) 50%),
-        rgba(10, 26, 34, .50);
-    box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.18),
-        0 0 0 1px rgba(69,236,255,.25),
-        0 10px 26px rgba(0,0,0,.34),
-        0 0 20px rgba(69,236,255,.12);
-    transform: translateY(-2px);
-}
-.slot.quick {
-    width: var(--quick-slot);
-    height: var(--quick-slot);
-    border-radius: var(--radius-md);
-}
-.slot.equipment {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-    width: var(--gear-slot);
-    height: var(--gear-slot);
-    border-radius: var(--radius-md);
-}
-.slot.drop-target { border-color: var(--cyan); box-shadow: 0 0 22px rgba(69,236,255,.4), inset 0 0 0 1px var(--cyan); transform: translateY(-2px); }
-.slot.invalid-target { border-color: var(--red); box-shadow: 0 0 18px rgba(255,77,100,.32); }
-.slot.locked {
-    opacity: .4;
-    background: repeating-linear-gradient(135deg, rgba(255,255,255,.035), rgba(255,255,255,.035) 6px, rgba(0,0,0,.22) 6px, rgba(0,0,0,.22) 12px);
-    border-color: rgba(255,255,255,.08);
-}
-.slot.locked::before, .slot.locked::after { display: none; }
-.lock-label {
-    position: absolute;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    color: rgba(255,255,255,.3);
-    font-size: 9px;
-    font-weight: 800;
-    letter-spacing: 1px;
-    pointer-events: none;
-    z-index: 3;
-}
-.slot-label {
-    position: absolute;
-    inset: auto 5px 9px;
-    text-align: center;
-    color: rgba(255,255,255,.4);
-    font-size: clamp(7px, .5vw, 10px);
-    line-height: 1.2;
-    text-transform: uppercase;
-    pointer-events: none;
-    font-weight: 700;
-}
-.slot.equipment .slot-label { position: static; }
-.hotkey {
-    position: absolute;
-    right: 6px;
-    top: 6px;
-    border: 1px solid rgba(255,255,255,.22);
-    min-width: 21px;
-    height: 21px;
-    border-radius: 999px;
-    text-align: center;
-    line-height: 19px;
-    font-weight: 800;
-    font-size: 11px;
-    background: rgba(0,0,0,.26);
-    z-index: 4;
-}
-
-/* --------------------------------------------------------------- ITEM --- */
-.item {
-    width: 100%;
-    height: 100%;
-    position: relative;
-    cursor: grab;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-.item:active { cursor: grabbing; }
-.item img {
-    width: 66%;
-    height: 60%;
-    object-fit: contain;
-    pointer-events: none;
-    filter: drop-shadow(0 8px 14px rgba(0,0,0,.55));
-    transform: translateY(-8px);
-}
-.qty {
-    position: absolute;
-    top: 7px;
-    left: 8px;
-    font-weight: 800;
-    color: rgba(255,255,255,.95);
-    text-shadow: 0 2px 7px black;
-    font-size: clamp(12px, .8vw, 16px);
-    z-index: 4;
-}
-.durability {
-    position: absolute;
-    left: 16%;
-    bottom: 7px;
-    width: 68%;
-    height: 4px;
-    background: rgba(255,255,255,.16);
-    border-radius: 99px;
-    overflow: hidden;
-    z-index: 4;
-}
-.durability span { display: block; height: 100%; width: 65%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); border-radius: inherit; }
-.item-info {
-    position: absolute;
-    left: 6px;
-    right: 6px;
-    bottom: 10px;
-    text-align: center;
-    pointer-events: none;
-    text-transform: uppercase;
-    z-index: 3;
-}
-.item-name {
-    color: rgba(255,255,255,.94);
-    font-weight: 800;
-    font-size: clamp(8px, .54vw, 11px);
-    line-height: 1.08;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    text-shadow: 0 2px 9px black;
-}
-.item-weight {
-    margin-top: 2px;
-    color: rgba(255,255,255,.70);
-    font-weight: 700;
-    font-size: clamp(7px, .46vw, 9px);
-    line-height: 1;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.slot.equipment .item img { width: 66%; height: 62%; transform: translateY(-6px); }
-.slot.equipment .item-info { bottom: 8px; }
-.slot.quick .item img { width: 70%; height: 64%; transform: translateY(-3px); }
-.slot.quick .item-info { bottom: 9px; }
-
-/* -------------------------------------------------------------- BADGE --- */
-.item-badge {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-    z-index: 4;
-    min-width: 30px;
-    padding: 3px 6px;
-    border: 1px solid rgba(255,255,255,.25);
-    border-radius: 999px;
-    background: rgba(1,8,12,.50);
-    color: rgba(255,255,255,.95);
-    font-size: 8px;
-    line-height: 1;
-    font-weight: 800;
-    letter-spacing: .35px;
-    text-align: center;
-    box-shadow: 0 8px 18px rgba(0,0,0,.26);
-    pointer-events: none;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-}
-.bag-badge { border-color: rgba(255,230,107,.6); color: var(--yellow); box-shadow: 0 0 18px rgba(255,230,107,.16), 0 8px 18px rgba(0,0,0,.25); }
-.clothing-badge { border-color: rgba(69,236,255,.46); color: #cbfbff; box-shadow: 0 0 16px rgba(69,236,255,.14), 0 8px 18px rgba(0,0,0,.25); }
-.item.rarity-normal { box-shadow: none; }
-.item.rarity-unique { box-shadow: inset 0 -3px 0 var(--cyan), 0 0 18px rgba(69,236,255,.24); }
-.item.rarity-rare { box-shadow: inset 0 -3px 0 var(--red), 0 0 18px rgba(255,77,100,.28); }
-.item.rarity-unique .durability span { background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
-.item.rarity-rare .durability span { background: var(--red); box-shadow: 0 0 10px var(--red); }
-
-/* --------------------------------------------------- EQUIPMENT (RIGHT) --- */
-.character-column.equipment-column {
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    overflow: visible;
-    align-self: center;
-}
-.section-title-row h3 { margin: 0 0 clamp(8px, .9vh, 12px); }
-.character-wrap { display: flex; align-items: center; justify-content: center; }
-.body-outline { display: none !important; }
-.gear-grid {
-    display: grid;
-    grid-template-columns: repeat(3, var(--gear-slot));
-    grid-auto-rows: var(--gear-slot);
-    gap: var(--gap);
-    align-content: center;
-}
-
-/* ------------------------------------------------------------ CONTEXT --- */
-.context {
-    position: absolute;
-    min-width: 340px;
-    max-width: 400px;
-    border-radius: 22px;
-    background: rgba(3,13,18,.74);
-    border: 1px solid rgba(255,255,255,.16);
-    box-shadow: 0 26px 80px rgba(0,0,0,.46);
-    backdrop-filter: blur(26px) saturate(1.5);
-    -webkit-backdrop-filter: blur(26px) saturate(1.5);
-    overflow: hidden;
-}
-.context-head { padding: 16px 18px 13px; border-bottom: 1px solid rgba(255,255,255,.1); }
-.context-title { font-size: 15px; font-weight: 800; text-transform: uppercase; }
-.context-meta { margin-top: 5px; color: rgba(255,255,255,.66); font-size: 11px; font-weight: 700; line-height: 1.35; }
-.context-desc { margin-top: 10px; color: rgba(255,255,255,.72); font-size: 11px; line-height: 1.35; max-width: 360px; }
-.context-actions { display: grid; grid-template-columns: repeat(5, 1fr); }
-.context button {
-    height: 62px;
-    border: 0;
-    border-right: 1px solid rgba(255,255,255,.08);
-    background: rgba(255,255,255,.035);
-    color: white;
-    font-weight: 800;
-    font-size: 10px;
-    cursor: pointer;
-    transition: background .12s;
-}
-.context button:hover { background: rgba(255,255,255,.1); }
-.context button:last-child { border-right: 0; }
-.context .icon { display: block; font-size: 18px; margin-bottom: 6px; opacity: .85; }
-.context-head.rarity-normal { border-left: 3px solid rgba(255,255,255,.16); }
-.context-head.rarity-unique { border-left: 3px solid var(--cyan); box-shadow: inset 10px 0 24px rgba(69,236,255,.07); }
-.context-head.rarity-rare { border-left: 3px solid var(--red); box-shadow: inset 10px 0 24px rgba(255,77,100,.07); }
-.details-list { margin-top: 10px; display: grid; gap: 6px; max-height: 100px; overflow: hidden; }
-.detail-row, .tooltip-meta div { display: flex; justify-content: space-between; gap: 18px; color: rgba(255,255,255,.64); font-size: 11px; }
-.detail-row b, .tooltip-meta b { color: rgba(255,255,255,.88); font-weight: 800; }
-
-/* ------------------------------------------------------------ TOOLTIP --- */
-.tooltip {
-    position: absolute;
-    width: 230px;
-    padding: 10px;
-    background: rgba(4,14,19,.72);
-    border: 1px solid rgba(255,255,255,.17);
-    border-radius: 18px;
-    font-size: 12px;
-    color: rgba(255,255,255,.78);
-    pointer-events: none;
-    backdrop-filter: blur(24px) saturate(1.45);
-    -webkit-backdrop-filter: blur(24px) saturate(1.45);
-    overflow: hidden;
-    box-shadow: 0 22px 60px rgba(0,0,0,.4);
-}
-.tooltip-header { display: flex; align-items: center; gap: 9px; padding: 0 0 8px; border-bottom: 1px solid rgba(255,255,255,.09); }
-.tooltip-img { width: 38px; height: 38px; object-fit: contain; flex-shrink: 0; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1); border-radius: 12px; }
-.tooltip-title { flex: 1; min-width: 0; }
-.tooltip strong { display: block; color: white; margin-bottom: 3px; font-size: 13px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tooltip p { margin: 0; color: rgba(255,255,255,.58); font-size: 10px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tooltip-meta { padding-top: 8px; display: grid; gap: 5px; }
-
-/* ------------------------------------------------------------- MODALS --- */
-.modal {
-    position: absolute;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    background: rgba(0,0,0,.34);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    z-index: 30;
-}
-.modal-card {
-    position: relative;
-    width: 340px;
-    padding: 24px;
-    background: rgba(4,14,19,.82);
-    border: 1px solid var(--line);
-    border-radius: 24px;
-    box-shadow: 0 25px 100px rgba(0,0,0,.6);
-    backdrop-filter: blur(26px) saturate(1.45);
-    -webkit-backdrop-filter: blur(26px) saturate(1.45);
-    overflow: hidden;
-}
-.modal-card h3 { margin-bottom: 8px; }
-.modal-card p { color: var(--muted); font-size: 13px; }
-.modal-card input {
-    width: 100%;
-    margin: 14px 0;
-    padding: 12px;
-    background: rgba(255,255,255,.08);
-    border: 1px solid var(--line);
-    color: white;
-    outline: none;
-    border-radius: 14px;
-    font-size: 14px;
-}
-.modal-actions { display: flex; gap: 10px; }
-.modal-actions button {
-    flex: 1;
-    padding: 12px;
-    border: 0;
-    border-radius: 14px;
-    background: rgba(255,255,255,.11);
-    color: white;
-    cursor: pointer;
-    font-weight: 800;
-    transition: background .12s;
-}
-.modal-actions button:hover { background: rgba(255,255,255,.18); }
-.modal-actions button:first-child { background: rgba(69,236,255,.26); }
-.modal-actions button:first-child:hover { background: rgba(69,236,255,.38); }
-
-/* ----------------------------------------------------------- PROGRESS --- */
-.progress-overlay {
-    position: absolute;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    background: rgba(0,0,0,.28);
-    z-index: 25;
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-}
-.progress-card {
-    width: 360px;
-    padding: 20px;
-    background: rgba(4,14,19,.82);
-    border: 1px solid var(--line);
-    border-radius: 22px;
-    box-shadow: 0 20px 80px rgba(0,0,0,.62);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-}
-#progress-label { font-weight: 800; margin-bottom: 12px; text-transform: uppercase; letter-spacing: .6px; }
-.progress-bar { height: 8px; background: rgba(255,255,255,.12); overflow: hidden; border-radius: 999px; }
-#progress-fill { height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 12px var(--cyan); border-radius: inherit; }
-
-/* -------------------------------------------------------------- TOAST --- */
-.toast {
-    position: absolute;
-    right: 40px;
-    bottom: 40px;
-    padding: 12px 18px;
-    background: rgba(4,14,19,.82);
-    border: 1px solid var(--line);
-    border-radius: 16px;
-    font-weight: 800;
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    z-index: 40;
-}
-.toast.error { border-color: rgba(255,77,100,.62); color: #ffc0c8; }
-.toast.success { border-color: rgba(93,255,170,.62); color: #c9ffdf; }
-
-/* --------------------------------------------------------- BOTTOM HINT --- */
-.bottom-hint {
-    flex: 0 0 auto;
-    text-align: center;
-    color: rgba(255,255,255,.46);
-    font-weight: 800;
-    font-size: clamp(9px, .60vw, 11px);
-    letter-spacing: .45px;
-    text-transform: uppercase;
-}
-
-/* --------------------------------------------------------- DRAG GHOST --- */
-.drag-ghost {
-    position: fixed;
-    z-index: 9999;
-    pointer-events: none;
-    opacity: .9;
-    transform: scale(1.04);
-    border: 1px solid var(--cyan);
-    background: rgba(3, 13, 18, .55);
-    box-shadow: 0 0 24px rgba(69,236,255,.38);
-    border-radius: var(--radius-lg);
-}
-.dragging-source { opacity: .35; }
-
-/* ------------------------------------------------------- OPEN ANIMATION --- */
-#inventory:not(.hidden) { animation: invRise .24s cubic-bezier(.2,.8,.2,1); }
-@keyframes invRise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-
-/* ============================================================ RESPONSIVE === */
-@media (max-height: 820px) {
-    :root {
-        --slot: clamp(62px, min(6.9vw, 10.1vh), 90px);
-        --layout-gap: clamp(26px, 2.2vw, 38px);
-        --gap: 8px;
-    }
-    #inventory { padding: 10px 18px; gap: 9px; }
-    .topbar { height: 48px; }
-    .bottom-hint { font-size: 9px; }
-}
-
-@media (max-width: 1280px) {
-    :root {
-        --slot: clamp(62px, min(7.1vw, 10vh), 92px);
-        --layout-gap: 28px;
-        --gap: 8px;
-    }
-    .hint { display: none; }
-    .topbar { grid-template-columns: 220px 1fr auto auto; width: min(96vw, 980px); }
-}
-
-@media (max-height: 720px) {
-    :root {
-        --slot: clamp(54px, min(6.7vw, 9.2vh), 78px);
-        --gear-slot: clamp(58px, min(5.7vw, 8.4vh), 68px);
-        --quick-slot: clamp(60px, min(6vw, 8.8vh), 72px);
-        --layout-gap: 24px;
-        --gap: 7px;
-    }
-    .topbar { height: 44px; }
-    .bottom-hint { display: none; }
-    h3 { margin-bottom: 7px; }
-}
-
-/* ============================================================================
-   RESPONSIVE FULL-SCREEN BALANCE FIX v3
-   ----------------------------------------------------------------------------
-   Keeps the glass frameless design, but makes the inventory feel full-screen on
-   large monitors and safely fit inside 100vh down to 768px tall.
-   ========================================================================== */
-:root {
-    --slot: clamp(76px, min(7.6vw, 10.8vh), 128px);
-    --gear-slot: clamp(62px, min(6.2vw, 8.9vh), 106px);
-    --quick-slot: clamp(64px, min(6.5vw, 9.3vh), 110px);
-    --gap: clamp(8px, .85vw, 13px);
-    --layout-gap: clamp(28px, 2.6vw, 50px);
-    --safe-pad-x: clamp(12px, 1.8vw, 34px);
-    --safe-pad-y: clamp(8px, 1.35vh, 18px);
-}
-
-html,
-body {
-    width: 100vw;
-    height: 100vh;
-    max-width: 100vw;
-    max-height: 100vh;
-    overflow: hidden !important;
-}
-
-#inventory {
-    width: 100vw;
-    height: 100vh;
-    max-width: 100vw;
-    max-height: 100vh;
-    padding: var(--safe-pad-y) var(--safe-pad-x);
-    justify-content: center;
-    align-items: center;
-    gap: clamp(8px, 1.05vh, 14px);
-    overflow: hidden !important;
-}
-
-.background {
-    inset: 0;
-}
-
-.topbar {
-    width: min(98vw, 1500px);
-    max-width: 98vw;
-    height: clamp(42px, 5.2vh, 58px);
-    margin: 0 auto;
-    grid-template-columns: minmax(170px, 245px) minmax(260px, 1fr) auto auto;
-    gap: clamp(8px, 1vw, 16px);
-}
-
-.inventory-layout {
-    width: auto;
-    max-width: 98vw;
-    max-height: calc(100vh - clamp(58px, 7vh, 84px));
-    grid-template-columns: auto auto auto !important;
-    justify-content: center !important;
-    justify-items: center;
-    align-items: center;
-    gap: var(--layout-gap) !important;
-    margin: 0 auto;
-    overflow: visible;
-}
-
-.fast-column,
-.bag-column,
-.character-column.equipment-column {
-    align-self: center;
-    justify-self: center;
-    min-width: 0;
-}
-
-.fast-column {
-    justify-content: center;
-    gap: var(--gap);
-}
-
-.fast-slots {
-    gap: var(--gap);
-}
-
-.bag-column {
-    width: max-content;
-    max-width: 100%;
-    justify-content: center;
-    gap: clamp(9px, 1.15vh, 15px);
-}
-
-.section {
-    width: max-content;
-    max-width: 100%;
-}
-
-.slot-row {
-    grid-template-columns: repeat(6, var(--slot));
-    gap: var(--gap);
-}
-
-.slot-grid {
-    grid-template-columns: repeat(6, var(--slot));
-    grid-template-rows: repeat(5, var(--slot));
-    gap: var(--gap);
-}
-
-.gear-grid {
-    grid-template-columns: repeat(3, var(--gear-slot));
-    grid-auto-rows: var(--gear-slot);
-    gap: var(--gap);
-}
-
-.slot {
-    width: var(--slot);
-    height: var(--slot);
-}
-
-.slot.quick {
-    width: var(--quick-slot);
-    height: var(--quick-slot);
-}
-
-.slot.equipment {
-    width: var(--gear-slot);
-    height: var(--gear-slot);
-}
-
-h3,
-.section-title-row h3 {
-    margin-bottom: clamp(7px, .78vh, 11px);
-}
-
-.bottom-hint {
-    bottom: clamp(5px, .8vh, 12px);
-    max-width: 98vw;
-}
-
-.tooltip {
-    max-width: min(280px, 92vw);
-}
-
-.context {
-    max-width: min(400px, 92vw);
-}
-
-/* Larger monitors: fill more of the screen without stretching columns apart. */
-@media (min-width: 1600px) and (min-height: 900px) {
-    :root {
-        --slot: clamp(104px, min(7.1vw, 11vh), 132px);
-        --gear-slot: clamp(84px, min(5.9vw, 9.1vh), 108px);
-        --quick-slot: clamp(88px, min(6.2vw, 9.5vh), 114px);
-        --layout-gap: clamp(34px, 2.4vw, 54px);
-    }
-
-    .topbar {
-        width: min(96vw, 1560px);
-    }
-}
-
-/* 768px-tall laptop screens: keep every row inside 100vh. */
-@media (max-height: 820px) {
-    :root {
-        --slot: clamp(72px, min(7.1vw, 10.4vh), 84px);
-        --gear-slot: clamp(58px, min(5.7vw, 8.4vh), 68px);
-        --quick-slot: clamp(60px, min(6vw, 8.8vh), 72px);
-        --gap: clamp(7px, .85vh, 9px);
-        --layout-gap: clamp(22px, 2.1vw, 34px);
-    }
-
-    #inventory {
-        padding: 8px clamp(10px, 1.5vw, 20px);
-        gap: 8px;
-    }
-
-    .topbar {
-        height: 44px;
-    }
-
-    .weight-card > span,
-    .hint,
-    .bottom-hint {
-        font-size: 9px;
-    }
-}
-
-/* Narrow screens: keep the 3-column desktop layout, just tighten it. */
-@media (max-width: 1180px) {
-    :root {
-        --slot: clamp(68px, min(7.1vw, 10.2vh), 82px);
-        --gear-slot: clamp(54px, min(5.6vw, 8.0vh), 65px);
-        --quick-slot: clamp(56px, min(5.9vw, 8.5vh), 68px);
-        --layout-gap: clamp(18px, 2vw, 28px);
-        --gap: 7px;
-    }
-
-    .topbar {
-        width: 98vw;
-        grid-template-columns: minmax(155px, 210px) 1fr auto auto;
-    }
-
-    .hint {
-        display: none;
-    }
-}
-
-@media (max-width: 900px), (max-height: 700px) {
-    :root {
-        --slot: clamp(56px, min(7vw, 9.2vh), 68px);
-        --gear-slot: clamp(44px, min(5.5vw, 7.2vh), 54px);
-        --quick-slot: clamp(46px, min(5.8vw, 7.7vh), 58px);
-        --layout-gap: 14px;
-        --gap: 6px;
-    }
-
-    .topbar {
-        height: 40px;
-        grid-template-columns: 1fr auto auto;
-    }
-
-    .hint,
-    .bottom-hint {
-        display: none !important;
-    }
-
-    .weight-card {
-        min-width: 0;
-    }
-
-    .glass-chip {
-        padding-inline: 10px;
-    }
-}
-
-/* ============================================================================
-   FULLSCREEN FILL + NO BLACK OPEN FLASH FIX v4
-   ----------------------------------------------------------------------------
-   Makes the inventory cluster use more of the screen while still fitting 100vh.
-   Keeps the transparent/glass design and removes the dark black flash feeling.
-   ========================================================================== */
-html,
-body {
-    width: 100vw !important;
-    height: 100vh !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    overflow: hidden !important;
-    background: transparent !important;
-}
-
-body::before,
-body::after {
-    display: none !important;
-    content: none !important;
-}
-
-:root {
-    /* Fill the screen more on 1080p/1440p, but remain safe at 768px height. */
-    --slot: clamp(88px, min(8.8vw, 12.4vh), 170px);
-    --gear-slot: calc(var(--slot) * .82);
-    --quick-slot: calc(var(--slot) * .88);
-    --gap: clamp(8px, min(.78vw, 1.08vh), 15px);
-    --layout-gap: clamp(28px, 2.9vw, 58px);
-    --safe-pad-x: clamp(10px, 1.45vw, 26px);
-    --safe-pad-y: clamp(6px, .95vh, 14px);
-}
-
-#inventory {
-    inset: 0 !important;
-    width: 100vw !important;
-    height: 100vh !important;
-    max-width: 100vw !important;
-    max-height: 100vh !important;
-    padding: var(--safe-pad-y) var(--safe-pad-x) !important;
-    display: flex;
-    flex-direction: column;
-    align-items: center !important;
-    justify-content: center !important;
-    gap: clamp(8px, 1vh, 13px) !important;
-    overflow: hidden !important;
-    background: transparent !important;
-}
-
-#inventory.hidden {
-    display: none !important;
-    background: transparent !important;
-}
-
-/* Remove the dark full-screen wash. The game world stays visible, only softly blurred. */
-.background {
-    inset: 0 !important;
-    background:
-        radial-gradient(circle at 20% 18%, rgba(54, 236, 255, .055), transparent 30%),
-        radial-gradient(circle at 78% 86%, rgba(88, 160, 255, .045), transparent 34%),
-        linear-gradient(180deg, rgba(1, 9, 13, .18), rgba(1, 9, 13, .20)) !important;
-    backdrop-filter: blur(3px) saturate(1.05) brightness(.94) !important;
-    -webkit-backdrop-filter: blur(3px) saturate(1.05) brightness(.94) !important;
-}
-
-.background::before {
-    opacity: .14 !important;
-    background-size: 72px 72px, 72px 72px !important;
-}
-
-/* No fade from black/empty background; app.js now renders before showing. */
-#inventory:not(.hidden) {
-    animation: none !important;
-    opacity: 1 !important;
-    transform: none !important;
-}
-
-.topbar {
-    flex: 0 0 auto !important;
-    width: min(96vw, 1820px) !important;
-    max-width: 96vw !important;
-    height: clamp(42px, 5.3vh, 62px) !important;
-    grid-template-columns: minmax(170px, 265px) minmax(220px, 1fr) auto auto !important;
-    gap: clamp(8px, .9vw, 16px) !important;
-    margin: 0 auto !important;
-}
-
-.inventory-layout {
-    flex: 0 1 auto !important;
-    width: auto !important;
-    max-width: 97vw !important;
-    max-height: calc(100vh - clamp(58px, 7.2vh, 86px)) !important;
-    display: grid !important;
-    grid-template-columns: auto auto auto !important;
-    justify-content: center !important;
-    justify-items: center !important;
-    align-items: center !important;
-    gap: var(--layout-gap) !important;
-    margin: 0 auto !important;
-    padding: 0 !important;
-    overflow: visible !important;
-}
-
-.fast-column,
-.bag-column,
-.character-column.equipment-column {
-    align-self: center !important;
-    justify-self: center !important;
-}
-
-.bag-column {
-    gap: clamp(8px, 1.1vh, 16px) !important;
-}
-
-.slot-row,
-.slot-grid,
-.gear-grid,
-.fast-slots {
-    gap: var(--gap) !important;
-}
-
-.slot-row,
-.slot-grid {
-    grid-template-columns: repeat(6, var(--slot)) !important;
-}
-
-.slot-grid {
-    grid-template-rows: repeat(5, var(--slot)) !important;
-}
-
-.gear-grid {
-    grid-template-columns: repeat(3, var(--gear-slot)) !important;
-    grid-auto-rows: var(--gear-slot) !important;
-}
-
-.slot {
-    width: var(--slot) !important;
-    height: var(--slot) !important;
-}
-
-.slot.quick {
-    width: var(--quick-slot) !important;
-    height: var(--quick-slot) !important;
-}
-
-.slot.equipment {
-    width: var(--gear-slot) !important;
-    height: var(--gear-slot) !important;
-}
-
-h3,
-.section-title-row h3 {
-    margin-bottom: clamp(6px, .75vh, 12px) !important;
-}
-
-.bottom-hint {
-    flex: 0 0 auto !important;
-    margin: 0 !important;
-    line-height: 1 !important;
-    font-size: clamp(9px, .55vw, 11px) !important;
-}
-
-/* 1080p and taller: make it feel like a real full-screen inventory. */
-@media (min-height: 980px) {
-    :root {
-        --slot: clamp(118px, min(8.6vw, 12.3vh), 172px);
-        --layout-gap: clamp(36px, 2.8vw, 62px);
-    }
-}
-
-/* 1440p / ultrawide: grow again, but do not stretch columns away from each other. */
-@media (min-width: 1900px) and (min-height: 1200px) {
-    :root {
-        --slot: clamp(148px, min(7.6vw, 12.1vh), 176px);
-        --layout-gap: clamp(42px, 2.4vw, 64px);
-    }
-}
-
-/* Laptop height safety. Everything still fits at 768px without scrolling. */
-@media (max-height: 820px) {
-    :root {
-        --slot: clamp(78px, min(8vw, 11.4vh), 92px);
-        --gear-slot: calc(var(--slot) * .78);
-        --quick-slot: calc(var(--slot) * .82);
-        --gap: clamp(6px, .8vh, 9px);
-        --layout-gap: clamp(20px, 2vw, 34px);
-        --safe-pad-y: 6px;
-    }
-
-    .topbar {
-        height: 42px !important;
-    }
-
-    .weight-card > span,
-    .hint,
-    .bottom-hint {
-        font-size: 8px !important;
-    }
-}
-
-@media (max-height: 720px) {
-    :root {
-        --slot: clamp(60px, min(7.3vw, 9.5vh), 74px);
-        --gear-slot: calc(var(--slot) * .76);
-        --quick-slot: calc(var(--slot) * .80);
-        --gap: 6px;
-        --layout-gap: 16px;
-    }
-
-    .topbar {
-        height: 38px !important;
-    }
-
-    .bottom-hint {
-        display: none !important;
-    }
-}
-
-/* Narrow-width safety while keeping the 3-column layout. */
-@media (max-width: 1280px) {
-    :root {
-        --slot: clamp(70px, min(7.3vw, 11vh), 94px);
-        --gear-slot: calc(var(--slot) * .78);
-        --quick-slot: calc(var(--slot) * .82);
-        --layout-gap: clamp(18px, 2vw, 30px);
-        --gap: 7px;
-    }
-
-    .topbar {
-        width: 97vw !important;
-        grid-template-columns: minmax(150px, 220px) 1fr auto auto !important;
-    }
-
-    .hint {
-        display: none !important;
-    }
-}
-
-@media (max-width: 980px) {
-    :root {
-        --slot: clamp(54px, min(7vw, 9vh), 68px);
-        --gear-slot: calc(var(--slot) * .75);
-        --quick-slot: calc(var(--slot) * .78);
-        --layout-gap: 12px;
-        --gap: 5px;
-    }
-
-    .topbar {
-        grid-template-columns: 1fr auto auto !important;
-        height: 38px !important;
-    }
-
-    .hint,
-    .bottom-hint {
-        display: none !important;
-    }
-}
-
-/* ============================================================================
-   TRANSPARENT GAME BACKGROUND + SCREEN EDGE HUD TEXT FIX v5
-   ----------------------------------------------------------------------------
-   Fixes FiveM CEF black-background issue by removing fullscreen backdrop-filter.
-   Keeps glass/waterdrop only on slots/chips, so the game world stays visible.
-   Moves top info to the top of screen and bottom help text to bottom of screen.
-   ========================================================================== */
-html,
-body,
-#inventory {
-    background: rgba(0, 0, 0, 0) !important;
-    background-color: rgba(0, 0, 0, 0) !important;
-}
-
-body {
-    overflow: hidden !important;
-}
-
-#inventory {
-    position: fixed !important;
-    inset: 0 !important;
-    width: 100vw !important;
-    height: 100vh !important;
-    padding: 0 !important;
-    display: block !important;
-    overflow: hidden !important;
-    isolation: isolate !important;
-}
-
-#inventory.hidden {
-    display: none !important;
-}
-
-/* IMPORTANT: do not use backdrop-filter on a fullscreen element in FiveM NUI.
-   It can render the whole game behind the NUI as black when DevTools is closed. */
-.background {
-    position: fixed !important;
-    inset: 0 !important;
-    z-index: 0 !important;
-    pointer-events: none !important;
-    background:
-        radial-gradient(circle at 21% 18%, rgba(54, 236, 255, .055), transparent 31%),
-        radial-gradient(circle at 78% 88%, rgba(64, 190, 255, .04), transparent 34%),
-        linear-gradient(180deg, rgba(3, 10, 14, .08), rgba(3, 10, 14, .10)) !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    filter: none !important;
-}
-
-.background::before,
-.background::after {
-    opacity: .08 !important;
-    pointer-events: none !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-}
-
-/* Top information now belongs to screen top, not above the backpack block. */
-.topbar {
-    position: fixed !important;
-    top: clamp(18px, 3vh, 34px) !important;
-    left: 50% !important;
-    transform: translateX(-50%) !important;
-    z-index: 20 !important;
-    width: min(93vw, 1420px) !important;
-    max-width: 93vw !important;
-    height: clamp(40px, 5vh, 56px) !important;
-    display: grid !important;
-    grid-template-columns: minmax(190px, 280px) minmax(260px, 1fr) auto auto !important;
-    align-items: center !important;
-    gap: clamp(10px, 1vw, 18px) !important;
-    margin: 0 !important;
-    padding: 0 !important;
-}
-
-/* Main inventory cluster fills the center area between topbar and footer. */
-.inventory-layout {
-    position: fixed !important;
-    left: 50% !important;
-    top: 50% !important;
-    transform: translate(-50%, -47%) !important;
-    z-index: 10 !important;
-    width: auto !important;
-    max-width: 96vw !important;
-    max-height: calc(100vh - 132px) !important;
-    display: grid !important;
-    grid-template-columns: auto auto auto !important;
-    justify-content: center !important;
-    justify-items: center !important;
-    align-items: center !important;
-    gap: clamp(26px, 2.8vw, 56px) !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    overflow: visible !important;
-}
-
-/* Slightly fuller slot scale for 900p/1080p+ without scrolling. */
-:root {
-    --slot: clamp(92px, min(9.2vw, 12.8vh), 132px);
-    --gear-slot: calc(var(--slot) * .78);
-    --quick-slot: calc(var(--slot) * .84);
-    --gap: clamp(8px, min(.72vw, 1.05vh), 13px);
-    --layout-gap: clamp(26px, 2.8vw, 56px);
-}
-
-.slot-row,
-.slot-grid {
-    grid-template-columns: repeat(6, var(--slot)) !important;
-    gap: var(--gap) !important;
-}
-
-.slot-grid {
-    grid-template-rows: repeat(5, var(--slot)) !important;
-}
-
-.fast-slots,
-.gear-grid {
-    gap: var(--gap) !important;
-}
-
-.gear-grid {
-    grid-template-columns: repeat(3, var(--gear-slot)) !important;
-    grid-auto-rows: var(--gear-slot) !important;
-}
-
-.slot {
-    width: var(--slot) !important;
-    height: var(--slot) !important;
-}
-
-.slot.quick {
-    width: var(--quick-slot) !important;
-    height: var(--quick-slot) !important;
-}
-
-.slot.equipment {
-    width: var(--gear-slot) !important;
-    height: var(--gear-slot) !important;
-}
-
-.bag-column {
-    gap: clamp(8px, 1.15vh, 14px) !important;
-}
-
-/* Bottom instruction belongs to bottom of screen. */
-.bottom-hint {
-    position: fixed !important;
-    left: 50% !important;
-    bottom: clamp(16px, 2.4vh, 28px) !important;
-    transform: translateX(-50%) !important;
-    z-index: 20 !important;
-    display: block !important;
-    width: auto !important;
-    max-width: 94vw !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    color: rgba(255, 255, 255, .66) !important;
-    font-size: clamp(9px, .58vw, 11px) !important;
-    font-weight: 800 !important;
-    letter-spacing: .8px !important;
-    line-height: 1 !important;
-    text-align: center !important;
-    text-shadow: 0 2px 10px rgba(0, 0, 0, .75) !important;
-    background: transparent !important;
-    border: 0 !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-}
-
-.context,
-.tooltip,
-.modal,
-.toast,
-.progress-overlay {
-    z-index: 100 !important;
-}
-
-/* Height safety for laptop/768p screens. */
-@media (max-height: 820px) {
-    :root {
-        --slot: clamp(70px, min(7.5vw, 10.2vh), 84px);
-        --gear-slot: calc(var(--slot) * .75);
-        --quick-slot: calc(var(--slot) * .80);
-        --gap: 7px;
-        --layout-gap: clamp(16px, 2vw, 30px);
-    }
-
-    .topbar {
-        top: 10px !important;
-        height: 40px !important;
-    }
-
-    .inventory-layout {
-        max-height: calc(100vh - 92px) !important;
-        transform: translate(-50%, -46%) !important;
-        gap: var(--layout-gap) !important;
-    }
-
-    .bottom-hint {
-        bottom: 8px !important;
-        display: block !important;
-        font-size: 8px !important;
-    }
-
-    h3,
-    .section-title-row h3 {
-        margin-bottom: 6px !important;
-    }
-}
-
-/* Width safety. Keep 3 columns, just tighten everything. */
-@media (max-width: 1280px) {
-    :root {
-        --slot: clamp(66px, min(7.3vw, 10.4vh), 94px);
-        --gear-slot: calc(var(--slot) * .75);
-        --quick-slot: calc(var(--slot) * .80);
-        --gap: 7px;
-        --layout-gap: clamp(14px, 1.8vw, 28px);
-    }
-
-    .topbar {
-        width: 96vw !important;
-        grid-template-columns: minmax(150px, 220px) 1fr auto auto !important;
-    }
-}
-
-@media (max-width: 980px), (max-height: 700px) {
-    :root {
-        --slot: clamp(52px, min(7vw, 8.9vh), 66px);
-        --gear-slot: calc(var(--slot) * .72);
-        --quick-slot: calc(var(--slot) * .75);
-        --gap: 5px;
-        --layout-gap: 10px;
-    }
-
-    .topbar {
-        top: 8px !important;
-        height: 36px !important;
-        grid-template-columns: 1fr auto auto !important;
-    }
-
-    .hint {
-        display: none !important;
-    }
-
-    .bottom-hint {
-        bottom: 6px !important;
-        display: block !important;
-        font-size: 7px !important;
-    }
-}
-
-/* ============================================================================
-   FIVE-M CEF TRANSPARENCY FIX v6
-   ----------------------------------------------------------------------------
-   Fixes black rectangle blocks that appear in-game when DevTools is closed.
-   FiveM CEF can render transparent elements with backdrop-filter as black
-   bounding boxes, especially around many inventory slots. This removes
-   backdrop-filter from normal inventory UI and keeps the glass look using
-   gradients, borders, highlights, and shadows only.
-   ========================================================================== */
-
-/* Force every main wrapper to stay fully transparent. */
-#inventory,
-.background,
-.topbar,
-.inventory-layout,
-.fast-column,
-.bag-column,
-.character-column,
-.equipment-column,
-.section,
-.backpack-section,
-.section-title-row,
-.character-wrap,
-.fast-slots,
-.slot-row,
-.slot-grid,
-.gear-grid,
-.weight-card,
-.hint,
-.bottom-hint {
-    background: transparent !important;
-    background-color: transparent !important;
-    box-shadow: none !important;
-    border-color: transparent !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    filter: none !important;
-}
-
-/* No full-screen overlay wash. Let the game render normally behind inventory. */
-.background {
-    opacity: 1 !important;
-    pointer-events: none !important;
-}
-.background::before,
-.background::after {
-    display: none !important;
-    content: none !important;
-}
-
-/* Fake glass without backdrop-filter. This avoids black CEF compositing boxes. */
-.slot,
-.slot.quick,
-.slot.equipment {
-    border: 1px solid rgba(205, 242, 255, .18) !important;
-    background:
-        radial-gradient(circle at 22% 12%, rgba(255,255,255,.20), transparent 22%),
-        radial-gradient(circle at 86% 88%, rgba(49, 218, 232, .14), transparent 33%),
-        linear-gradient(180deg, rgba(255,255,255,.070), rgba(255,255,255,.018) 47%, rgba(0,8,12,.16)) !important;
-    box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.17),
-        inset 0 -1px 0 rgba(0,0,0,.22),
-        0 8px 18px rgba(0,0,0,.16) !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    filter: none !important;
-}
-
-.slot:hover {
-    border-color: rgba(69,236,255,.52) !important;
-    background:
-        radial-gradient(circle at 22% 12%, rgba(255,255,255,.26), transparent 24%),
-        radial-gradient(circle at 84% 86%, rgba(69,236,255,.22), transparent 36%),
-        linear-gradient(180deg, rgba(69,236,255,.090), rgba(255,255,255,.025) 50%, rgba(0,10,14,.18)) !important;
-    box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.22),
-        0 0 0 1px rgba(69,236,255,.18),
-        0 12px 22px rgba(0,0,0,.20),
-        0 0 18px rgba(69,236,255,.12) !important;
-}
-
-.slot.locked {
-    background:
-        repeating-linear-gradient(135deg, rgba(255,255,255,.035), rgba(255,255,255,.035) 6px, rgba(0,0,0,.16) 6px, rgba(0,0,0,.16) 12px),
-        rgba(8, 18, 24, .10) !important;
-    opacity: .42 !important;
-}
-
-/* Top buttons/chips also use fake glass only, no backdrop-filter black box. */
-.glass-chip,
-.close,
-.item-badge,
-.hotkey,
-.gauge {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    filter: none !important;
-}
-
-.glass-chip {
-    border: 1px solid rgba(210, 250, 255, .22) !important;
-    background:
-        radial-gradient(circle at 24% 12%, rgba(255,255,255,.16), transparent 28%),
-        linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.02)) !important;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 8px 18px rgba(0,0,0,.16) !important;
-}
-
-.close {
-    border: 1px solid rgba(210, 250, 255, .18) !important;
-    background:
-        radial-gradient(circle at 25% 14%, rgba(255,255,255,.18), transparent 30%),
-        rgba(255,255,255,.045) !important;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 8px 18px rgba(0,0,0,.16) !important;
-}
-
-/* Keep top text pinned at the actual screen top. */
-.topbar {
-    position: fixed !important;
-    top: clamp(16px, 2.8vh, 32px) !important;
-    left: 50% !important;
-    transform: translateX(-50%) !important;
-    z-index: 50 !important;
-}
-
-/* Keep bottom hint pinned to the bottom of the screen, independent of grid. */
-.bottom-hint {
-    position: fixed !important;
-    left: 50% !important;
-    bottom: clamp(14px, 2.2vh, 26px) !important;
-    transform: translateX(-50%) !important;
-    z-index: 50 !important;
-    display: block !important;
-    text-shadow: 0 2px 10px rgba(0,0,0,.82) !important;
-}
-
-/* Slight vertical balance: topbar/bottom hint stay at edges, inventory in center. */
-.inventory-layout {
-    top: 51% !important;
-    transform: translate(-50%, -50%) !important;
-}
-
-/* Do not allow any generated pseudo layer on wrappers to draw black panels. */
-.inventory-layout::before,
-.inventory-layout::after,
-.fast-column::before,
-.fast-column::after,
-.bag-column::before,
-.bag-column::after,
-.character-column::before,
-.character-column::after,
-.section::before,
-.section::after,
-.character-wrap::before,
-.character-wrap::after,
-.topbar::before,
-.topbar::after {
-    display: none !important;
-    content: none !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-}
-
-/* Tooltips/context can stay dark because they open only on action/hover, but no blur. */
-.tooltip,
-.context,
-.modal,
-.modal-card,
-.progress-overlay,
-.progress-card,
-.toast {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-}
-
-/* ============================================================================
-   FULL-SCREEN SAFE GLASS READABILITY LAYER + TIGHT EQUIPMENT GAP v7
-   ----------------------------------------------------------------------------
-   FiveM CEF-safe: NO backdrop-filter on fullscreen or wrapper elements.
-   Uses a soft whole-screen tint + one unified inventory glass plate so the
-   world stays visible but the inventory is easier to read.
-   ========================================================================== */
-
-/* Full-screen fake glass wash: transparent, readable, no black CEF boxes. */
-.background {
-    position: fixed !important;
-    inset: 0 !important;
-    z-index: 0 !important;
-    pointer-events: none !important;
-    opacity: 1 !important;
-    display: block !important;
-    background:
-        radial-gradient(circle at 50% 50%, rgba(4, 20, 28, .08), rgba(2, 8, 12, .18) 58%, rgba(0, 0, 0, .30) 100%),
-        radial-gradient(circle at 28% 22%, rgba(72, 238, 255, .085), transparent 34%),
-        radial-gradient(circle at 78% 82%, rgba(72, 238, 255, .060), transparent 36%),
-        linear-gradient(180deg, rgba(3, 10, 15, .24), rgba(3, 10, 15, .32)) !important;
-    box-shadow:
-        inset 0 0 0 1px rgba(255,255,255,.018),
-        inset 0 0 140px rgba(0,0,0,.26) !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    filter: none !important;
-}
-
-/* Add a tiny texture/highlight over the whole screen without blur. */
-.background::before {
-    content: "" !important;
-    display: block !important;
-    position: absolute !important;
-    inset: 0 !important;
-    opacity: .26 !important;
-    pointer-events: none !important;
-    background:
-        linear-gradient(115deg, transparent 0%, rgba(255,255,255,.030) 42%, transparent 58%),
-        radial-gradient(circle at 42% 26%, rgba(255,255,255,.030), transparent 28%) !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-}
-.background::after {
-    content: none !important;
-    display: none !important;
-}
-
-/* Bring the three inventory columns closer together. */
-:root {
-    --layout-gap: clamp(10px, 1.15vw, 22px) !important;
-}
-
-.inventory-layout {
-    gap: var(--layout-gap) !important;
-    column-gap: var(--layout-gap) !important;
-    row-gap: 0 !important;
-    isolation: isolate !important;
-}
-
-/* One unified glass plate behind the whole inventory cluster.
-   This is not per-column, so there are no ugly black blocks. */
-.inventory-layout::before {
-    content: "" !important;
-    display: block !important;
-    position: absolute !important;
-    z-index: -1 !important;
-    inset: clamp(-16px, -1.2vw, -10px) clamp(-18px, -1.4vw, -12px) !important;
-    border-radius: clamp(22px, 2vw, 34px) !important;
-    border: 1px solid rgba(205, 242, 255, .070) !important;
-    background:
-        radial-gradient(circle at 25% 18%, rgba(255,255,255,.060), transparent 30%),
-        radial-gradient(circle at 82% 84%, rgba(69,236,255,.070), transparent 34%),
-        linear-gradient(180deg, rgba(4, 15, 21, .20), rgba(2, 8, 12, .30)) !important;
-    box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.050),
-        inset 0 -1px 0 rgba(0,0,0,.18),
-        0 24px 90px rgba(0,0,0,.22) !important;
-    pointer-events: none !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    filter: none !important;
-}
-.inventory-layout::after {
-    content: "" !important;
-    display: block !important;
-    position: absolute !important;
-    z-index: -1 !important;
-    inset: clamp(-14px, -1vw, -8px) !important;
-    border-radius: clamp(20px, 1.8vw, 30px) !important;
-    background: linear-gradient(110deg, transparent 0%, rgba(255,255,255,.030) 44%, transparent 62%) !important;
-    pointer-events: none !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-}
-
-/* Keep equipment close to backpack and stop extra invisible spacing. */
-.character-column.equipment-column,
-.fast-column,
-.bag-column {
-    margin: 0 !important;
-    padding: 0 !important;
-}
-
-.character-column.equipment-column {
-    align-self: center !important;
-    justify-self: start !important;
-    transform: translateX(clamp(-8px, -.45vw, -4px)) !important;
-}
-
-.fast-column {
-    justify-self: end !important;
-    transform: translateX(clamp(4px, .35vw, 7px)) !important;
-}
-
-/* Slightly stronger slot glass on top of the new screen glass wash. */
-.slot,
-.slot.quick,
-.slot.equipment {
-    background:
-        radial-gradient(circle at 22% 12%, rgba(255,255,255,.22), transparent 23%),
-        radial-gradient(circle at 86% 88%, rgba(49,218,232,.17), transparent 34%),
-        linear-gradient(180deg, rgba(255,255,255,.090), rgba(255,255,255,.030) 47%, rgba(0,8,12,.20)) !important;
-    border-color: rgba(215, 248, 255, .22) !important;
-    box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.20),
-        inset 0 -1px 0 rgba(0,0,0,.24),
-        0 10px 22px rgba(0,0,0,.20) !important;
-}
-
-/* Top and bottom text stays readable on bright locations. */
-.topbar,
-.bottom-hint,
-h3,
-.section-title-row h3,
-.vertical-title,
-.hint {
-    text-shadow: 0 2px 12px rgba(0,0,0,.95), 0 0 18px rgba(0,0,0,.50) !important;
-}
-
-/* Small-screen safety: reduce the unified plate and gap so nothing overflows. */
-@media (max-width: 1280px), (max-height: 820px) {
-    :root {
-        --layout-gap: clamp(7px, .9vw, 16px) !important;
-    }
-    .inventory-layout::before {
-        inset: -10px -10px !important;
-        border-radius: 22px !important;
-    }
-    .character-column.equipment-column,
-    .fast-column {
-        transform: none !important;
-    }
-}
-
-@media (max-width: 980px), (max-height: 700px) {
-    :root {
-        --layout-gap: 6px !important;
-    }
-    .inventory-layout::before,
-    .inventory-layout::after {
-        display: none !important;
-        content: none !important;
-    }
-    .background {
-        background: linear-gradient(180deg, rgba(3,10,15,.18), rgba(3,10,15,.24)) !important;
-    }
-}
-
-/* ============================================================================
-   FULL-SCREEN SCALE FIX v8
-   ----------------------------------------------------------------------------
-   The overlay was full-screen, but the inventory content was still capped like a
-   small centered panel. This final override expands the safe glass screen to the
-   full viewport and scales the slots/layout up responsively without scrolling.
-   ========================================================================== */
-
-:root {
-    /* Bigger slots. Height based so 6 inventory rows still fit on 768px screens. */
-    --slot: clamp(84px, min(7.35vw, 12.6vh), 128px) !important;
-    --gear-slot: calc(var(--slot) * .82) !important;
-    --quick-slot: calc(var(--slot) * .86) !important;
-    --gap: clamp(8px, 1.05vh, 14px) !important;
-    --layout-gap: clamp(12px, 1.35vw, 26px) !important;
-}
-
-html,
-body,
-#inventory {
-    width: 100vw !important;
-    height: 100vh !important;
-    max-width: 100vw !important;
-    max-height: 100vh !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    overflow: hidden !important;
-    background: transparent !important;
-}
-
-#inventory {
-    position: fixed !important;
-    inset: 0 !important;
-    display: block !important;
-    isolation: isolate !important;
-}
-
-/* Full-screen readable glass. CEF-safe: no backdrop-filter. */
-.background {
-    position: fixed !important;
-    inset: 0 !important;
-    width: 100vw !important;
-    height: 100vh !important;
-    min-width: 100vw !important;
-    min-height: 100vh !important;
-    z-index: 0 !important;
-    pointer-events: none !important;
-    background:
-        radial-gradient(circle at 50% 48%, rgba(6, 28, 34, .16), rgba(2, 8, 12, .30) 58%, rgba(0, 0, 0, .46) 100%),
-        radial-gradient(circle at 28% 20%, rgba(75, 240, 255, .10), transparent 34%),
-        radial-gradient(circle at 78% 82%, rgba(75, 240, 255, .08), transparent 38%),
-        linear-gradient(180deg, rgba(2, 8, 12, .28), rgba(2, 8, 12, .38)) !important;
-    box-shadow: inset 0 0 150px rgba(0,0,0,.26) !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-}
-
-.background::before {
-    content: '' !important;
-    position: fixed !important;
-    inset: 0 !important;
-    width: 100vw !important;
-    height: 100vh !important;
-    pointer-events: none !important;
-    display: block !important;
-    opacity: .24 !important;
-    background:
-        linear-gradient(115deg, transparent 0%, rgba(255,255,255,.030) 42%, transparent 60%),
-        radial-gradient(circle at 45% 28%, rgba(255,255,255,.035), transparent 26%) !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-}
-
-/* Top UI spans the screen, while its content stays aligned. */
-.topbar {
-    position: fixed !important;
-    top: clamp(16px, 2.25vh, 28px) !important;
-    left: 50% !important;
-    transform: translateX(-50%) !important;
-    width: calc(100vw - clamp(32px, 4.5vw, 86px)) !important;
-    max-width: none !important;
-    height: clamp(46px, 5.8vh, 62px) !important;
-    display: grid !important;
-    grid-template-columns: minmax(210px, 320px) minmax(260px, 1fr) auto auto !important;
-    align-items: center !important;
-    gap: clamp(10px, 1.2vw, 20px) !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    z-index: 60 !important;
-}
-
-.weight-card,
-.hint {
-    min-width: 0 !important;
-}
-
-/* Bigger full-screen inventory cluster. */
-.inventory-layout {
-    position: fixed !important;
-    left: 50% !important;
-    top: 52% !important;
-    transform: translate(-50%, -50%) !important;
-    z-index: 10 !important;
-    width: max-content !important;
-    max-width: calc(100vw - clamp(28px, 3.5vw, 72px)) !important;
-    max-height: calc(100vh - clamp(108px, 13vh, 150px)) !important;
-    display: grid !important;
-    grid-template-columns: auto auto auto !important;
-    justify-content: center !important;
-    justify-items: center !important;
-    align-items: center !important;
-    gap: var(--layout-gap) !important;
-    column-gap: var(--layout-gap) !important;
-    row-gap: 0 !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    overflow: visible !important;
-}
-
-.inventory-layout::before {
-    content: '' !important;
-    position: absolute !important;
-    z-index: -1 !important;
-    inset: clamp(-18px, -1.4vw, -12px) clamp(-22px, -1.8vw, -14px) !important;
-    border-radius: clamp(24px, 2vw, 36px) !important;
-    border: 1px solid rgba(218, 250, 255, .09) !important;
-    background:
-        radial-gradient(circle at 23% 14%, rgba(255,255,255,.072), transparent 30%),
-        radial-gradient(circle at 82% 84%, rgba(69,236,255,.078), transparent 36%),
-        linear-gradient(180deg, rgba(5, 17, 23, .18), rgba(2, 8, 12, .27)) !important;
-    box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.06),
-        inset 0 -1px 0 rgba(0,0,0,.18),
-        0 24px 90px rgba(0,0,0,.20) !important;
-    pointer-events: none !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-}
-
-.inventory-layout::after {
-    content: '' !important;
-    position: absolute !important;
-    z-index: -1 !important;
-    inset: clamp(-16px, -1.2vw, -10px) !important;
-    border-radius: clamp(22px, 1.8vw, 32px) !important;
-    background: linear-gradient(110deg, transparent 0%, rgba(255,255,255,.032) 42%, transparent 62%) !important;
-    pointer-events: none !important;
-}
-
-.fast-column,
-.bag-column,
-.character-column.equipment-column {
-    margin: 0 !important;
-    padding: 0 !important;
-    align-self: center !important;
-}
-
-.fast-column {
-    justify-self: end !important;
-    transform: translateX(clamp(4px, .35vw, 8px)) !important;
-}
-
-.bag-column {
-    justify-self: center !important;
-}
-
-.character-column.equipment-column {
-    justify-self: start !important;
-    transform: translateX(clamp(-10px, -.55vw, -5px)) !important;
-}
-
-.slot-row,
-.slot-grid {
-    gap: var(--gap) !important;
-}
-
-.slot-grid {
-    grid-template-columns: repeat(6, var(--slot)) !important;
-    grid-template-rows: repeat(5, var(--slot)) !important;
-}
-
-.slot-row {
-    grid-template-columns: repeat(6, var(--slot)) !important;
-}
-
-.gear-grid {
-    gap: var(--gap) !important;
-    grid-template-columns: repeat(3, var(--gear-slot)) !important;
-}
-
-.fast-slots {
-    gap: var(--gap) !important;
-}
-
-/* Hint belongs to the real bottom of the screen. */
-.bottom-hint {
-    position: fixed !important;
-    left: 50% !important;
-    bottom: clamp(14px, 2.1vh, 24px) !important;
-    transform: translateX(-50%) !important;
-    width: calc(100vw - 32px) !important;
-    max-width: none !important;
-    z-index: 60 !important;
-    text-align: center !important;
-}
-
-/* 768p / small laptop safety. */
-@media (max-height: 820px) {
-    :root {
-        --slot: clamp(74px, min(6.75vw, 11.75vh), 96px) !important;
-        --gear-slot: calc(var(--slot) * .80) !important;
-        --quick-slot: calc(var(--slot) * .84) !important;
-        --gap: clamp(7px, .85vh, 10px) !important;
-        --layout-gap: clamp(8px, .95vw, 16px) !important;
-    }
-
-    .topbar {
-        top: 10px !important;
-        height: 44px !important;
-    }
-
-    .inventory-layout {
-        top: 52.5% !important;
-        max-height: calc(100vh - 92px) !important;
-    }
-
-    .bottom-hint {
-        bottom: 8px !important;
-    }
-
-    h3 {
-        margin-bottom: 6px !important;
-    }
-}
-
-/* Narrow width safety, still no scrolling. */
-@media (max-width: 1180px) {
-    :root {
-        --slot: clamp(68px, min(7.6vw, 11.4vh), 92px) !important;
-        --gear-slot: calc(var(--slot) * .78) !important;
-        --quick-slot: calc(var(--slot) * .82) !important;
-        --layout-gap: 8px !important;
-        --gap: 7px !important;
-    }
-
-    .topbar {
-        grid-template-columns: minmax(160px, 230px) 1fr auto auto !important;
-        width: calc(100vw - 24px) !important;
-    }
-}
-
-/* =========================================================
-   FINAL GAP TIGHTENING PATCH
-   Makes FAST ACCESS, BACKPACK, and EQUIPMENT sit closer together.
-   This block is appended last so it wins over earlier duplicated rules.
-   ========================================================= */
-
-:root {
-    --layout-gap: clamp(6px, 0.55vw, 10px) !important;
-}
-
-.inventory-layout {
-    gap: var(--layout-gap) !important;
-    column-gap: var(--layout-gap) !important;
-    justify-content: center !important;
-    align-items: center !important;
-}
-
-/* Pull the side columns inward a bit more so the three sections feel grouped. */
-.fast-column {
-    justify-self: end !important;
-    transform: translateX(clamp(10px, 0.9vw, 18px)) !important;
-}
-
-.bag-column {
-    justify-self: center !important;
-}
-
-.character-column.equipment-column {
-    justify-self: start !important;
-    transform: translateX(clamp(-18px, -1.1vw, -10px)) !important;
-}
-
-/* Keep the unified glass plate snug around the now-tighter layout. */
-.inventory-layout::before {
-    inset: clamp(-16px, -1.2vw, -10px) clamp(-16px, -1.3vw, -10px) !important;
-}
-
-.inventory-layout::after {
-    inset: clamp(-12px, -1vw, -8px) !important;
-}
-
-/* Small-screen safety. */
-@media (max-height: 820px) {
-    :root {
-        --layout-gap: clamp(4px, 0.6vw, 8px) !important;
-    }
-
-    .fast-column {
-        transform: translateX(clamp(8px, 0.8vw, 14px)) !important;
-    }
-
-    .character-column.equipment-column {
-        transform: translateX(clamp(-14px, -1vw, -8px)) !important;
-    }
-}
-
-@media (max-width: 1180px) {
-    :root {
-        --layout-gap: 6px !important;
-    }
-
-    .fast-column {
-        transform: translateX(8px) !important;
-    }
-
-    .character-column.equipment-column {
-        transform: translateX(-10px) !important;
-    }
-}
-
-/* =========================================================
-   FINAL ITEM ACTION + BAG HINT + SVG EQUIPMENT PATCH
-   ========================================================= */
-
-.bag-unlock-hint {
-    width: fit-content;
-    max-width: min(100%, 520px);
-    margin: clamp(3px, .45vh, 6px) 0 clamp(5px, .75vh, 9px);
-    padding: clamp(5px, .7vh, 8px) clamp(9px, .85vw, 14px);
-    border: 1px solid rgba(255, 211, 117, .30);
-    border-radius: 999px;
-    background:
-        radial-gradient(circle at 10% 20%, rgba(255,255,255,.16), transparent 35%),
-        linear-gradient(135deg, rgba(255, 190, 80, .16), rgba(0, 0, 0, .10));
-    color: rgba(255, 235, 178, .96);
-    font-size: clamp(8px, .62vw, 10px);
-    font-weight: 900;
-    letter-spacing: .55px;
-    text-transform: uppercase;
-    text-shadow: 0 1px 5px rgba(0,0,0,.55);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 8px 22px rgba(0,0,0,.16);
-    pointer-events: none;
-}
-
-.bag-unlock-hint.hidden {
-    display: none !important;
-}
-
-/* Context menu now has no GIVE action. It adapts between 2, 3, and 4 buttons. */
-.context-actions.compact {
-    display: grid !important;
-    grid-template-columns: repeat(auto-fit, minmax(78px, 1fr)) !important;
-    gap: 8px !important;
-}
-
-/* SVG equipment icons replacing emojis. */
-.slot-label {
-    gap: 5px;
-}
-
-.slot-label .equip-svg {
-    display: block;
-    width: clamp(15px, 1.35vw, 22px);
-    height: clamp(15px, 1.35vw, 22px);
-    margin: 0 auto 5px;
-    color: rgba(99, 230, 255, .72);
-    filter: drop-shadow(0 0 8px rgba(50, 230, 255, .18));
-    opacity: .92;
-}
-
-.slot.equipment:hover .slot-label .equip-svg {
-    color: rgba(210, 255, 255, .92);
-    opacity: 1;
-}
-
-.slot-label span {
-    display: block;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-/* Drag-to-bottom give zone. Shows only while dragging an item. */
-.give-drop-zone {
-    position: fixed;
-    left: 50%;
-    bottom: clamp(34px, 5.4vh, 64px);
-    transform: translateX(-50%) translateY(10px);
-    z-index: 80;
-    width: min(520px, calc(100vw - 60px));
-    padding: clamp(11px, 1.4vh, 16px) clamp(18px, 2vw, 28px);
-    border: 1px dashed rgba(118, 244, 255, .34);
-    border-radius: 999px;
-    background:
-        radial-gradient(circle at 18% 20%, rgba(255,255,255,.14), transparent 34%),
-        linear-gradient(135deg, rgba(50, 221, 255, .15), rgba(5, 18, 24, .36));
-    color: rgba(225, 255, 255, .88);
-    font-size: clamp(9px, .72vw, 12px);
-    font-weight: 950;
-    letter-spacing: .75px;
-    text-align: center;
-    text-transform: uppercase;
-    text-shadow: 0 1px 7px rgba(0,0,0,.65);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 18px 48px rgba(0,0,0,.24);
-    pointer-events: none;
-    opacity: .76;
-    transition: opacity .12s ease, transform .12s ease, border-color .12s ease, background .12s ease;
-}
-
-.give-drop-zone.hidden {
-    display: none !important;
-}
-
-.give-drop-zone.active {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0) scale(1.03);
-    border-color: rgba(120, 255, 168, .78);
-    color: rgba(235, 255, 242, 1);
-    background:
-        radial-gradient(circle at 18% 20%, rgba(255,255,255,.18), transparent 34%),
-        linear-gradient(135deg, rgba(68, 255, 156, .24), rgba(5, 18, 24, .42));
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 0 35px rgba(82, 255, 176, .18), 0 18px 48px rgba(0,0,0,.28);
-}
-
-/* While context is open, tooltip is suppressed by JS; this prevents overlap if CEF delays a frame. */
-.context:not(.hidden) ~ .tooltip {
-    display: none !important;
-}
-
-@media (max-height: 820px) {
-    .give-drop-zone {
-        bottom: 28px;
-        padding: 9px 18px;
-    }
-
-    .bag-unlock-hint {
-        margin-top: 2px;
-        margin-bottom: 5px;
-        padding: 4px 9px;
-    }
-}
-
-/* -------------------------------------------------- EXTERNAL STORAGE --- */
-.character-wrap.external-wrap {
-    width: 100%;
-    justify-content: center;
-    align-items: flex-start;
-    padding: clamp(4px, .8vh, 10px) 0;
-}
-.gear-grid.external-grid,
-.external-grid {
-    display: grid !important;
-    grid-template-columns: repeat(4, var(--gear-slot));
-    grid-auto-rows: var(--gear-slot);
-    gap: var(--gap);
-    align-content: flex-start;
-    justify-content: center;
-    max-height: min(72vh, 760px);
-    overflow-y: auto;
-    padding-right: 4px;
-}
-.slot.external {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-    width: var(--gear-slot);
-    height: var(--gear-slot);
-    border-radius: var(--radius-md);
-    border-color: rgba(69,236,255,.18);
-    background: linear-gradient(180deg, rgba(69,236,255,.055), rgba(255,255,255,.026));
-}
-.slot.external .external-label {
-    color: rgba(220,252,255,.54);
-    font-weight: 800;
-    letter-spacing: .06em;
-    text-transform: uppercase;
-    text-align: center;
-    font-size: 10px;
-    line-height: 1.2;
-}
-.slot.external .external-label strong {
-    display: block;
-    color: rgba(69,236,255,.86);
-    font-size: 18px;
-    margin-bottom: 3px;
-}
-.item.external-item {
-    box-shadow: inset 0 -3px 0 rgba(69,236,255,.72), 0 0 20px rgba(69,236,255,.18);
-}
-
-
-/* =========================================================
-   FINAL SHARED INVENTORY + 6x5 STORAGE UPDATE
-   - Fast access sits at the far left.
-   - Backpack stays close to fast access.
-   - Equipment/storage has exactly one slot gap from the player inventory.
-   - Empty slots now look empty, not filled.
-   - External storage uses a stable 6 columns x 5 rows visual language.
-   ========================================================= */
-:root {
-    --slot: clamp(70px, min(6.7vw, 10.6vh), 106px) !important;
-    --gear-slot: calc(var(--slot) * .78) !important;
-    --quick-slot: calc(var(--slot) * .82) !important;
-    --gap: clamp(7px, .75vw, 11px) !important;
-    --layout-gap: var(--gap) !important;
-}
-
-#inventory {
-    align-items: stretch !important;
-    justify-content: center !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-}
-
-.topbar {
-    position: fixed !important;
-    top: clamp(10px, 1.6vh, 22px) !important;
-    left: clamp(16px, 2vw, 34px) !important;
-    width: min(920px, calc(100vw - 40px)) !important;
-    margin: 0 !important;
-    z-index: 10 !important;
-}
-
-.inventory-layout {
-    position: fixed !important;
-    left: clamp(14px, 1.8vw, 34px) !important;
-    right: auto !important;
-    top: 52% !important;
-    transform: translateY(-50%) !important;
-    width: auto !important;
-    max-width: none !important;
-    max-height: calc(100vh - 92px) !important;
-    display: grid !important;
-    grid-template-columns: auto auto auto !important;
-    justify-content: start !important;
-    justify-items: start !important;
-    align-items: center !important;
-    column-gap: var(--gap) !important;
-    gap: var(--gap) !important;
-    padding: 0 !important;
-    margin: 0 !important;
-}
-
-.inventory-layout::before,
-.inventory-layout::after {
-    display: none !important;
-}
-
-.fast-column,
-.bag-column,
-.character-column.equipment-column {
-    margin: 0 !important;
-    padding: 0 !important;
-    transform: none !important;
-    justify-self: start !important;
-    align-self: center !important;
-}
-
-.fast-column {
-    min-width: var(--quick-slot) !important;
-}
-
-.bag-column {
-    margin-left: var(--gap) !important;
-}
-
-.character-column.equipment-column {
-    /* one normal inventory-slot gap between backpack and equipment/storage */
-    margin-left: var(--slot) !important;
-}
-
-.fast-slots,
-.slot-row,
-.slot-grid,
-.gear-grid,
-.external-grid {
-    gap: var(--gap) !important;
-}
-
-.slot-row,
-.slot-grid {
-    grid-template-columns: repeat(6, var(--slot)) !important;
-}
-.slot-grid {
-    grid-template-rows: repeat(5, var(--slot)) !important;
-}
-.gear-grid:not(.external-grid) {
-    grid-template-columns: repeat(3, var(--gear-slot)) !important;
-    grid-auto-rows: var(--gear-slot) !important;
-}
-.external-grid,
-.gear-grid.external-grid {
-    display: grid !important;
-    grid-template-columns: repeat(6, var(--slot)) !important;
-    grid-template-rows: repeat(5, var(--slot)) !important;
-    grid-auto-rows: var(--slot) !important;
-    width: calc((var(--slot) * 6) + (var(--gap) * 5)) !important;
-    max-width: calc((var(--slot) * 6) + (var(--gap) * 5)) !important;
-    max-height: calc((var(--slot) * 5) + (var(--gap) * 4)) !important;
-    overflow: hidden !important;
-    align-content: start !important;
-    justify-content: start !important;
-    padding: 0 !important;
-}
-
-.slot,
-.slot.quick,
-.slot.equipment,
-.slot.external {
-    border-radius: 14px !important;
-}
-.slot.external {
-    width: var(--slot) !important;
-    height: var(--slot) !important;
-}
-
-.slot.empty,
-.slot.quick.empty,
-.slot.equipment.empty,
-.slot.external.empty {
-    background:
-        linear-gradient(180deg, rgba(255,255,255,.030), rgba(255,255,255,.010) 48%, rgba(0,0,0,.060)) !important;
-    border: 1px solid rgba(210, 250, 255, .095) !important;
-    box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.045),
-        inset 0 0 0 1px rgba(0,0,0,.05),
-        0 7px 14px rgba(0,0,0,.10) !important;
-}
-.slot.empty::before,
-.slot.empty::after {
-    opacity: .05 !important;
-}
-.slot.empty .slot-label {
-    opacity: .36 !important;
-    color: rgba(210,250,255,.36) !important;
-    text-shadow: none !important;
-}
-.slot.external.empty .external-label span {
-    font-size: clamp(10px, .8vw, 13px) !important;
-    font-weight: 800 !important;
-    color: rgba(210,250,255,.28) !important;
-}
-.slot.storage-locked {
-    opacity: .20 !important;
-    filter: grayscale(1) !important;
-}
-.slot.storage-locked .slot-label::after {
-    content: 'LOCKED';
-    display: block;
-    margin-top: 4px;
-    font-size: 8px;
-    letter-spacing: .08em;
-    color: rgba(255,255,255,.34);
-}
-.slot:not(.empty) {
-    background:
-        radial-gradient(circle at 26% 14%, rgba(255,255,255,.12), transparent 24%),
-        linear-gradient(180deg, rgba(255,255,255,.070), rgba(255,255,255,.026) 50%, rgba(0,8,12,.18)) !important;
-    border-color: rgba(96, 235, 255, .20) !important;
-}
-
-@media (max-width: 1366px), (max-height: 820px) {
-    :root {
-        --slot: clamp(58px, min(6.5vw, 9.7vh), 82px) !important;
-        --gear-slot: calc(var(--slot) * .76) !important;
-        --quick-slot: calc(var(--slot) * .80) !important;
-        --gap: 7px !important;
-    }
-    .topbar {
-        height: 42px !important;
-    }
-    .inventory-layout {
-        top: 53% !important;
-        left: 12px !important;
-    }
-}
-
-/* =========================================================
-   EXTERNAL STORAGE DROP TARGET FIX v9
-   FiveM NUI sometimes misses transparent storage slots when dragging.
-   These rules keep the trunk/warehouse board above decorative layers and
-   make empty slots visibly clickable/drop-ready.
-   ========================================================= */
-.character-wrap.external-wrap,
-.gear-grid.external-grid,
-.external-grid {
-    position: relative !important;
-    z-index: 35 !important;
-    pointer-events: auto !important;
-}
-.slot.external {
-    position: relative !important;
-    z-index: 40 !important;
-    pointer-events: auto !important;
-    outline: 1px solid rgba(69, 236, 255, .06) !important;
-}
-.slot.external::before,
-.slot.external::after {
-    pointer-events: none !important;
-}
-.slot.external.drop-target {
-    border-color: rgba(69, 236, 255, .95) !important;
-    outline: 2px solid rgba(69, 236, 255, .55) !important;
-    background:
-        radial-gradient(circle at 50% 50%, rgba(69,236,255,.18), transparent 52%),
-        linear-gradient(180deg, rgba(69,236,255,.14), rgba(255,255,255,.035)) !important;
-    box-shadow: 0 0 30px rgba(69,236,255,.38), inset 0 0 0 1px rgba(69,236,255,.5) !important;
-}
-.slot.external.invalid-target {
-    border-color: rgba(255, 77, 100, .95) !important;
-    outline: 2px solid rgba(255, 77, 100, .45) !important;
-}
-.item.drag-ghost {
-    z-index: 99999 !important;
-}
-
-/* World drop pickup card (shown while inventory is closed) */
-.drop-pickup-panel {
-    position: fixed;
-    left: 50%;
-    bottom: 8.5vh;
-    transform: translateX(-50%);
-    width: min(420px, 92vw);
-    padding: 12px;
-    border: 1px solid rgba(69, 236, 255, .42);
-    border-radius: 18px;
-    background: linear-gradient(180deg, rgba(7, 18, 27, .90), rgba(3, 10, 16, .84));
-    box-shadow: 0 18px 46px rgba(0,0,0,.44), 0 0 30px rgba(69, 236, 255, .14);
-    color: #eafcff;
-    z-index: 9000;
-    pointer-events: none;
-}
-
-.drop-pickup-panel.hidden { display: none; }
-
-.drop-pickup-title {
-    font-size: 11px;
-    font-weight: 900;
-    letter-spacing: .18em;
-    color: rgba(69, 236, 255, .92);
-    text-transform: uppercase;
-    margin: 0 0 8px 4px;
-}
-
-.drop-pickup-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.drop-pickup-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-height: 54px;
-    padding: 7px 9px;
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: 14px;
-    background: rgba(255,255,255,.045);
-}
-
-.drop-pickup-row.selected {
-    border-color: rgba(69, 236, 255, .85);
-    background: rgba(69, 236, 255, .12);
-    box-shadow: inset 0 0 0 1px rgba(69, 236, 255, .22), 0 0 18px rgba(69, 236, 255, .16);
-}
-
-.drop-pickup-img {
-    width: 42px;
-    height: 42px;
-    border-radius: 12px;
-    display: grid;
-    place-items: center;
-    background: radial-gradient(circle at 50% 35%, rgba(69,236,255,.14), rgba(255,255,255,.035));
-    border: 1px solid rgba(255,255,255,.10);
-    overflow: hidden;
-}
-
-.drop-pickup-img img {
-    width: 34px;
-    height: 34px;
-    object-fit: contain;
-    filter: drop-shadow(0 6px 9px rgba(0,0,0,.45));
-}
-
-.drop-pickup-text {
-    min-width: 0;
-    flex: 1;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 10px;
-}
-
-.drop-pickup-text strong {
-    font-size: 14px;
-    font-weight: 900;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.drop-pickup-text span {
-    font-size: 12px;
-    font-weight: 900;
-    color: rgba(69, 236, 255, .95);
-    white-space: nowrap;
-}
-
-.drop-pickup-help {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 8px;
-    margin-top: 9px;
-    font-size: 11px;
-    font-weight: 800;
-    color: rgba(234, 252, 255, .76);
-    letter-spacing: .06em;
-    text-transform: uppercase;
-}
-
-.drop-pickup-help b {
-    min-width: 22px;
-    padding: 2px 7px;
-    border-radius: 7px;
-    border: 1px solid rgba(69,236,255,.38);
-    background: rgba(69,236,255,.10);
-    color: #45ecff;
-}
-
-
-/* =========================================================
-   CM INVENTORY USER UPDATE v12
-   Bigger full-screen slots + clean drag/move UX.
-   This block is last so it wins over old compact/debug patches.
-   ========================================================= */
-:root {
-    --slot: clamp(88px, min(8vw, 11.6vh), 120px) !important;
-    --gear-slot: calc(var(--slot) * .80) !important;
-    --quick-slot: calc(var(--slot) * .86) !important;
-    --gap: clamp(8px, .85vw, 12px) !important;
-    --layout-gap: clamp(8px, .8vw, 14px) !important;
-}
-
-.inventory-layout {
-    column-gap: var(--layout-gap) !important;
-    gap: var(--layout-gap) !important;
-}
-
-.bag-column {
-    margin-left: var(--gap) !important;
-}
-
-.character-column.equipment-column {
-    margin-left: calc(var(--slot) * .72) !important;
-}
-
-.slot,
-.slot.external {
-    width: var(--slot) !important;
-    height: var(--slot) !important;
-    border-radius: 16px !important;
-}
-
-.slot.quick {
-    width: var(--quick-slot) !important;
-    height: var(--quick-slot) !important;
-}
-
-.slot.equipment {
-    width: var(--gear-slot) !important;
-    height: var(--gear-slot) !important;
-}
-
-.slot-row,
-.slot-grid {
-    grid-template-columns: repeat(6, var(--slot)) !important;
-    gap: var(--gap) !important;
-}
-
-.slot-grid {
-    grid-template-rows: repeat(5, var(--slot)) !important;
-}
-
-.fast-slots,
-.gear-grid,
-.external-grid {
-    gap: var(--gap) !important;
-}
-
-.gear-grid:not(.external-grid) {
-    grid-template-columns: repeat(3, var(--gear-slot)) !important;
-    grid-auto-rows: var(--gear-slot) !important;
-}
-
-.external-grid,
-.gear-grid.external-grid {
-    grid-template-columns: repeat(6, var(--slot)) !important;
-    grid-template-rows: repeat(5, var(--slot)) !important;
-    grid-auto-rows: var(--slot) !important;
-    width: calc((var(--slot) * 6) + (var(--gap) * 5)) !important;
-    max-width: calc((var(--slot) * 6) + (var(--gap) * 5)) !important;
-    max-height: calc((var(--slot) * 5) + (var(--gap) * 4)) !important;
-}
-
-.item img {
-    width: 72% !important;
-    height: 68% !important;
-}
-
-.item-name {
-    font-size: clamp(9px, .62vw, 12px) !important;
-}
-
-.item-weight {
-    font-size: clamp(7px, .48vw, 10px) !important;
-}
-
-.qty {
-    font-size: clamp(13px, .9vw, 17px) !important;
-}
-
-.context-actions.compact {
-    grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)) !important;
-}
-
-@media (max-width: 1366px), (max-height: 820px) {
-    :root {
-        --slot: clamp(72px, min(7.4vw, 10.8vh), 92px) !important;
-        --gear-slot: calc(var(--slot) * .78) !important;
-        --quick-slot: calc(var(--slot) * .82) !important;
-        --gap: 7px !important;
-        --layout-gap: 7px !important;
-    }
-    .inventory-layout {
-        left: 12px !important;
-        top: 53% !important;
-    }
-    .character-column.equipment-column {
-        margin-left: calc(var(--slot) * .60) !important;
-    }
-}
-
-/* =========================================================
-   CM INVENTORY CLOTHING STACK + LARGER SLOT PATCH v13
-   - Larger full-screen slots.
-   - Keeps laptop safety so the 6x5 backpack still fits.
-   ========================================================= */
-:root {
-    --slot: clamp(96px, min(8.8vw, 12.2vh), 136px) !important;
-    --gear-slot: calc(var(--slot) * .80) !important;
-    --quick-slot: calc(var(--slot) * .86) !important;
-    --gap: clamp(9px, .92vw, 14px) !important;
-    --layout-gap: clamp(8px, .85vw, 14px) !important;
-}
-
-.slot,
-.slot.external {
-    width: var(--slot) !important;
-    height: var(--slot) !important;
-    border-radius: 18px !important;
-}
-
-.slot.quick {
-    width: var(--quick-slot) !important;
-    height: var(--quick-slot) !important;
-}
-
-.slot.equipment {
-    width: var(--gear-slot) !important;
-    height: var(--gear-slot) !important;
-}
-
-.slot-row,
-.slot-grid {
-    grid-template-columns: repeat(6, var(--slot)) !important;
-    gap: var(--gap) !important;
-}
-
-.slot-grid {
-    grid-template-rows: repeat(5, var(--slot)) !important;
-}
-
-.fast-slots,
-.gear-grid,
-.external-grid {
-    gap: var(--gap) !important;
-}
-
-.external-grid,
-.gear-grid.external-grid {
-    grid-template-columns: repeat(6, var(--slot)) !important;
-    grid-template-rows: repeat(5, var(--slot)) !important;
-    grid-auto-rows: var(--slot) !important;
-    width: calc((var(--slot) * 6) + (var(--gap) * 5)) !important;
-    max-width: calc((var(--slot) * 6) + (var(--gap) * 5)) !important;
-    max-height: calc((var(--slot) * 5) + (var(--gap) * 4)) !important;
-}
-
-.item img {
-    width: 74% !important;
-    height: 70% !important;
-}
-
-.item-name {
-    font-size: clamp(10px, .70vw, 13px) !important;
-}
-
-.qty {
-    font-size: clamp(14px, 1vw, 18px) !important;
-}
-
-@media (max-width: 1366px), (max-height: 820px) {
-    :root {
-        --slot: clamp(78px, min(7.8vw, 11.4vh), 102px) !important;
-        --gear-slot: calc(var(--slot) * .78) !important;
-        --quick-slot: calc(var(--slot) * .82) !important;
-        --gap: 8px !important;
-        --layout-gap: 8px !important;
-    }
-}
-
-/* ===== Tier 2: give-target picker / confirm modal ===== */
-.cm-modal-overlay {
-  position: fixed; inset: 0; z-index: 9999;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(4, 12, 18, 0.62); backdrop-filter: blur(4px);
-}
-.cm-modal-card {
-  min-width: 320px; max-width: 420px;
-  background: linear-gradient(160deg, rgba(10,22,30,0.96), rgba(6,14,20,0.96));
-  border: 1px solid rgba(64, 220, 255, 0.28);
-  border-radius: 14px; padding: 18px 18px 14px;
-  box-shadow: 0 18px 60px rgba(0,0,0,0.55), 0 0 0 1px rgba(64,220,255,0.06) inset;
-  color: #eaf6fb;
-}
-.cm-modal-title { font-size: 15px; font-weight: 600; margin-bottom: 12px; letter-spacing: 0.2px; }
-.cm-give-target-list { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto; }
-.cm-give-target-row {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 11px 13px; border-radius: 10px; cursor: pointer;
-  background: rgba(64, 220, 255, 0.06);
-  border: 1px solid rgba(64, 220, 255, 0.18);
-  color: #eaf6fb; font-size: 14px; transition: background 0.12s, border-color 0.12s;
-}
-.cm-give-target-row:hover { background: rgba(64, 220, 255, 0.14); border-color: rgba(64, 220, 255, 0.4); }
-.cm-give-name { font-weight: 600; }
-.cm-give-dist { font-size: 12px; opacity: 0.7; }
-.cm-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
-.cm-btn {
-  padding: 8px 16px; border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 600;
-  border: 1px solid rgba(64, 220, 255, 0.3); background: rgba(64, 220, 255, 0.12); color: #eaf6fb;
-}
-.cm-btn-ghost { background: transparent; border-color: rgba(255,255,255,0.16); opacity: 0.85; }
-.cm-btn:hover { filter: brightness(1.15); }

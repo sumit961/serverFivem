@@ -9,36 +9,39 @@
 <body>
     <div id="inventory" class="hidden">
         <div class="background"></div>
+        <!-- TOP BAR -->
         <header class="topbar">
+            <div class="topbar-brand">
+                <button id="close-btn" class="close" type="button" aria-label="Close inventory">✕</button>
+                <div class="glass-chip">CM INVENTORY</div>
+            </div>
+            <div class="hint">DRAG ITEMS • RIGHT CLICK ACTIONS<br>HOVER FOR QUICK DETAILS</div>
             <div class="weight-card">
                 <span>BACKPACK WEIGHT</span>
                 <div class="weight-line">
                     <div class="gauge"><div id="weight-fill"></div></div>
-                    <strong id="weight-current">0.0</strong><small>/</small><span id="weight-max">82 KG</span>
+                    <strong id="weight-current">0.0</strong>
+                    <small>/</small>
+                    <span id="weight-max">82 KG</span>
                 </div>
             </div>
-            <div class="hint">DRAG ITEMS • RIGHT CLICK ACTIONS<br>HOVER FOR QUICK DETAILS</div>
-            <div class="glass-chip">CM INVENTORY</div>
-            <button id="close-btn" class="close">✕</button>
         </header>
-
+        <!-- BODY LAYOUT -->
         <main class="inventory-layout">
             <aside class="fast-column">
-                <div class="vertical-title">FAST ACCESS</div>
+                <h3 class="section-title">Fast Access</h3>
                 <div id="quick-slots" class="fast-slots"></div>
             </aside>
-
             <section class="bag-column">
-                <div class="section">
-                    <h3>POCKETS</h3>
+                <div class="section pockets-section">
+                    <h3 class="section-title">Pockets</h3>
                     <div id="pocket-slots" class="slot-row"></div>
                 </div>
                 <div class="section backpack-section">
-                    <h3 id="backpack-title">BACKPACK <span id="bag-level-label">NO BAG</span></h3>
+                    <h3 class="section-title" id="backpack-title">Backpack <span id="bag-level-label">No Bag</span></h3>
                     <div id="backpack-slots" class="slot-grid"></div>
                 </div>
             </section>
-
             <section class="character-column equipment-column">
                 <div class="section-title-row">
                     <h3>EQUIPMENT <span>WEAR / DRAG HERE</span></h3>
@@ -46,9 +49,10 @@
                 <div class="character-wrap">
                     <div id="gear-slots" class="gear-grid"></div>
                 </div>
+                <img class="character-art" src="images/equipment-backdrop.png" alt="" aria-hidden="true" />
             </section>
         </main>
-
+        <!-- OVERLAYS / HUD -->
         <div id="context-menu" class="context hidden"></div>
         <div id="tooltip" class="tooltip hidden"></div>
         <div id="give-drop-zone" class="give-drop-zone hidden">DROP HERE TO GIVE TO NEAREST PLAYER</div>
@@ -57,37 +61,25 @@
                 <h3>Divide Stack</h3>
                 <p id="split-label">Choose amount</p>
                 <input id="split-amount" type="number" min="1" value="1" />
-                <div class="modal-actions">
-                    <button id="split-confirm">Divide</button>
-                    <button id="split-cancel">Cancel</button>
-                </div>
+                <div class="modal-actions"><button id="split-confirm">Divide</button><button id="split-cancel">Cancel</button></div>
             </div>
         </div>
-
         <div id="give-modal" class="modal hidden">
             <div class="modal-card">
                 <h3>Give Item</h3>
                 <p id="give-label">Choose amount to give to nearest player</p>
                 <input id="give-amount" type="number" min="1" value="1" />
-                <div class="modal-actions">
-                    <button id="give-confirm">Give</button>
-                    <button id="give-cancel">Cancel</button>
-                </div>
+                <div class="modal-actions"><button id="give-confirm">Give</button><button id="give-cancel">Cancel</button></div>
             </div>
         </div>
-
         <div id="drop-modal" class="modal hidden">
             <div class="modal-card">
                 <h3>Drop Item</h3>
                 <p id="drop-label">Choose amount to drop</p>
                 <input id="drop-amount" type="number" min="1" value="1" />
-                <div class="modal-actions">
-                    <button id="drop-confirm">Drop</button>
-                    <button id="drop-cancel">Cancel</button>
-                </div>
+                <div class="modal-actions"><button id="drop-confirm">Drop</button><button id="drop-cancel">Cancel</button></div>
             </div>
         </div>
-
         <div id="use-progress" class="progress-overlay hidden">
             <div class="progress-card">
                 <div id="progress-label">Using item...</div>
@@ -97,13 +89,11 @@
         <div id="toast" class="toast hidden"></div>
         <footer class="bottom-hint">DRAG ITEM TO SLOT • RIGHT CLICK GIVE/DROP • DRAG TO BOTTOM TO GIVE • ESC TO CLOSE</footer>
     </div>
-
     <div id="drop-pickup-panel" class="drop-pickup-panel hidden">
         <div class="drop-pickup-title">Nearby Items</div>
         <div id="drop-pickup-list" class="drop-pickup-list"></div>
         <div class="drop-pickup-help"><b>E</b> Pick up <span>•</span> <b>↑/↓</b> Select</div>
     </div>
-
     <script src="app.js"></script>
 </body>
 </html>

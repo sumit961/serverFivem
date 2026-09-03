@@ -1,19 +1,111 @@
 const app=document.querySelector('#app'),roster=document.querySelector('#roster'),toast=document.querySelector('#toast');let state=null,facilityOnly=false;
 const post=(name,data={})=>fetch(`https://${GetParentResourceName()}/${name}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(r=>r.json());
 function notice(message,kind='success'){toast.textContent=message||'';toast.className=`show ${kind}`;clearTimeout(notice.timer);notice.timer=setTimeout(()=>toast.className='',2600)}
-function render(data){state=data;if(!data?.ok){notice(data?.error||'Unable to load organization.','error');return}const m=data.member,o=data.organization;document.querySelector('#shortLabel').textContent=o.shortLabel;document.querySelector('#orgLabel').textContent=o.label;document.querySelector('#jurisdiction').textContent=o.jurisdiction||'';document.querySelector('#rankName').textContent=m.rankName;document.querySelector('#dutyStatus').textContent=m.onDuty?'On duty':'Off duty';document.querySelector('#staffingTab').classList.toggle('hidden',!data.canManage);document.querySelector('#dispatchTab').classList.add('hidden');document.querySelector('#mdtTab').classList.add('hidden');document.querySelector('#fleetTab').classList.toggle('hidden',!data.canFleetManage);document.querySelector('#fleetRecallAll').classList.toggle('hidden',!data.canFleetManage);document.querySelector('#logsTab').classList.toggle('hidden',!data.canManage);
- const ranks=data.ranks.filter(r=>!r.is_leader&&Number(r.tier)<Number(m.tier));document.querySelector('#hireRank').innerHTML=ranks.map(r=>`<option value="${r.id}">${esc(r.name)}</option>`).join('');roster.innerHTML=data.roster.map(x=>`<article class="member"><div><div class="member-name">${esc(x.name||x.character_id)}</div><div class="meta">CID ${esc(x.character_id)} · ${esc(x.rank_name)}</div></div><span class="badge ${x.suspended?'suspended':x.on_duty?'on':''}">${x.suspended?'Suspended':x.on_duty?'On duty':'Off duty'}</span>${data.canManage&&!x.is_leader&&Number(x.tier)<Number(m.tier)?`<div class="actions"><select data-rank="${esc(x.character_id)}">${ranks.map(r=>`<option value="${r.id}" ${Number(r.id)===Number(x.rank_id)?'selected':''}>${esc(r.name)}</option>`).join('')}</select><button data-action="rank" data-cid="${esc(x.character_id)}">Set rank</button><button data-action="${x.suspended?'reinstate':'suspend'}" data-cid="${esc(x.character_id)}">${x.suspended?'Reinstate':'Suspend'}</button><button data-action="fire" data-cid="${esc(x.character_id)}">Remove</button></div>`:'<div></div>'}</article>`).join('')||'<p>No members found.</p>';const f=data.facilities||{},types=data.facilityTypes||{};document.querySelector('#facilities').innerHTML=Object.entries(types).map(([id,t])=>{const set=!!f[id];return `<article class="facility-card"><small>${esc(t.role)}</small><h3>${esc(t.label)}</h3><p>${set?'Configured and active':'Location not configured'}</p>${data.canManage?`<div class="actions"><button data-facility="${esc(id)}" data-reset="false">Set here</button>${set?`<button class="danger" data-facility="${esc(id)}" data-reset="true">Reset</button>`:''}</div>`:''}</article>`}).join('');renderOverview(data);renderRanksList()}
+function hexA(hex,a){const h=(hex||'#5eead4').replace('#','');const n=h.length===3?h.split('').map(c=>c+c).join(''):h;const r=parseInt(n.substr(0,2),16)||0,g=parseInt(n.substr(2,2),16)||0,b=parseInt(n.substr(4,2),16)||0;return `rgba(${r},${g},${b},${a})`}
+function applyAccent(hex){const c=hex||'#5eead4',s=document.documentElement.style;s.setProperty('--accent',c);s.setProperty('--accent-tint',hexA(c,.12));s.setProperty('--accent-border',hexA(c,.4));s.setProperty('--accent-glow',hexA(c,.55));s.setProperty('--accent-a22',hexA(c,.22));s.setProperty('--accent-a65',hexA(c,.65))}
+function switchTab(tab){const btn=document.querySelector(`.tab[data-tab="${tab}"]`);if(btn)btn.click()}
+function render(data){state=data;if(!data?.ok){notice(data?.error||'Unable to load organization.','error');return}const m=data.member,o=data.organization;
+  applyAccent(o.color);
+  const me=(data.roster||[]).find(x=>String(x.character_id)===String(data.characterId));
+  const myName=(me&&(me.name||me.character_id))||data.characterId;
+  document.querySelector('#orgFullLabel').textContent=o.label;document.querySelector('#orgShortLabel').textContent=o.shortLabel;document.querySelector('#orgLogo').textContent=(o.shortLabel||'').slice(0,2).toUpperCase();document.querySelector('#jurisdiction').textContent=o.jurisdiction||'';
+  document.querySelector('#sideSummaryName').textContent=`${m.rankName} · ${myName}`;document.querySelector('#sideSummaryDuty').textContent=m.onDuty?'On duty':'Off duty';document.querySelector('#sideDutyDot').classList.toggle('is-on',m.onDuty===true);
+  const dutyPill=document.querySelector('#dutyPill');dutyPill.textContent=m.onDuty?'On duty':'Off duty';dutyPill.classList.toggle('is-on',m.onDuty===true);
+  document.querySelector('#staffingTab').classList.toggle('hidden',!data.canManage);document.querySelector('#dispatchTab').classList.add('hidden');document.querySelector('#mdtTab').classList.add('hidden');document.querySelector('#fleetTab').classList.toggle('hidden',!data.canFleetManage);document.querySelector('#fleetRecallAll').classList.toggle('hidden',!data.canFleetManage);document.querySelector('#logsTab').classList.toggle('hidden',!data.canManage);
+ const ranks=data.ranks.filter(r=>!r.is_leader&&Number(r.tier)<Number(m.tier));document.querySelector('#hireRank').innerHTML=ranks.map(r=>`<option value="${r.id}">${esc(r.name)}</option>`).join('');roster.innerHTML=data.roster.map(x=>`<article class="member"><div><div class="member-name">${esc(x.name||x.character_id)}</div><div class="meta">CID ${esc(x.character_id)} · ${esc(x.rank_name)}</div></div><span class="badge ${x.suspended?'suspended':x.on_duty?'on':''}">${x.suspended?'Suspended':x.on_duty?'On duty':'Off duty'}</span>${data.canManage&&!x.is_leader&&Number(x.tier)<Number(m.tier)?`<div class="actions"><select data-rank="${esc(x.character_id)}">${ranks.map(r=>`<option value="${r.id}" ${Number(r.id)===Number(x.rank_id)?'selected':''}>${esc(r.name)}</option>`).join('')}</select><button data-action="rank" data-cid="${esc(x.character_id)}">Set rank</button><button data-action="${x.suspended?'reinstate':'suspend'}" data-cid="${esc(x.character_id)}">${x.suspended?'Reinstate':'Suspend'}</button><button data-action="fire" data-cid="${esc(x.character_id)}">Remove</button></div>`:'<div></div>'}</article>`).join('')||'<p>No members found.</p>';const f=data.facilities||{},types=data.facilityTypes||{};document.querySelector('#facilities').innerHTML=Object.entries(types).map(([id,t])=>{const set=!!f[id];return `<article class="facility-card"><small>${esc(t.role)}</small><h3>${esc(t.label)}</h3><p>${set?'Configured and active':'Location not configured'}</p>${data.canManage?`<div class="actions"><button data-facility="${esc(id)}" data-reset="false">Set here</button>${set?`<button class="danger" data-facility="${esc(id)}" data-reset="true">Reset</button>`:''}</div>`:''}</article>`}).join('');renderOverview(data);renderRecord(data,myName);renderRanksList()}
 
 // ── Overview ───────────────────────────────────────────────────────────────
+const pageBlurbs={overview:'Command status, agency tools and the organization feed at a glance.',roster:'Everyone in the organization, with rank, status and tier.',ranks:'Ranks define tier and permissions. Leaders can create, edit, and delete ranks below their own tier.',fleet:'Manage each vehicle\'s parking location and minimum rank.',logs:'Every staffing, rank and facility change in this organization.',dispatch:'Shared 911 calls across every authorized legal unit.',mdt:'Shared citizen, vehicle and case records.',staffing:'Hire and manage organization members.'};
+let overviewFeedRows=[];
 function renderOverview(data){
-  const m=data.member,roster=data.roster||[];
-  const onDuty=roster.filter(x=>x.on_duty).length;
-  document.querySelector('#overviewStats').innerHTML=[
-    ['ORGANIZATION',data.organization.shortLabel],
-    ['MEMBERS',`${roster.length} (${onDuty} on duty)`],
-    ['YOUR RANK',m.rankName],
-    ['DUTY STATUS',m.onDuty?'On duty':'Off duty'],
-  ].map(([label,value])=>`<div class="stat"><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`).join('');
+  const m=data.member,rosterRows=data.roster||[],ranks=data.ranks||[];
+  const onDutyRows=rosterRows.filter(x=>x.on_duty);
+  const onDuty=onDutyRows.length,total=rosterRows.length,suspended=rosterRows.filter(x=>x.suspended).length;
+  const me=rosterRows.find(x=>String(x.character_id)===String(data.characterId));
+
+  document.querySelector('#commandName').textContent=(me&&(me.name||me.character_id))||data.characterId;
+  document.querySelector('#commandTier').textContent=m.tier;
+  const circumference=2*Math.PI*44,ringFill=document.querySelector('#commandRingFill');
+  ringFill.style.strokeDasharray=`${circumference}`;
+  ringFill.style.strokeDashoffset=`${circumference*(1-Math.min(100,Math.max(0,Number(m.tier)||0))/100)}`;
+
+  document.querySelector('#commandPills').innerHTML=[
+    `<span class="pill pill--accent">${esc(m.rankName)}</span>`,
+    `<span class="pill">CID ${esc(data.characterId)}</span>`,
+    m.suspended?`<span class="pill pill--red">Suspended</span>`:`<span class="pill${m.onDuty?' pill--green':''}">${m.onDuty?'On duty':'Off duty'}</span>`,
+  ].join('');
+
+  document.querySelector('#commandIcons').innerHTML=[
+    {label:'Members',value:String(total),color:'green',glyph:'M'},
+    {label:'On duty',value:String(onDuty),color:'accent',glyph:'D'},
+    {label:'Suspended',value:String(suspended),color:'red',glyph:'!'},
+    {label:'Ranks',value:String(ranks.length),color:'gold',glyph:'R'},
+  ].map(s=>`<div class="command-icon"><div class="command-icon__chip command-icon__chip--${s.color}">${esc(s.glyph)}</div><div><small>${esc(s.label)}</small><strong>${esc(s.value)}</strong></div></div>`).join('');
+
+  document.querySelector('#dutyBannerFraction').textContent=`${onDuty} / ${total}`;
+  document.querySelector('#dutyBannerFill').style.width=`${total?Math.round(onDuty/total*100):0}%`;
+  document.querySelector('#dutyBannerTotal').textContent=`${total} member${total===1?'':'s'}`;
+
+  const tools=[
+    {label:'Members',glyph:'M',show:true,action:()=>switchTab('roster')},
+    {label:'Ranks & access',glyph:'R',show:true,action:()=>switchTab('ranks')},
+    {label:'Fleet vehicles',glyph:'F',show:data.canFleetManage,action:()=>switchTab('fleet')},
+    {label:'Activity logs',glyph:'A',show:data.canManage,action:()=>switchTab('logs')},
+    {label:'Staffing',glyph:'S',show:data.canManage,action:()=>switchTab('staffing')},
+    {label:'MDT',glyph:'T',show:data.canMdt,action:()=>post('openStandalone',{tab:'mdt'})},
+    {label:'Dispatch',glyph:'D',show:data.canDispatch,action:()=>post('openStandalone',{tab:'dispatch'})},
+  ].filter(t=>t.show);
+  const toolsGrid=document.querySelector('#agencyTools');
+  toolsGrid.innerHTML=tools.map((t,i)=>`<button type="button" class="tool-tile" data-tool="${i}"><span class="tool-tile__chip">${esc(t.glyph)}</span><span>${esc(t.label)}</span></button>`).join('')||'<p class="hint">No tools available to your rank.</p>';
+  toolsGrid.onclick=e=>{const b=e.target.closest('[data-tool]');if(b)tools[Number(b.dataset.tool)].action()};
+
+  document.querySelector('#onDutyBody').innerHTML=onDuty
+    ? `<p>${onDutyRows.map(x=>`${esc(x.name||x.character_id)} <small>· ${esc(x.rank_name)}</small>`).join('<br>')}</p>`
+    : '<p class="hint">No units on duty right now.</p>';
+}
+
+function activityColor(action){
+  if(action.startsWith('duty_')||action.startsWith('wardrobe_'))return 'accent';
+  if(action.startsWith('member_'))return 'green';
+  if(action.startsWith('rank_'))return 'gold';
+  if(action.startsWith('fleet_')||action.startsWith('facility_'))return 'blue';
+  if(action.startsWith('mdt_')||action.startsWith('shared_'))return 'purple';
+  return 'red';
+}
+function renderOverviewFeed(){
+  document.querySelector('#overviewFeed').innerHTML=overviewFeedRows.slice(0,5).map(row=>{
+    const label=activityLabels[row.action]||row.action;
+    return `<div class="feed-row"><div class="feed-row__chip feed-row__chip--${activityColor(row.action)}">${esc((row.actorName||'?').charAt(0))}</div><div class="feed-row__body"><strong>${esc(row.actorName)}</strong><span>${esc(label)}</span></div><time>${esc(row.createdAt)}</time></div>`;
+  }).join('')||'<p class="hint">No activity recorded yet.</p>';
+}
+async function loadOverviewFeed(){const r=await post('activityLog');overviewFeedRows=r?.list||[];renderOverviewFeed()}
+
+// ── Right-hand member record rail ───────────────────────────────────────────
+function renderRecord(data,myName){
+  const m=data.member,o=data.organization;
+  document.querySelector('#recordTitle').textContent=`${o.shortLabel} RECORD`;
+  document.querySelector('#recordMark').textContent=(o.shortLabel||'').slice(0,2).toUpperCase();
+  document.querySelector('#recordInfo').innerHTML=[
+    ['Rank',m.rankName],
+    ['Character',`CID ${data.characterId}`],
+    ['Status',m.suspended?'Suspended':(m.onDuty?'On duty':'Off duty')],
+    ['Terminal','F7 · Organization'],
+  ].map(([label,value])=>`<div class="record__row"><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`).join('');
+
+  const actions=[
+    {label:'Ranks & access',show:true,action:()=>switchTab('ranks')},
+    {label:'Activity logs',show:data.canManage,action:()=>switchTab('logs')},
+    {label:'Fleet vehicles',show:data.canFleetManage,action:()=>switchTab('fleet')},
+    m.onDuty
+      ? {label:'Go off duty',show:true,danger:true,action:async()=>{const r=await post('setDutyOff');notice(r.message||r.error,r.ok?'success':'error')}}
+      : {label:'Go on duty',show:true,action:()=>notice('Go on duty through your organization wardrobe.','error')},
+  ].filter(a=>a.show);
+  const actionsBox=document.querySelector('#recordActions');
+  actionsBox.innerHTML=actions.map((a,i)=>`<button type="button" class="record__action${a.danger?' danger':''}" data-record-action="${i}">${esc(a.label)}</button>`).join('');
+  actionsBox.onclick=e=>{const b=e.target.closest('[data-record-action]');if(b)actions[Number(b.dataset.recordAction)].action()};
+
+  document.querySelector('#recordName').textContent=myName;
+  document.querySelector('#recordRankTier').textContent=`${m.rankName} · Tier ${m.tier}`;
 }
 
 // ── Ranks & Access ─────────────────────────────────────────────────────────
@@ -193,7 +285,10 @@ function esc(v){const d=document.createElement('div');d.textContent=String(v??''
 window.addEventListener('message',e=>{const {action,data,kind,message,initialTab}=e.data||{};if(action==='open'){facilityOnly=e.data?.facilityOnly===true;const standalone=e.data?.standaloneMode===true;app.classList.toggle('standalone-interface',standalone);app.classList.toggle('standalone-dispatch',standalone&&initialTab==='dispatch');app.classList.toggle('standalone-mdt',standalone&&initialTab==='mdt');app.classList.remove('hidden');render(data);if(standalone&&initialTab){document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));document.querySelector(`#${initialTab}View`)?.classList.remove('hidden');document.querySelector('#pageTitle').textContent=pageTitles[initialTab]||initialTab;if(initialTab==='dispatch'){loadDispatchActiveCalls();loadDispatchHistory()}}else{const tab=initialTab&&document.querySelector(`[data-tab="${initialTab}"]`);if(tab&&!tab.classList.contains('hidden'))tab.click()}}if(action==='dashboard')render(data);if(action==='close'){app.classList.add('hidden');app.classList.remove('standalone-interface','standalone-dispatch','standalone-mdt')}if(action==='notice')notice(message,kind);if(action==='dispatchRefresh'&&!app.classList.contains('hidden')&&!document.querySelector('#dispatchView').classList.contains('hidden'))loadDispatchActiveCalls()});
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>post('close'));document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!document.querySelector('#legalArmory').classList.contains('hidden'))post('legalArmoryClose');else if(!document.querySelector('#wardrobeRoom').classList.contains('hidden'))post('legalWardrobeCancel');else if(!document.querySelector('#facilityDialogue').classList.contains('hidden'))post('facilityDialogueClose');else post('close')}});
 const pageTitles={overview:'Overview',roster:'Roster',ranks:'Ranks & Access',facilities:'Facilities',fleet:'Fleet Vehicles',logs:'Activity Logs',dispatch:'Dispatch',mdt:'Shared MDT',staffing:'Staffing'};
-document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));document.querySelector(`#${b.dataset.tab}View`).classList.remove('hidden');document.querySelector('#pageTitle').textContent=pageTitles[b.dataset.tab]||b.dataset.tab;if(b.dataset.tab==='dispatch'){loadDispatchActiveCalls();loadDispatchHistory()}if(b.dataset.tab==='fleet')loadFleet();if(b.dataset.tab==='logs')loadActivityLog()});
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));document.querySelector(`#${b.dataset.tab}View`).classList.remove('hidden');document.querySelector('#pageTitle').textContent=pageTitles[b.dataset.tab]||b.dataset.tab;document.querySelector('#pageBlurb').textContent=pageBlurbs[b.dataset.tab]||'';if(b.dataset.tab==='dispatch'){loadDispatchActiveCalls();loadDispatchHistory()}if(b.dataset.tab==='fleet')loadFleet();if(b.dataset.tab==='logs')loadActivityLog();if(b.dataset.tab==='overview')loadOverviewFeed()});
+document.querySelector('#refreshBtn').onclick=()=>refresh();
+document.querySelector('#dutyPill').onclick=async()=>{if(!state?.member)return;if(state.member.onDuty){const r=await post('setDutyOff');notice(r.message||r.error,r.ok?'success':'error')}else{notice('Go on duty through your organization wardrobe.','error')}};
+document.querySelectorAll('.footer-shortcut').forEach(b=>b.onclick=()=>{const s=b.dataset.shortcut;if(s==='quickmenu')post('openQuickMenu');else post('openStandalone',{tab:s})});
 document.querySelector('#hireForm').onsubmit=async e=>{e.preventDefault();const r=await post('staffAction',{action:'hire',characterId:document.querySelector('#hireCid').value,rankId:Number(document.querySelector('#hireRank').value)});notice(r.message||r.error,r.ok?'success':'error');if(r.ok)e.target.reset()};
 roster.onclick=async e=>{const b=e.target.closest('[data-action]');if(!b)return;const action=b.dataset.action,cid=b.dataset.cid;if(action==='fire'&&!confirm('Remove this member from the organization?'))return;const rank=roster.querySelector(`[data-rank="${CSS.escape(cid)}"]`);const r=await post('staffAction',{action,characterId:cid,rankId:rank?Number(rank.value):null});notice(r.message||r.error,r.ok?'success':'error')};
 

@@ -83,8 +83,8 @@ button{cursor:pointer;border:1px solid #3b7790;border-radius:9px;background:#173
 
 /* F10/Tab standalone workspaces. Dispatch and MDT stay out of the F7 nav. */
 #dispatchTab,#mdtTab{display:none!important}
-#app.standalone-interface .shell{width:min(1720px,96vw);height:94vh;grid-template-columns:1fr;border-color:rgba(83,218,239,.32);background:linear-gradient(135deg,#070d13,#0b1922)}
-#app.standalone-interface .side{display:none!important}
+#app.standalone-interface .shell{width:min(1720px,96vw);height:94vh;grid-template-columns:1fr;border-color:rgba(94,234,212,.32);background:linear-gradient(135deg,#050708,#0a1416)}
+#app.standalone-interface .side,#app.standalone-interface .record{display:none!important}
 #app.standalone-interface .workspace>header{padding:13px 20px;background:rgba(6,13,19,.92)}
 #app.standalone-interface .content{padding:18px;overflow:hidden}
 #app.standalone-interface .view{height:100%}
