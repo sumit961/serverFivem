@@ -29,6 +29,8 @@ local testDriveChargeToken = nil
 local testDriveReturnMode = 'store'
 local isRotatingMouseDown = false
 local appearanceCleanupToken = 0
+local vehicleAdminClimatePauseRequested = false
+local vehicleAdminClimatePauseReason = 'rn-vehicleshop:vehicleadmin'
 
 local function sendUiToast(message)
     if message and message ~= '' then
@@ -360,6 +362,19 @@ local function getPreviewStudio(mode)
     return Config.Showroom or {}
 end
 
+-- The admin photo studio deliberately uses fixed midday/clear conditions. Pause
+-- cm-climatime while the studio owns those natives, then let it immediately
+-- restore the player's live climate when the admin leaves or starts a test drive.
+local function setVehicleAdminClimatePaused(paused)
+    paused = paused == true
+    vehicleAdminClimatePauseRequested = paused
+    if GetResourceState('cm-climatime') ~= 'started' then return end
+
+    pcall(function()
+        exports['cm-climatime']:PauseSync(paused, vehicleAdminClimatePauseReason)
+    end)
+end
+
 local function applyStudioEnvironment(mode, hardReset)
     local studio = getPreviewStudio(mode)
     local env = studio.Environment
@@ -394,8 +409,8 @@ local function restoreWorldEnvironment()
     pcall(function() NetworkClearClockTimeOverride() end)
 end
 
--- Reassert only the persistent clock/weather state at a low frequency. This is
--- enough to resist periodic climate sync without repeatedly clearing the screen.
+-- Reassert only the persistent clock/weather state at a low frequency so GTA's
+-- ambient systems cannot drift the photo studio while cm-climatime is paused.
 CreateThread(function()
     while true do
         local captureActive = IsVehicleShopCaptureActive and IsVehicleShopCaptureActive()
@@ -781,6 +796,11 @@ end
 
 local function changeCam(mode)
     mode = mode or 'store'
+    if mode == 'admin' then
+        setVehicleAdminClimatePaused(true)
+    elseif vehicleAdminClimatePauseRequested then
+        setVehicleAdminClimatePaused(false)
+    end
     previewMode = mode
     DoScreenFadeOut(500)
     Wait(700)
@@ -868,6 +888,7 @@ local function closeShopBase()
     returnCoords = nil
     TriggerEvent('change:time', false)
     restoreWorldEnvironment()
+    setVehicleAdminClimatePaused(false)
     RenderScriptCams(false, false, 1, true, true)
     if cam and DoesCamExist(cam) then DestroyCam(cam, true) end
     cam = nil
@@ -1132,7 +1153,7 @@ RegisterNetEvent('rn-vehicleshop:client:startTestDrive', function(vehDetails, ti
     end
 
     lastPreviewDetails = vehDetails
-    local duration = math.floor(tonumber(timer) or (Config.TestDrive and Config.TestDrive.testDriveTimer) or 60)
+    local duration = math.floor(tonumber(timer) or (Config.TestDrive and Config.TestDrive.testDriveTimer) or 300)
     if duration < 10 then duration = 10 end
 
     -- Test drive is a sub-mode of the shop. First switch HUD/session state to
@@ -1149,6 +1170,11 @@ RegisterNetEvent('rn-vehicleshop:client:startTestDrive', function(vehDetails, ti
     RenderScriptCams(false, false, 1, true, true)
     if cam and DoesCamExist(cam) then DestroyCam(cam, false) end
     cam = nil
+
+    if vehicleAdminClimatePauseRequested then
+        restoreWorldEnvironment()
+        setVehicleAdminClimatePaused(false)
+    end
 
     local modelHash = loadVehicleModel(model)
     if not modelHash then
@@ -1502,7 +1528,7 @@ RegisterNUICallback('adminSaveVehicle', function(data, cb)
     data = type(data) == 'table' and data or {}
     data.mods = currentAdminMods
     TriggerServerEvent('rn-vehicleshop:server:saveAdminVehicle', data)
-    cb('ok')
+    cb({ accepted = true, pending = true, requestId = data.requestId })
 end)
 
 RegisterNUICallback('adminModPatch', function(data, cb)
@@ -1563,10 +1589,26 @@ RegisterNUICallback('adminDisableVehicle', function(data, cb)
     cb('ok')
 end)
 
+RegisterNUICallback('adminEnableVehicle', function(data, cb)
+    data = type(data) == 'table' and data or {}
+    TriggerServerEvent('rn-vehicleshop:server:enableAdminVehicle', data.model)
+    cb('ok')
+end)
+
+RegisterNUICallback('adminReplaceVehicle', function(data, cb)
+    data = type(data) == 'table' and data or {}
+    TriggerServerEvent('rn-vehicleshop:server:replaceAdminVehicle', data)
+    cb({ accepted = true, pending = true, requestId = data.requestId })
+end)
+
 RegisterNUICallback('adminGrantOrganizationVehicle', function(data, cb)
     data = type(data) == 'table' and data or {}
-    TriggerServerEvent('rn-vehicleshop:server:grantOrganizationVehicle', data.model, data.organization, data.minimumTier, data.trunkMinimumTier)
-    cb('ok')
+    TriggerServerEvent('rn-vehicleshop:server:grantOrganizationVehicle', data.model, data.organization, data.minimumTier, data.trunkMinimumTier, data.requestId)
+    cb({ accepted = true, pending = true, requestId = data.requestId })
+end)
+
+RegisterNetEvent('rn-vehicleshop:client:adminActionResult', function(result)
+    SendNUIMessage({ action = 'adminActionResult', result = type(result) == 'table' and result or {} })
 end)
 
 RegisterNetEvent('rn-vehicleshop:client:organizationGrantResult', function(result)
@@ -1761,6 +1803,8 @@ end)
 
 AddEventHandler('onResourceStop', function(res)
     if res ~= GetCurrentResourceName() then return end
+    restoreWorldEnvironment()
+    setVehicleAdminClimatePaused(false)
     deletePreviewVehicle()
     deleteTestDriveVehicle()
     if inShop then
@@ -1782,4 +1826,10 @@ AddEventHandler('onResourceStop', function(res)
     if GalleryPed and DoesEntityExist(GalleryPed) then DeleteEntity(GalleryPed) end
     endHudStoreLock()
     forceRestoreHud('resource_stop')
+end)
+
+AddEventHandler('onClientResourceStart', function(res)
+    if res == 'cm-climatime' and vehicleAdminClimatePauseRequested then
+        setVehicleAdminClimatePaused(true)
+    end
 end)

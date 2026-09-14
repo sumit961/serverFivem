@@ -156,9 +156,8 @@ Config.VehicleAdminStudio = {
         minute = 0,
         second = 0,
         weather = 'EXTRASUNNY',
-        -- Neutral midday lighting for the live admin preview. The client keeps
-        -- this environment active while admin is open so cm-climatime cannot turn
-        -- the studio dark between synchronization ticks.
+        -- Neutral midday lighting for the live admin preview. The client pauses
+        -- cm-climatime while the photo studio owns this local environment.
         timecycle = '',
         timecycleStrength = 0.0,
         noShadows = true,
@@ -189,10 +188,22 @@ Config.AdminTestDrive = {
 }
 
 Config.Admin = {
-    -- For now every player can use /vehicleadmin, matching your current admin workflow.
-    -- Later set AllPlayers = false and give ace permission: add_ace group.admin rnvehicleshop.admin allow
-    AllPlayers = true,
+    -- Vehicle catalog and replacement operations are destructive administrative
+    -- actions. Keep this fail-closed; grant the ACE permission explicitly.
+    AllPlayers = false,
     AcePermission = 'rnvehicleshop.admin'
+}
+
+-- Safe model replacement. The replacement keeps the existing cm-vehicles
+-- vehicle id and all model-independent state. Vehicles currently outside a
+-- garage are migrated after they are stored so their live entity is never
+-- deleted or force-respawned under the player.
+Config.ModelReplacement = {
+    enabled = true,
+    pendingPollMs = 15000,
+    requireCapturedReplacementImage = true,
+    rejectTargetWithExistingOwners = true,
+    rejectTargetAlreadyPublished = true
 }
 
 -- Dealership interior (Pacific Bluffs MLO).
@@ -304,7 +315,7 @@ Config.Blip = {
 
 Config.TestDrive = {
     enabled = true,
-    testDriveTimer = 60,
+    testDriveTimer = 300,
     testDriveCost = 50
 }
 

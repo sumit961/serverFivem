@@ -62,7 +62,8 @@ client_exports {
 files {
     'ui/index.html',
     'ui/style.css',
-    'ui/app.js'
+    'ui/app.js',
+    'ui/fonts/*.woff'
 }
 
 dependencies {

@@ -175,6 +175,12 @@ Permanent placement is available only through `cm-admin`. The server tracks the
 temporary placement vehicle and reads its entity coordinates and heading on
 confirmation; browser coordinates are not accepted.
 
+`RollbackGrantedOrganizationVehicle(src, gangId, model, vehicleId)` is a
+server export reserved for `rn-vehicleshop`. It compensates a failed admin
+grant by removing only the exact matching fleet assignment and organization
+vehicle after revalidating the initiating admin, fixed gang, catalog model,
+and persistent vehicle ownership.
+
 ## Administration and recovery
 
 The F11 Gangs page displays exactly the five canonical gangs and has no create,

@@ -408,6 +408,35 @@ CreateThread(function()
     end
 end)
 
+local function reconcileSaleValuesAndClaims()
+    -- Backfill only missing values; never overwrite an explicitly configured
+    -- value or a genuine zero-priced vehicle.
+    pcall(function()
+        MySQL.update.await([[
+            UPDATE cm_owned_vehicles v
+            INNER JOIN cm_vehicle_catalog c ON LOWER(c.model) = LOWER(v.model)
+            SET v.state_value = c.price,
+                v.metadata = JSON_SET(COALESCE(v.metadata, '{}'), '$.stateValue', c.price)
+            WHERE (v.state_value IS NULL OR v.state_value <= 0)
+              AND c.price > 0
+        ]])
+    end)
+
+    -- A claim older than five minutes is abandoned. A pending payout is kept
+    -- intact so recovery can still deliver money exactly once.
+    pcall(function()
+        MySQL.update.await([[
+            UPDATE cm_owned_vehicles v
+            LEFT JOIN cm_vehicle_pending_payouts p
+              ON p.vehicle_id = v.id AND p.status = 'pending'
+            SET v.sale_pending_token = NULL, v.sale_pending_at = NULL
+            WHERE v.sale_pending_token IS NOT NULL
+              AND v.sale_pending_at < DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+              AND p.id IS NULL
+        ]])
+    end)
+end
+
 AddEventHandler('cm-playerdata:server:characterLoaded', function(playerSource)
     local src = tonumber(playerSource) or tonumber(source)
     if not src then return end
@@ -711,13 +740,32 @@ function CMVehicles.Server.VehicleInfoFor(src, plate)
     end
 
     local metadata = type(row.metadata) == 'table' and row.metadata or {}
+    local replacementType = tostring(metadata.replacementType or '')
+    local temporaryReplacement = replacementType == 'temporary' or replacementType == 'restoring'
+    local originalModel = temporaryReplacement and tostring(metadata.replacementOriginalModel or ''):lower() or ''
+    local informationModel = originalModel ~= '' and originalModel or tostring(row.model or ''):lower()
+    local replacementImage = temporaryReplacement and tostring(metadata.replacementOriginalImage or '') or ''
+    local vehicleNotice = metadata.vehicleNotice or metadata.replacementNotice
+    if temporaryReplacement and (not vehicleNotice or tostring(vehicleNotice) == '') then
+        vehicleNotice = ('Temporary model replacement: this vehicle is using %s while %s is unavailable. Its registered details are unchanged.')
+            :format(tostring(row.model or 'a substitute model'), informationModel)
+    end
     local stateValue = numFrom(row.state_value, metadata.stateValue, metadata.state_value, metadata.storePrice, metadata.store_price, metadata.purchasePrice, metadata.purchase_price, metadata.price, metadata.vehiclePrice, metadata.vehicle_price)
+    if stateValue <= 0 then
+        local ok, catalogPrice = pcall(function()
+            return MySQL.scalar.await('SELECT price FROM cm_vehicle_catalog WHERE LOWER(model) = ? LIMIT 1', { informationModel })
+        end)
+        if ok then stateValue = tonumber(catalogPrice) or 0 end
+    end
     local insuranceDays = numFrom(row.insurance_days, row.insurance, metadata.insuranceDays, metadata.insurance_days, metadata.insurance)
     local ownerName = row.owner_name or metadata.ownerName or metadata.owner_name or metadata.owner or CMVehicles.Server.GetCharacterName(src, row.owner_character_id)
 
     return {
         id = row.id,
         model = row.model,
+        informationModel = informationModel,
+        replacementModel = temporaryReplacement and row.model or nil,
+        temporaryReplacement = temporaryReplacement,
         label = row.label,
         plate = row.plate,
         ownerCharacterId = tostring(row.owner_type or 'character') == 'character' and tostring(row.owner_character_id) or nil,
@@ -726,7 +774,9 @@ function CMVehicles.Server.VehicleInfoFor(src, plate)
         ownerName = tostring(ownerName or 'Unknown'),
         insuranceDays = insuranceDays,
         stateValue = stateValue,
-        sellValue = math.floor(stateValue * 0.30),
+        sellValue = metadata.permanentlyRemoved == true and math.floor(stateValue) or math.floor(stateValue * 0.30),
+        vehicleNotice = vehicleNotice,
+        permanentlyRemoved = metadata.permanentlyRemoved == true or metadata.replacementType == 'permanent',
         trunkLevel = row.trunk_level,
         trunkSlots = CMVehicles.Trunk and CMVehicles.Trunk.SlotCount(row.trunk_level) or 0,
         locked = row.is_locked,
@@ -740,7 +790,7 @@ function CMVehicles.Server.VehicleInfoFor(src, plate)
         familyTag = familyContext and tostring(familyContext.familyTag or '') or nil,
         familyRequiredTier = familyContext and tonumber(familyContext.requiredTier) or nil,
         familyHouseId = familyContext and tonumber(familyContext.houseId) or nil,
-        vehicleImage = CMVehicles.Server.GetVehicleCatalogImage(row.model),
+        vehicleImage = replacementImage ~= '' and replacementImage or CMVehicles.Server.GetVehicleCatalogImage(informationModel),
         netId = CMVehicles.Server.GetSpawnedNetId(row.plate),
         fuel = tonumber(row.fuel) or 100,
         engineHealth = U.NormalizeHealth(row.engine_health, 1000.0),
@@ -806,6 +856,7 @@ local TRUSTED_ORGANIZATIONS = {
 local function trustedOrgInfo(organization, invokingResource)
     local info = TRUSTED_ORGANIZATIONS[organization]
     if info and info.resource == invokingResource then return info end
+    if info and organization == 'police' and invokingResource == 'cm-law' then return info end
     return nil
 end
 
@@ -830,6 +881,12 @@ function CMVehicles.Server.CreateOwnedVehicle(src, model, label, trunkLevel, met
     local platePrefix = ownerType == 'organization' and orgInfo.prefix or nil
     local plate = CMVehicles.Server.GeneratePlate(platePrefix, platePrefix and (8 - #platePrefix) or nil)
     local stateValue = numFrom(metadata.stateValue, metadata.state_value, metadata.storePrice, metadata.store_price, metadata.purchasePrice, metadata.purchase_price, metadata.price, metadata.vehiclePrice, metadata.vehicle_price)
+    if stateValue <= 0 then
+        local ok, catalogPrice = pcall(function()
+            return MySQL.scalar.await('SELECT price FROM cm_vehicle_catalog WHERE LOWER(model) = ? LIMIT 1', { model })
+        end)
+        if ok then stateValue = tonumber(catalogPrice) or 0 end
+    end
     local insuranceDays = numFrom(metadata.insuranceDays, metadata.insurance_days, metadata.insurance)
     local ownerName = ownerType == 'organization' and orgInfo.name
         or metadata.ownerName or metadata.owner_name or CMVehicles.Server.GetCharacterName(src, charId)
@@ -1097,10 +1154,21 @@ RegisterNetEvent('cm-vehicles:server:sellToState', function(plate, netId)
         metadata.storePrice, metadata.store_price, metadata.purchasePrice,
         metadata.purchase_price, metadata.price, metadata.vehiclePrice, metadata.vehicle_price)
     if stateValue <= 0 then
+        local valueModel = (tostring(metadata.replacementType or '') == 'temporary'
+            or tostring(metadata.replacementType or '') == 'restoring')
+            and tostring(metadata.replacementOriginalModel or ''):lower()
+            or tostring(row.model or ''):lower()
+        if valueModel == '' then valueModel = tostring(row.model or ''):lower() end
+        local ok, catalogPrice = pcall(function()
+            return MySQL.scalar.await('SELECT price FROM cm_vehicle_catalog WHERE LOWER(model) = ? LIMIT 1', { valueModel })
+        end)
+        if ok then stateValue = tonumber(catalogPrice) or 0 end
+    end
+    if stateValue <= 0 then
         return U.Notify(src, 'State value is missing for this vehicle.', 'error')
     end
 
-    local payout = math.floor(stateValue * 0.30)
+    local payout = metadata.permanentlyRemoved == true and math.floor(stateValue) or math.floor(stateValue * 0.30)
     if payout <= 0 then
         return U.Notify(src, 'Sell value is too low.', 'error')
     end
@@ -1734,6 +1802,7 @@ end)
 AddEventHandler('onResourceStart', function(resource)
     if resource ~= GetCurrentResourceName() then return end
     CMVehicles.Server.EnsureTables()
+    SetTimeout(5000, reconcileSaleValuesAndClaims)
     print('[CM-VEHICLES] Started v3.5.0 | revocable family keys + RN catalog images | Engine key: Left Ctrl.')
 end)
 

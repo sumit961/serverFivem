@@ -70,7 +70,7 @@ local function organizationDecision(src, row, action)
     if tostring(row.owner_type or '') ~= 'organization' then return nil, 'not_organization_vehicle', nil end
     local organization = tostring(row.owner_id or ''):lower()
     local resource = organization == 'ems' and 'cm-ems'
-        or organization == 'police' and 'cm-police'
+        or organization == 'police' and (GetResourceState('cm-police') == 'started' and 'cm-police' or (GetResourceState('cm-law') == 'started' and 'cm-law' or nil))
         or ((organization == 'sahp' or organization == 'sheriff' or organization == 'fib' or organization == 'army') and 'cm-law' or nil)
         or (isGangOrganization(organization) and 'cm-gang' or nil)
     if not resource or GetResourceState(resource) ~= 'started' then
@@ -225,6 +225,11 @@ function A.CanUseVehicle(src, identity, action)
             return exports['cm-police']:CanUseVehicle(src, tonumber(row.id), action)
         end)
         if okPolice and allowed == true then return true, 'police', row end
+    elseif GetResourceState('cm-law') == 'started' then
+        local okLaw, allowed = pcall(function()
+            return exports['cm-law']:CanUseVehicle(src, tonumber(row.id), action)
+        end)
+        if okLaw and allowed == true then return true, 'law', row end
     end
 
     if GetResourceState('cm-admin') == 'started' then
@@ -293,7 +298,7 @@ function A.GetIntegrationContract()
             },
             location = {
                 'GetVehicleLocation', 'GetVehicleLocationStates', 'TransitionVehicleLocation',
-                'ReconcileVehicleLocation', 'ReconcileAllVehicleLocations',
+                'ReconcileVehicleLocation', 'ReconcileAllVehicleLocations', 'StoreVehicle',
             },
             operations = {
                 'BeginVehicleOperation', 'AdvanceVehicleOperation', 'CompleteVehicleOperation',

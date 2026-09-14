@@ -54,16 +54,22 @@ local function playKeyFob()
     TaskPlayAnim(ped, 'anim@mp_player_intmenu@key_fob@', 'fob_click', 8.0, -8.0, 800, 48, 0, false, false, false)
 end
 
-local function blink(vehicle)
+local function blink(vehicle, locked)
     CreateThread(function()
-        for _ = 1, 2 do
+        local count = (locked == true) and 1 or 2
+        pcall(function()
+            PlaySoundFromEntity(-1, 'Remote_Control_Fob', vehicle, 'PI_Menu_Sounds', 1, 0)
+        end)
+        for i = 1, count do
             SetVehicleIndicatorLights(vehicle, 0, true)
             SetVehicleIndicatorLights(vehicle, 1, true)
-            StartVehicleHorn(vehicle, 80, joaat('HELDDOWN'), false)
-            Wait(220)
+            StartVehicleHorn(vehicle, 75, joaat('NORMAL'), false)
+            Wait(120)
             SetVehicleIndicatorLights(vehicle, 0, false)
             SetVehicleIndicatorLights(vehicle, 1, false)
-            Wait(220)
+            if i < count then
+                Wait(140)
+            end
         end
     end)
 end
@@ -144,8 +150,11 @@ RegisterNetEvent('cm-vehicles:client:lockVisuals', function(plate, netId, locked
     local veh = netId and NetworkGetEntityFromNetworkId(tonumber(netId)) or nil
     if not veh or veh == 0 then veh = CMVehicles.Client.FindVehicleByPlate(plate) end
     if not veh or veh == 0 then return end
-    playKeyFob()
-    blink(veh)
+    local ped = PlayerPedId()
+    if not IsPedInAnyVehicle(ped, false) then
+        playKeyFob()
+    end
+    blink(veh, locked)
     CMVehicles.Client.ApplyLock(veh, locked == true)
 end)
 
@@ -220,13 +229,15 @@ RegisterNetEvent('cm-vehicles:client:openMenu', function(info)
     local veh = info.netId and NetworkGetEntityFromNetworkId(info.netId) or nil
     if (not veh or veh == 0 or not DoesEntityExist(veh)) and info.plate then veh = CMVehicles.Client.FindVehicleByPlate(info.plate) end
     if veh and veh ~= 0 and DoesEntityExist(veh) then
-        if GetResourceState('cm-police') == 'started' then
+        local lawRes = GetResourceState('cm-law') == 'started' and 'cm-law'
+            or (GetResourceState('cm-police') == 'started' and 'cm-police' or nil)
+        if lawRes then
             local ok, target = pcall(function()
-                return exports['cm-police']:GetDraggedSuspectForVehicle(veh)
+                return exports[lawRes]:GetDraggedSuspectForVehicle(veh)
             end)
             info.policeDraggedSuspect = ok and tonumber(target) or nil
             local occupantOk, occupant = pcall(function()
-                return exports['cm-police']:GetCuffedSuspectInVehicle(veh)
+                return exports[lawRes]:GetCuffedSuspectInVehicle(veh)
             end)
             info.policeCuffedOccupant = occupantOk and tonumber(occupant) or nil
         end
@@ -383,12 +394,12 @@ RegisterNUICallback('vehicleAction', function(data, cb)
     elseif action == 'ejectPassenger' then
         TriggerServerEvent('cm-vehicles:server:ejectPassenger', plate, netId, tonumber(data.target))
     elseif action == 'policePutDragged' then
-        if GetResourceState('cm-police') == 'started' and netId then
+        if (GetResourceState('cm-law') == 'started' or GetResourceState('cm-police') == 'started') and netId then
             TriggerEvent('cm-police:client:putDraggedInSelectedVehicle', netId)
             CMVehicles.Client.CloseNui()
         end
     elseif action == 'policeRemoveCuffed' then
-        if GetResourceState('cm-police') == 'started' and netId then
+        if (GetResourceState('cm-law') == 'started' or GetResourceState('cm-police') == 'started') and netId then
             TriggerEvent('cm-police:client:removeCuffedFromSelectedVehicle', netId)
             CMVehicles.Client.CloseNui()
         end

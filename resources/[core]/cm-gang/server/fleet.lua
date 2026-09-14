@@ -560,6 +560,49 @@ exports('LinkGrantedOrganizationVehicle', function(src, gangId, model, vehicleId
     return success,result
 end)
 
+-- Compensating rollback for the admin grant workflow. This is intentionally
+-- callable only by rn-vehicleshop, validates the initiating admin again, and
+-- can remove only the exact organization/model/vehicle assignment supplied.
+exports('RollbackGrantedOrganizationVehicle', function(src, gangId, model, vehicleId)
+    if GetInvokingResource() ~= 'rn-vehicleshop' then return false, 'untrusted_resource' end
+    src, model, vehicleId = tonumber(src), tostring(model or ''):lower(), tonumber(vehicleId)
+    if not adminPermission(src) or not Config.IsFixedGangId(gangId) or not vehicleId or not catalog(model) then
+        return false, 'permission_or_request_invalid'
+    end
+    if GetResourceState(VEHICLES) ~= 'started' then return false, 'vehicle_owner_unavailable' end
+    local lock = gangId..':'..model
+    if locks[lock] then return false, 'operation_busy' end
+    locks[lock] = true
+    local ok, success, reason = xpcall(function()
+        local vehicle = exports[VEHICLES]:GetVehicleById(vehicleId)
+        if not vehicle or tostring(vehicle.owner_type) ~= 'organization' or tostring(vehicle.owner_id) ~= gangId
+            or tostring(vehicle.model):lower() ~= model then
+            return false, 'vehicle_ownership_mismatch'
+        end
+        local settings = row(gangId, model)
+        local linkedVehicleId = settings and tonumber(settings.vehicle_id)
+        -- A pre-existing assignment belongs to another persistent vehicle and
+        -- must be left untouched. Only undo the row created by this grant.
+        if linkedVehicleId == vehicleId then
+            local changed = MySQL.update.await([[DELETE FROM cm_gang_fleet_vehicles
+                WHERE gang_id=? AND catalog_id=? AND vehicle_id=?]], {gangId,model,vehicleId})
+            if tonumber(changed) ~= 1 then return false, 'fleet_assignment_rollback_failed' end
+        end
+        local deleted, deleteReason = exports[VEHICLES]:DeleteOrganizationVehicle({
+            actorSource=src, organizationId=gangId, vehicleId=vehicleId
+        })
+        if deleted ~= true then return false, tostring(deleteReason or 'persistent_delete_failed') end
+        pcall(activity,gangId,'organization_vehicle_grant_rolled_back',cid(src),vehicleId,{model=model})
+        return true, 'organization_vehicle_grant_rolled_back'
+    end, debug.traceback)
+    locks[lock] = nil
+    if not ok then
+        print(('[cm-gang] granted vehicle rollback failed: %s'):format(tostring(success)))
+        return false, 'internal_error'
+    end
+    return success, reason
+end)
+
 -- Recover assignments saved while the catalog bridge was rejecting every
 -- rn-vehicleshop call. This only creates disabled, unconfigured fleet rows;
 -- an admin must still choose the authoritative persistent vehicle spawn.

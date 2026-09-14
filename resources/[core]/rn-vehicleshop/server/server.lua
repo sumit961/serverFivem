@@ -14,6 +14,9 @@ local PURCHASE_LOCK_TIMEOUT_MS = 45000
 local TEST_DRIVE_CHARGE_TIMEOUT_MS = 30000
 local CHARACTER_CACHE_TTL_MS = 30000
 local CATALOG_CACHE_TTL_MS = 15000
+local OwnedVehicleHasStoredColumn = false
+local ReplacementPollStarted = false
+local ImageCaptureSequence = 0
 
 local function nowMs()
     return GetGameTimer and GetGameTimer() or (os.time() * 1000)
@@ -199,6 +202,24 @@ end
 
 local function notify(src, message, kind)
     TriggerClientEvent('rn-vehicleshop:client:notify', src, message or '', kind or 'info')
+end
+
+local function adminRequestId(value)
+    value = tostring(value or ''):gsub('[^%w_:%-]', '')
+    return value:sub(1, 80)
+end
+
+local function sendAdminActionResult(src, action, requestId, success, message, extra)
+    local result = {
+        action = tostring(action or 'admin'),
+        requestId = adminRequestId(requestId),
+        success = success == true,
+        message = tostring(message or '')
+    }
+    if type(extra) == 'table' then
+        for key, value in pairs(extra) do result[key] = value end
+    end
+    TriggerClientEvent('rn-vehicleshop:client:adminActionResult', src, result)
 end
 
 local function structuredAdminLog(category, action, src, data, level)
@@ -658,7 +679,37 @@ local function isAdmin(src)
     if src <= 0 then return true end
     if Config.Admin and Config.Admin.AllPlayers == true then return true end
     local perm = Config.Admin and Config.Admin.AcePermission or 'rnvehicleshop.admin'
-    return IsPlayerAceAllowed(src, perm)
+    if IsPlayerAceAllowed(src, perm) then return true end
+    -- CM Admin is the authoritative permission service when it is running.
+    -- Keep this fail-closed and require the dedicated vehicle developer/admin
+    -- permission rather than accepting a generic player/admin flag.
+    if GetResourceState('cm-admin') == 'started' then
+        for _, cmPermission in ipairs({ 'dev.vehicles', 'vehicles.manage' }) do
+            local ok, allowed = pcall(function()
+                return exports['cm-admin']:HasPermission(src, cmPermission)
+            end)
+            if ok and allowed == true then return true end
+        end
+    end
+    return false
+end
+
+local function ensureColumn(tableName, columnName, definition)
+    -- Every identifier passed here is a hard-coded resource schema name. Keep
+    -- this helper separate from user input so migrations remain safe on older
+    -- MariaDB/MySQL versions that do not support ADD COLUMN IF NOT EXISTS.
+    local ok, cols = pcall(function()
+        return MySQL.query.await(('SHOW COLUMNS FROM `%s` LIKE ?'):format(tableName), { columnName })
+    end)
+    if ok and (not cols or not cols[1]) then
+        pcall(function()
+            MySQL.query.await(('ALTER TABLE `%s` ADD COLUMN %s'):format(tableName, definition))
+        end)
+    end
+    local verifyOk, verify = pcall(function()
+        return MySQL.query.await(('SHOW COLUMNS FROM `%s` LIKE ?'):format(tableName), { columnName })
+    end)
+    return verifyOk and verify and verify[1] ~= nil
 end
 
 local function ensureTables()
@@ -675,90 +726,92 @@ local function ensureTables()
             available_server TINYINT(1) NOT NULL DEFAULT 0,
             available_ems TINYINT(1) NOT NULL DEFAULT 0,
             available_police TINYINT(1) NOT NULL DEFAULT 0,
+            legal_org VARCHAR(32) NULL,
+            gang_id VARCHAR(16) NULL,
             image VARCHAR(255) NULL,
             metadata LONGTEXT NULL,
             mods LONGTEXT NULL,
+            retired TINYINT(1) NOT NULL DEFAULT 0,
+            replacement_model VARCHAR(64) NULL,
+            has_carplay TINYINT(1) NOT NULL DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             INDEX idx_category (category),
             INDEX idx_available_store (available_store),
             INDEX idx_available_server (available_server),
             INDEX idx_available_ems (available_ems),
-            INDEX idx_available_police (available_police)
+            INDEX idx_available_police (available_police),
+            INDEX idx_has_carplay (has_carplay)
         )
     ]])
+
+    ensureColumn('cm_vehicle_catalog', 'image', 'image VARCHAR(255) NULL')
+    ensureColumn('cm_vehicle_catalog', 'available_ems', 'available_ems TINYINT(1) NOT NULL DEFAULT 0')
+    ensureColumn('cm_vehicle_catalog', 'available_police', 'available_police TINYINT(1) NOT NULL DEFAULT 0')
+    ensureColumn('cm_vehicle_catalog', 'speed_kph', 'speed_kph INT NULL AFTER price')
+    ensureColumn('cm_vehicle_catalog', 'mods', 'mods LONGTEXT NULL')
+    ensureColumn('cm_vehicle_catalog', 'legal_org', 'legal_org VARCHAR(32) NULL')
+    ensureColumn('cm_vehicle_catalog', 'gang_id', 'gang_id VARCHAR(16) NULL')
+    ensureColumn('cm_vehicle_catalog', 'retired', 'retired TINYINT(1) NOT NULL DEFAULT 0')
+    ensureColumn('cm_vehicle_catalog', 'replacement_model', 'replacement_model VARCHAR(64) NULL')
+    ensureColumn('cm_vehicle_catalog', 'has_carplay', 'has_carplay TINYINT(1) NOT NULL DEFAULT 0')
+    pcall(function() MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD INDEX idx_has_carplay (has_carplay)') end)
+
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS cm_vehicle_replacements (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            old_model VARCHAR(64) NOT NULL UNIQUE,
+            new_model VARCHAR(64) NOT NULL,
+            old_catalog LONGTEXT NULL,
+            old_image VARCHAR(255) NULL,
+            new_image VARCHAR(255) NULL,
+            status VARCHAR(16) NOT NULL DEFAULT 'applied',
+            created_by VARCHAR(128) NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            applied_at TIMESTAMP NULL,
+            INDEX idx_replacement_new_model (new_model),
+            INDEX idx_replacement_status (status)
+        )
+    ]])
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS cm_vehicle_replacement_pending (
+            vehicle_id BIGINT PRIMARY KEY,
+            replacement_id BIGINT NOT NULL,
+            old_model VARCHAR(64) NOT NULL,
+            new_model VARCHAR(64) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_pending_replacement (replacement_id),
+            INDEX idx_pending_old_model (old_model)
+        )
+    ]])
+
+    local storedOk, storedCols = pcall(function()
+        return MySQL.query.await([[SHOW COLUMNS FROM cm_owned_vehicles LIKE 'is_stored']])
+    end)
+    OwnedVehicleHasStoredColumn = storedOk and storedCols and storedCols[1] ~= nil
+
     -- Migration for servers that created the table before image support existed.
     -- Do not use `ADD COLUMN IF NOT EXISTS` here; older MariaDB/MySQL versions do not
     -- support it and silently broke image capture on some servers. SHOW COLUMNS works
     -- on old MariaDB/MySQL and lets us add the column only when missing.
-    local ok, cols = pcall(function()
-        return MySQL.query.await([[SHOW COLUMNS FROM cm_vehicle_catalog LIKE 'image']])
-    end)
-    if ok and (not cols or not cols[1]) then
-        pcall(function()
-            MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD COLUMN image VARCHAR(255) NULL')
-        end)
-    end
+    -- The idempotent migrations above cover older installations too.
 
     -- Same migration pattern for the EMS fleet destination: a mutually-exclusive
     -- 4th catalog status (hidden/server/store/ems) plus a saved appearance
     -- (paint/livery/wheels/etc, same shape cm-ems's fleet vehicles use).
-    local okEms, colsEms = pcall(function()
-        return MySQL.query.await([[SHOW COLUMNS FROM cm_vehicle_catalog LIKE 'available_ems']])
-    end)
-    if okEms and (not colsEms or not colsEms[1]) then
-        pcall(function()
-            MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD COLUMN available_ems TINYINT(1) NOT NULL DEFAULT 0')
-        end)
-        pcall(function()
-            MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD INDEX idx_available_ems (available_ems)')
-        end)
-    end
-    local okMods, colsMods = pcall(function()
-        return MySQL.query.await([[SHOW COLUMNS FROM cm_vehicle_catalog LIKE 'mods']])
-    end)
-    if okMods and (not colsMods or not colsMods[1]) then
-        pcall(function()
-            MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD COLUMN mods LONGTEXT NULL')
-        end)
-    end
+    pcall(function() MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD INDEX idx_available_ems (available_ems)') end)
+    pcall(function() MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD INDEX idx_available_police (available_police)') end)
 
     -- Same migration pattern again for the Police fleet destination: a 5th
     -- mutually-exclusive catalog status alongside hidden/server/store/ems.
-    local okPolice, colsPolice = pcall(function()
-        return MySQL.query.await([[SHOW COLUMNS FROM cm_vehicle_catalog LIKE 'available_police']])
-    end)
-    if okPolice and (not colsPolice or not colsPolice[1]) then
-        pcall(function()
-            MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD COLUMN available_police TINYINT(1) NOT NULL DEFAULT 0')
-        end)
-        pcall(function()
-            MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD INDEX idx_available_police (available_police)')
-        end)
-    end
-    local okSpeed, colsSpeed = pcall(function()
-        return MySQL.query.await([[SHOW COLUMNS FROM cm_vehicle_catalog LIKE 'speed_kph']])
-    end)
-    if okSpeed and (not colsSpeed or not colsSpeed[1]) then
-        pcall(function() MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD COLUMN speed_kph INT NULL AFTER price') end)
-    end
 
     -- Generic legal-org fleet destination: unlike available_ems/available_police
     -- (one hardcoded column each), this is a single nullable column holding
     -- whichever org id (e.g. 'sahp', 'fib') the vehicle is tagged for, so any
     -- number of cm-law organizations can use the same mutually-exclusive
     -- catalog-status pattern without a new column per org.
-    local okLegal, colsLegal = pcall(function()
-        return MySQL.query.await([[SHOW COLUMNS FROM cm_vehicle_catalog LIKE 'legal_org']])
-    end)
-    if okLegal and (not colsLegal or not colsLegal[1]) then
-        pcall(function()
-            MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD COLUMN legal_org VARCHAR(32) NULL')
-        end)
-        pcall(function()
-            MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD INDEX idx_legal_org (legal_org)')
-        end)
-    end
+    pcall(function() MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD INDEX idx_legal_org (legal_org)') end)
+    pcall(function() MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD INDEX idx_gang_id (gang_id)') end)
 
     -- Discovery used to publish class-priced GTA models immediately. Keep every
     -- discovered model available to Manage Vehicles, but fail closed for every
@@ -1137,10 +1190,23 @@ local function parseCatalogRow(row)
         availablePolice = truthy(row.available_police),
         legalOrg = (row.legal_org and tostring(row.legal_org) ~= '') and tostring(row.legal_org) or nil,
         gangId = (row.gang_id and tostring(row.gang_id) ~= '') and tostring(row.gang_id) or nil,
+        retired = truthy(row.retired),
+        replacementModel = (row.replacement_model and tostring(row.replacement_model) ~= '') and tostring(row.replacement_model) or nil,
+        hasCarplay = truthy(row.has_carplay),
         image = (row.image and tostring(row.image) ~= '' ) and tostring(row.image) or nil,
         metadata = decode(row.metadata),
         mods = decode(row.mods)
     }
+end
+
+-- FiveM hash natives can surface the same 32-bit model hash as either a
+-- signed or unsigned Lua number depending on the native/runtime boundary.
+-- Canonicalise both forms before using model hashes as table keys so the
+-- catalog flag also matches server-side GetEntityModel() results.
+local function normalizeModelHash(modelHash)
+    modelHash = tonumber(modelHash)
+    if not modelHash then return nil end
+    return math.floor(modelHash) % 4294967296
 end
 
 local function loadCatalogCache(force)
@@ -1153,7 +1219,7 @@ local function loadCatalogCache(force)
     local rows = MySQL.query.await([[
         SELECT id, model, label, category, price, speed_kph, trunk_level,
                available_store, available_server, available_ems, available_police,
-               legal_org, gang_id, image, metadata, mods
+               legal_org, gang_id, image, metadata, mods, retired, replacement_model, has_carplay
         FROM cm_vehicle_catalog
         WHERE (image IS NOT NULL AND TRIM(image) <> '')
            OR available_store = 1
@@ -1162,29 +1228,51 @@ local function loadCatalogCache(force)
            OR available_police = 1
            OR legal_org IS NOT NULL
            OR gang_id IS NOT NULL
+           OR has_carplay = 1
         ORDER BY category ASC, label ASC
     ]]) or {}
-    local admin, public, byModel = {}, {}, {}
+    local admin, public, byModel, carplayHashes = {}, {}, {}, {}
     for _, row in ipairs(rows) do
         local parsed = parseCatalogRow(row)
         if parsed then
             admin[#admin + 1] = parsed
             byModel[parsed.model] = parsed
-            if parsed.availableStore or parsed.availableServer then
+            if not parsed.retired and (parsed.availableStore or parsed.availableServer) then
                 public[#public + 1] = parsed
+            end
+            -- Keyed by model hash (not just the string) so CarPlay can check
+            -- ANY vehicle of a flagged model -- test drives, showroom
+            -- previews, admin/trainer spawns -- not only ones with a
+            -- cm_owned_vehicles row (i.e. not only purchased vehicles).
+            if parsed.hasCarplay then
+                carplayHashes[normalizeModelHash(GetHashKey(parsed.model))] = true
             end
         end
     end
     CatalogCache.adminCatalog = admin
     CatalogCache.publicCatalog = public
     CatalogCache.vehicleByModel = byModel
+    CatalogCache.carplayModelHashes = carplayHashes
     CatalogCache.shopVehicles = nil
     CatalogCache.loadedAt = now
 end
 
 local function getCatalog(includeHidden)
     loadCatalogCache(false)
-    return includeHidden and (CatalogCache.adminCatalog or {}) or (CatalogCache.publicCatalog or {})
+    local rows = includeHidden and (CatalogCache.adminCatalog or {}) or (CatalogCache.publicCatalog or {})
+    if includeHidden then
+        local counts = {}
+        for _, row in ipairs(MySQL.query.await('SELECT model, metadata FROM cm_owned_vehicles') or {}) do
+            local metadata = decode(row.metadata)
+            local replacementType = tostring(metadata.replacementType or '')
+            local originalModel = normalizeModel(metadata.replacementOriginalModel)
+            local countModel = ((replacementType == 'temporary' or replacementType == 'restoring' or replacementType == 'permanent')
+                and isValidModelName(originalModel)) and originalModel or normalizeModel(row.model)
+            if isValidModelName(countModel) then counts[countModel] = (counts[countModel] or 0) + 1 end
+        end
+        for _, row in ipairs(rows) do row.ownerCount = counts[normalizeModel(row.model)] or 0 end
+    end
+    return rows
 end
 
 local function isKnownOrAllowedModel(model, allowExisting)
@@ -1210,7 +1298,7 @@ local function getCatalogVehicle(model, requireVisible)
     if not isValidModelName(model) then return nil end
     loadCatalogCache(false)
     local row = CatalogCache.vehicleByModel and CatalogCache.vehicleByModel[model] or nil
-    if requireVisible and row and not (row.availableStore or row.availableServer) then return nil end
+    if requireVisible and row and (row.retired or not (row.availableStore or row.availableServer)) then return nil end
     return row
 end
 
@@ -1221,7 +1309,7 @@ local function getCatalogVehicleAsync(model, requireVisible, cb)
     if cached then return cb(cached) end
     MySQL.single('SELECT * FROM cm_vehicle_catalog WHERE model = ? LIMIT 1', { model }, function(row)
         local parsed = parseCatalogRow(row)
-        if requireVisible and parsed and not (parsed.availableStore or parsed.availableServer) then parsed = nil end
+        if requireVisible and parsed and (parsed.retired or not (parsed.availableStore or parsed.availableServer)) then parsed = nil end
         cb(parsed)
     end)
 end
@@ -1248,7 +1336,7 @@ local function buildShopVehicles()
             trunkLevel = vehicle.trunkLevel,
             image = vehicle.image,
             testDriveEnabled = testEnabled == true,
-            testDriveTimer = tonumber(td.duration) or (Config.TestDrive and tonumber(Config.TestDrive.testDriveTimer)) or 60,
+            testDriveTimer = tonumber(td.duration) or (Config.TestDrive and tonumber(Config.TestDrive.testDriveTimer)) or 300,
             testDriveCost = tonumber(td.cost) or (Config.TestDrive and tonumber(Config.TestDrive.testDriveCost)) or 0
         }
     end
@@ -1632,7 +1720,7 @@ RegisterNetEvent('rn-vehicleshop:server:testDriveRequest', function(details)
         if td.enabled == false then TestDriveLocks[src] = nil return rejectTestDrive(src, 'vehicle_disabled', 'Test drive is disabled for this vehicle.') end
 
         local cost = math.max(0, math.floor(tonumber(td.cost) or tonumber(Config.TestDrive.testDriveCost) or 0))
-        local duration = math.max(10, math.min(600, math.floor(tonumber(td.duration) or tonumber(Config.TestDrive.testDriveTimer) or 60)))
+        local duration = math.max(10, math.min(600, math.floor(tonumber(td.duration) or tonumber(Config.TestDrive.testDriveTimer) or 300)))
         local paid, debits, payErr, available = removeCombinedMoney(src, cost, 'vehicleshop_testdrive')
         if not paid then
             TestDriveLocks[src] = nil
@@ -1667,7 +1755,7 @@ RegisterNetEvent('rn-vehicleshop:server:adminTestDriveRequest', function(details
     local modelOk, modelErr = isKnownOrAllowedModel(model, true)
     if not modelOk then return rejectTestDrive(src, 'invalid_model', modelErr or 'Invalid vehicle model.') end
 
-    local duration = math.max(10, math.min(600, math.floor(tonumber(details.testDriveTimer) or tonumber(Config.AdminTestDrive.defaultDuration) or 60)))
+    local duration = math.max(10, math.min(600, math.floor(tonumber(details.testDriveTimer) or tonumber(Config.AdminTestDrive.defaultDuration) or 300)))
     TestDriveLocks[src] = { model = model, requestedAt = nowMs(), mode = 'admin' }
     enterShopBucket(src, 'admin_test_drive')
     details.model = model
@@ -1756,38 +1844,78 @@ end
 
 RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
     local src = source
-    if not isAdmin(src) then return notify(src, 'No permission.', 'error') end
-    if AdminModes[src] ~= 'manage' then return notify(src, 'Use /managevehicle to configure photographed vehicles.', 'error') end
-    if not checkRateLimit(src, 'saveAdminVehicle', tonumber(hardeningCfg().AdminSaveCooldownMs) or 1500) then
-        return notify(src, 'Slow down before saving another vehicle.', 'error')
-    end
     data = type(data) == 'table' and data or {}
+    local requestId = adminRequestId(data.requestId)
+    local function reject(message, code)
+        sendAdminActionResult(src, 'save', requestId, false, message, { code = code or 'rejected' })
+        notify(src, message, 'error')
+        return false
+    end
+    if not isAdmin(src) then return reject('No permission.', 'permission_denied') end
+    if AdminModes[src] ~= 'manage' then return reject('Use /managevehicle to configure photographed vehicles.', 'wrong_admin_mode') end
+    if not checkRateLimit(src, 'saveAdminVehicle', tonumber(hardeningCfg().AdminSaveCooldownMs) or 1500) then
+        return reject('Slow down before saving another vehicle.', 'rate_limited')
+    end
 
     local model = normalizeModel(data.model)
     local modelOk, modelErr = isKnownOrAllowedModel(model, true)
-    if not modelOk then return notify(src, modelErr or 'Invalid model.', 'error') end
+    if not modelOk then return reject(modelErr or 'Invalid model.', 'invalid_model') end
+
+    local existingCatalog = MySQL.single.await('SELECT retired, replacement_model, image, mods FROM cm_vehicle_catalog WHERE model = ? LIMIT 1', { model })
+    if existingCatalog then
+        local activeReplacement = MySQL.single.await([[
+            SELECT status FROM cm_vehicle_replacements
+            WHERE old_model = ? AND status <> 'restored'
+            LIMIT 1
+        ]], { model })
+        if activeReplacement then
+            local status = tostring(activeReplacement.status or 'replacement')
+            local message = status == 'permanent'
+                and 'This vehicle was permanently removed. Save cannot enable or modify it.'
+                or 'This vehicle has an active replacement. Use Retake image & enable to restore it safely.'
+            return reject(message, 'replacement_active')
+        end
+    end
 
     local label = safeUtf8Sub(data.label, 100, model)
     local category = safeUtf8Sub(data.category, 64, 'Custom')
     local price = math.floor(tonumber(data.price) or 0)
     local maxPrice = math.floor(tonumber(hardeningCfg().MaxVehiclePrice) or 250000000)
     if price < 0 or price > maxPrice then
-        return notify(src, ('Price must be between $0 and $%s.'):format(maxPrice), 'error')
+        return reject(('Price must be between $0 and $%s.'):format(maxPrice), 'invalid_price')
     end
     local speedKph = math.floor(tonumber(data.speedKph or data.speed_kph) or 0)
-    if speedKph < 0 or speedKph > 1000 then return notify(src, 'Top speed must be between 0 and 1000 km/h.', 'error') end
+    if speedKph < 0 or speedKph > 1000 then return reject('Top speed must be between 0 and 1000 km/h.', 'invalid_speed') end
     if speedKph == 0 then speedKph = nil end
     local trunkLevel = clampTrunkLevel(data.trunkLevel or data.trunk_level)
 
+    local hasCarplay = truthy(data.hasCarplay or data.has_carplay)
     local availableStore = truthy(data.availableStore or data.available_store)
     local availableServer = truthy(data.availableServer or data.available_server)
     local availableEms = truthy(data.availableEms or data.available_ems)
     local availablePolice = truthy(data.availablePolice or data.available_police)
-    local legalOrg = tostring(data.legalOrg or data.legal_org or ''):lower():gsub('[^a-z0-9_]', '')
+    local requestedLegalOrg = tostring(data.legalOrg or data.legal_org or ''):lower()
+    local legalOrg = requestedLegalOrg:gsub('[^a-z0-9_]', '')
     if legalOrg == '' then legalOrg = nil end
-    local gangId=tostring(data.gangId or ''):lower()
+    local requestedGangId=tostring(data.gangId or ''):lower()
+    local gangId=requestedGangId:gsub('[^a-z0-9_]', '')
     local validGangs={marabunta=true,bloods=true,ballas=true,families=true,vagos=true}
-    if not validGangs[gangId] then gangId=nil end
+    if gangId ~= '' and not validGangs[gangId] then return reject('Invalid gang organization.', 'invalid_organization') end
+    if gangId == '' then gangId=nil end
+    if legalOrg then
+        local validLegalOrg = false
+        for _, org in ipairs(legalOrgOptions()) do
+            if tostring(org.id or ''):lower() == legalOrg then validLegalOrg = true; break end
+        end
+        if not validLegalOrg then return reject('Invalid legal organization.', 'invalid_organization') end
+    end
+    if requestedLegalOrg ~= '' and requestedLegalOrg ~= tostring(legalOrg or '') then
+        return reject('Invalid legal organization.', 'invalid_organization')
+    end
+    if requestedGangId ~= '' and requestedGangId ~= tostring(gangId or '') then
+        return reject('Invalid gang organization.', 'invalid_organization')
+    end
+    if legalOrg and gangId then return reject('Select only one organization destination.', 'ambiguous_organization') end
     if availableStore then availableServer = true end
     -- EMS, Police, and any cm-law organization are each their own
     -- mutually-exclusive catalog status (hidden/server/store/ems/police/
@@ -1801,13 +1929,19 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
 
     local vehicleMods = sanitizeVehicleMods(data.mods)
     if speedKph then vehicleMods.catalogMaxSpeedKph = speedKph end
+    local fleetAppearanceEnabled = availableEms or availablePolice or legalOrg ~= nil or gangId ~= nil
+    -- Non-fleet availability changes do not carry an authoritative vehicle
+    -- appearance from the client. Preserve the last saved catalog mods rather
+    -- than replacing them with NULL when moving between store/server/hidden.
+    local savedMods = fleetAppearanceEnabled and encode(vehicleMods)
+        or (existingCatalog and existingCatalog.mods or nil)
 
     local testDriveCfg = Config.TestDrive or {}
     local testDriveEnabled = data.testDriveEnabled
     if testDriveEnabled == nil then testDriveEnabled = data.test_drive_enabled end
     if testDriveEnabled == nil then testDriveEnabled = true end
     testDriveEnabled = truthy(testDriveEnabled)
-    local testDriveTimer = math.floor(tonumber(data.testDriveTimer or data.test_drive_timer) or tonumber(testDriveCfg.testDriveTimer) or 60)
+    local testDriveTimer = math.floor(tonumber(data.testDriveTimer or data.test_drive_timer) or tonumber(testDriveCfg.testDriveTimer) or 300)
     if testDriveTimer < 10 then testDriveTimer = 10 end
     if testDriveTimer > 600 then testDriveTimer = 600 end
     local testDriveCost = math.floor(tonumber(data.testDriveCost or data.test_drive_cost) or tonumber(testDriveCfg.testDriveCost) or 0)
@@ -1816,24 +1950,28 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
     -- Keep any previously captured image unless this save provides a new path.
     local image = data.image and tostring(data.image) ~= '' and safeUtf8Sub(data.image, 255) or nil
     if not image then
-        local existing = MySQL.scalar.await('SELECT image FROM cm_vehicle_catalog WHERE model = ? LIMIT 1', { model })
+        local existing = existingCatalog and existingCatalog.image or nil
         if existing and tostring(existing) ~= '' then image = tostring(existing) end
     end
 
     -- A car can only be enabled (store, server, ems, police, or a legal org) once it has a captured image.
     if (availableStore or availableServer or availableEms or availablePolice or legalOrg ~= nil or gangId ~= nil) and (not image or image == '') then
         notify(src, 'Capture an image first. A vehicle cannot be enabled without an image.', 'error')
+        sendAdminActionResult(src, 'save', requestId, false, 'Capture an image before this vehicle can be enabled.', {
+            code = 'image_required', pending = true
+        })
         TriggerClientEvent('rn-vehicleshop:client:adminNeedsImage', src, model, {
             label = label, category = category, price = price, speedKph = speedKph, trunkLevel = trunkLevel,
-            availableStore = availableStore, availableServer = availableServer, availableEms = availableEms, availablePolice = availablePolice, legalOrg = legalOrg,
-            testDriveEnabled = testDriveEnabled, testDriveTimer = testDriveTimer, testDriveCost = testDriveCost
+            availableStore = availableStore, availableServer = availableServer, availableEms = availableEms, availablePolice = availablePolice, legalOrg = legalOrg, gangId = gangId,
+            hasCarplay = hasCarplay,
+            testDriveEnabled = testDriveEnabled, testDriveTimer = testDriveTimer, testDriveCost = testDriveCost, requestId = requestId
         })
         return
     end
 
-    MySQL.insert.await([[
-        INSERT INTO cm_vehicle_catalog (model, label, category, price, speed_kph, trunk_level, available_store, available_server, available_ems, available_police, legal_org, gang_id, image, metadata, mods)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    local saveQuery = [[
+        INSERT INTO cm_vehicle_catalog (model, label, category, price, speed_kph, trunk_level, available_store, available_server, available_ems, available_police, legal_org, gang_id, image, metadata, mods, has_carplay, retired, replacement_model)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL)
         ON DUPLICATE KEY UPDATE
             label = VALUES(label),
             category = VALUES(category),
@@ -1848,8 +1986,12 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
             gang_id = VALUES(gang_id),
             image = VALUES(image),
             metadata = VALUES(metadata),
-            mods = VALUES(mods)
-    ]], { model, label, category, price, speedKph, trunkLevel, availableStore and 1 or 0, availableServer and 1 or 0, availableEms and 1 or 0, availablePolice and 1 or 0, legalOrg, gangId, image, encode({
+            mods = VALUES(mods),
+            has_carplay = VALUES(has_carplay),
+            retired = 0,
+            replacement_model = NULL
+    ]]
+    local saveValues = { model, label, category, price, speedKph, trunkLevel, availableStore and 1 or 0, availableServer and 1 or 0, availableEms and 1 or 0, availablePolice and 1 or 0, legalOrg, gangId, image, encode({
         savedBy = GetPlayerName(src),
         savedAt = os.time(),
         testDrive = {
@@ -1857,12 +1999,21 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
             duration = testDriveTimer,
             cost = testDriveCost
         }
-    }), (availableEms or availablePolice or legalOrg ~= nil) and encode(vehicleMods) or nil })
+    }), savedMods, hasCarplay and 1 or 0 }
+    local writeOk, committed = pcall(function()
+        return MySQL.transaction.await({ { query = saveQuery, values = saveValues } })
+    end)
+    if not writeOk or committed ~= true then
+        structuredAdminLog('catalog', 'save_failed', src, { model=model, requestId=requestId, stage='database' }, 'error')
+        return reject('Vehicle save failed. No catalog changes were committed.', 'database_write_failed')
+    end
 
     invalidateCatalogCache()
     if GetResourceState('cm-gang')=='started' then pcall(function() exports['cm-gang']:AssignCatalogVehicle(src,model,gangId) end) end
-    notify(src, ('Saved %s.'):format(label), 'success')
-    structuredAdminLog('catalog', 'saved', src, { model = model, label = label, category = category, price = price, trunkLevel = trunkLevel, availableStore = availableStore, availableServer = availableServer, availableEms = availableEms, availablePolice = availablePolice, legalOrg = legalOrg, testDrive = { enabled = testDriveEnabled, duration = testDriveTimer, cost = testDriveCost } }, 'success')
+    local successMessage = ('Saved %s.'):format(label)
+    notify(src, successMessage, 'success')
+    sendAdminActionResult(src, 'save', requestId, true, successMessage, { model=model })
+    structuredAdminLog('catalog', 'saved', src, { model = model, label = label, category = category, price = price, trunkLevel = trunkLevel, availableStore = availableStore, availableServer = availableServer, availableEms = availableEms, availablePolice = availablePolice, legalOrg = legalOrg, hasCarplay = hasCarplay, testDrive = { enabled = testDriveEnabled, duration = testDriveTimer, cost = testDriveCost } }, 'success')
     local sourceList = flattenSourceVehicles()
     TriggerClientEvent('rn-vehicleshop:client:adminData', src, sourceList, getCatalog(true), adminMeta())
 end)
@@ -1924,6 +2075,294 @@ end)
 
 AddEventHandler('playerDropped', function() RuntimeModelBatches[source] = nil end)
 
+local function modelReplacementCfg()
+    return type(Config.ModelReplacement) == 'table' and Config.ModelReplacement or {}
+end
+
+local function catalogSnapshot(row)
+    if type(row) ~= 'table' then return {} end
+    return {
+        model = row.model,
+        label = row.label,
+        category = row.category,
+        price = row.price,
+        speed_kph = row.speed_kph,
+        trunk_level = row.trunk_level,
+        available_store = row.available_store,
+        available_server = row.available_server,
+        available_ems = row.available_ems,
+        available_police = row.available_police,
+        legal_org = row.legal_org,
+        gang_id = row.gang_id,
+        image = row.image,
+        metadata = decode(row.metadata),
+        mods = decode(row.mods),
+        has_carplay = row.has_carplay,
+        retired = row.retired,
+        replacement_model = row.replacement_model
+    }
+end
+
+local function cleanupCompletedReplacementRecords()
+    local ok, result = pcall(function()
+        return MySQL.update.await([[
+            DELETE FROM cm_vehicle_replacements
+            WHERE status = 'restored'
+              AND NOT EXISTS (
+                  SELECT 1 FROM cm_vehicle_replacement_pending p
+                  WHERE p.replacement_id = cm_vehicle_replacements.id
+              )
+        ]])
+    end)
+    if not ok then debugPrint('Could not clean completed vehicle replacement records: ' .. tostring(result)) end
+    return ok and (tonumber(result) or 0) or 0
+end
+
+local function cleanupOrphanedPendingReplacementRecords()
+    local ok, result = pcall(function()
+        return MySQL.update.await([[
+            DELETE pending
+            FROM cm_vehicle_replacement_pending pending
+            LEFT JOIN cm_owned_vehicles vehicle ON vehicle.id = pending.vehicle_id
+            WHERE vehicle.id IS NULL
+        ]])
+    end)
+    if not ok then
+        debugPrint('Could not clean orphaned pending vehicle replacements: ' .. tostring(result))
+        return 0
+    end
+    local removed = tonumber(result) or 0
+    if removed > 0 then debugPrint(('Removed %d orphaned pending vehicle replacement record(s).'):format(removed)) end
+    return removed
+end
+
+local function processPendingModelReplacements()
+    cleanupOrphanedPendingReplacementRecords()
+    if not OwnedVehicleHasStoredColumn then return 0 end
+    local rows = MySQL.query.await([[
+        SELECT p.vehicle_id, p.old_model, p.new_model, v.metadata
+        FROM cm_vehicle_replacement_pending p
+        INNER JOIN cm_owned_vehicles v ON v.id = p.vehicle_id
+        WHERE v.is_stored = 1
+    ]]) or {}
+    local completed = 0
+    for _, row in ipairs(rows) do
+        local updated = MySQL.update.await(
+            'UPDATE cm_owned_vehicles SET model = ? WHERE id = ? AND model = ? AND is_stored = 1',
+            { normalizeModel(row.new_model), tonumber(row.vehicle_id), normalizeModel(row.old_model) }
+        )
+        if tonumber(updated) and tonumber(updated) > 0 then
+            local metadata = decode(row.metadata)
+            if metadata.replacementType == 'restoring'
+                and normalizeModel(metadata.replacementOriginalModel) == normalizeModel(row.new_model) then
+                MySQL.update.await([[
+                    UPDATE cm_owned_vehicles
+                    SET metadata = JSON_REMOVE(COALESCE(metadata, '{}'),
+                        '$.vehicleNotice', '$.replacementType', '$.permanentlyRemoved',
+                        '$.replacementOriginalModel', '$.replacementOriginalImage')
+                    WHERE id = ?
+                ]], { tonumber(row.vehicle_id) })
+            end
+            MySQL.update.await('DELETE FROM cm_vehicle_replacement_pending WHERE vehicle_id = ?', { tonumber(row.vehicle_id) })
+            completed = completed + 1
+        elseif tonumber(updated) == 0 then
+            -- The row may have been migrated by another recovery pass. Never
+            -- delete a pending record unless the persisted model is confirmed.
+            local current = MySQL.scalar.await('SELECT model FROM cm_owned_vehicles WHERE id = ?', { tonumber(row.vehicle_id) })
+            if normalizeModel(current) == normalizeModel(row.new_model) then
+                local metadata = decode(row.metadata)
+                if metadata.replacementType == 'restoring'
+                    and normalizeModel(metadata.replacementOriginalModel) == normalizeModel(row.new_model) then
+                    MySQL.update.await([[
+                        UPDATE cm_owned_vehicles
+                        SET metadata = JSON_REMOVE(COALESCE(metadata, '{}'),
+                            '$.vehicleNotice', '$.replacementType', '$.permanentlyRemoved',
+                            '$.replacementOriginalModel', '$.replacementOriginalImage')
+                        WHERE id = ?
+                    ]], { tonumber(row.vehicle_id) })
+                end
+                MySQL.update.await('DELETE FROM cm_vehicle_replacement_pending WHERE vehicle_id = ?', { tonumber(row.vehicle_id) })
+                completed = completed + 1
+            end
+        end
+    end
+    cleanupCompletedReplacementRecords()
+    return completed
+end
+
+local function startReplacementPoller()
+    if ReplacementPollStarted then return end
+    ReplacementPollStarted = true
+    CreateThread(function()
+        while GetResourceState(GetCurrentResourceName()) == 'started' do
+            Wait(math.max(5000, tonumber(modelReplacementCfg().pendingPollMs) or 15000))
+            local ok, count = pcall(processPendingModelReplacements)
+            if ok and tonumber(count) and count > 0 then
+                debugPrint(('Applied %d pending vehicle model replacement(s) after storage.'):format(count))
+            end
+        end
+        ReplacementPollStarted = false
+    end)
+end
+
+local function safeApplyModelReplacement(src, data)
+    local cfg = modelReplacementCfg()
+    if cfg.enabled == false then return false, 'Safe model replacement is disabled.' end
+    data = type(data) == 'table' and data or {}
+
+    local oldModel = normalizeModel(data.oldModel)
+    local permanent = data.permanent == true
+    local newModel = permanent and 'komoda' or 'komoda'
+    if not isValidModelName(oldModel) or not isValidModelName(newModel) or oldModel == newModel then
+        return false, 'Choose two valid, different vehicle models.'
+    end
+    local newKnown, newErr = isKnownOrAllowedModel(newModel, true)
+    if not newKnown then return false, newErr or 'Replacement model is not available.' end
+
+    local oldRow = MySQL.single.await('SELECT * FROM cm_vehicle_catalog WHERE model = ? LIMIT 1', { oldModel })
+    if not oldRow then return false, 'The old model is not saved in the vehicle catalog.' end
+    if tonumber(oldRow.retired) == 1 then return false, 'This model has already been retired or replaced.' end
+
+    local existingReplacement = MySQL.single.await('SELECT id, status, new_model FROM cm_vehicle_replacements WHERE old_model = ? LIMIT 1', { oldModel })
+    if existingReplacement and tostring(existingReplacement.status or '') ~= 'restored' then
+        return false, ('A replacement for %s already exists (%s).'):format(oldModel, tostring(existingReplacement.new_model or existingReplacement.status))
+    end
+    if existingReplacement then
+        local pendingRestores = tonumber(MySQL.scalar.await(
+            'SELECT COUNT(*) FROM cm_vehicle_replacement_pending WHERE replacement_id = ?',
+            { tonumber(existingReplacement.id) }
+        )) or 0
+        if pendingRestores > 0 then
+            return false, ('%d vehicle(s) are still waiting to finish restoring %s. Store them before replacing this model again.'):format(pendingRestores, oldModel)
+        end
+    end
+
+    local newRow = MySQL.single.await('SELECT * FROM cm_vehicle_catalog WHERE model = ? LIMIT 1', { newModel })
+    if not newRow then return false, 'The Komoda model is not saved in the vehicle catalog.' end
+    if newModel ~= 'komoda' and cfg.rejectTargetWithExistingOwners ~= false then
+        local targetOwners = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM cm_owned_vehicles WHERE model = ?', { newModel })) or 0
+        if targetOwners > 0 then
+            return false, ('The replacement model already has %d owned vehicle(s). Choose an unused model.'):format(targetOwners)
+        end
+    end
+    if newModel ~= 'komoda' and cfg.rejectTargetAlreadyPublished ~= false then
+        local targetPublished = truthy(newRow.available_store) or truthy(newRow.available_server)
+            or truthy(newRow.available_ems) or truthy(newRow.available_police)
+            or (newRow.legal_org and tostring(newRow.legal_org) ~= '')
+            or (newRow.gang_id and tostring(newRow.gang_id) ~= '')
+        if targetPublished then
+            return false, 'The replacement model is already published. Keep it hidden, capture its image, then apply the replacement.'
+        end
+    end
+
+    local ownedRows = MySQL.query.await([[SELECT id, model, is_stored FROM cm_owned_vehicles WHERE model = ? ORDER BY id ASC]], { oldModel }) or {}
+    if #ownedRows > 0 and not OwnedVehicleHasStoredColumn then
+        return false, 'cm_owned_vehicles.is_stored is required for safe live replacement. Update cm-vehicles first.'
+    end
+
+    local oldSnapshot = encode(catalogSnapshot(oldRow))
+    local notice = permanent
+        and 'This vehicle model was permanently removed. Sell this vehicle to the state to receive a full refund.'
+        or ('Temporary model replacement: this vehicle is using %s while %s is unavailable. Its name, photo, ownership, value, modifications and condition are unchanged.'):format(newModel, oldModel)
+    local replacementStatus = permanent and 'permanent' or 'temporary'
+    local createdBy = GetPlayerName(src) or ('source:' .. tostring(src))
+    local operations = {
+        {
+            query = [[
+                INSERT INTO cm_vehicle_replacements
+                    (old_model, new_model, old_catalog, old_image, new_image, status, created_by, applied_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON DUPLICATE KEY UPDATE
+                    new_model = VALUES(new_model), old_catalog = VALUES(old_catalog),
+                    old_image = VALUES(old_image), new_image = VALUES(new_image),
+                    status = VALUES(status), created_by = VALUES(created_by), applied_at = CURRENT_TIMESTAMP
+            ]],
+            values = { oldModel, newModel, oldSnapshot, oldRow.image, newRow.image, replacementStatus, createdBy }
+        },
+        {
+            query = [[
+                UPDATE cm_vehicle_catalog
+                SET available_store = 0, available_server = 0, available_ems = 0, available_police = 0,
+                    legal_org = NULL, gang_id = NULL, retired = 1, replacement_model = ?
+                WHERE model = ? AND retired = 0
+            ]],
+            values = { newModel, oldModel }
+        }
+    }
+
+    local immediate = 0
+    local pending = 0
+    for _, row in ipairs(ownedRows) do
+        operations[#operations + 1] = {
+            query = "UPDATE cm_owned_vehicles SET metadata = JSON_SET(COALESCE(metadata, '{}'), '$.vehicleNotice', ?, '$.replacementType', ?, '$.permanentlyRemoved', ?, '$.replacementOriginalModel', ?, '$.replacementOriginalImage', ?) WHERE id = ? AND model = ?",
+            values = { notice, replacementStatus, permanent, oldModel, tostring(oldRow.image or ''), tonumber(row.id), oldModel }
+        }
+        local stored = tonumber(row.is_stored) == 1 or row.is_stored == true
+        if stored then
+            operations[#operations + 1] = {
+                query = 'UPDATE cm_owned_vehicles SET model = ? WHERE id = ? AND model = ? AND is_stored = 1',
+                values = { newModel, tonumber(row.id), oldModel }
+            }
+            immediate = immediate + 1
+        else
+            operations[#operations + 1] = {
+                query = [[
+                    INSERT INTO cm_vehicle_replacement_pending (vehicle_id, replacement_id, old_model, new_model)
+                    VALUES (?, (SELECT id FROM cm_vehicle_replacements WHERE old_model = ?), ?, ?)
+                    ON DUPLICATE KEY UPDATE replacement_id = VALUES(replacement_id), old_model = VALUES(old_model), new_model = VALUES(new_model)
+                ]],
+                values = { tonumber(row.id), oldModel, oldModel, newModel }
+            }
+            pending = pending + 1
+        end
+    end
+
+    local ok, result = pcall(function() return MySQL.transaction.await(operations) end)
+    if not ok or result ~= true then
+        return false, 'Replacement was not applied. No vehicle or catalog data was changed.'
+    end
+
+    invalidateCatalogCache()
+    if #ownedRows == 0 then
+        local emptyMessage = permanent
+            and ('Permanently removed %s. Its catalog configuration was retained for audit history.'):format(oldModel)
+            or ('Temporarily replaced %s with %s. Its catalog configuration was retained and can be restored.'):format(oldModel, newModel)
+        structuredAdminLog('catalog', permanent and 'permanently_removed_empty' or 'temporarily_replaced_empty', src, {
+            oldModel = oldModel, newModel = newModel, catalogPreserved = true
+        }, 'warning')
+        return true, emptyMessage
+    end
+    local message = ('Replacement applied: %s → %s. %d vehicle(s) migrated, %d active vehicle(s) waiting for storage.')
+        :format(oldModel, newModel, immediate, pending)
+    structuredAdminLog('catalog', 'safe_model_replacement', src, {
+        oldModel = oldModel, newModel = newModel, immediate = immediate, pending = pending,
+        replacementType = replacementStatus, preservedVehicleIds = true, oldImage = oldRow.image, newImage = newRow.image
+    }, 'warning')
+    return true, message
+end
+
+RegisterNetEvent('rn-vehicleshop:server:replaceAdminVehicle', function(data)
+    local src = source
+    data = type(data) == 'table' and data or {}
+    local requestId = adminRequestId(data.requestId)
+    local function reject(message, code)
+        sendAdminActionResult(src, 'replace', requestId, false, message, { code=code or 'rejected' })
+        notify(src, message, 'error')
+        return false
+    end
+    if not isAdmin(src) then return reject('No permission.', 'permission_denied') end
+    if AdminModes[src] ~= 'manage' then return reject('Use /managevehicle first.', 'wrong_admin_mode') end
+    if not checkRateLimit(src, 'safeModelReplacement', 2000) then return reject('Please wait before applying another model replacement.', 'rate_limited') end
+    local success, message = safeApplyModelReplacement(src, data)
+    notify(src, message, success and 'success' or 'error')
+    sendAdminActionResult(src, 'replace', requestId, success, message, {
+        model=normalizeModel(data.oldModel), permanent=data.permanent == true
+    })
+    if success then
+        TriggerClientEvent('rn-vehicleshop:client:adminData', src, flattenSourceVehicles(), getCatalog(true), adminMeta())
+    end
+end)
+
 RegisterNetEvent('rn-vehicleshop:server:disableAdminVehicle', function(model)
     local src = source
     if not isAdmin(src) then return notify(src, 'No permission.', 'error') end
@@ -1931,9 +2370,16 @@ RegisterNetEvent('rn-vehicleshop:server:disableAdminVehicle', function(model)
     if not checkRateLimit(src, 'disableAdminVehicle', tonumber(hardeningCfg().AdminDisableCooldownMs) or 1000) then return end
     model = normalizeModel(model)
     if not isValidModelName(model) then return notify(src, 'Invalid model.', 'error') end
-    local changed = MySQL.update.await('UPDATE cm_vehicle_catalog SET available_store = 0, available_server = 0, available_ems = 0, available_police = 0 WHERE model = ?', { model })
+    local owners = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM cm_owned_vehicles WHERE model = ?', { model })) or 0
+    if owners > 0 then return notify(src, ('Cannot remove %s directly: %d vehicle(s) still use it. Use Safe Model Replacement first.'):format(model, owners), 'error') end
+    local changed = MySQL.update.await([[
+        UPDATE cm_vehicle_catalog
+        SET available_store = 0, available_server = 0, available_ems = 0, available_police = 0,
+            legal_org = NULL, gang_id = NULL, retired = 1, replacement_model = NULL
+        WHERE model = ?
+    ]], { model })
     if not tonumber(changed) or tonumber(changed) <= 0 then
-        MySQL.insert.await('INSERT IGNORE INTO cm_vehicle_catalog (model, label, category, price, trunk_level, available_store, available_server) VALUES (?, ?, ?, 0, 1, 0, 0)', { model, model, 'Custom' })
+        MySQL.insert.await('INSERT IGNORE INTO cm_vehicle_catalog (model, label, category, price, trunk_level, available_store, available_server, retired) VALUES (?, ?, ?, 0, 1, 0, 0, 1)', { model, model, 'Custom' })
     end
     invalidateCatalogCache()
     notify(src, ('Disabled %s.'):format(model), 'success')
@@ -1986,6 +2432,41 @@ local function safeFilePart(value)
     return value
 end
 
+local function resourceImagePathFromNui(nuiPath, folder, model)
+    nuiPath = tostring(nuiPath or '')
+    local prefix = ('nui://%s/%s/'):format(GetCurrentResourceName(), folder)
+    if nuiPath:sub(1, #prefix) ~= prefix then return nil end
+    local fileName = nuiPath:sub(#prefix + 1)
+    if fileName == '' or fileName:find('[/\\]') then return nil end
+    local safeModel = safeFilePart(model)
+    local escapedModel = safeModel:gsub('([^%w])', '%%%1')
+    local stem, extension = fileName:match('^(.+)%.([^.]+)$')
+    if (extension ~= 'png' and extension ~= 'webp')
+        or (stem ~= safeModel and not tostring(stem):match('^' .. escapedModel .. '_%d+_%d+$')) then
+        return nil
+    end
+    return ('%s/%s'):format(folder, fileName)
+end
+
+local function removeResourceImage(relativePath)
+    if not relativePath or relativePath == '' then return false end
+    local fullPath = ('%s/%s'):format(GetResourcePath(GetCurrentResourceName()), relativePath)
+    local ok, removed = pcall(os.remove, fullPath)
+    return ok and removed == true
+end
+
+local function removeUnreferencedVehicleImage(nuiPath, folder, model)
+    local relativePath = resourceImagePathFromNui(nuiPath, folder, model)
+    if not relativePath then return false end
+    local lookupOk, result = pcall(function()
+        return MySQL.scalar.await('SELECT COUNT(*) FROM cm_vehicle_catalog WHERE image = ? AND model <> ?', { nuiPath, model })
+    end)
+    if not lookupOk then return false end
+    local references = tonumber(result) or 0
+    if references > 0 then return false end
+    return removeResourceImage(relativePath)
+end
+
 
 RegisterNetEvent('rn-vehicleshop:server:saveVehicleImage', function(data)
     local src = source
@@ -1997,9 +2478,9 @@ RegisterNetEvent('rn-vehicleshop:server:saveVehicleImage', function(data)
         TriggerClientEvent('rn-vehicleshop:client:vehicleImageSaved', src, false, 'no_permission')
         return notify(src, 'No permission to capture vehicle images.', 'error')
     end
-    if AdminModes[src] ~= 'capture' then
+    if AdminModes[src] ~= 'capture' and AdminModes[src] ~= 'manage' then
         TriggerClientEvent('rn-vehicleshop:client:vehicleImageSaved', src, false, 'wrong_admin_mode')
-        return notify(src, 'Use /vehicleadmin to capture vehicle images.', 'error')
+        return notify(src, 'Open vehicle admin or manage vehicle to capture images.', 'error')
     end
     if not (Config.ImageCapture and Config.ImageCapture.enabled) then
         TriggerClientEvent('rn-vehicleshop:client:vehicleImageSaved', src, false, 'capture_disabled')
@@ -2039,7 +2520,18 @@ RegisterNetEvent('rn-vehicleshop:server:saveVehicleImage', function(data)
         ext = mime:find('webp', 1, true) and 'webp' or 'png'
     end
     if ext ~= 'webp' and ext ~= 'png' then ext = 'png' end
-    local fileName = ('%s_%s.%s'):format(safeFilePart(model), os.time(), ext)
+    local lookupOk, existingCatalog = pcall(function()
+        return MySQL.single.await('SELECT image FROM cm_vehicle_catalog WHERE model = ? LIMIT 1', { model })
+    end)
+    if not lookupOk then
+        TriggerClientEvent('rn-vehicleshop:client:vehicleImageSaved', src, false, 'database_read_failed')
+        return notify(src, 'Could not read the current vehicle image. No file was written.', 'error')
+    end
+
+    -- Stage every capture under a unique name. The database transaction either
+    -- adopts this exact path or the staged file is removed immediately.
+    ImageCaptureSequence = (ImageCaptureSequence + 1) % 1000000
+    local fileName = ('%s_%d_%06d.%s'):format(safeFilePart(model), os.time(), ImageCaptureSequence, ext)
     local savePath = ('%s/%s'):format(folder, fileName)
     if not SaveResourceFile(GetCurrentResourceName(), savePath, bytes, #bytes) then
         TriggerClientEvent('rn-vehicleshop:client:vehicleImageSaved', src, false, 'save_file_failed')
@@ -2049,14 +2541,37 @@ RegisterNetEvent('rn-vehicleshop:server:saveVehicleImage', function(data)
     -- nui path the UI can load directly: nui://<resource>/<folder>/<file>
     local nuiPath = ('nui://%s/%s/%s'):format(GetCurrentResourceName(), folder, fileName)
 
-    -- Upsert the image onto the catalog row (create a hidden row if it does not exist yet).
-    local changed = MySQL.update.await('UPDATE cm_vehicle_catalog SET image = ? WHERE model = ?', { nuiPath, model })
-    if not tonumber(changed) or tonumber(changed) <= 0 then
-        MySQL.insert.await([[
+    -- Adopt the staged path atomically in the catalog (creating a hidden row
+    -- when required). A failed transaction cannot leave an orphaned new file.
+    local dbOk, committed = pcall(function()
+        return MySQL.transaction.await({ {
+            query = [[
             INSERT INTO cm_vehicle_catalog (model, label, category, price, trunk_level, available_store, available_server, image)
             VALUES (?, ?, ?, 0, 1, 0, 0, ?)
             ON DUPLICATE KEY UPDATE image = VALUES(image)
-        ]], { model, tostring(data.label or model), tostring(data.category or 'Custom'), nuiPath })
+            ]],
+            values = { model, safeUtf8Sub(data.label, 100, model), safeUtf8Sub(data.category, 64, 'Custom'), nuiPath }
+        } })
+    end)
+    if not dbOk or committed ~= true then
+        local stagedFileRemoved = removeResourceImage(savePath)
+        TriggerClientEvent('rn-vehicleshop:client:vehicleImageSaved', src, false, 'database_write_failed')
+        structuredAdminLog('image_capture', 'save_failed', src, { model=model, stage='database', stagedFileRemoved=stagedFileRemoved }, 'error')
+        return notify(src, 'Vehicle image database update failed. The staged file was removed.', 'error')
+    end
+
+    local previousImage = existingCatalog and existingCatalog.image or nil
+    if previousImage and tostring(previousImage) ~= nuiPath then
+        removeUnreferencedVehicleImage(previousImage, folder, model)
+    end
+    -- Clean legacy canonical files left by the previous model.ext writer when
+    -- their format differs from the newly committed capture.
+    for _, legacyExt in ipairs({ 'png', 'webp' }) do
+        local legacyName = ('%s.%s'):format(safeFilePart(model), legacyExt)
+        if legacyName ~= fileName then
+            local legacyNuiPath = ('nui://%s/%s/%s'):format(GetCurrentResourceName(), folder, legacyName)
+            removeUnreferencedVehicleImage(legacyNuiPath, folder, model)
+        end
     end
 
     invalidateCatalogCache()
@@ -2104,6 +2619,195 @@ end)
 
 exports('GetCatalogVehicle', function(model)
     return getCatalogVehicle(model, true)
+end)
+
+-- Not gated by store/server visibility: an EMS, police, org, or otherwise
+-- non-public catalog entry can still be flagged for CarPlay by an admin in
+-- Manage Vehicles, and owned/spawned instances of it should still qualify.
+exports('IsCarplayModel', function(model)
+    local row = getCatalogVehicle(model, false)
+    return row ~= nil and row.hasCarplay == true
+end)
+
+-- Same check by model HASH instead of a DB-owned vehicle's model string --
+-- works for ANY vehicle of a flagged model (test drives, showroom previews,
+-- admin/trainer spawns), not just ones with a cm_owned_vehicles row.
+exports('IsCarplayModelHash', function(modelHash)
+    modelHash = normalizeModelHash(modelHash)
+    if not modelHash then return false end
+    loadCatalogCache(false)
+    return CatalogCache.carplayModelHashes and CatalogCache.carplayModelHashes[modelHash] == true
+end)
+
+local function restoreTemporaryModelReplacement(src, model, catalogRow, replacement)
+    if tostring(replacement.status or '') ~= 'temporary' then
+        if tostring(replacement.status or '') == 'permanent' then
+            return false, 'This model was permanently removed and cannot be restored from Manage Vehicles.'
+        end
+        return false, 'This is a legacy replacement with no safe owner mapping. It was not changed.'
+    end
+    if not OwnedVehicleHasStoredColumn then
+        return false, 'cm_owned_vehicles.is_stored is required for safe model restoration. Update cm-vehicles first.'
+    end
+
+    local oldModel = normalizeModel(model)
+    local newModel = normalizeModel(replacement.new_model)
+    if not truthy(catalogRow.retired) or normalizeModel(catalogRow.replacement_model) ~= newModel then
+        return false, 'The catalog replacement state changed. Refresh Manage Vehicles and try again.'
+    end
+    local snapshot = decode(replacement.old_catalog)
+    local ownedRows = MySQL.query.await([[
+        SELECT id, model, is_stored, metadata
+        FROM cm_owned_vehicles
+        WHERE model IN (?, ?)
+        ORDER BY id ASC
+    ]], { oldModel, newModel }) or {}
+    local operations = {
+        {
+            query = [[
+                UPDATE cm_vehicle_catalog
+                SET available_store = ?, available_server = ?, available_ems = ?, available_police = ?,
+                    legal_org = ?, gang_id = ?, has_carplay = ?, retired = 0, replacement_model = NULL
+                WHERE model = ? AND retired = 1 AND replacement_model = ?
+            ]],
+            values = {
+                truthy(snapshot.available_store) and 1 or 0,
+                truthy(snapshot.available_server) and 1 or 0,
+                truthy(snapshot.available_ems) and 1 or 0,
+                truthy(snapshot.available_police) and 1 or 0,
+                snapshot.legal_org, snapshot.gang_id, truthy(snapshot.has_carplay) and 1 or 0, oldModel, newModel
+            }
+        },
+        {
+            -- Cancel every forward migration for this replacement first. Active
+            -- Komoda instances that genuinely need a reverse migration are
+            -- inserted again below with the direction swapped.
+            query = 'DELETE FROM cm_vehicle_replacement_pending WHERE replacement_id = ?',
+            values = { tonumber(replacement.id) }
+        }
+    }
+    local restoredNow = 0
+    local restorePending = 0
+    local cancelledForward = 0
+
+    for _, row in ipairs(ownedRows) do
+        local metadata = decode(row.metadata)
+        local originalModel = normalizeModel(metadata.replacementOriginalModel)
+        if originalModel == oldModel and metadata.replacementType == 'temporary' then
+            local vehicleId = tonumber(row.id)
+            local currentModel = normalizeModel(row.model)
+            if currentModel == oldModel then
+                operations[#operations + 1] = {
+                    query = [[
+                        UPDATE cm_owned_vehicles
+                        SET metadata = JSON_REMOVE(COALESCE(metadata, '{}'),
+                            '$.vehicleNotice', '$.replacementType', '$.permanentlyRemoved',
+                            '$.replacementOriginalModel', '$.replacementOriginalImage')
+                        WHERE id = ? AND model = ?
+                    ]],
+                    values = { vehicleId, oldModel }
+                }
+                operations[#operations + 1] = {
+                    query = 'DELETE FROM cm_vehicle_replacement_pending WHERE vehicle_id = ?',
+                    values = { vehicleId }
+                }
+                cancelledForward = cancelledForward + 1
+            elseif currentModel == newModel then
+                local stored = tonumber(row.is_stored) == 1 or row.is_stored == true
+                if stored then
+                    operations[#operations + 1] = {
+                        query = [[
+                            UPDATE cm_owned_vehicles
+                            SET model = ?, metadata = JSON_REMOVE(COALESCE(metadata, '{}'),
+                                '$.vehicleNotice', '$.replacementType', '$.permanentlyRemoved',
+                                '$.replacementOriginalModel', '$.replacementOriginalImage')
+                            WHERE id = ? AND model = ? AND is_stored = 1
+                        ]],
+                        values = { oldModel, vehicleId, newModel }
+                    }
+                    operations[#operations + 1] = {
+                        query = 'DELETE FROM cm_vehicle_replacement_pending WHERE vehicle_id = ?',
+                        values = { vehicleId }
+                    }
+                    restoredNow = restoredNow + 1
+                else
+                    operations[#operations + 1] = {
+                        query = [[
+                            UPDATE cm_owned_vehicles
+                            SET metadata = JSON_SET(COALESCE(metadata, '{}'),
+                                '$.vehicleNotice', ?, '$.replacementType', 'restoring', '$.permanentlyRemoved', false)
+                            WHERE id = ? AND model = ?
+                        ]],
+                        values = { 'The original vehicle model is restored. Store this vehicle once to finish the update.', vehicleId, newModel }
+                    }
+                    operations[#operations + 1] = {
+                        query = [[
+                            INSERT INTO cm_vehicle_replacement_pending (vehicle_id, replacement_id, old_model, new_model)
+                            VALUES (?, ?, ?, ?)
+                            ON DUPLICATE KEY UPDATE replacement_id = VALUES(replacement_id), old_model = VALUES(old_model), new_model = VALUES(new_model)
+                        ]],
+                        values = { vehicleId, tonumber(replacement.id), newModel, oldModel }
+                    }
+                    restorePending = restorePending + 1
+                end
+            end
+        end
+    end
+
+    operations[#operations + 1] = {
+        query = "UPDATE cm_vehicle_replacements SET status = 'restored' WHERE id = ? AND status = 'temporary'",
+        values = { tonumber(replacement.id) }
+    }
+    local ok, result = pcall(function() return MySQL.transaction.await(operations) end)
+    if not ok or result ~= true then
+        return false, 'Restore was not applied. No catalog or vehicle data was changed.'
+    end
+    cleanupCompletedReplacementRecords()
+
+    structuredAdminLog('catalog', 'temporary_model_restored', src, {
+        oldModel = oldModel, replacementModel = newModel, restoredNow = restoredNow,
+        restorePending = restorePending, cancelledForward = cancelledForward,
+        capturedImage = catalogRow.image
+    }, 'success')
+    return true, ('Restored %s. %d vehicle(s) restored now, %d waiting to be stored.'):format(oldModel, restoredNow, restorePending)
+end
+
+RegisterNetEvent('rn-vehicleshop:server:enableAdminVehicle', function(model)
+    local src = source
+    if not isAdmin(src) then return notify(src, 'No permission.', 'error') end
+    if AdminModes[src] ~= 'manage' then return notify(src, 'Use /managevehicle first.', 'error') end
+    if not checkRateLimit(src, 'enableAdminVehicle', tonumber(hardeningCfg().AdminSaveCooldownMs) or 1500) then
+        return notify(src, 'Please wait before restoring another vehicle.', 'error')
+    end
+    model = normalizeModel(model)
+    if not isValidModelName(model) then return notify(src, 'Invalid model.', 'error') end
+
+    local catalogRow = MySQL.single.await('SELECT * FROM cm_vehicle_catalog WHERE model = ? LIMIT 1', { model })
+    if not catalogRow then return notify(src, 'Vehicle was not found in the catalog.', 'error') end
+    if not catalogRow.image or tostring(catalogRow.image):match('^%s*$') then
+        return notify(src, 'Capture a valid vehicle image before enabling this model.', 'error')
+    end
+
+    local replacement = MySQL.single.await([[
+        SELECT id, new_model, old_catalog, status
+        FROM cm_vehicle_replacements
+        WHERE old_model = ? AND status <> 'restored'
+        LIMIT 1
+    ]], { model })
+    local success
+    local message
+    if replacement then
+        success, message = restoreTemporaryModelReplacement(src, model, catalogRow, replacement)
+    else
+        MySQL.update.await('UPDATE cm_vehicle_catalog SET retired = 0, replacement_model = NULL, available_server = 1 WHERE model = ?', { model })
+        structuredAdminLog('catalog', 'vehicle_enabled', src, { model = model, capturedImage = catalogRow.image }, 'success')
+        success, message = true, ('Enabled %s with its new image.'):format(model)
+    end
+    notify(src, message, success and 'success' or 'error')
+    if not success then return end
+
+    invalidateCatalogCache()
+    TriggerClientEvent('rn-vehicleshop:client:adminData', src, flattenSourceVehicles(), getCatalog(true), adminMeta())
 end)
 
 exports('GetVehicleImage', function(model)
@@ -2216,20 +2920,47 @@ exports('ConsumeOrganizationVehicleGrant', function(src, model, organization)
     return true
 end)
 
-RegisterNetEvent('rn-vehicleshop:server:grantOrganizationVehicle', function(model, organization, minimumTier, trunkMinimumTier)
+RegisterNetEvent('rn-vehicleshop:server:grantOrganizationVehicle', function(model, organization, minimumTier, trunkMinimumTier, requestId)
     local src = source
-    if not isAdmin(src) then return notify(src, 'No permission.', 'error') end
-    if AdminModes[src] ~= 'manage' then return notify(src, 'Use /managevehicle to give organization vehicles.', 'error') end
-    if not checkRateLimit(src, 'grantOrganizationVehicle', 1500) then return notify(src, 'Please wait before giving another vehicle.', 'error') end
+    requestId = adminRequestId(requestId)
+    local function grantResult(result, message, kind)
+        result = type(result) == 'table' and result or { ok=false, reason='unknown_error' }
+        result.requestId = requestId
+        result.message = tostring(message or '')
+        TriggerClientEvent('rn-vehicleshop:client:organizationGrantResult', src, result)
+        if message and message ~= '' then notify(src, message, kind or (result.ok and 'success' or 'error')) end
+        return result.ok == true
+    end
+    if not isAdmin(src) then return grantResult({ok=false,stage='permission',reason='permission_denied'}, 'No permission.', 'error') end
+    if AdminModes[src] ~= 'manage' then return grantResult({ok=false,stage='validation',reason='wrong_admin_mode'}, 'Use /managevehicle to give organization vehicles.', 'error') end
+    if not checkRateLimit(src, 'grantOrganizationVehicle', 1500) then return grantResult({ok=false,stage='validation',reason='rate_limited'}, 'Please wait before giving another vehicle.', 'error') end
     model, organization = normalizeModel(model), tostring(organization or ''):lower():gsub('[^a-z0-9_]', '')
     minimumTier = math.max(1, math.min(100, math.floor(tonumber(minimumTier) or 1)))
     trunkMinimumTier = math.max(1, math.min(100, math.floor(tonumber(trunkMinimumTier) or minimumTier)))
     local allowed = { police=true, ems=true, marabunta=true, bloods=true, ballas=true, families=true, vagos=true }
     for _, org in ipairs(legalOrgOptions()) do allowed[tostring(org.id)] = true end
-    if not allowed[organization] then return notify(src, 'Invalid organization.', 'error') end
+    if not allowed[organization] then return grantResult({ok=false,stage='validation',reason='invalid_organization'}, 'Invalid organization.', 'error') end
     local vehicle = getCatalogVehicle(model, false)
-    if not vehicle then return notify(src, 'Vehicle is not saved in Vehicle Manage.', 'error') end
-    if GetResourceState('cm-vehicles') ~= 'started' then return notify(src, 'Vehicle owner service is unavailable.', 'error') end
+    if not vehicle then return grantResult({ok=false,stage='validation',reason='vehicle_not_saved'}, 'Vehicle is not saved in Vehicle Manage.', 'error') end
+    local activeReplacement = MySQL.scalar.await([[
+        SELECT 1 FROM cm_vehicle_replacements
+        WHERE old_model = ? AND status <> 'restored'
+        LIMIT 1
+    ]], { model })
+    if vehicle.retired == true or activeReplacement then
+        return grantResult({ok=false,stage='validation',reason='vehicle_retired'}, 'Retired or replaced vehicles cannot be granted to an organization.', 'error')
+    end
+    if GetResourceState('cm-vehicles') ~= 'started' then
+        return grantResult({ok=false,stage='persistent_preflight',reason='vehicle_owner_unavailable'}, 'Vehicle owner service is unavailable.', 'error')
+    end
+    local gangTargets={marabunta=true,bloods=true,ballas=true,families=true,vagos=true}
+    if gangTargets[organization] and GetResourceState('cm-gang') ~= 'started' then
+        structuredAdminLog('organization_vehicle', 'grant_failed', src, {
+            model=model,organization=organization,stage='fleet_preflight',error='fleet_owner_unavailable'
+        }, 'error')
+        return grantResult({ok=false,stage='fleet_preflight',reason='fleet_owner_unavailable'},
+            'Gang fleet service is unavailable. No vehicle was created.', 'error')
+    end
     structuredAdminLog('organization_vehicle', 'grant_requested', src, {model=model,organization=organization,stage='authorization'}, 'info')
     PendingOrganizationGrants[src] = { model=vehicle.model, organization=organization, expiresAt=os.time()+5 }
     structuredAdminLog('organization_vehicle', 'authorization_granted', src, {model=model,organization=organization,stage='authorization'}, 'success')
@@ -2251,35 +2982,42 @@ RegisterNetEvent('rn-vehicleshop:server:grantOrganizationVehicle', function(mode
         local stage = reason:find('authorization_', 1, true) == 1 and 'authorization' or 'persistent_validation'
         if reason == 'database_insert_failed' then stage = 'persistent_creation' end
         structuredAdminLog('organization_vehicle', 'grant_failed', src, {model=model,organization=organization,stage=stage,error=reason}, 'error')
-        TriggerClientEvent('rn-vehicleshop:client:organizationGrantResult',src,{ok=false,stage=stage,reason=reason})
-        return notify(src, 'Organization vehicle creation failed.', 'error')
+        return grantResult({ok=false,stage=stage,reason=reason}, 'Organization vehicle creation failed.', 'error')
     end
     local vehicleId=tonumber(result.id)
     structuredAdminLog('organization_vehicle', 'persistent_created', src, {model=model,organization=organization,vehicleId=vehicleId}, 'success')
-    local gangTargets={marabunta=true,bloods=true,ballas=true,families=true,vagos=true}
     local fleetStatus='not_applicable'
     if gangTargets[organization] then
-        if GetResourceState('cm-gang')~='started' then
-            fleetStatus='fleet_owner_unavailable'
-        else
-            local linkCalled,linked,linkResult=pcall(function()
-                return exports['cm-gang']:LinkGrantedOrganizationVehicle(src,organization,model,vehicleId,minimumTier,trunkMinimumTier)
+        local linkCalled,linked,linkResult=pcall(function()
+            return exports['cm-gang']:LinkGrantedOrganizationVehicle(src,organization,model,vehicleId,minimumTier,trunkMinimumTier)
+        end)
+        if not linkCalled or linked~=true then
+            fleetStatus=tostring(linkResult or linked or 'fleet_link_failed')
+            local rollbackCalled,rolledBack,rollbackReason=pcall(function()
+                return exports['cm-gang']:RollbackGrantedOrganizationVehicle(src,organization,model,vehicleId)
             end)
-            if not linkCalled or linked~=true then
-                fleetStatus=tostring(linkResult or linked or 'fleet_link_failed')
-                structuredAdminLog('organization_vehicle','fleet_link_failed',src,{model=model,organization=organization,vehicleId=vehicleId,stage='fleet_link',error=fleetStatus},'error')
-                TriggerClientEvent('rn-vehicleshop:client:organizationGrantResult',src,{ok=true,partial=true,organization=organization,
-                    model=model,label=vehicle.label,vehicleId=vehicleId,status='vehicle_created_fleet_link_failed',reason=fleetStatus})
-                return notify(src,('Vehicle ID %d created, but gang fleet link failed: %s'):format(vehicleId,fleetStatus),'error')
+            local rollbackOk=rollbackCalled and rolledBack==true
+            local rollbackError=rollbackOk and nil or tostring(rollbackReason or rolledBack or 'rollback_failed')
+            structuredAdminLog('organization_vehicle','fleet_link_failed',src,{
+                model=model,organization=organization,vehicleId=vehicleId,stage='fleet_link',error=fleetStatus,
+                rolledBack=rollbackOk,rollbackError=rollbackError
+            },rollbackOk and 'warning' or 'error')
+            local failureResult={
+                ok=false,partial=not rollbackOk,organization=organization,model=model,label=vehicle.label,
+                vehicleId=rollbackOk and nil or vehicleId,stage='fleet_link',reason=fleetStatus,
+                rolledBack=rollbackOk,rollbackError=rollbackError,recoveryRequired=not rollbackOk
+            }
+            if rollbackOk then
+                return grantResult(failureResult, ('Gang fleet link failed (%s). The new vehicle was rolled back.'):format(fleetStatus), 'error')
             end
-            fleetStatus=type(linkResult)=='table' and linkResult.status or 'needs_home_location'
-            structuredAdminLog('organization_vehicle','fleet_linked',src,{model=model,organization=organization,vehicleId=vehicleId,status=fleetStatus},'success')
+            return grantResult(failureResult, ('Gang fleet link and rollback failed for vehicle ID %d. Manual recovery is required.'):format(vehicleId), 'error')
         end
+        fleetStatus=type(linkResult)=='table' and linkResult.status or 'needs_home_location'
+        structuredAdminLog('organization_vehicle','fleet_linked',src,{model=model,organization=organization,vehicleId=vehicleId,status=fleetStatus},'success')
     end
     structuredAdminLog('organization_vehicle', 'granted', src, {model=model,organization=organization,vehicleId=vehicleId,plate=result.plate}, 'success')
-    TriggerClientEvent('rn-vehicleshop:client:organizationGrantResult',src,{ok=true,organization=organization,
-        model=model,label=vehicle.label,vehicleId=vehicleId,status=fleetStatus})
-    notify(src, ('Gave %s to %s. Vehicle ID: %d'):format(vehicle.label or model, organization, vehicleId), 'success')
+    grantResult({ok=true,organization=organization,model=model,label=vehicle.label,vehicleId=vehicleId,status=fleetStatus},
+        ('Gave %s to %s. Vehicle ID: %d'):format(vehicle.label or model, organization, vehicleId), 'success')
 end)
 
 
@@ -2319,6 +3057,7 @@ AddEventHandler('onResourceStop', function(resource)
     ActiveShopPlayers = {}
     CharacterCache = {}
     RateLimits = {}
+    ReplacementPollStarted = false
 end)
 
 local function validateConfig()
@@ -2352,6 +3091,8 @@ AddEventHandler('onResourceStart', function(resource)
     math.randomseed(os.time() + nowMs())
     validateConfig()
     ensureTables()
+    processPendingModelReplacements()
+    startReplacementPoller()
     invalidateCatalogCache()
     loadCatalogCache(true)
     debugPrint('Vehicles must be enabled with /vehicleadmin before they appear.')
