@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head><base href="../html/">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-dashboard.css">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="dispatch-board.css">
+  <link rel="stylesheet" href="live-operations-v2.1.css">
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-armory.css?v=7">
+  <link rel="stylesheet" href="law-armory-v4.css?v=2">
+  <title>CM Legal Organization</title>
+  <link rel="stylesheet" href="operations-v2.5.css?v=1">
+  <link rel="stylesheet" href="command-ui-v2.6.css?v=1">
+</head>
+<body>
+  <main id="app" class="hidden">
+    <section class="shell">
+      <aside class="side">
+        <div class="brand">
+          <div class="brand-mark"><img id="brandLogo" src="assets/org/default.svg" alt="Organization emblem"></div>
+          <div class="brand-copy"><small id="shortLabel">LEGAL ORGANIZATION</small><h1 id="orgLabel">Organization</h1><p id="jurisdiction"></p></div>
+        </div>
+        <nav>
+          <button class="tab active" data-tab="overview"><b>O</b><span>Overview<small>Duty and status</small></span></button>
+          <button class="tab hidden" data-tab="dispatch" id="dispatchTab"><b>D</b><span>Dispatch<small>Live emergency calls</small></span></button>
+          <button class="tab hidden" data-tab="mdt" id="mdtTab"><b>T</b><span>Shared MDT<small>Records and warrants</small></span></button>
+          <button class="tab" data-tab="roster"><b>M</b><span>Members<small>Roster and ranks</small></span></button>
+          <button class="tab" data-tab="ranks" id="ranksTab"><b>R</b><span>Ranks &amp; access<small>Manage permissions</small></span></button>
+          <button class="tab hidden" data-tab="fleet" id="fleetTab"><b>F</b><span>Fleet vehicles<small>Rank and parking</small></span></button>
+          <button class="tab hidden" data-tab="logs" id="logsTab"><b>A</b><span>Activity logs<small>Organization history</small></span></button>
+          <button class="tab hidden" data-tab="logistics" id="logisticsTab"><b>L</b><span>Logistics<small>Routine Army supply</small></span></button>
+        </nav>
+        <div class="side-summary"><span class="side-summary__dot" id="sideDutyDot"></span><div class="side-summary__text"><strong id="rankName">—</strong><small id="dutyStatus">Off duty</small></div></div>
+        <div class="side-foot">ESC to close</div>
+      </aside>
+      <div class="workspace">
+        <header class="law-topbar">
+          <div><small class="law-topbar__kicker">COMMAND &amp; OPERATIONS</small><h2 id="pageTitle">Overview</h2></div>
+          <div class="law-topbar__actions"><span class="law-system-status"><i></i>LIVE SYSTEMS</span><time id="dashboardClock">--:--</time><button id="dashboardDutyButton" class="law-duty-button" type="button">OFF DUTY</button><button id="dashboardRefresh" type="button">Refresh</button><button class="icon" data-close aria-label="Close">×</button></div>
+        </header>
+        <div class="content">
+          <section id="overviewView" class="view org-overview command-center-overview">
+            <article id="overviewPriorityAlert" class="law-priority-alert hidden" aria-live="polite">
+              <span id="overviewPriorityBadge" class="law-priority-alert__badge">PRIORITY</span>
+              <div><strong id="overviewPriorityTitle">Officer assistance requested</strong><p id="overviewPriorityMeta"></p></div>
+              <button type="button" data-overview-dispatch>View call</button>
+              <button id="overviewRespond" class="primary" type="button" data-overview-respond>Respond &amp; route</button>
+            </article>
+            <article class="org-identity-card">
+              <div class="org-tier-ring"><strong id="overviewTier">0</strong><small>TIER</small></div>
+              <div class="org-identity-copy"><h2 id="overviewMemberName">MEMBER</h2><div><span id="overviewRank">—</span><span id="overviewCharacterId">CID —</span><span id="overviewDutyBadge" class="status-pill">OFF DUTY</span></div></div>
+              <div id="overviewStats" class="stats command-stats"></div>
+              <span id="overviewShortLabel" class="sr-only">LEGAL ORGANIZATION</span><span id="overviewOrgName" class="sr-only">Organization</span><span id="overviewJurisdiction" class="sr-only">Authorized jurisdiction</span>
+            </article>
+            <article class="org-readiness-strip"><div><strong>AGENCY READINESS</strong><span id="overviewReadinessMeta">0 / 0</span><i><b id="overviewReadinessBar"></b></i></div><div><small>ON DUTY NOW</small><strong id="overviewReadinessTotal">0 units</strong></div></article>
+            <div class="org-operations-grid">
+              <article class="command-panel command-panel--capabilities"><div class="panel-title"><div><small>ACTIVE CAPABILITIES</small><h3>Agency tools</h3></div><span class="panel-kicker" id="overviewCapabilityCount">0 ACTIVE</span></div><div id="overviewCapabilities" class="capability-pills"></div></article>
+              <div class="org-command-column">
+                <article id="overviewToolsPanel" class="command-panel command-panel--tools operations"><div><small>FIELD COORDINATION</small><h3>Command tools</h3></div><div class="operation-actions"><button class="primary" id="memberMap">Member map</button><button class="primary" id="meetingPoint">Meeting point</button><button class="mini" id="clearMeeting">Clear meeting</button></div></article>
+                <article class="command-panel command-panel--duty"><div class="panel-title"><div><small>ON DUTY NOW</small><h3>Available units</h3></div><span class="panel-kicker" id="overviewDutyCount">0 UNIT</span></div><div id="overviewDutyRoster" class="duty-preview"></div></article>
+              </div>
+            </div>
+            <article id="overviewActivityPanel" class="command-panel command-panel--activity"><div class="panel-title"><div><small>RECENT ACTIVITY</small><h3>Organization feed</h3></div><span class="panel-kicker">LATEST</span></div><div id="overviewRecentActivity" class="activity-preview"></div></article>
+            <div class="sr-only"><span id="overviewShiftKicker">READY</span><div id="overviewShift"></div><img id="overviewCharacterArt" src="assets/org/default-officer.svg" alt=""><span id="overviewWatermark">LAW</span></div>
+            <div class="command-keybar">
+              <div><kbd>F9</kbd><span><b>Dispatch</b><small>Open dedicated dispatch</small></span></div>
+              <div><kbd>TAB</kbd><span><b>MDT</b><small>Open records terminal</small></span></div>
+              <div><kbd>J</kbd><span><b>Quick Actions</b><small>Field tools &amp; Road Equipment</small></span></div>
+            </div>
+          </section>
+          <section id="rosterView" class="view hidden"><div id="roster" class="roster"></div></section>
+          <section id="ranksView" class="view hidden">
+            <div class="section-head"><p class="hint">Ranks define tier and permissions. Leaders can create, edit, and delete ranks below their own tier.</p><button id="newRank" class="hidden">Add rank</button></div>
+            <article class="card rank-editor hidden" id="rankEditor">
+              <div class="rank-fields">
+                <label>Rank name<input id="editRankName" maxlength="48"></label>
+                <label>Tier (1-99)<input id="editRankTier" type="number" min="1" max="99"></label>
+              </div>
+              <div><small>PERMISSIONS</small><div class="permission-editor" id="permissionEditor"></div></div>
+              <div class="editor-actions"><button id="cancelRank">Cancel</button><button id="saveRankBtn">Save rank</button></div>
+            </article>
+            <div class="rank-grid" id="ranksList"></div>
+          </section>
+          <section id="fleetView" class="view hidden">
+            <div class="fleet-head">
+              <p class="hint">Manage each vehicle's parking location and minimum rank. Officers collect vehicles from these persistent parking spaces.</p>
+              <button id="fleetRecallAll" class="hidden">Recall All to Parking</button>
+            </div>
+            <div id="fleetRoster" class="fleet-roster"></div>
+          </section>
+          <section id="logsView" class="view hidden"><div id="activityLogList" class="log-list"></div></section>
+          <section id="logisticsView" class="view hidden">
+            <div class="section-head"><div><small>ARMY QUARTERMASTER</small><h3>Routine supply orders</h3><p>Requests reserve real Army armory stock before a temporary shipment is prepared.</p></div></div>
+            <form id="logisticsOrderForm" class="logistics-order-form hidden">
+              <label>Supply item<select id="logisticsItem"></select></label>
+              <label>Quantity<input id="logisticsQuantity" type="number" min="1" max="1000" value="1"></label>
+              <button type="submit">Submit request</button>
+            </form>
+            <p id="logisticsHint" class="hint"></p>
+            <div id="logisticsOrders" class="logistics-orders"></div>
+            <div class="section-head"><div><small>ARSENAL RESUPPLY</small><h3>Arsenal History</h3><p>Incoming stock secured by Army, extracted by gangs, or lost.</p></div><button id="arsenalHistoryRefresh" type="button">Refresh</button></div>
+            <div id="arsenalHistory" class="logistics-orders"><p class="hint">Open Logistics to load Arsenal history.</p></div>
+          </section>
+            <section id="dispatchView" class="view hidden law-dispatch-board">
+              <aside class="law-dispatch-summary"><small>CM LAW ENFORCEMENT</small><h2>EMERGENCY<br>CALLS</h2><p>One live feed shared by Police, Sheriff, FIB, Army, and authorized legal units.</p><div class="law-dispatch-counts"><div><span>ACTIVE CALLS</span><strong id="lawDispatchActiveCount">0</strong></div><div><span>ASSIGNED</span><strong id="lawDispatchAssignedCount">0</strong></div></div><div class="law-dispatch-mark"><span>★</span><b>LAW<br>DISPATCH</b></div></aside>
+              <main class="law-dispatch-main"><div class="dispatch-toolbar"><div><small>LIVE OPERATIONS</small><h3>Law enforcement requests</h3></div><div class="actions"><button id="dispatchBackup">Request backup</button><button id="dispatchPanic" class="danger">Panic button</button></div></div><div class="liveops-commandbar"><label>CALLSIGN<input id="liveOpsCallsign" maxlength="12" autocomplete="off"><button id="liveOpsCallsignSave">SET</button></label><label>UNIT STATUS<select id="liveOpsStatus"><option value="available">Available</option><option value="busy">Busy</option><option value="unavailable">Unavailable</option><option value="en_route" disabled>En Route</option><option value="on_scene" disabled>On Scene</option></select></label><span id="liveOpsRefreshed">LIVE LINK</span></div><div class="liveops-grid"><section class="liveops-map-panel"><div class="liveops-panel-head"><div><small>TACTICAL MAP</small><h3>Active unit positions</h3></div><span><i></i> SERVER VERIFIED</span></div><div id="liveOpsMap" class="liveops-map"><div class="liveops-map-grid"></div></div></section><section class="liveops-units-panel"><div class="liveops-panel-head"><div><small>UNIT BOARD</small><h3>On-duty units</h3></div><strong id="liveOpsUnitCount">0</strong></div><div id="liveOpsUnits" class="liveops-units"></div></section></div><div id="liveOpsAssignment" class="liveops-assignment hidden"><div><small>INCIDENT COMMAND</small><strong>Prioritize, assign, release, or close an active call</strong></div><select id="liveOpsCallSelect"></select><select id="liveOpsPriority"><option value="1">P1 Routine</option><option value="2">P2 Urgent</option><option value="3">P3 Critical</option></select><button id="liveOpsSetPriority">SET PRIORITY</button><select id="liveOpsUnitSelect"></select><button id="liveOpsAssign">ASSIGN UNIT</button><button id="liveOpsCloseCall" class="danger">COMMAND CLOSE</button></div><div class="law-dispatch-columns"><span>CALLER / LOCATION</span><span>STATUS / UNITS</span><span>ACTION</span></div><div id="dispatchActiveList" class="dispatch-list"></div><h3 class="dispatch-heading">Recent history</h3><div id="dispatchHistoryList" class="dispatch-list"></div></main>
+            </section>
+          <section id="mdtView" class="view hidden">
+            <div class="mdt-searchbar"><div class="mdt-search-group"><label for="lawMdtCitizenQuery">Citizen records</label><div><input id="lawMdtCitizenQuery" placeholder="Name or character ID" autocomplete="off"><button id="lawMdtCitizenSearch">Search citizens</button></div></div><div class="mdt-search-group"><label for="lawMdtPlateQuery">Vehicle registry</label><div><input id="lawMdtPlateQuery" placeholder="Enter licence plate" autocomplete="off"><button id="lawMdtVehicleSearch">Search vehicle</button></div></div></div>
+            <div class="law-mdt-layout">
+              <aside id="lawMdtResults" class="law-mdt-results"><p class="hint">Search for a citizen or vehicle.</p></aside>
+              <div id="lawMdtWorkspace" class="law-mdt-workspace"><div class="mdt-idle"><span class="mdt-idle-mark">ID</span><small>SHARED RECORDS TERMINAL</small><h2>Find the details.<br>Build the picture.</h2><p>Search a citizen or vehicle above, then select a result to view the record.</p><div><span>Citizen profiles</span><span>Vehicle records</span><span>Reports &amp; warrants</span></div></div></div>
+            </div>
+          </section>
+        </div>
+      </div>
+      <aside class="law-record-rail">
+        <div class="law-record-rail__head"><small>TERMINAL</small><h2 id="railTitle">MEMBER RECORD</h2></div>
+        <div class="law-record-rail__portrait"><img id="railArt" src="assets/org/default-officer.png" alt=""></div>
+        <div class="law-record-rail__info" id="railInfo"></div>
+        <div class="law-record-rail__actions" id="railActions"></div>
+        <div class="law-record-rail__foot"><div><strong id="railName">—</strong><small id="railRankTier">—</small></div><span class="law-record-rail__you">You</span></div>
+      </aside>
+    </section>
+    <div id="toast" role="status"></div>
+    <div id="facilities" class="hidden" aria-hidden="true"></div>
+  </main>
+  <aside id="facilityPrompt" class="npc-interaction hidden"><span class="npc-interaction__key">E</span><span class="npc-interaction__line"></span><span class="npc-interaction__copy"><b>INTERACTION</b><small id="facilityPromptText"></small></span></aside>
+  <section id="facilityDialogue" class="npc-dialogue hidden">
+    <div class="npc-dialogue__identity"><small id="facilityRole"></small><h1 id="facilityName"></h1></div>
+    <div class="npc-dialogue__choices"><div class="npc-dialogue__quote"><p id="facilityQuote"></p><span id="facilitySignature"></span></div><div id="facilityOptions" class="npc-dialogue__services hidden"></div><button type="button" class="npc-dialogue__option npc-dialogue__option--primary" id="facilityContinue"></button><button type="button" class="npc-dialogue__option" id="facilityClose">I'm not interested right now</button></div>
+  </section>
+  <section id="wardrobeRoom" class="wardrobe-room hidden">
+    <aside class="wardrobe-sidebar"><small id="wardrobeOrg">LEGAL ORGANIZATION</small><h2>Wardrobe</h2><p>Approved duty uniform</p><nav id="wardrobeCategories"></nav><div class="wardrobe-help">W / S switch items<br>A / D rotate officer<br>ESC cancel</div></aside>
+    <div id="wardrobeViewport" class="wardrobe-viewport"><span>Drag to rotate</span></div>
+    <aside class="wardrobe-controls"><small>DUTY CLOTHING</small><h2 id="wardrobeTitle">Select clothing</h2><p>Outerwear, pants and shoes are required.</p><label>OPTION</label><div class="wardrobe-selector"><button id="wardrobePrev">&#8249;</button><strong id="wardrobeOption">--</strong><button id="wardrobeNext">&#8250;</button></div><label>COLOR</label><div class="wardrobe-selector"><button id="wardrobeColorPrev">&#8249;</button><strong id="wardrobeColor">--</strong><button id="wardrobeColorNext">&#8250;</button></div><button id="wardrobeDone" class="wardrobe-done">Wear uniform &amp; start duty</button><button id="wardrobeCancel">Cancel</button></aside>
+  </section>
+  <section id="legalArmory" class="legal-armory hidden">
+    <aside class="legal-armory__rail">
+      <div class="legal-armory__vertical">ARMORY</div>
+      <div class="legal-armory__rail-head"><span>PROTECTIVE EQUIPMENT</span><strong id="lawArmorCount">0 MODELS</strong></div>
+      <div id="lawArmorList" class="legal-armory__armor-list"><p>No armor is enabled.</p></div>
+      <small id="armoryRailOrg">LEGAL ORGANIZATION</small>
+    </aside>
+    <main class="legal-armory__catalog">
+      <header class="legal-armory__header">
+        <div><small id="armoryOrg">LEGAL ORGANIZATION</small><h1>Armory Control</h1><p>Rank-controlled weapons, ammunition and protective equipment</p></div>
+        <div class="legal-armory__status"><span>LIVE STOCK</span><span>ISSUES LOGGED</span><button id="armoryManage" class="hidden">Manage stock</button><button id="armoryClose" aria-label="Close">&times;</button></div>
+      </header>
+      <nav id="armoryFilters" class="legal-armory__filters">
+        <button class="active" data-armory-filter="all">ALL <b id="lawArmoryCountAll">0</b></button><button data-armory-filter="weapon">WEAPONS <b id="lawArmoryCountWeapon">0</b></button><button data-armory-filter="ammo">AMMO <b id="lawArmoryCountAmmo">0</b></button><button data-armory-filter="vest">ARMOR <b id="lawArmoryCountVest">0</b></button>
+      </nav>
+      <div class="legal-armory__live"><span><i></i> LIVE SHARED STOCK</span><small>Only equipment authorized for your rank is shown</small></div>
+      <div id="armoryGrid" class="legal-armory__grid"></div>
+    </main>
+    <section id="armoryManager" class="armory-manager hidden">
+      <div class="armory-manager__head"><div><small>SHARED QUARTERMASTER CONTROL</small><h2>Equipment catalogue</h2><p>Enabled equipment appears in every legal organization. Stock remains separate.</p></div><div><button id="armoryLoadStock">Load this organization (+10 guns / +1,000 ammo)</button><button id="armoryManagerClose">Back to checkout</button></div></div>
+      <div id="armoryManagerGrid" class="armory-manager__grid"></div>
+    </section>
+  </section>
+  <div id="lawConfirm" class="law-confirm-overlay" hidden>
+    <div class="law-confirm-card">
+      <h3 class="law-confirm-title" id="lawConfirmTitle">Confirm</h3>
+      <p class="law-confirm-message" id="lawConfirmMessage">Are you sure?</p>
+      <div class="law-confirm-actions">
+        <button class="law-confirm-btn" id="lawConfirmNo">Cancel</button>
+        <button class="law-confirm-btn danger" id="lawConfirmYes">Confirm</button>
+      </div>
+    </div>
+  </div>
+  <script>window.GetParentResourceName=()=> 'cm-law'; const sample={"ok": true, "characterId": "12", "organization": {"id": "sheriff", "label": "Blaine County Sheriff\u2019s Office", "shortLabel": "BCSO"}, "member": {"characterId": "12", "rankName": "Sheriff", "tier": 100, "onDuty": true, "isLeader": true, "permissions": {}, "capabilities": {"dispatch": true, "mdt": true, "arrest": true, "search": true, "citations": true, "impound": true, "radar": true, "armory": true, "fleet": true, "evidence": true}}, "summary": {"memberCount": 8, "onDutyCount": 4, "activeCalls": 3, "assignedCalls": 2, "fleetConfigured": 6, "fleetAvailable": 4, "leaderName": "Avery Cole"}, "roster": [{"character_id": "12", "name": "Avery Cole", "rank_name": "Sheriff", "tier": 100, "on_duty": true, "is_leader": true}, {"character_id": "24", "name": "Jordan Hayes", "rank_name": "Deputy", "tier": 20, "on_duty": true, "rank_id": 4}], "ranks": [{"id": 1, "name": "Sheriff", "tier": 100, "is_leader": true, "permissions": {"law.mdt": true, "law.cuff": true, "law.search": true, "law.dispatch": true}}, {"id": 2, "name": "Undersheriff", "tier": 80, "is_leader": false, "permissions": {"law.mdt": true, "law.cuff": true, "law.search": true, "law.dispatch": true}}, {"id": 3, "name": "Sergeant", "tier": 50, "is_leader": false, "permissions": {"law.mdt": true, "law.cuff": true, "law.search": true, "law.dispatch": true}}, {"id": 4, "name": "Deputy", "tier": 20, "is_leader": false, "permissions": {"law.mdt": true, "law.cuff": true, "law.search": true, "law.dispatch": true}}, {"id": 5, "name": "Cadet", "tier": 1, "is_leader": false, "permissions": {"law.mdt": true, "law.cuff": true, "law.search": true, "law.dispatch": true}}], "permissions": {"law.mdt": "Access shared records", "law.cuff": "Restrain suspects", "law.search": "Search suspects", "law.dispatch": "Receive dispatch calls"}, "canManage": true, "canManageRanks": true, "canInspectRankPermissions": true, "canFleetManage": true, "canDispatch": true, "canMdt": true, "canViewMembers": true, "canViewActivity": true, "logisticsVisible": true, "recentActivity": [{"actorName": "Jordan Hayes", "action": "duty_started", "createdAt": "2026-09-09T10:22:00Z"}], "facilityTypes": {}, "facilities": {}};window.fetch=async(url)=>({ok:true,json:async()=>String(url).endsWith('/refresh')?sample:String(url).endsWith('/dailyDesk')?{ok:true,date:new Date().toISOString().slice(0,10),revision:0,day:{notes:'Preview note: review outstanding reports before ending duty.',checked:{equipment:true,radio:true}},history:[]}:{ok:true,list:[],vehicles:[],items:[],history:[],units:[]}});window.addEventListener('load',()=>window.postMessage({action:'open',data:sample,initialTab:new URLSearchParams(location.search).get('page')||'overview',standaloneMode:new URLSearchParams(location.search).get('page')==='mdt'},'*'));</script><script src="request-feedback.js?v=1"></script>
+  <script src="app.js?v=15"></script>
+  <script src="live-operations-v2.1.js?v=2"></script>
+  <script src="dashboard-filters.js?v=1"></script>
+  <script src="daily-desk.js?v=1"></script>
+  <script src="command-ui-v2.6.js?v=1"></script>
+<div style="position:fixed;bottom:4px;left:12px;color:#9aafc5;font:10px Arial;pointer-events:none">Design preview · sample data</div></body>
+</html>

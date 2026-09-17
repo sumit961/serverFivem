@@ -5,7 +5,7 @@ local function closeArmory()
     if not open then return end
     open, organizationId = false, nil
     SetNuiFocus(false, false)
-    SendNUIMessage({ action = 'legalArmoryClose' })
+    SendNUIMessage({ cmInterface = "law", action = 'legalArmoryClose' })
     TriggerEvent('cm-hud:client:showAfterUi', HUD_REASON)
 end
 
@@ -19,7 +19,7 @@ RegisterNetEvent('cm-law:client:openArmory', function(orgId, label)
     open, organizationId = true, orgId
     TriggerEvent('cm-hud:client:hideForUi', HUD_REASON)
     SetNuiFocus(true, true)
-    SendNUIMessage({ action = 'legalArmoryOpen', label = label, data = result })
+    SendNUIMessage({ cmInterface = "law", action = 'legalArmoryOpen', label = label, data = result })
 end)
 
 RegisterNUICallback('legalArmoryClose', function(_, cb) closeArmory(); cb({ ok = true }) end)

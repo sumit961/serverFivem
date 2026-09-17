@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS cm_license_types (
     enabled BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
+    
     INDEX idx_license_type (license_type),
     INDEX idx_enabled (enabled)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -26,12 +26,14 @@ CREATE TABLE IF NOT EXISTS cm_license_types (
 CREATE TABLE IF NOT EXISTS cm_license_routes (
     id INT PRIMARY KEY AUTO_INCREMENT,
     license_type_id INT NOT NULL,
+    label VARCHAR(100) COMMENT 'Admin-facing route name',
     vehicle_spawn JSON NOT NULL COMMENT 'Vehicle spawn: {x, y, z, heading}',
+    enabled BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
+    
+    -- A type may own several routes; the exam draws one at random.
     FOREIGN KEY (license_type_id) REFERENCES cm_license_types(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_route_per_type (license_type_id),
     INDEX idx_license_type_id (license_type_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -52,7 +54,7 @@ CREATE TABLE IF NOT EXISTS cm_license_checkpoints (
     metadata JSON COMMENT 'Extra checkpoint config',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
+    
     FOREIGN KEY (route_id) REFERENCES cm_license_routes(id) ON DELETE CASCADE,
     UNIQUE KEY unique_route_sequence (route_id, sequence),
     INDEX idx_route_id (route_id),
@@ -67,15 +69,17 @@ CREATE TABLE IF NOT EXISTS cm_character_licenses (
     issued_at BIGINT NOT NULL COMMENT 'Unix timestamp when issued',
     expires_at BIGINT NOT NULL COMMENT 'Unix timestamp when expires',
     status ENUM('active', 'expired', 'revoked') NOT NULL DEFAULT 'active',
+    delivery_status ENUM('pending', 'delivered') NOT NULL DEFAULT 'pending',
+    delivered_at BIGINT,
     revoked_at BIGINT COMMENT 'When revoked (unix timestamp)',
     revoked_by INT COMMENT 'Admin character ID who revoked',
     revoke_reason VARCHAR(255) COMMENT 'Reason for revocation',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
+    
     FOREIGN KEY (license_type_id) REFERENCES cm_license_types(id) ON DELETE RESTRICT,
-    -- Ensure one active license per character per type
-    UNIQUE KEY unique_character_active_license (character_id, license_type_id, status),
+    -- One authoritative row per character/type; renewals update this row.
+    UNIQUE KEY unique_character_license (character_id, license_type_id),
     INDEX idx_character_id (character_id),
     INDEX idx_license_type_id (license_type_id),
     INDEX idx_expires_at (expires_at),
@@ -85,9 +89,13 @@ CREATE TABLE IF NOT EXISTS cm_character_licenses (
 -- Active Test Sessions: Track ongoing exams
 CREATE TABLE IF NOT EXISTS cm_license_active_tests (
     id INT PRIMARY KEY AUTO_INCREMENT,
+    operation_key VARCHAR(96) UNIQUE,
     character_id INT NOT NULL,
     license_type_id INT NOT NULL,
-    test_started_at BIGINT NOT NULL COMMENT 'Unix timestamp',
+    route_id INT COMMENT 'Which route was drawn for this attempt',
+    test_started_at BIGINT NOT NULL COMMENT 'Unix timestamp when the fee was taken',
+    test_began_at BIGINT COMMENT 'Unix timestamp when the player crossed the start marker',
+    test_ended_at BIGINT COMMENT 'Unix timestamp when the session finished',
     current_checkpoint INT NOT NULL DEFAULT 0 COMMENT 'Last completed checkpoint',
     total_checkpoints INT NOT NULL COMMENT 'Total in route',
     vehicle_netid INT COMMENT 'Network ID of spawned vehicle',
@@ -97,9 +105,8 @@ CREATE TABLE IF NOT EXISTS cm_license_active_tests (
     fail_reason VARCHAR(100) COMMENT 'If failed, why',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
+    
     FOREIGN KEY (license_type_id) REFERENCES cm_license_types(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_active_test (character_id, license_type_id, status),
     INDEX idx_character_id (character_id),
     INDEX idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

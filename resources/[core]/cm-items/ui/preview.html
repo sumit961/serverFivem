@@ -4,25 +4,31 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CM Items Preview</title>
-  <link rel="stylesheet" href="preview.css?v=1.5.0" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap">
+  <link rel="stylesheet" href="preview.css?v=2.0.0" />
 </head>
 <body>
   <main id="app" class="hidden">
     <header>
-      <div>
-        <h1>CM Items</h1>
+      <div class="header-brand">
+        <div class="brand-kicker">CENTRAL ITEM REGISTRY SYSTEM</div>
+        <h1>CM ITEMS & CATALOG</h1>
         <div class="accent-line"></div>
-        <p>Central item registry — right-click any item for actions.</p>
+        <p>Authoritative inventory registry & clothing catalog — right-click cards for options.</p>
       </div>
       <div class="actions">
-        <input id="search" type="text" placeholder="Search item, category, drawable..." />
+        <div class="search-wrap">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input id="search" type="text" placeholder="SEARCH ITEM, CATEGORY, DRAWABLE..." />
+        </div>
         <select id="mode">
-          <option value="all">All</option>
-          <option value="items">Items</option>
-          <option value="catalog">Clothing Catalog</option>
+          <option value="all">ALL ENTRIES</option>
+          <option value="items">ITEMS ONLY</option>
+          <option value="catalog">CLOTHING CATALOG</option>
         </select>
-        <button id="refresh" class="btn btn-ghost">Refresh</button>
-        <button id="close" class="btn btn-primary">Close · ESC</button>
+        <button id="refresh" class="btn btn-ghost">REFRESH</button>
+        <button id="close" class="btn btn-primary">CLOSE · ESC</button>
       </div>
     </header>
     <nav class="tabs" id="tabs"></nav>

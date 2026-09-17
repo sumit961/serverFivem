@@ -1,6 +1,6 @@
 -- CM License System — Shared Constants
 
-local Constants = {
+Constants = {
     -- License types
     LICENSE_TYPES = {
         DRIVER = 'driver',
@@ -48,10 +48,15 @@ local Constants = {
         TIMEOUT = 'timeout',
         TOO_MANY_MISTAKES = 'too_many_mistakes',
         DISCONNECTED = 'disconnected',
+        CANCELLED = 'cancelled',
+        VEHICLE_SPAWN_FAILED = 'vehicle_spawn_failed',
         ADMIN_CANCELLED = 'admin_cancelled',
         WRONG_CHECKPOINT_ORDER = 'wrong_checkpoint_order',
         SPEEDING = 'speeding',
         ALTITUDE_VIOLATION = 'altitude_violation',
+        SERVER_RESTART = 'server_restart',
+        LICENSE_ISSUANCE_FAILED = 'license_issuance_failed',
+        INVALID_CLIENT_FAILURE = 'invalid_client_failure',
     },
 
     -- Test result messages
@@ -63,10 +68,15 @@ local Constants = {
         timeout = 'Test time limit exceeded',
         too_many_mistakes = 'Too many mistakes',
         disconnected = 'You were disconnected',
+        cancelled = 'Test cancelled',
+        vehicle_spawn_failed = 'The test vehicle could not be prepared',
         admin_cancelled = 'Test was cancelled by an administrator',
         wrong_checkpoint_order = 'You entered checkpoints out of order',
-        speeding = 'Exceeded speed limit',
+        speeding = 'Exceeded the posted speed limit',
         altitude_violation = 'Violated altitude restrictions',
+        server_restart = 'The server restarted during your test',
+        license_issuance_failed = 'The license could not be issued',
+        invalid_client_failure = 'Test failed',
     },
 
     -- Vehicle categories
@@ -79,14 +89,13 @@ local Constants = {
     -- Events (namespace: cm-license)
     EVENTS = {
         SERVER = {
-            INTERACT_NPC = 'cm-license:server:interactNPC',
             REQUEST_START_TEST = 'cm-license:server:requestStartTest',
             START_TEST = 'cm-license:server:startTest',
             CHECKPOINT_REACHED = 'cm-license:server:checkpointReached',
             FINISH_TEST = 'cm-license:server:finishTest',
             CANCEL_TEST = 'cm-license:server:cancelTest',
             TEST_FAILED = 'cm-license:server:testFailed',
-            LICENSE_ISSUED = 'cm-license:server:licenseIssued',
+            REPORT_MISTAKE = 'cm-license:server:reportMistake',
         },
         CLIENT = {
             TEST_STARTED = 'cm-license:client:testStarted',
@@ -94,8 +103,16 @@ local Constants = {
             TEST_COMPLETED = 'cm-license:client:testCompleted',
             TEST_FAILED = 'cm-license:client:testFailed',
             UPDATE_HUD = 'cm-license:client:updateHUD',
+            COMPLETION_REJECTED = 'cm-license:client:completionRejected',
+            CHECKPOINT_REJECTED = 'cm-license:client:checkpointRejected',
+            TEST_RESULT = 'cm-license:client:testResult',
         },
     },
+
+    -- Marks a revocation caused by the player discarding the physical card.
+    -- Only a revocation carrying this reason can be undone by picking the card
+    -- back up; an admin revocation is never reversed that way.
+    DISCARD_REASON = 'license_item_discarded',
 
     -- Permission strings
     PERMISSIONS = {
@@ -105,8 +122,8 @@ local Constants = {
     },
 }
 
-if GetResourceState('cm-license') == 'started' then
-    _G.CMLog = function(...)
+function CMLog(...)
+    if CMLicenseConfig and CMLicenseConfig.Debug then
         print('^2[CM-License]^7', ...)
     end
 end

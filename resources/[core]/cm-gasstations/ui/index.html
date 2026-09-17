@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CM Gas Station</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -20,20 +23,45 @@
     <div class="screen-shade"></div>
 
     <main class="gas-panel" role="dialog" aria-modal="true" aria-labelledby="stationName">
+      <div class="fluid-tank" id="fluidTank" aria-hidden="true">
+        <div class="gas-fumes"></div>
+        <div class="fluid-wave fluid-wave-back"></div>
+        <div class="fluid-wave fluid-wave-front"></div>
+        <i class="micro-bubble bubble-one"></i><i class="micro-bubble bubble-two"></i><i class="micro-bubble bubble-three"></i><i class="micro-bubble bubble-four"></i>
+      </div>
       <header class="panel-header">
         <div class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 48 48"><path d="M13 7h17a5 5 0 0 1 5 5v26H9V11a4 4 0 0 1 4-4Zm1 6v9h16v-9H14Zm2 15h12v5H16v-5Z"/><path d="M35 16h3l4 5v13a3 3 0 0 1-6 0V23l-3-3 2-4Z"/></svg>
+          <svg viewBox="0 0 24 24"><path d="M19 20H5v1a1 1 0 0 1-2 0V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2.53A4.98 4.98 0 0 1 21 11v6a1 1 0 0 1-1 1h-1v2Zm-4-1V5H5v14h10Zm-8-4h6V7H7v9Zm12-2v-4.5a3 3 0 0 0-2-2.82V13h2Z"/></svg>
         </div>
         <div class="heading-copy">
-          <span class="eyebrow">CM FUEL NETWORK</span>
-          <h1 id="stationName">Xero Gas</h1>
-          <p id="stationMode">Secure refuelling and vehicle supplies</p>
+          <span class="eyebrow uppercase-bold">CM FUEL NETWORK</span>
+          <h1 id="stationName" class="uppercase-bold">Xero Gas</h1>
+          <p id="stationMode">Vehicle secured - engine off - server-priced fuel</p>
         </div>
         <button class="icon-button" id="btnClose" type="button" aria-label="Close">
           <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
         </button>
       </header>
 
+      <nav class="station-tabs" aria-label="Station views">
+        <button class="station-tab active" data-view="public" type="button">PUBLIC INFO</button>
+        <button class="station-tab" data-view="operate" type="button">REFUEL &amp; STORE</button>
+        <button id="ownerTab" class="station-tab hidden" data-view="owner" type="button">OWNER CONSOLE</button>
+      </nav>
+
+      <section id="publicSection" class="station-view public-section">
+        <div class="public-hero"><span class="section-label">STATION PROFILE</span><h2 id="publicStatus">AVAILABLE FOR PURCHASE</h2><p id="publicOwner">This station is currently operated by the city.</p></div>
+        <div class="info-grid">
+          <div class="info-card"><span>STORE PRICE</span><strong id="publicPrice">$0</strong><small>PER FUEL UNIT</small></div>
+          <div class="info-card"><span>FUEL STOCK</span><strong id="publicStock">0</strong><small>UNITS AVAILABLE</small></div>
+          <div class="info-card"><span>PRICE MODE</span><strong id="publicTier">NORMAL</strong><small>SERVER-PRICED</small></div>
+          <div class="info-card"><span>OWNERSHIP</span><strong id="publicPurchase">$0</strong><small>BANK PURCHASE</small></div>
+        </div>
+        <div class="public-note">80% of fuel sales supports the station business account. Owners must renew tax every 7 days.</div>
+        <button id="buyStationPublic" class="primary-button public-buy" type="button">BUY THIS STATION</button>
+      </section>
+
+      <section id="operateView" class="station-view hidden">
       <section id="vehicleCard" class="vehicle-card">
         <div class="vehicle-meta">
           <span class="section-label">SELECTED VEHICLE</span>
@@ -92,7 +120,7 @@
         </div>
       </section>
 
-      <section class="store-section">
+      <section id="storeSection" class="store-section">
         <div class="section-heading">
           <div>
             <span class="section-label">VEHICLE SUPPLIES</span>
@@ -104,12 +132,12 @@
         <div class="product-list">
           <article class="product-row">
             <div class="product-icon">
-              <svg viewBox="0 0 24 24"><path d="M8 3h8v3h2v15H6V6h2V3Zm2 0v3h4V3h-4Zm-1 7h6m-3-3v6"/></svg>
+              <svg viewBox="0 0 24 24"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.5 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.4-2.4c.4-.4.4-1 0-1.3z"/></svg>
             </div>
             <div class="product-copy">
               <h3>Repair kit</h3>
               <p>Bodywork, windows and tyres</p>
-              <span>$<b id="repairUnitPrice">0</b> each</span>
+              <span>$<b id="repairUnitPrice">0</b></span>
             </div>
             <div class="quantity" data-product="kits">
               <button type="button" data-direction="-1" aria-label="Remove repair kit">−</button>
@@ -120,12 +148,12 @@
 
           <article class="product-row">
             <div class="product-icon">
-              <svg viewBox="0 0 24 24"><path d="M8 3h8v4l2 2v12H6V9l2-2V3Zm2 2v3h4V5h-4Zm0 8h4m-2-2v4"/></svg>
+              <svg viewBox="0 0 24 24"><path d="M19 4h-2V2h-4v2H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2Zm-7 14H8v-2h4v2Zm0-4H8v-2h4v2Zm5-4H8V8h9v2Z"/></svg>
             </div>
             <div class="product-copy">
               <h3>Jerry can</h3>
               <p>Portable emergency fuel</p>
-              <span>$<b id="fuelCanUnitPrice">0</b> each</span>
+              <span>$<b id="fuelCanUnitPrice">0</b></span>
             </div>
             <div class="quantity" data-product="cans">
               <button type="button" data-direction="-1" aria-label="Remove jerry can">−</button>
@@ -136,12 +164,12 @@
 
           <article class="product-row">
             <div class="product-icon">
-              <svg viewBox="0 0 24 24"><path d="M5 8h14l-1 12H6L5 8Zm3 0V5a4 4 0 0 1 8 0v3M9 13h6"/></svg>
+              <svg viewBox="0 0 24 24"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
             </div>
             <div class="product-copy">
               <h3>Wash kit</h3>
               <p>Clean dirt and road grime</p>
-              <span>$<b id="washUnitPrice">0</b> each</span>
+              <span>$<b id="washUnitPrice">0</b></span>
             </div>
             <div class="quantity" data-product="washes">
               <button type="button" data-direction="-1" aria-label="Remove wash kit">−</button>
@@ -152,15 +180,32 @@
         </div>
       </section>
 
-      <footer class="checkout">
+      <section id="ownerSection" class="store-section hidden">
+        <div class="section-heading"><div><span class="section-label">STATION CONTROL</span><h2>Owner console</h2></div><span class="cash-pill">BUSINESS <b>$<span id="businessBalance">0</span></b></span></div>
+        <div class="info-grid owner-metrics"><div class="info-card"><span>TAX COVERAGE</span><strong id="taxPaidDays">0 DAYS</strong><small>PAID IN ADVANCE</small></div><div class="info-card"><span>DAILY INCOME</span><strong id="dailyIncome">$0</strong><small>OWNER SHARE</small></div><div class="info-card"><span>WEEKLY INCOME</span><strong id="weeklyIncome">$0</strong><small>OWNER SHARE</small></div><div class="info-card"><span>FUEL STOCK</span><strong id="ownerStock">0</strong><small>UNITS REMAINING</small></div></div>
+        <div class="product-row owner-controls">
+          <div class="product-copy"><h3>PRICE TIER</h3><p>Low, normal, or high server price</p></div>
+          <div class="price-buttons"><button type="button" data-price-tier="low">LOW</button><button type="button" data-price-tier="normal">NORMAL</button><button type="button" data-price-tier="high">HIGH</button></div>
+        </div>
+        <div class="product-row owner-controls">
+          <div class="product-copy"><h3>FUEL STOCK</h3><p>Customers cannot buy fuel when stock reaches zero</p></div>
+          <button id="restockStation" class="secondary-button" type="button">ORDER FULL STOCK</button>
+        </div>
+        <div class="quick-grid"><button id="saveStation" type="button">SAVE SETTINGS</button><button id="payTax" type="button">PAY 7-DAY TAX</button><button id="withdrawBusiness" type="button">WITHDRAW BUSINESS</button></div>
+      </section>
+
+      <section id="buySection" class="store-section hidden"><div class="checkout"><div class="checkout-total"><span>STATION PURCHASE</span><strong>$<span id="purchasePrice">0</span></strong><small>BANK PAYMENT</small></div><button id="buyStation" class="primary-button uppercase-bold" type="button">BUY STATION</button></div></section>
+
+      </section>
+
+      <footer id="checkoutFooter" class="checkout">
         <div class="checkout-total">
-          <span>ORDER TOTAL</span>
-          <strong>$<span id="grandTotal">0</span></strong>
+          <span class="uppercase-bold">ORDER TOTAL</span>
+          <strong id="orderTotalText">$<span id="grandTotal">0</span></strong>
           <small id="checkoutHint">Cash payment</small>
         </div>
-        <button id="btnOrder" class="primary-button" type="button">
-          <span id="orderButtonText">Place order</span>
-          <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>
+        <button id="btnOrder" class="primary-button uppercase-bold" type="button">
+          <span id="orderButtonText">Place order</span> ›
         </button>
       </footer>
 

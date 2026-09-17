@@ -17,6 +17,46 @@ local garageCreateSequence = 0
 local garageReleaseSequence = 0
 local finishGarageCreate
 
+-- A model replacement normally completes after a vehicle is stored. If the
+-- original stream files are already missing, there may be no live entity left
+-- to store. Immediately before creating a replacement entity, let the catalog
+-- owner finalize an existing server-authorized pending migration and reload
+-- the same persistent vehicle row.
+local function resolvePendingModelReplacementForSpawn(row)
+    if type(row) ~= 'table' or not tonumber(row.id)
+        or GetResourceState('rn-vehicleshop') ~= 'started' then
+        return row
+    end
+
+    local called, applied, targetModel = pcall(function()
+        return exports['rn-vehicleshop']:ResolvePendingModelReplacement(tonumber(row.id))
+    end)
+    if not called or applied ~= true then return row end
+
+    local refreshed = CMVehicles.Server.GetVehicleById(tonumber(row.id))
+    if refreshed then return refreshed end
+    if type(targetModel) == 'string' and targetModel ~= '' then row.model = targetModel end
+    return row
+end
+
+local function applyMissingModelFallbackForSpawn(row, reasonCode)
+    if type(row) ~= 'table' or not tonumber(row.id)
+        or GetResourceState('rn-vehicleshop') ~= 'started' then
+        return nil, nil
+    end
+
+    local called, applied, targetModel, notice = pcall(function()
+        return exports['rn-vehicleshop']:ApplyMissingModelFallback(tonumber(row.id), reasonCode)
+    end)
+    if not called or applied ~= true or tostring(targetModel or '') ~= 'komoda' then
+        return nil, nil
+    end
+
+    local refreshed = CMVehicles.Server.GetVehicleById(tonumber(row.id))
+    if not refreshed or tostring(refreshed.model or ''):lower() ~= 'komoda' then return nil, nil end
+    return refreshed, tostring(notice or '')
+end
+
 local function waitForEntity(entity, timeoutMs)
     local timeout = GetGameTimer() + (tonumber(timeoutMs) or 5000)
     while entity and entity ~= 0 and not DoesEntityExist(entity) and GetGameTimer() < timeout do Wait(0) end
@@ -373,7 +413,7 @@ finishGarageCreate = function(token, value)
     pending.promise:resolve(value)
 end
 
-RegisterNetEvent('cm-vehicles:server:garageVehicleCreated', function(token, netId, clientError)
+RegisterNetEvent('cm-vehicles:server:garageVehicleCreated', function(token, netId, clientError, errorCode)
     local src = source
     token = tostring(token or '')
     local pending = PendingGarageCreates[token]
@@ -385,7 +425,8 @@ RegisterNetEvent('cm-vehicles:server:garageVehicleCreated', function(token, netI
     end
 
     if clientError and tostring(clientError) ~= '' then
-        finishGarageCreate(token, { ok = false, error = tostring(clientError) })
+        local safeCode = tostring(errorCode or '') == 'model_unavailable' and 'model_unavailable' or nil
+        finishGarageCreate(token, { ok = false, error = tostring(clientError), errorCode = safeCode })
         return
     end
 
@@ -548,8 +589,6 @@ function CMVehicles.Spawn.CreateGarageVehicle(src, row, spawn, context)
 
     local plate = U.NormalizePlate(row.plate)
     if plate == '' then return false, 'Vehicle plate is missing.' end
-    local modelHash = type(row.model) == 'number' and row.model or joaat(tostring(row.model or ''))
-    if not modelHash or modelHash == 0 then return false, 'The vehicle model is invalid.' end
 
     local x, y, z = tonumber(spawn.x), tonumber(spawn.y), tonumber(spawn.z)
     if not x or not y or not z then return false, 'The garage slot position is invalid.' end
@@ -584,6 +623,15 @@ function CMVehicles.Spawn.CreateGarageVehicle(src, row, spawn, context)
     local deleted, deleteWhy = CMVehicles.Spawn.DeleteVehicle(vehicleId)
     if deleted == false then
         local failed = { ok = false, error = tostring(deleteWhy or 'The previous vehicle entity could not be deleted.') }
+        deferred:resolve(failed)
+        if GarageCreateById[vehicleId] == deferred then GarageCreateById[vehicleId] = nil end
+        return false, failed.error
+    end
+
+    row = resolvePendingModelReplacementForSpawn(row)
+    local modelHash = type(row.model) == 'number' and row.model or joaat(tostring(row.model or ''))
+    if not modelHash or modelHash == 0 then
+        local failed = { ok = false, error = 'The vehicle model is invalid.' }
         deferred:resolve(failed)
         if GarageCreateById[vehicleId] == deferred then GarageCreateById[vehicleId] = nil end
         return false, failed.error
@@ -638,6 +686,15 @@ function CMVehicles.Spawn.CreateGarageVehicle(src, row, spawn, context)
     local result = Citizen.Await(deferred)
     if GarageCreateById[vehicleId] == deferred then GarageCreateById[vehicleId] = nil end
     if type(result) ~= 'table' or result.ok ~= true then
+        if type(result) == 'table' and result.errorCode == 'model_unavailable'
+            and context._missingModelFallbackAttempted ~= true then
+            local fallbackRow, notice = applyMissingModelFallbackForSpawn(row, 'model_unavailable')
+            if fallbackRow then
+                context._missingModelFallbackAttempted = true
+                if notice ~= '' then U.Notify(src, notice, 'inform') end
+                return CMVehicles.Spawn.CreateGarageVehicle(src, fallbackRow, spawn, context)
+            end
+        end
         return false, type(result) == 'table' and result.error or 'The garage vehicle could not be created.'
     end
     return true, { entity = result.entity, netId = result.netId, vehicleId = vehicleId }
@@ -1042,6 +1099,7 @@ function CMVehicles.Spawn.CreateForPlayer(src, row, opts)
     if deleted ~= true then
         return false, tostring(deleteWhy or 'The previous vehicle entity could not be removed.')
     end
+    row = resolvePendingModelReplacementForSpawn(row)
 
     local spawn = opts.spawn or U.Decode(row.last_position)
     local ped = GetPlayerPed(src)
@@ -1072,6 +1130,14 @@ function CMVehicles.Spawn.CreateForPlayer(src, row, opts)
     end
     if veh == 0 or not waitForEntity(veh) then
         if veh ~= 0 and DoesEntityExist(veh) then pcall(DeleteEntity, veh) end
+        if opts._missingModelFallbackAttempted ~= true then
+            local fallbackRow, notice = applyMissingModelFallbackForSpawn(row, 'server_create_failed')
+            if fallbackRow then
+                opts._missingModelFallbackAttempted = true
+                if notice ~= '' then U.Notify(src, notice, 'inform') end
+                return CMVehicles.Spawn.CreateForPlayer(src, fallbackRow, opts)
+            end
+        end
         return false, 'Server-side vehicle creation failed.'
     end
 

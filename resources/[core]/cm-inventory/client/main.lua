@@ -454,8 +454,52 @@ end
 
 local function itemFitsCurrentGender(metadata)
     metadata = type(metadata) == 'table' and metadata or {}
+    if (metadata.pairedDrawableId ~= nil and tonumber(metadata.pairedDrawableId) >= 0)
+        or metadata.maleDrawableId ~= nil or metadata.femaleDrawableId ~= nil then
+        return true
+    end
     local required = normalizeWearGender(metadata.gender or metadata.sex or metadata.pedGender or metadata.ped_gender or metadata.model)
     return not required or required == getPedGender(PlayerPedId())
+end
+
+local function resolvePedClothingDrawable(ped, metadata)
+    metadata = type(metadata) == 'table' and metadata or {}
+    local currentGender = getPedGender(ped or PlayerPedId())
+    local itemGender = normalizeWearGender(metadata.gender or metadata.sex or metadata.pedGender or metadata.ped_gender or metadata.model)
+
+    if currentGender == 'male' and metadata.maleDrawableId ~= nil then
+        return tonumber(metadata.maleDrawableId), tonumber(metadata.maleTextureId or metadata.textureId or 0) or 0
+    elseif currentGender == 'female' and metadata.femaleDrawableId ~= nil then
+        return tonumber(metadata.femaleDrawableId), tonumber(metadata.femaleTextureId or metadata.textureId or 0) or 0
+    end
+
+    if metadata.pairedDrawableId ~= nil and tonumber(metadata.pairedDrawableId) >= 0 then
+        if itemGender and itemGender ~= currentGender then
+            -- The paired index is a global drawable index into the OTHER gender's
+            -- model, so it renumbers whenever an apparel pack is added or removed
+            -- and the bag silently becomes a different bag. Resolve it from the
+            -- collection address recorded when the pair was made; the stored
+            -- index is only a fallback for pairs made before that was recorded.
+            local paired = tonumber(metadata.pairedDrawableId)
+            local collection = metadata.pairedCollection or metadata.paired_collection
+            local localId = tonumber(metadata.pairedCollectionLocalId or metadata.paired_collection_local_id)
+
+            if collection ~= nil and localId ~= nil and GetResourceState('nv_cloth') == 'started' then
+                local component = tonumber(metadata.componentIndex or metadata.component_index) or 5
+                local ok, resolved = pcall(function()
+                    return exports['nv_cloth']:ResolveClothingDrawable(
+                        'component', component, collection, localId, paired, ped)
+                end)
+                if ok and tonumber(resolved) then paired = tonumber(resolved) end
+            end
+
+            return paired, tonumber(metadata.pairedTextureId or metadata.textureId or 0) or 0
+        end
+    end
+
+    local drawable = tonumber(metadata.drawableId or metadata.drawable)
+    local texture = tonumber(metadata.textureId or metadata.texture or 0) or 0
+    return drawable, texture
 end
 
 local function resolveTorsoFitForItem(ped, metadata, drawable, texture)
@@ -513,11 +557,10 @@ local function equipClothingFromInventorySlot(slot, item)
     local metadata = item.metadata or {}
     if not itemFitsCurrentGender(metadata) then return false end
 
-    local drawable = tonumber(metadata.drawableId or metadata.drawable)
-    local texture = tonumber(metadata.textureId or metadata.texture or 0) or 0
+    local ped = PlayerPedId()
+    local drawable, texture = resolvePedClothingDrawable(ped, metadata)
     if drawable == nil then return false end
 
-    local ped = PlayerPedId()
     if def.type == 'prop' then
         if drawable < 0 then ClearPedProp(ped, def.index)
         else SetPedPropIndex(ped, def.index, drawable, texture, true) end
@@ -608,9 +651,52 @@ local function dutyUniformClothingLocked()
     return false, nil
 end
 
+-- The nested 'bagskin' slot never has its own GTA component -- it only
+-- overrides what renders on component 5 (the real bag's own slot) while a
+-- REAL bag (item_name == 'clothing_bags') is equipped. Capacity is decided
+-- purely server-side by item_name, so swapping the visual here never touches
+-- backpack slot count/weight.
+local function applyBagVisual()
+    local ped = PlayerPedId()
+    local skin = equipmentState.bagskin
+    local bag = equipmentState.bag
+
+    if bag and skin and skin.metadata and tostring(skin.item_name or ''):lower() == 'clothing_bags_skin'
+        and itemFitsCurrentGender(skin.metadata) then
+        local drawable, texture = resolvePedClothingDrawable(ped, skin.metadata)
+        if drawable ~= nil and drawable >= 0 then
+            SetPedComponentVariation(ped, 5, drawable, texture or 0, 0)
+            return
+        end
+    end
+
+    if bag then
+        equipClothingFromInventorySlot('bag', bag)
+    else
+        clearClothingSlot('bag')
+    end
+end
+
 local function applyEquipmentSlot(slot, item, silent, bypassPoliceDutyLock)
     equipmentState[slot] = item
     local ped = PlayerPedId()
+
+    if slot == 'bag' or slot == 'bagskin' then
+        applyBagVisual()
+        if not silent then
+            if slot == 'bag' and item then
+                notifyLocal(('Equipped %s'):format(item.label or item.item_name))
+            elseif slot == 'bag' and not item then
+                playInventoryAnim('clothes_off')
+                notifyLocal('Clothing removed.')
+            elseif slot == 'bagskin' and item then
+                notifyLocal(('Applied %s'):format(item.label or item.item_name))
+            elseif slot == 'bagskin' and not item then
+                notifyLocal('Bag Skin removed.')
+            end
+        end
+        return
+    end
 
     if ClothingSlotMap[slot] then
         -- Keep the server-owned equipment slot change, but do not let normal
@@ -723,10 +809,6 @@ local function applyEquipmentSlot(slot, item, silent, bypassPoliceDutyLock)
             end
             SetPedArmour(ped, 0)
         end
-    elseif slot == 'bag' then
-        if item and not silent then
-            notifyLocal(('Equipped %s'):format(item.label or item.item_name))
-        end
     end
 end
 
@@ -734,6 +816,39 @@ end
 
 RegisterNetEvent('cm-inventory:client:equipClothingFromItem', function(slot, item)
     applyEquipmentSlot(tostring(slot or ''), item)
+end)
+
+-- An admin just temporarily-disabled a clothing item in /clothingstore.
+-- Disabling only blocks future equip attempts server-side (cm-itemactions) --
+-- it doesn't touch anything already worn, so anyone with this exact item on
+-- right now needs it stripped here. Checks every occupied equipment slot
+-- (including bag/bagskin/bodyarmor) against the disabled identity and
+-- unequips any match through the normal applyEquipmentSlot(slot, nil) path,
+-- which already handles clearing the ped component AND persisting the
+-- appearance change (see the bodyarmor branch's SaveAppearance call).
+RegisterNetEvent('cm-inventory:client:clothingTempDisabled', function(identity)
+    identity = type(identity) == 'table' and identity or {}
+    local gender = tostring(identity.gender or ''):lower()
+    local componentIndex = tonumber(identity.componentIndex)
+    local drawableId = tonumber(identity.drawableId)
+    local textureId = tonumber(identity.textureId)
+    if not componentIndex or not drawableId then return end
+
+    for slot, item in pairs(equipmentState) do
+        if item and type(item.metadata) == 'table' then
+            local md = item.metadata
+            local mComp = tonumber(md.componentIndex or md.componentId or md.component_id)
+            local mDrawable = tonumber(md.drawableId or md.drawable or md.drawable_id)
+            local mTexture = tonumber(md.textureId or md.texture or md.texture_id) or 0
+            local mGender = tostring(md.gender or ''):lower()
+            if mComp == componentIndex and mDrawable == drawableId
+                and (textureId == nil or textureId < 0 or mTexture == textureId)
+                and (gender == '' or mGender == gender) then
+                applyEquipmentSlot(slot, nil, true)
+                notifyLocal(('%s was temporarily disabled by an admin and has been removed.'):format(item.label or item.item_name or 'An item'))
+            end
+        end
+    end
 end)
 
 RegisterNetEvent('cm-inventory:client:addWeaponAmmo', function(weaponName, amount)
@@ -813,7 +928,7 @@ RegisterNetEvent('cm-inventory:client:setEquipment', function(payload)
     -- metadata can restore the correct arms + undershirt and prevent invisible/clipping body.
     local order = {
         'mask', 'glasses', 'headwear', 'earrings',
-        'shirt', 'outerwear', 'bodyarmor', 'bag',
+        'shirt', 'outerwear', 'bodyarmor', 'bag', 'bagskin',
         'accessory', 'weapon', 'ammo', 'watch', 'pants', 'shoes'
     }
     for _, slot in ipairs(order) do
@@ -1189,6 +1304,7 @@ local function imageForDrop(drop)
     end
     if image:find('^https?://') or image:find('^data:') then return image end
     if image:find('^custom/') then return 'https://cfx-nui-cm-items/ui/images/clothing/' .. image end
+    if image:find('^items/') then return 'https://cfx-nui-cm-items/ui/images/clothing/' .. image end
     if image:find('^clothing/') then return 'https://cfx-nui-cm-items/ui/images/' .. image end
     return 'images/' .. image
 end

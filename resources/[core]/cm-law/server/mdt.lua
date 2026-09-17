@@ -72,6 +72,14 @@ lib.callback.register('cm-law:server:mdtCitizenProfile', function(src, character
     end
     local citations = safeRows([[SELECT id,violation_label,fine,created_at
         FROM cm_police_citations WHERE target_cid=? ORDER BY id DESC LIMIT 50]], { characterId })
+    local sharedCitations = safeRows([[SELECT id,organization_id,violation_label,amount AS fine,status,created_at
+        FROM cm_legal_citations WHERE target_cid=? ORDER BY id DESC LIMIT 50]], { characterId })
+    for _, citation in ipairs(sharedCitations) do
+        citation.id = ('law:%s'):format(tostring(citation.id))
+        citations[#citations + 1] = citation
+    end
+    table.sort(citations, function(a, b) return tostring(a.created_at or '') > tostring(b.created_at or '') end)
+    while #citations > 100 do table.remove(citations) end
     local notes = MySQL.query.await([[SELECT n.id,n.organization_id,n.author_cid,n.note,n.created_at,
         CONCAT(COALESCE(c.first_name,''),' ',COALESCE(c.last_name,'')) author_name
         FROM cm_legal_mdt_notes n LEFT JOIN characters c ON c.id=n.author_cid

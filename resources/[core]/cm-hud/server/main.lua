@@ -207,9 +207,44 @@ end)
 
 -- DB polling removed in v2.8.0. Money HUD refresh is event/export driven only.
 
+local LastRoutingBucket = {}
+local bucketHudWasEnabled = false
+
+CreateThread(function()
+    while true do
+        local enabled = GetConvarInt('cm_hud_show_bucket', 1) == 1
+
+        if enabled then
+            bucketHudWasEnabled = true
+            for _, player in ipairs(GetPlayers()) do
+                local src = tonumber(player)
+                if src then
+                    local bucket = GetPlayerRoutingBucket(src)
+                    if LastRoutingBucket[src] ~= bucket then
+                        LastRoutingBucket[src] = bucket
+                        TriggerClientEvent('cm-hud:client:updateDevBucket', src, bucket, true)
+                    end
+                end
+            end
+        elseif bucketHudWasEnabled then
+            bucketHudWasEnabled = false
+            for _, player in ipairs(GetPlayers()) do
+                local src = tonumber(player)
+                if src then
+                    TriggerClientEvent('cm-hud:client:updateDevBucket', src, 0, false)
+                end
+            end
+            LastRoutingBucket = {}
+        end
+
+        Wait(1000)
+    end
+end)
+
 AddEventHandler('playerDropped', function()
     ActiveHudCharacters[source] = nil
     LastHudPayload[source] = nil
+    LastRoutingBucket[source] = nil
 end)
 CreateThread(function()
     while GetResourceState('cm-admin') ~= 'started' do Wait(5000) end

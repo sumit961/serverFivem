@@ -166,6 +166,47 @@ CMItems.Items = {
         description = 'A stronger lockpick for harder locks.'
     },
 
+    carplay = {
+        label = 'CarPlay Unit',
+        image = 'nui://cm-items/ui/images/carplay.png',
+        weight = 400,
+        stack = false,
+        unique = false,
+        usable = true,
+        close = true,
+        category = 'tool',
+        worldModel = 'prop_cs_tablet',
+        description = 'Install this in a vehicle to enable its CarPlay infotainment system.'
+    },
+
+    tunerchip = {
+        label = 'Tuner Chip',
+        image = 'nui://cm-items/ui/images/tunerchip.png',
+        weight = 300,
+        stack = false,
+        unique = false,
+        usable = true,
+        close = true,
+        category = 'tool',
+        worldModel = 'prop_cs_tablet',
+        description = 'Install this in a CarPlay-equipped vehicle to unlock performance tuning.'
+    },
+
+    spray_can = {
+        label = 'Spray Can',
+        image = 'nui://cm-items/ui/images/spray_can.svg',
+        weight = 450,
+        stack = true,
+        unique = false,
+        usable = false,
+        close = false,
+        category = 'tool',
+        durability = 100,
+        worldModel = 'prop_cs_spray_can',
+        illegal = true,
+        description = 'A pressurized paint can used to repaint gang graffiti.'
+    },
+
     -- Documents can be inventory items if you want physical documents.
     -- ID/driver license can also be made virtual later, but physical docs are useful for RP/search/evidence.
     id_card = {
@@ -179,6 +220,7 @@ CMItems.Items = {
         category = 'document',
         worldModel = 'prop_cs_documents_01',
         metadataRequired = { 'characterId', 'firstname', 'lastname', 'dob' },
+        robberyProtected = true,
         description = 'Official identity card.'
     },
 
@@ -188,12 +230,30 @@ CMItems.Items = {
         weight = 30,
         stack = false,
         unique = true,
+        singleton = true,
         usable = true,
         close = true,
         category = 'document',
         worldModel = 'prop_cs_documents_01',
         metadataRequired = { 'characterId', 'licenseClass' },
+        robberyProtected = true,
         description = 'Driving license document.'
+    },
+
+    boat_license = {
+        label = 'Boat License', image = 'driver_license.png', weight = 30,
+        stack = false, unique = true, singleton = true, usable = true, close = true,
+        category = 'document', worldModel = 'prop_cs_documents_01',
+        metadataRequired = { 'characterId', 'licenseType' }, robberyProtected = true,
+        description = 'Official watercraft operator license.'
+    },
+
+    air_license = {
+        label = 'Air License', image = 'driver_license.png', weight = 30,
+        stack = false, unique = true, singleton = true, usable = true, close = true,
+        category = 'document', worldModel = 'prop_cs_documents_01',
+        metadataRequired = { 'characterId', 'licenseType' }, robberyProtected = true,
+        description = 'Official aircraft pilot license.'
     },
 
     -- Materials
@@ -302,6 +362,20 @@ CMItems.Items = {
         description = 'Wearable clothing item.'
     },
 
+    -- Cosmetic-only alternate look for the bag slot. Deliberately NOT named
+    -- 'clothing_bags' and carries no bagLevel -- cm-inventory's rowCanActAsBag
+    -- (server/slots.lua) only ever grants backpack capacity to an item named
+    -- exactly 'clothing_bags', so this occupies/replaces the same visual bag
+    -- slot without ever acting like a real bag. See nv_cloth /clothingstore's
+    -- bag Level 1-4 vs Skin choice.
+    clothing_bags_skin = {
+        label = 'Bag Skin', image = 'clothing.png', weight = 400, stack = false, unique = true, usable = true, close = true,
+        category = 'clothing', worldModel = 'prop_cs_tshirt_box', equipmentSlot = 'bag',
+        metadataRequired = { 'drawableId', 'textureId', 'categoryType' },
+        metadataSchema = { drawableId = 'number', textureId = 'number', categoryType = 'string', gender = 'gender' },
+        description = 'Cosmetic bag-slot clothing item. No backpack capacity.'
+    },
+
     clothing_mask = {
         label = 'Mask', image = 'clothing.png', weight = 150, stack = false, unique = true, usable = true, close = true,
         category = 'clothing', worldModel = 'prop_mask_ballistic', equipmentSlot = 'mask',
@@ -353,6 +427,17 @@ CMItems.Items = {
     clothing_watches = {
         label = 'Watch', image = 'clothing.png', weight = 120, stack = false, unique = true, usable = true, close = true,
         category = 'clothing', worldModel = 'p_watch_01', equipmentSlot = 'watch',
+        metadataRequired = { 'drawableId', 'textureId', 'categoryType' },
+        metadataSchema = { drawableId = 'number', textureId = 'number', categoryType = 'string', gender = 'gender' },
+        description = 'Wearable clothing item.'
+    },
+
+    -- Only ever purchased/held when an admin flagged a slot-9 capture "regular
+    -- clothing" in /clothingstore -- a real vest never becomes this item, it
+    -- sells through cm-gunstore's own armor_* items instead.
+    clothing_armor = {
+        label = 'Vest', image = 'clothing.png', weight = 350, stack = false, unique = true, usable = true, close = true,
+        category = 'clothing', worldModel = 'prop_cs_tshirt_box', equipmentSlot = 'vest',
         metadataRequired = { 'drawableId', 'textureId', 'categoryType' },
         metadataSchema = { drawableId = 'number', textureId = 'number', categoryType = 'string', gender = 'gender' },
         description = 'Wearable clothing item.'

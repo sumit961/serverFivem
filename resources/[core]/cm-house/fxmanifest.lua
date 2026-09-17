@@ -5,7 +5,7 @@ lua54 'yes'
 name        'cm-house'
 author      'Sumit'
 description 'CM Framework | Housing and family system'
-version     '1.8.1'
+version     '1.8.14'
 
 shared_scripts {
     '@ox_lib/init.lua',
@@ -13,6 +13,7 @@ shared_scripts {
 }
 
 client_scripts {
+    'client/cl_ui_bridge.lua',
     'client/cl_interaction.lua',
     'client/cl_photo.lua',    -- must precede cl_create: defines StartPhotoCam
     'client/cl_create.lua',

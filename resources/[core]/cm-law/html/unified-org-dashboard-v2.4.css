@@ -1,0 +1,84 @@
+/* CM Law v2.4 — one compact organization dashboard for every legal org. */
+:root{--org-gold:#d6b252;--org-purple:#ad69df;--org-red:#b9473d}
+.sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+#app:not(.standalone-interface){background:radial-gradient(circle at 18% 5%,rgba(20,105,116,.55),transparent 42%),linear-gradient(115deg,#071315,#04090a 70%,#08272d)!important}
+#app:not(.standalone-interface) .shell{width:min(92vw,1790px)!important;height:min(88vh,990px)!important;grid-template-columns:320px minmax(720px,1fr) 400px!important;border:1px solid rgba(142,195,199,.2)!important;border-radius:15px!important;background:#071011!important;box-shadow:0 35px 100px rgba(0,0,0,.66)!important}
+#app:not(.standalone-interface) .shell:after{display:none!important}
+#app .side{padding:32px!important;background:rgba(3,10,11,.72)!important;border-right:1px solid rgba(255,255,255,.07)!important}
+#app .brand{min-height:auto!important;padding:0 0 27px!important;gap:13px!important;border-bottom:1px solid rgba(255,255,255,.09)!important}
+#app .brand-mark{width:50px!important;height:50px!important;padding:8px!important;border:1px solid var(--org-accent,#2cc3d8)!important;background:rgba(27,101,110,.12)!important;border-radius:0!important}
+#app .brand-mark img{width:100%;height:100%;object-fit:contain}
+#app .brand-copy small{color:var(--org-accent,#2cc3d8)!important;font-size:9px!important;letter-spacing:.22em!important}
+#app .brand-copy h1{margin:3px 0!important;font-size:22px!important;line-height:1.05!important;text-transform:uppercase!important;color:#f1f4f4!important}
+#app .brand-copy p,#app .brand p{font-size:11px!important;line-height:1.45!important;color:#788487!important}
+#app .side nav{padding:17px 0!important;gap:3px!important;overflow:auto!important}
+#app .side .tab,#app .side .nav{min-height:55px!important;padding:8px!important;gap:12px!important;border:0!important;border-left:3px solid transparent!important;border-radius:0!important;color:#a8b0b0!important;background:transparent!important}
+#app .side .tab:hover,#app .side .nav:hover,#app .side .tab.active,#app .side .nav.active{border-left-color:var(--org-accent,#2cc3d8)!important;background:linear-gradient(90deg,rgba(46,190,207,.13),rgba(46,190,207,.02))!important;color:#f0f4f3!important}
+#app .side .tab>b,#app .side .nav>b{width:34px!important;height:34px!important;display:grid!important;place-items:center!important;padding:0!important;border:1px solid rgba(48,189,204,.24)!important;background:rgba(36,118,127,.12)!important;color:var(--org-accent,#2cc3d8)!important;font:700 10px var(--cc-mono)!important}
+#app .side .tab span,#app .side .nav span{font-size:12px!important;font-weight:800!important;text-transform:uppercase!important}
+#app .side .tab small,#app .side .nav small{display:block!important;margin-top:3px!important;color:#5d696b!important;font-size:7.5px!important;letter-spacing:.12em!important}
+#app .side footer,#app .side-foot{padding:12px 0 0!important;border-top:1px solid rgba(255,255,255,.08)!important;color:#606b6d!important;font:700 8px var(--cc-mono)!important;letter-spacing:.14em!important;text-transform:uppercase!important}
+#app .side footer kbd,#app .side-foot:before{color:#f1f3f2!important;background:#273034!important;padding:4px 7px!important;margin-right:7px!important}
+#app .side-foot:before{content:'ESC'}
+#app .workspace{min-width:0!important;background:#091213!important}
+#app .workspace>header,#app .law-topbar{height:82px!important;min-height:82px!important;padding:22px 34px!important;border-bottom:0!important;background:#091213!important}
+#app .workspace>header h2,#app .law-topbar h2{margin:2px 0 0!important;font-size:28px!important;line-height:1!important;color:#f3f5f4!important;text-transform:uppercase!important}
+#app .workspace>header small,#app .law-topbar__kicker{color:var(--org-accent,#2cc3d8)!important;font-size:8px!important;letter-spacing:.22em!important}
+#app .workspace>header button,#app .law-topbar button{border:1px solid rgba(255,255,255,.11)!important;border-radius:0!important;background:#141d1e!important;color:#cbd1d0!important;text-transform:uppercase!important;font:800 9px var(--cc-mono)!important}
+#app .workspace>header button.icon,#app .workspace>header #close{background:rgba(145,39,37,.25)!important;border-color:rgba(213,74,66,.5)!important;color:#ff8f89!important}
+#app .content{height:calc(100% - 82px)!important;padding:0 34px 18px!important;overflow:auto!important;background:#091213!important}
+#app .command-center-overview{max-width:none!important;padding:8px 0 0!important}
+#app .org-identity-card{min-height:160px;display:grid;grid-template-columns:115px minmax(210px,1fr) minmax(400px,1.9fr);align-items:center;gap:22px;padding:24px 30px;border:1px solid rgba(82,196,207,.2);border-left:5px solid var(--org-accent,#2cc3d8);border-radius:6px;background:linear-gradient(110deg,rgba(16,54,59,.8),rgba(16,25,27,.92) 47%,#11191a)}
+#app .org-tier-ring{width:104px;height:104px;border:8px solid var(--org-accent,#2cc3d8);border-radius:50%;display:grid;place-content:center;text-align:center;background:#071013;box-shadow:inset 0 0 0 2px rgba(255,255,255,.04)}
+#app .org-tier-ring strong{font:900 27px var(--cc-display);line-height:.9;color:#f5f7f6}
+#app .org-tier-ring small{font:700 8px var(--cc-mono);letter-spacing:.18em;color:#687476}
+#app .org-identity-copy{padding-right:22px;border-right:1px solid rgba(255,255,255,.12)}
+#app .org-identity-copy h2{margin:0 0 10px!important;color:#f4f5f4!important;font-size:27px!important;text-transform:uppercase!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#app .org-identity-copy>div{display:flex;gap:7px;flex-wrap:wrap}
+#app .org-identity-copy span{padding:5px 10px;background:#202829;color:#b8c0c0;font:800 9px var(--cc-mono);letter-spacing:.06em;text-transform:uppercase}
+#app .org-identity-copy span:first-child{background:var(--org-accent,#2cc3d8);color:#061315}
+#app .status-pill.is-on{background:rgba(59,169,116,.2)!important;color:#82dbaf!important}.status-pill.is-suspended{background:rgba(185,71,61,.2)!important;color:#ff9b92!important}
+#app .org-identity-card .command-stats{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:10px!important;margin:0!important}
+#app .org-identity-card .stat{min-width:0!important;display:block!important;padding:0 8px!important;border:0!important;background:transparent!important}
+#app .org-identity-card .stat-icon{width:34px!important;height:34px!important;display:block!important;margin-bottom:7px!important;border:1px solid rgba(49,190,205,.25)!important;border-radius:0!important;background:rgba(39,138,148,.12)!important}
+#app .org-identity-card .stat small,#app .org-identity-card .stat span{display:block;color:#6d7879!important;font:700 7px var(--cc-mono)!important;letter-spacing:.13em!important;text-transform:uppercase!important}
+#app .org-identity-card .stat strong{display:block;margin:5px 0!important;color:#eef2f1!important;font-size:14px!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#app .org-readiness-strip{height:100px;display:grid;grid-template-columns:1fr auto;align-items:center;gap:22px;margin-top:16px;padding:22px 30px;color:#17160d;background:linear-gradient(110deg,#e2bd58,#b89842);border-radius:6px;overflow:hidden}
+#app .org-readiness-strip>div:first-child{display:grid;grid-template-columns:auto auto;align-items:center;gap:8px 14px}
+#app .org-readiness-strip strong{font-size:16px;text-transform:uppercase}#app .org-readiness-strip span,#app .org-readiness-strip small{font:800 8px var(--cc-mono);letter-spacing:.12em;color:#4a4022;text-transform:uppercase}
+#app .org-readiness-strip i{grid-column:1/3;height:7px;background:rgba(29,26,13,.28);overflow:hidden}#app .org-readiness-strip i b{display:block;width:0;height:100%;background:#17160d;transition:width .35s ease}
+#app .org-readiness-strip>div:last-child{text-align:right}#app .org-readiness-strip>div:last-child strong{display:block;margin-top:5px;font-size:18px}
+#app .org-operations-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(330px,.95fr);gap:16px;margin-top:16px}
+#app .org-command-column{display:grid;grid-template-rows:auto 1fr;gap:16px;min-height:300px}
+#app .command-panel{padding:22px!important;border:1px solid rgba(70,187,200,.18)!important;border-radius:6px!important;background:#101a1c!important;box-shadow:none!important}
+#app .command-panel--capabilities{min-height:300px!important}#app .command-panel--duty{min-height:98px!important;padding:15px 20px!important}
+#app .panel-title,#app .overview-panel__head{display:flex!important;justify-content:space-between!important;align-items:flex-start!important;gap:12px!important}
+#app .panel-title small,#app .overview-panel__head small,#app .command-panel>div>small{color:#57b9da!important;font:700 8px var(--cc-mono)!important;letter-spacing:.2em!important}
+#app .panel-title h3,#app .overview-panel__head h3,#app .command-panel>div>h3{margin:5px 0 14px!important;color:#e8eeee!important;font-size:16px!important;text-transform:uppercase!important}
+#app .panel-kicker{font:700 7px var(--cc-mono)!important;color:#b99e4c!important;background:transparent!important}
+#app .capability-pills{display:grid!important;grid-template-columns:repeat(6,minmax(54px,1fr))!important;gap:10px!important}
+#app .capability-pill{height:64px;display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;gap:7px!important;padding:7px 3px!important;border:1px solid rgba(76,170,190,.22)!important;border-radius:4px!important;background:#17272c!important;color:#aebfc2!important;font:800 7px var(--cc-mono)!important;text-transform:uppercase!important;text-align:center}
+#app .capability-pill i{width:25px!important;height:25px!important;display:grid!important;place-items:center!important;border:1px solid rgba(87,185,218,.45)!important;border-radius:0!important;background:rgba(55,151,180,.12)!important}
+#app .capability-pill i:after{content:'+';color:#57b9da;font:800 13px var(--cc-mono)}
+#app .command-panel--tools{min-height:150px!important;background:linear-gradient(135deg,rgba(62,34,77,.35),#13151b)!important;border-color:rgba(173,105,223,.22)!important}
+#app .command-panel--tools:not([hidden]){display:block!important}
+#app .command-panel--tools small{color:#c574ee!important}
+#app .command-panel--tools .operation-actions{display:grid!important;grid-template-columns:1fr!important;gap:8px!important}
+#app .command-panel--tools button{width:100%!important;min-height:42px!important;border-radius:0!important;border:1px solid rgba(183,113,224,.3)!important;background:#25222e!important;color:#dde0df!important;font:800 10px var(--cc-mono)!important;text-transform:uppercase!important}
+#app .command-panel--tools button.primary{background:#ad69df!important;color:#1d1025!important}
+#app .duty-preview{max-height:92px!important;overflow:auto!important}.duty-person{padding:5px!important}.duty-avatar{width:26px!important;height:26px!important}
+#app .command-panel--activity{min-height:112px!important;margin-top:16px!important;padding:17px 22px!important}
+#app .activity-preview{max-height:105px!important;overflow:auto!important}.activity-item{padding:5px 0!important}
+#app .command-keybar{display:grid!important;grid-template-columns:repeat(3,1fr)!important;gap:12px!important;margin-top:16px!important;padding:0!important;background:transparent!important;border:0!important}
+#app .command-keybar>div{min-height:62px!important;padding:10px 14px!important;border:1px solid rgba(255,255,255,.08)!important;background:#11191a!important}.command-keybar kbd{border-radius:0!important;background:var(--org-accent,#2cc3d8)!important;color:#061113!important}
+#app .law-record-rail{position:relative!important;display:flex!important;flex-direction:column!important;min-width:0!important;min-height:0!important;padding:30px 28px 22px!important;overflow:auto!important;background:linear-gradient(180deg,#050b0c,#071112)!important;border-left:1px solid rgba(255,255,255,.07)!important}
+#app .law-record-rail__head small{color:var(--org-accent,#2cc3d8)!important;font:800 9px var(--cc-mono)!important;letter-spacing:.24em!important}#app .law-record-rail__head h2{margin:7px 0 0!important;font-size:23px!important;color:#f1f4f3!important;text-transform:uppercase!important}
+#app .law-record-rail__portrait{min-height:360px!important;margin:20px 0!important;padding:8px!important;border:1px solid rgba(62,181,194,.13)!important;border-radius:0!important;background:radial-gradient(circle at 50% 45%,rgba(23,94,102,.25),transparent 62%),linear-gradient(45deg,transparent 49.7%,rgba(39,164,177,.08) 50%,transparent 50.3%)!important}
+#app .law-record-rail__portrait img{width:100%!important;max-height:390px!important;object-fit:contain!important;filter:drop-shadow(0 18px 20px rgba(0,0,0,.55))!important}
+#app .law-record-rail__head{order:-2}#app .law-record-rail__info{order:-1;margin-top:18px!important;margin-bottom:0!important}#app .law-record-rail__portrait{order:0}#app .law-record-rail__actions{order:1}#app .law-record-rail__foot{order:2}
+#app .law-record-rail__row{padding:10px 0!important;border-bottom:1px solid rgba(255,255,255,.08)!important}#app .law-record-rail__row small{color:#687375!important;font:700 8px var(--cc-mono)!important;letter-spacing:.14em!important}#app .law-record-rail__row strong{color:#e9eded!important;font-size:12px!important}
+#app .law-record-rail__actions{display:grid!important;grid-template-columns:1fr 1fr!important;gap:8px!important;margin-top:auto!important}#app .law-record-rail__actions button{min-height:43px!important;border:1px solid rgba(255,255,255,.11)!important;border-radius:0!important;background:#141b1c!important;color:#d5d9d8!important;font:800 9px var(--cc-mono)!important;text-transform:uppercase!important}
+#app .law-record-rail__foot{margin-top:20px!important;padding-top:20px!important;border-top:1px solid rgba(255,255,255,.1)!important}#app .law-record-rail__foot strong{font-size:18px!important}#app .law-record-rail__you{background:var(--org-accent,#2cc3d8)!important;color:#071214!important}
+@media(max-width:1600px){#app:not(.standalone-interface) .shell{grid-template-columns:255px minmax(670px,1fr) 320px!important}#app .side{padding:24px!important}#app .law-record-rail{padding:24px 20px!important}#app .law-record-rail__portrait{min-height:280px!important}#app .org-identity-card{grid-template-columns:100px minmax(180px,1fr) minmax(340px,1.7fr);padding:20px}#app .capability-pills{grid-template-columns:repeat(5,1fr)!important}}
+@media(max-width:1250px){#app:not(.standalone-interface) .shell{width:96vw!important;grid-template-columns:220px minmax(650px,1fr)!important}#app .law-record-rail{display:none!important}#app .org-identity-card{grid-template-columns:95px 1fr}#app .org-identity-card .command-stats{grid-column:1/3}}
+body.armory-standalone #app .law-record-rail,body.dispatch-standalone #app .law-record-rail,#app.standalone-interface .law-record-rail{display:none!important}

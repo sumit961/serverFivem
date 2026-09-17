@@ -46,14 +46,7 @@ RegisterNetEvent('cm-family:client:setMeetingPoint', function(data)
     PlaySoundFrontend(-1, 'WAYPOINT_SET', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true)
 
     local setter = tostring(data.setterName or 'A family member')
-    if lib and lib.notify then
-        lib.notify({
-            title = 'Family meeting point',
-            description = setter .. ' set a meeting point. Your GPS has been updated.',
-            type = 'inform',
-            duration = 7000,
-        })
-    end
+    CMFamilyNotify(setter .. ' set a meeting point. Your GPS has been updated.', 'inform')
 end)
 
 local function cfg(path, fallback)
@@ -65,9 +58,7 @@ local function cfg(path, fallback)
 end
 
 local function notify(message, kind)
-    if lib and lib.notify then
-        lib.notify({ description = tostring(message), type = kind or 'inform' })
-    end
+    CMFamilyNotify(tostring(message), kind or 'inform')
 end
 
 function T.IsMemberBlipsEnabled()

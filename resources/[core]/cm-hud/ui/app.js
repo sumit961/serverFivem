@@ -7,6 +7,10 @@ const HUD_MODULES = {
         id: 'hud-top-right',
         render: renderTopRight
     },
+    raid: {
+        id: 'hud-raid',
+        render: renderRaid
+    },
     bottomLeft: {
         id: 'hud-bottom-left', 
         render: renderBottomLeft
@@ -95,6 +99,10 @@ let state = {
     
     // Notifications queue
     notifications: [],
+
+    // Reusable event HUD state. cm-family and other event resources can feed
+    // this without owning their own NUI page.
+    raid: null,
 
 };
 
@@ -403,6 +411,45 @@ function bindHudAdminEvents() {
 }
 
 // ========== RENDER FUNCTIONS ==========
+
+function renderRaid() {
+    const el = document.getElementById(HUD_MODULES.raid.id);
+    if (!el) return;
+    const raid = state.raid;
+    if (!raid || !state.hudVisible || state.externalHidden) {
+        el.classList.add('hidden');
+        el.innerHTML = '';
+        return;
+    }
+
+    const now = Date.now() / 1000;
+    const target = Number(raid.endsAt || raid.startsAt || now);
+    const remaining = Math.max(0, Math.floor(target - now));
+    const minutes = String(Math.floor(remaining / 60)).padStart(2, '0');
+    const seconds = String(remaining % 60).padStart(2, '0');
+    const phase = String(raid.phase || 'forming').toLowerCase();
+    const families = Array.isArray(raid.families) ? raid.families.slice(0, 2) : [];
+    while (families.length < 2) families.push({ name: 'WAITING', alive: 0, total: 0 });
+
+    const rows = families.map((family, index) => {
+        const count = Number(family.alive ?? family.total ?? 0) || 0;
+        const name = escapeHtml(String(family.name || (index === 0 ? 'YOUR FAMILY' : 'WAITING')).toUpperCase().slice(0, 18));
+        const status = index === 0
+            ? (phase === 'overtime' ? 'OVERTIME' : phase === 'active' ? 'ACTIVE' : phase === 'countdown' ? 'STARTING' : 'FORMING')
+            : 'PENDING';
+        const badge = index === 0 ? 'raid-count-red' : 'raid-count-muted';
+        const statusClass = index === 0 ? 'raid-status-active' : 'raid-status-pending';
+        return `<div class="raid-row">
+            <div class="raid-row-left"><span class="raid-count ${badge}">${count}</span><span class="raid-family-name">${name}</span></div>
+            <span class="raid-status ${statusClass}">${status}</span>
+        </div>`;
+    }).join('');
+
+    el.classList.remove('hidden');
+    el.innerHTML = `<div class="raid-accent"></div>
+        <div class="raid-head"><div class="raid-title"><span class="raid-dot"></span><span>RAID</span></div><span class="raid-time">${minutes}:${seconds}</span></div>
+        <div class="raid-rows">${rows}</div>`;
+}
 
 function renderWantedStars() {
     if (!state.wantedStars || state.wantedStars <= 0) return '';
@@ -1353,6 +1400,15 @@ window.addEventListener('message', function(event) {
     
     // Route actions to state updates
     switch(data.action) {
+        case 'updateDevBucket': {
+            const bucketElement = document.getElementById('hud-dev-bucket');
+            if (!bucketElement) break;
+            const bucket = Number(data.bucket);
+            bucketElement.textContent = `BUCKET ${Number.isFinite(bucket) ? Math.trunc(bucket) : 0}`;
+            bucketElement.classList.toggle('hidden', data.visible !== true);
+            break;
+        }
+
         case 'init':
             Object.assign(state, data.state || {});
             if (data.state && data.state.hudSettings) setHudSettings(data.state.hudSettings, false);
@@ -1361,11 +1417,22 @@ window.addEventListener('message', function(event) {
             state.hudVisible = !state.externalHidden && ((data.state && data.state.hudVisible !== undefined) ? data.state.hudVisible !== false : state.hudVisible !== false);
             document.body.classList.toggle('hud-hidden', !state.hudVisible || state.externalHidden);
             updateAll();
+            flushEventNotification();
             break;
             
         case 'setHudSettings':
             setHudSettings(data.settings || {}, false);
             if (state.adminOpen) renderHudAdmin();
+            break;
+
+        case 'setRaidHud':
+            state.raid = data.raid && typeof data.raid === 'object' ? data.raid : null;
+            updateModule('raid');
+            break;
+
+        case 'clearRaidHud':
+            state.raid = null;
+            updateModule('raid');
             break;
 
         case 'openHudAdmin':
@@ -1460,6 +1527,18 @@ window.addEventListener('message', function(event) {
             addNotification(data.text, data.type);
             break;
 
+        case 'showEventNotification':
+            showEventNotification(data.event || {});
+            break;
+
+        case 'showOffer':
+            showOffer(data.offer || {});
+            break;
+
+        case 'hideOffer':
+            hideOffer(data.id);
+            break;
+
         case 'playHudSound':
             playHudSound(data.sound, data.volume);
             break;
@@ -1488,6 +1567,7 @@ window.addEventListener('message', function(event) {
             state.hudVisible = !state.externalHidden && data.visible !== false;
             document.body.classList.toggle('hud-hidden', !state.hudVisible || state.externalHidden);
             applyHudSettings();
+            flushEventNotification();
             break;
 
             
@@ -1547,10 +1627,112 @@ function updateWeaponAmmo(data) {
 
 // ========== NOTIFICATIONS ==========
 const MAX_NOTIFICATIONS = 3;
+let activeOfferId = null;
+let offerTimer = null;
+let offerClock = null;
+
+const OFFER_ICONS = {
+    offer: '<svg viewBox="0 0 24 24"><path d="M4 12h13M13 7l5 5-5 5"/><circle cx="12" cy="12" r="9"/></svg>',
+    invite: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3.5 19c.7-3 2.7-4.5 5.5-4.5s4.8 1.5 5.5 4.5M18 8v6M15 11h6"/></svg>',
+    medical: '<svg viewBox="0 0 24 24"><path d="M9 4h6v5h5v6h-5v5H9v-5H4V9h5V4z"/></svg>',
+    property: '<svg viewBox="0 0 24 24"><path d="M4 11.5 12 5l8 6.5M6.5 10.5V19h11v-8.5M10 19v-5h4v5"/></svg>',
+    vehicle: '<svg viewBox="0 0 24 24"><path d="M5 14l1.4-4.2A2.6 2.6 0 0 1 8.9 8h6.2a2.6 2.6 0 0 1 2.5 1.8L19 14"/><rect x="4" y="13" width="16" height="5" rx="1.6"/></svg>'
+};
+
+function hideOffer(id) {
+    if (id && activeOfferId && String(id) !== activeOfferId) return;
+    const host = document.getElementById('hud-offer');
+    if (!host) return;
+    clearTimeout(offerTimer); clearInterval(offerClock);
+    offerTimer = null; offerClock = null; activeOfferId = null;
+    const card = host.firstElementChild;
+    if (!card) { host.classList.remove('visible'); return; }
+    card.classList.add('leaving');
+    setTimeout(() => { host.classList.remove('visible'); host.innerHTML = ''; }, 260);
+}
+
+function showOffer(data) {
+    const host = document.getElementById('hud-offer');
+    if (!host || !data.id) return;
+    clearTimeout(offerTimer); clearInterval(offerClock);
+    activeOfferId = String(data.id);
+    const duration = Math.max(3000, Math.min(60000, Number(data.duration) || 15000));
+    const accent = /^#[0-9a-f]{6}$/i.test(String(data.accent || '')) ? data.accent : '#4fd1ff';
+    host.style.setProperty('--offer-accent', accent);
+    host.innerHTML = `<article class="offer-card"><div class="offer-head"><div class="offer-copy"><div class="offer-eyebrow"><i></i><span class="offer-icon"></span><span class="offer-eyebrow-text"></span><strong class="offer-count"></strong></div><h2></h2></div></div><div class="offer-meta"><span class="offer-avatar">CM</span><span class="offer-sender"></span><span class="offer-id"></span><span class="offer-distance"></span></div><div class="offer-divider"></div><div class="offer-actions"><div class="offer-accept"><kbd></kbd><b></b></div><div class="offer-decline"><kbd></kbd><b></b></div></div><div class="offer-life"><span></span></div></article>`;
+    const card = host.firstElementChild;
+    card.querySelector('.offer-icon').innerHTML = OFFER_ICONS[data.icon] || OFFER_ICONS.offer;
+    card.querySelector('.offer-eyebrow-text').textContent = data.eyebrow || 'NEW OFFER';
+    card.querySelector('h2').textContent = data.title || 'Do you want to accept?';
+    const sender = card.querySelector('.offer-sender'); sender.textContent = data.sender || ''; sender.hidden = !data.sender;
+    const senderId = card.querySelector('.offer-id'); senderId.textContent = data.senderId ? `ID ${data.senderId}` : ''; senderId.hidden = !data.senderId;
+    const distance = card.querySelector('.offer-distance'); distance.textContent = data.distance || ''; distance.hidden = !data.distance;
+    card.querySelector('.offer-decline kbd').textContent = data.declineKey || 'N';
+    card.querySelector('.offer-decline b').textContent = data.declineText || 'Decline';
+    card.querySelector('.offer-accept kbd').textContent = data.acceptKey || 'Y';
+    card.querySelector('.offer-accept b').textContent = data.acceptText || 'Accept';
+    card.querySelector('.offer-life span').style.animationDuration = `${duration}ms`;
+    const started = performance.now();
+    const count = card.querySelector('.offer-count');
+    const tick = () => { count.textContent = `${Math.max(0, Math.ceil((duration - (performance.now() - started)) / 1000))}s`; };
+    tick(); offerClock = setInterval(tick, 200);
+    host.classList.add('visible');
+    offerTimer = setTimeout(() => hideOffer(activeOfferId), duration);
+}
+
+let eventNotificationTimer = null;
+let eventNotificationClock = null;
+let pendingEventNotification = null;
+const shownEventNotifications = new Map();
+
+function eventClock(timestamp) {
+    const remaining = Math.max(0, Math.ceil(Number(timestamp || 0) - Date.now() / 1000));
+    return `${String(Math.floor(remaining / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')}`;
+}
+
+function showEventNotification(data) {
+    const host = document.getElementById('hud-event-notify');
+    if (!host) return;
+    if (!state.hudVisible || state.externalHidden) {
+        pendingEventNotification = data;
+        return;
+    }
+    pendingEventNotification = null;
+    const notificationKey = String(data.notificationKey || '');
+    const currentTime = Date.now();
+    for (const [key, expires] of shownEventNotifications) if (expires <= currentTime) shownEventNotifications.delete(key);
+    if (notificationKey && shownEventNotifications.has(notificationKey)) return;
+    clearTimeout(eventNotificationTimer); clearInterval(eventNotificationClock);
+    const duration = Math.max(3000, Math.min(60000, Number(data.duration) || 7000));
+    const accent = /^#[0-9a-f]{6}$/i.test(String(data.accent || '')) ? data.accent : '#4fd1ff';
+    host.style.setProperty('--event-accent', accent);
+    if (notificationKey) shownEventNotifications.set(notificationKey, currentTime + duration + 1000);
+    host.innerHTML = `<article class="event-toast"><div class="event-toast-accent"></div><div class="event-toast-icon" aria-hidden="true"><img alt=""><span>CM</span></div><div class="event-toast-copy"><div class="event-toast-meta"><i></i><strong></strong><time></time></div><h2></h2><p></p><div class="event-toast-actions"><span class="event-primary"><kbd></kbd><b></b></span><span class="event-secondary"><kbd></kbd><b></b></span></div></div><div class="event-toast-life"><span></span></div></article>`;
+    const toast = host.firstElementChild;
+    const eventImage = toast.querySelector('.event-toast-icon img'); eventImage.src = data.image || ''; eventImage.hidden = !data.image; eventImage.onerror = () => { eventImage.hidden = true };
+    toast.querySelector('.event-toast-meta strong').textContent = data.eyebrow || 'EVENT STARTING';
+    toast.querySelector('h2').textContent = data.title || 'SERVER EVENT';
+    const subtitle = toast.querySelector('p'); subtitle.textContent = data.subtitle || ''; subtitle.hidden = !data.subtitle;
+    const primary = toast.querySelector('.event-primary'); primary.querySelector('kbd').textContent = data.primaryKey || ''; primary.querySelector('b').textContent = data.primaryText || ''; primary.hidden = !data.primaryText;
+    const secondary = toast.querySelector('.event-secondary'); secondary.querySelector('kbd').textContent = data.secondaryKey || ''; secondary.querySelector('b').textContent = data.secondaryText || ''; secondary.hidden = !data.secondaryText;
+    const clock = toast.querySelector('time'); const updateClock = () => { clock.textContent = Number(data.startsAt) > 0 ? eventClock(data.startsAt) : 'LIVE' }; updateClock(); eventNotificationClock = setInterval(updateClock, 250);
+    toast.querySelector('.event-toast-life span').style.animationDuration = `${duration}ms`;
+    host.classList.add('visible');
+    eventNotificationTimer = setTimeout(() => { toast.classList.add('leaving'); clearInterval(eventNotificationClock); setTimeout(() => { host.classList.remove('visible'); host.innerHTML = '' }, 460) }, duration);
+}
+
+function flushEventNotification() {
+    if (!pendingEventNotification || !state.hudVisible || state.externalHidden) return;
+    const pending = pendingEventNotification;
+    pendingEventNotification = null;
+    showEventNotification(pending);
+}
 
 function addNotification(text, type = 'info') {
     const container = document.getElementById('hud-notify');
-    if (!container || !state.hudVisible) return;
+    // Focused CM interfaces intentionally hide normal HUD modules. Allow their
+    // operational notifications through while the external UI hide is active.
+    if (!container || (!state.hudVisible && !state.externalHidden)) return;
 
     if (container.children.length >= MAX_NOTIFICATIONS) {
         container.removeChild(container.firstChild);
@@ -1573,8 +1755,8 @@ function addNotification(text, type = 'info') {
         <div class="notify-icon">${theme.icon}</div>
         <div class="notify-content">
             <div class="notify-title">${theme.label}</div>
-            <div class="notify-text"></div>
             <div class="notify-progress-track"><div class="notify-progress-fill"></div></div>
+            <div class="notify-text"></div>
         </div>
     `;
     item.querySelector('.notify-text').textContent = text || '';
@@ -1588,6 +1770,12 @@ function addNotification(text, type = 'info') {
         }, 250);
     }, 4200);
 }
+
+// Raid countdown is rendered by cm-hud so every resource gets the same
+// presentation and the timer stays live without per-frame game drawing.
+setInterval(() => {
+    if (state.raid) renderRaid();
+}, 500);
 
 // ========== CLOCK UPDATE ==========
 setInterval(() => {

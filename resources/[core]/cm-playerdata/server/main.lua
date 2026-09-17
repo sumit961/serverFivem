@@ -11,6 +11,18 @@ local PendingTreatments = {} -- [treaterSrc] = { target = src, startedAt = ms, d
 local PendingTreatmentOffers = {} -- [targetSrc] = { from = src, expires = ms }
 local LastEventUse = {}
 local ExtensionInteractionActions = {} -- [actionId] = { event = serverEventName, allowDeadTarget = bool, deadOnly = bool }
+local SupplyWarDeathContexts = {} -- [characterId] = { source, eventId, expiresAt }
+local SUPPLY_WAR_DEATH_CONTEXT_SECONDS = 60
+
+local function CaptureSupplyWarDeathContext(src,eventId)
+    src=tonumber(src);local data=src and PlayerData[src];if not data or not data.charId then return false end
+    local equipped
+    if GetResourceState('cm-inventory')=='started'then local ok,value=pcall(function()return exports['cm-inventory']:GetEquippedWeaponState(src)end);if ok and type(value)=='table'then equipped=value end end
+    local existing=SupplyWarDeathContexts[tostring(data.charId)]or{}
+    SupplyWarDeathContexts[tostring(data.charId)]={source=src,eventId=tostring(eventId or existing.eventId or''),expiresAt=os.time()+SUPPLY_WAR_DEATH_CONTEXT_SECONDS,equippedWeapon=equipped and equipped.weapon or existing.equippedWeapon,equippedAmmo=equipped and equipped.ammo or existing.equippedAmmo,equippedAmmoQuantity=equipped and equipped.ammoQuantity or existing.equippedAmmoQuantity}
+    if Config.Debug then print(('[CM-PLAYERDATA] LOADOUT_PRESERVE character=%s weapon=%s ammo=%s'):format(tostring(data.charId),tostring(SupplyWarDeathContexts[tostring(data.charId)].equippedWeapon),tostring(SupplyWarDeathContexts[tostring(data.charId)].equippedAmmoQuantity))) end
+    return true
+end
 
 local function Debug(msg)
     if Config.Debug then
@@ -364,6 +376,7 @@ local function Audit(src, action, data)
 end
 
 local ValidMoneyAccounts = { cash = true, bank = true }
+local MoneyMutationLocks = {}
 
 local function NormalizeAccount(account)
     account = tostring(account or 'cash'):lower()
@@ -744,7 +757,7 @@ local function SetMoney(src, account, value, reason, metadata)
     src = tonumber(src)
     local data = src and PlayerData[src] or nil
     account = NormalizeAccount(account)
-    if not data or not data.loaded or not account then return false end
+    if not data or not data.loaded or not account or MoneyMutationLocks[src] then return false end
 
     local before = tonumber(data[account]) or 0
     local after = math.max(0, math.floor(tonumber(value) or 0))
@@ -769,7 +782,7 @@ local function AddMoney(src, account, amount, reason, metadata)
     local data = src and PlayerData[src] or nil
     account = NormalizeAccount(account)
     amount = NormalizeAmount(amount)
-    if not data or not data.loaded or not account or not amount then return false end
+    if not data or not data.loaded or not account or not amount or MoneyMutationLocks[src] then return false end
 
     local before = tonumber(data[account]) or 0
     local after = before + amount
@@ -792,7 +805,7 @@ local function RemoveMoney(src, account, amount, reason, metadata)
     local data = src and PlayerData[src] or nil
     account = NormalizeAccount(account)
     amount = NormalizeAmount(amount)
-    if not data or not data.loaded or not account or not amount then return false end
+    if not data or not data.loaded or not account or not amount or MoneyMutationLocks[src] then return false end
 
     local before = tonumber(data[account]) or 0
     if before < amount then return false end
@@ -834,12 +847,68 @@ local function TransferMoney(src, fromAccount, toAccount, amount, reason, metada
     return true
 end
 
+-- Cash-only, two-character mutation for trusted robbery/owner integrations.
+-- Both live balances are locked, flushed, and changed by one conditional SQL
+-- statement. The affected-row check prevents stale/replayed balance writes.
+local function TransferCashBetweenCharactersAtomic(fromSrc, toSrc, amount, reason, metadata)
+    fromSrc, toSrc = tonumber(fromSrc), tonumber(toSrc)
+    amount = NormalizeAmount(amount)
+    if not fromSrc or not toSrc or fromSrc == toSrc or not amount then return false, 'invalid_transfer' end
+    local fromData, toData = PlayerData[fromSrc], PlayerData[toSrc]
+    if not fromData or not fromData.loaded or not toData or not toData.loaded then return false, 'player_not_loaded' end
+    if MoneyMutationLocks[fromSrc] or MoneyMutationLocks[toSrc] then return false, 'money_busy' end
+    if (tonumber(fromData.cash) or 0) < amount then return false, 'insufficient_funds' end
+
+    MoneyMutationLocks[fromSrc], MoneyMutationLocks[toSrc] = true, true
+    local ok, result, errorCode = xpcall(function()
+        local fromBefore, toBefore = tonumber(fromData.cash) or 0, tonumber(toData.cash) or 0
+        if not SaveMoneyOnly(fromSrc, 'atomic_cash_transfer_prepare')
+            or not SaveMoneyOnly(toSrc, 'atomic_cash_transfer_prepare') then
+            return false, 'prepare_failed'
+        end
+        local changed = MySQL.update.await([[
+            UPDATE characters
+            SET cash = CASE WHEN id = ? THEN ? WHEN id = ? THEN ? ELSE cash END
+            WHERE (id = ? AND cash = ?) OR (id = ? AND cash = ?)
+        ]], {
+            fromData.charId, fromBefore - amount, toData.charId, toBefore + amount,
+            fromData.charId, fromBefore, toData.charId, toBefore,
+        })
+        if tonumber(changed) ~= 2 then return false, 'balance_changed' end
+
+        fromData.cash, toData.cash = fromBefore - amount, toBefore + amount
+        fromData.dirty, toData.dirty = false, false
+        for src, balances in pairs({
+            [fromSrc] = { fromBefore, fromData.cash },
+            [toSrc] = { toBefore, toData.cash },
+        }) do
+            SetState(src, 'cash', balances[2])
+            PushUpdate(src, 'cash', balances[2])
+            TriggerEvent('cm-playerdata:server:moneyChanged', src, 'cash', balances[1], balances[2], reason or 'atomic_cash_transfer')
+            TriggerClientEvent('cm-playerdata:client:moneyChanged', src, 'cash', balances[1], balances[2], reason or 'atomic_cash_transfer')
+        end
+        local safeMeta = type(metadata) == 'table' and metadata or {}
+        RecordMoneyTransaction(fromSrc, 'cash', -amount, 'remove', reason or 'atomic_cash_transfer', fromBefore, fromData.cash, safeMeta)
+        RecordMoneyTransaction(toSrc, 'cash', amount, 'add', reason or 'atomic_cash_transfer', toBefore, toData.cash, safeMeta)
+        return true
+    end, debug.traceback)
+    MoneyMutationLocks[fromSrc], MoneyMutationLocks[toSrc] = nil, nil
+    if not ok then
+        Log('error', 'Atomic cash transfer failed', { error = tostring(result) })
+        return false, 'transaction_failed'
+    end
+    return result, errorCode
+end
+
 local function SyncInventoryDeathState(src, dead)
     if GetResourceState('cm-inventory') ~= 'started' then return end
 
     local ok, err = pcall(function()
         if dead then
-            exports['cm-inventory']:DropEquippedWeaponsOnDeath(src)
+            local data=PlayerData[tonumber(src)];local characterId=data and tostring(data.charId or'')or'';local context=characterId~=''and SupplyWarDeathContexts[characterId]or nil
+            local suppress=context~=nil and context.source==tonumber(src) and context.expiresAt>os.time()
+            if not suppress and GetResourceState('cm-gang')=='started'then local participantOk,value=pcall(function()return exports['cm-gang']:IsSupplyWarParticipant(src)end);suppress=participantOk and value==true end
+            if not suppress then exports['cm-inventory']:DropEquippedWeaponsOnDeath(src)end
         else
             exports['cm-inventory']:ResetDeathDropState(src)
         end
@@ -856,6 +925,12 @@ local function SetDead(src, isDead, reason)
 
     local wasDead = data.isDead == true
     data.isDead = isDead == true
+    if data.isDead and not wasDead and GetResourceState('cm-gang')=='started' then
+        local participantOk,participant=pcall(function()return exports['cm-gang']:IsSupplyWarParticipant(src)end)
+        if participantOk and participant==true then
+            CaptureSupplyWarDeathContext(src,nil)
+        end
+    end
     if data.isDead then
         data.health = Config.Vitals.DamageThreshold or 101
         data.armor = 0
@@ -993,6 +1068,7 @@ end)
 
 AddEventHandler('playerDropped', function()
     local src = source
+    local data=PlayerData[src];if data and data.charId then SupplyWarDeathContexts[tostring(data.charId)]=nil end
     SavePlayerData(src, 'drop')
     ClearPlayerData(src)
     PendingHandshakes[src] = nil
@@ -1235,6 +1311,18 @@ RegisterNetEvent('cm-playerdata:server:playerDied', function(killerSrc, weaponHa
     end
 
     SetDead(src, true, 'death')
+
+    -- Local-only authoritative integration seam. Consumers must still enforce
+    -- their own instance/participant rules; no client can trigger this event.
+    TriggerEvent('cm-playerdata:server:deathDetail', src, {
+        victimCharacterId = data.charId,
+        killerSource = killerRecord and killerSrc or nil,
+        killerCharacterId = killerRecord and killerRecord.character_id or nil,
+        killerPlausible = killerRecord and killerRecord.plausible == true or false,
+        weapon = ResolveWeaponName(weaponHash),
+        weaponHash = tonumber(weaponHash),
+        killerType = tostring(killerType or 'unknown'),
+    })
 
     -- Bleed-out clock: base window, extendable once by calling an ambulance.
     local bleedMs = (Config.Respawn and Config.Respawn.BleedOutTime) or 120000
@@ -1559,6 +1647,12 @@ local function GetFamilyTag(src, data)
     return GetMetadataValue(data, FamilyKeys) or GetStateValue(src, FamilyKeys)
 end
 
+local function GetGangTag(src)
+    local ok, state = pcall(function() return Player(tonumber(src)).state end)
+    local gang = ok and state and state.cmGang or nil
+    return type(gang) == 'table' and CleanTag(gang.gangId) or nil
+end
+
 local function IsKnownByMemory(viewerData, targetData)
     if not viewerData or not targetData then return false end
     local metadata = viewerData.metadata or {}
@@ -1626,9 +1720,16 @@ local function BuildIdentityForViewer(viewerSrc, targetSrc)
         known = true
         reason = 'self'
     elseif viewerData and targetData then
+        local viewerGang = GetGangTag(viewerSrc)
+        local targetGang = GetGangTag(targetSrc)
+        if viewerGang and targetGang and viewerGang == targetGang then
+            known = true
+            reason = 'same_gang'
+        end
+
         local viewerOrg = GetOrgTag(viewerSrc, viewerData)
         local targetOrg = GetOrgTag(targetSrc, targetData)
-        if viewerOrg and targetOrg and viewerOrg == targetOrg then
+        if not known and viewerOrg and targetOrg and viewerOrg == targetOrg then
             known = true
             reason = 'same_org'
         end
@@ -1660,6 +1761,30 @@ end
 local function PushIdentityUpdate(viewerSrc, targetSrc)
     TriggerClientEvent('cm-playerdata:client:identityUpdate', viewerSrc, BuildIdentityForViewer(viewerSrc, targetSrc))
 end
+
+AddEventHandler('cm-playerdata:server:affiliationIdentityChanged', function(changedSrc)
+    changedSrc = tonumber(changedSrc)
+    if not changedSrc or not PlayerData[changedSrc] then return end
+    for _, rawViewer in ipairs(GetPlayers()) do
+        local viewerSrc = tonumber(rawViewer)
+        if viewerSrc and PlayerData[viewerSrc] then
+            PushIdentityUpdate(viewerSrc, changedSrc)
+            if viewerSrc ~= changedSrc then PushIdentityUpdate(changedSrc, viewerSrc) end
+        end
+    end
+end)
+
+exports('MarkSupplyWarDeathContext',function(src,eventId)
+    if GetInvokingResource()~='cm-gang'then return false,'trusted_resource_required'end
+    src=tonumber(src);local data=src and PlayerData[src];if not data or not data.charId then return false,'player_not_loaded'end
+    return CaptureSupplyWarDeathContext(src,eventId)
+end)
+
+exports('HasSupplyWarDeathContext',function(src)
+    src=tonumber(src);local data=src and PlayerData[src];local characterId=data and tostring(data.charId or'')or'';local context=characterId~=''and SupplyWarDeathContexts[characterId]or nil
+    if not context or context.source~=src or context.expiresAt<=os.time()then if characterId~=''then SupplyWarDeathContexts[characterId]=nil end;return false end
+    return true
+end)
 
 local function ValidatePlayerInteraction(src, targetSrc, rateKey, rateMs, allowVehicleTarget)
     targetSrc = tonumber(targetSrc)
@@ -2298,6 +2423,11 @@ exports('AddMoney', AddMoney)
 exports('RemoveMoney', RemoveMoney)
 exports('CanAfford', CanAfford)
 exports('TransferMoney', TransferMoney)
+exports('TransferCashBetweenCharactersAtomic', function(fromSrc, toSrc, amount, reason, metadata)
+    local invoking = GetInvokingResource and GetInvokingResource() or nil
+    if invoking ~= 'cm-gang' then return false, 'untrusted_resource' end
+    return TransferCashBetweenCharactersAtomic(fromSrc, toSrc, amount, reason, metadata)
+end)
 
 exports('AddCash', function(src, amount, reason)
     return AddMoney(src, 'cash', amount, reason or 'add_cash')
@@ -2560,6 +2690,7 @@ exports('Respawn', function(src, spawnCoords, cost)
         end
     end
 
+    local supplyWarDeathContext=SupplyWarDeathContexts[tostring(data.charId)]
     ResolveAmbulanceRequest(src, data, 'hospital_respawn')
     data.isDead = false
     data.health = GetRespawnHealth()
@@ -2573,6 +2704,7 @@ exports('Respawn', function(src, spawnCoords, cost)
 
     ApplyState(src)
     SyncInventoryDeathState(src, false)
+    SupplyWarDeathContexts[tostring(data.charId)]=nil
     SavePlayerData(src, 'respawn')
     Audit(src, 'hospital_respawn', {
         health = data.health, cost = cost,
@@ -2580,6 +2712,7 @@ exports('Respawn', function(src, spawnCoords, cost)
         bed = hospitalReservation and hospitalReservation.bedId or nil,
     })
     TriggerClientEvent('cm-playerdata:client:respawn', src, spawnCoords, data.health)
+    if supplyWarDeathContext and supplyWarDeathContext.source==tonumber(src)and supplyWarDeathContext.expiresAt>os.time()then SetTimeout(2200,function()if GetPlayerName(src)and GetResourceState('cm-inventory')=='started'then local ok,resynced=pcall(function()return exports['cm-inventory']:ResyncAuthoritativeEquipment(src)end);if not ok or resynced~=true then Log('warn','Supply War loadout re-sync failed',{src=src,characterId=data.charId})elseif Config.Debug then Debug(('LOADOUT_RESYNC character=%s weapon=%s ammo=%s'):format(tostring(data.charId),tostring(supplyWarDeathContext.equippedWeapon),tostring(supplyWarDeathContext.equippedAmmoQuantity)))end end end)end
     return true
 end)
 

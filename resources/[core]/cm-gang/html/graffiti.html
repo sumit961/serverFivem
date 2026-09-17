@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><style>html,body,canvas{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}</style></head>
+<body><canvas id="art" width="1024" height="512"></canvas><script>
+const q=new URLSearchParams(location.search),id=q.get('gang')||'gang',preview=q.get('preview')==='1';
+const gangs={marabunta:['MARABUNTA','#2563eb'],bloods:['BLOODS','#ef4444'],ballas:['BALLAS','#a855f7'],families:['FAMILIES','#22c55e'],vagos:['VAGOS','#eab308']};
+const [label,color]=gangs[id]||['UNCLAIMED','#94a3b8'],canvas=document.getElementById('art'),ctx=canvas.getContext('2d');
+ctx.clearRect(0,0,1024,512);
+if(preview){
+ ctx.save();ctx.strokeStyle='rgba(67,231,255,.48)';ctx.lineWidth=3;
+ for(let x=0;x<=1024;x+=64){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,512);ctx.stroke()}
+ for(let y=0;y<=512;y+=64){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(1024,y);ctx.stroke()}
+ ctx.strokeStyle='#43e7ff';ctx.lineWidth=12;ctx.setLineDash([28,16]);ctx.strokeRect(8,8,1008,496);ctx.restore();
+}
+ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='italic 900 210px Impact, Arial Black, sans-serif';ctx.lineJoin='round';ctx.lineWidth=30;ctx.strokeStyle='#080808';ctx.strokeText(label,512,278);ctx.fillStyle=color;ctx.fillText(label,512,278);
+if(preview){ctx.strokeStyle='#fff';ctx.lineWidth=8;ctx.beginPath();ctx.moveTo(477,53);ctx.lineTo(547,53);ctx.moveTo(512,18);ctx.lineTo(512,88);ctx.stroke();ctx.fillStyle='#06151b';ctx.fillRect(360,450,304,48);ctx.font='700 26px Arial';ctx.fillStyle='#fff';ctx.fillText('PLACEMENT PREVIEW',512,475)}
+</script></body></html>

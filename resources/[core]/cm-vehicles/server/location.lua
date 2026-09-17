@@ -278,6 +278,61 @@ function L.GetTrackableLocation(vehicleId)
     return false, 'This vehicle has no saved or live location.'
 end
 
+local function occupied(entity)
+    if not entity or entity == 0 or not DoesEntityExist(entity) then return false end
+    local maxPassengers = 6
+    pcall(function() maxPassengers = math.max(0, GetVehicleMaxNumberOfPassengers(entity)) end)
+    for seat = -1, maxPassengers do
+        local ped = 0
+        pcall(function() ped = GetPedInVehicleSeat(entity, seat) end)
+        if ped and ped ~= 0 then return true end
+    end
+    return false
+end
+
+function CMVehicles.Server.StoreVehicle(src, vehicleId, garage, opts)
+    src, vehicleId = tonumber(src), tonumber(vehicleId)
+    opts = type(opts) == 'table' and opts or {}
+    if not src or not vehicleId then return false, 'invalid_request' end
+    local row = MySQL.single.await('SELECT * FROM cm_owned_vehicles WHERE id = ? LIMIT 1', { vehicleId })
+    if not row then return false, 'vehicle_not_found' end
+    local charId = CMVehicles.Server.GetCharacterId(src)
+    if not charId or tostring(row.owner_character_id) ~= tostring(charId) then return false, 'owner_only' end
+    if tonumber(row.is_stored) == 1 then return false, 'already_stored' end
+    local okNear, entity, nearReason = CMVehicles.Server.ValidateNearVehicle(src, tonumber(opts.netId), tonumber(opts.maxDistance) or 18.0)
+    if not okNear then return false, nearReason or 'vehicle_not_nearby' end
+    if occupied(entity) then return false, 'vehicle_occupied' end
+    garage = tostring(garage or opts.ref or '')
+    local state = tostring(opts.state or ''):upper()
+    if state == '' then state = garage:match('^house:') and L.States.HOUSE_GARAGE or garage:match('^job:') and L.States.JOB_GARAGE or L.States.PUBLIC_GARAGE end
+    if not L.NormalizeState(state) or state == L.States.OUTSIDE then return false, 'invalid_storage_target' end
+    local token
+    if CMVehicles.Operations and CMVehicles.Operations.BeginInternal then
+        local began, result = CMVehicles.Operations.BeginInternal(vehicleId, 'store', src, { stage = 'store_validated', targetState = state, targetRef = garage, targetSlot = tonumber(opts.slot), ttl = 60 })
+        if began ~= true then return false, 'operation_active' end
+        token = result
+    end
+    local function fail(reason)
+        if token and CMVehicles.Operations and CMVehicles.Operations.FailInternal then pcall(CMVehicles.Operations.FailInternal, vehicleId, token, 'store_failed', { reason = reason }) end
+        return false, reason
+    end
+    if CMVehicles.Persistence and CMVehicles.Persistence.CaptureVehicle then
+        local captured, captureReason = CMVehicles.Persistence.CaptureVehicle(vehicleId, opts.reason or 'vehicle_store', { force = true })
+        if captured ~= true then return fail(captureReason or 'vehicle_state_capture_failed') end
+    end
+    local pending = L.Transition(vehicleId, L.States.PENDING_STORE, { slot = tonumber(opts.slot), reason = opts.reason or 'vehicle_store', actorCharacterId = charId })
+    if pending ~= true and type(pending) ~= 'table' then return fail('pending_store_failed') end
+    local deleted, deleteReason = CMVehicles.Spawn and CMVehicles.Spawn.DeleteVehicle and CMVehicles.Spawn.DeleteVehicle(vehicleId, row.plate) or true
+    if deleted ~= true then
+        L.Transition(vehicleId, L.States.OUTSIDE, { reason = 'store_delete_failed', actorCharacterId = charId })
+        return fail(deleteReason or 'vehicle_delete_failed')
+    end
+    local stored, result = L.Transition(vehicleId, state, { ref = garage ~= '' and garage or nil, slot = tonumber(opts.slot), reason = opts.reason or 'vehicle_store', actorCharacterId = charId })
+    if stored ~= true and type(stored) ~= 'table' then return fail('store_transition_failed') end
+    if token and CMVehicles.Operations and CMVehicles.Operations.CompleteInternal then pcall(CMVehicles.Operations.CompleteInternal, vehicleId, token, 'stored', { state = state, ref = garage }) end
+    return true, result or L.Get(vehicleId)
+end
+
 local function ensureTables()
     ensureColumn('cm_owned_vehicles', 'location_state', "VARCHAR(32) NULL")
     ensureColumn('cm_owned_vehicles', 'location_ref', "VARCHAR(96) NULL")
@@ -314,4 +369,5 @@ exports('GetTrackableVehicleLocation', L.GetTrackableLocation)
 exports('TransitionVehicleLocation', L.Transition)
 exports('ReconcileVehicleLocation', L.ReconcileVehicle)
 exports('ReconcileAllVehicleLocations', L.ReconcileAll)
+exports('StoreVehicle', CMVehicles.Server.StoreVehicle)
 exports('GetVehicleLocationStates', function() return L.States end)

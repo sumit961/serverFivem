@@ -26,7 +26,7 @@ categories = {
   shoes    = { type = "component", index = 6  },
   chains   = { type = "component", index = 7  },
   bags     = { type = "component", index = 5  },
-  armor    = { type = "component", index = 9  }, -- body armor / vest; captured for cm-gunstore, not sold in clothes
+  armor    = { type = "component", index = 9  }, -- body armor / vest; managed in /clothingstore, sold/equipped via cm-gunstore
   hat      = { type = "prop",      index = 0  },
   glasses  = { type = "prop",      index = 1  },
   earrings = { type = "prop",      index = 2  },
@@ -376,6 +376,13 @@ end
 --- Envoie l’état complet d’ouverture au NUI (avec init si première fois)
 local function sendOpenMessage(label, cats, counts, isOpen)
   local gender = GetEntityModel(PlayerPedId()) == GetHashKey('mp_f_freemode_01') and 'female' or 'male'
+  local bank = 0
+  local cash = 0
+  if LocalPlayer and LocalPlayer.state then
+    bank = tonumber(LocalPlayer.state.bank) or 0
+    cash = tonumber(LocalPlayer.state.cash) or 0
+  end
+
   if not nuiInitialized then
     SendNUIMessage({
       type         = "openClothShop",
@@ -386,6 +393,8 @@ local function sendOpenMessage(label, cats, counts, isOpen)
       translations = Config.Translations[Config.Lang],
       counts       = counts,
       gender       = gender,
+      bank         = bank,
+      cash         = cash,
       useCatalogOnly = Config.UseCatalogOnly ~= false,
       pricePresets = Config.PricePresets or {},
       economy      = Config.Economy or {},
@@ -403,6 +412,8 @@ local function sendOpenMessage(label, cats, counts, isOpen)
       categories = cats,
       counts     = counts,
       gender     = gender,
+      bank       = bank,
+      cash       = cash,
       useCatalogOnly = Config.UseCatalogOnly ~= false,
       pricePresets = Config.PricePresets or {},
       economy      = Config.Economy or {},
@@ -434,6 +445,11 @@ function closeShopRoutine()
   applyUiGameFocus(false)
   SendNUIMessage({ type = "adminMode", value = false })
   SendNUIMessage({ type = "openClothShop", value = false })
+  -- Safety net: the JS layer normally blocks closing while a capture/manual pose
+  -- is in flight, but this guarantees the real player never stays hidden/frozen
+  -- if the panel is ever closed out from under an active capture session anyway
+  -- (e.g. a future UI path, or the nvCloth:closeMenu event fired externally).
+  if CancelActiveClothingCapture then CancelActiveClothingCapture() end
   if StopClothingAdminStudio then StopClothingAdminStudio() end
   if appearanceToRestore then
     applyAdminOriginalAppearance(appearanceToRestore)
@@ -581,8 +597,12 @@ end, false)
 -- /clothingadmin is registered server-side so normal players cannot open it.
 RegisterNetEvent('nvCloth:client:openAdminPanel', function()
   -- Capture-only panel. Torso fitting, publishing, price and org assignment
-  -- are managed after capture in /clothingstore.
-  openClothShop("ADMIN PANEL", { "torso", "tshirt", "pants", "shoes", "hat", "glasses", "earrings", "chains", "bags", "watches", "bracelets" }, "clothes", nil, true)
+  -- are managed after capture in /clothingstore. Armor/vest is captured here
+  -- like every other category now -- the server tags its clothing_catalog row
+  -- with shop='armor' (not the public 'clothes' shop) and mirrors it into
+  -- cm-gunstore's own sellable catalog, since armor is still bought/equipped
+  -- through cm-gunstore, not nv_cloth's own checkout.
+  openClothShop("ADMIN PANEL", { "torso", "tshirt", "pants", "shoes", "hat", "glasses", "earrings", "chains", "bags", "watches", "bracelets", "armor" }, "clothes", nil, true)
 end)
 
 -- Build 2.19: org clothing locker. Opened only through the server /orgcloset
@@ -597,10 +617,11 @@ RegisterNetEvent('nvCloth:client:openOrgShop', function(job, label)
     'org_' .. job, nil, false)
 end)
 
--- Armor-only admin used by cm-gunstore. Locks the panel to the vest category and
--- tags the shop key as "guns" so captures route to the gun store, not the clothes catalog.
+-- Armor-only admin, kept as a direct shortcut for cm-gunstore's own admin UI.
+-- Locks the panel to the vest category; the server still saves it as a normal
+-- clothing_catalog row (shop='armor') and syncs it into cm-gunstore.
 RegisterNetEvent('nvCloth:client:openArmorAdminPanel', function()
-  openClothShop("ARMOR CAPTURE", { "armor" }, "guns", nil, true)
+  openClothShop("ARMOR CAPTURE", { "armor" }, "armor", nil, true)
 end)
 
 --========================================================
@@ -709,6 +730,29 @@ end)
 RegisterNUICallback("adminBulkToggleItems", function(data, cb)
   data = type(data) == 'table' and data or {}
   TriggerServerEvent('nvCloth:server:adminBulkToggleItems', data)
+  cb({ success = true })
+end)
+
+RegisterNUICallback('saveBagPairing', function(data, cb)
+  data = type(data) == 'table' and data or {}
+
+  -- The ped is wearing the TARGET gender model at this point (that is what the
+  -- pairing overlay previews), so this is the only moment the target bag's
+  -- collection address can be read. Collections are per-model, so the source
+  -- gender's address cannot be read from here -- the server reuses the one
+  -- already stored on the source row from its capture.
+  local targetDrawable = tonumber(data.targetDrawable)
+  if targetDrawable then
+    -- Bags are component 5.
+    local collection, localIndex = NvClothCollection.read(
+      PlayerPedId(), 'component', 5, targetDrawable)
+    if collection then
+      data.targetCollection = collection
+      data.targetCollectionLocalId = localIndex
+    end
+  end
+
+  TriggerServerEvent('nvCloth:server:saveBagPairing', data)
   cb({ success = true })
 end)
 

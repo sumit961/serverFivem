@@ -3,6 +3,17 @@
 
 local syncCurrentWeaponAmmo
 
+-- Optional cross-resource check: cm-gunstore admins can ban a weapon
+-- server-wide from /gunadmin (blocks purchase AND use, even for weapons a
+-- player already owns). pcall-guarded so a stopped/missing cm-gunstore just
+-- means nothing is banned, same defensive shape every other soft
+-- cross-resource dependency in this codebase already uses.
+local function isWeaponBanned(itemName)
+    if GetResourceState('cm-gunstore') ~= 'started' then return false end
+    local ok, banned = pcall(function() return exports['cm-gunstore']:IsWeaponBanned(itemName) end)
+    return ok and banned == true
+end
+
 local function findStackTarget(ownerType, ownerId, itemName, metadata, preferredSlot)
     itemName = tostring(itemName or ''):lower()
     local def = getItemDef(itemName)
@@ -53,6 +64,14 @@ local function AddItemInternal(src, itemName, amount, metadata, reason, preferre
 
     local ownerType, ownerId = getOwner(src)
     if not ownerId then return false, 'No character owner found.' end
+
+    if def.singleton == true then
+        local existingCount = tonumber(MySQL.scalar.await([[SELECT COALESCE(SUM(quantity),0)
+            FROM inventory_items WHERE owner_type=? AND owner_id=? AND item_name=?]],
+            { ownerType, tostring(ownerId), itemName })) or 0
+        if existingCount > 0 then return false, 'You can only carry one of this item.' end
+        if amount > 1 then return false, 'You can only carry one of this item.' end
+    end
 
     local okCarry, carryErr = canCarry(ownerType, ownerId, itemName, amount)
     if not okCarry then return false, carryErr end
@@ -150,6 +169,10 @@ local function syncEquipmentSlot(src, slot)
     local ownerType, ownerId = getOwner(src)
     if not ownerId then return end
     local row = getItemAt(ownerType, ownerId, slot)
+    -- A weapon banned AFTER it was equipped never gets physically given to
+    -- the ped on any future resync (relogin, teleport, etc). The DB row is
+    -- left alone (non-destructive) -- it just stops being applied in-game.
+    if row and slot == 'weapon' and isWeaponBanned(row.item_name) then row = nil end
     local item = row and rowToItem(row) or nil
     TriggerClientEvent('cm-inventory:client:equipmentSlot', src, slot, item)
 
@@ -176,6 +199,7 @@ local function syncAllEquipment(src)
     local payload = {}
     for _, slot in ipairs(Config.Slots.equipment) do
         local row = getItemAt(ownerType, ownerId, slot)
+        if row and slot == 'weapon' and isWeaponBanned(row.item_name) then row = nil end
         payload[slot] = row and rowToItem(row) or nil
     end
     -- Same cm_masked replication as syncEquipmentSlot -- covers a player who
@@ -245,6 +269,10 @@ end
 local function getItemGenderFromRow(row)
     if not row then return nil end
     local metadata = decode(row.metadata)
+    if (metadata.pairedDrawableId ~= nil and tonumber(metadata.pairedDrawableId) >= 0)
+        or metadata.maleDrawableId ~= nil or metadata.femaleDrawableId ~= nil then
+        return nil
+    end
     local def = getItemDef(row.item_name) or {}
     return normalizeGender(metadata.gender or metadata.sex or metadata.pedGender or metadata.ped_gender or metadata.model or def.gender or def.sex)
 end
@@ -281,8 +309,21 @@ local function MoveItemInternal(src, fromSlot, toSlot)
     local genderOk, genderErr = validateEquipmentGender(src, toSlot, source)
     if not genderOk then return false, genderErr end
 
+    if toSlot == 'weapon' and isWeaponBanned(source.item_name) then
+        return false, 'This weapon has been disabled on this server.'
+    end
+
     local canSlot, slotErr = canPlaceInSlot(source.item_name, toSlot)
     if not canSlot then return false, slotErr end
+
+    -- The nested bag-skin slot only ever makes sense as a reskin overlay on a
+    -- REAL functional bag (item_name == 'clothing_bags' with a level > 0) --
+    -- shape validity (item is a Bag Skin) was just checked above by
+    -- canPlaceInSlot/Config.EquipmentRules.bagskin; this is the dynamic half
+    -- of that rule, which needs the current bag row to evaluate.
+    if toSlot == 'bagskin' and not rowCanActAsBag(getItemAt(ownerType, ownerId, 'bag')) then
+        return false, 'Equip a real bag first before adding a Bag Skin.'
+    end
 
     local dest = getItemAt(ownerType, ownerId, toSlot)
     local sourceItem = rowToItem(source)
@@ -403,7 +444,13 @@ local function DropItemInternal(src, slot, amount)
     end
 
     local dropId = createWorldDrop(src, row, drop)
-    audit(ownerId, 'drop', row.item_name, drop, slot, nil, dropId and ('world_drop_' .. dropId) or 'drop_item', decode(row.metadata))
+    local droppedMetadata = decode(row.metadata)
+    audit(ownerId, 'drop', row.item_name, drop, slot, nil, dropId and ('world_drop_' .. dropId) or 'drop_item', droppedMetadata)
+    if dropId then
+        -- Local server contract emitted only after the authoritative inventory
+        -- row has been removed and the world drop has been created.
+        TriggerEvent('cm-inventory:server:itemDropped', src, tostring(ownerId), row.item_name, drop, droppedMetadata, dropId)
+    end
     if dropId then sendDrops(-1) end
     return true
 end

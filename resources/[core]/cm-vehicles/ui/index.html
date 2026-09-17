@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=356" />
   <title>CM Vehicles</title>
 </head>
 <body>
@@ -27,7 +27,44 @@
 
   <section id="vehicleMenu" class="vehicle-menu hidden">
     <div class="menu-shade"></div>
-    <div id="radialActions" class="radial-actions"></div>
+    <div class="menu-center-wrap">
+      <header id="menuVehicleHeader" class="menu-vehicle-header">
+        <div class="mvh-left">
+          <div class="mvh-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.22.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.85 7h10.29l1.04 3H5.81l1.04-3zM19 17H5v-4.66l.12-.34h13.77l.11.34V17z"/>
+              <circle cx="7.5" cy="14.5" r="1.5"/>
+              <circle cx="16.5" cy="14.5" r="1.5"/>
+            </svg>
+          </div>
+          <div class="mvh-title" id="mvhName">VEHICLE</div>
+          <div class="mvh-plate" id="mvhPlate">NO PLATE</div>
+          <div class="mvh-status unlocked" id="mvhLock">• UNLOCKED</div>
+        </div>
+        <div class="mvh-metrics">
+          <div class="mvh-metric">
+            <span class="mvh-metric-lbl">ODOMETER</span>
+            <span class="mvh-metric-val" id="mvhMileage">0.0 KM</span>
+          </div>
+          <div class="mvh-metric fuel-metric">
+            <span class="mvh-metric-lbl">FUEL</span>
+            <div class="mvh-fuel-wrap">
+              <div class="mvh-fuel-track"><div class="mvh-fuel-bar" id="mvhFuelBar"></div></div>
+              <span class="mvh-metric-val green" id="mvhFuel">100%</span>
+            </div>
+          </div>
+        </div>
+      </header>
+      <div id="mvhNotice" class="mvh-notice hidden"></div>
+      <div id="radialActions" class="radial-actions"></div>
+      <div class="menu-hint-bar">
+        <div class="hint-item"><span class="hint-badge yellow">CLICK / 1-9</span> <span class="hint-label">SELECT ACTION</span></div>
+        <span class="hint-dot">·</span>
+        <div class="hint-item"><span class="hint-badge dark">RMB</span> <span class="hint-label">BACK</span></div>
+        <span class="hint-dot">·</span>
+        <div class="hint-item"><span class="hint-badge red">ESC</span> <span class="hint-label">CLOSE HUD</span></div>
+      </div>
+    </div>
 
     <button class="menu-close" data-close>×</button>
 
@@ -83,6 +120,7 @@
       </header>
 
       <div class="info-scroll">
+        <div id="vehicleNotice" class="vehicle-notice hidden"></div>
         <section class="info-section">
           <div class="section-title">Ownership & value</div>
           <div class="overview-grid">
@@ -136,6 +174,19 @@
 
   <!-- Vehicle trunk item inventory removed. Storage UI now lives only in cm-inventory. -->
 
-  <script src="app.js"></script>
+  <section id="saleConfirm" class="sale-confirm hidden" aria-hidden="true">
+    <div class="sale-confirm-card" role="dialog" aria-modal="true" aria-labelledby="saleConfirmTitle">
+      <div class="sale-confirm-kicker">CM VEHICLE RECORD</div>
+      <h2 id="saleConfirmTitle">SELL VEHICLE TO STATE?</h2>
+      <p id="saleConfirmText">This permanently removes the vehicle and its ownership record.</p>
+      <div class="sale-confirm-payout"><span>STATE PAYOUT</span><b id="saleConfirmPayout">$0</b></div>
+      <div class="sale-confirm-actions">
+        <button id="saleConfirmCancel" class="sale-confirm-cancel" type="button">KEEP VEHICLE</button>
+        <button id="saleConfirmAccept" class="sale-confirm-accept" type="button">CONFIRM SALE</button>
+      </div>
+    </div>
+  </section>
+
+  <script src="app.js?v=356"></script>
 </body>
 </html>

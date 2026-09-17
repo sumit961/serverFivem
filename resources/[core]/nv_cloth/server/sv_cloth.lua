@@ -6,13 +6,26 @@ local BLOCKED_CATEGORIES = {
   mask = true,
   arms = true,
   gloves = true,
+  -- Armor is NOT in this table. It is captured, priced, published and
+  -- org-assigned in /clothingstore like any other category (see
+  -- CATEGORY_COMPONENTS below), but by default a component-9 item is a real
+  -- vest bought/equipped exclusively through cm-gunstore's own cart and
+  -- SetPedArmour logic. Only when an admin gives a specific row a "sell as"
+  -- override to a different category (set in /clothingstore) is it sold
+  -- through nv_cloth's own checkout instead -- see the category == 'armor'
+  -- check inside normaliseItem below, which enforces this per-row rather
+  -- than per-category.
 }
 
 
 local EQUIP_SLOT_BY_CATEGORY = {
   tshirt = 'shirt', torso = 'outerwear', pants = 'pants', legs = 'pants', shoes = 'shoes',
   chains = 'accessory', bags = 'bag', hat = 'headwear', glasses = 'glasses',
-  earrings = 'earrings', watches = 'watch', bracelets = 'bracelet'
+  earrings = 'earrings', watches = 'watch', bracelets = 'bracelet',
+  -- Only reached for a "treat as clothing" component-9 item; a real vest
+  -- never goes through this map. Its own slot (not 'bodyarmor') so equipping
+  -- it can never unequip real body armor.
+  armor = 'vest',
 }
 
 local CATEGORY_COMPONENTS = {
@@ -27,6 +40,7 @@ local CATEGORY_COMPONENTS = {
   earrings = { type = 'prop',      index = 2,  label = 'Earrings' },
   watches  = { type = 'prop',      index = 6,  label = 'Watch' },
   bracelets = { type = 'prop',     index = 7,  label = 'Bracelet' },
+  armor    = { type = 'component', index = 9,  label = 'Armor' },
 }
 
 -- Build 2.19 helpers are implemented later in this file, but the legacy admin
@@ -599,7 +613,7 @@ end
 -- Stable identity shared by nv_cloth, cm-items catalog rows, manager updates,
 -- captures, and inventory metadata. It deliberately does not use a database
 -- auto-increment id, so retakes and restarts keep the same clothing identity.
-local function clothingUniqueId(gender, category, componentType, componentIndex, drawable, texture)
+local function clothingUniqueId(gender, category, componentType, componentIndex, drawable, texture, collection, collectionLocalId)
   gender = tostring(gender or 'male'):lower() == 'female' and 'female' or 'male'
   category = tostring(category or 'unknown'):lower():gsub('[^%w_%-]', '_')
   componentType = tostring(componentType or 'component'):lower() == 'prop' and 'prop' or 'component'
@@ -607,6 +621,21 @@ local function clothingUniqueId(gender, category, componentType, componentIndex,
   drawable = math.floor(tonumber(drawable) or -1)
   texture = math.floor(tonumber(texture) or -1)
   local textureKey = texture < 0 and 'all' or tostring(texture)
+
+  -- Prefer the collection address. A global drawable index renumbers whenever an
+  -- apparel pack is added, removed or reordered, which silently repoints the id
+  -- (and the image file named after it) at a different garment. (collection,
+  -- local index) does not move, so ids minted from it survive pack changes.
+  -- Rows with no recorded collection keep the original drawable-based id.
+  collectionLocalId = tonumber(collectionLocalId)
+  if collection ~= nil and collectionLocalId then
+    local collectionKey = tostring(collection):lower():gsub('[^%w_%-]', '_')
+    if collectionKey == '' then collectionKey = 'base' end
+    return ('nvcloth_%s_%s_%s_%s_c%s_l%s_t%s'):format(
+      gender, category, componentType, componentIndex, collectionKey,
+      math.floor(collectionLocalId), textureKey)
+  end
+
   return ('nvcloth_%s_%s_%s_%s_d%s_t%s'):format(
     gender, category, componentType, componentIndex, drawable, textureKey)
 end
@@ -620,11 +649,20 @@ local function stampClothingIdentity(row)
   local componentIndex = tonumber(row.componentIndex or row.component_index) or tonumber(def.index)
   local drawable = tonumber(row.drawableId or row.drawable_id or row.drawable)
   local texture = tonumber(row.textureId or row.texture_id or row.texture or -1) or -1
-  local uid = clothingUniqueId(gender, category, componentType, componentIndex, drawable, texture)
+  local collection = row.collection or row.collection_name or row.collectionName
+  local collectionLocalId = tonumber(row.collectionLocalId or row.collection_local_id)
+  local uid = clothingUniqueId(gender, category, componentType, componentIndex, drawable, texture, collection, collectionLocalId)
   row.uniqueId = uid
   row.unique_id = uid
   row.clothingId = uid
   row.clothing_id = uid
+  -- Normalise both spellings so the shop UI, purchase metadata and equip path
+  -- all see the collection address regardless of which one they read.
+  if collection ~= nil and collectionLocalId then
+    row.collection = collection
+    row.collectionLocalId = collectionLocalId
+    row.collection_local_id = collectionLocalId
+  end
   row.catalogKey = row.catalogKey or catalogKey(gender, category, drawable, texture)
   row.catalog_key = row.catalog_key or row.catalogKey
   return row
@@ -776,7 +814,7 @@ local function normalizeClothingImagePath(image, gender, componentType, componen
   if image:find('^clothing/') then
     return 'nui://cm-items/ui/images/' .. image
   end
-  if image:find('^custom/') then
+  if image:find('^custom/') or image:find('^items/') then
     return 'nui://cm-items/ui/images/clothing/' .. image
   end
 
@@ -854,6 +892,25 @@ local function normaliseItem(raw)
   -- Pull the authoritative row from cm-items again on the server. The browser may only send
   -- a display row, but cm-items owns the exact item key + image created by clothing admin.
   local catalogRow = findCatalogRowForPurchase(category, gender, drawable, texture, shopName)
+
+  -- "Sell as" override, set in /clothingstore: the row can be sold/priced/
+  -- grouped/mechanic'd as a DIFFERENT category than the one it was physically
+  -- captured under (e.g. a slot-9 capture sold as 'bags', complete with real
+  -- backpack capacity). componentType/componentIndex (from `def`, physical)
+  -- never change -- only display/behavior fields below use effCategory.
+  local sellCategory = type(catalogRow) == 'table' and tostring(catalogRow.sellCategory or catalogRow.sell_category or ''):lower() or ''
+  if sellCategory ~= '' and (sellCategory == category or not CATEGORY_COMPONENTS[sellCategory]) then sellCategory = '' end
+  local effCategory = sellCategory ~= '' and sellCategory or category
+  local effDef = CATEGORY_COMPONENTS[effCategory] or def
+
+  -- Component 9 defaults to "real vest, cm-gunstore only" -- reject it here
+  -- UNLESS the row has an active sell-as override. This is a per-row check
+  -- (not a static category block) because the same physical category can
+  -- hold both real armor and purely decorative slot-9 items.
+  if category == 'armor' and effCategory == 'armor' then
+    return nil, 'This category is not sold here.'
+  end
+
   local catalogMeta = type(catalogRow) == 'table' and decodeMetadataTable(catalogRow.metadata) or {}
 
   if type(catalogRow) == 'table' then
@@ -865,7 +922,16 @@ local function normaliseItem(raw)
     end
   end
 
-  local exactItemName = resolveExactClothingItemName(raw, incoming, catalogRow, category, gender, drawable, texture)
+  -- Cosmetic-only bag-slot skin (never a valid "sell as" target itself --
+  -- only ever true on a NATIVE bags row): its own item name, no bagLevel.
+  local bagSkin = effCategory == 'bags' and type(catalogRow) == 'table'
+    and (catalogRow.bagSkin == true or catalogRow.bag_skin == true)
+
+  -- Resolved from the EFFECTIVE category so an overridden item shares the
+  -- same physical inventory item as a native one of that category (e.g.
+  -- 'clothing_bags'), inheriting its real mechanics automatically.
+  local exactItemName = bagSkin and 'clothing_bags_skin'
+    or resolveExactClothingItemName(raw, incoming, catalogRow, effCategory, gender, drawable, texture)
   raw.itemName = exactItemName
   raw.item_name = exactItemName
   raw.nameKey = exactItemName
@@ -873,10 +939,11 @@ local function normaliseItem(raw)
   incoming.item_name = exactItemName
   incoming.nameKey = exactItemName
 
-  local label = raw.label or catalogRow and catalogRow.label or incoming.label or raw.name or ('%s %s/%s'):format(def.label, drawable, texture)
+  local label = raw.label or catalogRow and catalogRow.label or incoming.label or raw.name or ('%s %s/%s'):format(effDef.label, drawable, texture)
   local bagLevel = nil
-  if category == 'bags' then
-    bagLevel = tonumber(incoming.bagLevel or incoming.bag_level or incoming.level or raw.bagLevel or raw.bag_level or raw.level)
+  if effCategory == 'bags' and not bagSkin then
+    bagLevel = tonumber(incoming.bagLevel or incoming.bag_level or incoming.level or raw.bagLevel or raw.bag_level or raw.level
+      or (catalogRow and (catalogRow.bagLevel or catalogRow.bag_level)))
     if bagLevel ~= nil then
       bagLevel = math.max(1, math.min(4, math.floor(bagLevel)))
       raw.bagLevel = bagLevel
@@ -885,15 +952,19 @@ local function normaliseItem(raw)
     end
   end
 
-  -- cm-items is the single source for clothing metadata + image path.
-  local built = cmItemsCall('BuildClothingMetadata', category, raw, {
+  -- cm-items' generic builder derives componentType/componentIndex AND the
+  -- item name straight from the category name it's given, which would be
+  -- wrong for an overridden item (wrong component) or a bag skin (would
+  -- resolve to 'clothing_bags', not 'clothing_bags_skin'). Skip it in either
+  -- case and assemble metadata manually below instead.
+  local built = (effCategory == category and not bagSkin) and cmItemsCall('BuildClothingMetadata', category, raw, {
     label = label,
     gender = gender,
     bagLevel = bagLevel,
     bag_level = bagLevel,
     level = bagLevel,
     purchasedAt = os.date('!%Y-%m-%dT%H:%M:%SZ')
-  })
+  }) or nil
 
   if type(built) == 'table' then
     built.itemName = exactItemName or built.itemName or built.item_name or built.name or ('clothing_' .. category)
@@ -910,18 +981,69 @@ local function normaliseItem(raw)
     built.rarity = built.rarity or 'normal'
     built.price = tonumber(built.price or raw.price or incoming.price or (catalogRow and catalogRow.price)) or built.price
     built.catalogId = built.catalogId or built.catalog_id or raw.catalogId or raw.catalog_id or (catalogRow and (catalogRow.id or catalogRow.catalogId or catalogRow.catalog_id))
+    -- Permanent link back to the catalog row. cm-inventory refreshes the item's
+    -- label/image/price/garment from this row on every read, so editing the row
+    -- updates every copy players already own. catalogId (the auto-increment id)
+    -- is NOT usable for this -- it changes if a row is ever re-created, while
+    -- asset_id is minted once and never reassigned.
+    built.assetId = built.assetId or built.asset_id or raw.assetId or raw.asset_id
+      or (catalogRow and (catalogRow.assetId or catalogRow.asset_id))
+    built.asset_id = built.assetId
     built.catalogKey = built.catalogKey or catalogKey(gender, category, drawable, texture)
     built.purchasedAt = built.purchasedAt or os.date('!%Y-%m-%dT%H:%M:%SZ')
     if category == 'bags' then
-      local finalLevel = tonumber(raw.bagLevel or raw.bag_level or raw.level or incoming.bagLevel or incoming.bag_level or incoming.level or built.bagLevel or built.bag_level or built.level)
-      if not finalLevel then
-        return nil, 'Bag item is missing bagLevel. Select Level 1-4 in clothing admin.'
+      local isBagSkin = bagSkin or (catalogRow and (catalogRow.bagSkin == true or catalogRow.bag_skin == true))
+      if isBagSkin then
+        built.bagSkin = true
+        built.bagLevel = nil
+        built.bag_level = nil
+        built.level = nil
+        built.description = (catalogRow and catalogRow.description) or 'Cosmetic bag-slot clothing item.'
+        built.itemName = 'clothing_bags_skin'
+        built.item_name = 'clothing_bags_skin'
+        built.nameKey = 'clothing_bags_skin'
+        built.name = 'clothing_bags_skin'
+      else
+        local finalLevel = tonumber(raw.bagLevel or raw.bag_level or raw.level or incoming.bagLevel or incoming.bag_level or incoming.level or built.bagLevel or built.bag_level or built.level)
+        if not finalLevel then
+          return nil, 'Bag item is missing bagLevel. Select Level 1-4 in clothing admin.'
+        end
+        finalLevel = math.max(1, math.min(4, math.floor(finalLevel)))
+        built.bagLevel = finalLevel
+        built.bag_level = nil
+        built.level = nil
+        built.description = ('Level %s bag. Unlocks backpack slots.'):format(finalLevel)
       end
-      finalLevel = math.max(1, math.min(4, math.floor(finalLevel)))
-      built.bagLevel = finalLevel
-      built.bag_level = nil
-      built.level = nil
-      built.description = ('Level %s bag. Unlocks backpack slots.'):format(finalLevel)
+      local pairedDrawable = tonumber(incoming.pairedDrawableId or incoming.paired_drawable_id
+        or raw.pairedDrawableId or raw.paired_drawable_id
+        or (catalogRow and (catalogRow.pairedDrawableId or catalogRow.paired_drawable_id)))
+      local pairedTexture = tonumber(incoming.pairedTextureId or incoming.paired_texture_id
+        or raw.pairedTextureId or raw.paired_texture_id
+        or (catalogRow and (catalogRow.pairedTextureId or catalogRow.paired_texture_id))) or 0
+      if pairedDrawable ~= nil and pairedDrawable >= 0 then
+        built.pairedDrawableId = pairedDrawable
+        built.pairedTextureId = pairedTexture
+        -- Stable address of the other gender's bag, so equipping it survives an
+        -- apparel pack change instead of resolving to whatever now sits at that
+        -- index on the other model.
+        built.pairedCollection = incoming.pairedCollection or raw.pairedCollection
+          or (catalogRow and (catalogRow.pairedCollection or catalogRow.paired_collection))
+        built.pairedCollectionLocalId = tonumber(incoming.pairedCollectionLocalId
+          or raw.pairedCollectionLocalId
+          or (catalogRow and (catalogRow.pairedCollectionLocalId or catalogRow.paired_collection_local_id)))
+        if gender == 'male' then
+          built.maleDrawableId = drawable
+          built.maleTextureId = texture
+          built.femaleDrawableId = pairedDrawable
+          built.femaleTextureId = pairedTexture
+        else
+          built.femaleDrawableId = drawable
+          built.femaleTextureId = texture
+          built.maleDrawableId = pairedDrawable
+          built.maleTextureId = pairedTexture
+        end
+        built.gender = 'both'
+      end
     end
     -- IMPORTANT: captured/catalog image must win over generated fallback image.
     local finalImage = (catalogRow and (catalogRow.image or catalogRow.icon)) or incoming.image or incoming.icon or raw.image or raw.icon or built.image or built.icon
@@ -938,15 +1060,27 @@ local function normaliseItem(raw)
     return built
   end
 
+  -- componentType/componentIndex are ALWAYS the physical `def` (what was
+  -- actually captured) so equip renders the right slot; everything about how
+  -- the item is named/labelled/mechanic'd uses the EFFECTIVE category.
   local meta = {
-    itemName = exactItemName or ('clothing_' .. category),
-    item_name = exactItemName or ('clothing_' .. category),
-    nameKey = exactItemName or ('clothing_' .. category),
-    categoryType = category,
+    itemName = exactItemName or ('clothing_' .. effCategory),
+    item_name = exactItemName or ('clothing_' .. effCategory),
+    nameKey = exactItemName or ('clothing_' .. effCategory),
+    categoryType = effCategory,
     componentType = def.type,
     componentIndex = def.index,
     drawableId = tonumber(incoming.drawableId or incoming.drawable) or drawable,
     textureId = tonumber(incoming.textureId or incoming.texture) or texture,
+    -- Carried onto the owned item so equipping resolves the garment by its
+    -- collection address instead of the drawable index, which renumbers whenever
+    -- an apparel pack changes. Taken from the catalog row, the only place that
+    -- recorded it at capture time.
+    collection = (catalogRow and (catalogRow.collection or catalogRow.collection_name))
+      or incoming.collection,
+    collectionLocalId = tonumber(
+      (catalogRow and (catalogRow.collectionLocalId or catalogRow.collection_local_id))
+      or incoming.collectionLocalId or incoming.collection_local_id),
     gender = tostring(gender):lower() == 'female' and 'female' or 'male',
     arms = tonumber(incoming.arms),
     armsTexture = tonumber(incoming.armsTexture) or 0,
@@ -956,24 +1090,74 @@ local function normaliseItem(raw)
     bag_level = bagLevel,
     level = bagLevel,
     label = incoming.label or label,
-    description = incoming.description or raw.description or (catalogRow and catalogRow.description) or ('%s clothing item'):format(def.label),
+    description = incoming.description or raw.description or (catalogRow and catalogRow.description) or ('%s clothing item'):format(effDef.label),
     price = tonumber(incoming.price or raw.price or (catalogRow and catalogRow.price)) or nil,
     catalogId = incoming.catalogId or incoming.catalog_id or raw.catalogId or raw.catalog_id or (catalogRow and (catalogRow.id or catalogRow.catalogId or catalogRow.catalog_id)),
+    -- See the matching block above: permanent link to the catalog row, so later
+    -- edits to that row reach this copy of the item.
+    assetId = incoming.assetId or incoming.asset_id or raw.assetId or raw.asset_id
+      or (catalogRow and (catalogRow.assetId or catalogRow.asset_id)),
+    -- Physical category, matching how the catalog row's own catalogKey/uniqueId
+    -- are built (see stampClothingIdentity) -- this is what reconciles a
+    -- purchased instance back to its live catalog row later.
     catalogKey = catalogKey(gender, category, drawable, texture),
     itemType = 'clothing',
     rarity = 'normal',
     purchasedAt = os.date('!%Y-%m-%dT%H:%M:%SZ')
   }
-  if category == 'bags' then
-    if not bagLevel then return nil, 'Bag item is missing bagLevel. Select Level 1-4 in clothing admin.' end
+  if effCategory == 'bags' and bagSkin then
+    meta.bagSkin = true
+    meta.itemName = 'clothing_bags_skin'
+    meta.item_name = 'clothing_bags_skin'
+    meta.nameKey = 'clothing_bags_skin'
+    meta.name = 'clothing_bags_skin'
+    meta.bagLevel = nil
+    meta.bag_level = nil
+    meta.level = nil
+    meta.description = (catalogRow and catalogRow.description) or 'Cosmetic bag-slot clothing item.'
+  elseif effCategory == 'bags' then
+    if not bagLevel then return nil, 'Bag item is missing bagLevel. Set it in /clothingstore.' end
     meta.bagLevel = math.max(1, math.min(4, math.floor(tonumber(bagLevel) or 1)))
     meta.bag_level = nil
     meta.level = nil
     meta.description = ('Level %s bag. Unlocks backpack slots.'):format(meta.bagLevel)
   end
+
+  if effCategory == 'bags' then
+    local pairedDrawable = tonumber(incoming.pairedDrawableId or incoming.paired_drawable_id
+      or raw.pairedDrawableId or raw.paired_drawable_id
+      or (catalogRow and (catalogRow.pairedDrawableId or catalogRow.paired_drawable_id)))
+    local pairedTexture = tonumber(incoming.pairedTextureId or incoming.paired_texture_id
+      or raw.pairedTextureId or raw.paired_texture_id
+      or (catalogRow and (catalogRow.pairedTextureId or catalogRow.paired_texture_id))) or 0
+    if pairedDrawable ~= nil and pairedDrawable >= 0 then
+      meta.pairedDrawableId = pairedDrawable
+      meta.pairedTextureId = pairedTexture
+      -- See the matching block above: the owned item carries the other gender's
+      -- collection address so cm-inventory can resolve it at equip time.
+      meta.pairedCollection = incoming.pairedCollection or raw.pairedCollection
+        or (catalogRow and (catalogRow.pairedCollection or catalogRow.paired_collection))
+      meta.pairedCollectionLocalId = tonumber(incoming.pairedCollectionLocalId
+        or raw.pairedCollectionLocalId
+        or (catalogRow and (catalogRow.pairedCollectionLocalId or catalogRow.paired_collection_local_id)))
+      if gender == 'male' then
+        meta.maleDrawableId = drawable
+        meta.maleTextureId = texture
+        meta.femaleDrawableId = pairedDrawable
+        meta.femaleTextureId = pairedTexture
+      else
+        meta.femaleDrawableId = drawable
+        meta.femaleTextureId = texture
+        meta.maleDrawableId = pairedDrawable
+        meta.maleTextureId = pairedTexture
+      end
+      meta.gender = 'both'
+    end
+  end
+
   -- IMPORTANT: use exact captured catalog image from the row, then fall back to generated cm-items path.
   local finalImage = (catalogRow and (catalogRow.image or catalogRow.icon)) or incoming.image or incoming.icon or raw.image or raw.icon or fallbackImage(meta.gender, meta.componentType, meta.componentIndex, meta.drawableId)
-  normalizeMetadataAliases(meta, category, def, drawable, texture, gender, finalImage)
+  normalizeMetadataAliases(meta, effCategory, nil, drawable, texture, gender, finalImage)
   meta.itemName = exactItemName or meta.itemName
   meta.item_name = meta.itemName
   meta.nameKey = meta.itemName
@@ -1025,23 +1209,29 @@ local function addItemViaCmInventory(src, itemName, amount, metadata, reason, pr
   local inv = exports['cm-inventory']
   local meta = metadata or {}
   local attempts = {
-    -- Match cm-items /cmitempreview compatibility: send metadata in arg #4 AND #5.
-    -- Some older cm-inventory builds accidentally read metadata from the 5th argument.
-    -- Without this, bought store clothes become plain/no-image/no-equip while preview works.
-    function() return inv.AddItem(src, itemName, amount, meta, meta, preferredSlot) end,
-    function() return inv:AddItem(src, itemName, amount, meta, meta, preferredSlot) end,
-
-    -- Current CM signature: src, item, amount, metadata, reason, preferredSlot.
-    function() return inv.AddItem(src, itemName, amount, meta, reason, preferredSlot) end,
+    -- IMPORTANT -- FXServer Lua export gotcha: exports[...][...](...) called
+    -- with a DOT never supplies the leading "self" the export proxy expects
+    -- (FXServer's own docs always show exports called with a COLON). A dot
+    -- call silently drops the first REAL argument (src) instead, shifting
+    -- itemName/amount/metadata/reason all one slot left before cm-inventory
+    -- ever sees them -- confirmed via raw argument logging that this is what
+    -- was turning correctly-built clothing metadata into an empty table.
+    -- Colon calls (inv:AddItem(...)) are the correct, reliable form and are
+    -- tried first; the old dot-call + duplicate-metadata attempts below only
+    -- "worked" by luck (the duplicate copy happened to land in whichever slot
+    -- ended up read as metadata after the shift) and are kept as last-resort
+    -- fallbacks only.
     function() return inv:AddItem(src, itemName, amount, meta, reason, preferredSlot) end,
+    function() return inv:AddItem(src, itemName, amount, meta, reason) end,
+
+    function() return inv.AddItem(src, itemName, amount, meta, meta, preferredSlot) end,
+    function() return inv.AddItem(src, itemName, amount, meta, reason, preferredSlot) end,
   }
 
   -- Older resources may not support the slot parameter; keep these only as fallback.
   if preferredSlot == nil then
     attempts[#attempts + 1] = function() return inv.AddItem(src, itemName, amount, meta, meta, reason) end
-    attempts[#attempts + 1] = function() return inv:AddItem(src, itemName, amount, meta, meta, reason) end
     attempts[#attempts + 1] = function() return inv.AddItem(src, itemName, amount, meta, reason) end
-    attempts[#attempts + 1] = function() return inv:AddItem(src, itemName, amount, meta, reason) end
     attempts[#attempts + 1] = function() return inv.AddItem(src, itemName, amount, meta) end
     attempts[#attempts + 1] = function() return inv:AddItem(src, itemName, amount, meta) end
   end
@@ -1063,12 +1253,14 @@ local function removeItemViaCmInventory(src, itemName, amount, metadata, reason,
   if GetResourceState('cm-inventory') ~= 'started' then return false, 'inventory_not_started' end
   local inv = exports['cm-inventory']
   local attempts = {
-    function() return inv.RemoveItem(src, itemName, amount, metadata, reason, preferredSlot) end,
+    -- Colon calls first -- see addItemViaCmInventory above for why a dot call
+    -- silently drops the leading `src` argument on FXServer exports.
     function() return inv:RemoveItem(src, itemName, amount, metadata, reason, preferredSlot) end,
-    function() return inv.RemoveItem(src, itemName, amount, metadata, reason) end,
     function() return inv:RemoveItem(src, itemName, amount, metadata, reason) end,
-    function() return inv.RemoveItem(src, itemName, amount, preferredSlot) end,
+    function() return inv.RemoveItem(src, itemName, amount, metadata, reason, preferredSlot) end,
+    function() return inv.RemoveItem(src, itemName, amount, metadata, reason) end,
     function() return inv:RemoveItem(src, itemName, amount, preferredSlot) end,
+    function() return inv.RemoveItem(src, itemName, amount, preferredSlot) end,
   }
   local lastErr = nil
   for _, fn in ipairs(attempts) do
@@ -1643,7 +1835,7 @@ RegisterNetEvent('nvCloth:server:adminToggleItem', function(data)
   -- Legacy state-preserving catalog updates remain compatible, but the current
   -- /clothingadmin NUI no longer exposes this path or any torso-fit controls.
   if data.preserveState == true then
-    preserveManagedState(entry, findExistingManagedRow(category, gender, drawable))
+    preserveManagedState(entry, findExistingManagedRow(category, gender, drawable, texture))
   end
 
   if category == 'bags' then
@@ -1822,7 +2014,7 @@ end
 -- separate org locker command, never the public store.
 --========================================================
 local function allManagedShopNames()
-  local shops = { 'clothes', 'hidden_event' }
+  local shops = { 'clothes', 'hidden_event', 'armor' }
   for org in pairs(Config.OrgShops or {}) do
     shops[#shops + 1] = 'org_' .. tostring(org):lower()
   end
@@ -1835,10 +2027,64 @@ local function orgFromShopName(shop)
   return org
 end
 
--- Finds the stored catalog row for one drawable (any texture row form) across
--- every managed shop, disabled rows included. Used so a retake never resets an
--- item that an admin already published/priced/assigned in /clothingstore.
-findExistingManagedRow = function(category, gender, drawable)
+-- Finds the stored catalog row governing one drawable across every managed
+-- shop, disabled rows included. Used so a retake never resets an item an
+-- admin already published/priced/assigned in /clothingstore.
+--
+-- Prefers the drawable-level "master" row (texture = -1), since that's the
+-- one /clothingstore actually manages publish-state/price/shop/org on. When
+-- no master exists yet, falls back to a row for the EXACT texture being
+-- saved (a genuine retake of that specific texture) -- never to some other,
+-- unrelated texture's row. That used to return whatever per-texture row
+-- happened to be first in cm-items' result set (e.g. T1's) and silently
+-- copy its price/publish-state/label onto a brand-new T9 capture.
+-- `texture` is optional: omit it when only the master row is wanted (e.g.
+-- /clothingstore's manager, which always operates on the master row itself).
+findExistingManagedRow = function(category, gender, drawable, texture)
+  if GetResourceState('cm-items') ~= 'started' then return nil end
+  category = tostring(category or ''):lower()
+  gender = tostring(gender or 'male'):lower() == 'female' and 'female' or 'male'
+  drawable = tonumber(drawable)
+  texture = tonumber(texture)
+  if not drawable then return nil end
+
+  local exactMatch = nil
+  for _, shopName in ipairs(allManagedShopNames()) do
+    local ok, rows = pcall(function()
+      return exports['cm-items']:GetClothingCatalogRows({
+        shop = shopName,
+        gender = gender,
+        includeDisabled = true,
+      })
+    end)
+    if ok and type(rows) == 'table' then
+      for _, row in ipairs(rows) do
+        if type(row) == 'table' then
+          local rowCat = tostring(row.category or ''):lower()
+          local rowDraw = tonumber(row.drawableId or row.drawable_id or row.drawable)
+          local rowGender = tostring(row.gender or 'male'):lower()
+          if rowDraw == drawable and rowGender == gender
+            and (rowCat == category or CATEGORY_COMPONENTS[rowCat] == CATEGORY_COMPONENTS[category]) then
+            row.shop = row.shop or shopName
+            local rowTexture = tonumber(row.textureId or row.texture_id or row.texture or -1) or -1
+            if rowTexture < 0 then return row end
+            if texture ~= nil and rowTexture == texture then exactMatch = exactMatch or row end
+          end
+        end
+      end
+    end
+  end
+  return exactMatch
+end
+
+-- Used only for bag gender-mirroring in manageSaveItem: ANY row (master
+-- preferred, else whichever texture-specific row exists) for the OTHER
+-- gender at this drawable. Bags are always exactly one image/level/price
+-- shared across both genders, so unlike findExistingManagedRow (which must
+-- never guess across textures, to avoid the T1/T9 data-leak bug), grabbing
+-- any existing row here is correct -- it only ever supplies that gender's
+-- captured image when creating/updating its master row, never metadata.
+local function findAnyGenderRow(category, gender, drawable)
   if GetResourceState('cm-items') ~= 'started' then return nil end
   category = tostring(category or ''):lower()
   gender = tostring(gender or 'male'):lower() == 'female' and 'female' or 'male'
@@ -1860,8 +2106,7 @@ findExistingManagedRow = function(category, gender, drawable)
           local rowCat = tostring(row.category or ''):lower()
           local rowDraw = tonumber(row.drawableId or row.drawable_id or row.drawable)
           local rowGender = tostring(row.gender or 'male'):lower()
-          if rowDraw == drawable and rowGender == gender
-            and (rowCat == category or CATEGORY_COMPONENTS[rowCat] == CATEGORY_COMPONENTS[category]) then
+          if rowDraw == drawable and rowGender == gender and rowCat == category then
             row.shop = row.shop or shopName
             local rowTexture = tonumber(row.textureId or row.texture_id or row.texture or -1) or -1
             if rowTexture < 0 then return row end
@@ -1883,8 +2128,20 @@ preserveManagedState = function(entry, existing)
     return entry
   end
   entry.enabled = not (existing.enabled == false or existing.enabled == 0 or existing.enabled == '0')
+  -- A retake must not silently re-enable an item /clothingstore deliberately
+  -- pulled out of use.
+  entry.tempDisabled = existing.tempDisabled == true or existing.temp_disabled == true or existing.temp_disabled == 1
   entry.shop = existing.shop or entry.shop
   entry.price = tonumber(existing.price) or entry.price
+  -- A retake must not silently drop or change a "sell as" override -- keep
+  -- whatever category /clothingstore decided this row sells/behaves as.
+  local existingSellCategory = tostring(existing.sellCategory or existing.sell_category or ''):lower()
+  entry.sellCategory = existingSellCategory ~= '' and existingSellCategory or nil
+  entry.sell_category = entry.sellCategory
+  -- Same for a native bag's Skin vs Functional choice.
+  local existingBagSkin = existing.bagSkin == true or existing.bag_skin == true
+  entry.bagSkin = existingBagSkin
+  entry.bag_skin = existingBagSkin
   if existing.label and existing.label ~= '' then
     entry.label = existing.label
     entry.name = existing.label
@@ -1906,7 +2163,190 @@ preserveManagedState = function(entry, existing)
   return entry
 end
 
-local function saveCatalogEntryFromIcon(src, data, imagePath)
+-- Every image-changing path (retake, revert, set-cover) overwrites the exact
+-- same stable file path rather than creating a new one, so already-owned
+-- copies of the item would keep pointing at cached pre-change pixels/label
+-- forever unless their stored inventory metadata is refreshed to match.
+-- Callers should only invoke this when a catalog row for this identity
+-- already existed before the change -- a brand-new capture has no owners yet.
+local function syncOwnedClothingImage(row)
+  if GetResourceState('cm-inventory') ~= 'started' then return end
+  pcall(function()
+    return exports['cm-inventory']:SyncOwnedClothingMetadata({
+      gender = row.gender,
+      componentType = row.componentType or row.component_type,
+      componentIndex = row.componentIndex or row.component_index,
+      drawableId = row.drawableId or row.drawable_id or row.drawable,
+      textureId = row.textureId or row.texture_id or row.texture,
+    }, {
+      image = row.image or row.icon,
+      icon = row.icon or row.image,
+      label = row.label,
+    })
+  end)
+end
+
+-- Newly temp-disabled: tell every online client to check whether they
+-- currently have this exact item equipped and, if so, strip it and save
+-- their appearance -- disabling only blocks future equips otherwise,
+-- leaving it visible on whoever is already wearing it. cm-inventory owns
+-- the actual client-side equipment state, so this only broadcasts identity;
+-- the strip logic itself lives in cm-inventory/client/main.lua.
+local function broadcastTempDisabledEquip(row)
+  if GetResourceState('cm-inventory') ~= 'started' then return end
+  TriggerClientEvent('cm-inventory:client:clothingTempDisabled', -1, {
+    gender = row.gender,
+    componentType = row.componentType or row.component_type,
+    componentIndex = row.componentIndex or row.component_index,
+    drawableId = row.drawableId or row.drawable_id or row.drawable,
+    textureId = row.textureId or row.texture_id or row.texture,
+  })
+end
+
+-- Per-item image storage. Every captured clothing row owns a server-minted
+-- asset id and its own folder, cm-items/ui/images/clothing/items/<asset_id>/.
+-- Each capture writes a NEW file there rather than overwriting a shared path
+-- named after the drawable, so two items can never collide on an image, a
+-- retake can never clobber another item's photo, and image history/revert
+-- keeps pointing at pixels that still exist. The id never comes from a client.
+local ITEM_IMAGE_FOLDER = 'ui/images/clothing/items'
+local ITEM_IMAGE_PREFIX = 'items'
+
+local function newAssetId()
+  return ('ci_%x_%06x%06x%06x'):format(os.time(),
+    math.random(0, 0xFFFFFF), math.random(0, 0xFFFFFF), GetGameTimer() % 0x1000000)
+end
+
+-- Also what makes the id safe to place in a filesystem path and a shell mkdir:
+-- only the fixed prefix and hex digits can pass.
+local function isValidAssetId(id)
+  return type(id) == 'string' and #id <= 48 and id:match('^ci_%x+_%x+$') ~= nil
+end
+
+-- The asset id already stored for this exact catalog row, if any. Looked up by
+-- the table's full unique key (gender/component/drawable/texture) rather than via
+-- findExistingManagedRow, which returns the drawable-level thumbnail row first and
+-- would hand a texture row that row's folder.
+local function storedAssetIdFor(row)
+  if GetResourceState('cm-items') ~= 'started' then return nil end
+  local compType = tostring(row.componentType or row.component_type or 'component'):lower()
+  local compIndex = tonumber(row.componentIndex or row.component_index)
+  local drawable = tonumber(row.drawableId or row.drawable_id or row.drawable)
+  local texture = tonumber(row.textureId or row.texture_id or row.texture or -1) or -1
+  for _, shopName in ipairs(allManagedShopNames()) do
+    local ok, rows = pcall(function()
+      return exports['cm-items']:GetClothingCatalogRows({
+        shop = shopName, gender = row.gender, includeDisabled = true,
+      })
+    end)
+    if ok and type(rows) == 'table' then
+      for _, r in ipairs(rows) do
+        if type(r) == 'table'
+          and tostring(r.componentType or r.component_type or 'component'):lower() == compType
+          and tonumber(r.componentIndex or r.component_index) == compIndex
+          and tonumber(r.drawableId or r.drawable_id or r.drawable) == drawable
+          and (tonumber(r.textureId or r.texture_id or r.texture or -1) or -1) == texture then
+          local id = r.assetId or r.asset_id
+          if isValidAssetId(id) then return id end
+        end
+      end
+    end
+  end
+  return nil
+end
+
+-- ---------------------------------------------------------------------------
+-- Photo-replace target
+--
+-- /clothingstore's RETAKE hands the item's asset id to the capture panel, and
+-- the panel sends it back on the capture payload. When it is present, the
+-- capture REPLACES that item -- new garment and new photo together -- instead
+-- of creating a second catalog entry.
+--
+-- That is the only way to change an item's garment. Changing a drawable on its
+-- own would leave the old picture describing clothing the item no longer wears,
+-- so the two always move together.
+-- ---------------------------------------------------------------------------
+
+-- Where an item was before its last photo-replace, so it can be sent back.
+-- Keyed by asset id, which survives the replace -- the drawable does not.
+--
+-- The image is stored alongside the drawable and restored WITH it. A revert
+-- that moved the garment but left the new photo behind would recreate exactly
+-- the mismatch this flow exists to prevent.
+local replaceHistory = {}
+
+-- Validates the replace target named by a capture payload.
+--
+-- The capture event already requires clothing-admin, but an admin's client is
+-- still an untrusted source: the id is shape-checked and must resolve to a real
+-- catalog row before anything is moved.
+local function resolveReplaceTarget(data)
+  if type(data) ~= 'table' then return nil end
+  local assetId = tostring(data.replaceAssetId or data.replace_asset_id or '')
+  if assetId == '' then return nil end
+  if #assetId > 48 or not assetId:match('^ci_%x+_%x+$') then return nil end
+  local row = cmItemsCall('GetClothingCatalogByAssetId', assetId)
+  if type(row) ~= 'table' then return nil end
+  return { assetId = assetId, label = row.label, gender = row.gender }
+end
+
+-- Writes this capture as a new, never-overwritten file and points the row at it.
+-- The stored asset id always wins, mirroring the COALESCE in cm-items' upsert,
+-- so the recorded id and the file on disk cannot disagree.
+--
+-- The id is in the FILE NAME rather than a folder per item: SaveResourceFile does
+-- not create directories, and creating one from here (os.execute mkdir against
+-- another resource's GetResourcePath) silently did nothing on this server, so
+-- every capture failed with item_image_write_failed. A flat name is still unique
+-- to the item and still never overwritten.
+local function writeItemImage(row, bytes)
+  -- forceAssetId is set when this capture is REPLACING an existing item: the
+  -- photo has to be filed under the item's existing id, because that id is what
+  -- every owned copy resolves through. Looking the id up by drawable would find
+  -- nothing (the replacement garment is a drawable the catalog has never seen)
+  -- and mint a new one, orphaning every copy players already own.
+  row.assetId = row.forceAssetId or storedAssetIdFor(row) or newAssetId()
+  row.asset_id = row.assetId
+
+  local resource = tostring((Config.IconCapture or {}).catalogImageResource or 'cm-items')
+  if GetResourceState(resource) ~= 'started' then return false, 'cm_items_not_started' end
+
+  local fileName = ('%s_%x_%06x.png'):format(row.assetId, os.time(), math.random(0, 0xFFFFFF))
+
+  -- ui/images/clothing/ always exists; items/ ships with a .keep but a fresh
+  -- install could lack it, so fall back rather than losing the capture. Both
+  -- prefixes already resolve to a URL in every image resolver.
+  local targets = {
+    { folder = ITEM_IMAGE_FOLDER, prefix = ITEM_IMAGE_PREFIX },
+    { folder = 'ui/images/clothing', prefix = 'clothing' },
+  }
+
+  for _, target in ipairs(targets) do
+    local fullPath = ('%s/%s'):format(target.folder, fileName)
+    if SaveResourceFile(resource, fullPath, bytes, #bytes) then
+      row.image = ('%s/%s'):format(target.prefix, fileName)
+      row.icon = row.image
+      return true
+    end
+    print(('[nv_cloth] SaveResourceFile failed for resource=%s path=%s bytes=%s'):format(
+      tostring(resource), tostring(fullPath), tostring(bytes and #bytes or 0)))
+  end
+
+  return false, 'item_image_write_failed'
+end
+
+-- Collection name as reported by the capturing client. "" is a real collection
+-- (base game clothing), so an empty string has to survive as a recorded value
+-- while a missing field stays nil and leaves the row on drawable-only identity.
+-- Clamped to the column width because this arrives from a client event.
+local function captureCollectionName(data)
+  local collection = data.collection or data.collection_name or data.collectionName
+  if collection == nil then return nil end
+  return tostring(collection):sub(1, 64)
+end
+
+local function saveCatalogEntryFromIcon(src, data, imageBytes)
   local category = tostring(data.category or ''):lower()
   local def = CATEGORY_COMPONENTS[category]
   if not def then return false, 'invalid_category' end
@@ -1915,8 +2355,104 @@ local function saveCatalogEntryFromIcon(src, data, imagePath)
   if not drawable then return false, 'invalid_drawable' end
   local texture = tonumber(data.textureId or data.texture or 0) or 0
 
+  -- REPLACE MODE (RETAKE in /clothingstore).
+  --
+  -- Wear the replacement garment, photograph it as normal, and instead of
+  -- creating a new catalog row this moves the armed item onto what was just
+  -- captured: new garment, new photo, same asset id. Because owned copies
+  -- resolve through that id, every player holding the item gets the new
+  -- clothing without anything being re-issued to them.
+  --
+  -- Returns early -- none of the normal save path runs, so no second row is
+  -- created and the item is never duplicated.
+  local armed = resolveReplaceTarget(data)
+  if armed then
+    -- Drawable indices are per ped model, so a female index written onto a male
+    -- row names a completely different garment. Refuse rather than corrupt the
+    -- item, and re-arm so the admin can just switch ped and shoot again.
+    local captureGender = tostring(data.gender or 'male'):lower() == 'female' and 'female' or 'male'
+    if armed.gender and tostring(armed.gender):lower() ~= captureGender then
+      return false, ('replace_gender_mismatch: "%s" is a %s item, captured as %s'):format(
+        tostring(armed.label), tostring(armed.gender), captureGender)
+    end
+
+    local row = {
+      forceAssetId = armed.assetId,
+      gender = armed.gender,
+      componentType = def.type,
+      componentIndex = def.index,
+      drawableId = drawable,
+      textureId = texture,
+    }
+
+    if imageBytes then
+      local okImage, errImage = writeItemImage(row, imageBytes)
+      if not okImage then
+        print(('[nv_cloth] replace capture failed to write image for asset=%s: %s'):format(
+          armed.assetId, tostring(errImage)))
+        return false, errImage
+      end
+    end
+
+    -- Snapshot where the item was, INCLUDING its photo, before the swap. Both
+    -- are restored together by REVERT PHOTO so the picture never describes a
+    -- garment the item is no longer wearing.
+    local before = cmItemsCall('GetClothingCatalogByAssetId', armed.assetId)
+    if type(before) == 'table' then
+      replaceHistory[armed.assetId] = {
+        drawableId = tonumber(before.drawableId),
+        textureId = tonumber(before.textureId),
+        collection = before.collection,
+        collectionLocalId = before.collectionLocalId,
+        image = before.image,
+        componentType = before.componentType,
+        componentIndex = tonumber(before.componentIndex),
+        label = before.label,
+        at = os.time(),
+      }
+    end
+
+    local okReplace, resultOrErr = cmItemsCall('ReplaceClothingCatalogGarment', armed.assetId, {
+      componentType = def.type,
+      componentIndex = def.index,
+      drawableId = drawable,
+      textureId = texture,
+      collection = captureCollectionName(data),
+      collectionLocalId = tonumber(data.collectionLocalId or data.collection_local_id),
+      -- The item keeps its existing name deliberately: this is the same item
+      -- wearing a different garment, and the capture panel's auto-generated
+      -- label ("Outerwear #45") would otherwise silently rename it. Rename in
+      -- /clothingstore if that is actually wanted.
+      image = row.image,
+      updatedBy = ('player:%s'):format(src),
+    })
+
+    if okReplace ~= true then
+      print(('[nv_cloth] replace capture failed for asset=%s: %s'):format(
+        armed.assetId, tostring(resultOrErr)))
+      return false, tostring(resultOrErr or 'replace_failed')
+    end
+
+    if GetResourceState('cm-inventory') == 'started' then
+      pcall(function() return exports['cm-inventory']:RefreshClothingDisplays() end)
+    end
+
+    print(('[nv_cloth] REPLACED "%s" (asset=%s) -> %s drawable=%s texture=%s by player %s'):format(
+      tostring(armed.label), armed.assetId, category, drawable, texture, src))
+
+    local entry = type(resultOrErr) == 'table' and resultOrErr or { assetId = armed.assetId }
+    entry.replaced = true
+    entry.replacedLabel = armed.label
+    return true, entry
+  end
+
   local gender = tostring(data.gender or 'male'):lower() == 'female' and 'female' or 'male'
-  local shop = tostring(data.shop or 'clothes'):lower()
+  -- Armor is never sold through nv_cloth's own checkout (see BLOCKED_CATEGORIES).
+  -- It always saves under its own 'armor' shop -- NOT whatever shop the capture
+  -- panel happened to be opened with (the normal /clothingadmin panel opens on
+  -- 'clothes' for every category, armor included, since torso/pants/etc all
+  -- share that one panel now).
+  local shop = category == 'armor' and 'armor' or tostring(data.shop or 'clothes'):lower()
   local label = tostring(data.label or ('%s %s'):format(def.label, drawable))
   local price = tonumber(data.price or Config.Prices[category] or 0) or 0
   local destination = normaliseDestination(data)
@@ -1933,14 +2469,20 @@ local function saveCatalogEntryFromIcon(src, data, imagePath)
     textureId = texture,
     texture_id = texture,
     texture = texture,
+    -- Stable garment identity stamped by the capturing client. drawable above is
+    -- a global index that renumbers whenever an apparel pack is added or removed;
+    -- these two keep naming the same garment. nil when the client build has no
+    -- collection natives, in which case the row keeps using drawable alone.
+    collection = captureCollectionName(data),
+    collection_local_id = tonumber(data.collectionLocalId or data.collection_local_id),
+    collectionLocalId = tonumber(data.collectionLocalId or data.collection_local_id),
     label = label,
     name = label,
     description = ('%s clothing item'):format(def.label),
     price = price,
     category = category,
     shop = shop,
-    image = imagePath,
-    icon = imagePath,
+    -- image/icon are set by writeItemImage once the row's folder is known.
     enabled = true,
     createdBy = ('player:%s'):format(src),
     created_by = ('player:%s'):format(src),
@@ -1955,20 +2497,72 @@ local function saveCatalogEntryFromIcon(src, data, imagePath)
   -- New clothes are stored with enabled = false and appear in /clothingstore
   -- as "SAVED · NOT IN STORE". A retake of an existing clothe keeps whatever
   -- publish state / price / label / org the admin already set in /clothingstore.
-  local existingManaged = findExistingManagedRow(category, gender, drawable)
+  local existingManaged = findExistingManagedRow(category, gender, drawable, texture)
   preserveManagedState(entry, existingManaged)
 
-  if category == 'bags' then
-    local level = tonumber(data.bagLevel or data.bag_level or data.level) or 1
+  local isBagSkin = (category == 'bags') and (data.bagSkin == true or data.bagSkin == 'skin' or tostring(data.bagLevel or data.bag_level or '') == 'skin' or entry.bagSkin == true)
+  if category == 'bags' and isBagSkin then
+    -- Retake or capture of a bag skin: no level, stays cosmetic-only.
+    entry.bagSkin = true
+    entry.bag_skin = true
+    entry.bagLevel = nil
+    entry.bag_level = nil
+    entry.description = existingManaged and existingManaged.description or 'Cosmetic bag-slot clothing item.'
+  elseif category == 'bags' then
+    local level = tonumber(data.bagLevel or data.bag_level or data.level)
+      or (existingManaged and tonumber(existingManaged.bagLevel or existingManaged.bag_level))
+      or 1
     level = math.max(1, math.min(4, math.floor(level)))
-    -- Keep bag metadata minimal. cm-inventory only needs metadata.bagLevel;
-    -- backpack slots/weight are resolved from inventory config, not stored per item.
+    entry.bagSkin = false
+    entry.bag_skin = false
     entry.bagLevel = level
+    entry.bag_level = level
     entry.description = ('Level %s bag. Unlocks backpack slots.'):format(level)
-    print(('[nv_cloth] Icon catalog bag drawable=%s texture=%s level=%s image=%s shared=%s'):format(tostring(drawable), tostring(texture), tostring(level), tostring(imagePath), tostring(data.sharedGender)))
+    print(('[nv_cloth] Icon catalog bag drawable=%s texture=%s level=%s image=%s shared=%s'):format(tostring(drawable), tostring(texture), tostring(level), 'pending', tostring(data.sharedGender)))
   end
 
-  local function saveEntry(row)
+  -- A component-9 capture is a real vest (gun-store only) unless /clothingstore
+  -- has given it a "sell as" override to a different category.
+  local isVestRow = category == 'armor' and (not entry.sellCategory or entry.sellCategory == '')
+
+  if isVestRow then
+    local armorValue = math.max(0, math.min(100, math.floor(tonumber(data.armorValue or data.armor_value) or 50)))
+    entry.armorValue = armorValue
+    entry.armor_value = armorValue
+    entry.description = ('Body armor. +%s armor when worn.'):format(armorValue)
+  end
+
+  -- Mirrors an armor row's current state (price/label/image/armor value/publish
+  -- state) into cm-gunstore's own sellable catalog. Purchase/equip/SetPedArmour
+  -- logic stays in cm-gunstore; this only keeps its listing in sync with what
+  -- the admin set in /clothingadmin or /clothingstore. Non-fatal on failure --
+  -- the clothing_catalog row (the source of truth for management) is already
+  -- saved either way. Skipped entirely once a row has a "sell as" override --
+  -- it sells through nv_cloth's own shop instead, see normaliseItem.
+  local function syncArmorToGunstore(row)
+    local rowIsVest = category == 'armor' and (not row.sellCategory or row.sellCategory == '')
+    if not rowIsVest then return end
+    if GetResourceState('cm-gunstore') ~= 'started' then
+      print('[nv_cloth] cm-gunstore not started; armor saved in clothing_catalog only (not sellable yet).')
+      return
+    end
+    stampClothingIdentity(row)
+    local ok, okResult, errOrName = pcall(function()
+      return exports['cm-gunstore']:SyncClothingArmorItem(src, row)
+    end)
+    if not ok or not okResult then
+      print(('[nv_cloth] cm-gunstore armor sync failed for %s: %s'):format(
+        tostring(row.uniqueId), tostring(errOrName or okResult)))
+    end
+  end
+
+  -- imageBytes is passed only for rows that own this capture. Rows that merely
+  -- reference another row's photo (the drawable-level thumbnail) save as is.
+  local function saveEntry(row, bytes)
+    if bytes then
+      local okImage, imageErr = writeItemImage(row, bytes)
+      if not okImage then return false, imageErr end
+    end
     stampClothingIdentity(row)
     local ok, result, err = pcall(function()
       return exports['cm-items']:SaveClothingCatalogEntry(row)
@@ -1977,7 +2571,7 @@ local function saveCatalogEntryFromIcon(src, data, imagePath)
     return false, tostring(err or result or 'catalog_save_failed')
   end
 
-  local sharedGender = (category == 'bags' and data.sharedGender ~= false) or data.sharedGender == true
+  local sharedGender = data.sharedGender == true
   if sharedGender then
     entry.sharedGender = true
     entry.shared_gender = true
@@ -1988,17 +2582,35 @@ local function saveCatalogEntryFromIcon(src, data, imagePath)
     for k, v in pairs(entry) do female[k] = v end
     female.gender = 'female'
 
-    local okMale, errMale = saveEntry(male)
+    -- Each gender row gets its own folder and its own copy of the photo, so the
+    -- two can be retaken or reverted independently.
+    local okMale, errMale = saveEntry(male, imageBytes)
     if not okMale then return false, errMale end
-    local okFemale, errFemale = saveEntry(female)
-    if not okFemale then return false, errFemale end
+    local okFemale, errFemale = saveEntry(female, imageBytes)
+    if not okFemale then
+      -- The male row already committed with its own image; a blanket
+      -- "failed" here would hide that and could send the admin into a needless
+      -- retake. Report which half actually needs attention instead.
+      return false, ('male_saved_female_failed: %s'):format(tostring(errFemale))
+    end
 
+    syncArmorToGunstore(male)
+    syncArmorToGunstore(female)
+    if existingManaged then
+      syncOwnedClothingImage(male)
+      syncOwnedClothingImage(female)
+    end
     entry.gender = gender
+    local own = gender == 'female' and female or male
+    entry.assetId, entry.asset_id = own.assetId, own.assetId
+    entry.image, entry.icon = own.image, own.image
     return true, entry
   end
 
-  local okSave, errSave = saveEntry(entry)
+  local okSave, errSave = saveEntry(entry, imageBytes)
   if not okSave then return false, errSave end
+  syncArmorToGunstore(entry)
+  if existingManaged then syncOwnedClothingImage(entry) end
 
   -- /clothingstore groups exact texture captures under the drawable-level
   -- (texture = -1) row. Keep that authoritative manager row's image in sync on
@@ -2007,18 +2619,57 @@ local function saveCatalogEntryFromIcon(src, data, imagePath)
   local existingTexture = type(existingManaged) == 'table'
     and (tonumber(existingManaged.textureId or existingManaged.texture_id or existingManaged.texture or -1) or -1)
     or nil
+  local masterSyncWarning = nil
   if existingTexture and existingTexture < 0 and texture >= 0 then
     local drawableEntry = {}
     for k, v in pairs(existingManaged) do drawableEntry[k] = v end
-    drawableEntry.image = imagePath
-    drawableEntry.icon = imagePath
+    drawableEntry.image = entry.image
+    drawableEntry.icon = entry.image
     drawableEntry.updatedBy = ('player:%s'):format(src)
     drawableEntry.updated_by = drawableEntry.updatedBy
     local okDrawable, errDrawable = saveEntry(drawableEntry)
-    if not okDrawable then return false, errDrawable end
+    if not okDrawable then
+      -- The actual per-texture capture above already committed successfully;
+      -- only the drawable-level fallback thumbnail failed to sync. Surface this
+      -- as a warning, not a failure, so the admin isn't told the capture failed
+      -- when it didn't.
+      masterSyncWarning = tostring(errDrawable)
+      print(('[nv_cloth] WARNING: drawable-level master row sync failed for %s: %s'):format(
+        tostring(entry.image), masterSyncWarning))
+    end
+  elseif texture >= 0 and not existingManaged then
+    local drawableEntry = {}
+    for k, v in pairs(entry) do drawableEntry[k] = v end
+    drawableEntry.textureId = -1
+    drawableEntry.texture_id = -1
+    drawableEntry.texture = -1
+    -- The thumbnail row only references this capture's photo. Copying the
+    -- asset id would break the unique index and silently drop the row.
+    drawableEntry.assetId = nil
+    drawableEntry.asset_id = nil
+    saveEntry(drawableEntry)
   end
 
-  return true, entry
+  return true, entry, masterSyncWarning
+end
+
+-- Moved up from the /clothingstore section below so saveInventoryIcon's
+-- post-capture pairing hand-off (further down in this same handler) can call
+-- manageOrgList() -- a `local function` declared after its call site is not
+-- visible yet at that point in the file.
+local function orgShopLabel(org)
+  local cfg = (Config.OrgShops or {})[org]
+  if type(cfg) == 'table' and cfg.label then return tostring(cfg.label) end
+  return tostring(org or ''):upper() .. ' Locker'
+end
+
+local function manageOrgList()
+  local list = {}
+  for org in pairs(Config.OrgShops or {}) do
+    list[#list + 1] = { key = tostring(org):lower(), label = orgShopLabel(org) }
+  end
+  table.sort(list, function(a, b) return a.key < b.key end)
+  return list
 end
 
 RegisterNetEvent('nvCloth:server:saveInventoryIcon', function(data)
@@ -2060,51 +2711,11 @@ RegisterNetEvent('nvCloth:server:saveInventoryIcon', function(data)
     return
   end
 
-  --========================================================
-  -- ARMOR / GUNS BRANCH (model b, cm-items owns the image)
-  -- Vest captures are NOT clothing items. We DON'T save a file here and we DON'T
-  -- write a clothing_catalog row. Instead we hand the raw base64 PNG + vest data
-  -- to the gun admin form. cm-items saves the PNG when the admin creates the item.
-  --========================================================
+  -- Armor/vest is captured and saved exactly like every other category below
+  -- (clothing_catalog row + image in cm-items). saveCatalogEntryFromIcon then
+  -- mirrors it into cm-gunstore's own sellable catalog (see syncArmorCatalogItem),
+  -- since purchase/equip/SetPedArmour stay entirely in cm-gunstore.
   local category = tostring(data.category or ''):lower()
-  local shopKey = tostring(data.shop or ''):lower()
-  if catalogSync and (category == 'armor' or shopKey == 'guns') then
-    if GetResourceState('cm-gunstore') ~= 'started' then
-      TriggerClientEvent('nvCloth:client:inventoryIconSaveFailed', src, 'cm-gunstore_not_started')
-      notify(src, 'cm-gunstore is not started; cannot deliver vest image.', 'error')
-      return
-    end
-
-    -- Re-encode the decoded bytes to a base64 data URL to forward to the gun store.
-    local dataUrl = data.dataUrl or data.imageBase64
-    if type(dataUrl) == 'string' and dataUrl ~= '' and not dataUrl:find('^data:image') then
-      dataUrl = 'data:image/png;base64,' .. dataUrl
-    end
-
-    local vestPayload = {
-      imageData = dataUrl, -- base64 PNG; cm-items saves it on item create
-      gender = tostring(data.gender or 'both'),
-      componentId = tonumber(data.componentIndex or data.componentId) or 9,
-      drawableId = tonumber(data.drawableId or data.drawable),
-      textureId = tonumber(data.textureId or data.texture or 0) or 0,
-      armorValue = tonumber(data.armorValue or data.armor_value) or 0, -- gun admin sets real value
-      label = data.label,
-      price = data.price,
-      destination = data.destination,
-    }
-    print(('[nv_cloth] vest captured for gun store drawable=%s texture=%s (image forwarded as base64)'):format(
-      tostring(vestPayload.drawableId), tostring(vestPayload.textureId)))
-
-    local delivered = pcall(function()
-      return exports['cm-gunstore']:ReceiveArmorImage(src, vestPayload)
-    end)
-    if not delivered then
-      TriggerEvent('cm-gunstore:server:armorImageReady', src, vestPayload)
-    end
-    notify(src, 'Vest captured. Open the gun admin form to set name/price/armor and create the item.', 'success')
-    TriggerClientEvent('nvCloth:client:inventoryIconSaved', src, { armor = true })
-    return
-  end
 
   local folder = captureCfg.folder or 'generated_images'
   folder = tostring(folder):gsub('^/', ''):gsub('/$', '')
@@ -2143,26 +2754,29 @@ RegisterNetEvent('nvCloth:server:saveInventoryIcon', function(data)
     end
   end
 
-  local catalogResource = tostring(captureCfg.catalogImageResource or 'cm-items')
-  local catalogFolder = tostring(captureCfg.catalogImageFolder or 'ui/images/clothing/custom')
-    :gsub('^/', ''):gsub('/$', '')
-  local catalogFilePath = ('%s/%s'):format(catalogFolder, fileName)
-  if GetResourceState(catalogResource) ~= 'started'
-    or not SaveResourceFile(catalogResource, catalogFilePath, bytes, #bytes) then
-    TriggerClientEvent('nvCloth:client:inventoryIconSaveFailed', src, 'cm_items_image_save_failed')
-    notify(src, 'Image captured, but it could not be copied into cm-items.', 'error')
-    return
-  end
-
-  local prefix = captureCfg.catalogImagePrefix or 'custom'
-  prefix = tostring(prefix):gsub('^/', ''):gsub('/$', '')
-  local catalogImage = ('%s/%s'):format(prefix, fileName)
-  localFiles.catalogPng = catalogFilePath
-  print(('[nv_cloth] saved local icon and cm-items catalog image=%s'):format(catalogImage))
-
-  -- Image-only mode: no external inventory/catalog API is called. Return enough
-  -- metadata for progress tracking and the failed-image/retry queue.
+  -- Image-only mode (catalogSync = false) has no catalog row to own a per-item
+  -- folder, so it keeps the legacy flat file named by the client. With catalog
+  -- sync on, the image is written into the row's own folder during the save.
   if not catalogSync then
+    local catalogResource = tostring(captureCfg.catalogImageResource or 'cm-items')
+    local catalogFolder = tostring(captureCfg.catalogImageFolder or 'ui/images/clothing/custom')
+      :gsub('^/', ''):gsub('/$', '')
+    local catalogFilePath = ('%s/%s'):format(catalogFolder, fileName)
+    if GetResourceState(catalogResource) ~= 'started'
+      or not SaveResourceFile(catalogResource, catalogFilePath, bytes, #bytes) then
+      TriggerClientEvent('nvCloth:client:inventoryIconSaveFailed', src, 'cm_items_image_save_failed')
+      notify(src, 'Image captured, but it could not be copied into cm-items.', 'error')
+      return
+    end
+
+    local prefix = captureCfg.catalogImagePrefix or 'custom'
+    prefix = tostring(prefix):gsub('^/', ''):gsub('/$', '')
+    local catalogImage = ('%s/%s'):format(prefix, fileName)
+    localFiles.catalogPng = catalogFilePath
+    print(('[nv_cloth] saved local icon and cm-items catalog image=%s'):format(catalogImage))
+
+    -- No external inventory/catalog API is called. Return enough metadata for
+    -- progress tracking and the failed-image/retry queue.
     local entry = {
       gender = tostring(data.gender or 'male'):lower(),
       category = category,
@@ -2183,8 +2797,12 @@ RegisterNetEvent('nvCloth:server:saveInventoryIcon', function(data)
     return
   end
 
-  local okCatalog, entryOrErr = saveCatalogEntryFromIcon(src, data, catalogImage)
+  local okCatalog, entryOrErr, catalogWarning = saveCatalogEntryFromIcon(src, data, bytes)
   if not okCatalog then
+    -- If the row save failed after its image was written, the file sits unused
+    -- in that item's own folder: harmless, and never shared with another item.
+    print(('[nv_cloth] catalog save failed for %s: %s'):format(
+      tostring(fileName), tostring(entryOrErr)))
     TriggerClientEvent('nvCloth:client:inventoryIconSaveFailed', src, entryOrErr)
     notify(src, ('Icon saved but catalog update failed: %s'):format(tostring(entryOrErr)), 'error')
     return
@@ -2192,9 +2810,22 @@ RegisterNetEvent('nvCloth:server:saveInventoryIcon', function(data)
 
   auditLog(src, 'catalog_icon_saved', entryOrErr, entryOrErr and ('%s:%s:%s:%s'):format(tostring(entryOrErr.gender), tostring(entryOrErr.category), tostring(entryOrErr.drawableId), tostring(entryOrErr.textureId)) or nil)
   local savedPublished = type(entryOrErr) == 'table' and entryOrErr.enabled == true
-  notify(src, savedPublished
-    and 'Image retaken. Clothe stays published with its current price/org.'
-    or 'Clothe captured and saved. Publish it to the store in /clothingstore.', 'success')
+  if type(entryOrErr) == 'table' and entryOrErr.replaced then
+    -- Replace path: no new item was created, an existing one changed clothing
+    -- for everybody who owns it. Say so, because "captured and saved" would
+    -- read as though a second item had just been added to the catalog.
+    notify(src, ('"%s" replaced. Everyone who owns it now has this clothing.'):format(
+      tostring(entryOrErr.replacedLabel or entryOrErr.label or 'Item')), 'success')
+    TriggerClientEvent('nvCloth:client:inventoryIconSaved', src, entryOrErr)
+    return
+  end
+  if catalogWarning then
+    notify(src, 'Clothe captured and saved, but its category fallback thumbnail could not sync. Retake later or check server logs.', 'warning')
+  else
+    notify(src, savedPublished
+      and 'Image retaken. Clothe stays published with its current price/org.'
+      or 'Clothe captured and saved. Publish it to the store in /clothingstore.', 'success')
+  end
   TriggerClientEvent('nvCloth:client:inventoryIconSaved', src, entryOrErr)
 end)
 
@@ -2240,6 +2871,75 @@ CreateThread(function()
   end
 end)
 
+-- One-time/idempotent backfill: bags captured before manageSaveItem started
+-- mirroring across genders can be missing a drawable-level master (texture
+-- = -1) row for one gender entirely (only a texture-specific row exists, or
+-- nothing at all for that gender). Fills in the missing master row from
+-- whichever gender/row already has data, so /clothingstore and the shop show
+-- a consistent pair for every bag without waiting for an admin to re-save it.
+CreateThread(function()
+  Wait(8000)
+  if GetResourceState('cm-items') ~= 'started' then return end
+  local ok, rows = pcall(function()
+    return exports['cm-items']:GetClothingCatalogRows({ includeDisabled = true })
+  end)
+  if not ok or type(rows) ~= 'table' then return end
+
+  local byDrawable = {}
+  for _, row in ipairs(rows) do
+    if type(row) == 'table' and tostring(row.category or ''):lower() == 'bags' then
+      local drawable = tonumber(row.drawableId or row.drawable_id)
+      if drawable then
+        local gender = tostring(row.gender or 'male'):lower() == 'female' and 'female' or 'male'
+        local texture = tonumber(row.textureId or row.texture_id or row.texture or -1) or -1
+        byDrawable[drawable] = byDrawable[drawable] or {}
+        byDrawable[drawable][gender] = byDrawable[drawable][gender] or {}
+        if texture < 0 then
+          byDrawable[drawable][gender].master = row
+        else
+          byDrawable[drawable][gender].any = byDrawable[drawable][gender].any or row
+        end
+      end
+    end
+  end
+
+  local backfilled = 0
+  for drawable, bucket in pairs(byDrawable) do
+    for _, gender in ipairs({ 'male', 'female' }) do
+      if not (bucket[gender] and bucket[gender].master) then
+        local otherGender = gender == 'male' and 'female' or 'male'
+        local sameGenderAny = bucket[gender] and bucket[gender].any
+        local otherSide = bucket[otherGender]
+        local source = sameGenderAny or (otherSide and (otherSide.master or otherSide.any))
+        if source then
+          local entry = {}
+          for k, v in pairs(source) do entry[k] = v end
+          entry.gender = gender
+          entry.textureId = -1
+          entry.texture_id = -1
+          entry.texture = -1
+          entry.drawableId = drawable
+          entry.drawable_id = drawable
+          entry.drawable = drawable
+          -- Prefer this gender's own captured image if it has any row at
+          -- all; only borrow the other gender's image when this gender has
+          -- nothing of its own yet.
+          entry.image = (sameGenderAny and (sameGenderAny.image or sameGenderAny.icon)) or source.image or source.icon
+          entry.icon = entry.image
+          entry.updatedBy = 'nv_cloth:bag_gender_backfill'
+          entry.updated_by = entry.updatedBy
+          stampClothingIdentity(entry)
+          local savedOk = pcall(function() return exports['cm-items']:SaveClothingCatalogEntry(entry) end)
+          if savedOk then backfilled = backfilled + 1 end
+        end
+      end
+    end
+  end
+  if backfilled > 0 then
+    print(('[nv_cloth] Backfilled %s missing bag master row(s) across genders.'):format(backfilled))
+  end
+end)
+
 --========================================================
 -- Build 2.19 · /clothingstore — admin store manager
 --========================================================
@@ -2253,21 +2953,6 @@ end)
 --     its image.
 -- The player store only ever shows rows with enabled = true in shop 'clothes';
 -- org lockers only show rows in their own 'org_<key>' shop.
-
-local function orgShopLabel(org)
-  local cfg = (Config.OrgShops or {})[org]
-  if type(cfg) == 'table' and cfg.label then return tostring(cfg.label) end
-  return tostring(org or ''):upper() .. ' Locker'
-end
-
-local function manageOrgList()
-  local list = {}
-  for org in pairs(Config.OrgShops or {}) do
-    list[#list + 1] = { key = tostring(org):lower(), label = orgShopLabel(org) }
-  end
-  table.sort(list, function(a, b) return a.key < b.key end)
-  return list
-end
 
 RegisterCommand(Config.ManageCommand or 'clothingstore', function(src)
   if src == 0 then
@@ -2296,7 +2981,44 @@ AddEventHandler('nvCloth:dev:openManage', function(src)
   })
 end)
 
-local function collectManageRows()
+--========================================================
+-- /clothingstore — lightweight edit-advisory locks
+-- Not a hard lock (a save is never blocked by it); it's a "someone else has
+-- this open" badge so two admins editing the same clothe at once don't
+-- silently clobber one another. A lock expires on its own after 2 minutes of
+-- inactivity and is released on manage-close/disconnect, so a crashed client
+-- never wedges a row locked forever. Because it's only refreshed when a
+-- client requests the catalog (open, refresh, after a save), it's advisory,
+-- not a live push to every other admin's already-open panel.
+--========================================================
+local RowEditLocks = {}
+local ROW_LOCK_TTL = 120
+
+local function manageRowKeyOf(gender, category, drawable)
+  return ('%s|%s|%s'):format(tostring(gender or ''):lower(), tostring(category or ''):lower(), tostring(drawable or ''))
+end
+
+local function activeLockFor(rowKey)
+  local lock = RowEditLocks[rowKey]
+  if not lock then return nil end
+  if os.time() - (lock.since or 0) > ROW_LOCK_TTL then
+    RowEditLocks[rowKey] = nil
+    return nil
+  end
+  return lock
+end
+
+local function decorateRowLock(row, requesterSrc)
+  local rowKey = manageRowKeyOf(row.gender, row.category, row.drawableId or row.drawable_id or row.drawable)
+  local lock = activeLockFor(rowKey)
+  if lock and lock.src ~= requesterSrc then
+    row.lockedBy = lock.name
+    row.lockedSince = lock.since
+  end
+  return row
+end
+
+local function collectManageRows(requesterSrc)
   local out = {}
   if GetResourceState('cm-items') ~= 'started' then return out end
   local seen = {}
@@ -2333,6 +3055,7 @@ local function collectManageRows()
           -- per-refresh cache token so CEF fetches the overwritten pixels.
           managedRow.imageVersion = os.time()
           stampClothingIdentity(managedRow)
+          decorateRowLock(managedRow, requesterSrc)
           out[#out + 1] = managedRow
         end
       end
@@ -2344,7 +3067,7 @@ end
 RegisterNetEvent('nvCloth:server:getManageCatalog', function()
   local src = source
   if not isClothingAdmin(src) then return end
-  TriggerClientEvent('nvCloth:client:manageCatalog', src, collectManageRows())
+  TriggerClientEvent('nvCloth:client:manageCatalog', src, collectManageRows(src))
 end)
 
 RegisterNetEvent('nvCloth:server:manageSaveItem', function(data)
@@ -2374,27 +3097,61 @@ RegisterNetEvent('nvCloth:server:manageSaveItem', function(data)
   local gender = tostring(data.gender or 'male'):lower() == 'female' and 'female' or 'male'
   local published = data.published == true or data.published == 1
 
-  -- Org routing. A clothe with an org lives ONLY in that org's locker shop and
-  -- carries required_job so even a leaked row can't be bought by outsiders.
-  local orgs, seenOrgs = {}, {}
-  local requestedOrgs = type(data.orgs) == 'table' and data.orgs or { data.org }
-  for _, requested in ipairs(requestedOrgs) do
-    local org = tostring(requested or ''):lower():gsub('[^%w_%-]', '')
-    if org ~= '' then
-      if not (Config.OrgShops or {})[org] then
-        notify(src, ('Unknown org "%s". Add it to Config.OrgShops first.'):format(org), 'error')
-        return
-      end
-      if not seenOrgs[org] then seenOrgs[org] = true; orgs[#orgs + 1] = org end
+  -- "Sell as" override: sell/price/group/mechanic this row as a DIFFERENT
+  -- category than the one it was physically captured under (e.g. a slot-9
+  -- capture sold as 'bags', complete with real bag capacity). componentType/
+  -- componentIndex (`def`, physical) never change -- see normaliseItem and
+  -- cm-itemactions' swapClothing for how equip stays visually correct.
+  -- 'armor' is never a valid TARGET (only a real component-9 capture can be
+  -- sold through cm-gunstore); selecting your own physical category just
+  -- means "no override".
+  local sellCategory = tostring(data.sellCategory or ''):lower()
+  if sellCategory ~= '' then
+    if sellCategory == category then
+      sellCategory = ''
+    elseif sellCategory == 'armor' or not CATEGORY_COMPONENTS[sellCategory] then
+      notify(src, 'Invalid "sell as" category.', 'error')
+      return
     end
   end
-  table.sort(orgs)
-  local publicStore = data.publicStore == true or (#orgs == 0 and data.publicStore == nil)
+  local effCategory = sellCategory ~= '' and sellCategory or category
+  local effDef = CATEGORY_COMPONENTS[effCategory] or def
+  -- A component-9 item defaults to "real vest": bought exclusively through
+  -- cm-gunstore, not this row's shop/org fields at all.
+  local isVestMode = category == 'armor' and sellCategory == ''
+
+  -- Org routing. A clothe with an org lives ONLY in that org's locker shop and
+  -- carries required_job so even a leaked row can't be bought by outsiders.
+  -- A real vest never participates in this -- see isVestMode above.
+  local orgs, seenOrgs = {}, {}
+  if not isVestMode then
+    local requestedOrgs = type(data.orgs) == 'table' and data.orgs or { data.org }
+    for _, requested in ipairs(requestedOrgs) do
+      local org = tostring(requested or ''):lower():gsub('[^%w_%-]', '')
+      if org ~= '' then
+        if not (Config.OrgShops or {})[org] then
+          notify(src, ('Unknown org "%s". Add it to Config.OrgShops first.'):format(org), 'error')
+          return
+        end
+        if not seenOrgs[org] then seenOrgs[org] = true; orgs[#orgs + 1] = org end
+      end
+    end
+    table.sort(orgs)
+  end
+  local publicStore = not isVestMode and (data.publicStore == true or (#orgs == 0 and data.publicStore == nil))
 
   local existing = findExistingManagedRow(category, gender, drawable)
-  local label = tostring(data.label or (existing and existing.label) or ('%s %s'):format(def.label, drawable))
+  local existingSellCategory = tostring(existing and (existing.sellCategory or existing.sell_category) or ''):lower()
+  local oldEffCategory = (existingSellCategory ~= '' and existingSellCategory) or category
+  -- Skin vs functional only ever applies to a NATIVE bags capture (component
+  -- 5) -- an off-slot item "sold as bags" always grants real capacity, since
+  -- borrowing the bag mechanic is the entire point of that override; it has
+  -- no bag-slot look to merely reskin.
+  local existingBagSkin = existing ~= nil and (existing.bagSkin == true or existing.bag_skin == true)
+  local bagSkin = category == 'bags' and (data.bagSkin == true or (data.bagSkin == nil and existingBagSkin))
+  local label = tostring(data.label or (existing and existing.label) or ('%s %s'):format(effDef.label, drawable))
   local price = tonumber(data.price)
-  if price == nil then price = tonumber(existing and existing.price) or tonumber(Config.Prices[category]) or 0 end
+  if price == nil then price = tonumber(existing and existing.price) or tonumber(Config.Prices[effCategory]) or 0 end
   price = math.max(0, math.floor(price))
 
   local entry = {
@@ -2411,10 +3168,15 @@ RegisterNetEvent('nvCloth:server:manageSaveItem', function(data)
     texture = texture,
     label = label,
     name = label,
-    description = (existing and existing.description) or ('%s clothing item'):format(def.label),
+    description = (existing and existing.description) or ('%s clothing item'):format(effDef.label),
     price = price,
     category = category,
     enabled = published,
+    tempDisabled = data.tempDisabled == true,
+    sellCategory = sellCategory ~= '' and sellCategory or nil,
+    sell_category = sellCategory ~= '' and sellCategory or nil,
+    bagSkin = bagSkin,
+    bag_skin = bagSkin,
     updatedBy = ('player:%s'):format(src),
     updated_by = ('player:%s'):format(src),
   }
@@ -2425,20 +3187,80 @@ RegisterNetEvent('nvCloth:server:manageSaveItem', function(data)
   if existing then
     entry.image = existing.image or existing.icon or data.image or data.icon
     entry.icon = existing.icon or existing.image or data.icon or data.image
-    if category == 'bags' then
-      local level = tonumber(existing.bagLevel or existing.bag_level or existing.level)
-      if level then
-        entry.bagLevel = level
-        entry.bag_level = level
-        entry.level = level
-        entry.itemName = 'clothing_bags'
-        entry.item_name = 'clothing_bags'
+  end
+  if effCategory == 'bags' and bagSkin then
+    -- Cosmetic-only bag-slot skin: no level, no capacity, its own item name
+    -- so cm-inventory's rowCanActAsBag (matched on item_name == 'clothing_bags'
+    -- exactly) never treats it as a real bag.
+    entry.bagLevel = nil
+    entry.bag_level = nil
+    entry.level = nil
+    entry.itemName = 'clothing_bags_skin'
+    entry.item_name = 'clothing_bags_skin'
+    entry.description = 'Cosmetic bag-slot clothing item.'
+  elseif effCategory == 'bags' then
+    -- New override or a native functional bag: an explicit level from the UI
+    -- wins; otherwise keep whatever level was already set (retake, or a
+    -- previous "sell as bags" save), defaulting to 1 so this never silently
+    -- becomes an unusable bag with no level at all.
+    local level = tonumber(data.bagLevel or data.bag_level)
+      or (existing and tonumber(existing.bagLevel or existing.bag_level or existing.level))
+      or 1
+    level = math.max(1, math.min(4, math.floor(level)))
+
+    -- Only 4 real bags total, one per level -- reject publishing a level
+    -- that's already owned by a DIFFERENT drawable's published functional bag.
+    if published then
+      local ownerDrawable = nil
+      for _, row in ipairs(collectManageRows()) do
+        local rowCat = tostring(row.category or ''):lower()
+        local rowDrawable = tonumber(row.drawableId or row.drawable_id)
+        if rowCat == 'bags' and row.enabled == true and row.bagSkin ~= true
+          and rowDrawable ~= drawable and tonumber(row.bagLevel or row.bag_level) == level then
+          ownerDrawable = rowDrawable
+          break
+        end
+      end
+      if ownerDrawable then
+        notify(src, ('Level %s is already used by drawable %s. Pick a free level, or set this as a Bag Skin instead.'):format(level, ownerDrawable), 'error')
+        return
       end
     end
+
+    entry.bagLevel = level
+    entry.bag_level = level
+    entry.level = level
+    entry.itemName = 'clothing_bags'
+    entry.item_name = 'clothing_bags'
+    entry.description = ('Level %s bag. Unlocks backpack slots.'):format(level)
   end
   if not entry.image then
     entry.image = data.image or data.icon
     entry.icon = data.icon or data.image
+  end
+
+  if category == 'bags' then
+    -- Explicit cross-gender pairing: an admin-picked drawable+texture that IS
+    -- the same logical bag on the OTHER gender's model. GTA/addon bag meshes
+    -- don't reliably match at the same drawable index across genders, so this
+    -- replaces the old "just assume the same index" mirroring below. A save
+    -- that doesn't touch the picker keeps whatever pairing already existed.
+    local pairedDrawable = tonumber(data.pairedDrawableId)
+    local pairedTexture = pairedDrawable ~= nil and (tonumber(data.pairedTextureId) or -1) or nil
+    if pairedDrawable ~= nil and pairedDrawable < 0 then
+      -- -1 is the "None set" sentinel the UI sends when the admin explicitly
+      -- clears the pairing -- distinct from omitting the field entirely
+      -- (which means "leave whatever pairing already existed" below).
+      pairedDrawable = nil
+      pairedTexture = nil
+    elseif pairedDrawable == nil and existing then
+      pairedDrawable = tonumber(existing.pairedDrawableId or existing.paired_drawable_id)
+      pairedTexture = pairedDrawable ~= nil and tonumber(existing.pairedTextureId or existing.paired_texture_id) or nil
+    end
+    entry.pairedDrawableId = pairedDrawable
+    entry.paired_drawable_id = pairedDrawable
+    entry.pairedTextureId = pairedTexture
+    entry.paired_texture_id = pairedTexture
   end
 
   if category == 'torso' then
@@ -2458,7 +3280,19 @@ RegisterNetEvent('nvCloth:server:manageSaveItem', function(data)
     entry.fit_master = true
   end
 
-  if not publicStore and #orgs > 0 then
+  if isVestMode then
+    entry.shop = 'armor'
+    entry.requiredJob = ''
+    entry.required_job = ''
+    entry.destination = 'store'
+    entry.hidden = false
+    local armorValue = tonumber(data.armorValue or data.armor_value)
+      or (existing and tonumber(existing.armorValue or existing.armor_value))
+      or 50
+    armorValue = math.max(0, math.min(100, math.floor(armorValue)))
+    entry.armorValue = armorValue
+    entry.armor_value = armorValue
+  elseif not publicStore and #orgs > 0 then
     entry.shop = 'org_' .. orgs[1]
     entry.requiredJob = orgs[1]
     entry.required_job = orgs[1]
@@ -2483,6 +3317,159 @@ RegisterNetEvent('nvCloth:server:manageSaveItem', function(data)
     return
   end
 
+  -- A bag (functional or skin) is one logical item shared across both
+  -- genders for price/level/skin/publish/org purposes -- one admin card,
+  -- two catalog rows. Keep both rows in sync here, so editing either
+  -- gender's card in /clothingstore updates both.
+  --
+  -- IMPORTANT: which drawable+texture on the OTHER gender is "the same bag"
+  -- is NEVER assumed from a matching index -- GTA/addon bag meshes commonly
+  -- do not look the same at the same drawable id on both freemode models
+  -- (this produced wrong-looking mirrored bags, e.g. a female capture's
+  -- photo/identity showing up on an unrelated male drawable). The admin
+  -- explicitly picks the correct match via entry.pairedDrawableId above; only
+  -- rows that predate this feature (no pairing ever set) fall back to the
+  -- old same-index guess, so they keep working exactly as before until
+  -- someone opens them and sets a real pairing.
+  if category == 'bags' then
+    local otherGender = gender == 'female' and 'male' or 'female'
+    local pairedDrawable = entry.pairedDrawableId
+    local pairedTexture = entry.pairedTextureId
+
+    local targetRow = nil
+    if pairedDrawable ~= nil then
+      for _, row in ipairs(collectManageRows()) do
+        local rowCat = tostring(row.category or ''):lower()
+        local rowGender = tostring(row.gender or 'male'):lower()
+        local rowDrawable = tonumber(row.drawableId or row.drawable_id)
+        local rowTexture = tonumber(row.textureId or row.texture_id) or -1
+        if rowCat == 'bags' and rowGender == otherGender and rowDrawable == pairedDrawable
+          and (pairedTexture == nil or rowTexture == pairedTexture) then
+          targetRow = row
+          break
+        end
+      end
+      if not targetRow then
+        notify(src, ('Could not find the paired %s bag (D%s T%s) -- price/level changes were not mirrored.'):format(
+          otherGender, tostring(pairedDrawable), tostring(pairedTexture)), 'error')
+      end
+    else
+      -- findAnyGenderRow (not findExistingManagedRow): plenty of existing bags
+      -- only ever got a texture-specific row for one gender and never a master
+      -- (-1) row for the other -- this both finds that gender's row to mirror
+      -- to AND lets the save below create its missing master row.
+      targetRow = findAnyGenderRow(category, otherGender, drawable)
+    end
+
+    if targetRow then
+      local targetDrawable = tonumber(targetRow.drawableId or targetRow.drawable_id) or drawable
+      local targetTexture = tonumber(targetRow.textureId or targetRow.texture_id) or texture
+      local mirrorEntry = {}
+      for k, v in pairs(entry) do mirrorEntry[k] = v end
+      mirrorEntry.gender = otherGender
+      mirrorEntry.drawableId = targetDrawable
+      mirrorEntry.drawable_id = targetDrawable
+      mirrorEntry.drawable = targetDrawable
+      mirrorEntry.textureId = targetTexture
+      mirrorEntry.texture_id = targetTexture
+      mirrorEntry.texture = targetTexture
+      -- Each gender ALWAYS keeps its own photographed image -- never copy one
+      -- gender's photo onto the other.
+      mirrorEntry.image = targetRow.image or targetRow.icon or mirrorEntry.image
+      mirrorEntry.icon = mirrorEntry.image
+      -- Point the mirror back at this row so the pairing is symmetric --
+      -- editing from either gender's card keeps syncing both ways.
+      mirrorEntry.pairedDrawableId = drawable
+      mirrorEntry.paired_drawable_id = drawable
+      mirrorEntry.pairedTextureId = texture
+      mirrorEntry.paired_texture_id = texture
+      stampClothingIdentity(mirrorEntry)
+      local mirrorOk, mirrorErr = pcall(function()
+        return exports['cm-items']:SaveClothingCatalogEntry(mirrorEntry)
+      end)
+      if mirrorOk then
+        pcall(function() return exports['cm-items']:SetClothingCatalogOrganizations(mirrorEntry, orgs) end)
+        if targetTexture >= 0 then
+          local mirrorMaster = {}
+          for k, v in pairs(mirrorEntry) do mirrorMaster[k] = v end
+          mirrorMaster.textureId = -1
+          mirrorMaster.texture_id = -1
+          mirrorMaster.texture = -1
+          stampClothingIdentity(mirrorMaster)
+          pcall(function() return exports['cm-items']:SaveClothingCatalogEntry(mirrorMaster) end)
+        end
+        if mirrorEntry.tempDisabled == true then broadcastTempDisabledEquip(mirrorEntry) end
+        TriggerClientEvent('nvCloth:client:manageItemSaved', src, mirrorEntry)
+      else
+        notify(src, ('Saved, but could not mirror the change to %s: %s'):format(otherGender, tostring(mirrorErr)), 'error')
+      end
+    end
+  end
+
+  if isVestMode then
+    if GetResourceState('cm-gunstore') ~= 'started' then
+      print('[nv_cloth] cm-gunstore not started; armor manage-save kept in clothing_catalog only.')
+    else
+      local okSync, syncOk, syncErr = pcall(function()
+        return exports['cm-gunstore']:SyncClothingArmorItem(src, entry)
+      end)
+      if not okSync or not syncOk then
+        notify(src, ('Saved, but could not sync to the gun store: %s'):format(tostring(syncErr or syncOk)), 'error')
+      end
+    end
+  end
+
+  -- Retroactive type re-sync: when the TYPE actually changed (category
+  -- override, OR a bags item's Skin<->Functional toggle), retag every
+  -- already-owned copy of this exact physical item so it behaves as the new
+  -- type too (e.g. starts/stops granting real backpack capacity). Never runs
+  -- for the "back to native armor" direction -- a real vest is a completely
+  -- different item registered in cm-gunstore, not a simple retag of an
+  -- existing cm-inventory item.
+  local typeChanged = effCategory ~= oldEffCategory or (category == 'bags' and bagSkin ~= existingBagSkin)
+  if typeChanged and effCategory ~= 'armor' and GetResourceState('cm-inventory') == 'started' then
+    local newItemName = (effCategory == 'bags' and bagSkin) and 'clothing_bags_skin'
+      or cmItemsCall('GetClothingItemName', effCategory) or ('clothing_' .. effCategory)
+    local metadataPatch = {
+      categoryType = effCategory,
+      componentType = def.type,
+      componentIndex = def.index,
+      equipmentSlot = EQUIP_SLOT_BY_CATEGORY[effCategory],
+    }
+    if effCategory == 'bags' and not bagSkin then
+      metadataPatch.bagLevel = entry.bagLevel
+    else
+      metadataPatch.bagLevel = nil
+      metadataPatch.bag_level = nil
+      metadataPatch.level = nil
+    end
+    local function retagGender(g)
+      local okRetag, retagOk, updatedCount = pcall(function()
+        return exports['cm-inventory']:RetagClothingItems({
+          gender = g, componentType = def.type, componentIndex = def.index,
+          drawableId = drawable, textureId = texture,
+        }, newItemName, metadataPatch)
+      end)
+      if okRetag and retagOk then return tonumber(updatedCount) or 0, false end
+      return 0, true
+    end
+
+    -- A bag is one logical item shared across both genders (see the mirror
+    -- block above) -- retag whoever owns either gender's copy, not just the
+    -- one currently being edited.
+    local updatedCount, hadError = retagGender(gender)
+    if category == 'bags' then
+      local otherCount, otherErr = retagGender(gender == 'female' and 'male' or 'female')
+      updatedCount = updatedCount + otherCount
+      hadError = hadError or otherErr
+    end
+    if updatedCount > 0 then
+      notify(src, ('Also updated %s already-owned copy/copies to the new type.'):format(updatedCount), 'success')
+    elseif hadError then
+      notify(src, 'Saved, but could not update already-owned copies to the new type.', 'error')
+    end
+  end
+
   local assignedOk, assigned, assignedErr = pcall(function()
     return exports['cm-items']:SetClothingCatalogOrganizations(entry, orgs)
   end)
@@ -2504,7 +3491,9 @@ RegisterNetEvent('nvCloth:server:manageSaveItem', function(data)
 
   auditLog(src, 'manage_save', entry, ('%s:%s:%s'):format(gender, category, drawable))
   local msg
-  if #orgs > 0 then
+  if isVestMode then
+    msg = published and 'Vest published. It is now purchasable in the gun store.' or 'Vest saved (not published to the gun store yet).'
+  elseif #orgs > 0 then
     local labels = {}
     for _, org in ipairs(orgs) do labels[#labels + 1] = orgShopLabel(org) end
     msg = published
@@ -2519,8 +3508,491 @@ RegisterNetEvent('nvCloth:server:manageSaveItem', function(data)
   entry.organizations = orgs
   entry.publicStore = publicStore
   entry.image = entry.image and normalizeClothingImagePath(entry.image, gender, def.type, def.index, drawable) or entry.image
+  if entry.tempDisabled == true then broadcastTempDisabledEquip(entry) end
   TriggerClientEvent('nvCloth:client:manageItemSaved', src, entry)
 end)
+
+RegisterNetEvent('nvCloth:server:saveBagPairing', function(data)
+  local src = source
+  if not isClothingAdmin(src) then
+    notify(src, 'You do not have permission to manage clothing.', 'error')
+    return
+  end
+  if GetResourceState('cm-items') ~= 'started' then
+    notify(src, 'cm-items is not started.', 'error')
+    return
+  end
+  data = type(data) == 'table' and data or {}
+  local sourceGender = tostring(data.sourceGender or 'male'):lower() == 'female' and 'female' or 'male'
+  local targetGender = sourceGender == 'male' and 'female' or 'male'
+  local sourceDrawable = tonumber(data.sourceDrawable)
+  local sourceTexture = tonumber(data.sourceTexture or 0) or 0
+  local targetDrawable = tonumber(data.targetDrawable)
+  local targetTexture = tonumber(data.targetTexture or 0) or 0
+
+  if not sourceDrawable or not targetDrawable then
+    notify(src, 'Invalid bag drawable parameters.', 'error')
+    return
+  end
+
+  local image = tostring(data.image or ''):gsub('^nui://cm%-items/ui/images/clothing/', '')
+  local label = tostring(data.label or 'Bag')
+  local price = tonumber(data.price or 0) or 0
+  local bagSkin = data.bagSkin == true
+  local bagLevel = not bagSkin and math.max(1, math.min(4, math.floor(tonumber(data.bagLevel) or 1))) or nil
+  local published = data.published == true
+  local orgs = type(data.orgs) == 'table' and data.orgs or {}
+  local publicStore = data.publicStore ~= false and #orgs == 0
+  local shop = publicStore and 'clothes' or (#orgs > 0 and ('org_' .. orgs[1]) or 'clothes')
+
+  local def = CATEGORY_COMPONENTS['bags']
+  if not def then return end
+
+  -- Stable addresses for the pair. The target's was read by the pairing overlay
+  -- while the ped was on the target model; the source's is read back off its own
+  -- row, because collections are per-model and the client standing on the target
+  -- model cannot read the source model's index space.
+  local targetCollection = data.targetCollection ~= nil
+    and tostring(data.targetCollection):sub(1, 64) or nil
+  local targetCollectionLocalId = tonumber(data.targetCollectionLocalId)
+
+  local sourceRow = findExistingManagedRow('bags', sourceGender, sourceDrawable, sourceTexture)
+  local sourceCollection = sourceRow and (sourceRow.collection or sourceRow.collection_name) or nil
+  local sourceCollectionLocalId = sourceRow
+    and tonumber(sourceRow.collectionLocalId or sourceRow.collection_local_id) or nil
+
+  -- 1. Source gender item row
+  local sourceEntry = {
+    gender = sourceGender,
+    componentType = def.type,
+    component_type = def.type,
+    componentIndex = def.index,
+    component_index = def.index,
+    drawableId = sourceDrawable,
+    drawable_id = sourceDrawable,
+    drawable = sourceDrawable,
+    textureId = sourceTexture,
+    texture_id = sourceTexture,
+    texture = sourceTexture,
+    label = label,
+    name = label,
+    price = price,
+    category = 'bags',
+    shop = shop,
+    image = image,
+    icon = image,
+    enabled = published,
+    bagSkin = bagSkin,
+    bag_skin = bagSkin,
+    bagLevel = bagLevel,
+    bag_level = bagLevel,
+    pairedDrawableId = targetDrawable,
+    paired_drawable_id = targetDrawable,
+    pairedTextureId = targetTexture,
+    paired_texture_id = targetTexture,
+    pairedCollection = targetCollection,
+    pairedCollectionLocalId = targetCollectionLocalId,
+    sharedGender = true,
+    shared_gender = true,
+    updatedBy = ('player:%s'):format(src),
+    description = bagSkin and 'Cosmetic bag-slot clothing item.' or ('Level %s bag. Unlocks backpack slots.'):format(bagLevel or 1),
+  }
+  stampClothingIdentity(sourceEntry)
+  local ok1, err1 = pcall(function() return exports['cm-items']:SaveClothingCatalogEntry(sourceEntry) end)
+  if not ok1 then print(('[nv_cloth] saveBagPairing source error: %s'):format(tostring(err1))) end
+  if #orgs > 0 then
+    pcall(function() return exports['cm-items']:SetClothingCatalogOrganizations(sourceEntry, orgs) end)
+  end
+
+  -- Master row (texture -1) for source gender
+  local sourceMaster = {}
+  for k, v in pairs(sourceEntry) do sourceMaster[k] = v end
+  sourceMaster.textureId = -1
+  sourceMaster.texture_id = -1
+  sourceMaster.texture = -1
+  stampClothingIdentity(sourceMaster)
+  pcall(function() return exports['cm-items']:SaveClothingCatalogEntry(sourceMaster) end)
+
+  -- 2. Target gender item row (uses THE EXACT SAME IMAGE and attributes!)
+  local targetEntry = {
+    gender = targetGender,
+    componentType = def.type,
+    component_type = def.type,
+    componentIndex = def.index,
+    component_index = def.index,
+    drawableId = targetDrawable,
+    drawable_id = targetDrawable,
+    drawable = targetDrawable,
+    textureId = targetTexture,
+    texture_id = targetTexture,
+    texture = targetTexture,
+    label = label,
+    name = label,
+    price = price,
+    category = 'bags',
+    shop = shop,
+    image = image,
+    icon = image,
+    enabled = published,
+    bagSkin = bagSkin,
+    bag_skin = bagSkin,
+    bagLevel = bagLevel,
+    bag_level = bagLevel,
+    pairedDrawableId = sourceDrawable,
+    paired_drawable_id = sourceDrawable,
+    pairedTextureId = sourceTexture,
+    paired_texture_id = sourceTexture,
+    -- This row's own address on the target model, plus the source bag it mirrors.
+    collection = targetCollection,
+    collectionLocalId = targetCollectionLocalId,
+    collection_local_id = targetCollectionLocalId,
+    pairedCollection = sourceCollection,
+    pairedCollectionLocalId = sourceCollectionLocalId,
+    sharedGender = true,
+    shared_gender = true,
+    updatedBy = ('player:%s'):format(src),
+    description = bagSkin and 'Cosmetic bag-slot clothing item.' or ('Level %s bag. Unlocks backpack slots.'):format(bagLevel or 1),
+  }
+  stampClothingIdentity(targetEntry)
+  local ok2, err2 = pcall(function() return exports['cm-items']:SaveClothingCatalogEntry(targetEntry) end)
+  if not ok2 then print(('[nv_cloth] saveBagPairing target error: %s'):format(tostring(err2))) end
+  if #orgs > 0 then
+    pcall(function() return exports['cm-items']:SetClothingCatalogOrganizations(targetEntry, orgs) end)
+  end
+
+  -- Master row (texture -1) for target gender
+  local targetMaster = {}
+  for k, v in pairs(targetEntry) do targetMaster[k] = v end
+  targetMaster.textureId = -1
+  targetMaster.texture_id = -1
+  targetMaster.texture = -1
+  stampClothingIdentity(targetMaster)
+  pcall(function() return exports['cm-items']:SaveClothingCatalogEntry(targetMaster) end)
+
+  auditLog(src, 'bag_paired_saved', {
+    sourceGender = sourceGender, sourceDrawable = sourceDrawable, sourceTexture = sourceTexture,
+    targetGender = targetGender, targetDrawable = targetDrawable, targetTexture = targetTexture,
+    bagSkin = bagSkin, bagLevel = bagLevel, image = image
+  })
+
+  notify(src, ('Bag paired & saved for both Male (D%s) and Female (D%s)'):format(
+    sourceGender == 'male' and sourceDrawable or targetDrawable,
+    sourceGender == 'female' and sourceDrawable or targetDrawable
+  ), 'success')
+end)
+
+-- Advisory edit lock (see decorateRowLock above): acquired when a row is
+-- opened in the manage detail panel, refreshed on every save, released when
+-- the panel closes or the admin disconnects.
+RegisterNetEvent('nvCloth:server:manageLockRow', function(data)
+  local src = source
+  if not isClothingAdmin(src) then return end
+  data = type(data) == 'table' and data or {}
+  local rowKey = manageRowKeyOf(data.gender, data.category, data.drawableId or data.drawable)
+  local existing = activeLockFor(rowKey)
+  if existing and existing.src ~= src then return end
+  RowEditLocks[rowKey] = { src = src, name = GetPlayerName(src) or ('Player %s'):format(src), since = os.time() }
+end)
+
+RegisterNetEvent('nvCloth:server:manageUnlockRow', function(data)
+  local src = source
+  data = type(data) == 'table' and data or {}
+  local rowKey = manageRowKeyOf(data.gender, data.category, data.drawableId or data.drawable)
+  local existing = RowEditLocks[rowKey]
+  if existing and existing.src == src then RowEditLocks[rowKey] = nil end
+end)
+
+AddEventHandler('playerDropped', function()
+  local src = source
+  for key, lock in pairs(RowEditLocks) do
+    if lock.src == src then RowEditLocks[key] = nil end
+  end
+end)
+
+-- One-step undo for a bad retake: swap the current image back to the most
+-- recent history entry recorded by cm-items' SaveClothingCatalogEntry.
+RegisterNetEvent('nvCloth:server:manageRevertImage', function(data)
+  local src = source
+  if not isClothingAdmin(src) then
+    notify(src, 'You do not have permission to manage the clothing store.', 'error')
+    return
+  end
+  if GetResourceState('cm-items') ~= 'started' then
+    notify(src, 'cm-items is not started.', 'error')
+    return
+  end
+  data = type(data) == 'table' and data or {}
+  local rowId = tonumber(data.id)
+  if not rowId then
+    notify(src, 'Could not find that clothe to revert.', 'error')
+    return
+  end
+
+  -- If this item's garment was swapped by a RETAKE, put the garment back too.
+  -- Reverting only the photo would leave the picture describing one garment
+  -- while the item still wore another, which is the exact mismatch the replace
+  -- flow is built to avoid -- so the two are undone together or not at all.
+  local garmentRestored = nil
+  do
+    local currentRow = nil
+    local okRows, rows = pcall(function()
+      return exports['cm-items']:GetClothingCatalogRows({ includeDisabled = true })
+    end)
+    if okRows and type(rows) == 'table' then
+      for _, row in ipairs(rows) do
+        if tonumber(row.id) == rowId then currentRow = row break end
+      end
+    end
+
+    -- Prefer the asset id the manager sent: its row list merges the
+    -- drawable-level grouping row over the captured one, so looking the id up
+    -- from rowId alone can land on the grouping row rather than the item that
+    -- was actually replaced.
+    local assetId = tostring(data.assetId or '')
+    if assetId == '' then assetId = currentRow and tostring(currentRow.assetId or '') or '' end
+    if assetId ~= '' and (#assetId > 48 or not assetId:match('^ci_%x+_%x+$')) then assetId = '' end
+    if assetId ~= '' and (not currentRow or tostring(currentRow.assetId or '') ~= assetId) then
+      local byAsset = cmItemsCall('GetClothingCatalogByAssetId', assetId)
+      if type(byAsset) == 'table' then currentRow = byAsset end
+    end
+    local previous = assetId ~= '' and replaceHistory[assetId] or nil
+    if previous then
+      local okSwap, swapErr = cmItemsCall('ReplaceClothingCatalogGarment', assetId, {
+        componentType = previous.componentType,
+        componentIndex = previous.componentIndex,
+        drawableId = previous.drawableId,
+        textureId = previous.textureId,
+        collection = previous.collection,
+        collectionLocalId = previous.collectionLocalId,
+        image = previous.image,
+        updatedBy = ('player:%s'):format(src),
+      })
+      if okSwap == true then
+        -- Swap the remembered state for what was just undone, so REVERT toggles
+        -- rather than being a one-shot.
+        replaceHistory[assetId] = {
+          drawableId = tonumber(currentRow.drawableId),
+          textureId = tonumber(currentRow.textureId),
+          collection = currentRow.collection,
+          collectionLocalId = currentRow.collectionLocalId,
+          image = currentRow.image,
+          componentType = currentRow.componentType,
+          componentIndex = tonumber(currentRow.componentIndex),
+          label = currentRow.label,
+          at = os.time(),
+        }
+        garmentRestored = previous
+      else
+        print(('[nv_cloth] revert: garment restore failed for asset=%s: %s'):format(
+          assetId, tostring(swapErr)))
+      end
+    end
+  end
+
+  if garmentRestored then
+    auditLog(src, 'manage_garment_reverted', {
+      id = rowId, drawable = garmentRestored.drawableId, texture = garmentRestored.textureId,
+    }, tostring(rowId))
+    notify(src, ('Reverted to the previous clothing and photo (D%s/T%s).'):format(
+      tostring(garmentRestored.drawableId), tostring(garmentRestored.textureId)), 'success')
+    if GetResourceState('cm-inventory') == 'started' then
+      pcall(function() return exports['cm-inventory']:RefreshClothingDisplays() end)
+    end
+    TriggerClientEvent('nvCloth:client:manageCatalog', src, collectManageRows(src))
+    return
+  end
+
+  local ok, reverted, imageOrErr = pcall(function()
+    return exports['cm-items']:RevertClothingImage(rowId, ('player:%s'):format(src))
+  end)
+  if not ok or not reverted then
+    local reason = tostring((ok and imageOrErr) or reverted or 'no_history')
+    notify(src, reason == 'no_history' and 'No previous photo to revert to.'
+      or ('Could not revert image: %s'):format(reason), 'error')
+    return
+  end
+
+  auditLog(src, 'manage_image_reverted', { id = rowId, image = imageOrErr }, tostring(rowId))
+  notify(src, 'Reverted to the previous photo.', 'success')
+
+  -- Armor's mirrored gun store listing needs the reverted image path too, and
+  -- already-owned copies of this exact item need their stored icon refreshed
+  -- the same way a retake does.
+  if GetResourceState('cm-gunstore') == 'started' or GetResourceState('cm-inventory') == 'started' then
+    local okRows, rows = pcall(function()
+      return exports['cm-items']:GetClothingCatalogRows({ includeDisabled = true })
+    end)
+    if okRows and type(rows) == 'table' then
+      for _, row in ipairs(rows) do
+        if tonumber(row.id) == rowId then
+          stampClothingIdentity(row)
+          syncOwnedClothingImage(row)
+          if tostring(row.category or ''):lower() == 'armor' and GetResourceState('cm-gunstore') == 'started' then
+            pcall(function() return exports['cm-gunstore']:SyncClothingArmorItem(src, row) end)
+          end
+          break
+        end
+      end
+    end
+  end
+
+  TriggerClientEvent('nvCloth:client:manageCatalog', src, collectManageRows(src))
+end)
+
+-- Lets an admin pick which captured texture's photo represents the whole
+-- drawable's fallback thumbnail (the texture = -1 "master" row), instead of it
+-- silently drifting to whichever texture was retaken most recently.
+RegisterNetEvent('nvCloth:server:manageSetCoverImage', function(data)
+  local src = source
+  if not isClothingAdmin(src) then
+    notify(src, 'You do not have permission to manage the clothing store.', 'error')
+    return
+  end
+  if GetResourceState('cm-items') ~= 'started' then
+    notify(src, 'cm-items is not started.', 'error')
+    return
+  end
+  data = type(data) == 'table' and data or {}
+  local category = tostring(data.category or ''):lower()
+  if not CATEGORY_COMPONENTS[category] then
+    notify(src, 'Invalid clothing category.', 'error')
+    return
+  end
+  local gender = tostring(data.gender or 'male'):lower() == 'female' and 'female' or 'male'
+  local drawable = tonumber(data.drawableId or data.drawable)
+  -- The client only ever holds the display-ready nui:// URL; normalise it back
+  -- to the relative path saveCatalogEntryFromIcon/manageSaveItem both use.
+  local image = tostring(data.image or ''):gsub('^nui://cm%-items/ui/images/clothing/', '')
+  if not drawable or image == '' then
+    notify(src, 'Could not set that photo as the cover image.', 'error')
+    return
+  end
+
+  local master = findExistingManagedRow(category, gender, drawable)
+  if type(master) ~= 'table' then
+    notify(src, 'This drawable has no saved catalog row yet.', 'error')
+    return
+  end
+
+  local row = {}
+  for k, v in pairs(master) do row[k] = v end
+  row.textureId = -1
+  row.texture_id = -1
+  row.image = image
+  row.icon = image
+  row.updatedBy = ('player:%s'):format(src)
+  row.updated_by = row.updatedBy
+  stampClothingIdentity(row)
+
+  local ok, result, err = pcall(function() return exports['cm-items']:SaveClothingCatalogEntry(row) end)
+  if not ok or not result then
+    notify(src, ('Could not set cover image: %s'):format(tostring(err or result or 'unknown')), 'error')
+    return
+  end
+
+  notify(src, 'Cover photo updated for this drawable.', 'success')
+  TriggerClientEvent('nvCloth:client:manageCatalog', src, collectManageRows(src))
+end)
+
+-- Resolves a stored clothing_catalog image value back to a path relative to
+-- cm-items' own resource root, or nil if it isn't a cm-items-hosted file
+-- (external URL / inline data URI) we can check with LoadResourceFile.
+local function resolveCmItemsRelativeImagePath(image)
+  image = tostring(image or '')
+  if image == '' then return nil end
+  if image:find('^nui://cm%-items/') then return image:gsub('^nui://cm%-items/', '') end
+  if image:find('^nui://') or image:find('^https?://') or image:find('^data:image') then return nil end
+  if image:find('^ui/images/') then return image end
+  if image:find('^images/') then return 'ui/' .. image end
+  if image:find('^clothing/') then return 'ui/images/' .. image end
+  return 'ui/images/clothing/' .. image
+end
+
+--========================================================
+-- /clothingaudit — orphan/broken-reference checker.
+-- FXServer's Lua sandbox has no directory-listing native, so this can only
+-- check "does every catalog row's image file actually exist" (broken
+-- references), not "is there a captured file on disk with no row pointing at
+-- it" (true orphans) -- that direction needs a filesystem walk outside the
+-- game server (e.g. comparing the DB against `resources/[core]/cm-items/ui/
+-- images/clothing/custom/` on disk). Also flags saved-but-unpublished clothes
+-- and armor rows that never made it into cm-gunstore's sellable catalog.
+--========================================================
+RegisterCommand(Config.AuditCommand or 'clothingaudit', function(src)
+  if src ~= 0 and not isClothingAdmin(src) then
+    notify(src, 'You do not have permission to audit the clothing catalog.', 'error')
+    return
+  end
+  if GetResourceState('cm-items') ~= 'started' then
+    notify(src, 'cm-items is not started.', 'error')
+    return
+  end
+
+  local ok, rows = pcall(function()
+    return exports['cm-items']:GetClothingCatalogRows({ includeDisabled = true })
+  end)
+  if not ok or type(rows) ~= 'table' then
+    notify(src, 'Could not load the clothing catalog.', 'error')
+    return
+  end
+
+  local gunItemNames = nil
+  if GetResourceState('cm-gunstore') == 'started' then
+    local okGun, catalog = pcall(function() return exports['cm-gunstore']:GetCatalog(true) end)
+    if okGun and type(catalog) == 'table' then
+      gunItemNames = {}
+      for _, row in ipairs(catalog) do
+        if row.item_name then gunItemNames[tostring(row.item_name):lower()] = true end
+      end
+    end
+  end
+
+  local total, missingImage, brokenImage, unpublished, armorNotSynced = 0, {}, {}, 0, {}
+  for _, row in ipairs(rows) do
+    total = total + 1
+    local label = ('%s/%s d%s t%s'):format(tostring(row.gender), tostring(row.category), tostring(row.drawableId), tostring(row.textureId))
+    local rawImage = tostring(row.image or row.icon or '')
+
+    if rawImage == '' then
+      missingImage[#missingImage + 1] = label
+    else
+      local relPath = resolveCmItemsRelativeImagePath(rawImage)
+      if relPath then
+        local bytes = LoadResourceFile('cm-items', relPath)
+        if not bytes or #bytes < 8 then
+          brokenImage[#brokenImage + 1] = ('%s -> %s'):format(label, relPath)
+        end
+      end
+    end
+
+    if row.enabled ~= true then unpublished = unpublished + 1 end
+
+    if tostring(row.category or ''):lower() == 'armor' and gunItemNames then
+      local uid = tostring(row.uniqueId or row.unique_id or '')
+      if uid ~= '' and not gunItemNames[('armor_%s'):format(uid):lower()] then
+        armorNotSynced[#armorNotSynced + 1] = label
+      end
+    end
+  end
+
+  local lines = {
+    ('[nv_cloth audit] %s clothing_catalog rows total.'):format(total),
+    ('  %s row(s) have never been photographed (no image).'):format(#missingImage),
+    ('  %s row(s) reference an image file that could not be read (broken reference).'):format(#brokenImage),
+    ('  %s row(s) are saved but not published (normal for freshly captured items).'):format(unpublished),
+  }
+  if gunItemNames then
+    lines[#lines + 1] = ('  %s armor row(s) exist in clothing_catalog but are missing from cm-gunstore\'s sellable catalog.'):format(#armorNotSynced)
+  end
+
+  for _, line in ipairs(lines) do print(line) end
+  for _, l in ipairs(brokenImage) do print(('    broken: %s'):format(l)) end
+  for _, l in ipairs(armorNotSynced) do print(('    not synced: %s'):format(l)) end
+
+  if src ~= 0 then
+    notify(src, table.concat(lines, '\n'), (#brokenImage > 0 or #armorNotSynced > 0) and 'warning' or 'success')
+  end
+end, false)
 
 --========================================================
 -- Build 2.19 · Org locker command (/orgcloset)
@@ -2541,3 +4013,4 @@ RegisterCommand(Config.OrgShopCommand or 'orgcloset', function(src)
   end
   TriggerClientEvent('nvCloth:client:openOrgShop', src, job, orgShopLabel(job))
 end, false)
+

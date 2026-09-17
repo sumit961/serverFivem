@@ -190,28 +190,18 @@ function buildPrefix(msg) {
     if (msg.format === 'adminsys') return '';
     if (msg.format === 'announce') return `Administrator ${author}:`;
     if (msg.format === 'announce_anon') return 'Administrator:';
-    if (msg.format === 'action') return `${author} (${id})`;
+    if (msg.format === 'action') return `<span class="chat-author">${author}</span> <span class="chat-id">(${id})</span>`;
     if (msg.format === 'do') return 'Scene:';
-    if (msg.format === 'me') return `${author} (${id})`;
-    if (msg.format === 'try') return `${author} (${id}) tries:`;
-    if (msg.format === 'family') {
-        const tag = escapeHtml(msg.familyTag || 'FAMILY');
-        const role = escapeHtml(msg.memberTitle || msg.rankName || 'Member');
-        return `[${tag}] [${role}] ${author} (${id}):`;
-    }
-    if (msg.format === 'ems_rp' || msg.format === 'ems_nonrp') {
-        return `<span class="ems-chat-logo">EMS</span> <span class="ems-chat-author">${author}</span> <span class="ems-chat-id">[${id}]</span>:`;
-    }
-    if (msg.format === 'police_rp' || msg.format === 'police_nonrp') {
-        return `<span class="police-chat-logo">POLICE</span> <span class="police-chat-author">${author}</span> <span class="police-chat-id">[${id}]</span>:`;
-    }
-    return `${author} (${id}) said:`;
+    if (msg.format === 'me') return `<span class="chat-author">${author}</span> <span class="chat-id">(${id})</span>`;
+    if (msg.format === 'try') return `<span class="chat-author">${author}</span> <span class="chat-id">(${id})</span> tries:`;
+    const role = escapeHtml(msg.memberTitle || msg.rankName || '');
+    return `${role ? `<span class="chat-rank">${role}</span> ` : ''}<span class="chat-author">${author}</span> <span class="chat-id">(${id})</span>:`;
 }
 
 function buildText(msg) {
     const text = escapeHtml(msg.text);
     if (msg.format === 'nonrp') return `(( ${text} ))`;
-    if (msg.format === 'ems_nonrp' || msg.format === 'police_nonrp') return `(( ${text} ))`;
+    if (msg.format === 'ems_nonrp' || msg.format === 'police_nonrp' || msg.format === 'group_nonrp') return `(( ${text} ))`;
     if (msg.format === 'do') return text;
     if (msg.format === 'me') return `* ${text}`;
     if (msg.format === 'try') return text;
@@ -226,7 +216,7 @@ function renderMessages(scrollToBottom = true) {
         const cls = `chat-message chat-${channelClass(msg.channel)} chat-${channelClass(msg.format)}`;
         return `
             <div class="${cls}" style="--chat-color:${color}; --prefix-color:${color}">
-                <div class="chat-mark" data-icon="${escapeHtml(messageIcon(msg))}"></div>
+                <div class="chat-mark"></div>
                 <div class="chat-body">
                     <span class="chat-prefix">${buildPrefix(msg)}</span>
                     <span class="chat-text">${buildText(msg)}</span>
@@ -258,7 +248,7 @@ function setOpen(open) {
         renderActions();
         renderMessages();
         setPlaceholder();
-        setActionsOpen(false);
+        setActionsOpen(true);
         historyIndex = history.length;
         suppressOpenKey = true;
         if (els.input) els.input.value = '';
@@ -365,6 +355,9 @@ window.addEventListener('message', (event) => {
             break;
         case 'setChatOpen':
             setOpen(data.open);
+            break;
+        case 'setChatVisible':
+            els.root.classList.toggle('chat-external-hidden', data.visible === false);
             break;
         case 'setChatChannels':
             if (Array.isArray(data.channels) && data.channels.length > 0) {

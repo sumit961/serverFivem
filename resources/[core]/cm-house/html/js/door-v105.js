@@ -129,6 +129,12 @@
       else word = Number(days) + 'D PAID';
     }
     setText('d-status', word);
+    setText('d-status-chip', word);
+    var statusChip = el('d-status-chip');
+    if (statusChip) {
+      statusChip.setAttribute('data-state', vacant ? 'vacant' :
+        ((days === null || days === undefined || Number(days) < 0) ? 'warning' : 'paid'));
+    }
 
     var fill = seal.querySelector('.seal__fill');
     if (fill) fill.style.strokeDashoffset = String(327 * (1 - stars / 5));
@@ -139,16 +145,28 @@
     var lock = el('d-lock');
     var home = el('d-home');
     var garage = el('d-garage');
+    var raid = el('d-raid');
     var buy = el('d-buy');
     var sell = el('d-sell');
-    var activity = el('d-activity');
     var foot = root ? root.querySelector('.deed__foot') : null;
 
     if (lock) lock.disabled = !can.lock;
     if (home) home.disabled = !can.enter;
     if (garage) {
       garage.disabled = !can.garage;
-      garage.hidden = !view.hasGarage;
+      // Hide the action entirely when this character cannot use the garage.
+      // The server still re-checks garage.enter when a request is submitted.
+      garage.hidden = !view.hasGarage || !can.garage;
+    }
+    if (raid) {
+      var raidState = view.raid || {};
+      var raidAllowed = can.raid && (raidState.canStart === true || raidState.canJoin === true);
+      raid.hidden = !can.raid;
+      raid.disabled = !raidAllowed;
+      setText('d-raid-label', raidState.active && raidState.canJoin ? 'Join family raid' :
+        (raidState.isMember && !raidState.canStart ? 'Choose opposing family house' :
+          (!raidState.inFamily ? 'Family membership required' :
+            (!raidState.canStart ? 'Raid rank required' : 'Start family raid'))));
     }
     if (buy) {
       buy.hidden = !can.buy;
@@ -157,10 +175,6 @@
     if (sell) {
       sell.hidden = !can.sell;
       sell.disabled = !can.sell;
-    }
-    if (activity) {
-      activity.hidden = !can.activity;
-      activity.disabled = !can.activity;
     }
 
     if (foot) {
@@ -283,8 +297,11 @@
     loadPropertyPhoto(current, shot, image);
 
     setText('d-number', current.houseNumber, '000');
+    setText('d-number-plate', current.houseNumber, '000');
     setText('d-label', current.label, 'House');
+    setText('d-photo-title', current.label, 'House');
     setText('d-type', current.houseType, '');
+    setText('d-type-chip', current.houseType, 'House');
     setText('d-family', current.familyName, '');
     setText('d-owner', current.ownerName, 'For sale');
     setText('d-insurance', money(current.insurance));
@@ -372,11 +389,15 @@
         return;
       }
 
-      if (action === 'activity') {
-        post('door:activity', { houseId: houseId });
-        closeLocal(false);
+      if (action === 'raid') {
+        button.disabled = true;
+        post('door:startRaid', { houseId: houseId }, function (response) {
+          if (response && response.ok) closeLocal(false);
+          else if (current) button.disabled = false;
+        });
         return;
       }
+
 
       if (action === 'buy') {
         button.disabled = true;
@@ -402,7 +423,9 @@
     var data = message.data || {};
 
     try {
-      if (message.action === 'openDoor') {
+      if (message.action === 'photoCaptureClean') {
+        document.body.classList.toggle('cm-photo-clean', data.active === true);
+      } else if (message.action === 'openDoor') {
         render(data);
       } else if (message.action === 'closeDoor') {
         closeLocal(false);

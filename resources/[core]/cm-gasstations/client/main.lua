@@ -106,35 +106,131 @@ local function releaseHeldVehicle()
     -- Deliberately keep the engine off. The driver can start it normally.
 end
 
-local function sendInteraction(visible, hasVehicle)
-    local mode = hasVehicle and 'vehicle' or 'store'
-    if promptVisible == visible and (not visible or promptMode == mode) then return end
-    promptVisible = visible
-    promptMode = visible and mode or nil
+local function sendInteraction(visible, hasVehicle, isHeli)
+    if visible then
+        local key = Config.interactKeyLabel or 'E'
+        local label = hasVehicle and (isHeli and 'REFUEL HELICOPTER' or 'REFUEL VEHICLE') or 'GAS STATION STORE'
+        local name = isHeli and 'Rooftop Helipad' or (Config.stationName or 'Gas Station')
+        local role = isHeli and 'Aviation Fuel' or 'Fuel & Shop'
+        promptVisible = true
 
-    local interaction = Config.Interaction or {}
-    SendNUIMessage({
-        action = 'interaction',
-        visible = visible == true,
-        key = Config.interactKeyLabel or 'E',
-        title = interaction.title or 'FUEL STATION',
-        label = hasVehicle and (interaction.vehicleAction or 'Refuel vehicle & open store')
-            or (interaction.storeAction or 'Open gas station store'),
-        hint = interaction.hint or 'Vehicle is secured while ordering',
-        hasVehicle = hasVehicle == true,
-    })
+        if GetResourceState('cm-ui') == 'started' then
+            pcall(function()
+                exports['cm-ui']:ShowInteract({
+                    key = key,
+                    label = label,
+                    name = name,
+                    role = role,
+                })
+            end)
+        else
+            SendNUIMessage({
+                action = 'interaction',
+                visible = true,
+                key = key,
+                title = isHeli and 'ROOFTOP REFUEL' or 'FUEL STATION',
+                label = label,
+                hint = isHeli and 'Helicopter is secured on roof' or 'Vehicle is secured while ordering',
+                hasVehicle = hasVehicle == true,
+            })
+        end
+    else
+        if promptVisible then
+            promptVisible = false
+            promptMode = nil
+            if GetResourceState('cm-ui') == 'started' then
+                pcall(function()
+                    exports['cm-ui']:HideInteract()
+                end)
+            end
+            SendNUIMessage({
+                action = 'interaction',
+                visible = false,
+            })
+        end
+    end
+end
+
+AddEventHandler('onResourceStop', function(res)
+    if res == GetCurrentResourceName() then
+        if GetResourceState('cm-ui') == 'started' then
+            pcall(function() exports['cm-ui']:HideInteract() end)
+        end
+    end
+end)
+
+local function isHelicopter(vehicle)
+    if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then return false end
+    return GetVehicleClass(vehicle) == 15 or IsThisModelAHeli(GetEntityModel(vehicle))
+end
+
+local function getNearbyPumpProp(coords, radius)
+    radius = tonumber(radius) or tonumber(Config.pumpPropDistance) or 4.2
+    local models = Config.PumpModels or {
+        'prop_gas_pump_1a',
+        'prop_gas_pump_1b',
+        'prop_gas_pump_1c',
+        'prop_gas_pump_1d',
+        'prop_gas_pump_old1',
+        'prop_gas_pump_old2',
+        'prop_gas_pump_old3',
+        'prop_vintage_pump',
+    }
+    for _, model in ipairs(models) do
+        local hash = type(model) == 'string' and joaat(model) or model
+        local obj = GetClosestObjectOfType(coords.x, coords.y, coords.z, radius, hash, false, false, false)
+        if obj ~= 0 and DoesEntityExist(obj) then
+            return obj, GetEntityCoords(obj)
+        end
+    end
+    return nil, nil
+end
+
+local function checkHeliRooftop(stationIndex, vehicle, pedCoords)
+    local pump = Config.Pumps[stationIndex]
+    if not pump then return false end
+
+    local vehCoords = (vehicle ~= 0 and DoesEntityExist(vehicle)) and GetEntityCoords(vehicle) or nil
+    local targetCoords = vehCoords or pedCoords
+
+    local dist2d = #(vector2(targetCoords.x, targetCoords.y) - vector2(pump.x, pump.y))
+    local dz = targetCoords.z - pump.z
+
+    local heliCfg = Config.HeliRooftop or {}
+    local maxRadius = promptVisible and (tonumber(heliCfg.radius or 24.0) + 6.0) or (tonumber(heliCfg.radius) or 24.0)
+    local minHeight = tonumber(heliCfg.minHeight) or 4.0
+    local maxHeight = tonumber(heliCfg.maxHeight) or 30.0
+
+    if dist2d > maxRadius or dz < minHeight or dz > maxHeight then
+        return false
+    end
+
+    if vehicle ~= 0 and DoesEntityExist(vehicle) then
+        if not isHelicopter(vehicle) then return false end
+
+        local speed = GetEntitySpeed(vehicle)
+        local maxSpeed = tonumber(heliCfg.maxLandedSpeed) or 2.5
+        if speed > maxSpeed then return false end
+
+        local heightAboveSurface = GetEntityHeightAboveGround(vehicle)
+        local maxHeightAboveRoof = promptVisible and 5.0 or (tonumber(heliCfg.maxHeightAboveRoof) or 4.0)
+        if heightAboveSurface > maxHeightAboveRoof then return false end
+
+        local ped = PlayerPedId()
+        if GetVehiclePedIsIn(ped, false) ~= vehicle then
+            local pedDz = pedCoords.z - pump.z
+            if pedDz < minHeight then return false end
+            local pedToHeli = #(pedCoords - vehCoords)
+            if pedToHeli > 16.0 then return false end
+        end
+
+        return true
+    end
+
+    return false
 end
 
 local function getActionVehicle(forceScan)
-    local now = GetGameTimer()
-    if not forceScan and now - lastVehicleScan < 250 then
-        if cachedActionVehicle ~= 0 and DoesEntityExist(cachedActionVehicle) then
-            return cachedActionVehicle
-        end
-        return 0
-    end
-    lastVehicleScan = now
-
     local ped = PlayerPedId()
     local inside = GetVehiclePedIsIn(ped, false)
     if inside ~= 0 then
@@ -146,15 +242,32 @@ local function getActionVehicle(forceScan)
         return 0
     end
 
+    local now = GetGameTimer()
+    if not forceScan and now - lastVehicleScan < 300 then
+        if cachedActionVehicle ~= 0 and DoesEntityExist(cachedActionVehicle) then
+            return cachedActionVehicle
+        end
+        return 0
+    end
+    lastVehicleScan = now
+
     local coords = GetEntityCoords(ped)
-    local maxDistance = tonumber(Config.Security and Config.Security.maxVehicleDistance) or 7.5
-    local closest, closestDistance = 0, maxDistance
+    local closest, closestDistance = 0, 999.0
     for _, vehicle in ipairs(GetGamePool('CVehicle')) do
         if DoesEntityExist(vehicle) then
-            local distance = #(coords - GetEntityCoords(vehicle))
-            if distance < closestDistance then
-                closest = vehicle
-                closestDistance = distance
+            local isHeli = isHelicopter(vehicle)
+            local maxDist = isHeli and 12.0 or 4.5
+            local maxZ = isHeli and 4.0 or 2.5
+
+            local vCoords = GetEntityCoords(vehicle)
+            local dist2d = #(vector2(coords.x, coords.y) - vector2(vCoords.x, vCoords.y))
+            local dz = math.abs(coords.z - vCoords.z)
+
+            if dist2d <= maxDist and dz <= maxZ then
+                if dist2d < closestDistance then
+                    closest = vehicle
+                    closestDistance = dist2d
+                end
             end
         end
     end
@@ -162,13 +275,20 @@ local function getActionVehicle(forceScan)
     return closest
 end
 
-local function findClosestPump(coords, maxDistance)
+local function findClosestPump(coords, maxDistance, minZ, maxZ)
+    local maxHoriz = tonumber(maxDistance) or tonumber(Config.stationDetectDistance) or 60.0
+    local zMin = tonumber(minZ) or -20.0
+    local zMax = tonumber(maxZ) or 50.0
+
     local foundIndex, foundDistance
     for index, pump in ipairs(Config.Pumps or {}) do
-        local distance = #(coords - pump)
-        if (not foundDistance or distance < foundDistance) and distance <= maxDistance then
-            foundIndex = index
-            foundDistance = distance
+        local dist2d = #(vector2(coords.x, coords.y) - vector2(pump.x, pump.y))
+        local dz = coords.z - pump.z
+        if dist2d <= maxHoriz and dz >= zMin and dz <= zMax then
+            if not foundDistance or dist2d < foundDistance then
+                foundIndex = index
+                foundDistance = dist2d
+            end
         end
     end
     return foundIndex, foundDistance
@@ -301,6 +421,26 @@ RegisterNUICallback('placeOrder', function(data, cb)
     cb({ ok = true })
 end)
 
+RegisterNUICallback('buyStation', function(_, cb)
+    if currentSessionToken and currentPumpIndex then TriggerServerEvent('cm-gas:server:buyStation', currentPumpIndex) end
+    cb({ ok = true })
+end)
+RegisterNUICallback('manageStation', function(data, cb)
+    if currentSessionToken and currentPumpIndex then
+        data = type(data) == 'table' and data or {}; data.stationId = currentPumpIndex
+        TriggerServerEvent('cm-gas:server:manageStation', data)
+    end
+    cb({ ok = true })
+end)
+RegisterNUICallback('payTax', function(_, cb)
+    if currentSessionToken and currentPumpIndex then TriggerServerEvent('cm-gas:server:payTax', currentPumpIndex) end
+    cb({ ok = true })
+end)
+RegisterNUICallback('withdrawBusiness', function(_, cb)
+    if currentSessionToken and currentPumpIndex then TriggerServerEvent('cm-gas:server:withdrawBusiness', currentPumpIndex) end
+    cb({ ok = true })
+end)
+
 RegisterNUICallback('close', function(_, cb)
     closeMenu(true)
     cb({ ok = true })
@@ -330,33 +470,64 @@ end)
 
 CreateThread(function()
     while true do
-        local waitMs = 900
+        local waitMs = 500
 
         if menuOpen or openPending then
             sendInteraction(false, false)
             Wait(250)
         else
             local ped = PlayerPedId()
-            local coords = GetEntityCoords(ped)
-            local nearIndex = findClosestPump(coords, tonumber(Config.stationDetectDistance) or 80.0)
 
-            if nearIndex and not IsPauseMenuActive() and not IsEntityDead(ped) then
-                local pumpIndex = findClosestPump(coords, tonumber(Config.pumpInteractDistance) or 6.0)
-                if pumpIndex then
+            if IsPauseMenuActive() or IsEntityDead(ped) then
+                sendInteraction(false, false)
+                Wait(500)
+            else
+                local coords = GetEntityCoords(ped)
+                local vehicle = getActionVehicle(false)
+                local isHeli = vehicle ~= 0 and isHelicopter(vehicle)
+
+                -- Strict pump prop distance: only active when directly at a physical gas pump
+                local pumpDistance = tonumber(Config.pumpPropDistance) or 4.2
+                local pumpProp = getNearbyPumpProp(coords, pumpDistance)
+                if not pumpProp and vehicle ~= 0 and DoesEntityExist(vehicle) then
+                    pumpProp = getNearbyPumpProp(GetEntityCoords(vehicle), pumpDistance + 1.2)
+                end
+
+                -- Resolve closest station index for pricing & business data
+                local nearIndex = findClosestPump(coords, 90.0, -35.0, 65.0)
+                if not nearIndex and pumpProp then
+                    nearIndex = findClosestPump(coords, 180.0, -50.0, 80.0)
+                end
+
+                local inStationZone = false
+                local isRooftopHeli = false
+
+                if isHeli then
+                    -- Helicopter: strictly active only when landed on the station roof
+                    if nearIndex and vehicle ~= 0 and checkHeliRooftop(nearIndex, vehicle, coords) then
+                        inStationZone = true
+                        isRooftopHeli = true
+                    end
+                else
+                    -- Ground vehicle / player: strictly active only when close to a physical gas pump prop
+                    if pumpProp and nearIndex then
+                        inStationZone = true
+                    end
+                end
+
+                if inStationZone then
                     waitMs = 0
-                    local vehicle = getActionVehicle(false)
                     local hasVehicle = vehicle ~= 0
-                    sendInteraction(true, hasVehicle)
+                    sendInteraction(true, hasVehicle, isRooftopHeli)
 
                     if IsControlJustReleased(0, Config.interactKey or 38) then
                         vehicle = getActionVehicle(true)
-                        CMGas.Client.OpenMenu(vehicle, pumpIndex)
+                        CMGas.Client.OpenMenu(vehicle, nearIndex)
                     end
                 else
                     sendInteraction(false, false)
+                    waitMs = 350
                 end
-            else
-                sendInteraction(false, false)
             end
 
             Wait(waitMs)

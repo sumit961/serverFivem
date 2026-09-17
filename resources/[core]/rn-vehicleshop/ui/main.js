@@ -14,6 +14,9 @@ let cropHadAdminPanel = false;
 let testTimerInterval = null;
 let buyProcessing = false;
 let testDriveProcessing = false;
+let pendingReplacement = null;
+let pendingRestore = null;
+const DEFAULT_TEST_DRIVE_SECONDS = 300;
 let currentCategoryTitle = null;
 let currentVehicleButtons = [];
 let adminRenderedVehicles = [];
@@ -22,15 +25,72 @@ let adminDiscoveryInfo = {};
 let adminSelectedModel = null;
 let visualCatalog = {}; // cm-tuning's paint/livery/wheel/tyre/neon option catalog
 let legalOrganizations = []; // cm-law's org list ({id,label}[]), for the admin-status-mode dropdown's legal:<id> options
+let gangOrganizations = [];
 let adminEmsMods = {};  // currently edited EMS vehicle's mods (mirrors client.lua currentAdminMods for display only)
 let adminIntrospect = { liveries: 0, slots: {} }; // live per-vehicle option counts from client.lua introspectAdminVehicle
 let adminMode = 'manage';
+let adminActionSequence = 0;
+const adminActionState = new Map();
 let favorites = loadJsonStore('rnVehicleShopFavorites', []);
 let compareList = loadJsonStore('rnVehicleShopCompare', []);
 
 function money(n){ return Number(n || 0).toLocaleString() + '$'; }
 function safe(v){ return String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
 function post(name, payload){ return $.post(`https://${GetParentResourceName()}/${name}`, JSON.stringify(payload || {})); }
+function vehicleLabelParts(label, model){
+  const words = String(label || model || 'Vehicle').trim().split(/\s+/).filter(Boolean);
+  if(words.length < 2) return { brand: String(model || 'Vehicle'), name: words[0] || 'Vehicle' };
+  return { brand: words.shift(), name: words.join(' ') };
+}
+function beginAdminAction(action, button, workingText){
+  if(adminActionState.has(action)){
+    showToast('That admin action is already running.');
+    return null;
+  }
+  const $button = $(button);
+  const requestId = `${action}:${Date.now()}:${++adminActionSequence}`;
+  const state = {
+    requestId,
+    $button,
+    originalHtml:$button.html(),
+    wasDisabled:$button.prop('disabled') === true,
+    timer:setTimeout(() => {
+      const current = adminActionState.get(action);
+      if(!current || current.requestId !== requestId) return;
+      releaseAdminAction(action, requestId);
+      showToast('Admin action timed out. Refresh before trying again.');
+    }, 30000)
+  };
+  adminActionState.set(action, state);
+  $button.prop('disabled', true).addClass('is-processing');
+  const $label = $button.find('span').first();
+  if($label.length) $label.text(workingText || 'Working…'); else $button.text(workingText || 'Working…');
+  return requestId;
+}
+function releaseAdminAction(action, requestId){
+  const state = adminActionState.get(action);
+  if(!state || (requestId && state.requestId !== requestId)) return false;
+  clearTimeout(state.timer);
+  state.$button.html(state.originalHtml).prop('disabled', state.wasDisabled).removeClass('is-processing');
+  adminActionState.delete(action);
+  return true;
+}
+function failAdminActionTransport(action, requestId){
+  if(releaseAdminAction(action, requestId)) showToast('Admin request could not be sent. Please try again.');
+}
+function handleAdminActionResult(result){
+  result = result || {};
+  const action = String(result.action || '');
+  if(!action) return;
+  const state = adminActionState.get(action);
+  if(state && result.requestId && state.requestId !== result.requestId) return;
+  if(result.pending === true){
+    showToast(result.message || 'Waiting for the required image…');
+    return;
+  }
+  releaseAdminAction(action, result.requestId);
+  if(result.message) showToast(result.message);
+}
 function loadJsonStore(key, fallback){
   try {
     const parsed = JSON.parse(localStorage.getItem(key) || 'null');
@@ -187,7 +247,9 @@ function selectAdminModel(model, preview = true){
     const top = card.position().top + list.scrollTop() - 90;
     list.stop(true).animate({ scrollTop: Math.max(0, top) }, 110);
   }
+  const listScroll = $('#admin-list').scrollTop();
   fillAdminForm(model, preview && model !== adminPreviewedModel);
+  requestAnimationFrame(() => { $('#admin-list').scrollTop(listScroll); });
 }
 function selectAdminRelative(delta){
   const models = adminVisibleModels();
@@ -233,10 +295,36 @@ function setTimerValue(seconds, baseDuration){
 function catalogByModel(){ const m = {}; for (const row of adminCatalog || []) m[String(row.model).toLowerCase()] = row; return m; }
 function renderLegalOrgOptions(){
   const select = $('#admin-status-mode');
-  select.find('option[value^="legal:"]').remove();
-  (legalOrganizations || []).forEach(org => {
-    select.append($('<option>').attr('value', 'legal:' + org.id).text(org.label + ' fleet vehicle'));
+  const current = String(select.val() || '');
+  const group = $('#admin-status-organizations').empty();
+  const seen = new Set();
+  (gangOrganizations || []).forEach(org => {
+    const id = modelKey(org && org.id);
+    if(!id || seen.has(`gang:${id}`)) return;
+    seen.add(`gang:${id}`);
+    group.append($('<option>').attr('value', `gang:${id}`).text(`Gang · ${org.label || id}`));
   });
+  (legalOrganizations || []).forEach(org => {
+    const id = modelKey(org && org.id);
+    if(!id || id === 'police' || id === 'ems' || seen.has(`legal:${id}`)) return;
+    seen.add(`legal:${id}`);
+    group.append($('<option>').attr('value', `legal:${id}`).text(`Organization · ${org.label || id}`));
+  });
+  if(current && select.find('option').filter(function(){ return this.value === current; }).length) select.val(current);
+}
+function renderGrantOrgOptions(){
+  const select=$('#admin-grant-org'),current=String(select.val()||'');select.empty();
+  const addGroup=(label,rows)=>{const group=$('<optgroup>').attr('label',label);rows.filter((org,index,all)=>org&&org.id&&all.findIndex(x=>x&&x.id===org.id)===index).forEach(org=>group.append($('<option>').attr('value',org.id).text(org.label||org.id)));if(group.children().length)select.append(group)};
+  addGroup('GANGS',gangOrganizations||[]);
+  addGroup('PUBLIC ORGANIZATIONS',[{id:'police',label:'Police'},{id:'ems',label:'EMS'}].concat(legalOrganizations||[]));
+  if(current && select.find('option').filter(function(){ return this.value === current; }).length) select.val(current);
+  updateGrantRankVisibility();
+}
+function isGangOrganization(id){ return (gangOrganizations || []).some(org => modelKey(org && org.id) === modelKey(id)); }
+function updateGrantRankVisibility(){
+  const isGang = isGangOrganization($('#admin-grant-org').val());
+  $('#admin-grant-rank-fields').prop('hidden', !isGang).toggle(isGang);
+  $('#admin-grant-drive-tier, #admin-grant-trunk-tier').prop('disabled', !isGang);
 }
 function legalOrgLabel(id){
   const org = (legalOrganizations || []).find(o => o.id === id);
@@ -244,9 +332,15 @@ function legalOrgLabel(id){
 }
 function statusFor(row){
   if(!row) return 'Not set';
+  if(row.retired && row.replacementModel) return `Replaced → ${row.replacementModel}`;
+  if(row.retired) return 'Permanently removed';
   if(row.availableEms) return 'EMS fleet vehicle';
   if(row.availablePolice) return 'Police fleet vehicle';
-  if(row.legalOrg) return legalOrgLabel(row.legalOrg) + ' fleet vehicle';
+  if(row.legalOrg) return `Organization fleet: ${legalOrgLabel(row.legalOrg)}`;
+  if(row.gangId){
+    const gang=(gangOrganizations||[]).find(org=>modelKey(org&&org.id)===modelKey(row.gangId));
+    return `Gang fleet: ${gang ? gang.label : row.gangId}`;
+  }
   if(row.availableStore) return 'Store: buyable';
   if(row.availableServer) return 'Server only';
   return 'Disabled';
@@ -256,6 +350,7 @@ function statusClass(row){
   if(row.availableEms) return 'ems';
   if(row.availablePolice) return 'police';
   if(row.legalOrg) return 'legal-org';
+  if(row.gangId) return 'gang';
   if(row.availableStore) return 'store';
   if(row.availableServer) return 'server';
   return 'disabled';
@@ -372,7 +467,7 @@ addEventListener('message', (e) => {
     $('#test-drive-container').css('top', '-600px');
     $('#pointer').css('pointer-events', 'unset');
     hideAllElements();
-    const duration = Number(msg.duration || (data && data.testDrive && data.testDrive.testDriveTimer) || 60);
+    const duration = Number(msg.duration || (data && data.testDrive && data.testDrive.testDriveTimer) || DEFAULT_TEST_DRIVE_SECONDS);
     $('#timer').css('color', 'white');
     showTestTimer();
     startTimer(duration);
@@ -408,12 +503,15 @@ addEventListener('message', (e) => {
     hideAllElements();
     onBuyPage = false;
   } else if(msg.action === 'adminOpen'){
+    clearPendingAdminCaptureActions();
     adminSourceVehicles = msg.sourceVehicles || [];
     adminCatalog = msg.catalog || [];
     adminDiscoveryInfo = msg.discovery || {};
     visualCatalog = (msg.discovery && msg.discovery.visualCatalog) || visualCatalog;
     legalOrganizations = (msg.discovery && msg.discovery.legalOrganizations) || legalOrganizations;
+    gangOrganizations = (msg.discovery && msg.discovery.gangs) || gangOrganizations;
     renderLegalOrgOptions();
+    renderGrantOrgOptions();
     adminMode = msg.mode === 'capture' ? 'capture' : 'manage';
     adminPreviewedModel = '';
     openAdminPanel();
@@ -423,12 +521,25 @@ addEventListener('message', (e) => {
     adminDiscoveryInfo = msg.discovery || adminDiscoveryInfo || {};
     visualCatalog = (msg.discovery && msg.discovery.visualCatalog) || visualCatalog;
     legalOrganizations = (msg.discovery && msg.discovery.legalOrganizations) || legalOrganizations;
+    gangOrganizations = (msg.discovery && msg.discovery.gangs) || gangOrganizations;
     renderLegalOrgOptions();
+    renderGrantOrgOptions();
     renderAdmin();
   } else if(msg.action === 'closeAdmin'){
     closeAdminPanel(false);
   } else if(msg.action === 'toast'){
     showToast(msg.message || '');
+  } else if(msg.action === 'organizationGrantResult'){
+    const result=msg.result||{},box=$('#admin-grant-result');
+    handleAdminActionResult({ action:'grant', requestId:result.requestId, success:result.ok === true, message:result.message });
+    if(result.ok){const warning=result.status==='needs_home_location'?'⚠ Gang home location not configured':result.partial?`⚠ Fleet link failed: ${safe(result.reason||'unknown')}`:'';box.attr('data-state',result.partial?'warning':'success').html(`<strong>✓ ORGANIZATION VEHICLE CREATED</strong><span>${safe(result.label||result.model||'Vehicle')} · ${safe(result.organization||'')}</span><b>vehicle_id: ${safe(result.vehicleId||'')}</b>${warning?`<small>${warning}</small>`:''}`)}
+    else {
+      const rollback = result.rolledBack ? '<small>New persistent vehicle rolled back safely.</small>'
+        : result.recoveryRequired ? `<small>Manual recovery required for vehicle_id: ${safe(result.vehicleId||'unknown')} (${safe(result.rollbackError||'rollback failed')})</small>` : '';
+      box.attr('data-state','error').html(`<strong>ORGANIZATION VEHICLE FAILED</strong><small>${safe(result.stage||'creation')}: ${safe(result.reason||'unknown error')}</small>${rollback}`);
+    }
+  } else if(msg.action === 'adminActionResult'){
+    handleAdminActionResult(msg.result || {});
   } else if(msg.action === 'prepareVehicleCapture'){
     // Hide all NUI while screenshot-basic captures, so no UI bleeds into the PNG.
     $('body').toggleClass('capture-hidden', msg.value === true);
@@ -442,7 +553,11 @@ addEventListener('message', (e) => {
   } else if(msg.action === 'processVehicleImage'){
     removeBackgroundAndCrop(msg.image, msg.payload || {})
       .then(result => openCropModal({ ...result, payload: msg.payload || {} }))
-      .catch(err => { post('vehicleImageProcessed', { error: String(err && err.message || err), payload: msg.payload || {} }); });
+      .catch(err => {
+        clearPendingAdminCaptureActions();
+        $('#admin-capture').prop('disabled', false).text('Recapture Image');
+        post('vehicleImageProcessed', { error: String(err && err.message || err), payload: msg.payload || {} });
+      });
   } else if(msg.action === 'vehicleImageResult'){
     closeCropModal();
     if(msg.success){
@@ -456,6 +571,12 @@ addEventListener('message', (e) => {
           $('#admin-image-preview').attr('src', msg.image).show();
         }
         renderAdmin();
+        if (pendingRestore && pendingRestore.toLowerCase() === m) {
+          const restoreModel = pendingRestore;
+          pendingRestore = null;
+          post('adminEnableVehicle', { model: restoreModel });
+          showToast('Image updated. Enabling vehicle...');
+        }
       }
       // If this capture was triggered by a blocked Save, finish that Save now
       // that the image exists.
@@ -464,14 +585,19 @@ addEventListener('message', (e) => {
         showToast('Image ready — enabling vehicle…');
         post('adminSaveVehicle', save);
       }
+      if(pendingSave || pendingRestore){
+        clearPendingAdminCaptureActions();
+        showToast('Image saved, but the pending action was cancelled because the model changed.');
+      }
     } else {
-      pendingSave = null;
+      clearPendingAdminCaptureActions();
       showToast('Image capture failed: ' + (msg.error || 'unknown'));
     }
     $('#admin-capture').prop('disabled', false).text('Recapture Image');
   } else if(msg.action === 'adminNeedsImage'){
     // Server blocked enabling this car until it has an image. Capture now, then
     // the vehicleImageResult handler re-submits the pending save.
+    pendingRestore = null;
     pendingSave = msg.pendingSave || null;
     if(pendingSave){ pendingSave.model = msg.model; }
     showToast('No image yet — capturing before enabling…');
@@ -771,6 +897,12 @@ function showToast(message){
   setTimeout(() => $('#admin-toast').fadeOut(), 2500);
 }
 
+function clearPendingAdminCaptureActions(){
+  pendingSave = null;
+  pendingRestore = null;
+  releaseAdminAction('save');
+}
+
 
 function closeCropModal(restoreAdmin = true){
   cropPreviewState = null;
@@ -882,6 +1014,11 @@ function saveCropSelection(){
     ext,
     payload: cropPreviewState.payload || {},
     meta: { crop: bounds, output: ext }
+  }).fail(() => {
+    clearPendingAdminCaptureActions();
+    closeCropModal();
+    $('#admin-capture').prop('disabled', false).text('Recapture Image');
+    showToast('Image save request failed. Please capture it again.');
   });
 }
 
@@ -934,12 +1071,12 @@ $(document).on('mousemove', function(e){
 $(document).on('mouseup', function(){ cropDragState = null; });
 $(document).on('click', '#crop-auto', function(){ if(cropPreviewState) applyCropBoxNatural(cropPreviewState.autoBounds); });
 $(document).on('click', '#crop-full', function(){ const m = cropMetrics(); if(m) applyCropBoxNatural({ x: 0, y: 0, w: m.naturalW, h: m.naturalH }); });
-$(document).on('click', '#crop-cancel', function(){ post('cancelVehicleImage'); closeCropModal(); $('#admin-capture').prop('disabled', false).text('Recapture Image'); });
+$(document).on('click', '#crop-cancel', function(){ clearPendingAdminCaptureActions(); post('cancelVehicleImage'); closeCropModal(); $('#admin-capture').prop('disabled', false).text('Recapture Image'); });
 $(document).on('click', '#crop-recapture', function(){
   const model = String($('#admin-model').val() || '').trim();
   post('cancelVehicleImage');
   closeCropModal();
-  if(!model){ showToast('Enter / select a model first.'); return; }
+  if(!model){ clearPendingAdminCaptureActions(); showToast('Enter / select a model first.'); return; }
   $('#admin-capture').prop('disabled', true).text('Capturing...');
   post('adminPreviewVehicle', { model });
   setTimeout(() => post('captureVehicleImage', { model, label: $('#admin-label').val(), category: $('#admin-category').val() }), 250);
@@ -1161,6 +1298,7 @@ function renderVehicleCategory(title){
     const fav = isFavorite(vehicleBtn.model);
     const testEnabled = vehicleBtn.testDriveEnabled !== false && vehicleBtn.testDriveEnabled !== 'false';
     const status = buyable ? money(vehicleBtn.costs) : 'Event / Task only';
+    const labelParts = vehicleLabelParts(vehicleBtn.name, vehicleBtn.model);
     const img = vehicleBtn.image
       ? `<img class="vehicle-card-img" src="${safe(vehicleBtn.image)}" alt="${safe(vehicleBtn.name)}" />`
       : `<div class="vehicle-card-img no-img">No Image</div>`;
@@ -1178,7 +1316,8 @@ function renderVehicleCategory(title){
         </div>
         ${img}
         <div class="vehicle-card-info">
-          <span class="vehicle-card-title">${safe(vehicleBtn.name)}</span>
+          <small class="vehicle-card-brand">${safe(labelParts.brand)}</small>
+          <span class="vehicle-card-title">${safe(labelParts.name)}</span>
           <small class="vehicle-card-model">${safe(vehicleBtn.model || '')}</small>
         </div>
         <div class="category-price">${status}</div>
@@ -1225,6 +1364,7 @@ $(document).on('click', '.color', function(){
 $(document).on('click', '.category, .category5', function(){
   $('.category, .category5').removeClass('selected');
   $(this).addClass('selected');
+  this.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   const model = String($(this).data('model'));
   const name = String($(this).data('name'));
   const costs = Number($(this).data('costs') || 0);
@@ -1233,7 +1373,7 @@ $(document).on('click', '.category, .category5', function(){
   const owned = String($(this).data('owned')) === 'true';
   const trunkLevel = clampTrunkLevel($(this).data('trunk'));
   const testDriveEnabled = String($(this).data('test-enabled')) !== 'false';
-  const testDriveTimer = Number($(this).data('test-timer') || (data && data.testDrive && data.testDrive.testDriveTimer) || 60);
+  const testDriveTimer = Number($(this).data('test-timer') || (data && data.testDrive && data.testDrive.testDriveTimer) || DEFAULT_TEST_DRIVE_SECONDS);
   const testDriveCost = Number($(this).data('test-cost') || (data && data.testDrive && data.testDrive.testDriveCost) || 0);
   $('#title-vehiclename').text(name);
   $('#title-stock').text(owned ? 'You own this vehicle' : (buyable ? 'Available to purchase' : 'Event / task only'));
@@ -1297,7 +1437,7 @@ $('#test-btn').click(function(){
   $('#test-drive-container').show().css('top', '50%');
   $('#test-vehicle').text(details.vehicle);
   $('#test-price').text(Number(details.testDriveCost || 0) + '$');
-  changeTime(Number(details.testDriveTimer || (data && data.testDrive && data.testDrive.testDriveTimer) || 60));
+  changeTime(Number(details.testDriveTimer || (data && data.testDrive && data.testDrive.testDriveTimer) || DEFAULT_TEST_DRIVE_SECONDS));
   $('#pointer').css('pointer-events','none');
   $('#main').show();
 });
@@ -1313,7 +1453,7 @@ $('#back, #test-back').click(function(){
 $('#test-accept').click(function(){
   if(testDriveProcessing) return;
   setTestDriveProcessing(true);
-  post('testDrive', { timer: Number(details.testDriveTimer || (data && data.testDrive && data.testDrive.testDriveTimer) || 60), details })
+  post('testDrive', { timer: Number(details.testDriveTimer || (data && data.testDrive && data.testDrive.testDriveTimer) || DEFAULT_TEST_DRIVE_SECONDS), details })
     .fail(() => { showToast('Test drive request failed.'); setTestDriveProcessing(false); });
 
   // The server can reject using a HUD notification only. Re-enable the button if
@@ -1355,11 +1495,12 @@ document.onkeydown = (e) => {
   }
 
   if($('#crop-modal').is(':visible')){
+    clearPendingAdminCaptureActions();
     post('cancelVehicleImage');
     closeCropModal();
     return;
   }
-  if($('#admin-panel').is(':visible')){ post('adminClose'); return; }
+  if($('#admin-panel').is(':visible')){ clearPendingAdminCaptureActions(); post('adminClose'); return; }
   if(onBuyPage){
     onBuyPage = false;
     $('#buy-vehicle, #test-drive-container').css('top', '-600px').hide();
@@ -1476,6 +1617,7 @@ function stopAllAnimations(){
 }
 
 function forceCloseUi(){
+  clearPendingAdminCaptureActions();
   resetActionProcessing();
   stopAllAnimations();
   stopTestTimer();
@@ -1517,7 +1659,7 @@ function openAdminPanel(){
   $('#admin-panel').stop(true,true).show();
   renderAdmin();
 }
-function closeAdminPanel(send){ $('body').removeClass('admin-active admin-capture-mode'); $('#admin-panel').hide(); adminPreviewedModel = ''; if(send) post('adminClose'); }
+function closeAdminPanel(send){ clearPendingAdminCaptureActions(); $('body').removeClass('admin-active admin-capture-mode'); $('#admin-panel').hide(); adminPreviewedModel = ''; if(send) post('adminClose'); }
 
 function renderAdmin(){
   const byCatalog = catalogByModel();
@@ -1540,7 +1682,7 @@ function renderAdmin(){
     $('#admin-list').append(`
       <div class="admin-car ${statusClass(row)} ${v.autoDiscovered ? 'auto-detected' : ''} ${v.clientValid === false ? 'invalid-model' : ''}" data-model="${safe(String(v.model).toLowerCase())}">
         ${img}
-        <div class="admin-car-meta"><b>${safe(v.label || v.model)}</b><span>${safe(v.model)} • ${safe(v.category || 'Custom')}${v.resource ? ` • ${safe(v.resource)}` : ''}</span></div>
+        <div class="admin-car-meta"><b>${safe(v.label || v.model)}</b><span>${safe(v.model)} • ${safe(v.category || 'Custom')}${v.resource ? ` • ${safe(v.resource)}` : ''}</span><small>${Number(row && row.ownerCount || 0)} owned</small></div>
         <em>${statusFor(row)}</em>
       </div>`);
   }
@@ -1706,7 +1848,7 @@ $(document).on('change', '#admin-ems-neons [data-neon]', function(){
 });
 $(document).on('change', '#admin-status-mode', function(){
   const mode = String($(this).val());
-  const showEms = mode === 'ems' || mode === 'police' || mode.indexOf('legal:') === 0;
+  const showEms = mode === 'ems' || mode === 'police' || mode.indexOf('legal:') === 0 || mode.indexOf('gang:') === 0;
   $('#admin-ems-section').toggle(showEms);
   if(showEms){
     const model = String($('#admin-model').val() || '').toLowerCase();
@@ -1727,20 +1869,24 @@ function fillAdminForm(model, preview = true){
   const statusMode = row.availableEms === true ? 'ems'
     : row.availablePolice === true ? 'police'
     : row.legalOrg ? ('legal:' + row.legalOrg)
+    : row.gangId ? ('gang:' + row.gangId)
     : row.availableStore === true ? 'store'
     : (row.availableServer === true ? 'server' : 'hidden');
   $('#admin-status-mode').val(row.model ? statusMode : 'hidden');
-  const showEmsSection = statusMode === 'ems' || statusMode === 'police' || statusMode.indexOf('legal:') === 0;
+  $('#admin-has-carplay').prop('checked', row.hasCarplay === true);
+  const showEmsSection = statusMode === 'ems' || statusMode === 'police' || statusMode.indexOf('legal:') === 0 || statusMode.indexOf('gang:') === 0;
   $('#admin-ems-section').toggle(showEmsSection);
   if(showEmsSection) renderEmsSection(row);
   const td = (row.metadata && row.metadata.testDrive) || {};
   $('#admin-test-enabled').prop('checked', td.enabled !== false);
-  $('#admin-test-duration').val(td.duration ?? (data && data.testDrive && data.testDrive.testDriveTimer) ?? 60);
+  $('#admin-test-duration').val(td.duration ?? (data && data.testDrive && data.testDrive.testDriveTimer) ?? DEFAULT_TEST_DRIVE_SECONDS);
   $('#admin-test-cost').val(td.cost ?? (data && data.testDrive && data.testDrive.testDriveCost) ?? 0);
+  $('#admin-replacement-notice').val((row.metadata && row.metadata.replacementNotice) || '');
   $('#admin-current-status')
     .text(statusFor(row.model ? row : null))
     .attr('data-status', row.model ? statusMode : 'notset');
   $('#admin-selected-title').text(row.label || source.label || source.name || model || 'Vehicle settings');
+  $('#admin-owner-count').text(Number(row.ownerCount || 0));
   const sourceName = source.resource || (source.autoDiscovered ? 'Auto detected' : 'Config');
   $('#admin-current-resource').text(sourceName).toggleClass('auto', !!source.autoDiscovered);
   $('#admin-test, #admin-capture').prop('disabled', source.clientValid === false);
@@ -1749,7 +1895,7 @@ function fillAdminForm(model, preview = true){
     post('adminPreviewVehicle', { model: row.model || source.model || model, mods: row.mods || null }).then((result) => {
       adminIntrospect = (result && result.introspect) || { liveries: 0, slots: {} };
       const mode = String($('#admin-status-mode').val() || '');
-      if(mode === 'ems' || mode === 'police' || mode.indexOf('legal:') === 0) renderEmsIntrospectControls(adminIntrospect);
+      if(mode === 'ems' || mode === 'police' || mode.indexOf('legal:') === 0 || mode.indexOf('gang:') === 0) renderEmsIntrospectControls(adminIntrospect);
     });
   }
   const imagePreview = $('#admin-image-preview');
@@ -1763,25 +1909,42 @@ $(document).on('change', '#admin-source-select', function(){ selectAdminModel($(
 $(document).on('click', '.admin-car', function(){ selectAdminModel($(this).data('model'), true); });
 $(document).on('click', '#admin-prev', function(){ selectAdminRelative(-1); });
 $(document).on('click', '#admin-next', function(){ selectAdminRelative(1); });
+$(document).on('change', '#admin-grant-org', updateGrantRankVisibility);
 $(document).on('click', '#admin-save', function(){
   const mode = String($('#admin-status-mode').val() || 'hidden');
   const availableEms = mode === 'ems';
   const availablePolice = mode === 'police';
   const legalOrg = mode.indexOf('legal:') === 0 ? mode.slice(6) : null;
+  const gangId = mode.indexOf('gang:') === 0 ? mode.slice(5) : null;
   const availableStore = mode === 'store';
   const availableServer = mode === 'server' || availableStore;
+  const requestId = beginAdminAction('save', this, 'Saving…');
+  if(!requestId) return;
   const payload = {
     model: $('#admin-model').val(), label: $('#admin-label').val(), category: $('#admin-category').val(),
     price: Number($('#admin-price').val() || 0), speedKph: Number($('#admin-speed').val() || 0), trunkLevel: clampTrunkLevel($('#admin-trunk').val()),
-    availableServer, availableStore, availableEms, availablePolice, legalOrg,
+    availableServer, availableStore, availableEms, availablePolice, legalOrg, gangId,
+    hasCarplay: $('#admin-has-carplay').is(':checked'),
+    replacementNotice: String($('#admin-replacement-notice').val() || '').trim(),
     testDriveEnabled: $('#admin-test-enabled').is(':checked'),
-    testDriveTimer: Number($('#admin-test-duration').val() || 60),
-    testDriveCost: Number($('#admin-test-cost').val() || 0)
+    testDriveTimer: Number($('#admin-test-duration').val() || DEFAULT_TEST_DRIVE_SECONDS),
+    testDriveCost: Number($('#admin-test-cost').val() || 0), requestId
   };
   // The actual mods payload is attached server-side by client.lua's
   // adminSaveVehicle NUI callback (currentAdminMods, kept in sync via
   // adminModPatch) -- it is authoritative over anything the NUI could claim.
-  post('adminSaveVehicle', payload);
+  post('adminSaveVehicle', payload).fail(() => failAdminActionTransport('save', requestId));
+});
+$(document).on('click', '#admin-save-replacement-notice', function(){
+  const model = String($('#admin-model').val() || '').trim();
+  if(!model){ showToast('Select a vehicle first.'); return; }
+  const requestId = beginAdminAction('notice', this, 'Updatingâ€¦');
+  if(!requestId) return;
+  post('adminUpdateReplacementNotice', {
+    model,
+    notice: String($('#admin-replacement-notice').val() || '').trim(),
+    requestId
+  }).fail(() => failAdminActionTransport('notice', requestId));
 });
 $(document).on('click', '#dealer-dialog-store', function(){ $('body').removeClass('dialog-active'); $('#dealer-dialog').removeClass('show').hide(); $('#interaction-prompt').removeClass('show').hide(); post('dealerDialogStore'); });
 $(document).on('click', '#dealer-dialog-close', function(){ $('body').removeClass('dialog-active'); $('#dealer-dialog').removeClass('show').hide(); post('dealerDialogClose'); });
@@ -1791,13 +1954,53 @@ $(document).on('click', '#admin-test', function(){
   const payload = {
     model, vehicle: $('#admin-label').val() || model, label: $('#admin-label').val() || model,
     category: $('#admin-category').val() || 'Custom',
-    testDriveTimer: Number($('#admin-test-duration').val() || 60),
+    testDriveTimer: Number($('#admin-test-duration').val() || DEFAULT_TEST_DRIVE_SECONDS),
     r: 255, g: 255, b: 255, gtaColor: 111, color: 'White'
   };
   setTestDriveProcessing(true);
   post('adminTestVehicle', payload).fail(() => { setTestDriveProcessing(false); showToast('Admin test request failed.'); });
 });
-$(document).on('click', '#admin-disable', function(){ post('adminDisableVehicle', { model: $('#admin-model').val() }); });
+$(document).on('click', '#admin-replace', function(){
+  const oldModel = String($('#admin-model').val() || '').trim();
+  if(!oldModel || oldModel.toLowerCase() === 'komoda') return;
+  if(confirm(`Temporarily replace ${oldModel} with komoda? Vehicle data will be preserved.`)) {
+    const requestId=beginAdminAction('replace',this,'Replacing…');if(!requestId)return;
+    post('adminReplaceVehicle', {
+      oldModel, replacementModel: 'komoda', permanent: false, requestId,
+      notice: String($('#admin-replacement-notice').val() || '').trim()
+    })
+      .fail(() => failAdminActionTransport('replace', requestId));
+  }
+});
+$(document).on('click', '#admin-permanent-remove', function(){
+  const oldModel = String($('#admin-model').val() || '').trim();
+  if(oldModel && oldModel.toLowerCase() !== 'komoda' && confirm(`Permanently remove ${oldModel} and replace owned vehicles with komoda?`)) {
+    const requestId=beginAdminAction('replace',this,'Removing…');if(!requestId)return;
+    post('adminReplaceVehicle', { oldModel, replacementModel: 'komoda', permanent: true, requestId })
+      .fail(() => failAdminActionTransport('replace', requestId));
+  }
+});
+$(document).on('click', '#admin-restore', function(){
+  const model = String($('#admin-model').val() || '').trim();
+  if(model && confirm(`Retake the image and enable ${model} again?`)) {
+    pendingSave = null;
+    pendingRestore = model.toLowerCase();
+    post('adminPreviewVehicle', { model });
+    setTimeout(() => $('#admin-capture').trigger('click'), 250);
+  }
+});
+$(document).on('click', '#admin-grant-org-vehicle', function(){
+  const model=String($('#admin-model').val()||'').trim(),organization=String($('#admin-grant-org').val()||'').trim();
+  const gangGrant=isGangOrganization(organization);
+  const minimumTier=gangGrant?Math.max(1,Math.min(100,Math.floor(Number($('#admin-grant-drive-tier').val())||1))):null;
+  const trunkMinimumTier=gangGrant?Math.max(1,Math.min(100,Math.floor(Number($('#admin-grant-trunk-tier').val())||1))):null;
+  if(!model||!organization){showToast('Select a vehicle and organization first.');return;}
+  if(!confirm(`Give ${model} to ${organization}? This creates a new persistent vehicle.`))return;
+  const requestId=beginAdminAction('grant',this,'Creating…');if(!requestId)return;
+  $('#admin-grant-result').attr('data-state','working').text('Creating organization vehicle…');
+  post('adminGrantOrganizationVehicle',{model,organization,minimumTier,trunkMinimumTier,requestId})
+    .fail(() => failAdminActionTransport('grant', requestId));
+});
 $(document).on('click', '#admin-capture', function(){
   const model = String($('#admin-model').val() || '').trim();
   if(!model){ showToast('Enter / select a model first.'); return; }

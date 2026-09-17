@@ -10,6 +10,13 @@
 
 local pendingIconCapture = nil
 local activeCaptureSession = nil
+-- Set synchronously (no yields) the instant a capture request is accepted, and
+-- cleared on every exit path (finishCapture, cancelManualShot, onResourceStop).
+-- activeCaptureSession/manualSession are only populated after prepareCaptureSession
+-- returns, which yields internally (Wait() while loading models/props) — relying on
+-- them alone as the busy-gate left a window for a second request to slip through
+-- and cross-contaminate the shared pendingIconCapture/animation-lock state.
+local captureRequestLocked = false
 
 local emptyHeadCommandLastAt = -10000
 
@@ -479,6 +486,13 @@ local function buildIconCapturePayload(data)
     requiredJob = data.requiredJob or data.required_job,
     requiredGang = data.requiredGang or data.required_gang,
     requiredFamily = data.requiredFamily or data.required_family,
+
+    -- Set only while /clothingstore's RETAKE is in flight. The server validates
+    -- it and, when present, moves that existing item onto this garment and this
+    -- photo instead of creating a second catalog row. This payload is a
+    -- whitelist, so it has to be forwarded explicitly or the replace is
+    -- silently downgraded into "add a new item".
+    replaceAssetId = data.replaceAssetId or data.replace_asset_id,
   }
 
   if category == 'torso' then
@@ -742,8 +756,8 @@ local function runScreenshotForSession(session)
 
   applyCleanCaptureLightingOnce()
 
-  local waitBeforeScreenshot = tonumber(session.waitBeforeScreenshot) or 900
-  if waitBeforeScreenshot < 250 then waitBeforeScreenshot = 250 end
+  local waitBeforeScreenshot = tonumber(session.waitBeforeScreenshot) or 1400
+  if waitBeforeScreenshot < 400 then waitBeforeScreenshot = 400 end
   Wait(waitBeforeScreenshot)
 
 
@@ -758,7 +772,12 @@ local function runScreenshotForSession(session)
       end
       Wait(75)
     end
-    Wait(75)
+    -- GetPedDrawableVariation/GetPedTextureVariation flip to the new index the
+    -- instant SetPedComponentVariation is called, but the streamed mesh/texture
+    -- can still be a few frames behind -- this extra buffer gives it time to
+    -- actually finish rendering before the screenshot fires, even though the
+    -- index readback above already reports a match.
+    Wait(200)
   end
 
   -- Native readback proves whether the requested prop/component attached and that
@@ -769,6 +788,7 @@ local function runScreenshotForSession(session)
     if captureFinished then return end
     captureFinished = true
     activeCaptureSession = nil
+    captureRequestLocked = false
     stopCaptureAnimationLock(session)
     stopCleanCaptureLighting()
     ClearTimecycleModifier()
@@ -840,7 +860,7 @@ local function runScreenshotForSession(session)
     SendNUIMessage({
       type = 'processIconImage',
       image = imageData,
-      payload = pendingIconCapture,
+      payload = session.payload or pendingIconCapture,
     })
   end
 
@@ -1096,7 +1116,7 @@ local function prepareCaptureSession(payload)
     originalFrozen = originalFrozen,
     originalInvincible = originalInvincible,
     originalCanRagdoll = originalCanRagdoll,
-    waitBeforeScreenshot = tonumber(payload.lighting and payload.lighting.waitBeforeScreenshot) or 900,
+    waitBeforeScreenshot = tonumber(payload.lighting and payload.lighting.waitBeforeScreenshot) or 1400,
     category = category,
     captureGender = captureGender,
     itemReassert = itemReassert,
@@ -1218,13 +1238,18 @@ RegisterNUICallback('captureInventoryIcon', function(data, cb)
     return
   end
 
-  if activeCaptureSession or manualSession then
+  if activeCaptureSession or manualSession or captureRequestLocked then
     cb({ success = false, error = 'capture_busy' })
     return
   end
+  -- Lock immediately, before any yielding call below, so a second callback
+  -- invocation arriving while prepareCaptureSession is still loading models
+  -- can't pass this same check.
+  captureRequestLocked = true
 
   local payload, err = buildIconCapturePayload(data)
   if not payload then
+    captureRequestLocked = false
     cb({ success = false, error = err or 'invalid_capture_payload' })
     return
   end
@@ -1238,9 +1263,14 @@ RegisterNUICallback('captureInventoryIcon', function(data, cb)
   local session, sessionErr = prepareCaptureSession(payload)
   if not session then
     pendingIconCapture = nil
+    captureRequestLocked = false
     cb({ success = false, error = sessionErr or 'capture_prepare_failed' })
     return
   end
+  -- Carry the payload on the session itself so the eventual screenshot pass
+  -- ships each session's own metadata, not whatever the shared global holds
+  -- by the time it finishes (see finishCapture below).
+  session.payload = payload
   activeCaptureSession = session
   startCaptureAnimationLock(session)
 
@@ -1451,6 +1481,7 @@ RegisterNUICallback('cancelManualShot', function(_, cb)
   session.poseHoldActive = false
   manualSession = nil
   activeCaptureSession = nil
+  captureRequestLocked = false
 
   stopCaptureAnimationLock(session)
   stopCleanCaptureLighting()
@@ -1534,6 +1565,22 @@ RegisterNUICallback('iconProcessed', function(data, cb)
     tostring(#tostring(payload.imageBase64 or ''))
   ))
 
+  -- Stamp the garment's stable identity. The drawable index in this payload is a
+  -- global index that is only meaningful for the apparel packs loaded right now;
+  -- (collection, local index) still names the same garment after packs change.
+  -- This asks which collection owns that index rather than reading the ped's
+  -- current variation, so it is correct even though the capture flow has already
+  -- restored the admin's own outfit by this point.
+  local identitySpec = captureTargetSpec(payload)
+  if identitySpec then
+    local collection, localIndex = NvClothCollection.read(
+      PlayerPedId(), identitySpec.type, identitySpec.index, identitySpec.drawable)
+    if collection then
+      payload.collection = collection
+      payload.collectionLocalId = localIndex
+    end
+  end
+
   -- Base64 PNG data can be too large for a normal TriggerServerEvent.
   -- Use latent event so FiveM streams the payload instead of silently dropping it.
   TriggerLatentServerEvent('nvCloth:server:saveInventoryIcon', 200000, payload)
@@ -1584,4 +1631,54 @@ AddEventHandler('onResourceStop', function(resourceName)
   activeCaptureSession = nil
   manualSession = nil
   pendingIconCapture = nil
+  captureRequestLocked = false
 end)
+
+-- Global (not local, so cl_shop.lua can call it by name-existence check, matching
+-- the StopClothingAdminStudio/CreateSkinCam pattern already used in this resource)
+-- forced cleanup for a capture/pose session left running when the shop panel closes
+-- out from under it. Restoring only lived in the web layer (S.bulkRunning gating
+-- the close button) before this — safe here too since every step below already
+-- guards on DoesEntityExist and is a no-op when nothing is active.
+function CancelActiveClothingCapture()
+  local session = manualSession or activeCaptureSession
+  if not session then
+    captureRequestLocked = false
+    return
+  end
+
+  manualSession = nil
+  activeCaptureSession = nil
+  captureRequestLocked = false
+  pendingIconCapture = nil
+  session.poseHoldActive = false
+
+  stopCaptureAnimationLock(session)
+  stopCleanCaptureLighting()
+  if type(ClearTimecycleModifier) == 'function' then ClearTimecycleModifier() end
+
+  local restorePed = session.playerPed
+  if session.captureIsCleanPed then
+    if session.cleanPed and DoesEntityExist(session.cleanPed) then DeleteEntity(session.cleanPed) end
+    restorePed = session.realPlayerPed or PlayerPedId()
+    if DoesEntityExist(restorePed) then
+      SetEntityVisible(restorePed, true, false)
+      NetworkSetEntityInvisibleToNetwork(restorePed, false)
+    end
+    session.playerPed = restorePed
+  end
+
+  if not session.captureIsCleanPed then
+    restorePedAppearance(restorePed, session.appearanceSnapshot)
+  end
+  restoreRealPedAfterCapture(restorePed, session.originalCoords, session.originalHeading,
+    session.originalVisible, session.originalAlpha, session.originalFrozen,
+    session.originalInvincible, session.originalCanRagdoll)
+
+  if SetAdminCaptureBackdropMode then
+    SetAdminCaptureBackdropMode('none', nil)
+  end
+
+  SetNuiFocus(true, true)
+  print('[nv_cloth] forced capture cleanup (shop panel closed mid-capture)')
+end

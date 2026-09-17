@@ -3,38 +3,48 @@
 
 local function organizationKind()
     local memberships = {
-        { kind = 'police', state = LocalPlayer.state.cmPolice },
-        { kind = 'law', state = LocalPlayer.state.cmLegalOrg },
-        { kind = 'ems', state = LocalPlayer.state.cmEms },
+        { kind = 'police', state = LocalPlayer.state.cmPolice, valid = function(state)
+            return tonumber(state.organizationId) == 1 and tonumber(state.rankId) ~= nil
+        end },
+        { kind = 'law', state = LocalPlayer.state.cmLegalOrg, valid = function(state)
+            return type(state.id) == 'string' and state.id ~= '' and tonumber(state.rankId) ~= nil
+        end },
+        { kind = 'ems', state = LocalPlayer.state.cmEms, valid = function(state)
+            return tonumber(state.organizationId) == 1 and tonumber(state.rankId) ~= nil
+        end },
     }
     for _, membership in ipairs(memberships) do
-        if type(membership.state) == 'table' and membership.state.onDuty == true then
+        if type(membership.state) == 'table' and membership.valid(membership.state) and membership.state.onDuty == true then
             return membership.kind
         end
     end
     for _, membership in ipairs(memberships) do
-        if type(membership.state) == 'table' then return membership.kind end
+        if type(membership.state) == 'table' and membership.valid(membership.state) then return membership.kind end
     end
 end
 
 local function route(feature)
+    if feature == 'quick' and GetResourceState('cm-gang') == 'started' then
+        local ok, handled = pcall(function() return exports['cm-gang']:TryOpenSupplyWarResult() end)
+        if ok and handled == true then return end
+    end
     local kind = organizationKind()
     if not kind then return end
 
     if feature == 'dashboard' then
-        if kind == 'police' and GetResourceState('cm-police') == 'started' then TriggerEvent('cm-police:client:openDashboard')
+        if kind == 'police' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openDashboard')
         elseif kind == 'law' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openDashboard')
         elseif kind == 'ems' and GetResourceState('cm-ems') == 'started' then TriggerEvent('cm-ems:client:openDashboard') end
     elseif feature == 'dispatch' then
-        if kind == 'police' and GetResourceState('cm-police') == 'started' then TriggerEvent('cm-police:client:openDispatch')
+        if kind == 'police' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openDispatch')
         elseif kind == 'law' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openDispatch')
         elseif kind == 'ems' and GetResourceState('cm-ems') == 'started' then ExecuteCommand('emsdispatchmenu') end
     elseif feature == 'records' then
-        if kind == 'police' and GetResourceState('cm-police') == 'started' then TriggerEvent('cm-police:client:toggleMdt')
+        if kind == 'police' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openMdt')
         elseif kind == 'law' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openMdt')
         elseif kind == 'ems' and GetResourceState('cm-ems') == 'started' then TriggerEvent('cm-ems:client:openMedicalRecords') end
     elseif feature == 'quick' then
-        if kind == 'police' and GetResourceState('cm-police') == 'started' then ExecuteCommand('policequickmenu')
+        if kind == 'police' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openQuickMenu')
         elseif kind == 'law' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openQuickMenu')
         elseif kind == 'ems' and GetResourceState('cm-ems') == 'started' then TriggerEvent('cm-ems:client:openQuickMenu') end
     end

@@ -47,7 +47,7 @@ let state = {
 
 const equipmentLabels = {
   mask: 'Mask', glasses: 'Glasses', headwear: 'Headwear', earrings: 'Earrings',
-  outerwear: 'Outerwear', shirt: 'Shirt', bodyarmor: 'Body Armor', bag: 'Bag', accessory: 'Accessories',
+  outerwear: 'Outerwear', shirt: 'Shirt', bodyarmor: 'Body Armor', bag: 'Bag', bagskin: 'Bag Skin', accessory: 'Accessories',
   weapon: 'Weapon', ammo: 'Ammo', watch: 'Watch', pants: 'Pants', shoes: 'Shoes'
 };
 
@@ -224,6 +224,10 @@ function imgSrc(item) {
     if (icon.startsWith('custom/')) {
       return `https://cfx-nui-cm-items/ui/images/clothing/${icon}`;
     }
+    // Per-item capture folders: "items/<asset_id>/<version>.png".
+    if (icon.startsWith('items/')) {
+      return `https://cfx-nui-cm-items/ui/images/clothing/${icon}`;
+    }
     if (icon.startsWith('clothing/')) {
       return `https://cfx-nui-cm-items/ui/images/${icon}`;
     }
@@ -382,6 +386,18 @@ function isLockedSlot(slot) {
 function metadataRows(item) {
   const meta = item?.metadata || {};
   const rows = [];
+  const itemName = String(item?.item_name || item?.name || '').toLowerCase();
+  const isLicense = itemName === 'driver_license' || itemName === 'boat_license' || itemName === 'air_license';
+  if (isLicense) {
+    const holder = [meta.firstName, meta.lastName].filter(Boolean).join(' ');
+    const expiresAt = Number(meta.expiresAt || 0);
+    const remainingDays = expiresAt ? Math.max(0, Math.ceil((expiresAt - Math.floor(Date.now() / 1000)) / 86400)) : 0;
+    if (holder) rows.push(['Holder', holder]);
+    rows.push(['Test Completed', meta.testCompletedDate || meta.issuedAtDate || 'Unknown']);
+    rows.push(['Expires', meta.expiresAtDate || 'Unknown']);
+    rows.push(['Remaining', `${remainingDays} days`]);
+    if (meta.licenseNumber) rows.push(['License No.', meta.licenseNumber]);
+  }
   const durability = itemDurability(item);
   if (durability !== null) rows.push(['Durability', `${durability}%`]);
 
@@ -1072,7 +1088,24 @@ function render() {
     gearEl.classList.remove('external-grid');
     gearEl.classList.add('gear-grid');
     const gear = ['mask', 'glasses', 'headwear', 'earrings', 'outerwear', 'shirt', 'bodyarmor', 'bag', 'accessory', 'weapon', 'ammo', 'watch', 'pants', 'shoes'];
-    gear.forEach(slot => gearEl.appendChild(makeSlot(slot, 'equipment')));
+    gear.forEach(slot => {
+      const cell = makeSlot(slot, 'equipment');
+      if (slot === 'bag') {
+        // Small nested slot for a Bag Skin -- only shown once a REAL bag
+        // (not a standalone skin, not empty) is equipped, since a skin only
+        // ever reskins an existing bag's look and never grants capacity itself.
+        const bagItem = itemBySlot('bag');
+        const hasRealBag = bagItem && String(bagItem.item_name || '').toLowerCase() === 'clothing_bags';
+        if (hasRealBag) {
+          cell.classList.add('has-subslot');
+          const sub = makeSlot('bagskin', 'equipment-sub');
+          sub.classList.add('sub-slot');
+          sub.title = 'Bag Skin';
+          cell.appendChild(sub);
+        }
+      }
+      gearEl.appendChild(cell);
+    });
   }
 }
 

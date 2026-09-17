@@ -9,36 +9,46 @@ local lastNpcGreeting = {}
 local defaultNpcModel = `s_f_y_shop_low`
 
 
-local function DrawNpcDialog(shop)
-  local line = (shop and shop.npcDialog) or (shop and shop.dialog) or 'Welcome. Browse the store and checkout when you are ready.'
-  SetTextFont(4)
-  SetTextScale(0.31, 0.31)
-  SetTextColour(175, 207, 220, 235)
-  SetTextOutline()
-  BeginTextCommandDisplayText('STRING')
-  AddTextComponentSubstringPlayerName(('Clerk: %s'):format(line))
-  EndTextCommandDisplayText(0.040, 0.756)
+-- The E prompt and the clerk conversation both come from cm-ui so they look like
+-- every other CM interaction instead of nv_cloth drawing its own text. Guarded
+-- at call time rather than declared as a manifest dependency: if cm-ui is
+-- stopped the store still opens, it just skips straight past the conversation.
+local function cmUiReady()
+  return GetResourceState('cm-ui') == 'started'
 end
 
-local function DrawScreenPrompt(text)
-  SetTextFont(4)
-  SetTextScale(0.36, 0.36)
-  SetTextColour(245, 251, 255, 235)
-  SetTextCentre(false)
-  SetTextOutline()
-  BeginTextCommandDisplayText('STRING')
-  AddTextComponentSubstringPlayerName(text)
-  EndTextCommandDisplayText(0.040, 0.790)
+local activePrompt = nil
 
-  DrawRect(0.155, 0.806, 0.235, 0.050, 5, 13, 20, 190)
-  DrawRect(0.045, 0.806, 0.032, 0.036, 77, 231, 255, 220)
-  SetTextFont(4)
-  SetTextScale(0.34, 0.34)
-  SetTextColour(3, 17, 23, 255)
-  SetTextCentre(true)
-  BeginTextCommandDisplayText('STRING')
-  AddTextComponentSubstringPlayerName('E')
-  EndTextCommandDisplayText(0.045, 0.795)
+local function showPrompt(key, label, name, role)
+  if activePrompt == key or not cmUiReady() then return end
+  activePrompt = key
+  pcall(function()
+    exports['cm-ui']:ShowInteract({ key = 'E', label = label, name = name, role = role })
+  end)
+end
+
+local function hidePrompt()
+  if not activePrompt then return end
+  activePrompt = nil
+  if not cmUiReady() then return end
+  pcall(function() exports['cm-ui']:HideInteract() end)
+end
+
+local function dialogueOpen()
+  if not cmUiReady() then return false end
+  local ok, result = pcall(function() return exports['cm-ui']:IsNpcDialogueOpen() end)
+  return ok and result == true
+end
+
+-- 'clothes' lists rich per-storefront locations; 'accessories' still uses a
+-- plain coords list, so normalise both into one shape.
+local function shopLocations(shop)
+  if type(shop.locations) == 'table' then return shop.locations end
+  local list = {}
+  for _, pos in pairs(shop.coords or {}) do
+    list[#list + 1] = { pos = pos }
+  end
+  return list
 end
 
 local function greetShopNpc(key, ped, shop)
@@ -77,15 +87,18 @@ local function loadModel(model)
   return model
 end
 
-local function createShopPed(shopKey, index, shop, coords)
-  local npcModel = shop.npcModel or shop.pedModel or defaultNpcModel
+local function createShopPed(shopKey, index, shop, loc)
+  local npcModel = loc.npcModel or shop.npcModel or shop.pedModel or defaultNpcModel
   local model = loadModel(npcModel)
-  local heading = shop.heading or shop.npcHeading or 0.0
 
-  -- Optional per-location vector4 heading support if you add vector4 coords later.
-  if coords.w then heading = coords.w end
+  -- loc.npc is the clerk's own spot behind the counter, captured with
+  -- /clothingnpcpos. loc.pos is the storefront/blip point, used only until a
+  -- counter position is filled in -- it puts the clerk in the doorway.
+  local stand = loc.npc or loc.pos
+  local heading = stand.w or loc.heading or shop.heading or shop.npcHeading or 0.0
+  local groundZ = loc.npc and stand.z or (stand.z - 1.0)
 
-  local ped = CreatePed(0, model, coords.x, coords.y, coords.z - 1.0, heading, false, true)
+  local ped = CreatePed(0, model, stand.x, stand.y, groundZ, heading, false, true)
   FreezeEntityPosition(ped, true)
   SetEntityInvincible(ped, true)
   SetBlockingOfNonTemporaryEvents(ped, true)
@@ -106,23 +119,93 @@ end)
 CreateThread(function()
   -- Blips + NPCs
   for shopKey, shop in pairs(Config.Shops or {}) do
-    if shop.coords then
-      for index, pos in pairs(shop.coords) do
-        local blip = AddBlipForCoord(pos.x, pos.y, pos.z)
-        SetBlipSprite(blip, (shop.blip and shop.blip.style) or 73)
-        SetBlipDisplay(blip, 4)
-        SetBlipScale(blip, (shop.blip and shop.blip.size) or 0.5)
-        SetBlipColour(blip, (shop.blip and shop.blip.color) or 81)
-        SetBlipAsShortRange(blip, true)
-        BeginTextCommandSetBlipName('STRING')
-        AddTextComponentString(shop.label or 'Clothing Store')
-        EndTextCommandSetBlipName(blip)
+    for index, loc in ipairs(shopLocations(shop)) do
+      local pos = loc.pos
+      local blip = AddBlipForCoord(pos.x, pos.y, pos.z)
+      SetBlipSprite(blip, (shop.blip and shop.blip.style) or 73)
+      SetBlipDisplay(blip, 4)
+      SetBlipScale(blip, (shop.blip and shop.blip.size) or 0.5)
+      SetBlipColour(blip, (shop.blip and shop.blip.color) or 81)
+      SetBlipAsShortRange(blip, true)
+      BeginTextCommandSetBlipName('STRING')
+      AddTextComponentString(loc.label or shop.label or 'Clothing Store')
+      EndTextCommandSetBlipName(blip)
 
-        createShopPed(shopKey, index, shop, pos)
-      end
+      createShopPed(shopKey, index, shop, loc)
     end
   end
 end)
+
+-- Opens the wardrobe for one storefront. The shop table is copied so the
+-- location's own label, categories and exit point reach the shop UI without
+-- mutating the shared 'clothes' entry every location hangs off.
+local function openLocation(shopKey, shop, loc)
+  local merged = {}
+  for k, v in pairs(shop) do merged[k] = v end
+  merged.label = loc.label or shop.label
+  merged.categories = loc.categories or shop.categories
+  merged.exitCoords = loc.exitCoords or shop.exitCoords
+    or vec4(loc.pos.x, loc.pos.y, loc.pos.z, 0.0)
+  merged.locationId = loc.id
+  TriggerEvent('nv_cloth:openShopInteraction', merged.label, merged.categories, shopKey, merged)
+end
+
+-- cm-ui dialogue choices name an event rather than a callback, because closures
+-- do not marshal across resources. Remember which clerk was talking so the
+-- answer opens the right storefront.
+local pendingClerk = nil
+
+AddEventHandler('nv_cloth:client:clerkBrowse', function()
+  local pending = pendingClerk
+  pendingClerk = nil
+  if pending then openLocation(pending.shopKey, pending.shop, pending.loc) end
+end)
+
+AddEventHandler('nv_cloth:client:clerkDismissed', function()
+  pendingClerk = nil
+end)
+
+local function talkToClerk(shopKey, shop, loc, ped)
+  if not cmUiReady() or not ped or not DoesEntityExist(ped) then
+    openLocation(shopKey, shop, loc)
+    return
+  end
+
+  hidePrompt()
+  pendingClerk = { shopKey = shopKey, shop = shop, loc = loc }
+
+  local ok = pcall(function()
+    exports['cm-ui']:OpenNpcDialogue(ped, {
+      name = loc.npcName or 'Store Clerk',
+      role = loc.label or shop.label or 'Clothing',
+      quote = loc.npcDialog or 'Welcome. Browse the racks and pay at the counter.',
+      choices = {
+        {
+          id = 'browse',
+          label = 'Browse clothing',
+          description = 'Open the wardrobe and try things on.',
+          event = 'nv_cloth:client:clerkBrowse',
+        },
+      },
+      closeEvent = 'nv_cloth:client:clerkDismissed',
+    })
+  end)
+
+  if not ok then
+    pendingClerk = nil
+    openLocation(shopKey, shop, loc)
+  end
+end
+
+-- Stand where the clerk should be, run this, and paste the printed line into
+-- that location's `npc` field in shared/config.lua.
+RegisterCommand('clothingnpcpos', function()
+  local coords = GetEntityCoords(PlayerPedId())
+  local line = ('npc = vec4(%.3f, %.3f, %.3f, %.1f),'):format(
+    coords.x, coords.y, coords.z, GetEntityHeading(PlayerPedId()))
+  print(('[nv_cloth] %s'):format(line))
+  TriggerEvent('chat:addMessage', { args = { 'nv_cloth', line } })
+end, false)
 
 CreateThread(function()
   while true do
@@ -130,27 +213,39 @@ CreateThread(function()
     local playerPed = PlayerPedId()
     local playerCoords = GetEntityCoords(playerPed)
 
+    local nearest = nil
+
     for shopKey, shop in pairs(Config.Shops or {}) do
-      if shop.coords then
-        for index, pos in pairs(shop.coords) do
-          local dist = #(playerCoords - vector3(pos.x, pos.y, pos.z))
+      for index, loc in ipairs(shopLocations(shop)) do
+        local pos = loc.pos
+        local dist = #(playerCoords - vector3(pos.x, pos.y, pos.z))
 
-          if dist <= 12.0 then
-            sleep = 0
-          end
+        if dist <= 12.0 then
+          sleep = 0
+        end
 
-          if dist <= 2.0 and not opened then
-            local ped = shopPedByLocation[('%s:%s'):format(shopKey, index)]
-            greetShopNpc(('%s:%s'):format(shopKey, index), ped, shop)
-            DrawNpcDialog(shop)
-            DrawScreenPrompt(('Open %s'):format(shop.label or 'Clothing Store'))
-
-            if IsControlJustPressed(0, 38) then -- E
-              TriggerEvent('nv_cloth:openShopInteraction', shop.label, shop.categories, shopKey, shop)
-            end
-          end
+        if dist <= 2.5 and (not nearest or dist < nearest.dist) then
+          nearest = { dist = dist, shopKey = shopKey, shop = shop, loc = loc, index = index }
         end
       end
+    end
+
+    -- The prompt stays hidden while the wardrobe or the conversation is up, as
+    -- world prompts must not sit on top of an open NUI.
+    if nearest and not opened and not dialogueOpen() then
+      local key = ('%s:%s'):format(nearest.shopKey, nearest.index)
+      local ped = shopPedByLocation[key]
+      greetShopNpc(key, ped, nearest.shop)
+      showPrompt(key,
+        ('Talk to %s'):format(nearest.loc.npcName or 'the clerk'),
+        nearest.loc.npcName,
+        nearest.loc.label or nearest.shop.label)
+
+      if IsControlJustPressed(0, 38) then -- E
+        talkToClerk(nearest.shopKey, nearest.shop, nearest.loc, ped)
+      end
+    else
+      hidePrompt()
     end
 
     Wait(sleep)

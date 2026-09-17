@@ -16,8 +16,10 @@ local selectedSlot = nil
 local garageMenuToken = nil
 local garageMenuRendered = false
 local garageNuiReady = false
+local garageConfirmPromise = nil
 local CAR_SYMBOL_MARKER = 36 -- MarkerTypeCarSymbol
 local syncingGarageVehicles = false
+local notify
 
 local WINDOW_BONES = {
     [0] = { 'window_lf', 'window_lf1', 'window_lf2', 'window_lf3' },
@@ -47,11 +49,25 @@ local function syncNetworkedVehicles()
     if not G or syncingGarageVehicles then return end
     syncingGarageVehicles = true
     CreateThread(function()
-        local ok, why = lib.callback.await('cm-house:server:ensureGarageVehicles', false, G.houseId)
+        local ok, why
+        local houseId = tonumber(G.houseId)
+        -- The player may have just crossed into the private bucket. The first
+        -- networked spawn can legitimately arrive before collision/entity
+        -- ownership is ready, so retry a few times instead of requiring the
+        -- player to walk to every marker and recall each car manually.
+        for attempt = 1, 4 do
+            if attempt > 1 then Wait(700 * (attempt - 1)) end
+            if not G or tonumber(G.houseId) ~= houseId then break end
+            local callOk, callResult, callWhy = pcall(function()
+                return lib.callback.await('cm-house:server:ensureGarageVehicles', false, houseId)
+            end)
+            ok, why = callOk and callResult or false, callOk and callWhy or callResult
+            if ok == true then break end
+        end
         syncingGarageVehicles = false
         if ok ~= true and G then
-            lib.notify({ description = why or 'Garage vehicles could not be loaded.', type = 'error' })
-            print(('[cm-house] networked garage vehicles failed: %s'):format(tostring(why)))
+            notify(why or 'Garage vehicles could not be loaded.', 'error')
+            print(('[cm-house] networked garage vehicles failed after retries: %s'):format(tostring(why)))
         end
     end)
 end
@@ -106,6 +122,7 @@ local function draw3d(x, y, z, text)
 end
 
 local function closeSlotMenu()
+    if garageConfirmPromise then garageConfirmPromise:resolve(false) end
     menuOpen = false
     selectedSlot = nil
     garageMenuToken = nil
@@ -115,14 +132,62 @@ local function closeSlotMenu()
     SetNuiFocusKeepInput(false)
 end
 
+notify = function(message, kind)
+    TriggerEvent('cm-hud:client:notify', tostring(message or ''), kind or 'inform')
+end
+
+local function awaitGarageConfirm(title, content, confirmLabel, cancelLabel, tone)
+    if garageConfirmPromise then return false end
+    garageConfirmPromise = promise.new()
+    SetNuiFocus(true, true)
+    SendNUIMessage({
+        action = 'openGarageConfirm',
+        data = {
+            title = tostring(title or 'Confirm action'),
+            content = tostring(content or ''),
+            confirmLabel = tostring(confirmLabel or 'Confirm'),
+            cancelLabel = tostring(cancelLabel or 'Cancel'),
+            tone = tostring(tone or 'cyan'),
+        }
+    })
+    local result = Citizen.Await(garageConfirmPromise)
+    garageConfirmPromise = nil
+    if not menuOpen then SetNuiFocus(false, false) end
+    return result == true
+end
+
+CMHouseConfirm = awaitGarageConfirm
+
 local function safeVehicle(v)
+    local rankOptions = {}
+    for _, rank in ipairs(type(v.rankOptions) == 'table' and v.rankOptions or {}) do
+        local tier = tonumber(rank.tier)
+        if tier then
+            rankOptions[#rankOptions + 1] = {
+                id = tonumber(rank.id) or tostring(rank.id or ''),
+                name = tostring(rank.name or ('Rank ' .. tier)),
+                tier = tier,
+                isFounder = rank.isFounder == true,
+            }
+        end
+    end
     return {
         id = tonumber(v.id) or 0,
         plate = tostring(v.plate or ''),
         model = tostring(v.model or ''),
         label = tostring(v.label or v.model or 'Vehicle'),
+        image = v.image and tostring(v.image) or nil,
         shared = v.shared == true,
         ownerCid = tonumber(v.ownerCid),
+        isOwner = v.isOwner == true,
+        isFamilyVehicle = v.isFamilyVehicle == true,
+        showFamilyRank = v.showFamilyRank == true,
+        familyName = v.familyName and tostring(v.familyName) or nil,
+        requiredTier = tonumber(v.requiredTier),
+        requiredRankName = v.requiredRankName and tostring(v.requiredRankName) or nil,
+        viewerTier = tonumber(v.viewerTier),
+        canManageVehicleRank = v.canManageVehicleRank == true,
+        rankOptions = rankOptions,
         isStored = v.isStored == true,
         assigned = v.assigned == true,
         inGarage = v.inGarage == true,
@@ -155,19 +220,21 @@ function openSlotMenu(slot)
     local current = slot.vehicle and safeVehicle(slot.vehicle) or nil
     local list = {}
 
-    -- An occupied space has one clear job: recall the vehicle already assigned
-    -- to it. Do not fetch or render the full owned-vehicle list behind that
-    -- action. Empty spaces still list every eligible owned vehicle, including a
-    -- car assigned to another house slot so it can be moved here atomically.
-    if not current then
-        local vehicles, why = lib.callback.await('cm-house:server:parkable', false, G.houseId)
-        if not vehicles then
-            closeSlotMenu()
-            lib.notify({ description = why or 'Could not read your vehicles.', type = 'error' })
-            return
-        end
-        for _, vehicle in ipairs(vehicles) do
-            list[#list + 1] = safeVehicle(vehicle)
+    -- Fetch the authorized family fleet for both empty and occupied slots. On
+    -- an occupied slot the matching record enriches the current vehicle with
+    -- its minimum-rank selector without rendering the full list behind it.
+    local vehicles, why = lib.callback.await('cm-house:server:parkable', false, G.houseId)
+    if not vehicles then
+        closeSlotMenu()
+        notify(why or 'Could not read the garage vehicles.', 'error')
+        return
+    end
+    for _, vehicle in ipairs(vehicles) do
+        local safe = safeVehicle(vehicle)
+        if current and tonumber(current.id) == tonumber(safe.id) then
+            for key, value in pairs(safe) do current[key] = value end
+        elseif not current then
+            list[#list + 1] = safe
         end
     end
     local payload = {
@@ -177,6 +244,8 @@ function openSlotMenu(slot)
         current = current,
         vehicles = list,
         canShare = current ~= nil and tonumber(current.ownerCid) == tonumber(MyCid),
+        isFamilyGarage = G.isFamilyGarage == true,
+        familyName = G.familyName and tostring(G.familyName) or nil,
     }
 
     SetNuiFocus(true, true)
@@ -195,7 +264,7 @@ function openSlotMenu(slot)
         end
         if menuOpen and garageMenuToken == token and not garageMenuRendered then
             closeSlotMenu()
-            lib.notify({ description = 'The CM garage menu could not open. Try again.', type = 'error' })
+            notify('The CM garage menu could not open. Try again.', 'error')
             print(('[cm-house] garage slot NUI did not render. ready=%s house=%s slot=%s')
                 :format(tostring(garageNuiReady), tostring(G and G.houseId), tostring(slot.index)))
         end
@@ -226,6 +295,33 @@ end)
 RegisterNUICallback('garageSlot:close', function(_, cb)
     closeSlotMenu()
     cb({ ok = true })
+end)
+
+RegisterNUICallback('garageSlot:confirm', function(data, cb)
+    if garageConfirmPromise then garageConfirmPromise:resolve(data and data.confirmed == true) end
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('garageSlot:setRank', function(data, cb)
+    if not menuOpen or not G then
+        cb({ ok = false, message = 'The garage menu is closed.' })
+        return
+    end
+    local vehicleId, level = tonumber(data and data.vehicleId), tonumber(data and data.level)
+    if not vehicleId or not level then
+        cb({ ok = false, message = 'Choose a valid family rank.' })
+        return
+    end
+    local ok, msg, updated = lib.callback.await('cm-house:server:setFamilyVehicleRank', false,
+        G.houseId, vehicleId, level)
+    notify(msg or (ok and 'Vehicle rank updated.' or 'Vehicle rank update failed.'),
+        ok and 'success' or 'error')
+    cb({
+        ok = ok == true,
+        message = msg,
+        requiredTier = updated and tonumber(updated.requiredTier) or level,
+        requiredRankName = updated and tostring(updated.requiredRankName or '') or nil,
+    })
 end)
 
 RegisterNUICallback('garageSlot:action', function(data, cb)
@@ -259,15 +355,11 @@ RegisterNUICallback('garageSlot:action', function(data, cb)
             ok, msg = false, 'This parking space has no assigned vehicle.'
         else
             local label = tostring(selectedSlot.vehicle.label or selectedSlot.vehicle.model or 'This vehicle')
-            closeSlotMenu()
-            local choice = lib.alertDialog({
-                header = 'Recall vehicle',
-                content = ('Recall %s into parking space %d? The vehicle system will safely move or recreate one authoritative garage vehicle.'):format(label, tonumber(slotIndex) or 0),
-                centered = true,
-                cancel = true,
-                labels = { confirm = 'Recall car', cancel = 'Cancel' },
-            })
-            if choice ~= 'confirm' then
+            local confirmed = awaitGarageConfirm(
+                'Recall vehicle',
+                ('Recall %s into parking space %d? The vehicle system will safely move or recreate one authoritative garage vehicle.'):format(label, tonumber(slotIndex) or 0),
+                'Recall car', 'Cancel', 'cyan')
+            if not confirmed then
                 cb({ ok = false, cancelled = true })
                 return
             end
@@ -278,15 +370,11 @@ RegisterNUICallback('garageSlot:action', function(data, cb)
         local label = selectedSlot.vehicle
             and tostring(selectedSlot.vehicle.label or selectedSlot.vehicle.model or 'This vehicle')
             or 'This vehicle'
-        closeSlotMenu()
-        local choice = lib.alertDialog({
-            header = 'Remove vehicle assignment',
-            content = ('Cancel %s from parking space %d? The garage vehicle will be removed and the space cleared.'):format(label, tonumber(slotIndex) or 0),
-            centered = true,
-            cancel = true,
-            labels = { confirm = 'Cancel car', cancel = 'Keep car' },
-        })
-        if choice ~= 'confirm' then
+        local confirmed = awaitGarageConfirm(
+            'Remove vehicle assignment',
+            ('Cancel %s from parking space %d? The garage vehicle will be removed and the space cleared.'):format(label, tonumber(slotIndex) or 0),
+            'Cancel car', 'Keep car', 'danger')
+        if not confirmed then
             cb({ ok = false, cancelled = true })
             return
         end
@@ -310,7 +398,7 @@ RegisterNUICallback('garageSlot:action', function(data, cb)
         end
     end
 
-    lib.notify({ description = msg or (ok and 'Garage updated.' or 'Garage action failed.'), type = ok and 'success' or 'error' })
+    notify(msg or (ok and 'Garage updated.' or 'Garage action failed.'), ok and 'success' or 'error')
     if ok then closeSlotMenu() end
     cb({ ok = ok == true, message = msg })
 end)
@@ -423,10 +511,7 @@ CreateThread(function()
 
                             if netId <= 0 then
                                 drivingOut = false
-                                lib.notify({
-                                    description = 'This vehicle is not network-ready yet. Wait a moment and try again.',
-                                    type = 'error'
-                                })
+                                notify('This vehicle is not network-ready yet. Wait a moment and try again.', 'error')
                             else
                                 DoScreenFadeOut(300)
                                 local deadline = GetGameTimer() + 1800
@@ -446,10 +531,7 @@ CreateThread(function()
 
                                 if not ok then
                                     DoScreenFadeIn(250)
-                                    lib.notify({
-                                        description = msg or 'The vehicle could not leave the garage.',
-                                        type = 'error'
-                                    })
+                                    notify(msg or 'The vehicle could not leave the garage.', 'error')
                                     drivingOut = false
                                 end
                             end
@@ -483,16 +565,13 @@ end)
 RegisterNetEvent('cm-house:client:enterGarageState', function(houseId)
     local state, why = lib.callback.await('cm-house:server:garageState', false, houseId)
     if not state then
-        lib.notify({ description = why or 'Could not read the garage.', type = 'error' })
+        notify(why or 'Could not read the garage.', 'error')
         return
     end
     G = state
     syncNetworkedVehicles()
-    lib.notify({
-        description = ('%d of %d spaces used. Go to the configured exit and press %s to leave.')
-            :format(state.used, state.capacity, Config.Prompt.keyLabel),
-        type = 'inform'
-    })
+    notify(('%d of %d spaces used. Go to the configured exit and press %s to leave.')
+        :format(state.used, state.capacity, Config.Prompt.keyLabel), 'inform')
 end)
 
 RegisterNetEvent('cm-house:client:leaveGarageState', function()
@@ -565,7 +644,7 @@ CreateThread(function()
                             transition = nil
                         end
 
-                        lib.notify({ description = tostring(msg or (ok and 'Vehicle parked.' or 'Parking failed.')), type = ok and 'success' or 'error' })
+                        notify(tostring(msg or (ok and 'Vehicle parked.' or 'Parking failed.')), ok and 'success' or 'error')
 
                         if ok and type(transition) == 'table' and transition.enterGarage == true then
                             -- The server has atomically stored the car, moved the

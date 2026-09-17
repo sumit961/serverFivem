@@ -310,9 +310,156 @@ RegisterNetEvent('cm-admin:client:deleteCurrentVehicle', function()
     notify('Vehicle deleted.', 'success')
 end)
 
+local gangEventConfig
+local function eventConfigServer(action,data) TriggerServerEvent('cm-admin:server:gangEventConfigMode',action,data or {}) end
+local function removeEventConfigRadiusBlip()
+    if gangEventConfig and gangEventConfig.radiusBlip and DoesBlipExist(gangEventConfig.radiusBlip) then RemoveBlip(gangEventConfig.radiusBlip) end
+    if gangEventConfig then gangEventConfig.radiusBlip=nil;gangEventConfig.blipRadius=nil end
+end
+local function updateEventConfigRadiusBlip(center,radius)
+    if not gangEventConfig or not center or gangEventConfig.blipRadius==radius then return end
+    removeEventConfigRadiusBlip();local blip=AddBlipForRadius(center.x,center.y,center.z,radius+0.0)
+    SetBlipColour(blip,3);SetBlipAlpha(blip,95);gangEventConfig.radiusBlip=blip;gangEventConfig.blipRadius=radius
+end
+local function drawEventConfigCircle(center,radius)
+    local segments=72;local z=center.z+0.35;local previousX=center.x+radius;local previousY=center.y
+    for index=1,segments do
+        local angle=(index/segments)*(math.pi*2.0);local x=center.x+math.cos(angle)*radius;local y=center.y+math.sin(angle)*radius
+        DrawLine(previousX,previousY,z,x,y,z,65,225,245,235)
+        if index%6==0 then DrawMarker(28,x,y,z+0.7,0,0,0,0,0,0,.7,.7,1.8,65,225,245,185,false,false,2,false,nil,nil,false) end
+        previousX,previousY=x,y
+    end
+end
+local function configHelp(text)
+    SetTextFont(4);SetTextScale(.0,.42);SetTextColour(230,250,255,245);SetTextCentre(true);SetTextOutline();BeginTextCommandDisplayText('STRING');AddTextComponentSubstringPlayerName(text);EndTextCommandDisplayText(.5,.86)
+end
+local function cancelGangEventConfig()
+    if not gangEventConfig then return end;removeEventConfigRadiusBlip();eventConfigServer('configCancel');gangEventConfig=nil
+end
+RegisterNetEvent('cm-admin:client:gangEventConfigMode',function(draft)
+    removeEventConfigRadiusBlip();closeMenu();gangEventConfig={stage=1,draft=draft or {},radius=tonumber(draft and draft.radius) or 250,pending=false};notify('Config Mode: select the event center and press E. ESC cancels.','inform')
+end)
+RegisterNetEvent('cm-admin:client:gangEventConfigDraft',function(draft)
+    if not gangEventConfig then return end;gangEventConfig.draft=draft or gangEventConfig.draft;gangEventConfig.radius=tonumber(draft and draft.radius) or gangEventConfig.radius;gangEventConfig.pending=false
+    if gangEventConfig.stage==1 and draft and draft.center then gangEventConfig.stage=2 end
+    if draft and draft.details then gangEventConfig.stage=5 end
+end)
+RegisterNetEvent('cm-admin:client:gangEventConfigResult',function(ok,message)
+    notify(tostring(message or (ok and 'Configuration updated.' or 'Configuration failed.')),ok and 'success' or 'error');if gangEventConfig then gangEventConfig.pending=false end
+end)
+RegisterNetEvent('cm-admin:client:gangEventConfigFinished',function(saved)
+    removeEventConfigRadiusBlip();gangEventConfig=nil;notify(saved and 'Supply War configuration saved.' or 'Supply War configuration cancelled.',saved and 'success' or 'inform')
+end)
+local function openEventDetails()
+    local function keyboard(prompt,default,maxLength)
+        AddTextEntry('CM_GANG_EVENT_INPUT',prompt)
+        DisplayOnscreenKeyboard(1,'CM_GANG_EVENT_INPUT','',tostring(default or ''),'','','',maxLength or 96)
+        local status=UpdateOnscreenKeyboard();while status==0 do Wait(0);status=UpdateOnscreenKeyboard() end
+        if status~=1 then return nil end
+        local value=GetOnscreenKeyboardResult();value=value and value:gsub('^%s+',''):gsub('%s+$','') or nil
+        return value~='' and value or nil
+    end
+    local landSeconds=keyboard('Supply spawn seconds - five comma separated values','10,300,600,900,1100',128);if not landSeconds then return end
+    local points=keyboard('Objective points - five comma separated values','5,5,6,6,10',64);if not points then return end
+    if not gangEventConfig then return end
+    gangEventConfig.pending=true;eventConfigServer('configDetails',{landSeconds=landSeconds,points=points})
+end
+CreateThread(function()
+    while true do
+        if not gangEventConfig then Wait(500) else
+            Wait(0);local cfg=gangEventConfig
+            if cfg then
+            local draft=cfg.draft or {};local center=draft.center;local radius=tonumber(cfg.radius) or 250
+            if center then
+                drawEventConfigCircle(center,radius);updateEventConfigRadiusBlip(center,radius)
+                DrawMarker(28,center.x,center.y,center.z+1.0,0,0,0,0,0,0,1.2,1.2,1.2,103,232,249,210,false,false,2,false,nil,nil,false)
+            end
+            for index,p in ipairs(draft.drops or {}) do DrawMarker(2,p.x,p.y,p.z+1.2,0,0,0,0,180.0,0,.7,.7,.7,index==5 and 255 or 103,index==5 and 190 or 232,index==5 and 60 or 249,230,false,true,2,false,nil,nil,false) end
+            if cfg.stage==1 then configHelp('1/6  SELECT EVENT CENTER  ~INPUT_CONTEXT~ Capture current location')
+            elseif cfg.stage==2 then
+                DisableControlAction(0,14,true);DisableControlAction(0,15,true)
+                DisableControlAction(0,241,true);DisableControlAction(0,242,true)
+                local increase = IsControlJustPressed(0,241) or IsDisabledControlJustPressed(0,241)
+                    or IsControlJustPressed(2,241) or IsControlJustPressed(0,15)
+                    or IsDisabledControlJustPressed(0,15) or IsControlJustPressed(0,175)
+                local decrease = IsControlJustPressed(0,242) or IsDisabledControlJustPressed(0,242)
+                    or IsControlJustPressed(2,242) or IsControlJustPressed(0,14)
+                    or IsDisabledControlJustPressed(0,14) or IsControlJustPressed(0,174)
+                if increase then cfg.radius=math.min(1000,radius+10)
+                elseif decrease then cfg.radius=math.max(50,radius-10) end
+                configHelp(('2/6  CIRCLE SIZE: %dm  Wheel / LEFT-RIGHT change  ~INPUT_CONTEXT~ Confirm'):format(cfg.radius))
+            elseif cfg.stage==3 then configHelp(('3/6  DROP LOCATIONS: %d  ~INPUT_CONTEXT~ Add here  ~INPUT_FRONTEND_RDOWN~ Continue'):format(#(draft.drops or {})))
+            elseif cfg.stage==4 then configHelp('4/6  CONFIGURE REWARDS / TIMING  ~INPUT_CONTEXT~ Open form')
+            elseif cfg.stage==5 then configHelp(('5/6  COMPLETE PREVIEW  Radius %dm · %d drops  ~INPUT_CONTEXT~ Approve'):format(radius,#(draft.drops or {})))
+            elseif cfg.stage==6 then configHelp('6/6  SAVE CONFIGURATION  ~INPUT_CONTEXT~ Save  ~INPUT_FRONTEND_CANCEL~ Cancel') end
+            if IsControlJustPressed(0,200) then cancelGangEventConfig()
+            elseif not cfg.pending and IsControlJustPressed(0,38) then
+                if cfg.stage==1 then cfg.pending=true;eventConfigServer('configCenter')
+                elseif cfg.stage==2 then cfg.pending=true;eventConfigServer('configRadius',{radius=cfg.radius});cfg.stage=3
+                elseif cfg.stage==3 then cfg.pending=true;eventConfigServer('configDrop')
+                elseif cfg.stage==4 then openEventDetails()
+                elseif cfg.stage==5 then cfg.stage=6
+                elseif cfg.stage==6 then cfg.pending=true;eventConfigServer('configSave') end
+            elseif cfg.stage==3 and IsControlJustPressed(0,191) and #(draft.drops or {})>0 then cfg.stage=4 end
+            end
+        end
+    end
+end)
+
+local gangFleetPlacement=false
+
+local function drawGangPlacementText(vehicle)
+    local c=GetEntityCoords(vehicle)
+    local visible,x,y=World3dToScreen2d(c.x,c.y,c.z+1.6)
+    if not visible then return end
+    SetTextFont(4)
+    SetTextScale(0.0,0.46)
+    SetTextColour(0,220,255,255)
+    SetTextCentre(true)
+    SetTextOutline()
+    BeginTextCommandDisplayText('STRING')
+    AddTextComponentSubstringPlayerName('PRESS ~y~H~s~ TO SAVE LOCATION')
+    EndTextCommandDisplayText(x,y)
+end
+
+RegisterNetEvent('cm-admin:client:gangFleetPlacement',function(data)
+    closeMenu()
+    SetNuiFocus(false,false)
+    gangFleetPlacement=true
+    local model=tostring(data and data.model or 'vehicle')
+    local netId=tonumber(data and data.netId)
+    TriggerServerEvent('cm-gang:server:fleetPlacementReady',model)
+    notify('Drive the vehicle into position. Press H to save its location.','inform')
+    CreateThread(function()
+        while gangFleetPlacement do
+            local vehicle=netId and NetworkGetEntityFromNetworkId(netId) or GetVehiclePedIsIn(PlayerPedId(),false)
+            BeginTextCommandDisplayHelp('STRING')
+            AddTextComponentSubstringPlayerName('~b~H~s~ save gang vehicle location  ~y~BACKSPACE~s~ cancel')
+            EndTextCommandDisplayHelp(0,false,true,-1)
+            if vehicle and vehicle~=0 and DoesEntityExist(vehicle) then drawGangPlacementText(vehicle) end
+            local save=(IsRawKeyReleased and IsRawKeyReleased(72)) or IsControlJustReleased(0,74)
+            local cancel=(IsRawKeyReleased and IsRawKeyReleased(8)) or IsControlJustReleased(0,194)
+            if save then
+                gangFleetPlacement=false
+                ClearAllHelpMessages()
+                notify('Saving gang vehicle location...','inform')
+                TriggerServerEvent('cm-gang:server:confirmFleetPlacement')
+            elseif cancel then
+                gangFleetPlacement=false
+                ClearAllHelpMessages()
+                TriggerServerEvent('cm-gang:server:cancelFleetPlacement')
+                notify('Gang vehicle placement cancelled.','inform')
+            end
+            Wait(0)
+        end
+    end)
+end)
+
 AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end
     closeMenu()
+    gangFleetPlacement=false
+    ClearAllHelpMessages()
     if frozen then
         FreezeEntityPosition(PlayerPedId(), false)
         SetPlayerControl(PlayerId(), true, 0)

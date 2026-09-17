@@ -10,6 +10,52 @@
 
 local ActiveCalls = {} -- [callId] = { id, callerCid, callerName, details, coords, location, status, responders = { [characterId] = {name, source, organizationId, acceptedAt, status} }, createdAt }
 local nextCallId = 0
+local UnitStates = {} -- session state keyed by character ID; positions are always read live from the server ped
+
+local function organizationShortLabel(organizationId)
+    if organizationId == 'police' then return 'LSPD' end
+    local org = Config.Organizations[organizationId] or {}
+    return tostring(org.shortLabel or org.label or organizationId or 'LAW'):upper():gsub('[^A-Z0-9]', ''):sub(1, 8)
+end
+
+local function defaultCallsign(member, characterId)
+    local suffix = tostring(characterId or ''):gsub('[^%w]', ''):upper()
+    suffix = suffix:sub(math.max(1, #suffix - 2))
+    if suffix == '' then suffix = '001' end
+    return ('%s-%s'):format(organizationShortLabel(member.organizationId), suffix)
+end
+
+local function unitState(member, characterId)
+    characterId = tostring(characterId)
+    local current = UnitStates[characterId]
+    if not current then
+        current = { status = 'available', callsign = defaultCallsign(member, characterId), updatedAt = os.time() }
+        for callId, call in pairs(ActiveCalls) do
+            local responder = call.responders and call.responders[characterId]
+            if responder then
+                current.assignedCallId = callId
+                current.status = responder.status == 'on_scene' and 'on_scene' or 'en_route'
+                current.callsign = responder.callsign or current.callsign
+                break
+            end
+        end
+        UnitStates[characterId] = current
+    end
+    return current
+end
+
+local function commandAllowed(member)
+    return member and (member.isLeader == true or (type(member.permissions) == 'table' and member.permissions['law.manage_dispatch'] == true))
+end
+
+local function dispatchAudit(member, characterId, action, detail)
+    if not member or not characterId then return end
+    if member.organizationId == 'police' and type(log) == 'function' then
+        log(characterId, action, detail)
+    else
+        logActivity(member.organizationId, characterId, action, detail)
+    end
+end
 
 local function dispatchNotify(src, message, kind)
     TriggerClientEvent('cm-playerdata:client:interactionNotify', tonumber(src), tostring(message), kind or 'inform')
@@ -46,18 +92,7 @@ local function dispatchMemberForSource(src)
         if not LawCapabilityEnabled(member.organizationId, 'dispatch') then return nil, characterId end
         return member, characterId
     end
-    if GetResourceState('cm-police') ~= 'started' then return nil, characterId end
-    characterId = characterId or characterIdFor(src)
-    if not characterId then return nil, nil end
-    local ok, police = pcall(function() return exports['cm-police']:GetMember(characterId) end)
-    if not ok or type(police) ~= 'table' or police.onDuty ~= true or police.suspended == true then return nil, characterId end
-    police.organizationId = 'police'
-    police.isLeader = police.isLeader == true
-    police.permissions = type(police.permissions) == 'table' and police.permissions or {}
-    local permitted = false
-    pcall(function() permitted = exports['cm-police']:HasPermission(characterId, 'police.receive_dispatch') == true end)
-    police.permissions['law.receive_dispatch'] = permitted
-    return police, characterId
+    return nil, characterId
 end
 
 local function recipients(permission, routingBucket, audienceOrganizationId)
@@ -82,7 +117,7 @@ local function responderRows(call)
         rows[#rows + 1] = {
             characterId = tostring(characterId), name = responder.name,
             organizationId = responder.organizationId, status = responder.status or 'accepted',
-            acceptedAt = responder.acceptedAt,
+            acceptedAt = responder.acceptedAt, callsign = responder.callsign,
         }
     end
     table.sort(rows, function(a, b) return (a.acceptedAt or 0) < (b.acceptedAt or 0) end)
@@ -100,8 +135,8 @@ local function publicCall(call)
 end
 
 local function persistIncident(call)
-    MySQL.update.await('UPDATE cm_legal_incidents SET status = ?, responders = ?, resolution = ?, resolved_at = IF(? = 1, CURRENT_TIMESTAMP, resolved_at) WHERE id = ?', {
-        call.status, json.encode(responderRows(call)), call.resolution,
+    MySQL.update.await('UPDATE cm_legal_incidents SET status = ?, responders = ?, resolution = ?, priority = ?, resolved_at = IF(? = 1, CURRENT_TIMESTAMP, resolved_at) WHERE id = ?', {
+        call.status, json.encode(responderRows(call)), call.resolution, call.priority or 1,
         (call.status == 'resolved' or call.status == 'expired') and 1 or 0, call.id,
     })
 end
@@ -110,6 +145,92 @@ local function broadcastToRecipients(event, payload, routingBucket, audienceOrga
     for _, targetSrc in ipairs(recipients('law.receive_dispatch', routingBucket, audienceOrganizationId)) do
         TriggerClientEvent(event, targetSrc, payload)
     end
+end
+
+local function broadcastLiveOperations(routingBucket)
+    for _, targetSrc in ipairs(recipients('law.receive_dispatch', routingBucket)) do
+        TriggerClientEvent('cm-law:client:liveOperationsUpdated', targetSrc)
+    end
+end
+
+local function clearUnitAssignments(call)
+    for characterId, responder in pairs(call and call.responders or {}) do
+        local state = UnitStates[tostring(characterId)]
+        if state and tonumber(state.assignedCallId) == tonumber(call.id) then
+            state.assignedCallId, state.status, state.updatedAt = nil, 'available', os.time()
+        end
+        if responder.organizationId == 'police' then
+            TriggerEvent('cm-police:server:liveUnitStatusChanged', tostring(characterId), 'available')
+        end
+    end
+end
+
+local function releaseResponder(call, characterId)
+    characterId = tostring(characterId or '')
+    local responder = call and call.responders and call.responders[characterId]
+    if not responder then return nil end
+    local state = UnitStates[characterId]
+    if state and tonumber(state.assignedCallId) == tonumber(call.id) then
+        state.assignedCallId, state.status, state.updatedAt = nil, 'available', os.time()
+    end
+    if responder.organizationId == 'police' then
+        TriggerEvent('cm-police:server:liveUnitStatusChanged', characterId, 'available')
+    end
+    call.responders[characterId] = nil
+    if next(call.responders) == nil then call.status = 'waiting' end
+    return responder
+end
+
+local function releaseUnitAssignment(characterId)
+    characterId = characterId and tostring(characterId) or nil
+    if not characterId then return end
+    for _, call in pairs(ActiveCalls) do
+        if call.responders and call.responders[characterId] then
+            releaseResponder(call, characterId)
+            persistIncident(call)
+            broadcastToRecipients('cm-law:client:dispatchCallUpdated', publicCall(call), call.routingBucket, call.audienceOrganizationId)
+            broadcastLiveOperations(call.routingBucket)
+        end
+    end
+    UnitStates[characterId] = nil
+end
+
+local function eligibleUnit(src, bucket)
+    local member, characterId = dispatchMemberForSource(src)
+    if not member or member.suspended or not member.onDuty or not hasPerm(member, 'law.receive_dispatch') then return nil end
+    if bucket ~= nil and GetPlayerRoutingBucket(src) ~= bucket then return nil end
+    return member, tostring(characterId)
+end
+
+local function liveUnitRows(viewerSrc)
+    local rows, bucket = {}, GetPlayerRoutingBucket(viewerSrc)
+    for _, rawSrc in ipairs(GetPlayers()) do
+        local targetSrc = tonumber(rawSrc)
+        local member, characterId
+        if targetSrc then member, characterId = eligibleUnit(targetSrc, bucket) end
+        if member then
+            local ped = GetPlayerPed(targetSrc)
+            local coords = ped and ped > 0 and GetEntityCoords(ped) or nil
+            local current = unitState(member, characterId)
+            local assignedCall = current.assignedCallId and ActiveCalls[tonumber(current.assignedCallId)] or nil
+            if current.assignedCallId and not assignedCall then
+                current.assignedCallId, current.status = nil, 'available'
+            end
+            rows[#rows + 1] = {
+                characterId = characterId, name = nameFor(characterId), callsign = current.callsign,
+                organizationId = member.organizationId, organizationLabel = organizationShortLabel(member.organizationId),
+                rankName = member.rankName, tier = member.tier, status = current.status,
+                assignedCallId = current.assignedCallId, updatedAt = current.updatedAt,
+                x = coords and coords.x or nil, y = coords and coords.y or nil, z = coords and coords.z or nil,
+            }
+        end
+    end
+    table.sort(rows, function(a, b)
+        if a.status == b.status then return tostring(a.callsign) < tostring(b.callsign) end
+        local order = { on_scene = 1, en_route = 2, available = 3, busy = 4, unavailable = 5 }
+        return (order[a.status] or 9) < (order[b.status] or 9)
+    end)
+    return rows
 end
 
 local function createCall(details, coords, callerCid, callerName, options)
@@ -203,6 +324,177 @@ RegisterCommand('reportlaw', function(src, args)
     dispatchNotify(src, 'Your report has been sent to on-duty units.', 'success')
 end, false)
 
+lib.callback.register('cm-law:server:liveOperations', function(src)
+    local member, characterId = eligibleUnit(tonumber(src))
+    if not member then return { ok = false, error = 'Live operations requires on-duty dispatch access.' } end
+    local current = unitState(member, characterId)
+    return {
+        ok = true, selfCharacterId = characterId, selfStatus = current.status,
+        selfCallsign = current.callsign, canCommand = commandAllowed(member),
+        units = liveUnitRows(tonumber(src)),
+        statuses = { 'available', 'busy', 'unavailable' },
+        refreshedAt = os.time(),
+    }
+end)
+
+lib.callback.register('cm-law:server:setUnitStatus', function(src, status)
+    src, status = tonumber(src), tostring(status or ''):lower()
+    local member, characterId = eligibleUnit(src)
+    if not member then return false, 'You must be on duty with dispatch access.' end
+    if status ~= 'available' and status ~= 'busy' and status ~= 'unavailable' then return false, 'Invalid unit status.' end
+    local current = unitState(member, characterId)
+    if current.assignedCallId then return false, 'Clear or resolve your assigned call before changing availability.' end
+    current.status, current.updatedAt = status, os.time()
+    if member.organizationId == 'police' then TriggerEvent('cm-police:server:liveUnitStatusChanged', characterId, status) end
+    broadcastLiveOperations(GetPlayerRoutingBucket(src))
+    return true, ('Unit status changed to %s.'):format(status:gsub('_', ' '))
+end)
+
+lib.callback.register('cm-law:server:setUnitCallsign', function(src, callsign)
+    src = tonumber(src)
+    local member, characterId = eligibleUnit(src)
+    if not member then return false, 'You must be on duty with dispatch access.' end
+    callsign = tostring(callsign or ''):upper():gsub('[^A-Z0-9%-]', ''):sub(1, 12)
+    if #callsign < 3 then return false, 'Callsign must contain at least three letters or numbers.' end
+    for _, rawSrc in ipairs(GetPlayers()) do
+        local otherMember, otherCid = eligibleUnit(tonumber(rawSrc), GetPlayerRoutingBucket(src))
+        if otherMember and otherCid ~= characterId and unitState(otherMember, otherCid).callsign == callsign then
+            return false, 'That callsign is already active.'
+        end
+    end
+    local current = unitState(member, characterId)
+    current.callsign, current.updatedAt = callsign, os.time()
+    for _, call in pairs(ActiveCalls) do
+        if call.responders[characterId] then call.responders[characterId].callsign = callsign; persistIncident(call) end
+    end
+    broadcastLiveOperations(GetPlayerRoutingBucket(src))
+    return true, ('Callsign set to %s.'):format(callsign)
+end)
+
+lib.callback.register('cm-law:server:assignDispatchUnit', function(src, callId, targetCharacterId)
+    src, callId, targetCharacterId = tonumber(src), tonumber(callId), tostring(targetCharacterId or '')
+    local commander = dispatchMemberForSource(src)
+    if not commander or commander.suspended or not commander.onDuty or not commandAllowed(commander) then
+        return false, 'Your rank cannot assign units.'
+    end
+    local call = callId and ActiveCalls[callId]
+    if not call then return false, 'That call is no longer active.' end
+    if GetPlayerRoutingBucket(src) ~= call.routingBucket then return false, 'That call is in another routing instance.' end
+    if call.audienceOrganizationId and call.audienceOrganizationId ~= commander.organizationId then
+        return false, 'That call belongs to another organization.'
+    end
+    local targetSrc = sourceFor(targetCharacterId)
+    local targetMember, targetCid
+    if targetSrc then targetMember, targetCid = eligibleUnit(targetSrc, call.routingBucket) end
+    if not targetMember or targetCid ~= targetCharacterId then return false, 'That unit is no longer available.' end
+    if call.audienceOrganizationId and call.audienceOrganizationId ~= targetMember.organizationId then
+        return false, 'That unit cannot access this organization-only call.'
+    end
+    local targetState = unitState(targetMember, targetCid)
+    if targetState.status ~= 'available' then return false, 'Only an available unit can be command-assigned.' end
+    if targetState.assignedCallId and tonumber(targetState.assignedCallId) ~= callId then return false, 'That unit already has another assignment.' end
+    call.responders[targetCid] = call.responders[targetCid] or {
+        name = nameFor(targetCid), source = targetSrc, organizationId = targetMember.organizationId,
+        acceptedAt = os.time(),
+    }
+    call.responders[targetCid].status, call.responders[targetCid].callsign = 'en_route', targetState.callsign
+    call.status = 'accepted'
+    targetState.assignedCallId, targetState.status, targetState.updatedAt = callId, 'en_route', os.time()
+    if targetMember.organizationId == 'police' then TriggerEvent('cm-police:server:liveUnitStatusChanged', targetCid, 'en_route') end
+    persistIncident(call)
+    TriggerClientEvent('cm-law:client:dispatchAssigned', targetSrc, publicCall(call))
+    broadcastToRecipients('cm-law:client:dispatchCallUpdated', publicCall(call), call.routingBucket, call.audienceOrganizationId)
+    broadcastLiveOperations(call.routingBucket)
+    dispatchAudit(commander, characterIdFor(src), 'dispatch_unit_assigned', {
+        callId = callId, targetCharacterId = targetCid, callsign = targetState.callsign,
+    })
+    return true, ('%s assigned to call #%d.'):format(targetState.callsign, callId)
+end)
+
+lib.callback.register('cm-law:server:releaseDispatchUnit', function(src, callId, targetCharacterId)
+    src, callId, targetCharacterId = tonumber(src), tonumber(callId), tostring(targetCharacterId or '')
+    local member, characterId = dispatchMemberForSource(src)
+    if not member or member.suspended or not member.onDuty or not hasPerm(member, 'law.receive_dispatch') then
+        return false, 'You must be on duty with dispatch access.'
+    end
+    local call = callId and ActiveCalls[callId]
+    if not call then return false, 'That call is no longer active.' end
+    if GetPlayerRoutingBucket(src) ~= call.routingBucket then return false, 'That call is in another routing instance.' end
+    if call.audienceOrganizationId and call.audienceOrganizationId ~= member.organizationId then
+        return false, 'That call belongs to another organization.'
+    end
+    if targetCharacterId == '' then targetCharacterId = tostring(characterId or '') end
+    local isSelf = targetCharacterId == tostring(characterId)
+    if not isSelf and not commandAllowed(member) then return false, 'Your rank cannot release another unit.' end
+    local responder = releaseResponder(call, targetCharacterId)
+    if not responder then return false, 'That unit is not assigned to this call.' end
+    persistIncident(call)
+    local targetSrc = sourceFor(targetCharacterId)
+    if targetSrc then dispatchNotify(targetSrc, ('You were released from call #%d.'):format(callId), 'inform') end
+    broadcastToRecipients('cm-law:client:dispatchCallUpdated', publicCall(call), call.routingBucket, call.audienceOrganizationId)
+    broadcastLiveOperations(call.routingBucket)
+    dispatchAudit(member, characterId, isSelf and 'dispatch_assignment_cleared' or 'dispatch_unit_released', {
+        callId = callId, targetCharacterId = targetCharacterId, callsign = responder.callsign,
+    })
+    return true, isSelf and 'Assignment cleared. Unit is available.' or ('%s released from call #%d.'):format(responder.callsign or responder.name, callId)
+end)
+
+lib.callback.register('cm-law:server:setDispatchPriority', function(src, callId, priority)
+    src, callId, priority = tonumber(src), tonumber(callId), math.floor(tonumber(priority) or 0)
+    local member, characterId = dispatchMemberForSource(src)
+    if not member or member.suspended or not member.onDuty or not commandAllowed(member) then
+        return false, 'Your rank cannot change call priority.'
+    end
+    local call = callId and ActiveCalls[callId]
+    if not call then return false, 'That call is no longer active.' end
+    if priority < 1 or priority > 3 then return false, 'Priority must be routine, urgent, or critical.' end
+    if GetPlayerRoutingBucket(src) ~= call.routingBucket then return false, 'That call is in another routing instance.' end
+    if call.audienceOrganizationId and call.audienceOrganizationId ~= member.organizationId then
+        return false, 'That call belongs to another organization.'
+    end
+    call.priority = priority
+    persistIncident(call)
+    broadcastToRecipients('cm-law:client:dispatchCallUpdated', publicCall(call), call.routingBucket, call.audienceOrganizationId)
+    broadcastLiveOperations(call.routingBucket)
+    dispatchAudit(member, characterId, 'dispatch_priority_changed', { callId = callId, priority = priority })
+    return true, ('Call #%d priority updated.'):format(callId)
+end)
+
+lib.callback.register('cm-law:server:routeToUnit', function(src, targetCharacterId)
+    src, targetCharacterId = tonumber(src), tostring(targetCharacterId or '')
+    if not eligibleUnit(src) then return false, 'Dispatch access required.' end
+    local targetSrc = sourceFor(targetCharacterId)
+    local member = targetSrc and eligibleUnit(targetSrc, GetPlayerRoutingBucket(src))
+    if not member then return false, 'That unit is no longer available.' end
+    local ped = GetPlayerPed(targetSrc)
+    if not ped or ped <= 0 then return false, 'Unit location is unavailable.' end
+    local coords = GetEntityCoords(ped)
+    return true, 'Route set to unit.', { x = coords.x, y = coords.y, z = coords.z }
+end)
+
+AddEventHandler('playerDropped', function()
+    local characterId = characterIdFor(source)
+    releaseUnitAssignment(characterId)
+end)
+
+AddEventHandler('cm-law:server:memberWentOffDuty', function(_, characterId)
+    releaseUnitAssignment(characterId)
+end)
+
+AddEventHandler('cm-police:server:memberWentOffDuty', function(_, characterId)
+    releaseUnitAssignment(characterId)
+end)
+
+AddEventHandler('cm-law:server:legacyUnitStatusChanged', function(src, characterId, legacyStatus)
+    local member, resolvedCid = eligibleUnit(tonumber(src))
+    if not member or member.organizationId ~= 'police' or tostring(resolvedCid) ~= tostring(characterId) then return end
+    local current = unitState(member, resolvedCid)
+    if current.assignedCallId then return end
+    current.status = legacyStatus == '10-6' and 'busy' or 'available'
+    current.updatedAt = os.time()
+    broadcastLiveOperations(GetPlayerRoutingBucket(tonumber(src)))
+end)
+
 lib.callback.register('cm-law:server:createOfficerAlert', function(src, alertType)
     alertType = tostring(alertType or ''):lower()
     if alertType ~= 'backup' and alertType ~= 'panic' then return false, 'Invalid alert type.' end
@@ -217,19 +509,21 @@ lib.callback.register('cm-law:server:createOfficerAlert', function(src, alertTyp
     end
     local ped = GetPlayerPed(src)
     if not ped or ped == 0 then return false, 'Your location is not ready.' end
-    local org = Config.Organizations[member.organizationId] or {}
     local officerName = nameFor(characterId)
     local details = alertType == 'panic'
-        and ('PANIC BUTTON · OFFICER IN DISTRESS · %s %s'):format(org.shortLabel or member.organizationId, officerName)
-        or ('BACKUP REQUEST · %s %s'):format(org.shortLabel or member.organizationId, officerName)
+        and ('PANIC BUTTON · OFFICER IN DISTRESS · %s %s'):format(organizationShortLabel(member.organizationId), officerName)
+        or ('BACKUP REQUEST · %s %s'):format(organizationShortLabel(member.organizationId), officerName)
     local call, reason = createCall(details, GetEntityCoords(ped), characterId, officerName, {
         callType = alertType, priority = alertType == 'panic' and 3 or 2,
         organizationId = member.organizationId, routingBucket = GetPlayerRoutingBucket(src),
     })
     if not call then return false, reason end
-    logActivity(member.organizationId, characterId, 'dispatch_officer_alert', {
-        callId = call.id, alertType = alertType, location = call.location,
-    })
+    local detail = { callId = call.id, alertType = alertType, location = call.location }
+    if member.organizationId == 'police' and type(log) == 'function' then
+        log(characterId, 'dispatch_officer_alert', detail)
+    else
+        logActivity(member.organizationId, characterId, 'dispatch_officer_alert', detail)
+    end
     return true, alertType == 'panic' and 'Panic alert sent to all available units.' or 'Backup requested from available units.'
 end)
 
@@ -243,16 +537,25 @@ lib.callback.register('cm-law:server:acceptDispatchCall', function(src, callId)
     end
     if GetPlayerRoutingBucket(src) ~= call.routingBucket then return false, 'That call is in another routing instance.' end
     if call.audienceOrganizationId and call.audienceOrganizationId ~= member.organizationId then return false, 'That call belongs to another organization.' end
+    local current = unitState(member, characterId)
+    if current.status ~= 'available' and tonumber(current.assignedCallId) ~= callId then
+        return false, 'Set your unit available before accepting a call.'
+    end
+    if current.assignedCallId and tonumber(current.assignedCallId) ~= callId then return false, 'Resolve your current assignment first.' end
     if not call.responders[characterId] then
         call.responders[characterId] = {
             name = nameFor(characterId), source = src, organizationId = member.organizationId,
-            acceptedAt = os.time(), status = 'accepted',
+            acceptedAt = os.time(), status = 'en_route', callsign = current.callsign,
         }
     end
+    current.assignedCallId, current.status, current.updatedAt = callId,
+        call.responders[characterId].status == 'on_scene' and 'on_scene' or 'en_route', os.time()
+    if member.organizationId == 'police' then TriggerEvent('cm-police:server:liveUnitStatusChanged', characterId, current.status) end
     call.status = 'accepted'
     persistIncident(call)
     broadcastToRecipients('cm-law:client:dispatchCallUpdated', publicCall(call), call.routingBucket, call.audienceOrganizationId)
-    return true, 'You are responding to the call.'
+    broadcastLiveOperations(call.routingBucket)
+    return true, 'You are responding to the call. Route set.', publicCall(call)
 end)
 
 lib.callback.register('cm-law:server:setDispatchResponseStatus', function(src, callId, status)
@@ -267,11 +570,15 @@ lib.callback.register('cm-law:server:setDispatchResponseStatus', function(src, c
     if call.audienceOrganizationId and call.audienceOrganizationId ~= member.organizationId then return false, 'That call belongs to another organization.' end
     local responder = characterId and call.responders[characterId]
     if not responder then return false, 'You must accept this call first.' end
-    if status ~= 'en_route' then return false, 'Invalid status.' end
+    if status ~= 'en_route' and status ~= 'on_scene' then return false, 'Invalid status.' end
     responder.status = status
+    local current = unitState(member, characterId)
+    current.assignedCallId, current.status, current.updatedAt = callId, status, os.time()
+    if member.organizationId == 'police' then TriggerEvent('cm-police:server:liveUnitStatusChanged', characterId, status) end
     persistIncident(call)
     broadcastToRecipients('cm-law:client:dispatchCallUpdated', publicCall(call), call.routingBucket, call.audienceOrganizationId)
-    return true, 'Marked en route.'
+    broadcastLiveOperations(call.routingBucket)
+    return true, status == 'on_scene' and 'Marked on scene.' or 'Marked en route.'
 end)
 
 lib.callback.register('cm-law:server:resolveDispatchCall', function(src, callId, resolution)
@@ -284,18 +591,21 @@ lib.callback.register('cm-law:server:resolveDispatchCall', function(src, callId,
     end
     if GetPlayerRoutingBucket(src) ~= call.routingBucket then return false, 'That call is in another routing instance.' end
     if call.audienceOrganizationId and call.audienceOrganizationId ~= member.organizationId then return false, 'That call belongs to another organization.' end
-    if not characterId or not call.responders[characterId] then
-        return false, 'You must accept this call before resolving it.'
-    end
+    local responder = characterId and call.responders[characterId]
+    local commandClose = not responder and commandAllowed(member)
+    if not responder and not commandClose then return false, 'You must accept this call before resolving it.' end
     call.status = 'resolved'
     call.resolution = cleanDetails(resolution or 'Resolved')
-    local responseMs = math.max(0, (os.time() - (call.responders[characterId].acceptedAt or os.time())) * 1000)
+    local responseMs = math.max(0, (os.time() - ((responder and responder.acceptedAt) or call.createdAt or os.time())) * 1000)
     persistIncident(call)
+    clearUnitAssignments(call)
     ActiveCalls[callId] = nil
-    if member then
-        logActivity(member.organizationId, characterId, 'dispatch_call_resolved', { callId = callId, details = call.details, responseMs = responseMs })
-    end
+    dispatchAudit(member, characterId, commandClose and 'dispatch_call_command_closed' or 'dispatch_call_resolved', {
+        callId = callId, details = call.details, responseMs = responseMs,
+    })
+    if type(LawDailyRecord) == 'function' then LawDailyRecord(src, 'dispatch', 1) end
     broadcastToRecipients('cm-law:client:dispatchCallResolved', callId)
+    broadcastLiveOperations(call.routingBucket)
     return true, 'Call marked resolved.'
 end)
 
@@ -307,17 +617,21 @@ lib.callback.register('cm-law:server:dispatchActiveCalls', function(src)
     for _, call in pairs(ActiveCalls) do
         if call.routingBucket == bucket and (not call.audienceOrganizationId or call.audienceOrganizationId == member.organizationId) then list[#list + 1] = publicCall(call) end
     end
-    table.sort(list, function(a, b) return a.createdAt < b.createdAt end)
+    table.sort(list, function(a, b)
+        if tonumber(a.priority or 1) == tonumber(b.priority or 1) then return a.createdAt < b.createdAt end
+        return tonumber(a.priority or 1) > tonumber(b.priority or 1)
+    end)
     return list
 end)
 
 lib.callback.register('cm-law:server:dispatchHistory', function(src)
     local member = dispatchMemberForSource(src)
-    if not member or not hasPerm(member, 'law.receive_dispatch') then return {} end
+    if not member or member.suspended or not member.onDuty or not hasPerm(member, 'law.receive_dispatch') then return {} end
     local limit = math.max(1, math.min(tonumber(Config.Dispatch.HistoryLimit) or 50, 200))
     local rows = MySQL.query.await([[SELECT id, caller_name, details, location, status, resolution, created_at, resolved_at
-        FROM cm_legal_incidents WHERE status IN (?, ?) AND (call_type <> 'front_desk' OR organization_id = ?)
-        ORDER BY id DESC LIMIT ?]], { 'resolved', 'expired', member.organizationId, limit }) or {}
+        FROM cm_legal_incidents WHERE status IN (?, ?) AND routing_bucket = ?
+          AND (call_type <> 'front_desk' OR organization_id = ?)
+        ORDER BY id DESC LIMIT ?]], { 'resolved', 'expired', GetPlayerRoutingBucket(src), member.organizationId, limit }) or {}
     for _, row in ipairs(rows) do
         row.callerName = row.caller_name
         row.createdAt = tostring(row.created_at or '')
@@ -336,8 +650,10 @@ CreateThread(function()
             if now - call.createdAt >= math.floor((Config.Dispatch.ExpireAfterMs or 600000) / 1000) then
                 call.status = 'expired'
                 persistIncident(call)
+                clearUnitAssignments(call)
                 ActiveCalls[callId] = nil
                 broadcastToRecipients('cm-law:client:dispatchCallResolved', callId)
+                broadcastLiveOperations(call.routingBucket)
             end
         end
     end

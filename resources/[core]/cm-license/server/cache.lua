@@ -1,164 +1,136 @@
 -- CM License System — Cache Management
+--
+-- License types, routes and checkpoints change only when an admin edits them,
+-- so they are cached wholesale and invalidated explicitly. The TTL is a
+-- backstop for edits made directly in the database.
 
-local Database = require 'server.database'
-local Constants = require 'shared.constants'
-
-local Cache = {
-    -- Cached data structures
-    LicenseTypes = {},      -- All license types
-    Routes = {},            -- Routes by license_type_id
+Cache = {
+    LicenseTypes = {},      -- All enabled license types
+    Routes = {},            -- List of enabled routes, by license_type_id
     Checkpoints = {},       -- Checkpoints by route_id
-    UpdatedAt = 0,          -- Last cache update time
-    CacheTTL = 3600,        -- Cache TTL in seconds (1 hour)
+    UpdatedAt = 0,
+    CacheTTL = 3600,
 }
-
--- Initialize cache from database
-function Cache.Init()
-    print('^2[CM-License]^7 Initializing cache...')
-    Cache.Refresh()
-    print('^2[CM-License]^7 Cache initialized with ' .. #Cache.LicenseTypes .. ' license types')
-end
 
 -- Refresh all cached data
 function Cache.Refresh()
-    -- Load all license types
     Cache.LicenseTypes = Database.GetLicenseTypes() or {}
+    Cache.Routes = {}
+    Cache.Checkpoints = {}
 
-    -- Load routes and checkpoints
     for _, licenseType in ipairs(Cache.LicenseTypes) do
-        local route = Database.GetRoute(licenseType.id)
-        if route then
-            Cache.Routes[licenseType.id] = route
-            Cache.Checkpoints[route.id] = Database.GetCheckpoints(route.id) or {}
+        local typeId = tonumber(licenseType.id)
+        licenseType.id = typeId
+
+        local routes = {}
+        for _, route in ipairs(Database.GetRoutes(typeId)) do
+            route.id = tonumber(route.id)
+            local checkpoints = Database.GetCheckpoints(route.id) or {}
+            Cache.Checkpoints[route.id] = checkpoints
+            -- A route with fewer than two points cannot be examined on.
+            if #checkpoints >= 2 then
+                routes[#routes + 1] = route
+            end
         end
+        Cache.Routes[typeId] = routes
     end
 
     Cache.UpdatedAt = os.time()
-    print('^2[CM-License]^7 Cache refreshed')
+    CMLog('Cache refreshed')
 end
 
--- Check if cache is stale
+function Cache.Init()
+    print('^2[CM-License]^7 Initializing cache...')
+    Cache.Refresh()
+    print('^2[CM-License]^7 Cache initialized with ' .. #Cache.LicenseTypes .. ' license type(s)')
+end
+
 function Cache.IsStale()
     return (os.time() - Cache.UpdatedAt) > Cache.CacheTTL
 end
 
--- Get all license types from cache
+local function ensureFresh()
+    if Cache.IsStale() then Cache.Refresh() end
+end
+
 function Cache.GetLicenseTypes()
-    if Cache.IsStale() then
-        Cache.Refresh()
-    end
+    ensureFresh()
     return Cache.LicenseTypes
 end
 
--- Get license type by ID
 function Cache.GetLicenseType(typeId)
-    if Cache.IsStale() then
-        Cache.Refresh()
-    end
-
+    ensureFresh()
+    typeId = tonumber(typeId)
+    if not typeId then return nil end
     for _, lt in ipairs(Cache.LicenseTypes) do
-        if lt.id == typeId then
+        if tonumber(lt.id) == typeId then
             return lt
         end
     end
     return nil
 end
 
--- Get license type by license_type string (driver, boat, air)
 function Cache.GetLicenseTypeByName(licenseType)
-    if Cache.IsStale() then
-        Cache.Refresh()
-    end
-
+    ensureFresh()
+    licenseType = tostring(licenseType or ''):lower()
     for _, lt in ipairs(Cache.LicenseTypes) do
-        if lt.license_type == licenseType then
+        if tostring(lt.license_type):lower() == licenseType then
             return lt
         end
     end
     return nil
 end
 
--- Get route for license type
-function Cache.GetRoute(licenseTypeId)
-    if Cache.IsStale() then
-        Cache.Refresh()
-    end
-    return Cache.Routes[licenseTypeId]
+-- Every usable route for a type.
+function Cache.GetRoutes(licenseTypeId)
+    ensureFresh()
+    return Cache.Routes[tonumber(licenseTypeId)] or {}
 end
 
--- Get checkpoints for route
-function Cache.GetCheckpoints(routeId)
-    if Cache.IsStale() then
-        Cache.Refresh()
-    end
-    return Cache.Checkpoints[routeId] or {}
+-- Draw a route for an exam. With several recorded, players cannot memorise
+-- one circuit; with one, this is just that route.
+function Cache.GetRandomRoute(licenseTypeId)
+    local routes = Cache.GetRoutes(licenseTypeId)
+    if #routes == 0 then return nil end
+    if #routes == 1 then return routes[1] end
+    return routes[math.random(#routes)]
 end
 
--- Get checkpoint by sequence
-function Cache.GetCheckpointBySequence(routeId, sequence)
-    local checkpoints = Cache.GetCheckpoints(routeId)
-    for _, cp in ipairs(checkpoints) do
-        if cp.sequence == sequence then
-            return cp
+function Cache.GetRouteById(routeId)
+    ensureFresh()
+    routeId = tonumber(routeId)
+    for _, routes in pairs(Cache.Routes) do
+        for _, route in ipairs(routes) do
+            if route.id == routeId then return route end
         end
     end
     return nil
 end
 
--- Invalidate cache (after admin changes)
+function Cache.GetCheckpoints(routeId)
+    ensureFresh()
+    return Cache.Checkpoints[tonumber(routeId)] or {}
+end
+
+-- Invalidate everything; the next read reloads from the database.
 function Cache.Invalidate()
-    print('^3[CM-License]^7 Cache invalidated, will refresh on next access')
+    CMLog('Cache invalidated, will refresh on next access')
     Cache.UpdatedAt = 0
 end
 
--- Invalidate specific license type cache
-function Cache.InvalidateLicenseType(typeId)
-    Cache.Routes[typeId] = nil
-    -- Invalidate all to be safe
-    Cache.Invalidate()
-end
+Cache.InvalidateLicenseType = Cache.Invalidate
 
--- Add license type to cache
-function Cache.AddLicenseType(licenseType)
-    table.insert(Cache.LicenseTypes, licenseType)
-    Cache.InvalidateLicenseType(licenseType.id)
-end
-
--- Update license type in cache
-function Cache.UpdateLicenseType(typeId, updates)
-    for i, lt in ipairs(Cache.LicenseTypes) do
-        if lt.id == typeId then
-            for key, value in pairs(updates or {}) do
-                lt[key] = value
-            end
-            Cache.InvalidateLicenseType(typeId)
-            return true
-        end
-    end
-    return false
-end
-
--- Remove license type from cache
-function Cache.RemoveLicenseType(typeId)
-    for i, lt in ipairs(Cache.LicenseTypes) do
-        if lt.id == typeId then
-            table.remove(Cache.LicenseTypes, i)
-            Cache.InvalidateLicenseType(typeId)
-            return true
-        end
-    end
-    return false
-end
-
--- Statistics
 function Cache.GetStats()
+    local routes, checkpoints = 0, 0
+    for _, list in pairs(Cache.Routes) do routes = routes + #list end
+    for _, list in pairs(Cache.Checkpoints) do checkpoints = checkpoints + #list end
     return {
         licenseTypes = #Cache.LicenseTypes,
-        routes = 0,
-        checkpoints = 0,
+        routes = routes,
+        checkpoints = checkpoints,
         lastUpdated = Cache.UpdatedAt,
         isStale = Cache.IsStale(),
-        ttl = Cache.CacheTTL
+        ttl = Cache.CacheTTL,
     }
 end
 

@@ -79,7 +79,7 @@ local function closeRoom(restore)
     RenderScriptCams(false, true, 350, true, true)
     if camera and DoesCamExist(camera) then DestroyCam(camera, false) end
     camera = nil; setLocked(false); SetNuiFocus(false, false)
-    SendNUIMessage({ action = 'legalWardrobeClose' })
+    SendNUIMessage({ cmInterface = "law", action = 'legalWardrobeClose' })
 end
 
 RegisterNetEvent('cm-law:client:openWardrobe', function(orgId, label)
@@ -91,7 +91,7 @@ RegisterNetEvent('cm-law:client:openWardrobe', function(orgId, label)
     if type(membership) ~= 'table' or membership.onDuty ~= true or not personalOutfit then personalOutfit = captureOutfit() end
     committed = false; roomOpen = true; activeOrg = orgId
     setLocked(true); openCamera(); SetNuiFocus(true, true)
-    SendNUIMessage({ action = 'legalWardrobeOpen', items = result.items, label = label or result.label })
+    SendNUIMessage({ cmInterface = "law", action = 'legalWardrobeOpen', items = result.items, label = label or result.label })
 end)
 
 RegisterNUICallback('legalWardrobePreview', function(data, cb)

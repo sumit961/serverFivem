@@ -1,0 +1,42 @@
+{
+  "chat.permissions.default": "autoApprove",
+  "chat.tools.terminal.blockDetectedFileWrites": "outsideWorkspace",
+  "chat.tools.terminal.autoApprove": {
+    "python": true,
+    "py": true,
+    "node": true,
+    "npm test": true,
+    "luac": true,
+    "git status": true,
+    "git diff": true,
+    "git show": true,
+    "git log": true,
+    "git ls-files": true,
+    "python tools/cm-validate/validate.py": true,
+    "python tools/cm-fivem-map/scan.py": true,
+    ".\\tools\\cm-runtime\\server-status.ps1": true,
+    ".\\tools\\cm-runtime\\start-server.ps1": true,
+    ".\\tools\\cm-runtime\\tail-console.ps1": true,
+    ".\\tools\\cm-runtime\\read-errors.ps1": true,
+    ".\\tools\\cm-runtime\\runtime-controller.ps1": true,
+    ".\\tools\\cm-runtime\\send-command.ps1 status": true,
+    ".\\tools\\cm-runtime\\send-command.ps1 refresh": true,
+    ".\\tools\\cm-runtime\\send-command.ps1 restart cm-*": true,
+    ".\\tools\\cm-runtime\\send-command.ps1 ensure cm-*": true,
+    ".\\tools\\cm-runtime\\send-command.ps1 start cm-*": true,
+    ".\\tools\\cm-runtime\\send-command.ps1 stop cm-*": true,
+    "Get-ChildItem": true,
+    "Test-Path": true,
+    "Resolve-Path": true
+  },
+  "chat.tools.edits.autoApprove": {
+    "**/*": true,
+    "!server.local.cfg": false,
+    "!.env": false,
+    "!.env.*": false,
+    "!**/*credential*": false,
+    "!**/*secret*": false,
+    "!**/private/**": false,
+    "!**/.git/**": false
+  }
+}

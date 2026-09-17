@@ -4,6 +4,7 @@ local useLocks = {}
 local leaderAssignmentBusy = false
 local rankMutationBusy = false
 local meetingCooldowns = {}
+local inviteCooldowns = {}
 local MAX_OUTFIT_PRESETS_PER_SEX = 12
 local MAX_FAVORITE_OUTFIT_SLOTS = 5
 local EMSSettingsCache = {}
@@ -140,6 +141,8 @@ end
 -- (if it still exists and matches their current sex), else the oldest
 -- available preset for that sex, else nil (no wardrobe configured yet).
 local function resolveMemberOutfit(characterId, outfitSex)
+    local active = MySQL.single.await('SELECT outfit FROM cm_ems_active_duty_outfits WHERE character_id = ? AND sex = ? LIMIT 1', { characterId, outfitSex })
+    if active then return decode(active.outfit), nil end
     local favoriteSelection = MySQL.single.await([[SELECT f.outfit FROM cm_ems_favorite_outfit_selection s
         JOIN cm_ems_favorite_outfits f ON f.character_id = s.character_id AND f.slot = s.slot
         WHERE s.character_id = ? AND f.sex = ? LIMIT 1]], { characterId, outfitSex })
@@ -308,6 +311,54 @@ function EMSIsReady()
     return ready == true
 end
 
+local function approvedWardrobeOutfit(rawOutfit, outfitSex)
+    local outfit = sanitizeOutfit(rawOutfit)
+    if not outfit then return nil, 'Invalid EMS outfit.' end
+    local ok, rows = pcall(function()
+        return exports['cm-items']:GetClothingCatalogRows({ gender = outfitSex, shop = 'org_ems', includeDisabled = true })
+    end)
+    if not ok or type(rows) ~= 'table' then return nil, 'The EMS clothing catalogue is unavailable.' end
+    local required = { outerwear = false, pants = false, shoes = false }
+    for _, row in ipairs(rows) do
+        local category = tostring(row.category or ''):lower()
+        local requiredKey = (category == 'torso' or category == 'top' or category == 'jacket'
+                or category:find('outerwear', 1, true)) and 'outerwear'
+            or category:find('pant', 1, true) and 'pants'
+            or category:find('shoe', 1, true) and 'shoes' or nil
+        if requiredKey then
+            local index = tostring(tonumber(row.componentIndex) or 0)
+            local selected = tostring(row.componentType or 'component') == 'prop'
+                and (outfit.props or {})[index] or (outfit.components or {})[index]
+            if selected and tonumber(selected.drawable) == tonumber(row.drawableId)
+                and tonumber(selected.texture) == math.max(0, tonumber(row.textureId) or 0) then
+                required[requiredKey] = true
+            end
+        end
+    end
+    local missing = {}
+    if not required.outerwear then missing[#missing + 1] = 'outerwear' end
+    if not required.pants then missing[#missing + 1] = 'pants' end
+    if not required.shoes then missing[#missing + 1] = 'shoes' end
+    if #missing > 0 then return nil, ('Select approved EMS %s before starting duty.'):format(table.concat(missing, ', ')) end
+    return outfit
+end
+
+local function invitePlayersNearby(actorSrc, targetSrc)
+    actorSrc, targetSrc = tonumber(actorSrc), tonumber(targetSrc)
+    if not actorSrc or not targetSrc or actorSrc == targetSrc or not GetPlayerName(actorSrc) or not GetPlayerName(targetSrc) then return false end
+    if GetPlayerRoutingBucket(actorSrc) ~= GetPlayerRoutingBucket(targetSrc) then return false end
+    local actorPed, targetPed = GetPlayerPed(actorSrc), GetPlayerPed(targetSrc)
+    if actorPed <= 0 or targetPed <= 0 then return false end
+    return #(GetEntityCoords(actorPed) - GetEntityCoords(targetPed)) <= 4.0
+end
+
+local function inviteThrottled(actorCid, targetCid)
+    local key, now = ('%s:%s'):format(actorCid, targetCid), GetGameTimer()
+    if inviteCooldowns[key] and now - inviteCooldowns[key] < 10000 then return true end
+    inviteCooldowns[key] = now
+    return false
+end
+
 local function setupDatabase()
     local statements = {
         [[CREATE TABLE IF NOT EXISTS cm_ems_organization (id TINYINT UNSIGNED NOT NULL DEFAULT 1, name VARCHAR(64) NOT NULL DEFAULT 'Emergency Medical Services', leader_cid VARCHAR(64) NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]],
@@ -326,6 +377,7 @@ local function setupDatabase()
         [[CREATE TABLE IF NOT EXISTS cm_ems_member_outfit (character_id VARCHAR(64) NOT NULL, preset_id BIGINT UNSIGNED NULL, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (character_id), CONSTRAINT fk_cm_ems_member_outfit_preset FOREIGN KEY (preset_id) REFERENCES cm_ems_outfit_presets(id) ON DELETE SET NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]],
         [[CREATE TABLE IF NOT EXISTS cm_ems_favorite_outfits (character_id VARCHAR(64) NOT NULL, slot TINYINT UNSIGNED NOT NULL, sex ENUM('male','female') NOT NULL, name VARCHAR(32) NOT NULL, outfit LONGTEXT NOT NULL, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (character_id, slot), KEY idx_cm_ems_favorite_outfits_character_sex (character_id, sex)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]],
         [[CREATE TABLE IF NOT EXISTS cm_ems_favorite_outfit_selection (character_id VARCHAR(64) NOT NULL, slot TINYINT UNSIGNED NOT NULL, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (character_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]],
+        [[CREATE TABLE IF NOT EXISTS cm_ems_active_duty_outfits (character_id VARCHAR(64) NOT NULL, sex ENUM('male','female') NOT NULL, outfit LONGTEXT NOT NULL, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (character_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]],
         [[CREATE TABLE IF NOT EXISTS cm_ems_activity (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, actor_cid VARCHAR(64) NULL, action VARCHAR(64) NOT NULL, detail LONGTEXT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (id), KEY idx_cm_ems_activity_created (created_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]],
         [[CREATE TABLE IF NOT EXISTS cm_ems_settings (setting_key VARCHAR(64) NOT NULL, setting_value LONGTEXT NOT NULL, updated_by VARCHAR(64) NULL, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (setting_key)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]],
         [[CREATE TABLE IF NOT EXISTS cm_ems_medical_reports (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, incident_id BIGINT UNSIGNED NULL, patient_cid VARCHAR(64) NOT NULL, patient_name VARCHAR(96) NOT NULL, medic_cid VARCHAR(64) NULL, medic_name VARCHAR(96) NOT NULL, hospital_id VARCHAR(48) NULL, location VARCHAR(160) NULL, injuries LONGTEXT NULL, treatment LONGTEXT NULL, medications LONGTEXT NULL, vitals LONGTEXT NULL, outcome VARCHAR(48) NOT NULL DEFAULT 'treated', billing INT NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (id), KEY idx_cm_ems_report_patient (patient_cid, created_at), KEY idx_cm_ems_report_incident (incident_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]],
@@ -355,7 +407,7 @@ local function setupDatabase()
         -- EMS-specific: where a vehicle spawns, whether it's a car or
         -- helicopter (for cm-vehicles' trusted-placement path), the minimum
         -- rank tier required to spawn it, and whether it's currently enabled.
-        [[CREATE TABLE IF NOT EXISTS cm_ems_fleet_vehicles (model VARCHAR(64) NOT NULL, kind ENUM('car','helicopter') NOT NULL DEFAULT 'car', min_tier SMALLINT UNSIGNED NOT NULL DEFAULT 0, enabled TINYINT(1) NOT NULL DEFAULT 1, spawn_x FLOAT NOT NULL, spawn_y FLOAT NOT NULL, spawn_z FLOAT NOT NULL, spawn_h FLOAT NOT NULL DEFAULT 0, updated_by VARCHAR(64) NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (model)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]],
+        [[CREATE TABLE IF NOT EXISTS cm_ems_fleet_vehicles (model VARCHAR(64) NOT NULL, kind ENUM('car','helicopter') NOT NULL DEFAULT 'car', min_tier SMALLINT UNSIGNED NOT NULL DEFAULT 0, enabled TINYINT(1) NOT NULL DEFAULT 1, location_configured TINYINT(1) NOT NULL DEFAULT 1, spawn_x FLOAT NOT NULL, spawn_y FLOAT NOT NULL, spawn_z FLOAT NOT NULL, spawn_h FLOAT NOT NULL DEFAULT 0, updated_by VARCHAR(64) NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (model)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]],
     }
     for _, query in ipairs(statements) do MySQL.query.await(query) end
     for _, column in ipairs({
@@ -369,6 +421,9 @@ local function setupDatabase()
     end
     if not MySQL.scalar.await([[SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'cm_ems_fleet_vehicles' AND COLUMN_NAME = 'vehicle_id' LIMIT 1]]) then
         MySQL.query.await('ALTER TABLE cm_ems_fleet_vehicles ADD COLUMN vehicle_id BIGINT UNSIGNED NULL AFTER model, ADD UNIQUE KEY uniq_cm_ems_fleet_vehicle_id (vehicle_id)')
+    end
+    if not MySQL.scalar.await([[SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'cm_ems_fleet_vehicles' AND COLUMN_NAME = 'location_configured' LIMIT 1]]) then
+        MySQL.query.await('ALTER TABLE cm_ems_fleet_vehicles ADD COLUMN location_configured TINYINT(1) NOT NULL DEFAULT 1 AFTER enabled')
     end
     if not MySQL.scalar.await([[SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'cm_ems_fleet_vehicles' AND INDEX_NAME = 'uniq_cm_ems_fleet_vehicle_id' LIMIT 1]]) then
         MySQL.query.await('CREATE UNIQUE INDEX uniq_cm_ems_fleet_vehicle_id ON cm_ems_fleet_vehicles (vehicle_id)')
@@ -854,7 +909,22 @@ lib.callback.register('cm-ems:server:action', function(src, action, payload)
     if not actor and isAdmin then actor = { tier = 101, is_leader = 1, permissions = '{}' } end
     if not actor then return false, 'You are not an EMS member.' end
 
-    if action == 'toggle_duty' then
+    if action == 'finish_wardrobe_duty' then
+        if not has(actor, 'ems.use_wardrobe') then return false, 'Your rank cannot use the EMS wardrobe.' end
+        if dbBoolean(actor.is_suspended) then return false, ('You are suspended until %s.'):format(tostring(actor.suspended_until or 'further notice')) end
+        if not nearClothingNpc(src) then return false, 'You must be at the EMS wardrobe to start duty.' end
+        if dbBoolean(actor.on_duty) then return true, 'You are already on duty.', { onDuty = true } end
+        local outfitSex = payload.sex == 'female' and 'female' or 'male'
+        local outfit, reason = approvedWardrobeOutfit(payload.currentOutfit, outfitSex)
+        if not outfit then return false, reason end
+        MySQL.insert.await([[INSERT INTO cm_ems_active_duty_outfits (character_id, sex, outfit) VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE sex = VALUES(sex), outfit = VALUES(outfit), updated_at = CURRENT_TIMESTAMP]],
+            { actorCid, outfitSex, json.encode(outfit) })
+        MySQL.update.await('UPDATE cm_ems_members SET on_duty = 1 WHERE character_id = ?', { actorCid })
+        sync(actorCid)
+        log(actorCid, 'duty_started', { source = 'wardrobe_custom' })
+        return true, 'EMS uniform approved. You are now on duty.', { onDuty = true }
+    elseif action == 'toggle_duty' then
         if dbBoolean(actor.is_suspended) then return false, ('You are suspended until %s.'):format(tostring(actor.suspended_until or 'further notice')) end
         local nextDuty = not dbBoolean(actor.on_duty)
         if nextDuty then
@@ -914,6 +984,7 @@ lib.callback.register('cm-ems:server:action', function(src, action, payload)
         if not preset then return false, 'That EMS clothing preset is unavailable.' end
         MySQL.insert.await('INSERT INTO cm_ems_member_outfit (character_id, preset_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE preset_id = VALUES(preset_id)', { actorCid, presetId })
         MySQL.update.await('DELETE FROM cm_ems_favorite_outfit_selection WHERE character_id = ?', { actorCid })
+        MySQL.update.await('DELETE FROM cm_ems_active_duty_outfits WHERE character_id = ?', { actorCid })
         log(actorCid, 'outfit_chosen', { presetId = presetId })
         local outfit = dbBoolean(actor.on_duty) and decode(preset.outfit) or nil
         return true, 'EMS clothing updated.', { outfit = outfit }
@@ -944,6 +1015,7 @@ lib.callback.register('cm-ems:server:action', function(src, action, payload)
         if not favorite then return false, 'That favorite outfit slot is empty or for another body type.' end
         MySQL.insert.await([[INSERT INTO cm_ems_favorite_outfit_selection (character_id, slot) VALUES (?, ?)
             ON DUPLICATE KEY UPDATE slot = VALUES(slot), updated_at = CURRENT_TIMESTAMP]], { actorCid, slot })
+        MySQL.update.await('DELETE FROM cm_ems_active_duty_outfits WHERE character_id = ?', { actorCid })
         return true, ('Favorite outfit %d equipped.'):format(slot), { outfit = decode(favorite.outfit) }
     elseif action == 'delete_favorite_outfit' then
         if not has(actor, 'ems.use_wardrobe') then return false, 'Your rank cannot use the EMS wardrobe.' end
@@ -978,6 +1050,21 @@ lib.callback.register('cm-ems:server:action', function(src, action, payload)
         end
         log(actorCid, 'meeting_point_set', { recipients = recipients })
         return true, ('Meeting point sent to %d online EMS members.'):format(recipients)
+    elseif action == 'clear_meeting' then
+        -- The meeting blip used to live until the resource restarted: there
+        -- was no way to take it down once the callout was over, only to
+        -- overwrite it with a new one. Same permission as setting it.
+        if not has(actor, 'ems.set_meeting') then return false, 'Your rank cannot clear EMS meeting points.' end
+        local cleared = 0
+        for _, player in ipairs(GetPlayers()) do
+            local memberCid = cid(player)
+            if memberCid and memberFor(memberCid) then
+                TriggerClientEvent('cm-ems:client:clearMeetingPoint', tonumber(player))
+                cleared = cleared + 1
+            end
+        end
+        log(actorCid, 'meeting_point_cleared', { recipients = cleared })
+        return true, ('Meeting point cleared for %d online EMS members.'):format(cleared)
     elseif action == 'set_daily_mission_npc' then
         return SetDailyMissionNpcLocation(src, actor, payload)
     elseif action == 'set_clothing_npc' then
@@ -1138,6 +1225,7 @@ exports('AdminSetFacility', function(src, _, facilityType, reset)
         EMSSettingsCache[key] = nil
         MySQL.update.await('DELETE FROM cm_ems_settings WHERE setting_key = ?', { key })
         if key == 'clothing_npc' then TriggerClientEvent('cm-ems:client:clothingNpcUpdated', -1, false) end
+        if key == 'daily_mission_npc' then TriggerClientEvent('cm-ems:client:dailyMissionNpcUpdated', -1, false) end
         return true, 'EMS facility reset.'
     end
     local ped = GetPlayerPed(src)
@@ -1278,9 +1366,16 @@ AddEventHandler('cm-ems:server:gMenuAction', function(src, targetSrc, action, _,
     if not actor or not targetCid or actorCid == targetCid then return end
     if action == 'ems_invite' then
         if not has(actor, 'ems.invite') then return notify(src, 'Your rank cannot invite EMS members.', 'error') end
+        if dbBoolean(actor.is_suspended) then return notify(src, 'Suspended members cannot invite recruits.', 'error') end
+        if cid(src) ~= actorCid or cid(targetSrc) ~= targetCid or not invitePlayersNearby(src, targetSrc) then return notify(src, 'That player is no longer nearby.', 'error') end
+        if inviteThrottled(actorCid, targetCid) then return notify(src, 'Please wait before inviting that player again.', 'error') end
         if memberFor(targetCid) then return notify(src, 'That character is already in EMS.', 'error') end
+        local rival = rivalMember(targetCid)
+        if rival then return notify(src, ('That character is already a member of %s.'):format(rival.orgLabel), 'error') end
+        local recruit = MySQL.single.await('SELECT name FROM cm_ems_ranks WHERE is_leader = 0 ORDER BY tier ASC LIMIT 1')
+        if not recruit then return notify(src, 'EMS has no entry rank configured.', 'error') end
         MySQL.insert.await([[INSERT INTO cm_ems_invites (character_id, invited_by, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND)) ON DUPLICATE KEY UPDATE invited_by = VALUES(invited_by), expires_at = VALUES(expires_at)]], { targetCid, actorCid, Config.InviteSeconds })
-        TriggerClientEvent('cm-ems:client:invite', targetSrc, { inviter = nameFor(actorCid), expires = Config.InviteSeconds })
+        TriggerClientEvent('cm-ems:client:invite', targetSrc, { inviter = nameFor(actorCid), rank = recruit.name, expires = Config.InviteSeconds })
         log(actorCid, 'invite_sent', { targetCid = targetCid })
         return notify(src, ('EMS invitation sent to %s.'):format(nameFor(targetCid)), 'success')
     end
@@ -1304,9 +1399,18 @@ lib.callback.register('cm-ems:server:respondInvite', function(src, accept)
     local invite = MySQL.single.await('SELECT invited_by FROM cm_ems_invites WHERE character_id = ? AND expires_at > NOW() LIMIT 1', { characterId })
     if not invite then return false, 'This EMS invitation expired.' end
     if not accept then MySQL.update.await('DELETE FROM cm_ems_invites WHERE character_id = ?', { characterId }); return true, 'EMS invitation declined.' end
+    local inviterSrc = sourceFor(invite.invited_by)
+    local inviter = inviterSrc and memberFor(invite.invited_by) or nil
+    if not inviterSrc or not inviter or dbBoolean(inviter.is_suspended) or not has(inviter, 'ems.invite') then
+        MySQL.update.await('DELETE FROM cm_ems_invites WHERE character_id = ?', { characterId })
+        return false, 'This EMS invitation is no longer valid.'
+    end
+    if not invitePlayersNearby(inviterSrc, src) then return false, 'Return to the inviting medic before accepting.' end
+    if memberFor(characterId) then return false, 'You are already an EMS member.' end
     local rival = rivalMember(characterId)
     if rival then return false, ('You are already a member of %s. Leave that organization before joining EMS.'):format(rival.orgLabel) end
-    local recruit = MySQL.single.await('SELECT id FROM cm_ems_ranks WHERE is_leader = 0 ORDER BY tier ASC LIMIT 1')
+    local recruit = MySQL.single.await('SELECT id, name FROM cm_ems_ranks WHERE is_leader = 0 ORDER BY tier ASC LIMIT 1')
+    if not recruit then return false, 'EMS has no entry rank configured.' end
     local ok = MySQL.transaction.await({
         { query = 'INSERT INTO cm_ems_members (character_id, rank_id) VALUES (?, ?)', values = { characterId, recruit.id } },
         { query = 'DELETE FROM cm_ems_invites WHERE character_id = ?', values = { characterId } },
@@ -1314,7 +1418,7 @@ lib.callback.register('cm-ems:server:respondInvite', function(src, accept)
     if not ok then return false, 'Could not join EMS.' end
     sync(characterId)
     log(characterId, 'invite_accepted', { invitedBy = invite.invited_by })
-    return true, 'You joined EMS as a Recruit.'
+    return true, ('You joined EMS as %s.'):format(recruit.name or 'Recruit')
 end)
 
 AddEventHandler('cm-playerdata:server:characterLoaded', function(src)
@@ -1363,7 +1467,7 @@ CreateThread(function()
         exports[Config.AdminResource]:RegisterOrganization({
             id = Config.OrganizationId, label = 'Emergency Medical Services',
             resource = GetCurrentResourceName(), icon = 'briefcase-medical', canRemoveLeader = true,
-            canManageFacilities = true,
+            canManageFacilities = true, canManageNpcs = true, canManageFleet = true,
             facilityTypes = {
                 { id = 'wardrobe', label = 'Wardrobe / clothing NPC' },
                 { id = 'mission', label = 'Daily mission NPC' },

@@ -5,6 +5,8 @@ const labelsRoot = document.getElementById('labels');
 const gPrompt = document.getElementById('gprompt');
 const hexMenu = document.getElementById('hexmenu');
 const hexGrid = document.getElementById('hex-grid');
+const menuCategories = document.getElementById('menu-categories');
+const branchTitle = document.getElementById('branch-title');
 const hintText = document.getElementById('hint-text');
 const titleName = document.getElementById('title-name');
 const titleId = document.getElementById('title-id');
@@ -130,7 +132,7 @@ function renderGPrompt(g) {
 }
 
 // -------------------------------------------------------------------------
-// Hex menu
+// Interaction menu
 // -------------------------------------------------------------------------
 function buildHexMenu(data) {
     titleName.textContent = data.title || 'Stranger';
@@ -138,31 +140,50 @@ function buildHexMenu(data) {
     hintText.textContent = data.hint || '';
 
     hexGrid.innerHTML = '';
+    menuCategories.innerHTML = '';
 
     const options = data.options || [];
-    const perRow = 3;
-    let row = null;
-    let rowIndex = -1;
+    const categories = data.navigation || (data.page === 'main' ? options : []);
+    const currentPage = String(data.page || 'main');
+    const currentCategory = categories.find((item) => item.page === currentPage);
+    branchTitle.textContent = currentCategory ? currentCategory.label : (currentPage === 'main' ? 'CATEGORIES' : currentPage.replace(/^ext:/, '').replace(/_/g, ' '));
 
-    options.forEach((opt, i) => {
-        if (i % perRow === 0) {
-            rowIndex++;
-            row = document.createElement('div');
-            row.className = 'hex-row' + (rowIndex % 2 === 1 ? ' offset' : '');
-            hexGrid.appendChild(row);
+    categories.filter((item) => item.type === 'page' || item.id === 'status').forEach((opt, i) => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'category-row';
+        row.classList.toggle('active', opt.page === currentPage);
+        row.innerHTML = `<span class="category-mark"></span><span class="icon">${ICONS[opt.icon] || ICONS.dot}</span><span class="lbl"></span><span class="num">${i + 1}</span>`;
+        row.querySelector('.lbl').textContent = opt.label || '';
+        const selectCategory = () => post('selectPage', { page: opt.page || '', action: opt.action || '' });
+        row.addEventListener('click', selectCategory);
+        if (opt.type === 'page' && opt.page !== currentPage) {
+            row.addEventListener('pointerenter', selectCategory, { once: true });
         }
+        menuCategories.appendChild(row);
+    });
 
-        const hex = document.createElement('div');
+    const actionOptions = data.page === 'main' ? [] : options;
+    actionOptions.forEach((opt, i) => {
+        const hex = document.createElement('button');
+        hex.type = 'button';
         hex.className = 'hex';
         hex.style.animationDelay = (i * 28) + 'ms';
         hex.innerHTML =
-            '<div class="num">' + (i + 1) + '</div>' +
             '<div class="icon">' + (ICONS[opt.icon] || ICONS.dot) + '</div>' +
             '<div class="lbl">' + escapeHtml(opt.label || '') + '</div>' +
-            (opt.description ? '<div class="desc">' + escapeHtml(opt.description) + '</div>' : '');
+            (opt.description ? '<div class="desc">' + escapeHtml(opt.description) + '</div>' : '') +
+            '<div class="num">' + (i + 1) + '</div>';
         hex.addEventListener('click', () => post('selectOption', { index: i + 1 }));
-        row.appendChild(hex);
+        hexGrid.appendChild(hex);
     });
+
+    if (!actionOptions.length) {
+        const empty = document.createElement('div');
+        empty.className = 'branch-empty';
+        empty.textContent = 'Choose a category';
+        hexGrid.appendChild(empty);
+    }
 
     menuVisible = true;
     hexMenu.classList.remove('hidden');

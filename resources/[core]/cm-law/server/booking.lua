@@ -13,6 +13,16 @@ end
 
 local SharedJailSpawns, SharedJailRelease = {}, nil
 
+local function prisonConfiguration()
+    if GetResourceState('cm-prison') == 'started' then
+        local ok, configured = pcall(function() return exports['cm-prison']:GetConfiguration() end)
+        if ok and type(configured) == 'table' then return configured end
+    end
+    return { spawns = SharedJailSpawns, release = SharedJailRelease, intake = nil,
+        capacityPerSpawn = tonumber(Config.Custody.SpawnCapacity) or 2,
+        intakeRadius = tonumber(Config.Custody.IntakeRadius) or 8.0 }
+end
+
 local function decodeLocation(value)
     local ok, decoded = pcall(json.decode, value or '')
     if not ok or type(decoded) ~= 'table' then return nil end
@@ -29,6 +39,17 @@ local function saveJailSetting(key, value, actorCid)
 end
 
 function LawAdminSetSharedJail(src, settingType, reset)
+    local prisonKind = ({ jail_intake = 'intake', intake = 'intake', jail_spawn = 'spawn', jail_release = 'release', jail_spawns = 'spawns' })[tostring(settingType or '')]
+    if prisonKind and GetResourceState('cm-prison') == 'started' then
+        if prisonKind == 'spawns' then
+            if not reset then return false, 'Use Add Spawn to add a jail spawn.' end
+            return exports['cm-prison']:ResetLocation(tonumber(src), 'spawns')
+        end
+        if reset then
+            return exports['cm-prison']:ResetLocation(tonumber(src), prisonKind)
+        end
+        return exports['cm-prison']:SetLocation(tonumber(src), prisonKind)
+    end
     if not adminAllowed(src) then return false, 'Permission denied.' end
     local actorCid = characterIdFor(src) or 'admin'
     if settingType == 'jail_spawns' then
@@ -67,8 +88,7 @@ function LawAdminSetSharedJail(src, settingType, reset)
 end
 
 exports('GetSharedJailConfiguration', function()
-    return { spawns = SharedJailSpawns, release = SharedJailRelease,
-        capacityPerSpawn = tonumber(Config.Custody.SpawnCapacity) or 2 }
+    return prisonConfiguration()
 end)
 
 local function chargeCatalog()
@@ -99,17 +119,28 @@ local function bookingAuthority(src, targetSrc)
     if not targetCid or not officerPed or officerPed == 0 or not targetPed or targetPed == 0 then return nil, 'The suspect is unavailable.' end
     if GetPlayerRoutingBucket(src) ~= GetPlayerRoutingBucket(targetSrc) then return nil, 'The suspect is not in your routing instance.' end
     if Player(targetSrc).state.cmCuffed ~= true then return nil, 'The suspect must be cuffed first.' end
-    local intake = type(LawFacilityLocation) == 'function' and LawFacilityLocation(actor.organizationId, 'intake') or nil
-    if not intake then return nil, 'Your organization prison intake NPC is not configured.' end
-    local intakeRadius = tonumber(Config.Custody.IntakeRadius) or 8.0
-    if GetPlayerRoutingBucket(src) ~= (tonumber(intake.bucket) or 0) then return nil, 'Move to your organization prison intake.' end
+    -- ONE prison intake for every organization.
+    --
+    -- There is one prison on the map, so there should be one place suspects
+    -- are processed. The shared jail cells and release point were already
+    -- unified (cm-police reads GetSharedJailConfiguration from this resource);
+    -- the intake NPC was the last piece still configured per organization,
+    -- which meant SAHP and LSPD booked at different desks into the same jail.
+    --
+    -- cm-prison owns the shared intake placement. Booking fails closed until
+    -- that one location is configured, so departments cannot drift apart.
+    local configured = prisonConfiguration()
+    local intake = configured.intake
+    if not intake then return nil, 'The shared Prison Intake NPC has not been configured.' end
+    local intakeRadius = tonumber(configured.intakeRadius) or tonumber(Config.Custody.IntakeRadius) or 8.0
+    if GetPlayerRoutingBucket(src) ~= (tonumber(intake.bucket) or 0) then return nil, 'Move to the shared prison intake.' end
     local intakeCoords = vector3(intake.x, intake.y, intake.z)
     if #(GetEntityCoords(officerPed) - intakeCoords) > intakeRadius or #(GetEntityCoords(targetPed) - intakeCoords) > intakeRadius then
-        return nil, 'Bring the cuffed suspect to your organization prison intake NPC.'
+        return nil, 'Bring the cuffed suspect to the shared Prison Intake NPC.'
     end
     if #(GetEntityCoords(officerPed) - GetEntityCoords(targetPed)) > 3.0 then return nil, 'Move closer to the suspect.' end
-    if #SharedJailSpawns < 1 then return nil, 'No shared jail spawn locations are configured.' end
-    if not SharedJailRelease then return nil, 'The shared jail release point is not configured.' end
+    if type(configured.spawns) ~= 'table' or #configured.spawns < 1 then return nil, 'No shared jail spawn locations are configured.' end
+    if type(configured.release) ~= 'table' then return nil, 'The shared jail release point is not configured.' end
     return { actor = actor, actorCid = tostring(actorCid), targetCid = tostring(targetCid), targetSrc = targetSrc }
 end
 
@@ -173,9 +204,10 @@ lib.callback.register('cm-law:server:bookSuspect', function(src, data)
     end
 
     local jailed, jailFailure = false, 'bridge_error'
+    local configured = prisonConfiguration()
     local bridgeOk, bridgeError = pcall(function()
         jailed, jailFailure = exports['cm-prison']:JailSuspect(src, booking.targetSrc, minutes, 10000, {
-            spawns = SharedJailSpawns, release = SharedJailRelease, reason = reason,
+            spawns = configured.spawns, release = configured.release, reason = reason,
             arrestedBy = nameFor(booking.actorCid), charges = selected, bookingId = bookingId,
         })
     end)
@@ -199,6 +231,7 @@ lib.callback.register('cm-law:server:bookSuspect', function(src, data)
     clearAll(booking.targetSrc, true)
     logActivity(booking.actor.organizationId, booking.actorCid, 'suspect_booked', {
         targetCid = booking.targetCid, minutes = minutes, bookingId = bookingId, charges = selected, reason = reason })
+    if type(LawDailyRecord) == 'function' then LawDailyRecord(src, 'bookings', 1) end
     bookingNotify(src, ('Suspect booked on %d charge%s for %d minutes.'):format(#selected, #selected == 1 and '' or 's', minutes), 'success')
     return { ok = true, message = 'Booking confirmed.', bookingId = bookingId, minutes = minutes }
 end)
@@ -233,6 +266,13 @@ CreateThread(function()
         PRIMARY KEY(id),KEY idx_cm_legal_bookings_character(character_id,booked_at),
         KEY idx_cm_legal_bookings_status(handoff_status)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]])
+    -- Crash recovery: a restart must never leave a suspect permanently in a
+    -- phantom processing state. Return the cuffed state and mark the journal
+    -- attempt failed so the officer can safely retry once the prison is ready.
+    MySQL.transaction.await({
+        { query = "UPDATE cm_legal_custody SET status='cuffed',updated_at=NOW() WHERE status='processing'", values = {} },
+        { query = "UPDATE cm_legal_bookings SET handoff_status='failed',failure_reason='server_restart' WHERE handoff_status='processing'", values = {} },
+    })
     local rows = MySQL.query.await("SELECT setting_key,setting_value FROM cm_legal_jail_settings WHERE setting_key IN ('jail_spawns','jail_release')") or {}
     for _, row in ipairs(rows) do
         if row.setting_key == 'jail_release' then

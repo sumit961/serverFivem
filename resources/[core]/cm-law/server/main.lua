@@ -2,6 +2,24 @@ local RESOURCE = GetCurrentResourceName()
 local ready = false
 local leaderLocks = {}
 local useLocks = {}
+local stockLocks = {}
+local inviteCooldowns = {}
+
+
+local function warnStandalonePoliceConflict()
+    if GetResourceState('cm-police') == 'started' then
+        print('^1[cm-law] CONFLICT: standalone cm-police is also started. Remove "ensure cm-police"; its old F6 NUI will overlap the embedded Police dashboard and prevent ESC from appearing to close.^7')
+    end
+end
+
+CreateThread(function()
+    Wait(1500)
+    warnStandalonePoliceConflict()
+end)
+
+AddEventHandler('onResourceStart', function(resource)
+    if resource == 'cm-police' then SetTimeout(500, warnStandalonePoliceConflict) end
+end)
 
 -- Bare global: server/cuffs.lua/booking.lua are separate chunks and can't
 -- see this file's own `ready` local directly.
@@ -15,6 +33,31 @@ function rateLimit(src, action, waitMs)
     if useLocks[key] and now - useLocks[key] < (waitMs or 800) then return false end
     useLocks[key] = now
     return true
+end
+
+function LawWithStockLock(keys, callback)
+    if type(keys) ~= 'table' then keys = { keys } end
+    local normalized, seen = {}, {}
+    for _, key in ipairs(keys) do
+        key = tostring(key or '')
+        if key ~= '' and not seen[key] then seen[key] = true; normalized[#normalized + 1] = key end
+    end
+    table.sort(normalized)
+    if #normalized == 0 or type(callback) ~= 'function' then return false, 'Invalid stock lock.' end
+    local deadline = GetGameTimer() + 5000
+    while true do
+        local busy = false
+        for _, key in ipairs(normalized) do if stockLocks[key] then busy = true; break end end
+        if not busy then break end
+        if GetGameTimer() >= deadline then return false, 'Another stock operation is already running.' end
+        Wait(0)
+    end
+    for _, key in ipairs(normalized) do stockLocks[key] = true end
+    local result = { pcall(callback) }
+    for _, key in ipairs(normalized) do stockLocks[key] = nil end
+    local called = table.remove(result, 1)
+    if not called then return false, tostring(result[1] or 'Stock operation failed safely.') end
+    return true, table.unpack(result)
 end
 
 -- Bare globals below (not local): server/vehicles.lua is a separate
@@ -58,7 +101,11 @@ end
 
 local function permissionsFor(rank)
     if not rank then return {} end
-    local decoded = type(rank.permissions) == 'table' and rank.permissions or json.decode(rank.permissions or '[]') or {}
+    local decoded = type(rank.permissions) == 'table' and rank.permissions or nil
+    if not decoded then
+        local ok, value = pcall(json.decode, rank.permissions or '[]')
+        decoded = ok and type(value) == 'table' and value or {}
+    end
     local out = {}
     for key, value in pairs(decoded) do
         if type(key) == 'number' then out[tostring(value)] = true else out[tostring(key)] = value == true end
@@ -108,7 +155,11 @@ end
 local CapabilityCache = {}
 
 function LawCapabilityEnabled(orgId, capability)
-    orgId, capability = validOrgId(orgId), tostring(capability or '')
+    orgId, capability = tostring(orgId or ''):lower(), tostring(capability or '')
+    if orgId == 'police' then
+        return type(PoliceCapabilityEnabled) ~= 'function' or PoliceCapabilityEnabled(capability) ~= false
+    end
+    orgId = validOrgId(orgId)
     if not orgId or capability == '' then return false end
     local orgCache = CapabilityCache[orgId]
     if orgCache and orgCache[capability] ~= nil then return orgCache[capability] end
@@ -124,6 +175,53 @@ exports('HasOrganizationCapability', function(orgId, capability)
     return LawCapabilityEnabled(orgId, capability)
 end)
 
+-- Shared enforcement gate used directly by cm-law modules and by the
+-- cm-police compatibility adapters. Returning a server-built context keeps
+-- organization identity, duty and rank authority out of client payloads.
+function LawAuthorizeEnforcement(src, capability, permission)
+    src = tonumber(src)
+    local characterId = src and characterIdFor(src)
+    if not characterId then return nil, 'Character is not loaded.' end
+    local member = activeMemberForSource(src)
+    if not member then return nil, 'You are not a legal organization member.' end
+    if member.suspended then return nil, 'Your organization access is suspended.' end
+    if not member.onDuty then return nil, 'You must be on duty.' end
+    if not LawCapabilityEnabled(member.organizationId, capability) then
+        return nil, 'This feature is disabled for your organization.'
+    end
+    if not member.isLeader and member.permissions[tostring(permission or '')] ~= true then
+        return nil, 'Your rank does not permit this action.'
+    end
+    return {
+        source = src, characterId = tostring(characterId),
+        organizationId = member.organizationId, member = member,
+    }
+end
+
+exports('AuthorizeEnforcement', function(src, capability, permission)
+    return LawAuthorizeEnforcement(src, capability, permission)
+end)
+
+exports('LogEnforcementAction', function(context, action, detail)
+    if type(context) ~= 'table' or not context.characterId then return false end
+    if context.organizationId == 'police' and type(log) == 'function' then
+        log(context.characterId, tostring(action or 'enforcement_action'), detail or {})
+        return true
+    end
+    if not validOrgId(context.organizationId) then return false end
+    logActivity(context.organizationId, context.characterId, tostring(action or 'enforcement_action'), detail or {})
+    return true
+end)
+
+exports('EnforcementRecipients', function(capability, permission)
+    local result = {}
+    for _, playerId in ipairs(GetPlayers()) do
+        local context = LawAuthorizeEnforcement(tonumber(playerId), capability, permission)
+        if context then result[#result + 1] = tonumber(playerId) end
+    end
+    return result
+end)
+
 local function statePayload(member, uniformIsActive)
     if not member then return false end
     local org = Config.Organizations[member.organizationId]
@@ -132,7 +230,7 @@ local function statePayload(member, uniformIsActive)
         capabilities[capability] = LawCapabilityEnabled(member.organizationId, capability)
     end
     return {
-        id = member.organizationId, label = org.label, shortLabel = org.shortLabel,
+        id = member.organizationId, characterId = tostring(member.characterId), label = org.label, shortLabel = org.shortLabel,
         rankId = member.rankId, rankName = member.rankName, tier = member.tier,
         isLeader = member.isLeader, onDuty = member.onDuty,
         uniformActive = member.onDuty and uniformIsActive == true,
@@ -177,11 +275,51 @@ function activeMemberForSource(src)
         JOIN cm_legal_ranks r ON r.id = m.rank_id AND r.organization_id = m.organization_id
         WHERE m.character_id = ? ORDER BY m.on_duty DESC, r.tier DESC LIMIT 1
     ]], { characterId })
-    return row and memberFor(characterId, row.organization_id) or nil, characterId
+    if row then return memberFor(characterId, row.organization_id), characterId end
+    if type(PoliceLegacyMemberFor) == 'function' then
+        local police = PoliceLegacyMemberFor(characterId)
+        if police then
+            local permissions = {}
+            if type(has) == 'function' then
+                permissions['police.receive_dispatch'] = has(police, 'police.receive_dispatch')
+                permissions['police.impound'] = has(police, 'police.impound')
+                permissions['police.manage_alpr'] = has(police, 'police.manage_alpr')
+                permissions['police.set_meeting'] = has(police, 'police.set_meeting')
+            end
+            permissions['law.receive_dispatch'] = permissions['police.receive_dispatch'] == true
+            permissions['law.impound'] = permissions['police.impound'] == true
+            permissions['law.alpr'] = permissions['police.manage_alpr'] == true
+            permissions['law.manage_dispatch'] = permissions['police.set_meeting'] == true
+            return {
+                organizationId = 'police', characterId = tostring(characterId),
+                rankId = tonumber(police.rank_id), rankName = police.rank_name,
+                tier = tonumber(police.tier) or 0,
+                isLeader = dbBoolean(police.is_leader), onDuty = dbBoolean(police.on_duty),
+                suspended = dbBoolean(police.is_suspended), permissions = permissions,
+            }, characterId
+        end
+    end
+    return nil, characterId
 end
 
 function canManage(member)
-    return member and (member.isLeader or member.permissions['law.manage_members'] == true)
+    return member and not member.suspended and (member.isLeader or member.permissions['law.manage_members'] == true)
+end
+
+local function invitePlayersNearby(actorSrc, targetSrc)
+    actorSrc, targetSrc = tonumber(actorSrc), tonumber(targetSrc)
+    if not actorSrc or not targetSrc or actorSrc == targetSrc or not GetPlayerName(actorSrc) or not GetPlayerName(targetSrc) then return false end
+    if GetPlayerRoutingBucket(actorSrc) ~= GetPlayerRoutingBucket(targetSrc) then return false end
+    local actorPed, targetPed = GetPlayerPed(actorSrc), GetPlayerPed(targetSrc)
+    if actorPed <= 0 or targetPed <= 0 then return false end
+    return #(GetEntityCoords(actorPed) - GetEntityCoords(targetPed)) <= 4.0
+end
+
+local function inviteThrottled(actorCid, targetCid)
+    local key, now = ('%s:%s'):format(actorCid, targetCid), GetGameTimer()
+    if inviteCooldowns[key] and now - inviteCooldowns[key] < 10000 then return true end
+    inviteCooldowns[key] = now
+    return false
 end
 
 function logActivity(orgId, actorCid, action, detail)
@@ -214,38 +352,158 @@ local function dashboardFor(src)
     local member = activeMemberForSource(src)
     if not member then return { ok = false, error = 'You are not a member of a legal organization.' } end
     local org = Config.Organizations[member.organizationId]
-    local roster = MySQL.query.await([[
-        SELECT m.character_id, m.on_duty, m.suspended_until, r.id AS rank_id,
-               r.name AS rank_name, r.tier, r.is_leader, c.first_name, c.last_name
-        FROM cm_legal_members m
-        JOIN cm_legal_ranks r ON r.id = m.rank_id AND r.organization_id = m.organization_id
-        LEFT JOIN characters c ON c.id = m.character_id
-        WHERE m.organization_id = ? ORDER BY r.tier DESC, c.first_name ASC, c.last_name ASC
-    ]], { member.organizationId }) or {}
-    for _, row in ipairs(roster) do
-        row.character_id = tostring(row.character_id)
-        row.name = (('%s %s'):format(row.first_name or '', row.last_name or '')):gsub('^%s+', ''):gsub('%s+$', '')
-        row.on_duty = dbBoolean(row.on_duty)
-        row.is_leader = dbBoolean(row.is_leader)
-        row.suspended = row.suspended_until ~= nil
-        row.first_name, row.last_name, row.suspended_until = nil, nil, nil
+    local canViewMembers = member.isLeader or (not member.suspended and member.permissions['law.view_members'] == true)
+    local canManageRanks = not member.suspended and (member.isLeader or member.permissions['law.manage_ranks'] == true)
+    local canManagePermissions = not member.suspended and (member.isLeader or member.permissions['law.manage_permissions'] == true)
+    local canInspectRankPermissions = canManageRanks or canManagePermissions
+
+    local roster = {}
+    if canViewMembers then
+        roster = MySQL.query.await([[
+            SELECT m.character_id, m.on_duty, m.suspended_until, r.id AS rank_id,
+                   r.name AS rank_name, r.tier, r.is_leader, c.first_name, c.last_name
+            FROM cm_legal_members m
+            JOIN cm_legal_ranks r ON r.id = m.rank_id AND r.organization_id = m.organization_id
+            LEFT JOIN characters c ON c.id = m.character_id
+            WHERE m.organization_id = ? ORDER BY r.tier DESC, c.first_name ASC, c.last_name ASC
+        ]], { member.organizationId }) or {}
+        for _, row in ipairs(roster) do
+            row.character_id = tostring(row.character_id)
+            row.name = (('%s %s'):format(row.first_name or '', row.last_name or '')):gsub('^%s+', ''):gsub('%s+$', '')
+            row.on_duty = dbBoolean(row.on_duty)
+            row.is_leader = dbBoolean(row.is_leader)
+            row.suspended = row.suspended_until ~= nil
+            row.first_name, row.last_name, row.suspended_until = nil, nil, nil
+        end
     end
+
     local ranks = MySQL.query.await('SELECT id, name, tier, is_leader, permissions FROM cm_legal_ranks WHERE organization_id = ? ORDER BY tier DESC', { member.organizationId }) or {}
     for _, rank in ipairs(ranks) do
         rank.is_leader = dbBoolean(rank.is_leader)
-        rank.permissions = permissionsFor(rank)
+        rank.permissions = canInspectRankPermissions and permissionsFor(rank) or {}
     end
+
+    local counts = MySQL.single.await([[
+        SELECT COUNT(*) AS member_count,
+               SUM(CASE WHEN on_duty = 1 AND suspended_until IS NULL THEN 1 ELSE 0 END) AS on_duty_count
+        FROM cm_legal_members WHERE organization_id = ?
+    ]], { member.organizationId }) or {}
+    local orgRow = MySQL.single.await('SELECT leader_cid FROM cm_legal_organizations WHERE organization_id = ? LIMIT 1', { member.organizationId }) or {}
+    local leaderCid = orgRow.leader_cid and tostring(orgRow.leader_cid) or nil
+    local fleetSummary = MySQL.single.await([[
+        SELECT
+            SUM(CASE WHEN enabled = 1 AND location_configured = 1 THEN 1 ELSE 0 END) AS configured_count,
+            SUM(CASE WHEN enabled = 1 AND location_configured = 1 AND min_tier <= ? THEN 1 ELSE 0 END) AS available_count
+        FROM cm_legal_fleet_vehicles WHERE organization_id = ?
+    ]], { tonumber(member.tier) or 0, member.organizationId }) or {}
+    local canDispatch = member.onDuty and not member.suspended
+        and (member.isLeader or member.permissions['law.receive_dispatch'] == true)
+    local canCustody = member.onDuty and not member.suspended
+        and LawCapabilityEnabled(member.organizationId, 'prisonIntake')
+        and (member.isLeader or member.permissions['law.cuff'] == true)
+    local routingBucket = GetPlayerRoutingBucket(src)
+    local dispatchSummary, priorityCall = {}, nil
+    if canDispatch then
+        dispatchSummary = MySQL.single.await([[
+            SELECT COUNT(*) AS active_count,
+                   SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END) AS assigned_count,
+                   SUM(CASE WHEN priority >= 3 THEN 1 ELSE 0 END) AS priority_count
+            FROM cm_legal_incidents
+            WHERE status IN ('waiting', 'accepted') AND routing_bucket = ?
+              AND (call_type <> 'front_desk' OR organization_id = ?)
+        ]], { routingBucket, member.organizationId }) or {}
+        priorityCall = MySQL.single.await([[
+            SELECT id, caller_name, details, location, status, call_type, priority,
+                   UNIX_TIMESTAMP(created_at) AS created_at
+            FROM cm_legal_incidents
+            WHERE status IN ('waiting', 'accepted') AND routing_bucket = ?
+              AND (call_type <> 'front_desk' OR organization_id = ?)
+            ORDER BY priority DESC, id ASC LIMIT 1
+        ]], { routingBucket, member.organizationId })
+    end
+    if priorityCall then
+        priorityCall.id = tonumber(priorityCall.id)
+        priorityCall.callerName = tostring(priorityCall.caller_name or 'Unknown caller')
+        priorityCall.callType = tostring(priorityCall.call_type or 'citizen')
+        priorityCall.priority = tonumber(priorityCall.priority) or 1
+        priorityCall.createdAt = tonumber(priorityCall.created_at) or os.time()
+        priorityCall.caller_name, priorityCall.call_type, priorityCall.created_at = nil, nil, nil
+    end
+    local recentActivity, canViewActivity = {}, canManage(member)
+    if canViewActivity then
+        recentActivity = MySQL.query.await([[
+            SELECT l.id, l.actor_cid, l.action, l.detail, l.created_at,
+                   TRIM(CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))) AS actor_name
+            FROM cm_legal_activity_logs l
+            LEFT JOIN characters c ON c.id = l.actor_cid
+            WHERE l.organization_id = ?
+            ORDER BY l.id DESC LIMIT 5
+        ]], { member.organizationId }) or {}
+        for _, row in ipairs(recentActivity) do
+            row.actorCid = tostring(row.actor_cid or '')
+            row.actorName = row.actor_name ~= '' and row.actor_name or (row.actorCid ~= '' and ('CID ' .. row.actorCid) or 'System')
+            row.createdAt = tostring(row.created_at or '')
+            local decodedOk, decoded = pcall(json.decode, type(row.detail) == 'string' and row.detail or '{}')
+            row.detail = decodedOk and type(decoded) == 'table' and decoded or {}
+            row.actor_cid, row.actor_name, row.created_at = nil, nil, nil
+        end
+    end
+    local prison = { ready = false, intakeConfigured = false, releaseConfigured = false, spawnCount = 0, capacity = 0, activeCount = 0 }
+    if GetResourceState('cm-prison') == 'started' then
+        local ok, configured = pcall(function() return exports['cm-prison']:GetConfiguration() end)
+        if ok and type(configured) == 'table' then
+            prison.ready = configured.ready == true
+            prison.intakeConfigured = type(configured.intake) == 'table'
+            prison.releaseConfigured = type(configured.release) == 'table'
+            prison.spawnCount = type(configured.spawns) == 'table' and #configured.spawns or 0
+            prison.capacity = prison.spawnCount * (tonumber(configured.capacityPerSpawn) or 0)
+        end
+        local activeOk, sentences = pcall(function() return exports['cm-prison']:GetActiveSentences() end)
+        if activeOk and type(sentences) == 'table' then prison.activeCount = #sentences end
+    end
+    prison.configured = prison.intakeConfigured and prison.releaseConfigured and prison.spawnCount > 0
+    local payload = statePayload(member, activeUniform(member.characterId, member.organizationId) ~= nil)
+
     return { ok = true, organization = { id = member.organizationId, label = org.label, shortLabel = org.shortLabel,
         color = org.color, jurisdiction = org.jurisdiction },
-        member = statePayload(member, activeUniform(member.characterId, member.organizationId) ~= nil), canManage = canManage(member),
-        characterId = member.characterId,
-        canDispatch = member.isLeader or member.permissions['law.receive_dispatch'] == true,
-        canMdt = member.isLeader or member.permissions['law.mdt'] == true,
-        canFleetManage = member.isLeader or member.permissions['law.fleet'] == true,
-        canFleetSpawn = member.isLeader or member.permissions['law.vehicle'] == true,
-        canManageRanks = member.isLeader or member.permissions['law.manage_ranks'] == true,
-        canManagePermissions = member.isLeader or member.permissions['law.manage_permissions'] == true,
-        permissions = Config.Permissions,
+        member = payload, canManage = canManage(member), characterId = member.characterId,
+        canViewMembers = canViewMembers,
+        canInspectRankPermissions = canInspectRankPermissions,
+        canDispatch = canDispatch,
+        canCustody = canCustody,
+        canMdt = member.onDuty and not member.suspended and (member.isLeader or member.permissions['law.mdt'] == true),
+        canFleetManage = not member.suspended and (member.isLeader or member.permissions['law.fleet'] == true),
+        canFleetSpawn = not member.suspended and (member.isLeader or member.permissions['law.vehicle'] == true),
+        logistics = {
+            canRequest = member.isLeader or member.permissions['law.logistics.request'] == true,
+            canAccept = member.organizationId == Config.Logistics.SourceOrganization and (member.isLeader or member.permissions['law.logistics.accept'] == true),
+            canPrepare = member.organizationId == Config.Logistics.SourceOrganization and (member.isLeader or member.permissions['law.logistics.prepare'] == true),
+            canLoad = member.organizationId == Config.Logistics.SourceOrganization and (member.isLeader or member.permissions['law.logistics.load'] == true),
+            canDeliver = member.organizationId == Config.Logistics.SourceOrganization and (member.isLeader or member.permissions['law.logistics.deliver'] == true),
+            canCancel = member.isLeader or member.permissions['law.logistics.cancel'] == true,
+            canRecover = member.organizationId == Config.Logistics.SourceOrganization and (member.isLeader or member.permissions['law.logistics.recover'] == true),
+        },
+        logisticsVisible = true,
+        canViewMemberMap = member.onDuty and not member.suspended and (member.isLeader or member.permissions['law.view_member_map'] == true),
+        canSetMeeting = member.onDuty and not member.suspended and (member.isLeader or member.permissions['law.set_meeting'] == true),
+        canManageRanks = canManageRanks,
+        prison = prison,
+        canManagePermissions = canManagePermissions,
+        permissions = canInspectRankPermissions and Config.Permissions or {},
+        summary = {
+            memberCount = tonumber(counts.member_count) or 0,
+            onDutyCount = tonumber(counts.on_duty_count) or 0,
+            leaderCid = leaderCid,
+            leaderName = leaderCid and (nameFor(leaderCid) or ('CID ' .. leaderCid)) or 'Not assigned',
+            fleetConfigured = tonumber(fleetSummary.configured_count) or 0,
+            fleetAvailable = tonumber(fleetSummary.available_count) or 0,
+            activeCalls = tonumber(dispatchSummary.active_count) or 0,
+            assignedCalls = tonumber(dispatchSummary.assigned_count) or 0,
+            priorityCalls = tonumber(dispatchSummary.priority_count) or 0,
+            priorityCall = priorityCall,
+        },
+        canViewActivity = canViewActivity,
+        recentActivity = recentActivity,
         roster = roster, ranks = ranks }
 end
 
@@ -273,6 +531,12 @@ local function ensureSchema()
         PRIMARY KEY (organization_id, character_id), KEY idx_cm_legal_member_character (character_id),
         KEY idx_cm_legal_member_rank (rank_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]])
+    MySQL.query.await([[CREATE TABLE IF NOT EXISTS cm_legal_invites (
+        organization_id VARCHAR(32) NOT NULL, character_id VARCHAR(64) NOT NULL,
+        invited_by VARCHAR(64) NOT NULL, expires_at DATETIME NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (organization_id, character_id), KEY idx_cm_legal_invite_expiry (expires_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]])
     MySQL.query.await([[CREATE TABLE IF NOT EXISTS cm_legal_activity_logs (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, organization_id VARCHAR(32) NOT NULL,
         actor_cid VARCHAR(64) NULL, action VARCHAR(64) NOT NULL, detail LONGTEXT NOT NULL,
@@ -293,13 +557,35 @@ local function ensureSchema()
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (organization_id, capability)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]])
+    MySQL.query.await([[CREATE TABLE IF NOT EXISTS cm_legal_npc_overrides (
+        organization_id VARCHAR(32) NOT NULL, facility_type VARCHAR(32) NOT NULL,
+        enabled TINYINT(1) NOT NULL DEFAULT 1, model VARCHAR(64) NOT NULL,
+        display_name VARCHAR(64) NOT NULL, role VARCHAR(80) NOT NULL,
+        updated_by VARCHAR(64) NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (organization_id, facility_type)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]])
+    local capabilitySeeds = {}
     for orgId in pairs(Config.Organizations) do
         for _, capability in ipairs(Config.Capabilities or {}) do
-            MySQL.insert.await([[INSERT IGNORE INTO cm_legal_capabilities
-                (organization_id, capability, enabled, updated_by) VALUES (?, ?, 1, 'migration')]],
-                { orgId, capability })
+            local configured = Config.Organizations[orgId].capabilityDefaults
+            local enabled = not (type(configured) == 'table' and configured[capability] == false)
+            capabilitySeeds[#capabilitySeeds + 1] = {
+                query = [[INSERT IGNORE INTO cm_legal_capabilities
+                    (organization_id, capability, enabled, updated_by) VALUES (?, ?, ?, 'migration')]],
+                values = { orgId, capability, enabled and 1 or 0 },
+            }
         end
     end
+    if #capabilitySeeds > 0 and not MySQL.transaction.await(capabilitySeeds) then
+        error('cm-law capability seed transaction failed')
+    end
+    -- Earlier versions seeded every capability on. Only migration-owned Army
+    -- rows are corrected; administrator choices (updated_by != migration)
+    -- are never overwritten.
+    MySQL.update.await([[UPDATE cm_legal_capabilities SET enabled = 0
+        WHERE organization_id = 'army' AND updated_by = 'migration'
+          AND capability IN ('citations','impound','radar','clamp','k9','alpr')]])
     MySQL.query.await([[CREATE TABLE IF NOT EXISTS cm_legal_jail_settings (
         setting_key VARCHAR(32) NOT NULL,setting_value LONGTEXT NOT NULL,updated_by VARCHAR(64) NULL,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -319,6 +605,7 @@ local function ensureSchema()
         organization_id VARCHAR(32) NOT NULL, model VARCHAR(64) NOT NULL,
         kind ENUM('car','helicopter') NOT NULL DEFAULT 'car',
         min_tier SMALLINT UNSIGNED NOT NULL DEFAULT 0, enabled TINYINT(1) NOT NULL DEFAULT 1,
+        location_configured TINYINT(1) NOT NULL DEFAULT 1,
         spawn_x DOUBLE NULL, spawn_y DOUBLE NULL, spawn_z DOUBLE NULL, spawn_h FLOAT NOT NULL DEFAULT 0,
         updated_by VARCHAR(64) NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -331,6 +618,7 @@ local function ensureSchema()
     -- drives the location-setting dummy and presses H (server/vehicles.lua's
     -- saveFleetVehicleLocation), which is also what creates this row.
     pcall(function() MySQL.query.await('ALTER TABLE cm_legal_fleet_vehicles ADD COLUMN vehicle_id BIGINT UNSIGNED NULL') end)
+    pcall(function() MySQL.query.await('ALTER TABLE cm_legal_fleet_vehicles ADD COLUMN location_configured TINYINT(1) NOT NULL DEFAULT 1 AFTER enabled') end)
     -- Minimal custody tracking (server/cuffs.lua) -- enough to restore a
     -- cuffed player's restraint state on reconnect. Actual jail sentences
     -- live in cm-prison's own cm_prison_sentences once booked.
@@ -472,7 +760,13 @@ local function removeLeader(src, orgId)
         nameFor(leaderCid) or leaderCid, Config.Organizations[orgId].label)
 end
 
-exports('GetMember', memberFor)
+exports('GetMember', function(characterId, orgId)
+    if type(PoliceLegacyMemberFor) == 'function' then
+        local police = PoliceLegacyMemberFor(characterId)
+        if tostring(orgId or ''):lower() == 'police' or (orgId == nil and police) then return police end
+    end
+    return memberFor(characterId, orgId)
+end)
 exports('GetOrganizationSummary', summary)
 exports('AdminAssignLeader', assignLeader)
 exports('AdminRemoveLeader', removeLeader)
@@ -499,17 +793,77 @@ exports('GetOrganizations', function()
     return organizations
 end)
 exports('HasPermission', function(characterId, permission, orgId)
+    if type(PoliceLegacyMemberFor) == 'function' and type(has) == 'function' then
+        local police = PoliceLegacyMemberFor(tostring(characterId))
+        if tostring(orgId or ''):lower() == 'police' or (orgId == nil and police) then return has(police, tostring(permission)) end
+    end
     local member = memberFor(characterId, orgId)
     return member and (member.isLeader or member.permissions[tostring(permission)] == true) or false
 end)
 exports('IsOnDuty', function(characterId, orgId)
+    if type(PoliceLegacyMemberFor) == 'function' then
+        local police = PoliceLegacyMemberFor(tostring(characterId))
+        if tostring(orgId or ''):lower() == 'police' or (orgId == nil and police) then return police and dbBoolean(police.on_duty) or false end
+    end
     local member = memberFor(characterId, orgId)
     return member and member.onDuty == true or false
+end)
+
+-- Stable source/character APIs for law extensions. These return fresh,
+-- server-built values so callers cannot mutate the authority's internal state.
+exports('GetLawMember', function(src)
+    local member = select(1, activeMemberForSource(tonumber(src)))
+    return member
+end)
+exports('GetLawMemberByCharacterId', memberFor)
+exports('GetLawOrganization', function(orgId)
+    orgId = validOrgId(orgId)
+    return orgId and exports[RESOURCE]:GetOrganization(orgId) or nil
+end)
+exports('HasLawPermission', function(src, permission, orgId)
+    local member = select(1, activeMemberForSource(tonumber(src)))
+    if orgId and (not member or member.organizationId ~= validOrgId(orgId)) then return false end
+    return member and (member.isLeader or member.permissions[tostring(permission)] == true) or false
+end)
+exports('IsLawMember', function(src)
+    return exports[RESOURCE]:GetLawMember(src) ~= nil
+end)
+exports('IsLawMemberOf', function(src, orgId)
+    local member = exports[RESOURCE]:GetLawMember(src)
+    return member ~= nil and member.organizationId == validOrgId(orgId)
 end)
 
 lib.callback.register('cm-law:server:dashboard', function(src)
     if not ready then return { ok = false, error = 'Legal organizations are still starting.' } end
     return dashboardFor(src)
+end)
+
+lib.callback.register('cm-law:server:custody', function(src)
+    if not ready then return { ok = false, error = 'Legal organizations are still starting.' } end
+    local member = activeMemberForSource(src)
+    if not member or member.suspended or not member.onDuty
+        or not LawCapabilityEnabled(member.organizationId, 'prisonIntake')
+        or not (member.isLeader or member.permissions['law.cuff'] == true) then
+        return { ok = false, error = 'Custody monitoring requires on-duty prison-intake permission.' }
+    end
+    if GetResourceState('cm-prison') ~= 'started' then return { ok = false, error = 'The central prison resource is offline.' } end
+    local ok, sentences = pcall(function() return exports['cm-prison']:GetActiveSentences() end)
+    if not ok or type(sentences) ~= 'table' then return { ok = false, error = 'Prison custody data is not ready.' } end
+    local rows = {}
+    for _, row in ipairs(sentences) do
+        local cid = tostring(row.character_id or row.characterId or '')
+        if cid ~= '' then
+            rows[#rows + 1] = {
+                characterId = cid, name = nameFor(cid) or ('CID ' .. cid),
+                arrestedBy = tostring(row.arrested_by_name or 'Law enforcement'),
+                reason = tostring(row.reason or 'No reason recorded'),
+                sentenceMinutes = tonumber(row.sentence_minutes) or 0,
+                releaseEpoch = tonumber(row.release_epoch) or 0,
+                remainingSeconds = tonumber(row.remaining_seconds) or 0,
+            }
+        end
+    end
+    return { ok = true, prisoners = rows, fetchedAt = os.time() }
 end)
 
 local function endLawDuty(src, characterId, orgId, reason)
@@ -573,16 +927,7 @@ lib.callback.register('cm-law:server:staffAction', function(src, action, payload
     end
     local target = memberFor(targetCid, actor.organizationId)
     if action == 'hire' then
-        if target then return { ok = false, error = 'That character is already a member.' } end
-        local rival = exports[Config.AdminResource]:FindRivalMembership(actor.organizationId, targetCid)
-        if rival then return { ok = false, error = ('That character already belongs to %s.'):format(rival.orgLabel) } end
-        local rank = MySQL.single.await('SELECT id, tier, is_leader FROM cm_legal_ranks WHERE id = ? AND organization_id = ? LIMIT 1',
-            { tonumber(payload.rankId), actor.organizationId })
-        if not rank or dbBoolean(rank.is_leader) or tonumber(rank.tier) >= actor.tier then
-            return { ok = false, error = 'Choose a rank below your own.' }
-        end
-        MySQL.insert.await('INSERT INTO cm_legal_members (organization_id, character_id, rank_id) VALUES (?, ?, ?)',
-            { actor.organizationId, targetCid, rank.id })
+        return { ok = false, error = 'New members must be invited through the nearby-player G menu.' }
     elseif action == 'rank' then
         if not target or target.isLeader or target.tier >= actor.tier then return { ok = false, error = 'You cannot change that member.' } end
         local rank = MySQL.single.await('SELECT id, tier, is_leader FROM cm_legal_ranks WHERE id = ? AND organization_id = ? LIMIT 1',
@@ -614,7 +959,83 @@ lib.callback.register('cm-law:server:staffAction', function(src, action, payload
     return { ok = true, message = 'Organization roster updated.' }
 end)
 
--- F9 Ranks & Access page. Separate from staffAction above (which assigns
+exports('GetOrganizationMembers', function(orgId)
+    orgId = validOrgId(orgId)
+    if not orgId then return {} end
+    local rows = MySQL.query.await([[
+        SELECT m.character_id AS characterId, m.rank_id AS rankId, m.on_duty AS onDuty,
+            m.suspended_until AS suspendedUntil, r.name AS rankName, r.tier,
+            r.is_leader AS isLeader
+        FROM cm_legal_members m
+        JOIN cm_legal_ranks r ON r.id = m.rank_id AND r.organization_id = m.organization_id
+        WHERE m.organization_id = ? ORDER BY r.tier DESC, m.character_id]], { orgId }) or {}
+    for _, row in ipairs(rows) do
+        row.characterId, row.rankId, row.tier = tostring(row.characterId), tonumber(row.rankId), tonumber(row.tier) or 0
+        row.onDuty, row.isLeader = dbBoolean(row.onDuty), dbBoolean(row.isLeader)
+    end
+    return rows
+end)
+exports('GetOrganisationMembers', function(orgId)
+    return exports[RESOURCE]:GetOrganizationMembers(orgId)
+end)
+
+local function organizationManagerForSource(src, orgId, targetCid)
+    local actor, actorCid = activeMemberForSource(tonumber(src))
+    orgId = validOrgId(orgId) or actor and actor.organizationId
+    targetCid = tostring(targetCid or '')
+    local target = orgId and targetCid ~= '' and memberFor(targetCid, orgId) or nil
+    if not actor or actor.organizationId ~= orgId or not canManage(actor) then
+        return nil, nil, nil, 'You cannot manage organization members.'
+    end
+    if not target or target.isLeader or target.tier >= actor.tier or targetCid == actorCid then
+        return nil, nil, nil, 'You cannot change that member.'
+    end
+    return actor, actorCid, target, nil
+end
+
+exports('CanManageOrganizationMembers', function(src, orgId, targetCid)
+    local actor, _, _, reason = organizationManagerForSource(src, orgId, targetCid)
+    return actor ~= nil, reason
+end)
+exports('CanManageOrganisationMembers', function(src, orgId, targetCid)
+    return exports[RESOURCE]:CanManageOrganizationMembers(src, orgId, targetCid)
+end)
+exports('SetOrganizationRank', function(src, targetCid, rankId, orgId)
+    local actor, actorCid, target, reason = organizationManagerForSource(src, orgId, targetCid)
+    if not actor then return false, reason end
+    local rank = MySQL.single.await([[SELECT id, tier, is_leader FROM cm_legal_ranks
+        WHERE id = ? AND organization_id = ? LIMIT 1]], { tonumber(rankId), actor.organizationId })
+    if not rank or dbBoolean(rank.is_leader) or tonumber(rank.tier) >= actor.tier then
+        return false, 'Choose a rank below your own.'
+    end
+    local changed = MySQL.update.await([[UPDATE cm_legal_members SET rank_id = ?
+        WHERE organization_id = ? AND character_id = ?]], { rank.id, actor.organizationId, target.characterId })
+    if tonumber(changed) ~= 1 then return false, 'The member rank was not changed.' end
+    logActivity(actor.organizationId, actorCid, 'member_rank_changed', { targetCid = target.characterId, rankId = rank.id })
+    syncCharacter(target.characterId)
+    return true
+end)
+exports('SetOrganisationRank', function(src, targetCid, rankId, orgId)
+    return exports[RESOURCE]:SetOrganizationRank(src, targetCid, rankId, orgId)
+end)
+exports('RemoveOrganizationMember', function(src, targetCid, orgId)
+    local actor, actorCid, target, reason = organizationManagerForSource(src, orgId, targetCid)
+    if not actor then return false, reason end
+    endLawDuty(sourceFor(target.characterId), target.characterId, actor.organizationId, 'removed')
+    local changed = MySQL.update.await([[DELETE FROM cm_legal_members
+        WHERE organization_id = ? AND character_id = ?]], { actor.organizationId, target.characterId })
+    if tonumber(changed) ~= 1 then return false, 'The member was not removed.' end
+    MySQL.update.await('DELETE FROM cm_legal_active_outfits WHERE organization_id = ? AND character_id = ?',
+        { actor.organizationId, target.characterId })
+    logActivity(actor.organizationId, actorCid, 'member_removed', { targetCid = target.characterId })
+    syncCharacter(target.characterId)
+    return true
+end)
+exports('RemoveOrganisationMember', function(src, targetCid, orgId)
+    return exports[RESOURCE]:RemoveOrganizationMember(src, targetCid, orgId)
+end)
+
+-- F6 Ranks & Access page. Separate from staffAction above (which assigns
 -- members TO ranks) -- this defines the ranks themselves. Mirrors
 -- cm-police's save_rank/delete_rank guards (server/main.lua): the leader
 -- rank is fully protected, a rank can never be created/edited at or above
@@ -622,8 +1043,8 @@ end)
 -- rank if the acting member already holds it themselves.
 lib.callback.register('cm-law:server:saveRank', function(src, payload)
     local actor, actorCid = activeMemberForSource(src)
-    if not actor or not (actor.isLeader or actor.permissions['law.manage_ranks'] == true) then
-        return { ok = false, error = 'Your rank cannot manage ranks.' }
+    if not actor or actor.suspended or not (actor.isLeader or actor.permissions['law.manage_ranks'] == true) then
+        return { ok = false, error = actor and actor.suspended and 'Your organization access is suspended.' or 'Your rank cannot manage ranks.' }
     end
     payload = type(payload) == 'table' and payload or {}
     local orgId = actor.organizationId
@@ -684,8 +1105,8 @@ end)
 
 lib.callback.register('cm-law:server:deleteRank', function(src, rankId)
     local actor, actorCid = activeMemberForSource(src)
-    if not actor or not (actor.isLeader or actor.permissions['law.manage_ranks'] == true) then
-        return { ok = false, error = 'Your rank cannot manage ranks.' }
+    if not actor or actor.suspended or not (actor.isLeader or actor.permissions['law.manage_ranks'] == true) then
+        return { ok = false, error = actor and actor.suspended and 'Your organization access is suspended.' or 'Your rank cannot manage ranks.' }
     end
     rankId = tonumber(rankId)
     local orgId = actor.organizationId
@@ -702,7 +1123,7 @@ lib.callback.register('cm-law:server:deleteRank', function(src, rankId)
     return { ok = true, message = 'Rank deleted.' }
 end)
 
--- F9 Activity Logs page. On-demand fetch (like fleetCatalog/dispatchHistory
+-- F6 Activity Logs page. On-demand fetch (like fleetCatalog/dispatchHistory
 -- above it), not bundled into the initial dashboard payload.
 lib.callback.register('cm-law:server:activityLog', function(src)
     local actor = activeMemberForSource(src)
@@ -719,7 +1140,8 @@ lib.callback.register('cm-law:server:activityLog', function(src)
         row.actorCid = tostring(row.actor_cid or '')
         row.actorName = row.actor_name ~= '' and row.actor_name or row.actorCid
         row.createdAt = tostring(row.created_at or '')
-        row.detail = (type(row.detail) == 'string' and json.decode(row.detail)) or {}
+        local decodedOk, decoded = pcall(json.decode, type(row.detail) == 'string' and row.detail or '{}')
+        row.detail = decodedOk and type(decoded) == 'table' and decoded or {}
         row.actor_cid, row.actor_name, row.created_at = nil, nil, nil
     end
     return rows
@@ -744,7 +1166,7 @@ local function facilityAccess(src, orgId, facilityType)
     local capability = facilityType == 'armory' and 'armory'
         or facilityType == 'evidence' and 'evidence'
         or facilityType == 'fleet' and 'fleet'
-        or facilityType == 'intake' and 'prisonIntake' or nil
+        or nil
     if capability and not LawCapabilityEnabled(orgId, capability) then
         return nil, characterId, 'This service is disabled for your organization.'
     end
@@ -755,7 +1177,7 @@ local function facilityAccess(src, orgId, facilityType)
         or facilityType == 'storage' and 'law.storage'
         or facilityType == 'evidence' and 'law.search'
         or facilityType == 'fleet' and 'law.fleet'
-        or facilityType == 'intake' and 'law.cuff' or nil
+        or nil
     if permission and not member.isLeader and member.permissions[permission] ~= true then
         return nil, characterId, 'Your rank does not have access to this service.'
     end
@@ -913,11 +1335,91 @@ local function setFacility(src, orgId, facilityType, reset)
 end
 
 exports('AdminSetFacility', function(src, orgId, facilityType, reset)
-    if facilityType == 'jail_spawn' or facilityType == 'jail_release' or facilityType == 'jail_spawns' then
+    if facilityType == 'jail_spawn' or facilityType == 'jail_release' or facilityType == 'jail_spawns' or facilityType == 'jail_intake' or facilityType == 'intake' then
         if type(LawAdminSetSharedJail) ~= 'function' then return false, 'Shared jail configuration is still loading.' end
         return LawAdminSetSharedJail(tonumber(src), facilityType, reset == true)
     end
     return setFacility(tonumber(src), orgId, facilityType, reset == true)
+end)
+
+local function cleanNpcText(value, maximum)
+    value = tostring(value or ''):gsub('[%c]', ' '):gsub('%s+', ' '):match('^%s*(.-)%s*$') or ''
+    return value:sub(1, maximum)
+end
+
+exports('GetFacilityLocation', function(orgId, facilityType)
+    local row = LawFacilityLocation(orgId, facilityType)
+    if not row then return nil end
+    return { x = tonumber(row.x), y = tonumber(row.y), z = tonumber(row.z),
+        heading = tonumber(row.heading) or 0.0, bucket = tonumber(row.routing_bucket) or 0,
+        organizationId = validOrgId(orgId) }
+end)
+
+local function validNpcModel(value)
+    value = tostring(value or ''):lower()
+    return #value > 0 and #value <= 64 and value:match('^[%a_][%w_]*$') and value or nil
+end
+
+local function defaultNpc(orgId, facilityType)
+    local org, facility = Config.Organizations[orgId], Config.FacilityTypes[facilityType]
+    if not org or not facility then return nil end
+    return {
+        model = org.serviceNpc.model,
+        name = facilityType == 'front_desk' and org.serviceNpc.name or (org.shortLabel .. ' ' .. facility.label),
+        role = facilityType == 'front_desk' and org.serviceNpc.role or facility.role,
+    }
+end
+
+local function adminNpcRows(orgId)
+    local locations, overrides, items = facilityRows(orgId), {}, {}
+    for _, row in ipairs(MySQL.query.await([[SELECT facility_type,enabled,model,display_name,role
+        FROM cm_legal_npc_overrides WHERE organization_id=?]], { orgId }) or {}) do
+        overrides[tostring(row.facility_type)] = row
+    end
+    for facilityType in pairs(Config.FacilityTypes) do
+        local defaults, override = defaultNpc(orgId, facilityType), overrides[facilityType]
+        if defaults then
+            items[#items + 1] = { id=facilityType, label=Config.FacilityTypes[facilityType].label,
+                enabled=not override or dbBoolean(override.enabled), model=override and override.model or defaults.model,
+                name=override and override.display_name or defaults.name, role=override and override.role or defaults.role,
+                configured=override ~= nil or locations[facilityType] ~= nil, location=locations[facilityType] }
+        end
+    end
+    table.sort(items, function(a,b) return a.label < b.label end)
+    return items, overrides
+end
+
+exports('AdminGetNpcs', function(src, orgId)
+    src, orgId = tonumber(src), validOrgId(orgId)
+    if not adminAllowed(src) or not orgId then return { ok=false, error='Permission denied.' } end
+    return { ok=true, organizationId=orgId, items=adminNpcRows(orgId) }
+end)
+
+exports('AdminConfigureNpc', function(src, orgId, data)
+    src, orgId, data = tonumber(src), validOrgId(orgId), type(data)=='table' and data or {}
+    if not adminAllowed(src) or not orgId then return false, 'Permission denied.' end
+    local facilityType, operation = validFacilityType(data.npcId), tostring(data.operation or 'save')
+    if not facilityType then return false, 'Unsupported organization NPC.' end
+    if operation == 'reset' then
+        MySQL.update.await('DELETE FROM cm_legal_npc_overrides WHERE organization_id=? AND facility_type=?', { orgId, facilityType })
+        local ok, message = setFacility(src, orgId, facilityType, true)
+        return ok, message or 'Organization NPC reset.'
+    end
+    local model = validNpcModel(data.model)
+    local name, role = cleanNpcText(data.name,64), cleanNpcText(data.role,80)
+    if not model or name=='' or role=='' then return false, 'Model, display name or role is invalid.' end
+    MySQL.insert.await([[INSERT INTO cm_legal_npc_overrides
+        (organization_id,facility_type,enabled,model,display_name,role,updated_by) VALUES (?,?,?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE enabled=VALUES(enabled),model=VALUES(model),display_name=VALUES(display_name),
+        role=VALUES(role),updated_by=VALUES(updated_by)]],
+        { orgId,facilityType,data.enabled==true and 1 or 0,model,name,role,characterIdFor(src) })
+    if operation=='set_location' then
+        local ok,message=setFacility(src,orgId,facilityType,false); if ok~=true then return false,message end
+    else
+        TriggerClientEvent('cm-law:client:facilitiesChanged',-1)
+    end
+    logActivity(orgId,characterIdFor(src),'admin_npc_configured',{facilityType=facilityType,operation=operation})
+    return true,'Organization NPC configuration saved and refreshed.'
 end)
 
 exports('AdminGetCapabilities', function(src, orgId)
@@ -955,15 +1457,18 @@ lib.callback.register('cm-law:server:facilities', function()
     if not ready then return {} end
     local list = {}
     for orgId, org in pairs(Config.Organizations) do
+        local _, overrides = adminNpcRows(orgId)
         for facilityType, location in pairs(facilityRows(orgId)) do
             local typeConfig = Config.FacilityTypes[facilityType]
-            if typeConfig then
+            local override = overrides[facilityType]
+            if facilityType ~= 'intake' and typeConfig and (not override or dbBoolean(override.enabled)) then
+                local defaults = defaultNpc(orgId, facilityType)
                 list[#list + 1] = {
                     organizationId = orgId, organizationLabel = org.label, shortLabel = org.shortLabel,
                     facilityType = facilityType, label = typeConfig.label,
-                    name = facilityType == 'front_desk' and org.serviceNpc.name or (org.shortLabel .. ' ' .. typeConfig.label),
-                    role = facilityType == 'front_desk' and org.serviceNpc.role or typeConfig.role,
-                    model = org.serviceNpc.model, location = location,
+                    name = override and override.display_name or defaults.name,
+                    role = override and override.role or defaults.role,
+                    model = override and override.model or defaults.model, location = location,
                 }
             end
         end
@@ -992,11 +1497,11 @@ lib.callback.register('cm-law:server:useFacility', function(src, orgId, facility
     if facilityType == 'fleet' then
         return { ok = true, action = 'fleet', organizationId = orgId, label = org.label .. ' Fleet' }
     end
+    if facilityType == 'impound' then
+        return { ok = true, action = 'impound', organizationId = orgId, label = org.label .. ' Impound' }
+    end
     if facilityType == 'armory' then
         return { ok = true, action = 'armory', organizationId = orgId, label = org.label .. ' Armory' }
-    end
-    if facilityType == 'intake' then
-        return { ok = true, message = 'Bring a cuffed suspect to this desk, open their G interaction, and select Book Suspect.' }
     end
     if GetResourceState('cm-inventory') ~= 'started' then return { ok = false, error = 'Inventory is unavailable.' } end
     local ownerType = facilityType == 'evidence' and 'legal_org_evidence' or 'legal_org_storage'
@@ -1109,16 +1614,24 @@ AddEventHandler('cm-law:server:gMenuAction', function(src, targetSrc, action, _,
 
     if action == 'law_invite' then
         if not canManage(actor) then return notifySrc('Your rank cannot invite members.', 'error') end
+        if actor.suspended then return notifySrc('Suspended members cannot invite recruits.', 'error') end
+        if characterIdFor(src) ~= actorCid or characterIdFor(targetSrc) ~= targetCid or not invitePlayersNearby(src, targetSrc) then return notifySrc('That player is no longer nearby.', 'error') end
+        if inviteThrottled(actorCid, targetCid) then return notifySrc('Please wait before inviting that player again.', 'error') end
         if memberFor(targetCid, orgId) then return notifySrc('That character is already a member.', 'error') end
         local rival = exports[Config.AdminResource]:FindRivalMembership(orgId, targetCid)
         if rival then return notifySrc(('That character already belongs to %s.'):format(rival.orgLabel), 'error') end
         local rank = MySQL.single.await('SELECT id, name FROM cm_legal_ranks WHERE organization_id = ? AND is_leader = 0 ORDER BY tier ASC LIMIT 1', { orgId })
         if not rank then return notifySrc('No recruit rank is configured.', 'error') end
-        MySQL.insert.await('INSERT INTO cm_legal_members (organization_id, character_id, rank_id) VALUES (?, ?, ?)', { orgId, targetCid, rank.id })
-        syncCharacter(targetCid)
-        logActivity(orgId, actorCid, 'member_hire', { targetCid = targetCid, rankId = rank.id })
-        TriggerEvent('cm-admin:server:addLog', src, 'legal_org_member_hire', { category = 'orgs', organizationId = orgId, characterId = targetCid })
-        return notifySrc(('%s added as %s.'):format(nameFor(targetCid), rank.name), 'success')
+        MySQL.insert.await([[INSERT INTO cm_legal_invites (organization_id, character_id, invited_by, expires_at)
+            VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 60 SECOND))
+            ON DUPLICATE KEY UPDATE invited_by = VALUES(invited_by), expires_at = VALUES(expires_at)]],
+            { orgId, targetCid, actorCid })
+        TriggerClientEvent('cm-law:client:invite', targetSrc, {
+            organizationId = orgId, organization = Config.Organizations[orgId].label,
+            inviter = nameFor(actorCid), rank = rank.name, expires = 60,
+        })
+        logActivity(orgId, actorCid, 'invite_sent', { targetCid = targetCid, rankId = rank.id })
+        return notifySrc(('Invitation sent to %s.'):format(nameFor(targetCid)), 'success')
     end
 
     if not canManage(actor) then return notifySrc('Your rank cannot manage members.', 'error') end
@@ -1127,6 +1640,41 @@ AddEventHandler('cm-law:server:gMenuAction', function(src, targetSrc, action, _,
     elseif action == 'law_demote' then ok, message = orgTargetChange(actorCid, targetCid, orgId, 'down')
     end
     notifySrc(message or 'Action failed.', ok and 'success' or 'error')
+end)
+
+lib.callback.register('cm-law:server:respondInvite', function(src, orgId, accept)
+    local characterId = characterIdFor(src)
+    orgId = validOrgId(orgId)
+    if not characterId or not orgId then return false, 'That organization invitation is invalid.' end
+    local invite = MySQL.single.await([[SELECT invited_by FROM cm_legal_invites
+        WHERE organization_id = ? AND character_id = ? AND expires_at > NOW() LIMIT 1]], { orgId, characterId })
+    if not invite then return false, 'That organization invitation expired.' end
+    if accept ~= true then
+        MySQL.update.await('DELETE FROM cm_legal_invites WHERE organization_id = ? AND character_id = ?', { orgId, characterId })
+        return true, 'Organization invitation declined.'
+    end
+    local inviterSrc = sourceFor(invite.invited_by)
+    local inviter = inviterSrc and memberFor(invite.invited_by, orgId) or nil
+    if not inviterSrc or not inviter or inviter.suspended or not canManage(inviter) then
+        MySQL.update.await('DELETE FROM cm_legal_invites WHERE organization_id = ? AND character_id = ?', { orgId, characterId })
+        return false, 'This organization invitation is no longer valid.'
+    end
+    if not invitePlayersNearby(inviterSrc, src) then return false, 'Return to the inviting member before accepting.' end
+    if memberFor(characterId, orgId) then return false, 'You are already a member of that organization.' end
+    local rival = exports[Config.AdminResource]:FindRivalMembership(orgId, characterId)
+    if rival then return false, ('You already belong to %s.'):format(rival.orgLabel) end
+    local rank = MySQL.single.await([[SELECT id, name FROM cm_legal_ranks
+        WHERE organization_id = ? AND is_leader = 0 ORDER BY tier ASC LIMIT 1]], { orgId })
+    if not rank then return false, 'That organization has no entry rank configured.' end
+    local ok = MySQL.transaction.await({
+        { query = 'INSERT INTO cm_legal_members (organization_id, character_id, rank_id) VALUES (?, ?, ?)', values = { orgId, characterId, rank.id } },
+        { query = 'DELETE FROM cm_legal_invites WHERE organization_id = ? AND character_id = ?', values = { orgId, characterId } },
+    })
+    if not ok then return false, 'Could not join that organization.' end
+    syncCharacter(characterId)
+    logActivity(orgId, characterId, 'invite_accepted', { invitedBy = invite.invited_by, rankId = rank.id })
+    TriggerEvent('cm-admin:server:addLog', src, 'legal_org_invite_accepted', { category = 'orgs', organizationId = orgId, characterId = characterId })
+    return true, ('You joined %s as %s.'):format(Config.Organizations[orgId].label, rank.name)
 end)
 
 AddEventHandler('onResourceStart', function(resource)
@@ -1150,7 +1698,7 @@ CreateThread(function()
         exports[Config.AdminResource]:RegisterOrganization({
             id = orgId, label = org.label, resource = RESOURCE, icon = org.icon,
             canRemoveLeader = true, canManageFacilities = true, canManageArmory = true,
-            canManageCapabilities = true,
+            canManageCapabilities = true, canManageNpcs = true,
             canManageFleet = true,
             facilityTypes = {
                 { id = 'front_desk', label = 'Front desk NPC' },
@@ -1159,7 +1707,6 @@ CreateThread(function()
                 { id = 'storage', label = 'Storage' },
                 { id = 'evidence', label = 'Evidence' },
                 { id = 'fleet', label = 'Fleet' },
-                { id = 'intake', label = 'Prison intake' },
                 { id = 'jail_spawn', label = 'Shared jail: add spawn' },
                 { id = 'jail_release', label = 'Shared jail: release point' },
                 { id = 'jail_spawns', label = 'Shared jail: all spawns' },

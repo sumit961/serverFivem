@@ -379,7 +379,7 @@ local function registerMedicineItems()
         local healAmount = math.max(0, math.floor(tonumber(effect.heal) or 0))
         if healAmount > 0 then
             local ok, route = pcall(function()
-                return exports[ITEMACTIONS].RegisterExternalItem(itemName, GetCurrentResourceName(), 'UseMedicineItem')
+                return exports[ITEMACTIONS]:RegisterExternalItem(itemName, GetCurrentResourceName(), 'UseMedicineItem')
             end)
             if not ok or route ~= true then
                 print(('[cm-doctor] Medicine route failed: %s | call=%s result=%s'):format(itemName, tostring(ok), tostring(route)))
@@ -390,7 +390,7 @@ local function registerMedicineItems()
 
     local function registerMedkit(itemName)
         local ok, route = pcall(function()
-            return exports[ITEMACTIONS].RegisterExternalItem(itemName, GetCurrentResourceName(), 'UseMedicineItem')
+            return exports[ITEMACTIONS]:RegisterExternalItem(itemName, GetCurrentResourceName(), 'UseMedicineItem')
         end)
         if not ok or route ~= true then
             print(('[cm-doctor] Medicine route failed: %s | call=%s result=%s'):format(itemName, tostring(ok), tostring(route)))

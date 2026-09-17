@@ -29,7 +29,7 @@ RegisterNetEvent('cm-house:client:choosePropertyTransfer', function(data)
     if data.mode == 'sale' then
         fields[#fields + 1] = { type = 'number', label = 'Sale price', required = true, min = 1, max = 100000000 }
     end
-    local result = lib.inputDialog(data.mode == 'sale' and 'Sell House' or 'Gift House', fields)
+    local result = CMInputDialog(data.mode == 'sale' and 'Sell House' or 'Gift House', fields)
     if not result then return end
     TriggerServerEvent('cm-house:server:createPropertyTransfer', {
         mode = data.mode, targetServerId = data.targetServerId,
@@ -39,15 +39,13 @@ end)
 
 RegisterNetEvent('cm-house:client:confirmPropertyTransfer', function(data)
     CreateThread(function()
-        local result = lib.alertDialog({
-            header = data.mode == 'sale' and 'Buy House?' or 'Accept House Gift?',
-            content = ('Accept **House #%s** from **%s**%s?\n\nStored property contents remain in the house and become accessible to you.'):format(
-                tostring(data.houseNumber or data.houseId), tostring(data.sellerName or 'the owner'),
-                data.mode == 'sale' and (' for **$' .. tostring(data.price or 0) .. '** from bank') or ''),
-            centered = true, cancel = true,
-            labels = { confirm = 'Accept', cancel = 'Decline' },
-        })
-        TriggerServerEvent('cm-house:server:answerPropertyTransfer', data.token, result == 'confirm')
+        local content = ('Accept House #%s from %s%s? Stored property contents remain in the house and become accessible to you.'):format(
+            tostring(data.houseNumber or data.houseId), tostring(data.sellerName or 'the owner'),
+            data.mode == 'sale' and (' for $' .. tostring(data.price or 0) .. ' from bank') or '')
+        local confirmed = CMHouseConfirm and CMHouseConfirm(
+            data.mode == 'sale' and 'Buy house?' or 'Accept house gift?',
+            content, 'Accept', 'Decline', 'cyan')
+        TriggerServerEvent('cm-house:server:answerPropertyTransfer', data.token, confirmed == true)
     end)
 end)
 

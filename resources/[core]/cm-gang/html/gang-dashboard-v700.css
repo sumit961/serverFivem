@@ -1,0 +1,80 @@
+/* Gang dashboard v7 — supplied dashboard composition adapted to live CM Gang data. */
+:root{--gang:#38d883;--gang-soft:color-mix(in srgb,var(--gang) 22%,transparent);--gang-deep:color-mix(in srgb,var(--gang) 42%,#03100b)}
+
+body.open.dashboard-mode{background:#020403!important}
+body.open.dashboard-mode::before{content:none!important}
+#dashboard-backdrop{display:none}
+body.open.dashboard-mode>#dashboard-backdrop{position:fixed;inset:0;z-index:0;display:block!important;pointer-events:none;background-image:linear-gradient(rgba(0,0,0,.34),rgba(0,0,0,.52)),radial-gradient(circle at 50% 42%,color-mix(in srgb,var(--gang) 12%,transparent),transparent 62%),url("assets/dashboard/gang-war-art.png");background-position:center;background-size:cover;background-repeat:no-repeat}
+body.open.dashboard-mode .shell{z-index:1!important;inset:3.6vh max(1.5vw,calc((100vw - 1760px)/2))!important;grid-template-columns:272px minmax(620px,1fr) 352px!important;border:1px solid color-mix(in srgb,var(--gang) 18%,rgba(255,255,255,.08))!important;background:#050b09!important;box-shadow:0 28px 90px rgba(0,0,0,.72)!important}
+
+body.open.dashboard-mode .rail{padding:38px 30px 26px!important;background:linear-gradient(105deg,#030806 0%,#07100d 100%)!important}
+body.open.dashboard-mode .brand-mark{font-size:66px!important}
+body.open.dashboard-mode .rail-description{max-width:205px;margin:20px 0 0!important;color:#8da098!important;font-size:11px!important;line-height:1.7!important}
+body.open.dashboard-mode nav{margin-top:20px!important}
+body.open.dashboard-mode nav button{min-height:48px!important;font-size:12px!important;letter-spacing:.13em!important}
+body.open.dashboard-mode nav button.active{background:linear-gradient(90deg,var(--gang-soft),transparent)!important}
+body.open.dashboard-mode .rail-avatar{border-color:color-mix(in srgb,var(--gang) 46%,transparent);background:var(--gang-soft)}
+
+body.open.dashboard-mode .workspace{background:linear-gradient(180deg,rgba(5,13,11,.96),rgba(3,9,8,.98))!important}
+body.open.dashboard-mode .workspace>header{height:108px!important;padding:0 32px!important;background:rgba(3,9,8,.88)!important}
+body.open.dashboard-mode .workspace h1{font-size:34px!important}
+body.open.dashboard-mode .page-subtitle{display:block!important;margin:7px 0 0!important;color:#7f928a!important;font-size:11px!important}
+body.open.dashboard-mode .content{padding:26px 32px 38px!important}
+
+.v6-overview{gap:15px!important}
+.v6-banner{min-height:225px!important;background:linear-gradient(90deg,rgba(2,9,7,.93) 0%,rgba(2,9,7,.48) 58%,rgba(2,9,7,.77) 100%),url("assets/dashboard/gang-war-art.png") center 42%/cover no-repeat!important}
+.v6-banner::before{content:"";position:absolute;inset:0;border-left:4px solid var(--gang);background:linear-gradient(0deg,var(--gang-soft),transparent 42%);pointer-events:none}
+.v6-banner-mark{color:color-mix(in srgb,var(--gang) 15%,transparent)!important}
+.v6-banner-copy{padding:34px 32px!important}
+.v6-banner-copy h2{font-size:58px!important;text-shadow:0 3px 14px #000}
+.v6-tier{color:var(--gang)!important}
+.v6-rep-track i{box-shadow:0 0 18px var(--gang)}
+.v6-stat-row article{background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.018))!important}
+.v6-stat-row article:first-child{background:linear-gradient(180deg,var(--gang-soft),rgba(255,255,255,.018))!important}
+.v6-stat-row strong{font-size:30px!important}
+.dashboard-command{background:linear-gradient(90deg,var(--gang-soft),rgba(5,13,11,.74) 70%)!important}
+.dashboard-command button{box-shadow:0 8px 24px color-mix(in srgb,var(--gang) 25%,transparent)!important}
+.v6-card{background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.014))!important}
+
+body.open.dashboard-mode #gang-visual{background:linear-gradient(180deg,color-mix(in srgb,var(--gang) 88%,#fff) 0%,var(--gang-deep) 46%,#020b07 100%)!important}
+body.open.dashboard-mode #gang-visual::before{background:linear-gradient(180deg,rgba(255,255,255,.08),transparent 30%),linear-gradient(0deg,rgba(0,0,0,.64),transparent 56%),radial-gradient(circle at 50% 42%,rgba(255,255,255,.12),transparent 46%)!important}
+.info-heading{padding-top:34px!important;font-size:31px!important}
+.info-player{font-size:10px!important}
+.info-actions button{background:rgba(2,9,6,.48)!important}
+.info-actions button:hover{border-color:#fff!important;background:color-mix(in srgb,var(--gang) 32%,rgba(2,9,6,.62))!important}
+.gang-hero-image{height:70%!important;width:125%!important}
+.info-bottom strong{font-size:31px!important}
+
+body.open.dashboard-mode .card,body.open.dashboard-mode .empty{border-left-color:color-mix(in srgb,var(--gang) 42%,rgba(255,255,255,.08))!important}
+body.open.dashboard-mode button:not(.quiet):focus-visible{outline:2px solid var(--gang)!important;outline-offset:2px}
+
+@media(max-width:1500px){body.open.dashboard-mode .shell{grid-template-columns:242px minmax(560px,1fr) 300px!important}.v6-banner-copy h2{font-size:46px!important}.gang-hero-image{height:64%!important}}
+@media(max-width:1200px){body.open.dashboard-mode .shell{grid-template-columns:225px minmax(0,1fr)!important}body.open.dashboard-mode #gang-visual{display:none!important}}
+@media(max-width:850px){body.open.dashboard-mode .shell{inset:1.5vh 1.5vw!important;grid-template-columns:1fr!important}.v6-banner-copy h2{font-size:38px!important}}
+
+/* v7.1 high-resolution balance and legibility */
+@media(min-width:1501px){
+ body.open.dashboard-mode .shell{inset:50% auto auto 50%!important;width:min(1540px,92vw)!important;height:min(970px,90vh)!important;transform:translate(-50%,-50%)!important;grid-template-columns:270px minmax(620px,1fr) 350px!important}
+ body.open.dashboard-mode .rail{padding:34px 28px 24px!important}
+ body.open.dashboard-mode .brand-mark{font-size:68px!important}
+ body.open.dashboard-mode .brand strong{font-size:14px!important}
+ body.open.dashboard-mode .rail-description{max-width:210px!important;font-size:11px!important;line-height:1.65!important}
+ body.open.dashboard-mode nav button{min-height:47px!important;padding-left:44px!important;font-size:11px!important}
+ body.open.dashboard-mode nav button::before{width:29px!important;height:29px!important;font-size:8px!important}
+ body.open.dashboard-mode .workspace>header{height:100px!important;padding:0 30px!important}
+ body.open.dashboard-mode .workspace h1{font-size:32px!important}
+ body.open.dashboard-mode .workspace>header .eyebrow{font-size:8px!important}
+ body.open.dashboard-mode .page-subtitle{font-size:10px!important}
+ .online-chip,.rank-badge,.dashboard-mode .header-actions button{height:32px!important;font-size:8px!important}
+ body.open.dashboard-mode .content{padding:23px 30px 32px!important}
+ .v6-overview{gap:13px!important}
+ .v6-banner{min-height:210px!important}
+ .v6-banner-copy{padding:30px!important}
+ .v6-banner-copy .eyebrow{font-size:8px!important}.v6-banner-copy h2{font-size:50px!important}.v6-tier{font-size:19px!important}.v6-banner-sub{font-size:10px!important}
+ .v6-rep{left:30px!important;right:30px!important;bottom:20px!important}.v6-rep-head{font-size:8px!important}.v6-rep-track{height:6px!important}
+ .v6-stat-row article{min-height:100px!important;padding:16px 18px!important}.v6-stat-row strong{font-size:27px!important}.v6-stat-row span{font-size:9px!important}
+ .dashboard-command{padding:17px 20px!important}.dashboard-command h3{font-size:18px!important}.dashboard-command p{font-size:10px!important}.dashboard-command button{min-width:210px!important;height:44px!important;font-size:9px!important}
+ .v6-lower{grid-template-columns:minmax(0,1.3fr) minmax(275px,.7fr)!important;gap:12px!important}.v6-card{min-height:185px!important;padding:17px!important}.v6-card h3{font-size:16px!important}
+ .info-heading{padding-top:31px!important;font-size:29px!important}.info-player{font-size:9px!important}.info-list dd{font-size:16px!important}.info-notice p{font-size:10px!important}
+ .gang-hero-image{height:67%!important;width:116%!important}.info-bottom strong{font-size:28px!important}
+}

@@ -1,0 +1,3326 @@
+/* @import must come first: any at-rule before it makes the browser discard it.
+   Google Fonts is the base, the self-hosted @font-face rules below override it
+   when the .woff2 files are present and fall back to it when they are not.
+   Drop Archivo + JetBrains Mono into html/assets/fonts/ to go fully offline —
+   see INSTALL.md for links. System stack is the last resort in both cases. */
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+@font-face {
+  font-family: 'Archivo';
+  src: url('assets/fonts/archivo-variable.woff2') format('woff2-variations');
+  font-weight: 400 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('assets/fonts/jetbrains-mono-variable.woff2') format('woff2-variations');
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+/* ============================================================================
+   CM ORGANIZATION COMMAND CENTER — v10 "CAD Terminal"
+   ----------------------------------------------------------------------------
+   One shared stylesheet for cm-ems / cm-law / cm-police. Loaded LAST in every
+   index.html so it can retheme the dashboards without touching app.js or Lua.
+
+   Design language: near-black terminal, teal signal accent, Archivo for
+   headings, JetBrains Mono for every label / number / meta line, 2px corners,
+   corner brackets, faint blueprint grid behind the workspace.
+
+   Covers all dashboard surfaces:
+     Overview · Members · Ranks (+ editor) · Logs · Fleet · Outfits ·
+     Admin · Tasks · Stats · empty states · buttons · forms.
+
+   Two markup dialects are supported side by side:
+     cm-law           .tab[data-tab]  +  section.view#xxxView (.hidden toggles)
+     cm-ems/cm-police .nav[data-page] +  section.page[data-view] (.active toggles)
+   Nothing here sets `display` on .page or .view, so tab switching is untouched.
+
+   Per-organization accent (optional) — put this in the resource's own theme
+   file, never in this shared file:
+     #app { --cc-accent:#f5b13c; --cc-accent-hot:#ffc76a; --cc-accent-ink:#1d1403; }
+   ========================================================================== */
+
+:root {
+  /* Surfaces */
+  --cc-ink: #070a0b;
+  --cc-shell: #0c1011;
+  --cc-side: #090c0d;
+  --cc-panel: #0c1011;
+  --cc-card: #111617;
+  --cc-card-hi: #161d1e;
+  --cc-sunken: #0a0d0e;
+
+  /* Lines */
+  --cc-line: rgba(255, 255, 255, .06);
+  --cc-line-hi: rgba(255, 255, 255, .12);
+  --cc-grid: rgba(255, 255, 255, .028);
+
+  /* Type colours */
+  --cc-text: #e8edec;
+  --cc-text-2: #9aa6a4;
+  --cc-dim: #6b7674;
+  --cc-faint: #4b5453;
+
+  /* Signal */
+  --cc-accent: #3fe0cf;
+  --cc-accent-hot: #74f1e3;
+  --cc-accent-ink: #04201d;
+  --cc-good: #59d08c;
+  --cc-bad: #ff5468;
+  --cc-warn: #f5b13c;
+
+  /* Type stacks */
+  --cc-display: 'Archivo', 'Segoe UI', system-ui, sans-serif;
+  --cc-body: 'Archivo', 'Segoe UI', system-ui, sans-serif;
+  --cc-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  --cc-r: 2px;
+  --cc-r-lg: 3px;
+  --cc-gap: 14px;
+}
+
+/* ============================================================================
+   LEGACY VARIABLE BRIDGE
+   ----------------------------------------------------------------------------
+   Every older surface (MDT terminal, dispatch boards, wardrobe, the cm-ui
+   dashboard) already draws its colours from custom properties defined on
+   :root by its own stylesheet. Rather than restyling those files class by
+   class, this block redefines their variables in terms of the tokens above.
+
+   Same specificity as their :root blocks, but command-center.css loads last,
+   so these win. One consequence worth knowing: changing --cc-accent now
+   retints the MDT, both dispatch boards and the wardrobe too, not just the
+   dashboard.
+   ========================================================================== */
+
+:root {
+  /* cm-ui shared shell */
+  --cm-font: var(--cc-body);
+  --cm-font-display: var(--cc-display);
+
+  /* cm-law style.css */
+  --cyan: var(--cc-accent);
+  --ice: var(--cc-accent-hot);
+  --panel: var(--cc-panel);
+  --card: var(--cc-card);
+  --line: var(--cc-line-hi);
+
+  /* cm-law police-dashboard.css */
+  --org-accent: var(--cc-accent);
+  --dash-cyan: var(--cc-accent);
+  --dash-cyan-2: var(--cc-accent-hot);
+  --dash-bg: var(--cc-ink);
+  --dash-bg-2: var(--cc-sunken);
+  --dash-panel: var(--cc-card);
+  --dash-panel-2: var(--cc-card-hi);
+  --dash-line: var(--cc-line);
+  --dash-text: var(--cc-text);
+  --dash-muted: var(--cc-dim);
+  --dash-good: var(--cc-good);
+  --dash-danger: var(--cc-bad);
+
+  /* cm-police app.css */
+  --police-accent: var(--cc-accent);
+  --p-bg: var(--cc-ink);
+  --p-panel: var(--cc-card);
+  --p-line: var(--cc-line);
+  --p-muted: var(--cc-dim);
+  --p-text: var(--cc-text);
+  --p-good: var(--cc-good);
+  --p-danger: var(--cc-bad);
+
+  /* cm-police mdt-terminal.css */
+  --mdt-accent: var(--cc-accent);
+  --mdt-accent-dim: rgba(63, 224, 207, .18);
+  --mdt-bg: var(--cc-ink);
+  --mdt-bg-2: var(--cc-sunken);
+  --mdt-panel: var(--cc-card);
+  --mdt-panel-2: var(--cc-card-hi);
+  --mdt-line: var(--cc-line);
+  --mdt-line-2: var(--cc-line-hi);
+  --mdt-txt: var(--cc-text);
+  --mdt-muted: var(--cc-dim);
+  --mdt-muted-2: var(--cc-faint);
+  --mdt-good: var(--cc-good);
+  --mdt-bad: var(--cc-bad);
+  --mdt-bad-dim: rgba(255, 84, 104, .16);
+  --mdt-warn: var(--cc-warn);
+  --mdt-font-display: var(--cc-display);
+  --mdt-font-body: var(--cc-body);
+  --mdt-font-mono: var(--cc-mono);
+  --mdt-radius: var(--cc-r);
+  --mdt-gap: 12px;
+
+  /* cm-ems ems-cyan.css + theme-v130.css */
+  --ems-cyan: var(--cc-accent);
+  --ems-cyan-dark: var(--cc-accent);
+  --ems-cyan-soft: var(--cc-accent-hot);
+  --ems-red: var(--cc-accent);
+  --ems-red-dark: var(--cc-accent);
+  --ems-red-soft: var(--cc-accent-hot);
+}
+
+@keyframes cc-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: .25; } }
+
+/* ==========================================================================
+   1 · BACKDROP + SHELL
+   ========================================================================== */
+
+#app:not(.standalone-interface) {
+  background:
+    radial-gradient(ellipse at 50% 30%, rgba(10, 22, 23, .5), rgba(2, 4, 5, .9) 74%),
+    #04080a !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  font-family: var(--cc-body);
+  color: var(--cc-text);
+}
+
+#app:not(.standalone-interface) .shell {
+  position: relative !important;
+  display: grid !important;
+  width: 96vw !important;
+  height: 94vh !important;
+  max-width: none !important;
+  max-height: none !important;
+  grid-template-columns: clamp(236px, 15vw, 304px) minmax(0, 1fr) !important;
+  background: var(--cc-shell) !important;
+  border: 1px solid rgba(255, 255, 255, .1) !important;
+  border-radius: var(--cc-r-lg) !important;
+  box-shadow: 0 40px 130px rgba(0, 0, 0, .75) !important;
+  overflow: hidden !important;
+}
+
+/* Four corner brackets, drawn as eight hairline gradients on one overlay */
+#app:not(.standalone-interface) .shell::after {
+  content: "";
+  position: absolute;
+  inset: 10px;
+  z-index: 20;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--cc-line-hi), var(--cc-line-hi)) left top / 14px 1px no-repeat,
+    linear-gradient(var(--cc-line-hi), var(--cc-line-hi)) left top / 1px 14px no-repeat,
+    linear-gradient(var(--cc-line-hi), var(--cc-line-hi)) right top / 14px 1px no-repeat,
+    linear-gradient(var(--cc-line-hi), var(--cc-line-hi)) right top / 1px 14px no-repeat,
+    linear-gradient(var(--cc-line-hi), var(--cc-line-hi)) left bottom / 14px 1px no-repeat,
+    linear-gradient(var(--cc-line-hi), var(--cc-line-hi)) left bottom / 1px 14px no-repeat,
+    linear-gradient(var(--cc-line-hi), var(--cc-line-hi)) right bottom / 14px 1px no-repeat,
+    linear-gradient(var(--cc-line-hi), var(--cc-line-hi)) right bottom / 1px 14px no-repeat;
+}
+
+/* ==========================================================================
+   2 · SIDEBAR
+   ========================================================================== */
+
+#app .side {
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
+  background: var(--cc-side) !important;
+  border-right: 1px solid var(--cc-line) !important;
+  padding: 20px 14px 14px !important;
+  overflow: hidden !important;
+}
+
+#app .brand {
+  display: flex !important;
+  align-items: center !important;
+  gap: 11px !important;
+  padding: 2px 2px 15px !important;
+  border-bottom: 1px solid var(--cc-line) !important;
+  margin: 0 !important;
+}
+
+#app .brand-mark,
+#app .brand .logo {
+  width: 44px !important;
+  height: 44px !important;
+  flex: none !important;
+  display: grid !important;
+  place-items: center !important;
+  border: 1px solid var(--cc-line-hi) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  background-image: none !important;
+  color: var(--cc-accent) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 20px !important;
+  font-weight: 700 !important;
+  box-shadow: none !important;
+}
+
+#app .brand-mark img {
+  width: 72% !important;
+  height: 72% !important;
+  object-fit: contain !important;
+}
+
+#app .brand-copy small,
+#app .brand > div:last-child small {
+  display: block !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: .24em !important;
+  color: var(--cc-accent) !important;
+  text-transform: uppercase !important;
+}
+
+#app .brand-copy h1,
+#app .brand > div:last-child h1 {
+  margin: 4px 0 3px !important;
+  font-family: var(--cc-display) !important;
+  font-size: clamp(20px, 1.25vw, 26px) !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .brand-copy p,
+#app .brand > div:last-child p {
+  margin: 0 !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 9px !important;
+  letter-spacing: .06em !important;
+  color: var(--cc-dim) !important;
+}
+
+/* Identity strip (cm-law) */
+#app .identity {
+  display: grid !important;
+  gap: 1px !important;
+  margin: 13px 0 0 !important;
+  padding: 0 !important;
+  border: 1px solid var(--cc-line) !important;
+  background: var(--cc-line) !important;
+}
+
+#app .identity > div {
+  position: relative;
+  padding: 9px 11px !important;
+  background: var(--cc-sunken) !important;
+  border: 0 !important;
+}
+
+#app .identity > div:first-child::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--cc-accent);
+}
+
+#app .identity span {
+  display: block !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 7.5px !important;
+  font-weight: 500 !important;
+  letter-spacing: .18em !important;
+  color: var(--cc-faint) !important;
+  text-transform: uppercase !important;
+}
+
+#app .identity strong {
+  display: block !important;
+  margin-top: 5px !important;
+  font-family: var(--cc-display) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  letter-spacing: .02em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+/* Nav */
+#app .side nav {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+  margin-top: 12px !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+}
+
+#app .side .tab,
+#app .side .nav {
+  position: relative !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 11px !important;
+  width: 100% !important;
+  min-height: 48px !important;
+  padding: 8px 11px !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--cc-r) !important;
+  background: transparent !important;
+  background-image: none !important;
+  color: var(--cc-dim) !important;
+  font-family: var(--cc-body) !important;
+  text-align: left !important;
+  cursor: pointer !important;
+  transition: background .14s ease, color .14s ease, border-color .14s ease;
+}
+
+#app .side .tab b,
+#app .side .nav b {
+  flex: none !important;
+  width: 26px !important;
+  height: auto !important;
+  display: block !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+  text-align: center !important;
+  color: var(--cc-faint) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: .02em !important;
+  transition: color .14s ease;
+}
+
+#app .side .tab span,
+#app .side .nav span {
+  display: block !important;
+  font-family: var(--cc-body) !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: .01em !important;
+  color: inherit !important;
+}
+
+#app .side .tab small,
+#app .side .nav small {
+  display: block !important;
+  margin-top: 2px !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8.5px !important;
+  font-weight: 400 !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-faint) !important;
+  text-transform: uppercase !important;
+}
+
+#app .side .tab:hover,
+#app .side .nav:hover {
+  background: var(--cc-card) !important;
+  color: var(--cc-text-2) !important;
+}
+
+#app .side .tab.active,
+#app .side .nav.active {
+  background: var(--cc-card-hi) !important;
+  background-image: none !important;
+  border-color: rgba(63, 224, 207, .3) !important;
+  color: var(--cc-text) !important;
+}
+
+#app .side .tab.active::before,
+#app .side .nav.active::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: var(--cc-accent);
+}
+
+#app .side .tab.active b,
+#app .side .nav.active b {
+  background: transparent !important;
+  color: var(--cc-accent) !important;
+}
+
+/* Sidebar footer */
+#app .side-foot,
+#app .side footer {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  margin-top: 12px !important;
+  padding-top: 12px !important;
+  border-top: 1px solid var(--cc-line) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8.5px !important;
+  letter-spacing: .1em !important;
+  text-transform: uppercase !important;
+  color: var(--cc-faint) !important;
+}
+
+#app .side footer kbd {
+  padding: 3px 6px;
+  border: 1px solid var(--cc-line-hi);
+  border-radius: 2px;
+  background: var(--cc-card);
+  color: var(--cc-text-2);
+  font-family: var(--cc-mono);
+  font-size: 8px;
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   3 · WORKSPACE HEADER + CONTENT
+   ========================================================================== */
+
+#app .workspace {
+  display: flex !important;
+  flex-direction: column !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  background:
+    linear-gradient(var(--cc-grid) 1px, transparent 1px) 0 0 / 100% 46px,
+    linear-gradient(90deg, var(--cc-grid) 1px, transparent 1px) 0 0 / 46px 100%,
+    var(--cc-panel) !important;
+}
+
+#app .workspace > header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 16px !important;
+  height: 66px !important;
+  min-height: 66px !important;
+  flex: none !important;
+  padding: 0 26px !important;
+  background: var(--cc-side) !important;
+  border-bottom: 1px solid var(--cc-line) !important;
+}
+
+/* Accent tick left of the page title (both markup dialects) */
+#app .workspace > header > div:first-child,
+#app .workspace > header > h2 {
+  position: relative !important;
+  padding-left: 16px !important;
+}
+
+#app .workspace > header > div:first-child::before,
+#app .workspace > header > h2::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 30px;
+  background: var(--cc-accent);
+}
+
+#app .workspace > header small {
+  display: block !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8px !important;
+  font-weight: 500 !important;
+  letter-spacing: .22em !important;
+  color: var(--cc-dim) !important;
+  text-transform: uppercase !important;
+}
+
+#app .workspace > header h2 {
+  margin: 3px 0 0 !important;
+  font-family: var(--cc-display) !important;
+  font-size: 20px !important;
+  font-weight: 800 !important;
+  letter-spacing: .05em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .workspace > header .icon,
+#app .workspace > header #close {
+  width: 32px !important;
+  height: 32px !important;
+  flex: none !important;
+  display: grid !important;
+  place-items: center !important;
+  padding: 0 !important;
+  border: 1px solid rgba(255, 84, 104, .4) !important;
+  border-radius: var(--cc-r) !important;
+  background: rgba(255, 84, 104, .12) !important;
+  background-image: none !important;
+  color: #ff8a96 !important;
+  font-size: 18px !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  transition: background .14s ease, color .14s ease;
+}
+
+#app .workspace > header .icon:hover,
+#app .workspace > header #close:hover {
+  background: var(--cc-bad) !important;
+  color: #fff !important;
+}
+
+#app .content {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  padding: 20px 24px !important;
+  background: transparent !important;
+  overflow: auto !important;
+}
+
+/* Scrollbars */
+#app .content::-webkit-scrollbar,
+#app .side nav::-webkit-scrollbar,
+#app .duty-preview::-webkit-scrollbar,
+#app .activity-preview::-webkit-scrollbar,
+#app .capability-pills::-webkit-scrollbar,
+#app .permission-editor::-webkit-scrollbar { width: 8px; height: 8px; }
+
+#app .content::-webkit-scrollbar-track,
+#app .side nav::-webkit-scrollbar-track { background: transparent; }
+
+#app .content::-webkit-scrollbar-thumb,
+#app .side nav::-webkit-scrollbar-thumb,
+#app .duty-preview::-webkit-scrollbar-thumb,
+#app .activity-preview::-webkit-scrollbar-thumb,
+#app .capability-pills::-webkit-scrollbar-thumb,
+#app .permission-editor::-webkit-scrollbar-thumb {
+  border-radius: 0;
+  background: rgba(255, 255, 255, .1);
+}
+
+#app .content::-webkit-scrollbar-thumb:hover { background: rgba(63, 224, 207, .45); }
+
+#app .page.active,
+#app .view:not(.hidden) { gap: var(--cc-gap) !important; }
+
+/* ==========================================================================
+   4 · SHARED CONTROLS
+   ========================================================================== */
+
+#app .content button,
+#app .content .primary,
+#app .content .mini,
+#app .content .secondary {
+  font-family: var(--cc-mono) !important;
+  font-size: 9.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: .1em !important;
+  text-transform: uppercase !important;
+  padding: 10px 14px !important;
+  border-radius: var(--cc-r) !important;
+  border: 1px solid var(--cc-line-hi) !important;
+  background: var(--cc-sunken) !important;
+  background-image: none !important;
+  color: var(--cc-text-2) !important;
+  cursor: pointer !important;
+  transition: background .14s ease, color .14s ease, border-color .14s ease;
+}
+
+#app .content button:hover,
+#app .content .mini:hover,
+#app .content .secondary:hover {
+  background: var(--cc-card-hi) !important;
+  border-color: rgba(63, 224, 207, .4) !important;
+  color: var(--cc-text) !important;
+}
+
+#app .content .primary,
+#app .content button.primary {
+  background: var(--cc-accent) !important;
+  background-image: none !important;
+  border-color: var(--cc-accent) !important;
+  color: var(--cc-accent-ink) !important;
+  font-weight: 700 !important;
+}
+
+#app .content .primary:hover,
+#app .content button.primary:hover {
+  background: var(--cc-accent-hot) !important;
+  border-color: var(--cc-accent-hot) !important;
+  color: var(--cc-accent-ink) !important;
+}
+
+#app .content .danger,
+#app .content button.danger {
+  background: rgba(255, 84, 104, .1) !important;
+  background-image: none !important;
+  border-color: rgba(255, 84, 104, .45) !important;
+  color: #ff909c !important;
+}
+
+#app .content .danger:hover,
+#app .content button.danger:hover {
+  background: var(--cc-bad) !important;
+  border-color: var(--cc-bad) !important;
+  color: #fff !important;
+}
+
+#app .content .primary.danger,
+#app .content button.primary.danger {
+  background: var(--cc-bad) !important;
+  border-color: var(--cc-bad) !important;
+  color: #fff !important;
+}
+
+#app .content button:disabled,
+#app .content button[disabled] { opacity: .38 !important; cursor: not-allowed !important; }
+
+#app .content input,
+#app .content select,
+#app .content textarea {
+  font-family: var(--cc-mono) !important;
+  font-size: 11px !important;
+  letter-spacing: .02em !important;
+  padding: 10px 11px !important;
+  border: 1px solid var(--cc-line-hi) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  color: var(--cc-text) !important;
+  transition: border-color .14s ease, box-shadow .14s ease;
+}
+
+#app .content input::placeholder,
+#app .content textarea::placeholder { color: var(--cc-faint) !important; }
+
+#app .content input:focus,
+#app .content select:focus,
+#app .content textarea:focus {
+  outline: none !important;
+  border-color: var(--cc-accent) !important;
+  box-shadow: 0 0 0 2px rgba(63, 224, 207, .18) !important;
+}
+
+#app .content input[type="checkbox"] {
+  width: 14px !important;
+  height: 14px !important;
+  padding: 0 !important;
+  accent-color: var(--cc-accent) !important;
+  cursor: pointer !important;
+}
+
+#app .content label {
+  display: block;
+  font-family: var(--cc-mono) !important;
+  font-size: 8px !important;
+  font-weight: 500 !important;
+  letter-spacing: .18em !important;
+  text-transform: uppercase !important;
+  color: var(--cc-faint) !important;
+}
+
+#app .content label input,
+#app .content label select {
+  display: block;
+  width: 100%;
+  margin-top: 7px !important;
+  text-transform: none !important;
+  letter-spacing: .02em !important;
+  font-weight: 500 !important;
+}
+
+#app .content label.check-field {
+  display: flex !important;
+  align-items: center !important;
+  gap: 9px !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: .04em !important;
+  text-transform: none !important;
+  color: var(--cc-text-2) !important;
+}
+
+#app .content label.check-field input { width: 14px !important; margin: 0 !important; }
+
+#app *:focus-visible {
+  outline: 1px solid var(--cc-accent) !important;
+  outline-offset: 2px !important;
+}
+
+/* ==========================================================================
+   5 · SECTION HEADS + GENERIC CARDS
+   ========================================================================== */
+
+#app .section-head,
+#app .fleet-head {
+  display: flex !important;
+  align-items: flex-end !important;
+  justify-content: space-between !important;
+  gap: 16px !important;
+  padding: 0 0 14px !important;
+  margin: 0 !important;
+  border-bottom: 1px solid var(--cc-line) !important;
+}
+
+#app .section-head > div:first-child,
+#app .fleet-head > div:first-child {
+  position: relative;
+  padding-left: 13px;
+}
+
+#app .section-head > div:first-child::before,
+#app .fleet-head > div:first-child::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 3px;
+  width: 2px;
+  height: 30px;
+  background: var(--cc-accent);
+}
+
+#app .section-head small {
+  display: block !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 7.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: .2em !important;
+  color: var(--cc-faint) !important;
+  text-transform: uppercase !important;
+}
+
+#app .section-head h3 {
+  margin: 4px 0 0 !important;
+  font-family: var(--cc-display) !important;
+  font-size: 19px !important;
+  font-weight: 800 !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .section-head p,
+#app .hint,
+#app .fleet-head p {
+  margin: 8px 0 0 !important;
+  max-width: 76ch !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 9.5px !important;
+  line-height: 1.65 !important;
+  letter-spacing: .02em !important;
+  color: var(--cc-dim) !important;
+}
+
+#app .card {
+  padding: 16px 18px !important;
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r-lg) !important;
+  background: var(--cc-card) !important;
+  color: var(--cc-text-2) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 10.5px !important;
+  line-height: 1.6 !important;
+}
+
+#app .card h3 {
+  margin: 0 0 6px !important;
+  font-family: var(--cc-display) !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .card p {
+  font-family: var(--cc-mono) !important;
+  font-size: 9.5px !important;
+  line-height: 1.65 !important;
+  color: var(--cc-dim) !important;
+}
+
+#app .card.form,
+#app .card.admin-panel { display: grid !important; gap: 13px !important; }
+
+#app .admin-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)) !important;
+  gap: 12px !important;
+}
+
+#app .admin-grid .wide-field { grid-column: 1 / -1; }
+
+#app .editor-actions,
+#app .operation-actions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+}
+
+/* ==========================================================================
+   6 · OVERVIEW
+   ========================================================================== */
+
+#app .command-center-overview {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: var(--cc-gap) !important;
+  min-height: 100% !important;
+}
+
+/* --- Hero stage ---------------------------------------------------------- */
+
+#app .command-stage {
+  position: relative;
+  display: grid !important;
+  grid-template-columns: minmax(0, 60%) minmax(0, 40%);
+  flex: none !important;
+  min-height: clamp(320px, 36vh, 430px);
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r-lg) !important;
+  background: var(--cc-card) !important;
+  overflow: hidden !important;
+}
+
+/* Accent corner brackets on the hero */
+#app .command-stage::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  z-index: 6;
+  pointer-events: none;
+  opacity: .7;
+  background:
+    linear-gradient(var(--cc-accent), var(--cc-accent)) left top / 13px 1px no-repeat,
+    linear-gradient(var(--cc-accent), var(--cc-accent)) left top / 1px 13px no-repeat,
+    linear-gradient(var(--cc-accent), var(--cc-accent)) right top / 13px 1px no-repeat,
+    linear-gradient(var(--cc-accent), var(--cc-accent)) right top / 1px 13px no-repeat,
+    linear-gradient(var(--cc-accent), var(--cc-accent)) left bottom / 13px 1px no-repeat,
+    linear-gradient(var(--cc-accent), var(--cc-accent)) left bottom / 1px 13px no-repeat,
+    linear-gradient(var(--cc-accent), var(--cc-accent)) right bottom / 13px 1px no-repeat,
+    linear-gradient(var(--cc-accent), var(--cc-accent)) right bottom / 1px 13px no-repeat;
+}
+
+#app .command-stage__content {
+  position: relative;
+  z-index: 3;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 24px 26px 22px !important;
+  background: linear-gradient(90deg, var(--cc-card) 0%, var(--cc-card) 78%, rgba(17, 22, 23, .8) 100%);
+}
+
+#app .command-stage__eyebrow {
+  position: relative;
+  z-index: 2;
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8.5px !important;
+  font-weight: 500 !important;
+  letter-spacing: .2em !important;
+  color: var(--cc-dim) !important;
+  text-transform: uppercase !important;
+}
+
+#app .eyebrow-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  display: inline-block;
+  background: var(--cc-accent);
+  transform: none;
+  box-shadow: none;
+}
+
+#app .command-stage__title-row {
+  position: relative;
+  z-index: 2;
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 18px !important;
+  margin-top: 16px !important;
+}
+
+#app .command-stage__title-row h2 {
+  margin: 0 !important;
+  font-family: var(--cc-display) !important;
+  font-size: clamp(28px, 2.3vw, 46px) !important;
+  font-weight: 900 !important;
+  line-height: .94 !important;
+  letter-spacing: .02em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .command-stage__title-row p {
+  margin: 14px 0 0 !important;
+  max-width: 46ch !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 10.5px !important;
+  line-height: 1.6 !important;
+  letter-spacing: .01em !important;
+  color: var(--cc-dim) !important;
+}
+
+#app .status-pill {
+  flex: none !important;
+  padding: 7px 11px !important;
+  border-radius: var(--cc-r) !important;
+  border: 1px solid var(--cc-line-hi) !important;
+  background: var(--cc-sunken) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: .16em !important;
+  color: var(--cc-text-2) !important;
+  text-transform: uppercase !important;
+}
+
+#app .status-pill.is-on {
+  background: rgba(89, 208, 140, .1) !important;
+  border-color: rgba(89, 208, 140, .42) !important;
+  color: #7fe0aa !important;
+}
+
+#app .status-pill.is-suspended {
+  background: rgba(255, 84, 104, .1) !important;
+  border-color: rgba(255, 84, 104, .42) !important;
+  color: #ff909c !important;
+}
+
+/* Identity strip */
+#app .command-stage__identity {
+  position: relative;
+  z-index: 2;
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr)) !important;
+  gap: 1px !important;
+  margin-top: 20px !important;
+  max-width: 680px !important;
+  border: 1px solid var(--cc-line) !important;
+  background: var(--cc-line) !important;
+  border-radius: 0 !important;
+  overflow: hidden !important;
+}
+
+#app .command-stage__identity > div {
+  position: relative;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  padding: 11px 13px !important;
+  border: 0 !important;
+  background: var(--cc-sunken) !important;
+}
+
+#app .command-stage__identity > div:first-child::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--cc-accent);
+}
+
+#app .command-stage__identity small {
+  display: block !important;
+  margin-bottom: 6px !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 7.5px !important;
+  font-weight: 500 !important;
+  letter-spacing: .18em !important;
+  color: var(--cc-faint) !important;
+  text-transform: uppercase !important;
+}
+
+#app .command-stage__identity strong {
+  display: block !important;
+  font-family: var(--cc-display) !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  letter-spacing: .02em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- Stat tiles ---------------------------------------------------------
+   Three different markups feed .stat:
+     cm-ems     .stat > span + strong + small           (flat)
+     cm-police  .stat > .stat-icon + div(span,strong,small)
+     cm-law     .stat > .stat-icon + div(small,strong,span)
+   Everything below is written to stack correctly in all three.
+   ------------------------------------------------------------------------ */
+
+#app .command-stats,
+#app .command-mini-stats {
+  display: grid !important;
+  gap: 8px !important;
+  margin: 16px 0 0 !important;
+}
+
+#app .command-stats { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
+#app .command-mini-stats { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; margin: 0 !important; }
+
+#app .command-stats .stat,
+#app .command-mini-stats .stat {
+  position: relative !important;
+  display: block !important;
+  min-height: 0 !important;
+  padding: 12px 13px !important;
+  border: 1px solid var(--cc-line) !important;
+  border-radius: 0 !important;
+  background: var(--cc-sunken) !important;
+  box-shadow: none !important;
+  overflow: hidden !important;
+}
+
+/* Progress hairline along the bottom edge */
+#app .command-stats .stat::after,
+#app .command-mini-stats .stat::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 55%;
+  background: var(--cc-accent);
+}
+
+/* The empty decorative span in cm-law / cm-police becomes a corner mark */
+#app .command-stats .stat-icon,
+#app .command-mini-stats .stat-icon {
+  position: absolute !important;
+  right: 11px !important;
+  top: 11px !important;
+  width: 6px !important;
+  height: 6px !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--cc-accent) !important;
+  opacity: .55 !important;
+  font-size: 0 !important;
+  color: transparent !important;
+}
+
+#app .command-stats .stat > div,
+#app .command-mini-stats .stat > div { min-width: 0 !important; }
+
+/* Label — first text node in every dialect */
+#app .command-stats .stat > span:first-child:not(.stat-icon),
+#app .command-stats .stat > div > span:first-child,
+#app .command-stats .stat > div > small:first-child,
+#app .command-mini-stats .stat > span:first-child:not(.stat-icon),
+#app .command-mini-stats .stat > div > span:first-child,
+#app .command-mini-stats .stat > div > small:first-child {
+  display: block !important;
+  margin: 0 0 10px !important;
+  padding-right: 12px !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8px !important;
+  font-weight: 500 !important;
+  letter-spacing: .14em !important;
+  line-height: 1.3 !important;
+  color: var(--cc-faint) !important;
+  text-transform: uppercase !important;
+}
+
+/* Value */
+#app .command-stats .stat strong,
+#app .command-mini-stats .stat strong {
+  display: block !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 22px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+  letter-spacing: -.01em !important;
+  color: var(--cc-text) !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#app .command-mini-stats .stat strong { font-size: 26px !important; }
+
+/* Sub-line */
+#app .command-stats .stat > small:last-child,
+#app .command-stats .stat > div > small:last-child,
+#app .command-stats .stat > div > span:last-child,
+#app .command-mini-stats .stat > small:last-child,
+#app .command-mini-stats .stat > div > small:last-child,
+#app .command-mini-stats .stat > div > span:last-child {
+  display: block !important;
+  margin: 9px 0 0 !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 9px !important;
+  font-weight: 400 !important;
+  letter-spacing: .02em !important;
+  line-height: 1.45 !important;
+  color: var(--cc-dim) !important;
+  text-transform: none !important;
+}
+
+/* --- Shift card ---------------------------------------------------------- */
+
+#app .command-shift-card {
+  position: relative;
+  margin-top: auto !important;
+  padding: 15px 17px !important;
+  border: 1px solid rgba(63, 224, 207, .28) !important;
+  border-radius: var(--cc-r-lg) !important;
+  background: var(--cc-sunken) !important;
+  overflow: hidden;
+}
+
+#app .command-shift-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--cc-accent);
+}
+
+/* cm-ems variant: <div><small><h3><p></div><span class="panel-kicker"> */
+#app .command-shift-card.duty {
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 16px !important;
+}
+
+#app .command-shift-card.duty > div { min-width: 0 !important; }
+
+#app .command-shift-card small {
+  display: block !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8px !important;
+  font-weight: 600 !important;
+  letter-spacing: .2em !important;
+  color: var(--cc-faint) !important;
+  text-transform: uppercase !important;
+}
+
+#app .command-shift-card h3 {
+  margin: 10px 0 0 !important;
+  font-family: var(--cc-display) !important;
+  font-size: 26px !important;
+  font-weight: 900 !important;
+  letter-spacing: .03em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .command-shift-card p {
+  margin: 9px 0 0 !important;
+  max-width: 46ch !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 9.5px !important;
+  line-height: 1.6 !important;
+  color: var(--cc-dim) !important;
+}
+
+/* Panel headers */
+#app .panel-title,
+#app .overview-panel__head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+}
+
+#app .panel-title > div:first-child,
+#app .overview-panel__head > div:first-child {
+  position: relative;
+  min-width: 0;
+  padding-left: 12px;
+}
+
+#app .panel-title > div:first-child::before,
+#app .overview-panel__head > div:first-child::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 2px;
+  width: 2px;
+  height: 26px;
+  background: var(--cc-accent);
+}
+
+#app .panel-title small,
+#app .overview-panel__head small {
+  display: block !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 7.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: .2em !important;
+  color: var(--cc-faint) !important;
+  text-transform: uppercase !important;
+}
+
+#app .panel-title h3,
+#app .overview-panel__head h3 {
+  margin: 2px 0 0 !important;
+  font-family: var(--cc-display) !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  letter-spacing: .03em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .panel-kicker {
+  flex: none !important;
+  padding: 0 !important;
+  border: 0 !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 9px !important;
+  font-weight: 600 !important;
+  letter-spacing: .12em !important;
+  color: var(--cc-warn) !important;
+  text-transform: uppercase !important;
+}
+
+#app .shift-summary {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 1px !important;
+  margin-top: 12px !important;
+  border: 1px solid var(--cc-line) !important;
+  background: var(--cc-line) !important;
+}
+
+#app .shift-row {
+  display: block !important;
+  padding: 9px 11px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--cc-card) !important;
+}
+
+#app .shift-row span {
+  display: block !important;
+  margin-bottom: 5px !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 7.5px !important;
+  letter-spacing: .16em !important;
+  color: var(--cc-faint) !important;
+  text-transform: uppercase !important;
+}
+
+#app .shift-row strong {
+  font-family: var(--cc-mono) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: var(--cc-text-2) !important;
+}
+
+/* --- Hero visual --------------------------------------------------------- */
+
+#app .command-stage__visual {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  background: linear-gradient(180deg, #0e1314 0%, #090c0d 100%);
+}
+
+/* Diagonal hatch behind the render */
+#app .command-stage__visual::before {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 78%;
+  z-index: 1;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 255, 255, .04) 0 6px,
+    transparent 6px 15px
+  );
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 55%);
+  mask-image: linear-gradient(90deg, transparent, #000 55%);
+}
+
+/* Left fade into the copy column */
+#app .command-stage__visual::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    var(--cc-card) 0%,
+    rgba(17, 22, 23, .5) 18%,
+    rgba(9, 12, 13, .1) 40%,
+    transparent 60%
+  );
+}
+
+#app .command-stage__visual img {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: right bottom;
+  filter: drop-shadow(0 20px 40px rgba(0, 0, 0, .65));
+}
+
+/* The three decorative divs become a small marker cluster, not big diamonds */
+#app .command-geo {
+  display: block;
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  background: var(--cc-accent);
+  opacity: .5;
+}
+
+#app .command-geo--one { left: 14%; top: 16%; width: 8px; height: 8px; opacity: .8; }
+#app .command-geo--two { left: 14%; top: calc(16% + 16px); width: 22px; height: 1px; }
+#app .command-geo--three { right: 12%; top: 12%; width: 1px; height: 34px; opacity: .35; }
+
+#app .command-stage__watermark {
+  position: absolute;
+  right: 18px;
+  bottom: 16px;
+  z-index: 5;
+  text-align: right;
+  opacity: .1;
+  pointer-events: none;
+}
+
+#app .command-stage__watermark span {
+  display: block;
+  font-family: var(--cc-display);
+  font-size: clamp(34px, 3.2vw, 66px);
+  font-weight: 900;
+  line-height: .86;
+  letter-spacing: .1em;
+  color: #fff;
+}
+
+#app .command-stage__watermark small {
+  font-family: var(--cc-mono);
+  font-size: 8px;
+  letter-spacing: .3em;
+  color: #fff;
+  text-transform: uppercase;
+}
+
+/* --- Panel grid ---------------------------------------------------------
+   The old auto-fit grid stretched short panels into tall empty boxes. Fixed
+   row height plus an internally scrolling body keeps every panel readable.
+   ------------------------------------------------------------------------ */
+
+#app .command-panels {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  grid-auto-rows: minmax(160px, 1fr) !important;
+  gap: var(--cc-gap) !important;
+  flex: 1 1 auto !important;
+  min-height: 340px !important;
+}
+
+/* Odd panel counts: the trailing panel fills the rest of its row instead of
+   leaving a hole. cm-law has 3, cm-police 4, cm-ems 5. */
+#app .command-panels > .command-panel:nth-child(4):last-child { grid-column: 1 / -1 !important; }
+#app .command-panels > .command-panel:nth-child(5):last-child { grid-column: span 2 !important; }
+
+#app .command-panel {
+  position: relative;
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r-lg) !important;
+  background: var(--cc-card) !important;
+  overflow: hidden !important;
+  transition: border-color .16s ease;
+}
+
+#app .command-panel:hover { border-color: rgba(63, 224, 207, .24) !important; }
+
+/* Panel header bar */
+#app .command-panel > .panel-title,
+#app .command-panel > .overview-panel__head,
+#app .command-panel > div:first-child:not([id]):not(.capability-pills):not(.duty-preview):not(.activity-preview):not(.operation-actions) {
+  flex: none !important;
+  padding: 13px 16px !important;
+  border-bottom: 1px solid var(--cc-line) !important;
+}
+
+/* Panel body scrolls inside the panel */
+#app .capability-pills,
+#app .duty-preview,
+#app .activity-preview,
+#app .command-panel > .command-mini-stats,
+#app .command-panel > .operation-actions {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: auto !important;
+  padding: 12px 16px !important;
+  margin: 0 !important;
+  align-content: start !important;
+}
+
+#app .capability-pills {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+}
+
+#app .capability-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 6px 9px !important;
+  border: 1px solid var(--cc-line-hi) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: .08em !important;
+  color: var(--cc-text-2) !important;
+  text-transform: uppercase !important;
+}
+
+#app .capability-pill i {
+  width: 4px !important;
+  height: 4px !important;
+  flex: none !important;
+  background: var(--cc-accent) !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+#app .duty-person {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 9px 0 !important;
+  border-bottom: 1px solid var(--cc-line) !important;
+}
+
+#app .duty-avatar {
+  width: 30px !important;
+  height: 30px !important;
+  flex: none !important;
+  display: grid !important;
+  place-items: center !important;
+  border: 1px solid rgba(63, 224, 207, .3) !important;
+  border-radius: 0 !important;
+  background: var(--cc-sunken) !important;
+  color: var(--cc-accent) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+}
+
+#app .duty-person > div { min-width: 0 !important; flex: 1 1 auto !important; }
+
+#app .duty-person strong {
+  display: block !important;
+  font-family: var(--cc-display) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  letter-spacing: .02em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .duty-person small {
+  display: block !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8.5px !important;
+  letter-spacing: .02em !important;
+  color: var(--cc-faint) !important;
+}
+
+#app .duty-live {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  margin-left: auto !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8px !important;
+  font-weight: 600 !important;
+  letter-spacing: .08em !important;
+  color: var(--cc-good) !important;
+  text-transform: uppercase !important;
+}
+
+#app .duty-live::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  background: var(--cc-good);
+  animation: cc-blink 1.6s steps(1) infinite;
+}
+
+#app .activity-item {
+  display: grid !important;
+  grid-template-columns: 5px 1fr auto !important;
+  align-items: start !important;
+  gap: 11px !important;
+  padding: 8px 0 !important;
+  border-bottom: 1px solid var(--cc-line) !important;
+}
+
+#app .activity-marker {
+  width: 5px !important;
+  height: 5px !important;
+  margin-top: 4px !important;
+  background: var(--cc-accent) !important;
+  transform: none !important;
+}
+
+#app .activity-item strong {
+  display: block !important;
+  font-family: var(--cc-display) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: .02em !important;
+  color: var(--cc-text-2) !important;
+  text-transform: uppercase !important;
+}
+
+#app .activity-item p {
+  margin: 2px 0 0 !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 9px !important;
+  letter-spacing: .02em !important;
+  color: var(--cc-faint) !important;
+}
+
+#app .activity-item time,
+#app .activity-restricted {
+  font-family: var(--cc-mono) !important;
+  font-size: 8.5px !important;
+  color: var(--cc-faint) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Field-coordination panel (buttons only, no header bar) */
+#app .command-panel--tools > div:first-child { padding: 13px 16px !important; }
+
+#app .command-panel--tools > div:first-child small {
+  display: block !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 7.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: .2em !important;
+  color: var(--cc-faint) !important;
+  text-transform: uppercase !important;
+}
+
+#app .command-panel--tools > div:first-child h3 {
+  margin: 3px 0 0 !important;
+  font-family: var(--cc-display) !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  letter-spacing: .03em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .command-panel--tools .operation-actions {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  align-content: start !important;
+  gap: 8px !important;
+}
+
+#app .command-panel--tools .operation-actions button { width: 100% !important; }
+
+/* --- Footer key bar ------------------------------------------------------ */
+
+#app .command-keybar {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: var(--cc-gap) !important;
+  flex: none !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+
+#app .command-keybar > div {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 12px 15px !important;
+  border: 1px solid var(--cc-line-hi) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-card) !important;
+}
+
+#app .command-keybar > div:first-child { border-color: rgba(63, 224, 207, .4) !important; }
+
+#app .command-keybar kbd {
+  min-width: 36px !important;
+  padding: 6px 8px !important;
+  border: 0 !important;
+  border-radius: 2px !important;
+  background: var(--cc-card-hi) !important;
+  color: var(--cc-text-2) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  text-align: center !important;
+  box-shadow: none !important;
+}
+
+#app .command-keybar > div:first-child kbd {
+  background: var(--cc-accent) !important;
+  color: var(--cc-accent-ink) !important;
+}
+
+#app .command-keybar b {
+  display: block !important;
+  font-family: var(--cc-display) !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  letter-spacing: .05em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .command-keybar small {
+  display: block !important;
+  margin-top: 2px !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8px !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-faint) !important;
+  text-transform: uppercase !important;
+}
+
+/* ==========================================================================
+   7 · MEMBERS / ROSTER
+   ========================================================================== */
+
+#app .list,
+#app .roster {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)) !important;
+  gap: 8px !important;
+}
+
+#app .member,
+#app .list-row {
+  position: relative;
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 12px 14px !important;
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r-lg) !important;
+  background: var(--cc-card) !important;
+  overflow: hidden;
+  transition: border-color .14s ease, background .14s ease;
+}
+
+#app .member::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--cc-accent);
+  opacity: 0;
+  transition: opacity .14s ease;
+}
+
+#app .member:hover {
+  border-color: rgba(63, 224, 207, .24) !important;
+  background: var(--cc-card-hi) !important;
+}
+
+#app .member:hover::before { opacity: 1; }
+
+#app .member .avatar {
+  width: 36px !important;
+  height: 36px !important;
+  flex: none !important;
+  display: grid !important;
+  place-items: center !important;
+  border: 1px solid rgba(63, 224, 207, .3) !important;
+  border-radius: 0 !important;
+  background: var(--cc-sunken) !important;
+  background-image: none !important;
+  color: var(--cc-accent) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+}
+
+#app .member-main,
+#app .member > div:first-of-type { min-width: 0 !important; flex: 1 1 auto !important; }
+
+#app .member-main strong,
+#app .member-name {
+  display: block !important;
+  font-family: var(--cc-display) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  letter-spacing: .03em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#app .member-main small,
+#app .member .meta {
+  display: block !important;
+  margin-top: 4px !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 9px !important;
+  letter-spacing: .03em !important;
+  color: var(--cc-faint) !important;
+}
+
+#app .member-actions,
+#app .member .actions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 6px !important;
+  margin-left: auto !important;
+}
+
+#app .member-actions button,
+#app .member .actions button,
+#app .content .mini {
+  padding: 7px 10px !important;
+  font-size: 8.5px !important;
+}
+
+#app .member .actions select { padding: 7px 9px !important; font-size: 9.5px !important; }
+
+/* Badges */
+#app .badge {
+  flex: none !important;
+  padding: 5px 9px !important;
+  border: 1px solid var(--cc-line-hi) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8px !important;
+  font-weight: 600 !important;
+  letter-spacing: .12em !important;
+  color: var(--cc-text-2) !important;
+  text-transform: uppercase !important;
+}
+
+#app .badge.on {
+  background: rgba(89, 208, 140, .1) !important;
+  border-color: rgba(89, 208, 140, .4) !important;
+  color: #7fe0aa !important;
+}
+
+#app .badge.suspended {
+  background: rgba(255, 84, 104, .1) !important;
+  border-color: rgba(255, 84, 104, .4) !important;
+  color: #ff909c !important;
+}
+
+#app .badge.leader {
+  background: rgba(63, 224, 207, .1) !important;
+  border-color: rgba(63, 224, 207, .45) !important;
+  color: var(--cc-accent-hot) !important;
+}
+
+/* ==========================================================================
+   8 · RANKS + PERMISSION EDITOR
+   ========================================================================== */
+
+#app .rank-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)) !important;
+  gap: 10px !important;
+}
+
+#app .rank,
+#app .rank-card {
+  position: relative;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  padding: 15px 16px !important;
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r-lg) !important;
+  background: var(--cc-card) !important;
+  overflow: hidden;
+  transition: border-color .14s ease, background .14s ease;
+}
+
+#app .rank:hover,
+#app .rank-card:hover {
+  border-color: rgba(63, 224, 207, .24) !important;
+  background: var(--cc-card-hi) !important;
+}
+
+/* Leader card carries the accent bracket */
+#app .rank-card.leader,
+#app .rank.leader { border-color: rgba(63, 224, 207, .38) !important; }
+
+#app .rank-card.leader::after,
+#app .rank.leader::after {
+  content: "";
+  position: absolute;
+  right: 7px;
+  top: 7px;
+  width: 12px;
+  height: 12px;
+  border-right: 1px solid var(--cc-accent);
+  border-top: 1px solid var(--cc-accent);
+  background: transparent;
+  transform: none;
+  opacity: .8;
+}
+
+#app .rank-head,
+#app .rank-card__head {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  padding-bottom: 11px !important;
+  border-bottom: 1px solid var(--cc-line) !important;
+}
+
+#app .rank-head h4,
+#app .rank-card__head strong {
+  margin: 0 !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  font-family: var(--cc-display) !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .rank-actions { display: flex !important; gap: 6px !important; margin-left: auto !important; }
+
+#app .permissions,
+#app .perm-pills {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 5px !important;
+}
+
+#app .permission,
+#app .perm-pill {
+  padding: 5px 9px !important;
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8.5px !important;
+  font-weight: 500 !important;
+  letter-spacing: .06em !important;
+  color: var(--cc-text-2) !important;
+  text-transform: uppercase !important;
+}
+
+#app .perm-pill--empty {
+  color: var(--cc-faint) !important;
+  border-style: dashed !important;
+  background: transparent !important;
+}
+
+/* Editor */
+#app .rank-editor {
+  display: grid !important;
+  gap: 16px !important;
+  padding: 18px 20px !important;
+  border: 1px solid rgba(63, 224, 207, .28) !important;
+  border-radius: var(--cc-r-lg) !important;
+  background: var(--cc-card) !important;
+}
+
+#app .rank-editor > div > small {
+  display: block !important;
+  margin-bottom: 10px !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8px !important;
+  font-weight: 600 !important;
+  letter-spacing: .2em !important;
+  color: var(--cc-accent) !important;
+  text-transform: uppercase !important;
+}
+
+#app .rank-fields {
+  display: grid !important;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) !important;
+  gap: 12px !important;
+}
+
+#app .permission-editor {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)) !important;
+  gap: 6px !important;
+  max-height: 300px !important;
+  overflow: auto !important;
+  padding-right: 4px !important;
+}
+
+#app .permission-editor label,
+#app .permission-check {
+  display: flex !important;
+  align-items: center !important;
+  gap: 9px !important;
+  padding: 9px 11px !important;
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 9.5px !important;
+  font-weight: 500 !important;
+  letter-spacing: .03em !important;
+  text-transform: none !important;
+  color: var(--cc-text-2) !important;
+  cursor: pointer !important;
+  transition: border-color .12s ease, background .12s ease;
+}
+
+#app .permission-editor label:hover,
+#app .permission-check:hover {
+  border-color: rgba(63, 224, 207, .35) !important;
+  background: var(--cc-card-hi) !important;
+}
+
+#app .permission-editor label input,
+#app .permission-check input {
+  width: 14px !important;
+  margin: 0 !important;
+  flex: none !important;
+}
+
+/* ==========================================================================
+   9 · ACTIVITY LOGS
+   ========================================================================== */
+
+#app .logs,
+#app .log-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r-lg) !important;
+  background: var(--cc-card) !important;
+  overflow: hidden !important;
+}
+
+#app .log-row {
+  position: relative;
+  display: grid !important;
+  grid-template-columns: minmax(120px, 190px) minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 16px !important;
+  padding: 13px 18px !important;
+  border-bottom: 1px solid var(--cc-line) !important;
+  background: transparent !important;
+  transition: background .12s ease;
+}
+
+#app .log-row:last-child { border-bottom: 0 !important; }
+
+#app .log-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--cc-accent);
+  opacity: 0;
+  transition: opacity .12s ease;
+}
+
+#app .log-row:hover { background: var(--cc-card-hi) !important; }
+#app .log-row:hover::before { opacity: .85; }
+
+#app .log-who strong,
+#app .log-row__main strong {
+  display: block !important;
+  font-family: var(--cc-display) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  letter-spacing: .03em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .log-who small {
+  display: block !important;
+  margin-top: 3px !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8.5px !important;
+  color: var(--cc-faint) !important;
+}
+
+#app .log-action {
+  display: block !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 9.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: .14em !important;
+  color: var(--cc-accent) !important;
+  text-transform: uppercase !important;
+}
+
+#app .log-row__main {
+  font-family: var(--cc-mono) !important;
+  font-size: 10px !important;
+  line-height: 1.55 !important;
+  color: var(--cc-text-2) !important;
+}
+
+#app .log-row > div small {
+  display: block !important;
+  margin-top: 4px !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 9.5px !important;
+  color: var(--cc-dim) !important;
+}
+
+#app .log-row time {
+  font-family: var(--cc-mono) !important;
+  font-size: 9px !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-faint) !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Empty state */
+#app .logs > .card,
+#app .log-list > .card {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 40px 18px !important;
+  text-align: center !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 10.5px !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-faint) !important;
+}
+
+/* ==========================================================================
+   10 · FLEET
+   ========================================================================== */
+
+#app .fleet-roster,
+#app .fleet-list {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)) !important;
+  gap: 8px !important;
+}
+
+#app .fleet-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 13px !important;
+  padding: 12px 14px !important;
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r-lg) !important;
+  background: var(--cc-card) !important;
+  transition: border-color .14s ease, background .14s ease;
+}
+
+#app .fleet-row:hover {
+  border-color: rgba(63, 224, 207, .24) !important;
+  background: var(--cc-card-hi) !important;
+}
+
+#app .fleet-row.disabled { opacity: .45 !important; }
+
+#app .fleet-thumb {
+  width: 76px !important;
+  height: 48px !important;
+  flex: none !important;
+  display: grid !important;
+  place-items: center !important;
+  border: 1px solid var(--cc-line) !important;
+  border-radius: 0 !important;
+  background: var(--cc-sunken) !important;
+  overflow: hidden !important;
+  object-fit: cover !important;
+}
+
+#app .fleet-thumb--empty {
+  font-family: var(--cc-mono) !important;
+  font-size: 8px !important;
+  letter-spacing: .1em !important;
+  color: var(--cc-faint) !important;
+}
+
+#app .fleet-row__main { flex: 1 1 auto !important; min-width: 0 !important; }
+
+#app .fleet-row__main strong,
+#app .fleet-row__title {
+  display: block !important;
+  font-family: var(--cc-display) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .fleet-row__main small,
+#app .fleet-row__sub {
+  display: block !important;
+  margin-top: 5px !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 9px !important;
+  line-height: 1.55 !important;
+  color: var(--cc-faint) !important;
+}
+
+#app .fleet-badge {
+  padding: 4px 8px !important;
+  border: 1px solid rgba(63, 224, 207, .35) !important;
+  border-radius: var(--cc-r) !important;
+  background: rgba(63, 224, 207, .08) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8px !important;
+  font-weight: 600 !important;
+  letter-spacing: .1em !important;
+  color: var(--cc-accent-hot) !important;
+  text-transform: uppercase !important;
+}
+
+#app .fleet-row__actions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 6px !important;
+  margin-left: auto !important;
+}
+
+#app .fleet-tier-ctl { display: flex !important; align-items: center !important; gap: 6px !important; }
+
+#app .fleet-tier-ctl label {
+  display: inline !important;
+  margin: 0 !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8px !important;
+  letter-spacing: .12em !important;
+  color: var(--cc-faint) !important;
+  white-space: nowrap !important;
+}
+
+#app .fleet-tier-input {
+  width: 60px !important;
+  margin: 0 !important;
+  text-align: center !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   11 · TASKS / CAREER / MISSIONS
+   ========================================================================== */
+
+#app .career-card {
+  position: relative;
+  display: block !important;
+  padding: 16px 18px !important;
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r-lg) !important;
+  background: var(--cc-card) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 10.5px !important;
+  color: var(--cc-text-2) !important;
+  overflow: hidden;
+}
+
+#app .career-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--cc-accent);
+}
+
+#app .task-period { display: grid !important; gap: 10px !important; }
+
+#app .task-period__head {
+  display: flex !important;
+  align-items: flex-end !important;
+  justify-content: space-between !important;
+  gap: 14px !important;
+  padding-bottom: 10px !important;
+  border-bottom: 1px solid var(--cc-line) !important;
+}
+
+#app .task-period__head small {
+  display: block !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 7.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: .2em !important;
+  color: var(--cc-faint) !important;
+  text-transform: uppercase !important;
+}
+
+#app .task-period__head h3 {
+  margin: 4px 0 0 !important;
+  font-family: var(--cc-display) !important;
+  font-size: 17px !important;
+  font-weight: 800 !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .task-period__head > span {
+  font-family: var(--cc-mono) !important;
+  font-size: 9px !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-faint) !important;
+}
+
+#app .task-grid,
+#app .mission-grid,
+#app .mission-admin-list {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(285px, 1fr)) !important;
+  gap: 8px !important;
+}
+
+#app .mission-subtitle {
+  margin: 6px 0 0 !important;
+  font-family: var(--cc-display) !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-text-2) !important;
+  text-transform: uppercase !important;
+}
+
+#app .mission-stage-head {
+  display: flex !important;
+  align-items: flex-end !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  padding-bottom: 9px !important;
+  border-bottom: 1px solid var(--cc-line) !important;
+}
+
+#app .mission-stage-list { display: grid !important; gap: 7px !important; }
+
+/* ==========================================================================
+   12 · MISC
+   ========================================================================== */
+
+#app .muted-inline,
+#app .overview-copy {
+  font-family: var(--cc-mono) !important;
+  font-size: 9.5px !important;
+  line-height: 1.6 !important;
+  color: var(--cc-faint) !important;
+}
+
+#app .star-tag,
+#app .wanted-tag {
+  padding: 3px 7px !important;
+  border-radius: var(--cc-r) !important;
+  background: rgba(255, 84, 104, .12) !important;
+  color: #ff909c !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: .1em !important;
+}
+
+#app #toast {
+  border: 1px solid var(--cc-line-hi) !important;
+  border-left: 2px solid var(--cc-accent) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-card) !important;
+  color: var(--cc-text) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 11px !important;
+  letter-spacing: .02em !important;
+}
+
+/* ==========================================================================
+   13 · RESPONSIVE
+   ========================================================================== */
+
+@media (max-width: 1500px) {
+  #app .command-stats { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  #app .shift-summary { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  #app .command-panels { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  #app .command-panels > .command-panel:nth-child(5):last-child { grid-column: 1 / -1 !important; }
+}
+
+@media (max-width: 1180px) {
+  #app:not(.standalone-interface) .shell {
+    width: 97vw !important;
+    height: 95vh !important;
+    grid-template-columns: 190px minmax(0, 1fr) !important;
+  }
+
+  #app .command-stage { grid-template-columns: minmax(0, 66%) minmax(0, 34%); }
+  #app .command-stage__title-row h2 { font-size: 26px !important; }
+  #app .command-keybar { grid-template-columns: 1fr !important; }
+  #app .command-panels { grid-template-columns: 1fr !important; }
+  #app .command-panels > .command-panel:nth-child(4):last-child,
+  #app .command-panels > .command-panel:nth-child(5):last-child { grid-column: auto !important; }
+  #app .list,
+  #app .roster,
+  #app .rank-grid,
+  #app .fleet-roster,
+  #app .fleet-list { grid-template-columns: 1fr !important; }
+  #app .log-row { grid-template-columns: 1fr auto !important; }
+  #app .log-who { grid-column: 1 / -1 !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #app * { transition: none !important; animation: none !important; }
+}
+
+/* ==========================================================================
+   14 · AUXILIARY SURFACES
+   --------------------------------------------------------------------------
+   The variable bridge above retints everything that reads its colours from
+   custom properties (MDT terminal, cm-ui dashboard, both org dashboards).
+   The files below hardcode hex values instead, so they need class-level
+   overrides: dispatch boards, wardrobe, outfits, impound and NPC dialogue.
+   ========================================================================== */
+
+/* --- Dispatch board (cm-law markup, also loaded by cm-police) ------------- */
+
+#app .law-dispatch-board {
+  gap: 0 !important;
+  padding: 0 !important;
+  background: var(--cc-panel) !important;
+}
+
+#app .law-dispatch-summary {
+  padding: 26px !important;
+  border-right: 1px solid var(--cc-line) !important;
+  background: var(--cc-card) !important;
+}
+
+#app .law-dispatch-summary > small {
+  font-family: var(--cc-mono) !important;
+  font-size: 8px !important;
+  font-weight: 600 !important;
+  letter-spacing: .22em !important;
+  color: var(--cc-accent) !important;
+  text-transform: uppercase !important;
+}
+
+#app .law-dispatch-summary h2 {
+  margin: 14px 0 10px !important;
+  font-family: var(--cc-display) !important;
+  font-size: clamp(30px, 3vw, 48px) !important;
+  font-weight: 900 !important;
+  line-height: 1 !important;
+  letter-spacing: .02em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .law-dispatch-summary p {
+  font-family: var(--cc-mono) !important;
+  font-size: 10px !important;
+  line-height: 1.65 !important;
+  color: var(--cc-dim) !important;
+}
+
+#app .law-dispatch-counts {
+  margin-top: 30px !important;
+  gap: 1px !important;
+  border: 1px solid var(--cc-line) !important;
+  background: var(--cc-line) !important;
+}
+
+#app .law-dispatch-counts > * {
+  padding: 12px 14px !important;
+  border: 0 !important;
+  background: var(--cc-sunken) !important;
+}
+
+#app .law-dispatch-counts strong {
+  font-family: var(--cc-mono) !important;
+  font-size: 22px !important;
+  font-weight: 600 !important;
+  color: var(--cc-text) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+#app .law-dispatch-counts span,
+#app .law-dispatch-counts small {
+  font-family: var(--cc-mono) !important;
+  font-size: 7.5px !important;
+  letter-spacing: .16em !important;
+  color: var(--cc-faint) !important;
+  text-transform: uppercase !important;
+}
+
+#app .law-dispatch-main { padding: 22px 24px !important; background: transparent !important; }
+
+#app .dispatch-toolbar {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding-bottom: 14px !important;
+  border-bottom: 1px solid var(--cc-line) !important;
+}
+
+#app .dispatch-call-row,
+#app .dispatch-call-main {
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r-lg) !important;
+  background: var(--cc-card) !important;
+  transition: border-color .14s ease, background .14s ease;
+}
+
+#app .dispatch-call-row:hover {
+  border-color: rgba(63, 224, 207, .26) !important;
+  background: var(--cc-card-hi) !important;
+}
+
+#app .law-dispatch-mark {
+  background: var(--cc-accent) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* --- Dispatch board (cm-ems markup) -------------------------------------- */
+
+#app .dispatch-board { background: var(--cc-panel) !important; }
+
+#app .dispatch-board__summary,
+#app .dispatch-board__main { background: transparent !important; }
+
+#app .dispatch-board__eyebrow {
+  font-family: var(--cc-mono) !important;
+  font-size: 8px !important;
+  font-weight: 600 !important;
+  letter-spacing: .22em !important;
+  color: var(--cc-accent) !important;
+  text-transform: uppercase !important;
+}
+
+#app .dispatch-board__header h2,
+#app .dispatch-board__summary h2 {
+  font-family: var(--cc-display) !important;
+  font-weight: 900 !important;
+  letter-spacing: .02em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .dispatch-board__counts {
+  gap: 1px !important;
+  border: 1px solid var(--cc-line) !important;
+  background: var(--cc-line) !important;
+}
+
+#app .dispatch-board__counts > * {
+  padding: 12px 14px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--cc-sunken) !important;
+}
+
+#app .dispatch-board__counts strong {
+  font-family: var(--cc-mono) !important;
+  font-weight: 600 !important;
+  color: var(--cc-text) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+#app .dispatch-board__row,
+#app .dispatch-call {
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r-lg) !important;
+  background: var(--cc-card) !important;
+  transition: border-color .14s ease, background .14s ease;
+}
+
+#app .dispatch-board__row:hover,
+#app .dispatch-call:hover {
+  border-color: rgba(63, 224, 207, .26) !important;
+  background: var(--cc-card-hi) !important;
+}
+
+#app .dispatch-board__row.accepted,
+#app .dispatch-call.accepted { border-color: rgba(89, 208, 140, .4) !important; }
+
+#app .dispatch-call__title,
+#app .dispatch-board__caller {
+  font-family: var(--cc-display) !important;
+  font-weight: 700 !important;
+  letter-spacing: .03em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .dispatch-board__notes,
+#app .dispatch-board__distance,
+#app .dispatch-call__hint,
+#app .dispatch-board__empty {
+  font-family: var(--cc-mono) !important;
+  font-size: 9.5px !important;
+  line-height: 1.6 !important;
+  color: var(--cc-dim) !important;
+}
+
+#app .dispatch-pill,
+#app .dispatch-board__status,
+#app .dispatch-priority {
+  border: 1px solid var(--cc-line-hi) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8px !important;
+  font-weight: 600 !important;
+  letter-spacing: .12em !important;
+  color: var(--cc-text-2) !important;
+  text-transform: uppercase !important;
+}
+
+#app .dispatch-board__medical-mark,
+#app .dispatch-board__shade { background: var(--cc-accent) !important; }
+
+#app .dispatch-history__event {
+  border-left: 1px solid var(--cc-line) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 9.5px !important;
+  color: var(--cc-dim) !important;
+}
+
+/* --- MDT (search / results / records) ------------------------------------ */
+
+#app .mdt-search input,
+#app .mdt-vehicle-search input { width: 100% !important; }
+
+#app .mdt-result-row,
+#app .mdt-record-row,
+#app .mdt-vehicle-card,
+#app .mdt-note-row {
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r-lg) !important;
+  background: var(--cc-card) !important;
+  transition: border-color .14s ease, background .14s ease;
+}
+
+#app .mdt-result-row:hover,
+#app .mdt-record-row:hover,
+#app .mdt-vehicle-card:hover {
+  border-color: rgba(63, 224, 207, .26) !important;
+  background: var(--cc-card-hi) !important;
+}
+
+#app .mdt-note-text,
+#app .mdt-status-row {
+  font-family: var(--cc-mono) !important;
+  font-size: 10px !important;
+  line-height: 1.6 !important;
+  color: var(--cc-text-2) !important;
+}
+
+#app .mdt-result-badges span,
+#app .impound-tag {
+  border: 1px solid var(--cc-line-hi) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8px !important;
+  letter-spacing: .1em !important;
+  color: var(--cc-text-2) !important;
+  text-transform: uppercase !important;
+}
+
+#app .mdt-result-wanted,
+#app .mdt-star.filled { color: var(--cc-bad) !important; }
+#app .mdt-star { color: var(--cc-faint) !important; }
+
+/* --- Wardrobe (cm-ems + cm-police) --------------------------------------- */
+
+#app .wardrobe-sidebar {
+  border-right: 1px solid var(--cc-line) !important;
+  background: var(--cc-card) !important;
+}
+
+#app .wardrobe-title,
+#app .wardrobe-sidebar-head,
+#app .wardrobe-favorites-head {
+  font-family: var(--cc-display) !important;
+  font-weight: 800 !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .wardrobe-category-item,
+#app .wardrobe-favorite-slot {
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-text-2) !important;
+  transition: border-color .14s ease, background .14s ease;
+}
+
+#app .wardrobe-category-item:hover,
+#app .wardrobe-favorite-slot:hover {
+  border-color: rgba(63, 224, 207, .35) !important;
+  background: var(--cc-card-hi) !important;
+  color: var(--cc-text) !important;
+}
+
+#app .wardrobe-category-item.active {
+  border-color: var(--cc-accent) !important;
+  background: rgba(63, 224, 207, .1) !important;
+  color: var(--cc-text) !important;
+}
+
+#app .wardrobe-arrow {
+  border: 1px solid var(--cc-line-hi) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  color: var(--cc-text-2) !important;
+}
+
+#app .wardrobe-arrow:hover {
+  border-color: var(--cc-accent) !important;
+  color: var(--cc-accent) !important;
+}
+
+#app .wardrobe-hint,
+#app .wardrobe-instructions {
+  font-family: var(--cc-mono) !important;
+  font-size: 9.5px !important;
+  line-height: 1.6 !important;
+  color: var(--cc-dim) !important;
+}
+
+#app .wardrobe-done { /* inherits .primary styling where the class is present */
+  font-family: var(--cc-mono) !important;
+  letter-spacing: .1em !important;
+  text-transform: uppercase !important;
+}
+
+/* --- Outfits ------------------------------------------------------------- */
+
+#app .outfit-row {
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r-lg) !important;
+  background: var(--cc-card) !important;
+  transition: border-color .14s ease, background .14s ease;
+}
+
+#app .outfit-row:hover {
+  border-color: rgba(63, 224, 207, .26) !important;
+  background: var(--cc-card-hi) !important;
+}
+
+#app .outfit-row.current { border-color: rgba(63, 224, 207, .45) !important; }
+
+#app .outfit-row__title {
+  font-family: var(--cc-display) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .outfit-row__sub {
+  font-family: var(--cc-mono) !important;
+  font-size: 9px !important;
+  color: var(--cc-faint) !important;
+}
+
+#app .outfit-badge {
+  border: 1px solid rgba(63, 224, 207, .35) !important;
+  border-radius: var(--cc-r) !important;
+  background: rgba(63, 224, 207, .08) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8px !important;
+  letter-spacing: .1em !important;
+  color: var(--cc-accent-hot) !important;
+  text-transform: uppercase !important;
+}
+
+/* --- NPC dialogue + impound (cm-police ui.css) ---------------------------- */
+
+#app .npc-dialogue {
+  border: 1px solid var(--cc-line-hi) !important;
+  border-radius: var(--cc-r-lg) !important;
+  background: var(--cc-card) !important;
+  font-family: var(--cc-body) !important;
+  color: var(--cc-text) !important;
+}
+
+#app .npc-dialogue__identity {
+  font-family: var(--cc-mono) !important;
+  font-size: 8px !important;
+  font-weight: 600 !important;
+  letter-spacing: .2em !important;
+  color: var(--cc-accent) !important;
+  text-transform: uppercase !important;
+}
+
+#app .npc-dialogue__option {
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-text-2) !important;
+  transition: border-color .14s ease, background .14s ease;
+}
+
+#app .npc-dialogue__option:hover {
+  border-color: rgba(63, 224, 207, .4) !important;
+  background: var(--cc-card-hi) !important;
+  color: var(--cc-text) !important;
+}
+
+#app .npc-dialogue__option--primary {
+  border-color: var(--cc-accent) !important;
+  background: var(--cc-accent) !important;
+  color: var(--cc-accent-ink) !important;
+  font-weight: 700 !important;
+}
+
+#app .npc-dialogue--success .npc-dialogue__identity { color: var(--cc-good) !important; }
+#app .npc-dialogue--error .npc-dialogue__identity { color: var(--cc-bad) !important; }
+
+#app .impound-release-card,
+#app .impound-file,
+#app .cinematic-accessibility__card {
+  border: 1px solid var(--cc-line-hi) !important;
+  border-radius: var(--cc-r-lg) !important;
+  background: var(--cc-card) !important;
+  color: var(--cc-text) !important;
+}
+
+#app .impound-release-card__plate,
+#app .impound-cinematic__heading {
+  font-family: var(--cc-display) !important;
+  font-weight: 900 !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .impound-release-card__body,
+#app .impound-release__empty,
+#app .impound-cinematic__copy {
+  font-family: var(--cc-mono) !important;
+  font-size: 10px !important;
+  line-height: 1.6 !important;
+  color: var(--cc-dim) !important;
+}
+
+#app .impound-cinematic__badge,
+#app .impound-release-card__stamp {
+  border: 1px solid rgba(255, 84, 104, .4) !important;
+  border-radius: var(--cc-r) !important;
+  background: rgba(255, 84, 104, .1) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8.5px !important;
+  letter-spacing: .14em !important;
+  color: #ff909c !important;
+  text-transform: uppercase !important;
+}
+
+#app .impound-camera-frame,
+#app .impound-camera-reticle { border-color: var(--cc-accent) !important; }
+
+#app .impound-camera-meta,
+#app .impound-camera-rec {
+  font-family: var(--cc-mono) !important;
+  font-size: 9px !important;
+  letter-spacing: .12em !important;
+  color: var(--cc-accent) !important;
+  text-transform: uppercase !important;
+}
+
+/* ==========================================================================
+   14b · ROSTER / LOG FILTER BAR  (paired with dashboard-filters.js)
+   ========================================================================== */
+
+#app .cc-filterbar {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  margin: 0 0 2px !important;
+}
+
+#app .cc-filterbar__input {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  padding: 10px 12px !important;
+  border: 1px solid var(--cc-line-hi) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  color: var(--cc-text) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 10.5px !important;
+  letter-spacing: .03em !important;
+}
+
+#app .cc-filterbar__input::placeholder { color: var(--cc-faint) !important; }
+
+#app .cc-filterbar__input:focus {
+  outline: none !important;
+  border-color: var(--cc-accent) !important;
+  box-shadow: 0 0 0 2px rgba(63, 224, 207, .18) !important;
+}
+
+#app .cc-filterbar__input::-webkit-search-cancel-button { display: none; }
+
+#app .cc-filterbar__count {
+  flex: none !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 8.5px !important;
+  letter-spacing: .12em !important;
+  color: var(--cc-faint) !important;
+  text-transform: uppercase !important;
+  font-variant-numeric: tabular-nums;
+}
+
+#app .cc-filterbar__clear {
+  flex: none !important;
+  padding: 9px 12px !important;
+  font-size: 8.5px !important;
+}
+
+#app .cc-filter-empty {
+  margin: 0 !important;
+  padding: 26px 18px !important;
+  border: 1px dashed var(--cc-line-hi) !important;
+  border-radius: var(--cc-r-lg) !important;
+  text-align: center !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-faint) !important;
+}
+
+/* Active-toggle state for the member map button (see app.js). */
+#app .content button.is-active,
+#app .content .primary.is-active {
+  background: var(--cc-accent-hot) !important;
+  border-color: var(--cc-accent-hot) !important;
+  color: var(--cc-accent-ink) !important;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .25) !important;
+}
+
+/* Cross-agency record tags (police MDT merges cm-law records — see
+   cm-law/server/records.lua). The tag says which agency issued the row. */
+
+#app .mdt-agency-tag {
+  display: inline-block !important;
+  margin-left: 8px !important;
+  padding: 3px 7px !important;
+  border: 1px solid var(--cc-line-hi) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 7.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: .14em !important;
+  color: var(--cc-dim) !important;
+  text-transform: uppercase !important;
+  vertical-align: middle !important;
+}
+
+#app .mdt-record-row--alert,
+#app .mdt-term-record--alert {
+  border-color: rgba(245, 177, 60, .45) !important;
+  background: rgba(245, 177, 60, .08) !important;
+}
+
+#app .mdt-record-row--alert strong,
+#app .mdt-term-record--alert { color: var(--cc-warn) !important; }
+
+#app .mdt-record-row--alert .mdt-agency-tag,
+#app .mdt-term-record--alert .mdt-agency-tag {
+  border-color: rgba(245, 177, 60, .5) !important;
+  color: var(--cc-warn) !important;
+}
+
+/* ==========================================================================
+   14c · MDT — one treatment for every organization
+   --------------------------------------------------------------------------
+   cm-police and cm-law ship structurally different MDTs: police has a full
+   terminal plus a dashboard panel, cm-law has a search bar over a results
+   column and a workspace. They cannot be made functionally identical without
+   building features, but they can read as the same product. Everything below
+   is written against both vocabularies at once.
+
+   The .mdt-term-* terminal is already covered by the variable bridge, since
+   mdt-terminal.css is fully token-driven; these rules add structure on top.
+   No blur-based compositing anywhere: it is unreliable in FiveM's CEF and
+   costs frames on top of the pause-menu blur already running behind the NUI.
+   Depth comes from borders, layered surfaces and the accent, not translucency.
+   ========================================================================== */
+
+#app .mdt-searchbar {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 0 0 14px !important;
+  margin: 0 0 14px !important;
+  border-bottom: 1px solid var(--cc-line) !important;
+}
+
+#app .mdt-searchbar input {
+  flex: 1 1 200px !important;
+  min-width: 0 !important;
+}
+
+#app .law-mdt-layout,
+#app .mdt-profile-grid {
+  display: grid !important;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr) !important;
+  gap: var(--cc-gap) !important;
+  align-items: start !important;
+  min-height: 0 !important;
+}
+
+#app .law-mdt-results {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  max-height: 62vh !important;
+  overflow: auto !important;
+  padding: 12px !important;
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r-lg) !important;
+  background: var(--cc-card) !important;
+}
+
+#app .law-mdt-result {
+  display: block !important;
+  width: 100% !important;
+  text-align: left !important;
+  padding: 11px 12px !important;
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  color: var(--cc-text-2) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: .03em !important;
+  text-transform: none !important;
+  cursor: pointer !important;
+  transition: border-color .14s ease, background .14s ease;
+}
+
+#app .law-mdt-result:hover,
+#app .law-mdt-result.active {
+  border-color: rgba(63, 224, 207, .4) !important;
+  background: var(--cc-card-hi) !important;
+  color: var(--cc-text) !important;
+}
+
+#app .law-mdt-workspace {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: var(--cc-gap) !important;
+  min-width: 0 !important;
+}
+
+#app .law-mdt-profile {
+  padding: 16px 18px !important;
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r-lg) !important;
+  background: var(--cc-card) !important;
+}
+
+#app .law-mdt-columns {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)) !important;
+  gap: var(--cc-gap) !important;
+  align-items: start !important;
+}
+
+#app .law-mdt-compose {
+  display: grid !important;
+  gap: 9px !important;
+}
+
+#app .law-mdt-actions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 7px !important;
+}
+
+/* Record rows: the shared unit across every MDT surface */
+#app .mdt-record,
+#app .mdt-record-row,
+#app .mdt-result-row,
+#app .mdt-note-row,
+#app .mdt-vehicle-card {
+  display: block !important;
+  padding: 11px 13px !important;
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 10px !important;
+  line-height: 1.55 !important;
+  color: var(--cc-text-2) !important;
+  transition: border-color .14s ease, background .14s ease;
+}
+
+#app .mdt-record + .mdt-record,
+#app .mdt-record-row + .mdt-record-row,
+#app .mdt-result-row + .mdt-result-row,
+#app .mdt-note-row + .mdt-note-row { margin-top: 6px !important; }
+
+#app .mdt-record:hover,
+#app .mdt-record-row:hover,
+#app .mdt-result-row:hover,
+#app .mdt-vehicle-card:hover {
+  border-color: rgba(63, 224, 207, .26) !important;
+  background: var(--cc-card-hi) !important;
+}
+
+#app .mdt-record strong,
+#app .mdt-record-row strong {
+  display: block !important;
+  margin-bottom: 4px !important;
+  font-family: var(--cc-display) !important;
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
+  letter-spacing: .04em !important;
+  color: var(--cc-text) !important;
+  text-transform: uppercase !important;
+}
+
+#app .mdt-record small,
+#app .mdt-record-row small,
+#app .mdt-note-row small {
+  display: block !important;
+  margin-top: 4px !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 9px !important;
+  line-height: 1.55 !important;
+  color: var(--cc-faint) !important;
+}
+
+#app .mdt-notes,
+#app .mdt-term-notes {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  max-height: 260px !important;
+  overflow: auto !important;
+}
+
+/* Wanted stars read as a severity meter, not decoration */
+#app .mdt-stars {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 3px !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 12px !important;
+  letter-spacing: .1em !important;
+  color: var(--cc-bad) !important;
+}
+
+#app .mdt-status-row {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 11px 13px !important;
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 10px !important;
+  color: var(--cc-text-2) !important;
+}
+
+#app .mdt-fine-picker {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)) !important;
+  gap: 6px !important;
+  max-height: 260px !important;
+  overflow: auto !important;
+}
+
+#app .mdt-fine-picker label {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 9px 11px !important;
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 9.5px !important;
+  letter-spacing: .02em !important;
+  text-transform: none !important;
+  color: var(--cc-text-2) !important;
+  cursor: pointer !important;
+}
+
+#app .mdt-fine-picker label:hover {
+  border-color: rgba(63, 224, 207, .35) !important;
+  background: var(--cc-card-hi) !important;
+}
+
+/* Terminal: structural polish on top of the bridged --mdt-* tokens */
+#app .mdt-term-panel-head {
+  display: flex !important;
+  align-items: center !important;
+  gap: 9px !important;
+  padding-bottom: 9px !important;
+  border-bottom: 1px solid var(--cc-line) !important;
+}
+
+#app .mdt-term-accentbar {
+  width: 2px !important;
+  height: 14px !important;
+  flex: none !important;
+  border-radius: 0 !important;
+  background: var(--cc-accent) !important;
+}
+
+#app .mdt-term-label {
+  font-family: var(--cc-mono) !important;
+  font-size: 8px !important;
+  font-weight: 600 !important;
+  letter-spacing: .2em !important;
+  color: var(--cc-dim) !important;
+  text-transform: uppercase !important;
+}
+
+#app .mdt-term-record {
+  padding: 10px 12px !important;
+  border: 1px solid var(--cc-line) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 9.5px !important;
+  line-height: 1.5 !important;
+  color: var(--cc-text-2) !important;
+}
+
+#app .mdt-term-record + .mdt-term-record { margin-top: 5px !important; }
+
+#app .mdt-term-record small {
+  display: block !important;
+  margin-top: 4px !important;
+  font-size: 8.5px !important;
+  color: var(--cc-faint) !important;
+}
+
+#app .mdt-term-list-scroll { max-height: 230px !important; overflow: auto !important; }
+
+#app .mdt-term-dot {
+  width: 6px !important;
+  height: 6px !important;
+  border-radius: 0 !important;
+  background: var(--cc-good) !important;
+}
+
+#app .mdt-term-mugshot {
+  border: 1px solid var(--cc-line-hi) !important;
+  border-radius: var(--cc-r) !important;
+  background: var(--cc-sunken) !important;
+  object-fit: cover !important;
+}
+
+#app .mdt-term-kv {
+  display: flex !important;
+  align-items: baseline !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  padding: 6px 0 !important;
+  border-bottom: 1px solid var(--cc-line) !important;
+  font-family: var(--cc-mono) !important;
+  font-size: 9.5px !important;
+}
+
+#app .mdt-term-kv > *:first-child {
+  color: var(--cc-faint) !important;
+  letter-spacing: .12em !important;
+  text-transform: uppercase !important;
+  font-size: 8px !important;
+}
+
+#app .mdt-term-kv > *:last-child { color: var(--cc-text) !important; }
+
+@media (max-width: 1180px) {
+  #app .law-mdt-layout,
+  #app .mdt-profile-grid { grid-template-columns: 1fr !important; }
+  #app .law-mdt-results { max-height: 32vh !important; }
+}
+
+/* ==========================================================================
+   15 · VISIBILITY GUARD  —  keep this block LAST
+   --------------------------------------------------------------------------
+   Several rules above set `display` with !important (nav buttons, the rank
+   editor, list containers). app.js hides elements by adding .hidden or the
+   [hidden] attribute, and those toggles must always win. These selectors are
+   deliberately more specific than every display rule in this file.
+   ========================================================================== */
+
+/* Any .page that is not .active stays hidden, whatever else claims otherwise.
+   Two rules fight the base `.page{display:none}` at higher specificity:
+     - `#app .command-center-overview{display:flex}` in this file (the overview
+       section IS a .page in cm-ems / cm-police)
+     - `.law-dispatch-board{display:grid!important}` in dispatch-board.css,
+       which cm-police also loads (the dispatch section is a .page there)
+   Both leaked onto every tab. This rule outranks them and the standalone
+   dispatch/armory layouts still work, since those target `.page.active`. */
+#app .cc-filter-hidden,
+#app .content .page:not(.active),
+#app .content .view.hidden,
+#app .side nav .tab.hidden,
+#app .side nav .nav.hidden,
+#app .side nav .tab[hidden],
+#app .side nav .nav[hidden],
+#app .content .rank-editor.hidden,
+#app .content .rank-editor[hidden],
+#app .content .card.hidden,
+#app .content .card[hidden],
+#app .content .hidden,
+#app .content [hidden],
+#app .hidden,
+#app [hidden] {
+  display: none !important;
+}

@@ -1,0 +1,186 @@
+	-- rod
+	['basic_rod'] = {
+		label = 'Basic Rod',
+		weight = 1000,
+		stack = false,
+		close = true,
+		description = 'A basic fishing rod suitable for beginner fishers.',
+	},
+
+	['rod_2'] = {
+		label = 'Rod Level 2',
+		weight = 1000,
+		stack = false,
+		close = true,
+		description = 'A stronger fishing rod for intermediate fishers.',
+	},
+
+	['rod_3'] = {
+		label = 'Rod Level 3',
+		weight = 1000,
+		stack = false,
+		close = true,
+		description = 'A powerful fishing rod suitable for catching larger fish.',
+	},
+
+	-- bait
+	['worms'] = {
+		label = 'Worms',
+		weight = 500,
+		stack = true,
+		close = true,
+		description = 'Live worms commonly used as basic fishing bait.',
+	},
+
+	['commonbait'] = {
+		label = 'Common Bait',
+		weight = 500,
+		stack = true,
+		close = true,
+		description = 'A common type of bait used to attract various fish.',
+	},
+
+	['artificial_bait'] = {
+		label = 'Artificial Bait',
+		weight = 500,
+		stack = true,
+		close = true,
+		description = 'Synthetic fishing bait designed to mimic small fish.',
+	},
+
+	-- fish
+	['anchovy'] = {
+		label = 'Anchovy',
+		weight = 500,
+		stack = true,
+		close = true,
+		description = 'A small saltwater fish commonly found in coastal waters.',
+	},
+
+	['dolphin'] = {
+		label = 'Dolphin',
+		weight = 3000,
+		stack = false,
+		close = true,
+		description = 'A highly intelligent marine mammal. Rarely caught while fishing.',
+	},
+
+	['fish'] = {
+		label = 'Fish',
+		weight = 800,
+		stack = true,
+		close = true,
+		description = 'A standard catch, often found in open waters.',
+	},
+
+	['grouper'] = {
+		label = 'Grouper',
+		weight = 1500,
+		stack = true,
+		close = true,
+		description = 'A large, strong fish commonly found in deep waters.',
+	},
+
+	['haddock'] = {
+		label = 'Haddock',
+		weight = 1200,
+		stack = true,
+		close = true,
+		description = 'A white-fleshed fish commonly sought after by fishermen.',
+	},
+
+	['hammershark'] = {
+		label = 'Hammer Shark',
+		weight = 3500,
+		stack = false,
+		close = true,
+		description = 'A rare species of shark with a distinctive hammer-shaped head.',
+	},
+
+	['humpback'] = {
+		label = 'Humpback',
+		weight = 5000,
+		stack = false,
+		close = true,
+		description = 'A massive marine mammal. Extremely rare catch.',
+	},
+
+	['killerwhale'] = {
+		label = 'Killer Whale',
+		weight = 6000,
+		stack = false,
+		close = true,
+		description = 'A powerful apex predator of the ocean. Unusually large catch.',
+	},
+
+	['mahi_mahi'] = {
+		label = 'Mahi Mahi',
+		weight = 1600,
+		stack = true,
+		close = true,
+		description = 'A vibrant-colored fish known for its speed and flavor.',
+	},
+
+	['piranha'] = {
+		label = 'Piranha',
+		weight = 700,
+		stack = true,
+		close = true,
+		description = 'A small but aggressive freshwater fish with sharp teeth.',
+	},
+
+	['red_snapper'] = {
+		label = 'Red Snapper',
+		weight = 1400,
+		stack = true,
+		close = true,
+		description = 'A popular saltwater fish known for its reddish color.',
+	},
+
+	['salmon'] = {
+		label = 'Salmon',
+		weight = 1500,
+		stack = true,
+		close = true,
+		description = 'A well-known fish that migrates upstream to spawn.',
+	},
+
+	['shark'] = {
+		label = 'Shark',
+		weight = 4000,
+		stack = false,
+		close = true,
+		description = 'A dangerous, large ocean predator. A rare and valuable catch.',
+	},
+
+	['stingray'] = {
+		label = 'Stingray',
+		weight = 1800,
+		stack = true,
+		close = true,
+		description = 'A flat-bodied fish with a venomous stinger on its tail.',
+	},
+
+	['tigershark'] = {
+		label = 'Tiger Shark',
+		weight = 4500,
+		stack = false,
+		close = true,
+		description = 'A highly aggressive shark species with tiger-like patterns.',
+	},
+
+	['trout'] = {
+		label = 'Trout',
+		weight = 900,
+		stack = true,
+		close = true,
+		description = 'A freshwater fish commonly found in rivers and lakes.',
+	},
+
+	['tuna'] = {
+		label = 'Tuna',
+		weight = 2000,
+		stack = true,
+		close = true,
+		description = 'A fast-swimming fish commonly targeted by fishermen.',
+	},

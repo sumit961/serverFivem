@@ -4,38 +4,70 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Clothing Studio</title>
-  <link rel="stylesheet" href="style.css?v=2.22.4-matched-rails" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="style.css?v=2.29.0-fix-pos" />
 </head>
 <body>
   <main id="app" class="hidden">
 
+    <!-- Floating outfit/cost summary (store mode only) -->
+    <div id="outfitSummary" class="outfit-summary hidden">
+      <span class="outfit-dot"></span>
+      <span class="outfit-label">OUTFIT:</span>
+      <strong id="outfitName" class="outfit-name">—</strong>
+      <span class="outfit-sep">|</span>
+      <span class="outfit-label">TOTAL COST:</span>
+      <strong id="outfitCost" class="outfit-cost">$0</strong>
+    </div>
+
+    <!-- Floating top brand header (store mode) -->
+    <div id="storeTopBrand" class="store-top-brand hidden">
+      <div class="store-top-brand-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg>
+      </div>
+      <div class="store-top-brand-info">
+        <div class="store-top-brand-title" id="storeBrandTitle">SUB URBAN // CLOTHING</div>
+        <div class="store-top-brand-sub" id="storeBrandSub">SUBURBAN APPAREL STORE</div>
+      </div>
+    </div>
+
+    <!-- Floating top-right balance (store mode) -->
+    <div id="storeTopBalance" class="economy-overlay store-top-balance">
+      <div class="economy-stat balance-item balance-item--cash">
+        <i class="fas fa-wallet"></i>
+        <span class="label balance-label">CASH:</span>
+        <span class="value balance-val" id="storeTopCash">$15,400</span>
+      </div>
+      <div class="economy-stat balance-item balance-item--bank">
+        <i class="fas fa-university"></i>
+        <span class="label balance-label">BANK:</span>
+        <span class="value balance-val" id="storeTopBank">$1,284,500</span>
+      </div>
+    </div>
+
     <!-- ═══ LEFT PANEL ═══ -->
-    <section class="left-panel" id="leftPanel">
+    <section class="panel left-panel" id="leftPanel">
 
       <!-- Brand header -->
-      <div class="brand" id="brandBlock">
-        <div class="brand-logo">
-          <span class="brand-name" id="brandName">CLOTHING</span>
+      <div class="panel-header brand" id="brandBlock">
+        <div class="brand-top-row hidden">
+          <span class="brand-bank" id="brandBank">$14,250 BANK</span>
+        </div>
+        <div class="main-header-row brand-logo">
+          <i class="fas fa-lock header-icon" id="brandIcon"></i>
+          <h1 class="brand-name" id="brandName">SUB URBAN</h1>
           <span class="brand-name brand-name--admin hidden" id="brandAdmin">ADMIN</span>
         </div>
-        <div class="brand-sub" id="brandSub">STUDIO</div>
+        <div class="section-title brand-sublabel" id="brandSublabel">WARDROBE CATALOG</div>
+        <div class="brand-sub hidden" id="brandSub">STUDIO</div>
         <div class="brand-note hidden" id="brandNote">CREATE ITEMS · CAPTURE IMAGES · SAVE TEXTURES</div>
       </div>
 
-      <!-- Store: payment tabs -->
-      <div class="pay-tabs" id="payTabs">
-        <button class="pay-tab active" data-pay="bank">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="9,22 9,12 15,12 15,22" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          BANK
-        </button>
-        <button class="pay-tab" data-pay="cash">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2" stroke="currentColor" stroke-width="2"/></svg>
-          CASH
-        </button>
-      </div>
-
-      <!-- Store filters -->
-      <div id="filterPanel" class="filter-panel">
+      <!-- Store filters (admin only) -->
+      <div id="filterPanel" class="filter-panel hidden">
         <input id="searchInput" class="filter-input" type="text" placeholder="Search name / drawable / price…" autocomplete="off" />
         <div class="filter-grid">
           <select id="genderFilter" class="filter-select">
@@ -51,59 +83,95 @@
       </div>
 
       <!-- Categories section -->
-      <div id="categories" class="categories"></div>
+      <div id="categories" class="categories menu-list"></div>
 
       <!-- Controls hint -->
-      <div class="controls-hint" id="controlsHint">
+      <div class="keybind-hints controls-hint" id="controlsHint">
         <div class="hint-row">
-          <div class="hint-icons"><span class="hint-key">↑</span><span class="hint-key">↓</span></div>
-          <span class="hint-desc">Arrows to switch items</span>
+          <span class="hint-desc">ROTATE CAM:</span>
+          <span class="key hint-key">RIGHT CLICK + DRAG</span>
         </div>
         <div class="hint-row">
-          <div class="hint-icons"><span class="hint-key">A</span><span class="hint-key">D</span></div>
-          <span class="hint-desc">Rotate character</span>
-        </div>
-        <div class="hint-row">
-          <span class="hint-drag">🖱</span>
-          <span class="hint-desc">Use mouse to zoom camera</span>
+          <span class="hint-desc">ZOOM VIEW:</span>
+          <span class="key hint-key">SCROLL WHEEL</span>
         </div>
       </div>
     </section>
 
-    <!-- ═══ RIGHT PANEL (floating bottom-right) ═══ -->
-    <section class="right-panel" id="rightPanel">
+    <!-- ═══ RIGHT PANEL (floating right) ═══ -->
+    <section class="panel right-panel" id="rightPanel">
 
-      <!-- Panel eyebrow -->
-      <div class="rp-eyebrow" id="rpEyebrow">CLOTHING STORE</div>
-      <div class="mode-note" id="modeNote">Preview outfits, switch colors, add items to cart, then checkout.</div>
+      <!-- ═══ ITEM CARD (info + selectors + admin + cart) ═══ -->
+      <div class="item-card" id="itemCard">
 
-      <!-- Item name + price row -->
-      <div class="rp-header">
+      <!-- Header: Title + Sublabel + Price tag -->
+      <div class="panel-header rp-header">
         <button class="fav-btn hidden" id="favBtn" type="button" aria-pressed="false" title="Add to favourites">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5l2.6 5.27 5.82.85-4.21 4.1.99 5.79L12 17.77 6.8 19.5l.99-5.79-4.21-4.1 5.82-.85z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
         </button>
-        <div class="rp-item-name" id="itemName">Select clothing</div>
-        <div class="rp-price"><span id="price">0</span><span class="rp-currency">$</span></div>
+        <div class="rp-title-wrap">
+          <div class="main-header-row">
+            <h1 class="rp-category-title" id="rpCategoryTitle">HEADWEAR</h1>
+          </div>
+          <div class="section-title rp-eyebrow" id="rpEyebrow">CLOTHING STORE</div>
+        </div>
+        <div class="rp-price hidden" id="rpPriceTag"><span class="rp-currency">$</span><span id="price">50</span></div>
+      </div>
+
+      <!-- Clothing Preview Image Viewport -->
+      <div class="preview-box item-preview-viewport" id="itemPreviewBox">
+        <img id="storeClothingImg" class="store-clothing-img hidden" alt="Clothing preview" />
+        <div id="storeClothingPlaceholder" class="store-clothing-placeholder">
+          <div class="preview-icon placeholder-icon-box">
+            <span class="placeholder-icon" id="previewCategoryIcon"><i class="fas fa-tshirt"></i></span>
+          </div>
+          <div class="preview-text preview-variant-title" id="itemName">SELECT CLOTHING</div>
+          <div class="preview-subtext preview-variant-sub" id="previewVariantSub">SELECT GARMENT</div>
+        </div>
       </div>
 
       <!-- Option + Color selectors (column layout) -->
       <div class="selector-grid">
-        <div class="selector-col">
-          <span class="sel-label">Option</span>
-          <div class="sel-row">
-            <button class="sel-arrow" id="prevItem">‹</button>
-            <span class="sel-value" id="itemIndex">—</span>
-            <button class="sel-arrow" id="nextItem">›</button>
+        <div class="selector-group selector-col">
+          <div class="selector-header sel-label-row">
+            <span class="sel-label">CLOTHING SUBTYPE</span>
+            <span class="sel-counter sel-counter--cyan hidden" id="modelCounter">1 / 32</span>
           </div>
-        </div>
-        <div class="selector-col">
-          <span class="sel-label">Color</span>
-          <div class="sel-row">
-            <button class="sel-arrow" id="prevTexture">‹</button>
-            <span class="sel-value" id="textureIndex">—</span>
-            <button class="sel-arrow" id="nextTexture">›</button>
+          <div class="selector-control sel-row">
+            <button class="arrow-btn sel-arrow" id="prevItem" title="Previous model"><i class="fas fa-caret-left"></i></button>
+            <div class="selector-value sel-value-box">
+              <span class="sel-value" id="itemIndex">1</span>
+              <input type="number" id="clothTypeInput" class="cloth-num-input hidden" min="1" max="85" value="1" />
+            </div>
+            <button class="arrow-btn sel-arrow" id="nextItem" title="Next model"><i class="fas fa-caret-right"></i></button>
           </div>
+          <input id="modelScrubSlider" type="range" min="0" max="85" value="1" class="model-scrub-slider hidden" />
         </div>
+        <div class="selector-group selector-col">
+          <div class="selector-header sel-label-row">
+            <span class="sel-label">TEXTURE VARIATION</span>
+            <span class="sel-counter sel-counter--yellow hidden" id="textureCounter">0 / 24</span>
+          </div>
+          <div class="selector-control sel-row">
+            <button class="arrow-btn sel-arrow" id="prevTexture" title="Previous texture"><i class="fas fa-caret-left"></i></button>
+            <div class="selector-value highlight sel-value-box">
+              <span class="sel-value sel-value--yellow" id="textureIndex">0</span>
+              <input type="number" id="clothTextureInput" class="cloth-num-input cloth-num-input--yellow hidden" min="0" max="24" value="0" />
+            </div>
+            <button class="arrow-btn sel-arrow" id="nextTexture" title="Next texture"><i class="fas fa-caret-right"></i></button>
+          </div>
+          <div class="texture-swatches hidden" id="textureSwatches"></div>
+        </div>
+      </div>
+
+      <!-- Store: payment tabs -->
+      <div class="payment-toggle pay-tabs" id="payTabs">
+        <button class="toggle-btn pay-tab active" data-pay="bank">
+          <i class="fas fa-university" style="color:var(--accent-yellow)"></i> BANK
+        </button>
+        <button class="toggle-btn pay-tab" data-pay="cash">
+          <i class="fas fa-wallet" style="color:var(--success-green)"></i> CASH
+        </button>
       </div>
 
       <!-- ── ADMIN CONTROLS (hidden for normal store) ── -->
@@ -153,12 +221,13 @@
 
         <!-- Bag level -->
         <div id="bagLevelControls" class="bag-level hidden">
-          <div class="section-label" style="margin-top:14px;">BAG LEVEL</div>
+          <div class="section-label" style="margin-top:14px;">BAG LEVEL / TYPE</div>
           <select id="bagLevel" class="field-select">
-            <option value="1">Level 1</option>
-            <option value="2">Level 2</option>
-            <option value="3">Level 3</option>
-            <option value="4">Level 4</option>
+            <option value="skin" selected>Skin (No Capacity)</option>
+            <option value="1">Level 1 Bag</option>
+            <option value="2">Level 2 Bag</option>
+            <option value="3">Level 3 Bag</option>
+            <option value="4">Level 4 Bag</option>
           </select>
         </div>
 
@@ -263,12 +332,15 @@
         <div class="cart-total"><span>Total</span><strong id="cartTotal">$0</strong></div>
       </div>
 
+      </div>
+      <!-- ═══ END ITEM CARD ═══ -->
+
       <!-- ── ACTION BUTTONS ── -->
       <div class="action-area">
-        <button id="buyBtn" class="btn btn--primary" disabled>ADD TO CART</button>
-        <button id="checkoutBtn" class="btn btn--green hidden">CHECKOUT · $0</button>
-        <button id="adjustCaptureBtn" class="btn btn--capture hidden">ADJUST POSITION &amp; TAKE IMAGE</button>
-        <button id="closeBtn" class="btn btn--close">CLOSE  ESC</button>
+        <button id="buyBtn" class="btn btn-primary btn--primary" disabled><span class="btn-content">BUY CLOTHING ($50)</span></button>
+        <button id="checkoutBtn" class="btn btn--green hidden"><span class="btn-content">CHECKOUT · $0</span></button>
+        <button id="adjustCaptureBtn" class="btn btn--capture hidden"><span class="btn-content">ADJUST POSITION &amp; TAKE IMAGE</span></button>
+        <button id="closeBtn" class="btn btn-secondary btn--close">EXIT WARDROBE</button>
       </div>
       <div id="purchaseStatus" class="purchase-status hidden">Items will go to inventory first. Wear them later from inventory.</div>
     </section>
@@ -382,6 +454,8 @@
             <div id="manageDetailNoImg" class="manage-noimg hidden">NO IMAGE — RETAKE</div>
           </div>
           <div class="manage-detail-meta" id="manageDetailMeta">—</div>
+          <div id="manageLockBanner" class="item-state-note item-state-note--warn hidden"></div>
+          <div id="manageAuditTrail" class="manage-audit-trail hidden"></div>
 
           <div class="section-label">NAME</div>
           <input id="manageLabel" class="field-input" type="text" placeholder="Item name…" autocomplete="off" />
@@ -389,9 +463,47 @@
           <div class="section-label">PRICE ($)</div>
           <input id="managePrice" class="field-input" type="number" min="0" step="1" placeholder="Price" />
 
-          <div class="section-label">ORGANISATION</div>
-          <div id="manageOrgChoices" class="manage-org-choices"></div>
-          <div class="capture-note">Select every destination that should receive this same clothing item. One image and catalog entry are shared across all selected organisation lockers.</div>
+          <label class="check-row" style="margin-top:10px;">
+            <input type="checkbox" id="manageTempDisabled" />
+            Temporarily disable this clothe
+          </label>
+          <div class="capture-note">Blocks equipping it for players who already own it (shows "This clothe is temporarily disabled" when they try) without touching their inventory or the store listing. Use this to pull a broken/under-review item out of use without deleting it.</div>
+
+          <div id="manageOrgSection">
+            <div class="section-label">ORGANISATION</div>
+            <div id="manageOrgChoices" class="manage-org-choices"></div>
+            <div class="capture-note">Select every destination that should receive this same clothing item. One image and catalog entry are shared across all selected organisation lockers.</div>
+          </div>
+
+          <div id="manageArmorTypeSection" class="hidden">
+            <div class="section-label">ITEM TYPE</div>
+            <select id="manageArmorType" class="filter-select"></select>
+            <div class="capture-note">Not everything captured on this slot looks like what its tab implies. Change the type to move this item into a different category — it still visually equips exactly as photographed, but is priced/grouped/mechanic'd like that category (e.g. "Bags" grants real backpack capacity).</div>
+          </div>
+
+          <div id="manageBagLevelSection" class="hidden">
+            <div class="section-label">BAG LEVEL</div>
+            <select id="manageBagLevel" class="filter-select">
+              <option value="1">Level 1</option>
+              <option value="2">Level 2</option>
+              <option value="3">Level 3</option>
+              <option value="4">Level 4</option>
+            </select>
+            <div class="capture-note">Controls how many backpack slots this bag unlocks.</div>
+          </div>
+
+          <div id="manageBagPairSection" class="hidden">
+            <div class="section-label">PAIRED BAG (OTHER GENDER)</div>
+            <div id="manageBagPairGrid" class="manage-bag-pair-grid"></div>
+            <button id="manageBagPairRestore" type="button" class="mini-action mini-action--ghost hidden">◂ BACK TO MY PREVIEW</button>
+            <div class="capture-note">Bag meshes don't always match at the same drawable on both models -- click one to preview it live on that model, then pick it. Price/level/publish stay in sync between the pair; each side keeps its own photo.</div>
+          </div>
+
+          <div id="manageArmorSection" class="hidden">
+            <div class="section-label">ARMOR VALUE (%)</div>
+            <input id="manageArmorValue" class="field-input" type="number" min="0" max="100" step="1" placeholder="Armor value" />
+            <div class="capture-note">Sold and equipped through the gun store, not the clothes shop. Publishing here makes it purchasable there.</div>
+          </div>
 
           <div id="manageTorsoFit" class="fit-helper hidden">
             <div class="section-label">TORSO FIT</div>
@@ -418,6 +530,8 @@
             <button id="manageSaveBtn" type="button" class="btn btn--primary">SAVE CHANGES</button>
             <button id="managePreviewBtn" type="button" class="mini-action">PREVIEW ON PED</button>
             <button id="manageRetakeBtn" type="button" class="mini-action mini-action--ghost">RETAKE IMAGE</button>
+            <button id="manageRevertBtn" type="button" class="mini-action mini-action--ghost" title="Swap back to the previous photo">REVERT IMAGE</button>
+            <button id="manageCoverBtn" type="button" class="mini-action mini-action--ghost" title="Use this photo as the drawable's fallback thumbnail">SET AS COVER</button>
           </div>
           <div id="manageDetailState" class="item-state-note hidden"></div>
         </div>
@@ -430,7 +544,50 @@
       Use <strong>/clothingadmin</strong> to enable items.
     </div>
 
+    <!-- Post-capture bag pairing: right after a bag photo saves, the ped
+         switches to the other gender here (in /clothingadmin itself) and lets the admin
+         preview and select the other gender's bag drawable and texture live on the body. -->
+    <div id="bagPairOverlay" class="bag-pair-overlay hidden">
+      <div class="bag-pair-card">
+        <div class="bag-pair-title">MATCHING <span id="bagPairGenderLabel">FEMALE</span> BAG DRAWABLE</div>
+        <div class="bag-pair-sub">Previewing live on body. Change drawable and texture with buttons to match the captured bag.</div>
+
+        <div class="bag-pair-source-info">
+          Captured: <b id="bagPairSourceLabel">Bag</b> (<span id="bagPairSourceGender">Male</span> D<span id="bagPairSourceDrawable">0</span> T<span id="bagPairSourceTexture">0</span>)
+        </div>
+
+        <div class="bag-pair-control-group">
+          <span class="bag-pair-lbl">DRAWABLE</span>
+          <div class="bag-pair-row">
+            <button id="bagPairPrev" type="button" class="mini-action mini-action--ghost" title="Previous drawable">◀</button>
+            <input id="bagPairDrawableInput" type="number" min="0" max="999" class="bag-pair-input" value="0" />
+            <span id="bagPairDrawableTotal" class="bag-pair-total">/ 0</span>
+            <button id="bagPairNext" type="button" class="mini-action mini-action--ghost" title="Next drawable">▶</button>
+          </div>
+        </div>
+
+        <div class="bag-pair-control-group">
+          <span class="bag-pair-lbl">TEXTURE / COLOR</span>
+          <div class="bag-pair-row">
+            <button id="bagPairTexPrev" type="button" class="mini-action mini-action--ghost" title="Previous texture">◀</button>
+            <input id="bagPairTextureInput" type="number" min="0" max="99" class="bag-pair-input" value="0" />
+            <span id="bagPairTextureTotal" class="bag-pair-total">/ 0</span>
+            <button id="bagPairTexNext" type="button" class="mini-action mini-action--ghost" title="Next texture">▶</button>
+          </div>
+        </div>
+
+        <div class="bag-pair-row bag-pair-helpers">
+          <button id="bagPairTurnPed" type="button" class="mini-action mini-action--ghost">⟲ TURN PED (180°)</button>
+        </div>
+
+        <div class="bag-pair-actions">
+          <button id="bagPairConfirm" type="button" class="btn btn--primary">SAVE BOTH GENDERS</button>
+          <button id="bagPairSkip" type="button" class="mini-action mini-action--ghost">SKIP (THIS GENDER ONLY)</button>
+        </div>
+      </div>
+    </div>
+
   </main>
-  <script src="app.js?v=2.21.3-cm-items-images"></script>
+  <script src="app.js?v=2.31.1-retake-replaces"></script>
 </body>
 </html>

@@ -96,9 +96,12 @@ local ok, err = exports['cm-vehicles']:SpawnVehicleFromParking(
 )
 ```
 
-> **There is no matching "store" export.** cm-vehicles can take a car *out* of
-> parking but cannot put one back. Storing means writing `is_stored = 1` and
-> `garage = '<your key>'` yourself — see [Recipes](#recipes).
+### `StoreVehicle(src, vehicleId, garage, opts) → boolean, result/reason`
+
+Authoritatively stores an owned world vehicle after validating ownership,
+proximity, occupancy, storage target, and operation locks. It deletes the
+registered world entity and transitions the vehicle into the requested garage
+state. `opts` may contain `netId`, `state`, `slot`, `maxDistance`, and `reason`.
 
 ### `DeleteSpawnedVehicle(plate) → boolean, reason?`
 Synchronously remove the registered entity and any orphan carrying the same

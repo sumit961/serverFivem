@@ -1,5 +1,6 @@
 local U = CMVehicles.Utils
 local Config = CMVehicles.Config
+local StateSaleRequests = {}
 
 -- ---------------------------------------------------------------------------
 -- Single-prompt interaction arbiter (mirror of cm-playerdata).
@@ -54,16 +55,22 @@ local function playKeyFob()
     TaskPlayAnim(ped, 'anim@mp_player_intmenu@key_fob@', 'fob_click', 8.0, -8.0, 800, 48, 0, false, false, false)
 end
 
-local function blink(vehicle)
+local function blink(vehicle, locked)
     CreateThread(function()
-        for _ = 1, 2 do
+        local count = (locked == true) and 1 or 2
+        pcall(function()
+            PlaySoundFromEntity(-1, 'Remote_Control_Fob', vehicle, 'PI_Menu_Sounds', 1, 0)
+        end)
+        for i = 1, count do
             SetVehicleIndicatorLights(vehicle, 0, true)
             SetVehicleIndicatorLights(vehicle, 1, true)
-            StartVehicleHorn(vehicle, 80, joaat('HELDDOWN'), false)
-            Wait(220)
+            StartVehicleHorn(vehicle, 75, joaat('NORMAL'), false)
+            Wait(120)
             SetVehicleIndicatorLights(vehicle, 0, false)
             SetVehicleIndicatorLights(vehicle, 1, false)
-            Wait(220)
+            if i < count then
+                Wait(140)
+            end
         end
     end)
 end
@@ -144,8 +151,11 @@ RegisterNetEvent('cm-vehicles:client:lockVisuals', function(plate, netId, locked
     local veh = netId and NetworkGetEntityFromNetworkId(tonumber(netId)) or nil
     if not veh or veh == 0 then veh = CMVehicles.Client.FindVehicleByPlate(plate) end
     if not veh or veh == 0 then return end
-    playKeyFob()
-    blink(veh)
+    local ped = PlayerPedId()
+    if not IsPedInAnyVehicle(ped, false) then
+        playKeyFob()
+    end
+    blink(veh, locked)
     CMVehicles.Client.ApplyLock(veh, locked == true)
 end)
 
@@ -220,13 +230,15 @@ RegisterNetEvent('cm-vehicles:client:openMenu', function(info)
     local veh = info.netId and NetworkGetEntityFromNetworkId(info.netId) or nil
     if (not veh or veh == 0 or not DoesEntityExist(veh)) and info.plate then veh = CMVehicles.Client.FindVehicleByPlate(info.plate) end
     if veh and veh ~= 0 and DoesEntityExist(veh) then
-        if GetResourceState('cm-police') == 'started' then
+        local lawRes = GetResourceState('cm-law') == 'started' and 'cm-law'
+            or (GetResourceState('cm-police') == 'started' and 'cm-police' or nil)
+        if lawRes then
             local ok, target = pcall(function()
-                return exports['cm-police']:GetDraggedSuspectForVehicle(veh)
+                return exports[lawRes]:GetDraggedSuspectForVehicle(veh)
             end)
             info.policeDraggedSuspect = ok and tonumber(target) or nil
             local occupantOk, occupant = pcall(function()
-                return exports['cm-police']:GetCuffedSuspectInVehicle(veh)
+                return exports[lawRes]:GetCuffedSuspectInVehicle(veh)
             end)
             info.policeCuffedOccupant = occupantOk and tonumber(occupant) or nil
         end
@@ -275,7 +287,8 @@ RegisterNetEvent('cm-vehicles:client:openTrunk', function()
     CMVehicles.Client.Notify('Open the trunk, then press I to use cm-inventory.')
 end)
 
-RegisterNetEvent('cm-vehicles:client:soldToState', function(netId, amount)
+RegisterNetEvent('cm-vehicles:client:soldToState', function(netId)
+    StateSaleRequests = {}
     CMVehicles.Client.CloseNui()
     local veh = netId and NetworkGetEntityFromNetworkId(tonumber(netId)) or nil
     if veh and veh ~= 0 and DoesEntityExist(veh) then
@@ -284,7 +297,6 @@ RegisterNetEvent('cm-vehicles:client:soldToState', function(netId, amount)
         DeleteVehicle(veh)
         if DoesEntityExist(veh) then DeleteEntity(veh) end
     end
-    CMVehicles.Client.Notify(('Vehicle sold to state for $%s.'):format(tostring(amount or 0)))
 end)
 
 RegisterNetEvent('cm-vehicles:client:updateTrunk', function()
@@ -383,12 +395,12 @@ RegisterNUICallback('vehicleAction', function(data, cb)
     elseif action == 'ejectPassenger' then
         TriggerServerEvent('cm-vehicles:server:ejectPassenger', plate, netId, tonumber(data.target))
     elseif action == 'policePutDragged' then
-        if GetResourceState('cm-police') == 'started' and netId then
+        if (GetResourceState('cm-law') == 'started' or GetResourceState('cm-police') == 'started') and netId then
             TriggerEvent('cm-police:client:putDraggedInSelectedVehicle', netId)
             CMVehicles.Client.CloseNui()
         end
     elseif action == 'policeRemoveCuffed' then
-        if GetResourceState('cm-police') == 'started' and netId then
+        if (GetResourceState('cm-law') == 'started' or GetResourceState('cm-police') == 'started') and netId then
             TriggerEvent('cm-police:client:removeCuffedFromSelectedVehicle', netId)
             CMVehicles.Client.CloseNui()
         end
@@ -436,7 +448,67 @@ RegisterNUICallback('vehicleAction', function(data, cb)
     elseif action == 'charge' then
         CMVehicles.Client.Notify('Charging is only available at an EV charger.')
     elseif action == 'sellState' then
-        TriggerServerEvent('cm-vehicles:server:sellToState', plate, netId)
+        if not veh or veh == 0 or not DoesEntityExist(veh) then
+            CMVehicles.Client.Notify('The vehicle is no longer nearby.')
+            cb({ ok = false, error = 'Vehicle not found nearby' })
+            return
+        end
+        if not netId then
+            CMVehicles.Client.Notify('This vehicle is not networked and cannot be sold.')
+            cb({ ok = false, error = 'Vehicle is not networked' })
+            return
+        end
+
+        local currentVehicle = GetVehiclePedIsIn(ped, false)
+        if currentVehicle ~= 0 and currentVehicle ~= veh then
+            CMVehicles.Client.Notify('Exit your current vehicle before selling another one.')
+            cb({ ok = false, error = 'Exit your current vehicle first' })
+            return
+        end
+
+        local saleKey = tostring(CMVehicles.Client.VehicleId(veh) or plate)
+        local now = GetGameTimer()
+        if (StateSaleRequests[saleKey] or 0) > now then
+            cb({ ok = true, pending = true })
+            return
+        end
+        local requestExpires = now + 6000
+        StateSaleRequests[saleKey] = requestExpires
+        SetTimeout(6000, function()
+            if StateSaleRequests[saleKey] == requestExpires then
+                StateSaleRequests[saleKey] = nil
+            end
+        end)
+
+        local function submitStateSale()
+            TriggerServerEvent('cm-vehicles:server:sellToState', plate, netId)
+        end
+
+        if currentVehicle == veh then
+            -- The server intentionally refuses to sell an occupied vehicle. Exit
+            -- first, then submit only after the local player has actually left.
+            CMVehicles.Client.CloseNui()
+            TaskLeaveVehicle(ped, veh, 0)
+            CreateThread(function()
+                local deadline = GetGameTimer() + 5000
+                while GetVehiclePedIsIn(ped, false) == veh and GetGameTimer() < deadline do
+                    Wait(100)
+                end
+
+                if GetVehiclePedIsIn(ped, false) == veh then
+                    CMVehicles.Client.Notify('Could not exit the vehicle. Move outside it and try again.')
+                    return
+                end
+                if not DoesEntityExist(veh) then
+                    CMVehicles.Client.Notify('The vehicle is no longer available to sell.')
+                    return
+                end
+
+                submitStateSale()
+            end)
+        else
+            submitStateSale()
+        end
     elseif action == 'drift' then
         CMVehicles.Client.Notify('Drift settings menu is ready in UI. Connect it to your drift/handling resource when that system is added.')
     else

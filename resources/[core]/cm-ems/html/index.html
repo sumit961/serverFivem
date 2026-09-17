@@ -13,8 +13,13 @@
   <link rel="stylesheet" href="wardrobe.css?v=560">
   <link rel="stylesheet" href="dispatch.css?v=5000">
   <link rel="stylesheet" href="theme-v130.css?v=132">
+  <link rel="stylesheet" href="command-center.css?v=17">
 </head>
 <body>
+  <div class="npc-interaction" id="npcInteraction" hidden>
+    <span class="npc-interaction__key">E</span><span class="npc-interaction__line"></span>
+    <span class="npc-interaction__copy"><b>INTERACTION</b><small id="npcInteractionText">Medical Staff</small></span>
+  </div>
   <section class="npc-dialogue" id="npcDialogue" hidden>
     <div class="npc-dialogue__identity">
       <small id="npcDialogueRole">CM MEDICAL</small>
@@ -38,7 +43,6 @@
           <button class="nav fleet-only" data-page="fleet"><b>05</b><span>Fleet vehicles<small>Ambulances and more</small></span></button>
           <button class="nav logs-only" data-page="logs"><b>06</b><span>Activity logs<small>Organization history</small></span></button>
           <button class="nav admin-only" data-page="admin"><b>07</b><span>Administration<small>Assign EMS leader</small></span></button>
-          <button class="nav medical-only" data-page="medical"><b>08</b><span>Medical records<small>Reports and history</small></span></button>
           <button class="nav tasks-only" data-page="tasks"><b>09</b><span>Employee tasks<small>Daily and weekly rewards</small></span></button>
           <button class="nav history-only" data-page="callhistory"><b>10</b><span>Call history<small>Responses and outcomes</small></span></button>
         </nav>
@@ -47,12 +51,43 @@
       <div class="workspace">
         <header><div><small>EMS ORGANIZATION</small><h2 id="pageTitle">Medical operations</h2></div><button id="close">&times;</button></header>
         <div class="content">
-          <section class="page active" data-view="overview">
-            <div class="hero"><small>EMERGENCY MEDICAL SERVICES</small><h2>Medical operations</h2><p>Review duty coverage, organization staffing, records, tasks, and operational performance.</p></div>
-            <div class="stats" id="stats"></div>
-            <div class="stats" id="medicStats"></div>
-            <article class="card duty"><div><small>CURRENT STATUS</small><h3 id="dutyTitle">Duty clothing required</h3><p id="dutyText">Visit the EMS wardrobe NPC to choose an approved uniform and begin duty.</p></div></article>
-            <article class="card operations"><div><small>EMS CONTROL</small><h3>Field coordination</h3><p>Live member map and meeting point. Fleet and service-NPC actions stay at their configured NPCs.</p></div><div class="operation-actions"><button class="primary" id="memberMap">Toggle member map</button><button class="primary" id="meetingPoint">Set meeting point</button></div><p id="dailyMissionNpcStatus" hidden></p></article>
+          <section class="page active ems-overview command-center-overview" data-view="overview">
+            <div class="command-stage ems-command-stage">
+              <div class="command-stage__content">
+                <div class="command-stage__eyebrow"><span class="eyebrow-dot"></span><span>EMERGENCY MEDICAL SERVICES</span><span>RESPONSE DESK</span></div>
+                <div class="command-stage__title-row">
+                  <div><h2>Medical operations</h2><p>Shift readiness, staffing, response performance and medical support at a glance.</p></div>
+                  <span id="emsDutyBadge" class="status-pill">OFF DUTY</span>
+                </div>
+                <div class="command-stage__identity">
+                  <div><small>YOUR RANK</small><strong id="emsOverviewRank">—</strong></div>
+                  <div><small>CAREER</small><strong id="emsCareerLabel">EMS RESPONDER</strong></div>
+                  <div><small>TERMINAL</small><strong>F6 / ORGANIZATION</strong></div>
+                </div>
+                <div class="stats command-stats" id="stats"></div>
+                <article class="command-shift-card duty">
+                  <div><small>YOUR SHIFT</small><h3 id="dutyTitle">Off duty</h3><p id="dutyText">Visit the EMS wardrobe to begin duty.</p></div>
+                  <span class="panel-kicker" id="emsShiftKicker">NOT ACTIVE</span>
+                </article>
+              </div>
+              <div class="command-stage__visual" aria-hidden="true">
+                <div class="command-geo command-geo--one"></div><div class="command-geo command-geo--two"></div><div class="command-geo command-geo--three"></div>
+                <img src="assets/org/ems-paramedic.png" alt="">
+                <div class="command-stage__watermark"><span>EMS</span><small>MEDICAL RESPONSE</small></div>
+              </div>
+            </div>
+            <div class="command-panels ems-command-panels">
+              <article class="command-panel command-panel--capabilities"><div class="panel-title"><div><small>ACTIVE ACCESS</small><h3>Available services</h3></div><span class="panel-kicker" id="emsCapabilityCount">0 ACTIVE</span></div><div id="emsCapabilityPills" class="capability-pills"></div></article>
+              <article class="command-panel"><div class="panel-title"><div><small>ON DUTY NOW</small><h3>Available medics</h3></div><span class="panel-kicker" id="emsDutyCount">0 UNIT</span></div><div id="emsDutyPreview" class="duty-preview"></div></article>
+              <article class="command-panel command-panel--activity"><div class="panel-title"><div><small>RECENT ACTIVITY</small><h3>Medical service feed</h3></div><span class="panel-kicker">LATEST</span></div><div id="emsRecentActivity" class="activity-preview"></div></article>
+              <article class="command-panel command-panel--metrics"><div class="panel-title"><div><small>RESPONSE PERFORMANCE</small><h3>Service metrics</h3></div><span class="panel-kicker">LIVE</span></div><div class="stats command-mini-stats" id="medicStats"></div></article>
+              <article class="command-panel command-panel--tools operations"><div><small>EMS CONTROL</small><h3>Field coordination</h3></div><div class="operation-actions"><button class="primary" id="memberMap">Member map</button><button class="primary" id="meetingPoint">Meeting point</button><button class="mini" id="clearMeeting">Clear meeting</button></div><p id="dailyMissionNpcStatus" hidden></p></article>
+            </div>
+            <div class="command-keybar">
+              <div><kbd>F9</kbd><span><b>Dispatch</b><small>Emergency response board</small></span></div>
+              <div><kbd>TAB</kbd><span><b>Medical Records</b><small>Patient &amp; report history</small></span></div>
+              <div><kbd>J</kbd><span><b>Quick Actions</b><small>Medical field actions</small></span></div>
+            </div>
           </section>
           <section class="page" data-view="members"><div class="section-head"><div><small>ORGANIZATION ROSTER</small><h3>EMS members</h3></div></div><div class="list" id="members"></div></section>
           <section class="page" data-view="ranks">
@@ -78,7 +113,7 @@
           <section class="page admin-only" data-view="admin">
             <div class="section-head"><div><small>ADMIN AUTHORITY</small><h3>EMS management</h3><p>Leadership, staffing, hospital billing, rewards, and automatic dispatch.</p></div></div>
             <article class="card form"><label>Leader character ID<input id="leaderCid" inputmode="numeric" placeholder="Character ID"></label><button class="primary danger" id="assignLeader">Assign leader</button></article>
-            <article class="card admin-panel"><h3>Staffing</h3><div class="admin-grid"><label>Character ID<input id="staffCid" inputmode="numeric"></label><label>Starting rank<select id="staffRank"></select></label><label>Suspension minutes<input id="staffMinutes" type="number" min="5" max="43200" value="60"></label><label>Reason<input id="staffReason" maxlength="160" placeholder="Administrative suspension"></label></div><div class="operation-actions"><button class="mini" data-staff-action="hire">Hire</button><button class="mini danger" data-staff-action="fire">Fire</button><button class="mini danger" data-staff-action="suspend">Suspend</button><button class="mini" data-staff-action="reinstate">Reinstate</button></div></article>
+              <article class="card admin-panel"><h3>Existing member administration</h3><p>New recruits must accept a nearby-player G-menu invitation. These controls only recover or manage existing members.</p><div class="admin-grid"><label>Character ID<input id="staffCid" inputmode="numeric"></label><label>Current member rank<select id="staffRank"></select></label><label>Suspension minutes<input id="staffMinutes" type="number" min="5" max="43200" value="60"></label><label>Reason<input id="staffReason" maxlength="160" placeholder="Administrative suspension"></label></div><div class="operation-actions"><button class="mini danger" data-staff-action="fire">Fire</button><button class="mini danger" data-staff-action="suspend">Suspend</button><button class="mini" data-staff-action="reinstate">Reinstate</button></div></article>
             <article class="card admin-panel"><h3>Operations settings</h3><div class="admin-grid"><label>Check-in price<input id="settingTreatment" type="number" min="0"></label><label>Death respawn bill<input id="settingRespawn" type="number" min="0"></label><label>Medic reward<input id="settingReward" type="number" min="0"></label><label>AI arrival delay (seconds)<input id="settingArrival" type="number" min="15" max="600"></label><label>Shared AI radius (metres)<input id="settingRadius" type="number" min="10" max="150"></label><label class="check-field"><input id="settingHospital" type="checkbox"> Hospital enabled</label><label class="check-field"><input id="settingAutoDispatch" type="checkbox"> Automatic AI dispatch</label></div><button class="primary" id="saveSettings">Save settings</button></article>
             <article class="card admin-panel mission-studio">
               <div class="section-head"><div><small>MISSION STUDIO</small><h3>Create EMS missions</h3><p>Choose Place in world, move to the route point, then press E. Saved missions appear immediately on the employee board.</p></div><button class="primary" id="newAdminMission">New mission</button></div>
@@ -151,6 +186,7 @@
       </main>
     </div>
   </section>
-  <script src="app.js?v=5002"></script>
+  <script src="app.js?v=5009"></script>
+  <script src="dashboard-filters.js?v=1"></script>
 </body>
 </html>

@@ -1,0 +1,34 @@
+-- cm-bank v1.8.0 — Banking Polish, ATM Business Improvements & Final Security Pass
+--
+-- This release is UI/UX polish, server hardening, and performance work over
+-- data structures that already exist as of v1.7.0 (bank_transactions,
+-- bank_pending_transfers, bank_saved_payees, bank_atm_locations, bank_tellers,
+-- cm_bank_operation_journal). Recent-payees, the access-context header, and
+-- the ATM reserve-utilisation figure are all computed from existing columns
+-- at query time — none of them needed a new column or table.
+--
+-- v1.8.0.0 requires no destructive schema changes. This file intentionally
+-- contains no CREATE/ALTER statements.
+--
+-- A note on the abandoned "Payment Requests" feature: an earlier, unreleased
+-- v1.8 development pass began (and was later abandoned in favour of this
+-- Banking Polish scope) a Request Money / Payment Request system. If that
+-- interrupted work ever ran against a live database, it may have created a
+-- bank_payment_requests table and/or a request_reference column on
+-- bank_transactions / bank_pending_transfers. As of this release, cm-bank
+-- has zero runtime code that reads or writes any of those — the feature is
+-- fully removed, not merely disabled.
+--
+-- Per the requirement to never destructively drop already-created database
+-- objects as a side effect of an unrelated release: this migration does NOT
+-- drop bank_payment_requests or its columns. If your database was never
+-- touched by that abandoned attempt, none of this applies to you. If it was,
+-- the leftover table/columns are inert and may safely remain; an operator
+-- may drop them manually at their own discretion once satisfied no other
+-- system depends on them, e.g.:
+--
+--   DROP TABLE IF EXISTS bank_payment_requests;
+--   ALTER TABLE bank_transactions DROP COLUMN request_reference;
+--   ALTER TABLE bank_pending_transfers DROP COLUMN request_reference;
+--
+-- (commented out deliberately — this file will never run that for you.)

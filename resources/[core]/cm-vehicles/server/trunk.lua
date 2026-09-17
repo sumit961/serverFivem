@@ -131,6 +131,10 @@ end
 
 RegisterNetEvent('cm-vehicles:server:toggleTrunkDoor', function(plate, netId)
     local src = source
+    local entity = tonumber(netId) and NetworkGetEntityFromNetworkId(tonumber(netId)) or 0
+    if entity ~= 0 and DoesEntityExist(entity) and Entity(entity).state.cmLicenseTest == true then
+        return U.Notify(src, 'License examination vehicles have no accessible trunk.', 'error')
+    end
     plate = CMVehicles.Server.ResolvePlate(plate, netId)
     local vehicle = CMVehicles.Server.GetVehicleByPlate(plate)
     if not vehicle then return U.Notify(src, 'Vehicle not found.', 'error') end
@@ -154,6 +158,10 @@ end)
 
 RegisterNetEvent('cm-vehicles:server:openSharedTrunkInventory', function(plate, netId)
     local src = source
+    local entity = tonumber(netId) and NetworkGetEntityFromNetworkId(tonumber(netId)) or 0
+    if entity ~= 0 and DoesEntityExist(entity) and Entity(entity).state.cmLicenseTest == true then
+        return U.Notify(src, 'License examination vehicles have no accessible trunk.', 'error')
+    end
     plate = CMVehicles.Server.ResolvePlate(plate, netId)
     local vehicle = CMVehicles.Server.GetVehicleByPlate(plate)
     if not vehicle then return U.Notify(src, 'Vehicle not found.', 'error') end

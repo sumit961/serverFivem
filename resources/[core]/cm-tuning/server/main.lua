@@ -511,6 +511,9 @@ RegisterNetEvent('cm-tuning:server:requestOpen', function(data)
 
     local ok, vehicle, row = resolveVehicle(src, data.netId, data.plate)
     if not ok then return sendDenied(src, 'cm-tuning:client:denied', vehicle) end
+    if Entity(vehicle).state.cmLicenseTest == true then
+        return sendDenied(src, 'cm-tuning:client:denied', 'License examination vehicles cannot be modified.')
+    end
 
     local locationIndex = shopLocation(shop, GetEntityCoords(vehicle))
     if not locationIndex then return sendDenied(src, 'cm-tuning:client:denied', 'Drive fully into the tuning bay.') end

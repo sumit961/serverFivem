@@ -3,6 +3,7 @@ local promptService = nil
 local editorOpen = false
 local dialogueService = nil
 local dialogueCamera = nil
+local dialogueContinue = nil
 local greetingState = {}
 local HUD_HIDE_REASON = 'cm-ems:npc-dialogue'
 
@@ -31,6 +32,7 @@ local function loadModel(modelName)
 end
 
 local function spawnServicePed(service)
+    if service.enabled == false then return end
     local model = loadModel(service.model)
     if not model then
         print(('[cm-ems] Invalid appearance service NPC model for %s'):format(tostring(service.id)))
@@ -48,6 +50,13 @@ local function spawnServicePed(service)
     TaskStartScenarioInPlace(ped, 'WORLD_HUMAN_CLIPBOARD', 0, true)
     servicePeds[service.id] = ped
     SetModelAsNoLongerNeeded(model)
+end
+
+local function refreshServicePed(service)
+    local existing = servicePeds[service.id]
+    if existing and DoesEntityExist(existing) then DeleteEntity(existing) end
+    servicePeds[service.id] = nil
+    spawnServicePed(service)
 end
 
 local function drawDoctorName(service, ped)
@@ -95,7 +104,7 @@ local function greetPlayer(service, ped)
     end)
 end
 
-local function closeDialogue()
+local function closeDialogue(runContinue)
     dialogueService = nil
     editorOpen = false
     if dialogueCamera and DoesCamExist(dialogueCamera) then
@@ -107,19 +116,24 @@ local function closeDialogue()
     SetNuiFocus(false, false)
     SendNUIMessage({ action = 'npcDialogue:close' })
     setDialogueHudHidden(false)
+    local continuation = dialogueContinue
+    dialogueContinue = nil
+    if runContinue and continuation then SetTimeout(100, continuation) end
 end
 
-local function openDialogue(service, ped)
+function EmsOpenNpcDialogue(ped, options, continuation)
     if not DoesEntityExist(ped) then return end
+    options = type(options) == 'table' and options or {}
     editorOpen = true
-    dialogueService = service
+    dialogueContinue = type(continuation) == 'function' and continuation or nil
     local head = GetPedBoneCoords(ped, 31086, 0.0, 0.0, 0.08)
     local forward = GetEntityForwardVector(ped)
     local player = PlayerPedId()
-    local stageX = service.coords.x + forward.x * 1.9
-    local stageY = service.coords.y + forward.y * 1.9
-    RequestCollisionAtCoord(stageX, stageY, service.coords.z)
-    SetEntityCoordsNoOffset(player, stageX, stageY, service.coords.z, false, false, false)
+    local pedCoords = GetEntityCoords(ped)
+    local stageX = pedCoords.x + forward.x * 1.9
+    local stageY = pedCoords.y + forward.y * 1.9
+    RequestCollisionAtCoord(stageX, stageY, pedCoords.z)
+    SetEntityCoordsNoOffset(player, stageX, stageY, pedCoords.z, false, false, false)
     SetEntityHeading(player, (GetEntityHeading(ped) + 180.0) % 360.0)
     FreezeEntityPosition(player, true)
     local cameraX = head.x + forward.x * 1.05
@@ -143,29 +157,35 @@ local function openDialogue(service, ped)
     SetNuiFocus(true, true)
     SendNUIMessage({
         action = 'npcDialogue:open',
+        name = options.name or 'Medical Staff',
+        role = options.role or 'CM MEDICAL',
+        quote = options.quote or 'How can I help you?',
+        continueLabel = options.continueLabel or 'Continue',
+    })
+end
+
+local function openDialogue(service, ped)
+    dialogueService = service
+    EmsOpenNpcDialogue(ped, {
         name = service.name,
         role = service.label,
         quote = 'Welcome. I can help update your professional appearance and make sure you are ready for duty.',
         continueLabel = 'I would like to update my appearance',
-    })
+    }, function()
+        editorOpen = true
+        TriggerEvent('cm-characters:client:openAppearanceService', { service = service.service, provider = service.name })
+    end)
 end
 
 RegisterNUICallback('npcDialogueClose', function(_, cb)
-    closeDialogue()
+    closeDialogue(false)
     cb({ ok = true })
 end)
 
 RegisterNUICallback('npcDialogueContinue', function(_, cb)
-    local service = dialogueService
-    closeDialogue()
-    if service then
-        editorOpen = true
-        TriggerEvent('cm-characters:client:openAppearanceService', {
-            service = service.service,
-            provider = service.name,
-        })
-    end
-    cb({ ok = service ~= nil })
+    local canContinue = dialogueContinue ~= nil
+    closeDialogue(true)
+    cb({ ok = canContinue })
 end)
 
 CreateThread(function()
@@ -180,26 +200,28 @@ CreateThread(function()
         if not editorOpen and not IsPauseMenuActive() then
             local playerCoords = GetEntityCoords(PlayerPedId())
             for _, service in ipairs(Config.AppearanceServices or {}) do
-                local distance = #(playerCoords - vector3(service.coords.x, service.coords.y, service.coords.z))
-                if distance <= 12.0 then
-                    wait = 0
-                    local servicePed = servicePeds[service.id]
-                    drawDoctorName(service, servicePed)
-                    local state = greetingState[service.id] or {}
-                    if distance <= 5.0 and not state.inside then
-                        state.inside = true
-                        greetingState[service.id] = state
-                        greetPlayer(service, servicePed)
-                    elseif distance > 7.0 then
-                        state.inside = false
-                        greetingState[service.id] = state
+                if service.enabled ~= false then
+                    local distance = #(playerCoords - vector3(service.coords.x, service.coords.y, service.coords.z))
+                    if distance <= 12.0 then
+                        wait = 0
+                        local servicePed = servicePeds[service.id]
+                        drawDoctorName(service, servicePed)
+                        local state = greetingState[service.id] or {}
+                        if distance <= 5.0 and not state.inside then
+                            state.inside = true
+                            greetingState[service.id] = state
+                            greetPlayer(service, servicePed)
+                        elseif distance > 7.0 then
+                            state.inside = false
+                            greetingState[service.id] = state
+                        end
+                        if not nearestDistance or distance < nearestDistance then
+                            nearest, nearestDistance = service, distance
+                        end
+                    else
+                        local state = greetingState[service.id]
+                        if state then state.inside = false end
                     end
-                    if not nearestDistance or distance < nearestDistance then
-                        nearest, nearestDistance = service, distance
-                    end
-                else
-                    local state = greetingState[service.id]
-                    if state then state.inside = false end
                 end
             end
         end
@@ -228,6 +250,24 @@ end)
 
 RegisterNetEvent('cm-ems:client:appearanceServiceClosed', function()
     editorOpen = false
+end)
+
+RegisterNetEvent('cm-ems:client:appearanceServiceUpdated', function(serviceId, data)
+    for _, service in ipairs(Config.AppearanceServices or {}) do
+        if tostring(service.id) == tostring(serviceId) then
+            data = type(data)=='table' and data or {}
+            service.enabled = data.enabled ~= false
+            if data.model then service.model=data.model end
+            if data.name then service.name=data.name end
+            if data.label then service.label=data.label end
+            if type(data.location)=='table' then
+                local c=data.location; service.coords=vector4(tonumber(c.x) or service.coords.x,tonumber(c.y) or service.coords.y,
+                    tonumber(c.z) or service.coords.z,tonumber(c.heading) or service.coords.w)
+            end
+            refreshServicePed(service)
+            break
+        end
+    end
 end)
 
 AddEventHandler('onResourceStop', function(resource)

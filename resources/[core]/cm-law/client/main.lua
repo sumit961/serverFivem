@@ -5,11 +5,23 @@ function CmLawMenuOpen()
 end
 
 local function closeMenu()
-    if not open then return end
     open = false
     SetNuiFocus(false, false)
-    SendNUIMessage({ action = 'close' })
+    SendNUIMessage({ cmInterface = "law", action = 'close' })
 end
+
+CreateThread(function()
+    while true do
+        if open then
+            DisableControlAction(0, 200, true)
+            DisableControlAction(0, 202, true)
+            if IsDisabledControlJustReleased(0, 200) or IsDisabledControlJustReleased(0, 202) then closeMenu() end
+            Wait(0)
+        else
+            Wait(250)
+        end
+    end
+end)
 
 -- Bare global: client/vehicles.lua's "Set location" flow needs to close the
 -- F9 menu itself before warping the player into the location dummy.
@@ -19,7 +31,12 @@ end
 
 local function refresh()
     local data = lib.callback.await('cm-law:server:dashboard', false)
-    SendNUIMessage({ action = 'dashboard', data = data })
+    if not data or data.ok ~= true then
+        closeMenu()
+        TriggerEvent('cm-hud:client:notify', data and data.error or 'Organization access is no longer available.', 'error')
+        return data or { ok = false, error = 'Organization access is no longer available.' }
+    end
+    SendNUIMessage({ cmInterface = "law", action = 'dashboard', data = data })
     return data
 end
 
@@ -39,7 +56,7 @@ local function openMenu(initialTab)
     end
     open = true
     SetNuiFocus(true, true)
-    SendNUIMessage({ action = 'open', data = data, initialTab = initialTab,
+    SendNUIMessage({ cmInterface = "law", action = 'open', data = data, initialTab = initialTab,
         standaloneMode = initialTab == 'dispatch' or initialTab == 'mdt',
         facilityOnly = initialTab == 'fleet' })
 end
@@ -65,7 +82,7 @@ function OpenLawQuickMenu()
         TriggerEvent('cm-hud:client:notify', 'Go on duty through your organization wardrobe to use quick actions.', 'inform')
         return false
     end
-    TriggerEvent('cm-police:client:openLawQuickMenu', state)
+    TriggerEvent('cm-law:client:openLawQuickMenu', state)
     return true
 end
 
@@ -96,7 +113,7 @@ function OpenLawMenu(initialTab)
 end
 
 RegisterCommand(Config.MenuCommand, function()
-    OpenLawQuickMenu()
+    openMenu('overview')
 end, false)
 
 RegisterNetEvent('cm-law:client:openDashboard', function() openMenu('overview') end)
@@ -117,27 +134,23 @@ RegisterNetEvent('cm-law:client:openDispatch', function()
 end)
 
 RegisterNUICallback('close', function(_, cb) closeMenu(); cb({ ok = true }) end)
+RegisterNUICallback('escape', function(_, cb) closeMenu(); cb({ ok = true }) end)
+RegisterNUICallback('bookingClose', function(_, cb)
+    SetNuiFocus(false, false)
+    cb({ ok = true })
+end)
+RegisterNUICallback('bookingSubmit', function(data, cb)
+    local result = lib.callback.await('cm-law:server:bookSuspect', false, type(data) == 'table' and data or {})
+    cb(result or { ok = false, error = 'No response from booking authority.' })
+    if result and result.ok then
+        SetNuiFocus(false, false)
+        TriggerEvent('cm-hud:client:notify', result.message or 'Booking confirmed.', 'success')
+    end
+end)
 RegisterNUICallback('refresh', function(_, cb) cb(refresh() or { ok = false }) end)
--- Overview dashboard quick actions: reuse the same off-duty/standalone/quick-menu
--- entry points the physical F10/TAB/J keys and radial quick menu already call,
--- so the dashboard's shortcut tiles never duplicate logic or bypass a check.
-RegisterNUICallback('setDutyOff', function(_, cb)
+RegisterNUICallback('endDuty', function(_, cb)
     local result = lib.callback.await('cm-law:server:setDuty', false, false)
-    if result and result.ok then TriggerEvent('cm-law:client:restorePersonalOutfit') end
     cb(result or { ok = false, error = 'No response from server.' })
-    if result and result.ok then refresh() end
-end)
-RegisterNUICallback('openStandalone', function(data, cb)
-    local tab = data and data.tab
-    closeMenu()
-    if tab == 'dispatch' then TriggerEvent('cm-law:client:openDispatch')
-    elseif tab == 'mdt' then TriggerEvent('cm-law:client:openMdt') end
-    cb({ ok = true })
-end)
-RegisterNUICallback('openQuickMenu', function(_, cb)
-    closeMenu()
-    OpenLawQuickMenu()
-    cb({ ok = true })
 end)
 RegisterNUICallback('staffAction', function(data, cb)
     local result = lib.callback.await('cm-law:server:staffAction', false, data.action, data)
@@ -158,6 +171,24 @@ end)
 
 -- Activity Logs page (html/app.js) -- on-demand fetch, same shape as
 -- fleetCatalog/dispatchActiveCalls.
+RegisterNUICallback('toggleMemberMap', function(_, cb)
+    local enabled = CMLawTrackingToggle and CMLawTrackingToggle()
+    -- Tell the server whether to keep pushing positions to us, so an
+    -- organization with nobody watching costs nothing to broadcast.
+    if enabled ~= nil then TriggerServerEvent('cm-law:server:toggleMemberMap', enabled == true) end
+    cb({ ok = enabled ~= nil, enabled = enabled == true })
+end)
+
+RegisterNUICallback('setMeetingPoint', function(data, cb)
+    local payload = { clear = type(data) == 'table' and data.clear == true }
+    if not payload.clear then
+        local coords = GetEntityCoords(PlayerPedId())
+        payload.x, payload.y, payload.z = coords.x, coords.y, coords.z
+    end
+    local ok, message = lib.callback.await('cm-law:server:setMeetingPoint', false, payload)
+    cb({ ok = ok == true, message = message })
+end)
+
 RegisterNUICallback('activityLog', function(_, cb)
     cb({ list = lib.callback.await('cm-law:server:activityLog', false) or {} })
 end)
@@ -204,7 +235,11 @@ RegisterNUICallback('dispatchHistory', function(_, cb)
     cb({ list = lib.callback.await('cm-law:server:dispatchHistory', false) or {} })
 end)
 RegisterNUICallback('dispatchAccept', function(data, cb)
-    local ok, message = lib.callback.await('cm-law:server:acceptDispatchCall', false, data.callId)
+    local ok, message, call = lib.callback.await('cm-law:server:acceptDispatchCall', false, data.callId)
+    if ok and data.route ~= false and type(call) == 'table' and type(call.coords) == 'table'
+        and tonumber(call.coords.x) and tonumber(call.coords.y) then
+        SetNewWaypoint(tonumber(call.coords.x) + 0.0, tonumber(call.coords.y) + 0.0)
+    end
     cb({ ok = ok == true, message = ok and message or nil, error = not ok and message or nil })
 end)
 RegisterNUICallback('dispatchEnRoute', function(data, cb)
@@ -218,6 +253,40 @@ end)
 RegisterNUICallback('dispatchOfficerAlert', function(data, cb)
     if not data or data.confirmed ~= true then return cb({ ok = false, error = 'Confirmation required.' }) end
     local ok, message = lib.callback.await('cm-law:server:createOfficerAlert', false, data.alertType)
+    cb({ ok = ok == true, message = ok and message or nil, error = not ok and message or nil })
+end)
+RegisterNUICallback('dispatchLiveOperations', function(_, cb)
+    cb(lib.callback.await('cm-law:server:liveOperations', false) or { ok = false, error = 'Live operations unavailable.' })
+end)
+RegisterNUICallback('setUnitStatus', function(data, cb)
+    local ok, message = lib.callback.await('cm-law:server:setUnitStatus', false, data and data.status)
+    cb({ ok = ok == true, message = ok and message or nil, error = not ok and message or nil })
+end)
+RegisterNUICallback('setUnitCallsign', function(data, cb)
+    local ok, message = lib.callback.await('cm-law:server:setUnitCallsign', false, data and data.callsign)
+    cb({ ok = ok == true, message = ok and message or nil, error = not ok and message or nil })
+end)
+RegisterNUICallback('dispatchAssignUnit', function(data, cb)
+    local ok, message = lib.callback.await('cm-law:server:assignDispatchUnit', false, data and data.callId, data and data.characterId)
+    cb({ ok = ok == true, message = ok and message or nil, error = not ok and message or nil })
+end)
+RegisterNUICallback('dispatchReleaseUnit', function(data, cb)
+    local ok, message = lib.callback.await('cm-law:server:releaseDispatchUnit', false, data and data.callId, data and data.characterId)
+    cb({ ok = ok == true, message = ok and message or nil, error = not ok and message or nil })
+end)
+RegisterNUICallback('dispatchSetPriority', function(data, cb)
+    local ok, message = lib.callback.await('cm-law:server:setDispatchPriority', false, data and data.callId, data and data.priority)
+    cb({ ok = ok == true, message = ok and message or nil, error = not ok and message or nil })
+end)
+RegisterNUICallback('dispatchRouteUnit', function(data, cb)
+    local ok, message, coords = lib.callback.await('cm-law:server:routeToUnit', false, data and data.characterId)
+    if ok and type(coords) == 'table' and tonumber(coords.x) and tonumber(coords.y) then
+        SetNewWaypoint(tonumber(coords.x) + 0.0, tonumber(coords.y) + 0.0)
+    end
+    cb({ ok = ok == true, message = ok and message or nil, error = not ok and message or nil })
+end)
+RegisterNUICallback('dispatchOnScene', function(data, cb)
+    local ok, message = lib.callback.await('cm-law:server:setDispatchResponseStatus', false, data and data.callId, 'on_scene')
     cb({ ok = ok == true, message = ok and message or nil, error = not ok and message or nil })
 end)
 

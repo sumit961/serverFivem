@@ -1,0 +1,6 @@
+# Runtime captures written by screenshot-basic (server/cuffs.lua, impound.lua).
+# They are player data, not source: they bloat the repo, and every joining
+# player downloads whatever is committed here via the fxmanifest files{} glob.
+# server/retention.lua prunes them on disk after Config.EvidenceRetentionDays.
+*.jpg
+!.gitignore

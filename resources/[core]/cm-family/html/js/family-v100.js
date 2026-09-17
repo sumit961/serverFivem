@@ -1,6 +1,5 @@
 (function () {
   'use strict';
-
   const root = document.getElementById('root');
   const createRoot = document.getElementById('create');
   const content = document.getElementById('content');
@@ -8,25 +7,26 @@
   const toast = document.getElementById('invite-toast');
   const adminRoot = document.getElementById('family-admin');
   let adminState = null;
-
   let state = null;          // last menu snapshot
   let activeTab = 'overview';
   let createSelection = null;
-
   const RES = (function () {
     // Resource name for NUI fetch. GetParentResourceName is provided by CEF.
     if (typeof GetParentResourceName === 'function') return GetParentResourceName();
     return 'cm-family';
   })();
-
   function post(cb, data) {
     return fetch(`https://${RES}/${cb}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=UTF-8' },
       body: JSON.stringify(data || {}),
-    }).then(r => r.json()).catch(() => ({ ok: false }));
+    }).then(async r => {
+      if (!r.ok) return { ok: false };
+      const text = await r.text();
+      if (!text) return { ok: true };
+      try { return JSON.parse(text); } catch (_) { return { ok: true }; }
+    }).catch(() => ({ ok: false }));
   }
-
   const money = n => '$' + (Number(n) || 0).toLocaleString('en-US');
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const formatTimestamp = (value, length = 19) => {
@@ -41,7 +41,6 @@
     }
     return String(value).replace('T', ' ').slice(0, length);
   };
-
   const FAMILY_SYMBOLS = {
     crown: '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M8 47 6 18l14 14 12-23 12 23 14-14-2 29H8Z"/><path d="M10 47h44v9H10z"/></svg>',
     flower: '<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="15" r="12"/><circle cx="47" cy="24" r="12"/><circle cx="47" cy="41" r="12"/><circle cx="32" cy="49" r="12"/><circle cx="17" cy="41" r="12"/><circle cx="17" cy="24" r="12"/><circle cx="32" cy="32" r="10"/></svg>',
@@ -55,7 +54,6 @@
     sun: '<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="14"/><path d="M32 3v10M32 51v10M3 32h10M51 32h10M12 12l7 7M45 45l7 7M52 12l-7 7M19 45l-7 7" stroke="currentColor" stroke-width="6"/></svg>',
   };
   const symbolSvg = key => FAMILY_SYMBOLS[key] || FAMILY_SYMBOLS.shield;
-
   // ---------------- open / close ----------------
   function openMenu(snapshot) {
     state = snapshot;
@@ -65,14 +63,12 @@
     renderHeader();
     renderTab(activeTab);
   }
-
   function openCreate(res) {
     root.classList.remove('is-open');
     createRoot.classList.add('is-open');
     createSelection = null;
     renderCreate(res);
   }
-
   function closeAll() {
     if (adminRoot.classList.contains('is-open')) {
       adminRoot.classList.remove('is-open');
@@ -83,17 +79,17 @@
     createRoot.classList.remove('is-open');
     post('close', {});
   }
-
   // ---------------- header ----------------
   function renderHeader() {
     const f = state.family;
+    const familyColor = /^#[0-9a-f]{6}$/i.test(String(f.color || '')) ? f.color : '#2ce7f3';
     document.getElementById('family-name').textContent = f.name;
     document.getElementById('family-sub').textContent =
       (f.tag ? '[' + f.tag + ']  ' : '') + state.members.length + ' member' + (state.members.length === 1 ? '' : 's');
     document.getElementById('crest').style.background = f.color || '#00f0ff22';
     document.getElementById('crest').style.borderColor = f.color || '#00f0ff';
+    document.getElementById('crest').textContent = String(f.name || 'F').charAt(0).toUpperCase();
   }
-
   // ---------------- tabs ----------------
   document.getElementById('tabs').addEventListener('click', e => {
     const tab = e.target.closest('.tab');
@@ -105,12 +101,12 @@
 
   function renderTab(tab) {
     if (!state) return;
-    const titles = { overview: 'Family information', manage: 'Management', members: 'Members', ranks: 'Ranks & access', vehicles: 'Family vehicles', logs: 'Activity logs' };
+    const titles = { overview: 'Family information', manage: 'Management', members: 'Members', ranks: 'Ranks & access', vehicles: 'Family vehicles', treasury: 'Family treasury', events: 'Events', logs: 'Activity logs' };
     const heading = document.getElementById('workspace-title');
     if (heading) heading.textContent = titles[tab] || titles.overview;
     ({
       overview: renderInformation, manage: renderManagementHub, members: renderMembers, ranks: renderRanks,
-      vehicles: renderVehicles, logs: renderLogs,
+      vehicles: renderVehicles, treasury: renderBank, events: renderGameplayEvents, logs: renderEvents,
     }[tab] || renderInformation)();
   }
 
@@ -152,6 +148,7 @@
           ${tile('CONTROL', 'Display family on map', 'Toggle nearby family-member minimap markers.', 'tracking', true)}
           ${tile('CONTROL', 'Set meeting point', 'Send your position to every online member.', 'meeting', can('family.set_meeting'))}
           ${tile('CONTROL', 'Manage ranks', 'Configure tiers and exact house permissions.', 'ranks', can('family.manage_ranks') || can('family.manage_perms'))}
+          ${tile('CONTROL', 'Open family treasury', 'Review the balance, shared expenses, and contribution history.', 'treasury', can('bank.view') || can('bank.deposit') || can('bank.withdraw'))}
         </section>
         <section class="hub-group"><h3>Family</h3>
           ${tile('FAMILY', 'Manage members', 'Invite, promote, demote, title, or remove members.', 'members', can('family.invite') || can('family.promote') || can('family.demote') || can('family.kick'))}
@@ -167,7 +164,7 @@
 
     document.querySelectorAll('[data-hub-action]').forEach(button => button.onclick = () => {
       const action = button.dataset.hubAction;
-      if (['members', 'ranks', 'vehicles', 'logs'].includes(action)) return goTab(action);
+      if (['members', 'ranks', 'vehicles', 'treasury', 'logs'].includes(action)) return goTab(action);
       if (action === 'recall') return confirmAct('Recall every available outside car into the family garage?', 'recallAllFamilyCars', {});
       if (action === 'meeting') return confirmAct('Send your current location to all online family members?', 'setMeetingPoint', {});
       if (action === 'tracking') {
@@ -191,32 +188,70 @@
     const f = state.family;
     const online = state.members.filter(member => member.online).length;
     const week = state.weeklyStats || {};
+    const progression = state.progression || {};
+    const leaderboard = Array.isArray(state.contributionLeaderboard) ? state.contributionLeaderboard : [];
     const rank = (state.ranks.find(item => item.id === state.viewer.rankId) || {}).name || 'Member';
-    const founder = state.members.find(member => String(member.cid) === String(f.founderCid));
-    const symbol = f.symbol || state.viewer.symbol || 'shield';
-    const color = f.color || state.viewer.symbolColor || '#00f0ff';
+    const featuredEvent = (state.familyEvents || [])[0];
+    const house = state.familyHouse || (f.houseId ? { id: f.houseId, label: `House ${String(f.houseId).replace(/#/g, '')}` } : null);
+    const houseNumberClean = house ? String(house.houseNumber || house.id || '').replace(/[#\s]+/g, '') : (f.houseId ? String(f.houseId).replace(/[#\s]+/g, '') : '');
+    const houseLabelClean = house ? (house.label ? String(house.label).replace(/#/g, '').trim() : (houseNumberClean ? `House ${houseNumberClean}` : 'Family House')) : 'NO FAMILY HOUSE';
+    const garageUsed = Array.isArray(state.vehicles) ? state.vehicles.length : 0;
+    const garageCapacity = Number(house && house.garageCapacity) || Math.max(garageUsed, 10);
+    const eventArt = featuredEvent && featuredEvent.key === 'store_robbery' ? 'armoured-transport-v1.png' : 'armoured-transport-v1.png';
+    const safeCssUrl = value => {
+      const raw = String(value || '');
+      if (/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(raw)) return raw;
+      if (!/^https?:\/\//i.test(raw)) return '';
+      return encodeURI(raw).replace(/['"()\\]/g, char => '%' + char.charCodeAt(0).toString(16).toUpperCase());
+    };
+    const houseImage = safeCssUrl(house && (house.imageData || house.image));
+    const houseStyle = houseImage ? `style="background-image:linear-gradient(0deg,rgba(5,10,20,.94),rgba(5,10,20,.08)),url('${esc(houseImage)}')"` : '';
+    const actionGoal = Math.min(Number(week.actions) || 0, 3);
+    const contributionGoal = Math.min(Number(week.deposits) || 0, 8000);
+    const actionPercent = Math.round((actionGoal / 3) * 100);
+    const contributionPercent = Math.round((contributionGoal / 8000) * 100);
+    const completedGoals = (actionGoal >= 3 ? 1 : 0) + (contributionGoal >= 8000 ? 1 : 0) + (online >= 2 ? 1 : 0);
     content.innerHTML = `
-      <section class="family-info-hero">
-        <div class="family-info-hero__copy"><span class="hub-eyebrow">FAMILY INFORMATION</span><h2>${esc(f.name)}</h2><p>${f.tag ? `[${esc(f.tag)}] ` : ''}Your family home, members, shared transport, and access in one place.</p></div>
-        <div class="family-info-emblem" style="color:${esc(color)}">${symbolSvg(symbol)}</div>
+      <section class="cinematic-family-hero">
+        <div class="cinematic-family-hero__copy"><span class="cinematic-source">SHARED CM HERO ART</span><strong>LEVEL ${Math.max(1, Number(state.viewer.tier) || 1)} FAMILY</strong><h2>${esc(f.name)}</h2><span class="cinematic-rank">${esc(rank)}</span>
+          <div class="cinematic-reputation"><i style="width:${Math.min(100, Math.max(8, ((Number(progression.currentXp) || 0) / (Number(progression.nextLevelXp) || 1000)) * 100))}%"></i></div><div class="cinematic-reputation__labels"><span>Family reputation · level ${Number(progression.level) || 1}</span><b>${Number(progression.currentXp) || 0} / ${Number(progression.nextLevelXp) || 1000} XP</b></div>
+          <button class="btn cinematic-primary" id="overview-events-btn">VIEW FAMILY EVENTS &rarr;</button>
+        </div>
       </section>
-      <section class="family-facts">
-        <div class="family-fact"><span>Head of family</span><strong>${esc(founder ? founder.name : 'Character ' + f.founderCid)}</strong><small>CID ${esc(f.founderCid)}</small></div>
-        <div class="family-fact"><span>Family members</span><strong>${state.members.length}</strong><small>${online} online now</small></div>
-        <div class="family-fact"><span>Your access level</span><strong>${esc(rank)}</strong><small>Rank tier ${Number(state.viewer.tier) || 0}</small></div>
-        <div class="family-fact"><span>Family home</span><strong>${f.houseId ? 'House #' + f.houseId : 'Not linked'}</strong><small>${f.houseId ? 'Property access active' : 'No family property'}</small></div>
+      <section class="cinematic-feature-grid">
+        <article class="cinematic-feature cinematic-feature--event" style="background-image:linear-gradient(0deg,rgba(5,10,20,.96),rgba(5,10,20,.05)),url('assets/${eventArt}')"><div class="cinematic-feature__copy"><span class="cinematic-feature__tag">UPCOMING EVENT</span><h3>${esc(featuredEvent ? featuredEvent.name : 'FAMILY EVENT')}</h3><div class="cinematic-feature__stats"><span><small>STATUS</small><strong>${esc(featuredEvent ? String(featuredEvent.status).toUpperCase() : 'COMING SOON')}</strong></span><span><small>RECOMMENDED</small><strong>${featuredEvent ? Number(featuredEvent.recommendedMembers) || 1 : 0} MEMBERS</strong></span><span><small>DIFFICULTY</small><strong>${esc(featuredEvent ? String(featuredEvent.difficulty).toUpperCase() : '--')}</strong></span><button class="btn ghost" id="featured-event-btn">VIEW EVENT &rarr;</button></div></div></article>
+        <article class="cinematic-feature cinematic-feature--house" ${houseStyle}><div class="cinematic-feature__copy"><span class="cinematic-feature__tag">FAMILY HOUSE</span><h3>${esc(houseLabelClean)}</h3><div class="cinematic-feature__stats">${houseNumberClean ? `<span><small>HOUSE NO.</small><strong>${esc(houseNumberClean)}</strong></span>` : ''}<span><small>GARAGE</small><strong>${garageUsed} / ${garageCapacity}</strong></span><span><small>ONLINE</small><strong>${online} MEMBER${online === 1 ? '' : 'S'}</strong></span><div class="cinematic-feature__actions"><button class="btn ghost" id="overview-house-route-btn">ROUTE &rarr;</button><button class="btn ghost" id="overview-management-btn">MANAGE &rarr;</button></div></div></div></article>
       </section>
-      <section class="family-dashboard-grid">
-        <article class="family-status-card"><div><span class="hub-eyebrow">THIS WEEK</span><h3>Family activity</h3><p>${Number(week.actions) || 0} recorded actions across ${Number(week.activeMembers) || 0} active members.</p></div><div class="family-status-stats"><span><strong>${Number(week.newMembers) || 0}</strong> new members</span><span><strong>${online}</strong> online</span></div></article>
-        <article class="family-status-card"><div><span class="hub-eyebrow">QUICK STATUS</span><h3>Family network</h3><p>Nearby member markers are ${(state.clientTracking && state.clientTracking.memberBlipsEnabled) ? 'enabled' : 'disabled'} for this character.</p></div><button class="btn ghost" id="open-management-btn">Open management</button></article>
-      </section>
+      <section class="cinematic-lower-grid"><article class="cinematic-dashboard-card"><span class="hub-eyebrow">FAMILY PROGRESSION &middot; LEVEL ${Number(progression.level) || 1}</span><h3>Build reputation together</h3><div class="progression-score"><strong>${Number(progression.reputation) || 0}</strong><span>reputation</span><b>${Number(progression.currentXp) || 0} / ${Number(progression.nextLevelXp) || 1000} XP</b></div><div class="cinematic-goal"><span>Complete family activities <b>${actionGoal}/3</b></span><i><em style="width:${actionPercent}%"></em></i></div><div class="cinematic-goal"><span>Contribute to the family <b>${money(contributionGoal)} / $8,000</b></span><i><em style="width:${contributionPercent}%"></em></i></div></article>
+        <article class="cinematic-dashboard-card"><span class="hub-eyebrow">ONLINE MEMBERS &middot; ${online}/${state.members.length}</span><h3>Family network</h3><div class="cinematic-member-list">${state.members.filter(member => member.online).slice(0, 3).map(member => `<div><span>${esc(String(member.name || '?').charAt(0).toUpperCase())}</span><strong>${esc(member.name)}</strong><small>${esc(member.rankName || 'Member')}</small></div>`).join('') || '<p>No family members are online.</p>'}</div></article></section>
+      <section class="family-economy-grid"><article class="cinematic-dashboard-card family-treasury-summary"><span class="hub-eyebrow">FAMILY TREASURY</span><h3>${money(f.bankBalance)}</h3><div class="treasury-summary-row"><span>Income this week <b>${money((state.treasury || {}).income7d || week.deposits)}</b></span><span>Expenses <b>${money((state.treasury || {}).expenses7d || week.withdrawals)}</b></span></div><button class="btn ghost sm" id="overview-treasury-btn">OPEN TREASURY &rarr;</button></article><article class="cinematic-dashboard-card"><span class="hub-eyebrow">CONTRIBUTION LEADERBOARD</span><h3>Top family contributors</h3><div class="contribution-leaderboard">${leaderboard.slice(0, 5).map((member, index) => `<div><i>${index + 1}</i><strong>${esc(member.name)}</strong><small>${money(member.weeklyContribution)} this week</small></div>`).join('') || '<p>No contributions recorded yet.</p>'}</div></article></section>
       <section class="family-announcement">
         <div class="family-announcement__head"><div><span class="hub-eyebrow">MESSAGE FROM THE FAMILY</span><h3>${f.announcement ? 'Latest announcement' : 'No announcement yet'}</h3></div>${can('family.manage_announcement') ? '<button class="btn ghost sm" id="announcement-edit">Edit message</button>' : ''}</div>
         <p class="family-announcement__message">${esc(f.announcement || 'The family leadership has not posted a message.')}</p>
         ${f.announcement ? `<small>${esc(f.announcementByName || 'Family leadership')} · ${esc(formatTimestamp(f.announcementAt, 16))}</small>` : ''}
         <div class="family-announcement__editor" id="announcement-editor" hidden><textarea class="input" id="announcement-message" maxlength="280" rows="4" placeholder="Write a short message for your family...">${esc(f.announcement || '')}</textarea><div class="family-announcement__actions"><span id="announcement-count">${String(f.announcement || '').length}/280</span><button class="btn ghost sm" id="announcement-cancel">Cancel</button><button class="btn sm" id="announcement-save">Save message</button></div></div>
       </section>`;
-    document.getElementById('open-management-btn').onclick = () => goTab('manage');
+    document.getElementById('overview-events-btn').onclick = () => goTab('events');
+    document.getElementById('featured-event-btn').onclick = () => goTab('events');
+    const routeBtn = document.getElementById('overview-house-route-btn');
+    if (routeBtn) {
+      routeBtn.onclick = () => {
+        if (!house) {
+          flash('No family house is assigned.', 'error');
+          return;
+        }
+        const coords = house.doorCoords || house.coords || house.door;
+        post('routeToHouse', { houseId: house.id, coords }).then(res => {
+          if (res && res.ok) {
+            flash(houseNumberClean ? `GPS route marked to Family House (${houseNumberClean}).` : 'GPS route marked to Family House.', 'ok');
+          } else {
+            flash('Could not mark GPS route to family house.', 'error');
+          }
+        });
+      };
+    }
+    document.getElementById('overview-management-btn').onclick = () => goTab('manage');
+    document.getElementById('overview-treasury-btn').onclick = () => goTab('treasury');
     const editAnnouncement = document.getElementById('announcement-edit');
     if (editAnnouncement) editAnnouncement.onclick = () => {
       const editor = document.getElementById('announcement-editor');
@@ -530,6 +565,8 @@
   // ---------------- bank ----------------
   function renderBank() {
     const f = state.family;
+    const treasury = state.treasury || {};
+    const leaderboard = Array.isArray(state.contributionLeaderboard) ? state.contributionLeaderboard : [];
     const log = (state.bankLog || []).map(l => `
       <div class="log-row">
         <span class="when">${esc(formatTimestamp(l.created_at, 16))}</span>
@@ -537,8 +574,12 @@
       </div>`).join('');
 
     content.innerHTML = `
+      <div class="grid grid--3" style="margin-bottom:18px">
+        <div class="card treasury-balance-card"><h3>Available treasury</h3><div class="big">${money(f.bankBalance)}</div><div class="row__sub">Shared family funds</div></div>
+        <div class="card"><h3>Income this week</h3><div class="big treasury-positive">${money(treasury.income7d || 0)}</div><div class="row__sub">Deposits and contributions</div></div>
+        <div class="card"><h3>Expenses this week</h3><div class="big treasury-expense">${money(treasury.expenses7d || 0)}</div><div class="row__sub">Withdrawals and charges</div></div>
+      </div>
       <div class="grid grid--2" style="margin-bottom:18px">
-        <div class="card"><h3>Balance</h3><div class="big">${money(f.bankBalance)}</div></div>
         <div class="card">
           <h3>Move money</h3>
           <div class="inline" style="margin-top:8px">
@@ -547,6 +588,7 @@
             ${can('bank.withdraw') ? '<button class="btn" id="withdraw-btn">Withdraw</button>' : ''}
           </div>
         </div>
+        <div class="card"><h3>Contribution leaderboard</h3><div class="contribution-leaderboard contribution-leaderboard--dark">${leaderboard.slice(0, 5).map((member, index) => `<div><i>${index + 1}</i><strong>${esc(member.name)}</strong><small>${money(member.totalContribution)} total · ${money(member.weeklyContribution)} this week</small></div>`).join('') || '<p>No contributions recorded yet.</p>'}</div></div>
       </div>
       <div class="section-title">Recent movements</div>
       ${log ? `<div class="list">${log}</div>` : '<div class="empty">No transactions yet.</div>'}`;
@@ -608,6 +650,144 @@
       if (list) list.innerHTML = renderRows(filter.value) || '<div class="empty">No activity in this category.</div>';
     };
   }
+
+  // ---------------- gameplay events ----------------
+  function renderGameplayEvents() {
+    const events = Array.isArray(state.familyEvents) ? state.familyEvents : [];
+    const label = value => String(value || '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+    const listItems = items => (Array.isArray(items) && items.length)
+      ? `<ul>${items.map(item => `<li>${esc(item)}</li>`).join('')}</ul>`
+      : '<p class="event-catalogue__muted">Nothing listed.</p>';
+    const renderPreview = item => item ? `
+      <section class="event-preview gameplay-event-preview" style="--event-accent:${esc(item.accent || '#52dce9')}">
+        <div class="event-preview__hero gameplay-event-preview__hero">
+          <div><span class="hub-eyebrow">${esc(label(item.category || 'Family event'))}</span><h3>${esc(item.name)}</h3><p>${esc(item.description || '')}</p></div>
+          <span class="gameplay-event-status gameplay-event-status--${esc(item.status || 'unavailable')}">${esc(label(item.status || 'Unavailable'))}</span>
+        </div>
+        <div class="gameplay-event-stats">
+          <div><span>Difficulty</span><strong>${esc(item.difficulty || 'Unknown')}</strong></div>
+          <div><span>Recommended</span><strong>${Number(item.recommendedMembers) || 1} members</strong></div>
+          <div><span>Duration</span><strong>${Number(item.durationMinutes) || 0} min</strong></div>
+          <div><span>Cooldown</span><strong>${Number(item.cooldownMinutes) || 0} min</strong></div>
+        </div>
+        <div class="gameplay-event-location"><span>Schedule</span><strong>${esc(item.schedule || 'To be announced')}</strong><span>Location</span><strong>${esc(item.location || 'To be announced')}</strong></div>
+        <div class="gameplay-event-columns">
+          <div><h4>Requirements</h4>${listItems(item.requirements)}</div>
+          <div><h4>Rewards</h4>${listItems(item.rewards)}</div>
+        </div>
+        <div class="gameplay-event-rules"><h4>Event rules</h4>${listItems(item.rules)}</div>
+        <div class="gameplay-event-notice">Preview only. Starting and joining this event will be enabled when its authoritative gameplay resource is connected.</div>
+      </section>` : `<section class="event-preview event-preview--empty"><div><span class="event-preview__mark">06</span><h3>No events configured</h3><p>Add family events in the server configuration to publish them here.</p></div></section>`;
+    const renderCards = selectedKey => events.map(item => `
+      <button type="button" class="gameplay-event-card ${String(item.key) === String(selectedKey) ? 'is-selected' : ''}" data-gameplay-event="${esc(item.key)}" style="--event-accent:${esc(item.accent || '#52dce9')}">
+        <span class="gameplay-event-card__category">${esc(label(item.category || 'Family event'))}</span>
+        <strong>${esc(item.name)}</strong><small>${esc(item.description || '')}</small>
+        <span class="gameplay-event-card__meta"><b>${esc(item.difficulty || 'Unknown')}</b><b>${Number(item.recommendedMembers) || 1} members</b></span>
+        <span class="event-row__action">View event <b>&rsaquo;</b></span>
+      </button>`).join('');
+    const selected = events[0];
+    content.innerHTML = `
+      <div class="events-toolbar"><div><div class="section-title" style="margin:0">Family operations</div><div class="row__sub">Plan robberies, raids, and future family activities.</div></div><span class="gameplay-event-count">${events.length} event${events.length === 1 ? '' : 's'}</span></div>
+      <div class="events-layout gameplay-events-layout"><div class="gameplay-event-list">${renderCards(selected && selected.key) || '<div class="empty">No family events configured.</div>'}</div><div id="gameplay-event-preview">${renderPreview(selected)}</div></div>`;
+    content.onclick = event => {
+      const button = event.target.closest('[data-gameplay-event]');
+      if (!button) return;
+      document.querySelectorAll('[data-gameplay-event]').forEach(item => item.classList.toggle('is-selected', item === button));
+      const selectedEvent = events.find(item => String(item.key) === String(button.dataset.gameplayEvent));
+      document.getElementById('gameplay-event-preview').innerHTML = renderPreview(selectedEvent);
+    };
+  }
+  // ---------------- activity event timeline ----------------
+  function renderEvents() {
+    if (state.activityLog === false) {
+      content.innerHTML = `<div class="empty"><h2>Events</h2><div>Your rank cannot view the family event history.</div></div>`;
+      return;
+    }
+    const rows = Array.isArray(state.activityLog) ? state.activityLog : [];
+    const categories = [...new Set(rows.map(row => row.category || 'family'))].sort();
+    const actionLabel = value => String(value || 'activity').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+    const valueText = value => {
+      if (value == null || value === '') return 'Not recorded';
+      if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+      if (typeof value === 'object') {
+        try { return JSON.stringify(value); } catch (_) { return String(value); }
+      }
+      return String(value);
+    };
+    const summaryText = row => {
+      const detail = row.detail && typeof row.detail === 'object' ? row.detail : {};
+      const parts = [];
+      if (row.target_name || row.target_cid) parts.push(`Target: ${row.target_name || ('CID ' + row.target_cid)}`);
+      if (row.house_id) parts.push(`House #${row.house_id}`);
+      if (row.vehicle_id) parts.push(`Vehicle #${row.vehicle_id}`);
+      if (row.amount != null) parts.push(money(row.amount));
+      if (detail.reason) parts.push(detail.reason);
+      return parts.join(' - ');
+    };
+    const eventFields = row => {
+      const detail = row.detail && typeof row.detail === 'object' ? row.detail : {};
+      const fields = [
+        ['Event ID', row.id],
+        ['Action', actionLabel(row.action)],
+        ['Category', actionLabel(row.category || 'family')],
+        ['Severity', String(row.severity || 'info').toUpperCase()],
+        ['Status', actionLabel(row.status || 'recorded')],
+        ['Occurred', formatTimestamp(row.created_at, 19)],
+        ['Actor', row.actor_name || (row.actor_cid ? 'CID ' + row.actor_cid : 'System')],
+        ['Actor CID', row.actor_cid],
+        ['Target', row.target_name || (row.target_cid ? 'CID ' + row.target_cid : null)],
+        ['Target CID', row.target_cid],
+        ['Source', row.source_resource || 'cm-family'],
+        ['Entity type', row.entity_type],
+        ['Entity ID', row.entity_id],
+        ['House ID', row.house_id],
+        ['Vehicle ID', row.vehicle_id],
+        ['Amount', row.amount != null ? money(row.amount) : null],
+      ];
+      Object.keys(detail).sort().forEach(key => fields.push([actionLabel(key), detail[key]]));
+      return fields.filter(([, value]) => value != null && value !== '');
+    };
+    const renderPreview = row => row ? `
+      <section class="event-preview ${row.high_risk ? 'event-preview--risk' : ''}" aria-live="polite">
+        <div class="event-preview__hero">
+          <div><span class="hub-eyebrow">EVENT DETAILS</span><h3>${esc(actionLabel(row.action))}</h3></div>
+          <span class="audit-severity audit-severity--${esc(row.severity || 'info')}">${row.high_risk ? 'HIGH RISK' : esc(String(row.severity || 'info').toUpperCase())}</span>
+        </div>
+        <div class="event-preview__grid">${eventFields(row).map(([label, value]) => `
+          <div class="event-detail"><span>${esc(label)}</span><strong>${esc(valueText(value))}</strong></div>`).join('')}</div>
+      </section>` : `<section class="event-preview event-preview--empty"><div><span class="event-preview__mark">06</span><h3>Select an event</h3><p>Choose an event from the timeline to preview every recorded detail.</p></div></section>`;
+    const filteredRows = filter => rows.filter(row => filter === 'all' || row.category === filter);
+    const renderRows = (filter, selectedId) => filteredRows(filter).map(row => `
+      <button type="button" class="activity-row event-row ${row.high_risk ? 'activity-row--risk' : ''} ${String(row.id) === String(selectedId) ? 'is-selected' : ''}" data-event-id="${esc(row.id)}">
+        <div class="activity-row__head"><div class="inline"><span class="audit-severity audit-severity--${esc(row.severity || 'info')}">${row.high_risk ? 'HIGH RISK' : esc(String(row.severity || 'info').toUpperCase())}</span><strong>${esc(actionLabel(row.action))}</strong></div><span class="when">${esc(formatTimestamp(row.created_at, 19))}</span></div>
+        <div class="activity-row__meta">${esc(row.actor_name || (row.actor_cid ? 'CID ' + row.actor_cid : 'System'))} - ${esc(actionLabel(row.category || 'family'))}</div>
+        ${summaryText(row) ? `<div class="activity-row__detail">${esc(summaryText(row))}</div>` : ''}
+        <span class="event-row__action">Preview details <b>&rsaquo;</b></span>
+      </button>`).join('');
+    let selectedId = rows[0] ? rows[0].id : null;
+    content.innerHTML = `
+      <div class="events-toolbar"><div><div class="section-title" style="margin:0">Family events</div><div class="row__sub">Review the complete timeline and preview every recorded event detail.</div></div>
+        <select class="input" id="activity-filter" style="width:190px"><option value="all">All categories</option>${categories.map(category => `<option value="${esc(category)}">${esc(actionLabel(category))}</option>`).join('')}</select></div>
+      <div class="events-layout">
+        <div class="event-timeline"><div class="event-timeline__head"><span>EVENT TIMELINE</span><strong id="event-count">${rows.length} event${rows.length === 1 ? '' : 's'}</strong></div><div class="list" id="activity-list">${renderRows('all', selectedId) || '<div class="empty">No family events yet.</div>'}</div></div>
+        <div id="event-preview">${renderPreview(rows[0])}</div>
+      </div>`;
+    document.getElementById('activity-filter').onchange = event => {
+      const filtered = filteredRows(event.target.value);
+      selectedId = filtered[0] ? filtered[0].id : null;
+      document.getElementById('activity-list').innerHTML = renderRows(event.target.value, selectedId) || '<div class="empty">No events in this category.</div>';
+      document.getElementById('event-preview').innerHTML = renderPreview(filtered[0]);
+      document.getElementById('event-count').textContent = `${filtered.length} event${filtered.length === 1 ? '' : 's'}`;
+    };
+    content.onclick = event => {
+      const button = event.target.closest('[data-event-id]');
+      if (!button) return;
+      selectedId = button.dataset.eventId;
+      document.querySelectorAll('[data-event-id]').forEach(item => item.classList.toggle('is-selected', item === button));
+      document.getElementById('event-preview').innerHTML = renderPreview(rows.find(row => String(row.id) === String(selectedId)));
+    };
+  }
+
 
   // ---------------- action helper ----------------
   function flash(msg, kind) {

@@ -4,24 +4,56 @@ lua54 'yes'
 
 name 'cm-law'
 author 'CM Framework'
-description 'CM configurable legal organization foundation'
-version '1.3.0'
+description 'CM legal organizations and embedded Los Santos Police operations'
+version '2.9.0'
 
 shared_scripts {
     '@ox_lib/init.lua',
     'shared/config.lua',
+    'embedded/police/shared/config.lua',
 }
 
 client_scripts {
     'client/main.lua',
+    'client/daily_desk.lua',
     'client/wardrobe.lua',
     'client/armory.lua',
+    'client/logistics.lua',
+    'client/arsenal.lua',
     'client/facilities.lua',
     'client/vehicles.lua',
     'client/cuffs.lua',
     'client/escort.lua',
     'client/gmenu.lua',
+    'client/prison_intake.lua',
     'client/dispatch.lua',
+    'client/tracking.lua',
+    'embedded/police/client/ui.lua',
+    'embedded/police/client/npc_dialogue.lua',
+    'embedded/police/client/cinematics.lua',
+    'embedded/police/client/main.lua',
+    'embedded/police/client/gmenu.lua',
+    'embedded/police/client/tracking.lua',
+    'embedded/police/client/vehicles.lua',
+    'embedded/police/client/cuffs.lua',
+    'embedded/police/client/escort.lua',
+    'embedded/police/client/impound.lua',
+    'embedded/police/client/radar.lua',
+    'embedded/police/client/placement.lua',
+    'embedded/police/client/spikes.lua',
+    'embedded/police/client/barricades.lua',
+    'embedded/police/client/clamp.lua',
+    'embedded/police/client/quickmenu.lua',
+    'embedded/police/client/wardrobe.lua',
+    'embedded/police/client/mdt_terminal.lua',
+    'embedded/police/client/dispatch.lua',
+    'embedded/police/client/gunfire.lua',
+    'embedded/police/client/licenses.lua',
+    'embedded/police/client/bolo.lua',
+    'embedded/police/client/k9.lua',
+    'embedded/police/client/service_npc.lua',
+    'embedded/police/client/facility_npcs.lua',
+    'embedded/police/client/admin_config.lua',
 }
 
 server_scripts {
@@ -29,26 +61,55 @@ server_scripts {
     'server/main.lua',   -- first: defines validOrgId/characterIdFor/memberFor/canManage/nearFacility/logActivity/adminAllowed/rateLimit/LawIsReady, shared with vehicles.lua/cuffs.lua/booking.lua/dispatch.lua
     'server/comms.lua',
     'server/armory.lua',
+    'server/logistics.lua',
+    'server/arsenal.lua',
     'server/search.lua',
     'server/mdt.lua',
     'server/vehicles.lua',
     'server/cuffs.lua',
-    'server/booking.lua', -- cm-prison is an optional soft dependency (exports['cm-prison']:JailSuspect, pcall-guarded) -- booking fails closed with a clear message if it isn't running
+    'server/booking.lua', -- all departments hand off to the central cm-prison intake and sentence authority
     'server/frontdesk.lua',
     'server/dispatch.lua',
     'server/scene_equipment.lua',
+    'server/enforcement.lua',
+    'server/tracking.lua',  -- org-scoped member map + meeting points
+    'server/records.lua',   -- read-only cross-agency record export consumed by cm-police
+    'server/retention.lua', -- periodic activity-log pruning
+    'embedded/police/server/schema.lua',
+    'embedded/police/server/main.lua',
+    'embedded/police/server/facility_npcs.lua',
+    'embedded/police/server/vehicles.lua',
+    'embedded/police/server/cuffs.lua',
+    'embedded/police/server/booking.lua',
+    'embedded/police/server/citations.lua',
+    'embedded/police/server/impound.lua',
+    'embedded/police/server/barricade_catalog.lua',
+    'embedded/police/server/clamp.lua',
+    'embedded/police/server/mdt.lua',
+    'embedded/police/server/dispatch.lua',
+    'embedded/police/server/armory.lua',
+    'embedded/police/server/alpr.lua',
+    'embedded/police/server/wardrobe.lua',
+    'embedded/police/server/service_npc.lua',
+    'embedded/police/server/search.lua',
+    'embedded/police/server/admin_config.lua',
+    'embedded/police/server/retention.lua',
+    'server/daily_desk.lua',
 }
 
 dependencies {
     'ox_lib',
     'oxmysql',
     'cm-admin',
+    'cm-ui',
+    'cm-hud',
     'cm-playerdata',
     'cm-inventory',
     'cm-items',
     'cm-weapons',
     'cm-vehicles',
     'rn-vehicleshop',
+    'cm-prison',
 }
 
 -- Optional runtime integration: cm-gunstore supplies armor artwork/catalog
@@ -59,8 +120,35 @@ ui_page 'html/index.html'
 
 files {
     'html/index.html',
+    'html/law.html',
+    'html/dashboard-filters.js',   -- roster + activity log search (standalone, loads after app.js)
+    'html/assets/fonts/*.woff2',   -- optional self-hosted Archivo / JetBrains Mono
+
     'html/style.css',
+    'html/law-armory-v4.css',
+    'html/command-center.css',
+    'html/command-center-v2.3.css', -- cache-busted shared F6 shell and compact organization overview
+    'html/law-command-rail.css',   -- cm-law-only: right-hand member record rail + letter nav chips (loads after command-center.css, overrides it for this resource only)
+    'html/dashboard-v1.6.css',     -- live operations header, priority call strip, and compact v1.6 overview polish
     'html/police-dashboard.css',
     'html/dispatch-board.css',
+    'html/live-operations-v2.1.css',
+    'html/live-operations-v2.1.js',
     'html/app.js',
+    'html/daily-desk.js',
+    'html/request-feedback.js',
+    'html/operations-v2.5.css',
+    'html/command-ui-v2.6.css',
+    'html/command-ui-v3.0.css', -- full-screen command deck theme; loads last and overrides v2.6 chrome
+    'html/command-ui-v2.6.js',
+    'html/assets/org/*.svg',
+    'html/assets/org/*.png',
+    'html/police/*.html',
+    'html/police/*.css',
+    'html/police/*.js',
+    'html/police/assets/fonts/*.woff2',
+    'html/police/assets/org/*.svg',
+    'html/police/assets/org/*.png',
+    'html/police/img/bodycam/*.jpg',
+    'html/police/img/mugshots/*.jpg',
 }

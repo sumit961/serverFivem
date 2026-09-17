@@ -1,0 +1,135 @@
+/* cm-law v1.6 — operational dashboard layer. No blur/backdrop filters. */
+#app .law-topbar {
+  min-height: 66px !important;
+  padding: 10px 18px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 16px !important;
+}
+
+#app .law-topbar > div:first-child { min-width: 0; }
+#app .law-topbar__kicker {
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--cc-mono);
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: .22em;
+  color: var(--cc-accent);
+}
+#app .law-topbar h2 { margin: 0 !important; }
+#app .law-topbar__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+#app .law-system-status,
+#app #dashboardClock {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid var(--cc-line);
+  background: var(--cc-sunken);
+  font-family: var(--cc-mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  color: var(--cc-dim);
+  text-transform: uppercase;
+}
+#app .law-system-status i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cc-good);
+  box-shadow: 0 0 8px rgba(89, 208, 140, .55);
+}
+#app .law-duty-button.is-on {
+  border-color: rgba(255, 84, 104, .45) !important;
+  color: #ff909c !important;
+}
+#app .law-duty-button:disabled { opacity: .55; cursor: default; }
+
+#app .law-priority-alert {
+  flex: none;
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(245, 177, 60, .34);
+  border-left: 3px solid var(--cc-warn);
+  background: linear-gradient(90deg, rgba(245, 177, 60, .11), var(--cc-card) 38%);
+}
+#app .law-priority-alert.is-critical {
+  border-color: rgba(255, 84, 104, .38);
+  border-left-color: var(--cc-bad);
+  background: linear-gradient(90deg, rgba(255, 84, 104, .12), var(--cc-card) 38%);
+}
+#app .law-priority-alert__badge {
+  padding: 5px 7px;
+  border: 1px solid rgba(245, 177, 60, .42);
+  background: rgba(245, 177, 60, .1);
+  font-family: var(--cc-mono);
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  color: var(--cc-warn);
+}
+#app .law-priority-alert.is-critical .law-priority-alert__badge {
+  border-color: rgba(255, 84, 104, .45);
+  background: rgba(255, 84, 104, .1);
+  color: #ff909c;
+}
+#app .law-priority-alert > div { min-width: 0; }
+#app .law-priority-alert strong {
+  display: block;
+  overflow: hidden;
+  color: var(--cc-text);
+  font-family: var(--cc-display);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#app .law-priority-alert p {
+  margin: 3px 0 0;
+  color: var(--cc-dim);
+  font-family: var(--cc-mono);
+  font-size: 8.5px;
+}
+
+#app .command-stage { min-height: clamp(292px, 32vh, 372px) !important; }
+#app .command-stage__content { padding: 20px 22px 18px !important; }
+#app .command-stage__purpose {
+  max-width: 52ch !important;
+  margin-top: 8px !important;
+  color: var(--cc-text-2) !important;
+}
+#app .command-stage__identity { margin-top: 14px !important; }
+#app .command-stats { margin-top: 12px !important; }
+#app .command-shift-card { margin-top: 12px !important; }
+#app .command-panels { min-height: 300px !important; }
+
+#app .side nav { overflow-y: auto; scrollbar-width: thin; }
+#app .side nav::-webkit-scrollbar { width: 4px; }
+#app .side nav::-webkit-scrollbar-thumb { background: var(--cc-line-hi); }
+
+@media (max-width: 1500px) {
+  #app .law-system-status { display: none; }
+  #app .law-priority-alert { grid-template-columns: auto minmax(0, 1fr) auto; }
+  #app .law-priority-alert [data-overview-dispatch] { display: none; }
+}
+
+@media (max-width: 1180px) {
+  #app #dashboardClock { display: none; }
+  #app .law-topbar__actions { gap: 5px; }
+  #app .law-priority-alert { grid-template-columns: auto minmax(0, 1fr); }
+  #app .law-priority-alert button { display: none; }
+}

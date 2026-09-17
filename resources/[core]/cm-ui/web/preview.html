@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CM UI — Component Preview</title>
+  <link rel="stylesheet" href="cm-theme.css">
+  <link rel="stylesheet" href="cm-components.css">
+  <link rel="stylesheet" href="cm-icons.css">
+  <link rel="stylesheet" href="cm-interact.css">
+  <link rel="stylesheet" href="cm-dialogue.css">
+  <script src="cm-ui.js"></script>
+  <style>
+    /* Preview-only chrome: not part of the shared component library. */
+    .preview-bg {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      background:
+        radial-gradient(circle at 18% 14%, rgba(0, 240, 255, 0.10), transparent 38%),
+        radial-gradient(circle at 82% 78%, rgba(37, 99, 235, 0.14), transparent 36%),
+        linear-gradient(135deg, #030812, #07111f);
+    }
+
+    .preview-shell {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .preview-note {
+      margin-top: var(--cm-space-2);
+    }
+  </style>
+</head>
+<body>
+  <div class="preview-bg"></div>
+  <div class="preview-shell">
+    <div class="cm-window" style="width:min(560px,92vw)">
+      <div class="cm-window-header">
+        <div>
+          <div class="cm-window-title">CM UI — Component Preview</div>
+          <div class="cm-window-subtitle">cm-interact + cm-dialogue, no FiveM required</div>
+        </div>
+      </div>
+      <div class="cm-window-body cm-col cm-scrollbar">
+        <div class="cm-card cm-col">
+          <div class="cm-label">Interact prompt (client/interact.lua)</div>
+          <div class="cm-row">
+            <button class="cm-btn" id="btnInteract">Show</button>
+            <button class="cm-btn cm-btn-secondary" id="btnHideInteract">Hide</button>
+          </div>
+        </div>
+        <div class="cm-card cm-col">
+          <div class="cm-label">Cinematic NPC dialogue (client/dialogue.lua)</div>
+          <div class="cm-row">
+            <button class="cm-btn" id="btnDialogue">Open dialogue</button>
+            <button class="cm-btn cm-btn-secondary" id="btnClose">Close</button>
+          </div>
+          <div class="cm-row">
+            <button class="cm-btn cm-btn-success" id="btnResponseOk">Send success response</button>
+            <button class="cm-btn cm-btn-danger" id="btnResponseErr">Send error response</button>
+          </div>
+          <div class="cm-help preview-note">
+            "Open dialogue" shows the greeting screen with a deferred choice list —
+            click Continue in the scene to reveal the two sample choices.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    document.getElementById('btnInteract').onclick = function () {
+      CMUI.showInteract({ key: 'E', label: 'INTERACTION', name: 'Officer Reyes', role: 'CM POLICE' });
+    };
+    document.getElementById('btnHideInteract').onclick = function () {
+      CMUI.hideInteract();
+    };
+    document.getElementById('btnDialogue').onclick = function () {
+      CMUI.openDialogue({
+        name: 'Officer Reyes',
+        role: 'CM POLICE',
+        quote: 'How can I help you today?',
+        continueLabel: 'See services',
+        deferChoices: true,
+        serviceLabel: 'Please choose the service you need.',
+        choices: [
+          { id: 'report', label: 'File a report', description: 'Start an incident report' },
+          { id: 'impound', label: 'Vehicle release', description: 'Pay an impound fee' }
+        ]
+      });
+    };
+    document.getElementById('btnResponseOk').onclick = function () {
+      CMUI.dialogueResponse({ message: 'Report filed successfully.', tone: 'success' });
+    };
+    document.getElementById('btnResponseErr').onclick = function () {
+      CMUI.dialogueResponse({ message: 'You have no active reports on file.', tone: 'error' });
+    };
+    document.getElementById('btnClose').onclick = function () {
+      CMUI.closeDialogue();
+    };
+  </script>
+</body>
+</html>

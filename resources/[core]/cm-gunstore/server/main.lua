@@ -40,6 +40,74 @@ local function isAdmin(src)
 end
 
 -- ============================================================
+-- Access control: who is allowed to buy a given catalog row.
+-- 'public' (default) = anyone. 'gang' = must be in access_gang_id, or ANY
+-- gang if that's blank. 'law' = must be an employee of any cm-law
+-- organization (SAHP/Sheriff/FIB/Army/etc -- whichever cm-law has).
+-- Cross-resource calls are pcall-guarded like every other optional
+-- integration in this file; a missing resource just denies gang/law-gated
+-- items rather than erroring the whole purchase/catalog flow.
+-- ============================================================
+local FixedGangIds = { 'marabunta', 'bloods', 'ballas', 'families', 'vagos' }
+
+local function playerGangId(src)
+    if GetResourceState('cm-characters') ~= 'started' or GetResourceState('cm-gang') ~= 'started' then return nil end
+    local ok, characterId = pcall(function() return exports['cm-characters']:GetCharacterId(src) end)
+    if not ok or not characterId then return nil end
+    local gangOk, membership = pcall(function() return exports['cm-gang']:GetGangForCharacter(characterId) end)
+    if not gangOk or type(membership) ~= 'table' then return nil end
+    return tostring(membership.gangId or ''):lower()
+end
+
+local function playerIsLawMember(src)
+    if GetResourceState('cm-law') ~= 'started' then return false end
+    local ok, isMember = pcall(function() return exports['cm-law']:IsLawMember(src) end)
+    return ok and isMember == true
+end
+
+-- Shared parser for the admin UI's Access controls (Public/Gang/Law Org).
+-- Falls back to the existing row's values (or public/blank) for anything
+-- missing/invalid so a partial payload never corrupts a row's access.
+local function parseAccessFields(data, existingScope, existingGangId)
+    data = type(data) == 'table' and data or {}
+    local scope = tostring(data.access_scope or data.accessScope or existingScope or 'public'):lower()
+    if scope ~= 'gang' and scope ~= 'law' then scope = 'public' end
+
+    local gangId = tostring(data.access_gang_id or data.accessGangId or existingGangId or ''):lower()
+    if scope ~= 'gang' then gangId = '' end
+    if gangId ~= '' then
+        local validGang = false
+        for _, g in ipairs(FixedGangIds) do
+            if g == gangId then validGang = true break end
+        end
+        if not validGang then gangId = '' end
+    end
+
+    return scope, gangId
+end
+
+local function playerHasAccess(src, row)
+    row = row or {}
+    local scope = tostring(row.access_scope or 'public'):lower()
+    if scope == '' or scope == 'public' then return true end
+    if src == 0 then return true end -- console/internal callers always pass
+
+    if scope == 'law' then
+        return playerIsLawMember(src)
+    end
+
+    if scope == 'gang' then
+        local required = tostring(row.access_gang_id or ''):lower()
+        local playerGang = playerGangId(src)
+        if not playerGang or playerGang == '' then return false end
+        if required == '' then return true end -- any gang qualifies
+        return playerGang == required
+    end
+
+    return true
+end
+
+-- ============================================================
 -- Config catalog lookups (price/stock/visibility are config-owned)
 -- ============================================================
 local function configStoreEntry(itemName)
@@ -159,7 +227,15 @@ local function rowToPublic(row)
         component_id = tonumber(row.component_id or row.componentId) or nil,
         drawable_id = tonumber(row.drawable_id or row.drawableId) or nil,
         texture_id = tonumber(row.texture_id or row.textureId) or 0,
-        gender = tostring(row.gender or 'both')
+        gender = tostring(row.gender or 'both'),
+        -- Who can buy this. 'public' = normal store, 'gang' = the player must
+        -- be in access_gang_id (or ANY gang if blank), 'law' = the player
+        -- must be an employee of any cm-law organization.
+        access_scope = tostring(row.access_scope or row.accessScope or 'public'):lower(),
+        access_gang_id = tostring(row.access_gang_id or row.accessGangId or ''),
+        -- Server-wide kill switch: blocks purchase AND (via cm-inventory)
+        -- equipping/using the weapon even if a player already owns it.
+        banned = boolInt(row.banned) == 1
     }
 end
 
@@ -216,17 +292,122 @@ local function ensureDatabase()
         'ALTER TABLE cm_gun_catalog ADD COLUMN component_id INT NULL AFTER sort_order',
         'ALTER TABLE cm_gun_catalog ADD COLUMN drawable_id INT NULL AFTER component_id',
         'ALTER TABLE cm_gun_catalog ADD COLUMN texture_id INT NOT NULL DEFAULT 0 AFTER drawable_id',
-        "ALTER TABLE cm_gun_catalog ADD COLUMN gender VARCHAR(12) NOT NULL DEFAULT 'both' AFTER texture_id"
+        "ALTER TABLE cm_gun_catalog ADD COLUMN gender VARCHAR(12) NOT NULL DEFAULT 'both' AFTER texture_id",
+        -- Access control (who can buy it) + server-wide weapon ban.
+        "ALTER TABLE cm_gun_catalog ADD COLUMN access_scope VARCHAR(16) NOT NULL DEFAULT 'public' AFTER gender",
+        'ALTER TABLE cm_gun_catalog ADD COLUMN access_gang_id VARCHAR(40) NOT NULL DEFAULT \'\' AFTER access_scope',
+        'ALTER TABLE cm_gun_catalog ADD COLUMN banned TINYINT(1) NOT NULL DEFAULT 0 AFTER access_gang_id'
     }
     for _, q in ipairs(alters) do pcall(function() MySQL.query.await(q) end) end
     pcall(function() MySQL.query.await('CREATE INDEX idx_cm_gun_catalog_type ON cm_gun_catalog (item_type)') end)
     pcall(function() MySQL.query.await('CREATE INDEX idx_cm_gun_catalog_enabled ON cm_gun_catalog (enabled)') end)
+
+    -- NPCs added live from the /gunadmin "Manage NPCs" tab. Separate table from
+    -- the item catalog above; each row is a fully working clerk (name + ped
+    -- model/scenario + world position) that spawns as its own gun store.
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS cm_gunstore_npcs (
+            id INT NOT NULL AUTO_INCREMENT,
+            name VARCHAR(60) NOT NULL,
+            label VARCHAR(80) NOT NULL DEFAULT 'Gun Store',
+            model VARCHAR(80) NOT NULL,
+            scenario VARCHAR(80) NULL,
+            x FLOAT NOT NULL,
+            y FLOAT NOT NULL,
+            z FLOAT NOT NULL,
+            heading FLOAT NOT NULL DEFAULT 0,
+            enabled TINYINT(1) NOT NULL DEFAULT 1,
+            created_by VARCHAR(80) NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ]])
 
     DB_READY = true
     print(('[%s] store catalog ready | weapon/ammo source = %s'):format(RESOURCE, weaponsResource()))
 end
 
 CreateThread(ensureDatabase)
+
+-- ============================================================
+-- Custom NPCs (added live from /gunadmin). Cached in memory and pushed to
+-- clients on join + whenever an admin adds/removes one, so a new clerk shows
+-- up for everyone on the server without a resource restart.
+-- ============================================================
+local CustomNpcs = {}
+
+local function refreshCustomNpcsCache()
+    if not DB_READY then return CustomNpcs end
+    local rows = MySQL.query.await('SELECT * FROM cm_gunstore_npcs WHERE enabled = 1 ORDER BY id ASC', {}) or {}
+    CustomNpcs = rows
+    return CustomNpcs
+end
+
+local function broadcastNpcSync()
+    TriggerClientEvent('cm-gunstore:client:npcsSync', -1, CustomNpcs)
+end
+
+CreateThread(function()
+    while not DB_READY do Wait(250) end
+    refreshCustomNpcsCache()
+end)
+
+RegisterNetEvent('cm-gunstore:server:requestShops', function()
+    local src = source
+    TriggerClientEvent('cm-gunstore:client:npcsSync', src, CustomNpcs)
+end)
+
+RegisterNetEvent('cm-gunstore:server:adminRequestNpcs', function()
+    local src = source
+    if not isAdmin(src) then return notify(src, 'You do not have permission to manage gun store NPCs.', 'error') end
+    TriggerClientEvent('cm-gunstore:client:npcAdminList', src, CustomNpcs)
+end)
+
+RegisterNetEvent('cm-gunstore:server:adminCreateNpc', function(data)
+    local src = source
+    if not isAdmin(src) then return notify(src, 'You do not have permission to add gun store NPCs.', 'error') end
+    if not DB_READY then return notify(src, 'Store database is not ready yet, try again in a moment.', 'error') end
+    data = type(data) == 'table' and data or {}
+
+    local name = tostring(data.name or ''):gsub('^%s+', ''):gsub('%s+$', ''):sub(1, 60)
+    if name == '' then return notify(src, 'Give the NPC a name first.', 'error') end
+
+    local label = tostring(data.label or 'Gun Store'):sub(1, 80)
+    if label == '' then label = 'Gun Store' end
+    local model = tostring(data.model or ''):sub(1, 80)
+    if model == '' then model = tostring((Config.Ped or {}).model or 's_m_y_ammucity_01') end
+    local scenario = tostring(data.scenario or ''):sub(1, 80)
+
+    local x, y, z = tonumber(data.x), tonumber(data.y), tonumber(data.z)
+    if not x or not y or not z then return notify(src, 'Could not read your position. Stand still and try again.', 'error') end
+    local heading = tonumber(data.heading) or 0.0
+
+    MySQL.insert.await([[
+        INSERT INTO cm_gunstore_npcs (name, label, model, scenario, x, y, z, heading, enabled, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+    ]], { name, label, model, scenario, x, y, z, heading, ('src:%s'):format(src) })
+
+    refreshCustomNpcsCache()
+    notify(src, ('Added "%s" at your location.'):format(name), 'success')
+    broadcastNpcSync()
+    TriggerClientEvent('cm-gunstore:client:npcAdminList', src, CustomNpcs)
+end)
+
+RegisterNetEvent('cm-gunstore:server:adminDeleteNpc', function(data)
+    local src = source
+    if not isAdmin(src) then return notify(src, 'You do not have permission to remove gun store NPCs.', 'error') end
+    data = type(data) == 'table' and data or {}
+    local id = tonumber(data.id)
+    if not id then return notify(src, 'Invalid NPC.', 'error') end
+
+    local affected = MySQL.update.await('DELETE FROM cm_gunstore_npcs WHERE id = ?', { id })
+    if not affected or affected < 1 then return notify(src, 'NPC was not found.', 'error') end
+
+    refreshCustomNpcsCache()
+    notify(src, 'NPC removed.', 'success')
+    broadcastNpcSync()
+    TriggerClientEvent('cm-gunstore:client:npcAdminList', src, CustomNpcs)
+end)
 
 -- ============================================================
 -- cm-weapons bridge (weapon/ammo definitions live there)
@@ -628,12 +809,13 @@ end)
 -- triggering the buy event from anywhere on the map. Uses cheap squared-distance
 -- math (#(a-b)) rather than Vdist.
 local function isNearShop(src)
-    if not Config.Shops or #Config.Shops == 0 then return true end
+    local hasConfigShops = Config.Shops and #Config.Shops > 0
+    if not hasConfigShops and #CustomNpcs == 0 then return true end
     local ped = GetPlayerPed(src)
     if not ped or ped == 0 then return false end
     local pcoords = GetEntityCoords(ped)
     local maxDist = tonumber(Config.PurchaseDistance) or 15.0
-    for _, shop in ipairs(Config.Shops) do
+    for _, shop in ipairs(Config.Shops or {}) do
         local c = shop.coords or shop.pedCoords
         if c then
             local sx = tonumber(c.x) or tonumber(c[1])
@@ -642,6 +824,12 @@ local function isNearShop(src)
             if sx and sy and sz and #(pcoords - vector3(sx, sy, sz)) <= maxDist then
                 return true
             end
+        end
+    end
+    for _, npc in ipairs(CustomNpcs) do
+        local sx, sy, sz = tonumber(npc.x), tonumber(npc.y), tonumber(npc.z)
+        if sx and sy and sz and #(pcoords - vector3(sx, sy, sz)) <= maxDist then
+            return true
         end
     end
     return false
@@ -835,7 +1023,21 @@ RegisterNetEvent('cm-gunstore:server:requestCatalog', function(mode)
             notify(src, 'You do not have a valid firearms license -- ask the vendor about buying one before purchasing a weapon.', 'warning')
         end
     end
-    TriggerClientEvent('cm-gunstore:client:openCatalog', src, mode, getCatalog(admin))
+
+    local rows = getCatalog(admin)
+    if not admin then
+        -- Players never see gang/law-restricted rows they don't qualify for,
+        -- or weapons an admin has banned server-wide. Admin view (above)
+        -- always shows everything so it can still be managed/un-banned.
+        local visible = {}
+        for _, row in ipairs(rows) do
+            if row.banned ~= true and playerHasAccess(src, row) then
+                visible[#visible + 1] = row
+            end
+        end
+        rows = visible
+    end
+    TriggerClientEvent('cm-gunstore:client:openCatalog', src, mode, rows)
 end)
 
 -- Self-service firearms license purchase (Phase 4), triggered from the NPC
@@ -845,6 +1047,9 @@ RegisterNetEvent('cm-gunstore:server:buyLicense', function()
     local ok, message = false, 'The license office is unavailable right now.'
     pcall(function() ok, message = exports['cm-police']:PurchaseLicense(src, 'firearms') end)
     notify(src, message, ok and 'success' or 'error')
+    -- Also answer inline in the cm-ui cinematic dialogue (client's
+    -- dialogueChoiceLicense kept it open waiting for this).
+    TriggerClientEvent('cm-gunstore:client:licenseResult', src, message, ok == true)
 end)
 
 -- NEW: player asks for the ammo linked to a weapon they selected in the store.
@@ -1081,6 +1286,19 @@ local function processPurchase(src, data)
     end
     if row.enabled ~= true then
         notify(src, 'This item is not available.', 'error')
+        TriggerClientEvent('cm-gunstore:client:purchaseResult', src, false)
+        return
+    end
+    if row.banned == true then
+        notify(src, 'This item has been disabled on this server.', 'error')
+        TriggerClientEvent('cm-gunstore:client:purchaseResult', src, false)
+        return
+    end
+    if not playerHasAccess(src, row) then
+        local reason = tostring(row.access_scope or ''):lower() == 'law'
+            and 'You must be a member of a law organization to buy this.'
+            or 'You do not have access to this item.'
+        notify(src, reason, 'error')
         TriggerClientEvent('cm-gunstore:client:purchaseResult', src, false)
         return
     end
@@ -1380,7 +1598,16 @@ syncConfigCatalog = function(force)
             if #names > 0 then
                 local qs = {}
                 for _ = 1, #names do qs[#qs + 1] = '?' end
-                MySQL.update.await(('UPDATE cm_gun_catalog SET enabled = 0 WHERE item_name NOT IN (%s)'):format(table.concat(qs, ',')), names)
+                -- Scoped to weapon/ammo ONLY. Config.StoreCatalog is the
+                -- weapon/ammo allowlist (config-owned prices); armor rows are
+                -- admin/DB-owned (created from /gunadmin's vest capture flow)
+                -- and are NEVER listed in Config.StoreCatalog, so including
+                -- them here used to force every admin-created vest back to
+                -- Hidden within seconds of being added to the store.
+                MySQL.update.await(
+                    ("UPDATE cm_gun_catalog SET enabled = 0 WHERE item_type IN ('weapon','ammo') AND item_name NOT IN (%s)"):format(table.concat(qs, ',')),
+                    names
+                )
             end
         end
     end)
@@ -1441,18 +1668,20 @@ RegisterNetEvent('cm-gunstore:server:adminCreateItem', function(data)
     local textureId = math.max(0, math.floor(tonumber(data.texture_id or data.textureId) or 0))
     local gender = tostring(data.gender or 'both'):lower():sub(1, 12)
     if gender ~= 'male' and gender ~= 'female' and gender ~= 'both' then gender = 'both' end
+    local accessScope, accessGangId = parseAccessFields(data)
 
     image = syncArmorToCmItems(src, itemName, label, image, description, armorValue, componentId, drawableId, textureId, gender, data.imageData)
 
     MySQL.insert.await([[
         INSERT INTO cm_gun_catalog
-            (item_name, item_type, label, weapon_hash, ammo_item, pack_size, armor_value, damage, magazine_size, stock, price, enabled, image, description, sort_order, component_id, drawable_id, texture_id, gender)
-        VALUES (?, 'armor', ?, '', '', 1, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (item_name, item_type, label, weapon_hash, ammo_item, pack_size, armor_value, damage, magazine_size, stock, price, enabled, image, description, sort_order, component_id, drawable_id, texture_id, gender, access_scope, access_gang_id)
+        VALUES (?, 'armor', ?, '', '', 1, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
             item_type = 'armor', label = VALUES(label), armor_value = VALUES(armor_value), stock = VALUES(stock), price = VALUES(price),
             enabled = VALUES(enabled), image = VALUES(image), description = VALUES(description), sort_order = VALUES(sort_order),
-            component_id = VALUES(component_id), drawable_id = VALUES(drawable_id), texture_id = VALUES(texture_id), gender = VALUES(gender)
-    ]], { itemName, label, armorValue, stock, price, enabled, image, description, sortOrder, componentId, drawableId, textureId, gender })
+            component_id = VALUES(component_id), drawable_id = VALUES(drawable_id), texture_id = VALUES(texture_id), gender = VALUES(gender),
+            access_scope = VALUES(access_scope), access_gang_id = VALUES(access_gang_id)
+    ]], { itemName, label, armorValue, stock, price, enabled, image, description, sortOrder, componentId, drawableId, textureId, gender, accessScope, accessGangId })
 
     registerUsableThroughItemActions(itemName, 'armor')
     notify(src, ('Created %s.'):format(label), 'success')
@@ -1519,10 +1748,15 @@ RegisterNetEvent('cm-gunstore:server:adminSaveItem', function(data)
     local image = tostring(data.image or existing.image or ''):sub(1, 255)
     local description = tostring(data.description or existing.description or ''):sub(1, 255)
 
+    local accessScope, accessGangId = parseAccessFields(data, existing.access_scope, existing.access_gang_id)
+
     if itemType == 'weapon' or itemType == 'ammo' then
         price = configPrice(itemName, existing.price)
-        MySQL.update.await('UPDATE cm_gun_catalog SET price = ?, enabled = ?, stock = ? WHERE LOWER(item_name) = ?', {
-            price, enabled, stock, itemName
+        -- Banned is weapon-only in the admin UI (ammo/armor have no equip
+        -- pipeline to block), but harmless to accept/store for either.
+        local banned = itemType == 'weapon' and boolInt(data.banned) or (existing.banned and 1 or 0)
+        MySQL.update.await('UPDATE cm_gun_catalog SET price = ?, enabled = ?, stock = ?, access_scope = ?, access_gang_id = ?, banned = ? WHERE LOWER(item_name) = ?', {
+            price, enabled, stock, accessScope, accessGangId, banned, itemName
         })
         notify(src, ('Saved stock/visibility for %s. Price is loaded from config.'):format(existing.label or itemName), 'success')
         TriggerClientEvent('cm-gunstore:client:openCatalog', src, 'admin', getCatalog(true))
@@ -1543,9 +1777,9 @@ RegisterNetEvent('cm-gunstore:server:adminSaveItem', function(data)
     image = syncArmorToCmItems(src, itemName, label, image, description, armorValue, componentId, drawableId, textureId, gender, nil)
     MySQL.update.await([[
         UPDATE cm_gun_catalog
-        SET label = ?, price = ?, enabled = ?, image = ?, description = ?, armor_value = ?, stock = ?, component_id = ?, drawable_id = ?, texture_id = ?, gender = ?
+        SET label = ?, price = ?, enabled = ?, image = ?, description = ?, armor_value = ?, stock = ?, component_id = ?, drawable_id = ?, texture_id = ?, gender = ?, access_scope = ?, access_gang_id = ?
         WHERE LOWER(item_name) = ?
-    ]], { label, price, enabled, image, description, armorValue, stock, componentId, drawableId, textureId, gender, itemName })
+    ]], { label, price, enabled, image, description, armorValue, stock, componentId, drawableId, textureId, gender, accessScope, accessGangId, itemName })
 
     notify(src, ('Saved %s.'):format(label), 'success')
     TriggerClientEvent('cm-gunstore:client:openCatalog', src, 'admin', getCatalog(true))
@@ -1579,6 +1813,16 @@ end)
 -- Expose the weapon->ammo resolver so other resources can reuse the same logic.
 exports('GetWeaponAmmo', function(weaponItemName) return resolveWeaponAmmo(weaponItemName) end)
 
+-- Server-wide weapon kill switch (set from /gunadmin's Banned checkbox).
+-- cm-inventory calls this before letting a player equip a weapon item, and
+-- again before syncing an already-equipped one back to a player, so a ban
+-- blocks both new equips and anything already sitting in someone's weapon
+-- slot from before the ban.
+exports('IsWeaponBanned', function(itemName)
+    local row = getCatalogRowByName(itemName)
+    return row ~= nil and row.banned == true
+end)
+
 -- ============================================================
 -- Wearable vest integration with nv_cloth.
 -- SECURITY: the src is taken from `source` / the calling admin only. The old
@@ -1592,9 +1836,78 @@ exports('ReceiveArmorImage', function(targetSrc, payload)
     -- started the capture. We still verify that target is actually an admin.
     targetSrc = tonumber(targetSrc)
     payload = type(payload) == 'table' and payload or {}
+    -- TEMP DEBUG: prints exactly what nv_cloth handed us for a vest capture.
+    -- If componentId/drawableId here already show 0, the capture itself
+    -- (nv_cloth) never sent a real selection -- the bug is upstream of
+    -- cm-gunstore. If these are non-zero but the saved catalog row still
+    -- ends up with drawable_id=0, the bug is downstream (prefillArmor ->
+    -- app.js form fill -> adminCreateItem). Safe to remove once diagnosed.
+    print(('[cm-gunstore] ReceiveArmorImage src=%s componentId=%s drawableId=%s textureId=%s gender=%s armorValue=%s'):format(
+        tostring(targetSrc), tostring(payload.componentId), tostring(payload.drawableId),
+        tostring(payload.textureId), tostring(payload.gender), tostring(payload.armorValue)
+    ))
     if not targetSrc or not isAdmin(targetSrc) then return false end
     TriggerClientEvent('cm-gunstore:client:prefillArmor', targetSrc, payload)
     return true
+end)
+
+-- ============================================================
+-- Armor now lives in nv_cloth's clothing_catalog (captured, priced, published
+-- and org-assigned from /clothingstore like every other clothing category).
+-- Purchase/equip/SetPedArmour stay entirely in cm-gunstore, so nv_cloth calls
+-- this export after every capture AND every /clothingstore save (publish,
+-- unpublish, price/org change, retake) to keep the sellable cm_gun_catalog
+-- row + cm-items usable-item registration mirroring that row's current state.
+-- ============================================================
+exports('SyncClothingArmorItem', function(adminSrc, row)
+    adminSrc = tonumber(adminSrc) or 0
+    if adminSrc > 0 and not isAdmin(adminSrc) then return false, 'not_admin' end
+    row = type(row) == 'table' and row or {}
+
+    local uniqueId = tostring(row.uniqueId or row.unique_id or row.clothingId or row.clothing_id or '')
+    if uniqueId == '' then return false, 'missing_unique_id' end
+    local itemName = normalizeItemName(('armor_%s'):format(uniqueId))
+    if itemName == '' then return false, 'invalid_item_name' end
+
+    local label = tostring(row.label or row.name or 'Body Armor'):sub(1, 120)
+    local description = tostring(row.description or 'Body armor vest.'):sub(1, 255)
+    local armorValue = math.max(0, math.min(100, math.floor(tonumber(row.armorValue or row.armor_value) or 0)))
+    local componentId = math.floor(tonumber(row.componentIndex or row.component_index) or 9)
+    local drawableId = tonumber(row.drawableId or row.drawable_id or row.drawable)
+    drawableId = drawableId ~= nil and math.floor(drawableId) or nil
+    if drawableId and drawableId < 0 then drawableId = nil end
+    local textureId = math.max(0, math.floor(tonumber(row.textureId or row.texture_id or row.texture) or 0))
+    local gender = tostring(row.gender or 'both'):lower():sub(1, 12)
+    if gender ~= 'male' and gender ~= 'female' then gender = 'both' end
+    local price = math.max(0, math.floor(tonumber(row.price) or 0))
+    local enabled = boolInt(row.enabled == true)
+
+    -- nv_cloth's image is a path relative to cm-items' own web root
+    -- (e.g. "custom/male_armor_9_12_0.png"); cm-gunstore's UI can load it
+    -- cross-resource via nui:// the same way it loads its own images.
+    local rawImage = tostring(row.image or row.icon or '')
+    local image = rawImage ~= '' and ('nui://%s/ui/images/clothing/%s'):format(itemsResource(), rawImage) or ''
+
+    image = syncArmorToCmItems(adminSrc, itemName, label, image, description, armorValue, componentId, drawableId, textureId, gender, nil)
+
+    local ok, err = pcall(function()
+        MySQL.insert.await([[
+            INSERT INTO cm_gun_catalog
+                (item_name, item_type, label, weapon_hash, ammo_item, pack_size, armor_value, damage, magazine_size, stock, price, enabled, image, description, sort_order, component_id, drawable_id, texture_id, gender)
+            VALUES (?, 'armor', ?, '', '', 1, ?, 0, 0, -1, ?, ?, ?, ?, 999, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                item_type = 'armor', label = VALUES(label), armor_value = VALUES(armor_value), price = VALUES(price),
+                enabled = VALUES(enabled), image = VALUES(image), description = VALUES(description),
+                component_id = VALUES(component_id), drawable_id = VALUES(drawable_id), texture_id = VALUES(texture_id), gender = VALUES(gender)
+        ]], { itemName, label, armorValue, price, enabled, image, description, componentId, drawableId, textureId, gender })
+    end)
+    if not ok then
+        dbg(('SyncClothingArmorItem cm_gun_catalog upsert failed for %s: %s'):format(itemName, tostring(err)))
+        return false, tostring(err)
+    end
+
+    registerUsableThroughItemActions(itemName, 'armor')
+    return true, itemName
 end)
 
 RegisterNetEvent('cm-gunstore:server:armorImageReady', function(payload)

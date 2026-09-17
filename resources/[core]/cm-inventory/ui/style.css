@@ -232,6 +232,19 @@ body{ font-family:"Inter","Segoe UI",system-ui,Arial,sans-serif; color:var(--tex
 .slot.locked{ opacity:.4; border-style:dashed; }
 .slot.storage-locked{ opacity:.3; border-style:dashed; border-color:rgba(255,255,255,.14); }
 
+/* Nested Bag Skin slot: a small badge riding the bottom-right corner of the
+   Bag equipment cell, only rendered (in app.js) while a real bag is equipped. */
+.slot.equipment-sub.sub-slot{
+    position:absolute; right:-8px; bottom:-8px; z-index:5;
+    width:38%; height:38%; min-width:26px; min-height:26px;
+    border-radius:calc(var(--radius-slot) * .7);
+    box-shadow:0 6px 14px rgba(0,0,0,.35);
+}
+.slot.equipment-sub.sub-slot .item{ padding:4px; }
+.slot.equipment-sub.sub-slot .item img{ width:70%; height:70%; }
+.slot.equipment-sub.sub-slot .item-info{ display:none; }
+.slot.equipment-sub.sub-slot .qty{ display:none; }
+
 /* quick-slot hotkey tags */
 .hotkey{ position:absolute; top:6px; left:10px; z-index:4;
     font-size:11px; font-weight:800; color:rgba(255,255,255,.45); }

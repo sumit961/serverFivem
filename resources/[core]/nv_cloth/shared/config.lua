@@ -152,7 +152,11 @@ Config.IconCapture = {
         noPedBlobShadow = true,
         suppressCascadeShadows = true,
         applyEveryFrame = true,
-        waitBeforeScreenshot = 900,
+        -- The ped's component INDEX updates instantly on SetPedComponentVariation,
+        -- but the streamed mesh/texture for that item can still take a moment to
+        -- finish loading -- too short a wait here occasionally screenshots the
+        -- previous garment even though the index already reads correctly.
+        waitBeforeScreenshot = 1400,
     },
 
     -- NUI image processor.
@@ -299,6 +303,10 @@ Config.Prices = {
     ['earrings'] = 30,
     ['watches'] = 40,
     ['bracelets'] = 35,
+    -- Server-authoritative fallback price when a captured armor row has no
+    -- price of its own yet. Matches cm-gunstore's Config.DefaultArmor.price so
+    -- a freshly captured vest doesn't default to free before an admin sets one.
+    ['armor'] = 3500,
 }
 
 
@@ -390,31 +398,19 @@ Config.OrgShops = {
     ['army']    = { label = 'Army Locker' },
 }
 
+-- Every clothing storefront is a LOCATION under the single 'clothes' shop, not a
+-- shop of its own. The Config.Shops key is also the catalog shop name that
+-- clothing_catalog rows are saved under (see allManagedShopNames in
+-- sv_cloth.lua), so splitting the storefronts into separate keys would point
+-- each one at a catalog shop with no rows and every store would open empty.
+-- Per-location label/clerk/categories live on the location instead.
 Config.Shops = {
     ['clothes'] = {
-        coords = {
-            vec3(72.658409118652, -1398.9842529297, 29.376123428345),
-            vec3(4489.457031, -4452.023438, 4.171892),
-            vec3(-703.94110107422, -152.1471862793, 37.415134429932),
-            vec3(-168.08949279785, -298.69085693359, 39.73327255249),
-            vec3(428.51501464844, -800.30999755859, 29.491121292114),
-            vec3(-829.43786621094, -1073.8389892578, 11.328098297119),
-            vec3(-1447.4333496094, -243.05351257324, 49.822105407715),
-            vec3(11.785837173462, 6514.0327148438, 31.877853393555),
-            vec3(121.41311645508, -225.09120178223, 54.557891845703),
-            vec3(1695.9750976562, 4829.3217773438, 42.063121795654),
-            vec3(617.74530029297, 2765.0300292969, 42.088153839111),
-            vec3(1190.4202880859, 2713.3115234375, 38.222579956055),
-            vec3(-1188.4792480469, -769.00695800781, 17.325212478638),
-            vec3(-3174.9614257812, 1042.6502685547, 20.863206863403),
-            vec3(-1108.4439697266, 2709.0046386719, 19.106767654419),
-        },
-        label = 'BINCO',
+        label = 'Clothing',
         blip = { style = 73, color = 81, size = 0.5 },
         -- Player is moved here when the clothing UI opens.
         dressingRoom = Config.DefaultDressingRoom,
-        -- Player is returned here when the clothing UI closes.
-        exitCoords = vec4(72.6, -1399.0, 29.3, 0.0),
+        -- Fallback for a location that sets no categories of its own.
         categories = {
             'hat',
             'torso',
@@ -425,7 +421,115 @@ Config.Shops = {
             'pants',
             'shoes',
             'glasses',
-        }
+            -- Only ever shows rows an admin explicitly flagged "regular clothing" in
+            -- /clothingstore (treatAsClothing). Real vests use shop='armor' and never
+            -- appear here -- see BLOCKED_CATEGORIES/normaliseItem in sv_cloth.lua.
+            'armor',
+        },
+        -- pos is the storefront/blip point. `npc` is where the clerk actually
+        -- stands, as vec4(x, y, z, heading) -- set it to a spot behind the
+        -- counter. While it is nil the clerk stands on pos, which is the doorway.
+        -- Stand where you want the clerk and run /clothingnpcpos to get the line.
+        locations = {
+            {
+                id = 'strawberry', label = 'Discount Store - Strawberry',
+                pos = vec3(71.835, -1399.081, 29.376), npc = nil,
+                npcModel = 's_f_y_shop_low', npcName = 'Maya Cortez',
+                npcDialog = 'Everything on the racks is marked down. Yell if you need a size.',
+                categories = { 'torso', 'arms', 'tshirt', 'pants', 'shoes' },
+            },
+            {
+                id = 'hawick', label = 'Suburban - Hawick',
+                pos = vec3(-708.791199, -160.114288, 37.401489), npc = nil,
+                npcModel = 's_f_y_shop_mid', npcName = 'Priya Raines',
+                npcDialog = 'New season just landed. The fitting rooms are free if you want to try something.',
+                categories = { 'torso', 'arms', 'tshirt', 'pants', 'shoes', 'glasses' },
+            },
+            {
+                id = 'rockford', label = 'Ponsonbys - Rockford',
+                pos = vec3(-167.863, -298.969, 39.743), npc = nil,
+                npcModel = 's_f_m_shop_high', npcName = 'Vivienne Marchetti',
+                npcDialog = 'Welcome to Ponsonbys. Everything here is hand finished -- take your time.',
+                categories = { 'torso', 'arms', 'pants', 'shoes', 'chains', 'watches', 'bracelets', 'earrings' },
+            },
+            {
+                id = 'textile', label = 'Discount Store - Textile City',
+                pos = vec3(428.694, -800.106, 29.511), npc = nil,
+                npcModel = 's_f_y_shop_low', npcName = 'Dana Whitlock',
+                npcDialog = 'Cheapest prices downtown. Bags are in the back corner.',
+                categories = { 'torso', 'arms', 'pants', 'shoes', 'bags' },
+            },
+            {
+                id = 'vespucci_beach', label = 'Binco - Vespucci Beach',
+                pos = vec3(-829.413, -1073.710, 11.348), npc = nil,
+                npcModel = 's_f_y_shop_low', npcName = 'Kiara Nunez',
+                npcDialog = 'Beach fits, cheap and cheerful. Take a look around.',
+                categories = { 'torso', 'arms', 'pants', 'shoes', 'bags' },
+            },
+            {
+                id = 'del_perro', label = 'Ponsonbys - Del Perro',
+                pos = vec3(-1447.797, -242.461, 49.840), npc = nil,
+                npcModel = 's_f_m_shop_high', npcName = 'Camille Duval',
+                npcDialog = 'Good afternoon. Shall I show you the new arrivals?',
+                categories = { 'torso', 'arms', 'pants', 'shoes', 'chains', 'watches', 'bracelets', 'earrings' },
+            },
+            {
+                id = 'paleto', label = 'Discount Store - Paleto',
+                pos = vec3(11.632, 6514.224, 31.897), npc = nil,
+                npcModel = 's_f_y_shop_low', npcName = 'Ruth Baker',
+                npcDialog = 'Not much choice this far north, but the prices are honest.',
+                categories = { 'torso', 'arms', 'pants', 'shoes' },
+            },
+            {
+                id = 'alta', label = 'Suburban - Alta',
+                pos = vec3(123.646, -219.440, 54.577), npc = nil,
+                npcModel = 's_f_y_shop_mid', npcName = 'Elena Voss',
+                npcDialog = 'Take your time. Sunglasses are by the register.',
+                categories = { 'torso', 'arms', 'pants', 'shoes', 'glasses' },
+            },
+            {
+                id = 'grapeseed', label = 'Discount - Grapeseed',
+                pos = vec3(1696.291, 4829.312, 42.083), npc = nil,
+                npcModel = 's_f_y_shop_low', npcName = 'Sally Kemp',
+                npcDialog = 'Work clothes mostly, and they last. Holler if you need a hand.',
+                categories = { 'torso', 'arms', 'pants', 'shoes', 'bags' },
+            },
+            {
+                id = 'harmony', label = 'Discount - Harmony',
+                pos = vec3(618.093, 2759.629, 42.108), npc = nil,
+                npcModel = 's_f_y_shop_low', npcName = 'Wanda Pierce',
+                npcDialog = 'Helmets are by the door. Everything else is on the racks.',
+                categories = { 'torso', 'arms', 'pants', 'shoes', 'hat' },
+            },
+            {
+                id = 'sandy', label = 'Discount - Sandy Shores',
+                pos = vec3(1190.550, 2713.441, 38.242), npc = nil,
+                npcModel = 's_f_y_shop_low', npcName = 'Birdie Hollis',
+                npcDialog = 'Dust gets into everything out here. Buy dark colours.',
+                categories = { 'torso', 'arms', 'pants', 'shoes' },
+            },
+            {
+                id = 'south_rockford', label = 'Suburban - South Rockford',
+                pos = vec3(-1193.429, -772.262, 17.344), npc = nil,
+                npcModel = 's_f_y_shop_mid', npcName = 'Tasha Lin',
+                npcDialog = 'Everything is organised by size. Accessories are at the counter.',
+                categories = { 'torso', 'arms', 'pants', 'shoes', 'chains', 'watches', 'bracelets', 'earrings' },
+            },
+            {
+                id = 'chumash', label = 'Suburban - Chumash',
+                pos = vec3(-3172.496, 1048.133, 20.883), npc = nil,
+                npcModel = 's_f_y_shop_mid', npcName = 'Nora Vance',
+                npcDialog = 'Quiet today. Plenty of room to browse.',
+                categories = { 'torso', 'arms', 'pants', 'shoes', 'bags' },
+            },
+            {
+                id = 'route68_north', label = 'Discount - Route 68 North',
+                pos = vec3(-1108.441, 2708.923, 19.127), npc = nil,
+                npcModel = 's_f_y_shop_low', npcName = 'Josie Pratt',
+                npcDialog = 'Middle of nowhere, but we stock the basics. Look around.',
+                categories = { 'torso', 'arms', 'pants', 'shoes', 'glasses' },
+            },
+        },
     },
     ['accessories'] = {
         coords = {

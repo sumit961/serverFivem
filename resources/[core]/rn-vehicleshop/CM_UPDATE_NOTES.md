@@ -1,5 +1,17 @@
 # RN Vehicleshop — CM Update Notes
 
+## Safe model replacement
+
+- Vehicle replacement now preserves the existing `cm_owned_vehicles.id` / `vehicle_id`.
+- Fuel, health, damage, plate, garage, trunk, metadata, keys, family access and organisation ownership are not rewritten.
+- Stored vehicles migrate immediately; vehicles currently outside a garage remain in their live model and migrate automatically after storage.
+- If the original streamed model is already missing and no live entity remains, `cm-vehicles` finalizes the pending migration immediately before the next spawn so the same persistent vehicle can be recalled as Komoda.
+- The old catalog row is retired instead of deleted, and replacement history is stored in `cm_vehicle_replacements`.
+- Replacement images must already be captured on the target model before the migration can run.
+- Direct deletion is blocked when any owned vehicle still uses the model.
+- `/vehicleadmin` and `/managevehicle` now require `rnvehicleshop.admin`; `Config.Admin.AllPlayers` is fail-closed.
+- `gang_id`, retirement fields and replacement tables are created/migrated automatically at resource start.
+
 ## Kept intentionally
 
 - `this_is_a_map 'yes'` remains in `fxmanifest.lua` because the resource streams/uses the capture prop.
@@ -80,3 +92,13 @@ It then emits `cm-admin:server:addLog` as a compatibility fallback and writes a 
 - The first authorized manager open per client session enumerates FiveM's live registered vehicle models and seeds missing civilian land vehicles into the store without overwriting existing rows.
 - Emergency, military, aircraft, watercraft, and rail models remain visible but disabled by default.
 - Catalog top speed is editable in km/h. New store purchases persist the limit in owned-vehicle metadata; Police/EMS fleet appearance payloads carry the same limit.
+
+## Manage Vehicle reliability
+
+- The manage layout now uses one final, mode-scoped responsive grid. Its list and form may scroll vertically, but neither panel can grow wider than the viewport or introduce horizontal scrolling.
+- Organization catalog status uses an explicit `gang:<id>` or `legal:<id>` selection. Ambiguous or unknown organization identifiers are rejected server-side instead of silently saving a disabled vehicle.
+- Gang drive/trunk tiers are only shown and sent for gang grants. Legal, Police and EMS access remains owned by each organization's permission system.
+- Save, safe replacement and organization grant buttons remain locked until the server sends their matching request result. The internal `rn-vehicleshop:client:adminActionResult` event carries `action`, `requestId`, `success`, `message` and optional result details back to the NUI.
+- Owner counts include every persistent `cm_owned_vehicles` row, including character, family and organization ownership, and continue to count temporarily replaced vehicles against their original model.
+- Replacement snapshots include CarPlay state, completed restores remove their replacement history, and pending migration rows whose persistent vehicle was deleted are cleaned automatically.
+- Image captures use a unique staged filename. A database failure removes that staged file; a successful commit removes the previous unreferenced image and legacy alternate-format files.

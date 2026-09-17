@@ -56,10 +56,10 @@ local function search(src, targetSrc)
     local inventory = exports['cm-inventory']:GetInventory(targetSrc)
     if type(inventory) ~= 'table' then return nil, 'Suspect inventory could not be read.' end
     local personalLicensed, personalNumber = false, nil
-    if GetResourceState('cm-police') == 'started' then
+    if type(HasValidLicense) == 'function' then
         pcall(function()
-            personalLicensed = exports['cm-police']:HasValidLicense(targetSrc, 'firearms') == true
-            personalNumber = exports['cm-police']:GetLicenseNumber(targetSrc, 'firearms')
+            personalLicensed = exports['cm-law']:HasValidLicense(targetSrc, 'firearms') == true
+            personalNumber = exports['cm-law']:GetLicenseNumber(targetSrc, 'firearms')
         end)
     end
     local weaponMap, ammoMap, illegalMap = definitions()

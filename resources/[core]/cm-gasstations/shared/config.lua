@@ -7,9 +7,31 @@ CMGas.Config = {
     interactKey = 38, -- E / INPUT_CONTEXT
     interactKeyLabel = 'E',
 
-    -- The custom interaction prompt is shown anywhere inside the forecourt.
-    pumpInteractDistance = 6.0,
-    stationDetectDistance = 80.0,
+    -- Ground refuelling: only active when directly next to a physical gas pump prop.
+    pumpPropDistance = 4.2,
+    stationDetectDistance = 60.0,
+
+    -- Physical gas pump prop models
+    PumpModels = {
+        'prop_gas_pump_1a',
+        'prop_gas_pump_1b',
+        'prop_gas_pump_1c',
+        'prop_gas_pump_1d',
+        'prop_gas_pump_old1',
+        'prop_gas_pump_old2',
+        'prop_gas_pump_old3',
+        'prop_vintage_pump',
+    },
+
+    -- Rooftop helicopter refuel configuration (only active when landed on the roof).
+    HeliRooftop = {
+        enabled = true,
+        radius = 24.0,           -- Maximum horizontal radius from station center on roof
+        minHeight = 4.5,          -- Minimum height above ground/pump level to count as roof
+        maxHeight = 28.0,         -- Maximum height above ground/pump level
+        maxLandedSpeed = 2.0,     -- Must be landed/stopped (m/s)
+        maxHeightAboveRoof = 4.0, -- Distance above roof surface (m)
+    },
 
     Interaction = {
         title = 'FUEL STATION',
@@ -31,9 +53,14 @@ CMGas.Config = {
         sessionSeconds = 45,
         openCooldownMs = 700,
         orderCooldownMs = 1200,
-        maxVehicleDistance = 7.5,
-        playerPumpTolerance = 9.0,
-        vehiclePumpTolerance = 10.0,
+        maxVehicleDistance = 6.0,          -- Ground vehicle must be close to player
+        playerPumpTolerance = 45.0,        -- Ground player distance to station center
+        vehiclePumpTolerance = 45.0,       -- Ground vehicle distance to station center
+        groundMaxHeightDiff = 15.0,        -- Ground level height tolerance
+        groundMinHeightDiff = -18.0,       -- Ground level height tolerance
+        heliRooftopRadius = 38.0,          -- Server tolerance for rooftop helicopter
+        heliMinHeight = 2.5,               -- Minimum height above pump for rooftop heli
+        heliMaxHeight = 38.0,              -- Maximum height above pump for rooftop heli
         maxItemQuantity = 10,
         requireVehicleAccess = true,
         requireManagedVehicle = true,
@@ -53,6 +80,23 @@ CMGas.Config = {
         fuelCanPrice = 350,
         repairKitPrice = 1200,
         washKitPrice = 250,
+    },
+
+    Ownership = {
+        enabled = true,
+        purchasePrice = 250000,
+        taxAmount = 15000,
+        taxPeriodDays = 7,
+        ownerRevenuePercent = 80,
+        defaultStock = 5000,
+        maxStock = 25000,
+        restockUnitPrice = 4,
+        restockBatch = 1000,
+        priceTiers = {
+            low = 6,
+            normal = 8,
+            high = 11,
+        },
     },
 
     Items = {

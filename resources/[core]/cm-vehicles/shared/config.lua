@@ -70,6 +70,9 @@ CMVehicles.Config = {
             ['cm-impound'] = true,
             ['cm-police'] = true,
             ['cm-ems'] = true,
+            ['cm-law'] = true,
+            ['cm-gang'] = true,
+            ['cm-law'] = true,
         }
     },
 
@@ -80,7 +83,9 @@ CMVehicles.Config = {
             ['cm-parking'] = true,
             ['cm-impound'] = true,
             ['cm-police'] = true,
+            ['cm-law'] = true,
             ['cm-tuning'] = true,
+            ['cm-gang'] = true,
         }
     },
 
@@ -94,6 +99,11 @@ CMVehicles.Config = {
         authorizedResources = {
             ['cm-house'] = true,
             ['cm-ems'] = true,
+            ['cm-gang'] = true,
+            ['cm-law'] = true,
+            ['cm-license'] = true,
+            ['cm-electrician'] = true,
+            ['cm-fishing'] = true,
         }
     },
 

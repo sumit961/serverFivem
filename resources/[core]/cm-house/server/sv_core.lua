@@ -269,6 +269,41 @@ end
 function BuildDoorView(cid, house)
     local days  = DaysRemaining(house)
 
+    local raidState
+    if house.family_id and GetResourceState('cm-family') == 'started' then
+        local ok, state = pcall(function()
+            return exports['cm-family']:GetFamilyRaidDoorState(cid, tonumber(house.family_id), tonumber(house.id))
+        end)
+        if ok and type(state) == 'table' then raidState = state end
+
+        -- Keep the door affordance visible if the raid-state export is from
+        -- an older client/server generation or is temporarily unavailable.
+        -- Membership is still resolved by cm-family; the start callback
+        -- remains the authoritative rank/house validation boundary.
+        local memberOk, member = pcall(function()
+            return exports['cm-family']:GetFamilyForCharacter(cid)
+        end)
+        local isFamilyMember = memberOk and type(member) == 'table'
+            and (tonumber(member.id) == tonumber(house.family_id)
+                or tonumber(member.house_id) == tonumber(house.id))
+        if raidState then
+            raidState.isMember = raidState.isMember == true or isFamilyMember == true
+        elseif isFamilyMember then
+            raidState = {
+                enabled = true,
+                active = false,
+                inFamily = true,
+                isMember = true,
+                -- Same-family members may see the action, but can never
+                -- initiate a raid against their own house.  The server-side
+                -- StartFamilyRaid guard remains authoritative as well.
+                canStart = false,
+                canJoin = false,
+                unavailable = true,
+            }
+        end
+    end
+
     -- owner_cid = 0 is a legacy "nobody". Only a positive id is a real owner.
     local ownerCid = (house.owner_cid and house.owner_cid > 0) and house.owner_cid or nil
     local unowned  = ownerCid == nil
@@ -293,8 +328,9 @@ function BuildDoorView(cid, house)
         isOwner      = ownerCid ~= nil and ownerCid == cid,
         isUnowned    = unowned,
         familyName   = (function()
-            local family = house.family_id and GetFamilyDisplay(house.family_id) or nil
-            return family and (family.name or family.label) or nil
+            if not ownerCid then return nil end
+            local display = house.family_id and GetFamilyDisplay(house.family_id) or nil
+            return display and (display.name or display.label) or nil
         end)(),
         familyEligible = house.family_eligible,
 
@@ -319,9 +355,16 @@ function BuildDoorView(cid, house)
             enter  = CanAccessProperty(cid, id, ACTIONS.HOUSE_ENTER, false),
             garage = g ~= nil and CanAccessProperty(cid, id, ACTIONS.GARAGE_ENTER, false),
             sell   = CanAccessProperty(cid, id, ACTIONS.HOUSE_SELL, false),
-            activity = CanAccessProperty(cid, id, ACTIONS.HOUSE_VIEW_LOGS, false),
             buy    = listed,
+            -- Keep the action visible to family members even when their rank
+            -- cannot start it, so the card explains the required leadership
+            -- permission instead of silently hiding the control.
+            -- Family doors always expose the raid affordance.  Eligibility
+            -- remains in raidState/server validation; non-family players see
+            -- the action disabled instead of wondering where it went.
+            raid   = house.family_id ~= nil,
         },
+        raid = raidState,
     }
 end
 

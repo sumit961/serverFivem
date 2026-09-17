@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="POLICE">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#67e8f9" stop-opacity=".98"/><stop offset="1" stop-color="#d8fbff" stop-opacity=".78"/></linearGradient></defs>
+<path d="M80 8 131 26v44c0 35-18 63-51 82C47 133 29 105 29 70V26L80 8Z" fill="#071319" stroke="url(#g)" stroke-width="5"/>
+<path d="M80 24 115 36v34c0 24-11 44-35 61-24-17-35-37-35-61V36L80 24Z" fill="#0b2028" stroke="#67e8f9" stroke-opacity=".36" stroke-width="2"/>
+<circle cx="80" cy="62" r="23" fill="none" stroke="#67e8f9" stroke-width="3" stroke-opacity=".75"/>
+<path d="m80 39 6.4 13 14.3 2.1-10.3 10 2.4 14.2L80 71.6l-12.8 6.7 2.4-14.2-10.3-10L73.6 52 80 39Z" fill="#67e8f9" fill-opacity=".9"/>
+<text x="80" y="107" text-anchor="middle" fill="#e9fdff" font-family="Arial, sans-serif" font-size="18" font-weight="800" letter-spacing="1">LSPD</text>
+<text x="80" y="124" text-anchor="middle" fill="#67e8f9" font-family="Arial, sans-serif" font-size="7.2" font-weight="700" letter-spacing="1.8">POLICE</text>
+</svg>

@@ -41,12 +41,18 @@ local function applyDefaults(name, item, virtual)
     output.close = output.close ~= false
     output.virtual = virtual == true or output.virtual == true
     output.inventory = output.virtual and false or output.inventory ~= false
+    output.robberyProtected = output.robberyProtected == true
 
     if output.unique then
         output.stack = false
     end
 
     return output
+end
+
+function CMItems.IsRobberyProtected(name)
+    local item = CMItems.GetPhysicalItem(name)
+    return item ~= nil and item.robberyProtected == true
 end
 
 function CMItems.NormalizeName(name)
@@ -175,7 +181,7 @@ local function validateSchemaValue(field, rule, value)
     elseif rule == 'gender' then
         if value == nil or value == '' then return true end
         local v = tostring(value):lower()
-        return v == 'male' or v == 'female' or v == 'm' or v == 'f' or v == 'mp_m_freemode_01' or v == 'mp_f_freemode_01', ('Metadata field %s must be male/female'):format(field)
+        return v == 'male' or v == 'female' or v == 'both' or v == 'unisex' or v == 'shared' or v == 'all' or v == 'any' or v == 'm' or v == 'f' or v == 'mp_m_freemode_01' or v == 'mp_f_freemode_01', ('Metadata field %s must be male/female/both'):format(field)
     end
     return true
 end

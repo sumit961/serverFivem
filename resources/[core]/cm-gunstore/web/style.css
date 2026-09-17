@@ -299,6 +299,14 @@ button {
 .admin-item {
     width: 100%;
     min-height: 150px;
+    /* Every admin card is a flex child of #app.admin-mode .items (a scrolling
+       flex column). Without flex-shrink:0, a flex item combined with
+       overflow:hidden (below/line 558) loses its content-based minimum size
+       and flexbox is free to squash it to fit the visible area -- silently
+       clipping whatever doesn't fit (Gender/Stock/Access/Image/Description
+       and the Store checkbox + Save/Delete buttons) instead of scrolling to
+       them. This was worst on armor rows, which have the most fields. */
+    flex-shrink: 0;
     display: grid;
     grid-template-columns: 116px minmax(210px, 1fr) minmax(420px, 2.2fr) 132px;
     gap: 14px;
@@ -460,6 +468,15 @@ button {
     accent-color: var(--aqua);
 }
 
+/* Server-wide weapon ban -- deliberately styled as a warning, distinct from
+   the ordinary Store/Hidden toggle right next to it. */
+.banned-toggle {
+    border-color: rgba(255,109,123,.42);
+    background: rgba(255,109,123,.08);
+    color: var(--red);
+}
+.banned-toggle input { accent-color: var(--red); }
+
 .save {
     height: 42px;
     border-radius: 14px;
@@ -514,86 +531,6 @@ button {
     .admin-item { min-height: 138px; }
 }
 
-/* NPC conversation before opening the gun store. */
-.npc-dialog {
-    position: fixed;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    padding: 24px;
-    background:
-        radial-gradient(circle at 50% 40%, rgba(70, 236, 255, .13), transparent 34%),
-        linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.26));
-    z-index: 50;
-}
-
-.dialog-card {
-    width: min(520px, calc(100vw - 44px));
-    border: 1px solid rgba(190, 247, 255, .20);
-    border-radius: 28px;
-    padding: 28px;
-    background:
-        radial-gradient(circle at 18% 12%, rgba(255,255,255,.15), transparent 24%),
-        radial-gradient(circle at 82% 88%, rgba(70,236,255,.16), transparent 34%),
-        linear-gradient(180deg, rgba(8, 22, 29, .82), rgba(3, 10, 14, .78));
-    box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.10),
-        0 30px 90px rgba(0,0,0,.42);
-    text-align: center;
-}
-
-.dialog-eyebrow {
-    margin: 0 0 8px;
-    color: var(--aqua);
-    text-transform: uppercase;
-    letter-spacing: .16em;
-    font-size: 12px;
-    font-weight: 900;
-}
-
-.dialog-card h2 {
-    margin: 0;
-    color: var(--text);
-    font-size: clamp(25px, 2.4vw, 36px);
-    line-height: 1.05;
-    letter-spacing: -.03em;
-}
-
-.dialog-actions {
-    margin-top: 24px;
-    display: grid;
-    gap: 12px;
-}
-
-.dialog-primary,
-.dialog-secondary {
-    width: 100%;
-    min-height: 48px;
-    border-radius: 16px;
-    border: 1px solid rgba(190, 247, 255, .18);
-    font-weight: 900;
-    text-transform: uppercase;
-    letter-spacing: .06em;
-    font-size: 12px;
-}
-
-.dialog-primary {
-    background: rgba(70, 236, 255, .18);
-    border-color: rgba(70, 236, 255, .40);
-}
-
-.dialog-secondary {
-    background: rgba(255,255,255,.055);
-    color: rgba(255,255,255,.72);
-}
-
-.dialog-primary:hover,
-.dialog-secondary:hover {
-    transform: translateY(-1px);
-    border-color: rgba(190,247,255,.42);
-}
-
-
 /* 2026 upgrade: ox_target-ready premium visual polish */
 .card.weapon { --accent: rgba(70,236,255,.72); }
 .card.ammo { --accent: rgba(255,203,92,.72); }
@@ -637,87 +574,6 @@ button {
     width: 3px;
     background: linear-gradient(180deg, rgba(70,236,255,.8), rgba(140,255,186,.55));
 }
-.npc-dialog .dialog-card {
-    border: 1px solid rgba(190,247,255,.20);
-    background: linear-gradient(145deg, rgba(10,22,29,.80), rgba(10,22,29,.55));
-    box-shadow: 0 30px 90px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.10);
-}
-
-
-/* Custom clerk interaction prompt - ox_target inspired, no dependency */
-.interaction-prompt {
-    position: fixed;
-    right: clamp(28px, 4vw, 70px);
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 25;
-    pointer-events: none;
-}
-
-.interaction-card {
-    min-width: 310px;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 14px 16px;
-    border: 1px solid rgba(70, 236, 255, .34);
-    border-radius: 18px;
-    background:
-        radial-gradient(circle at 14% 15%, rgba(70,236,255,.20), transparent 35%),
-        linear-gradient(135deg, rgba(8, 18, 24, .86), rgba(7, 12, 17, .72));
-    box-shadow: 0 22px 60px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.08);
-    animation: interactionIn .16s ease-out;
-}
-
-.interaction-key {
-    width: 46px;
-    height: 46px;
-    display: grid;
-    place-items: center;
-    border-radius: 13px;
-    border: 1px solid rgba(255,255,255,.18);
-    background: rgba(70,236,255,.18);
-    color: #ffffff;
-    font-size: 20px;
-    font-weight: 1000;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.12);
-}
-
-.interaction-copy p,
-.interaction-copy h3,
-.interaction-copy span {
-    margin: 0;
-}
-
-.interaction-copy p {
-    color: #46ecff;
-    font-size: 11px;
-    font-weight: 900;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-}
-
-.interaction-copy h3 {
-    margin-top: 3px;
-    color: rgba(255,255,255,.96);
-    font-size: 18px;
-    text-transform: uppercase;
-    letter-spacing: -.02em;
-}
-
-.interaction-copy span {
-    display: block;
-    margin-top: 3px;
-    color: rgba(255,255,255,.58);
-    font-size: 12px;
-    font-weight: 700;
-}
-
-@keyframes interactionIn {
-    from { opacity: 0; transform: translateX(10px) scale(.98); }
-    to { opacity: 1; transform: translateX(0) scale(1); }
-}
-
 /* Admin creator upgrade */
 .creator-panel {
     width: 100%;
@@ -792,6 +648,28 @@ button {
 .delete, .wdelete { min-height: 42px; border-radius: 14px; padding: 0 14px; background: rgba(255,109,123,.13); border: 1px solid rgba(255,109,123,.42); color: var(--red); font-weight: 900; text-transform: uppercase; font-size: 11px; letter-spacing: .06em; }
 .delete:hover, .wdelete:hover { background: rgba(255,109,123,.22); color: #ffe9ec; }
 .creator-note { margin: 10px 0 0; color: rgba(255,255,255,.50); font-size: 12px; }
+
+/* Admin-only tabs (e.g. Manage NPCs) never show to regular players. */
+.tab.admin-only { display: none; }
+.admin-mode .tab.admin-only { display: inline-flex; align-items: center; justify-content: center; }
+
+/* Manage NPCs tab */
+.npc-manager { display: flex; flex-direction: column; gap: 4px; }
+.npc-list { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.npc-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px 16px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(255,255,255,.03);
+}
+.npc-summary { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.npc-summary h4 { margin: 0; font-size: 15px; }
+.npc-meta { color: rgba(255,255,255,.56); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.npc-coords { color: rgba(255,255,255,.40); font-size: 11px; }
 body.capture-flash::after {
     content: 'CAPTURING ARMOR PHOTO...';
     position: fixed;
@@ -1397,3 +1275,92 @@ body.capture-flash::after {
     color: var(--text); font-weight: 900; font-size: 16px; outline: none;
 }
 .ammo-buy .qty input:focus { border-color: var(--line-strong); }
+
+/* ===== CMUI.confirm() / CMUI.toast() -- styled to match this page instead of
+   pulling in cm-ui's global theme CSS. Classes come from cm-ui/web/cm-ui.js. ===== */
+.cm-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(3, 8, 12, .62);
+}
+.cm-modal {
+    width: min(420px, calc(100vw - 44px));
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 22px;
+    background:
+        radial-gradient(circle at 20% 10%, rgba(70,236,255,.10), transparent 34%),
+        linear-gradient(180deg, rgba(10, 22, 29, .96), rgba(6, 14, 19, .96));
+    box-shadow: 0 30px 90px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.08);
+}
+.cm-modal-header {
+    color: var(--text);
+    font-size: 18px;
+    font-weight: 900;
+    letter-spacing: -.02em;
+    margin-bottom: 8px;
+}
+.cm-modal-body {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.5;
+}
+.cm-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+}
+.cm-modal .cm-btn {
+    min-height: 40px;
+    padding: 0 16px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,.06);
+    color: var(--text);
+    font-weight: 900;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    cursor: pointer;
+    transition: filter .12s ease, transform .1s ease;
+}
+.cm-modal .cm-btn:hover { filter: brightness(1.18); }
+.cm-modal .cm-btn:active { transform: scale(.97); }
+.cm-modal .cm-btn-secondary { background: rgba(255,255,255,.045); color: var(--muted); }
+.cm-modal .cm-btn-danger {
+    background: rgba(255,109,123,.16);
+    border-color: rgba(255,109,123,.45);
+    color: var(--red);
+}
+
+.cm-toast-stack {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 220;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+}
+.cm-toast {
+    min-width: 220px;
+    max-width: 340px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(10,22,29,.94), rgba(6,14,19,.94));
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 700;
+    box-shadow: 0 18px 45px rgba(0,0,0,.4);
+    transition: opacity .18s ease, transform .18s ease;
+}
+.cm-toast-success { border-color: rgba(140,255,186,.4); }
+.cm-toast-error { border-color: rgba(255,109,123,.45); }
+.cm-toast-info { border-color: rgba(70,236,255,.4); }

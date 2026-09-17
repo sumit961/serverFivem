@@ -12,7 +12,7 @@ const replaceChildrenSafe = (element, nodes) => {
   nodes.forEach((node) => element.appendChild(node));
 };
 
-window.CM_HOUSE_UI_VERSION = '1.7.0';
+window.CM_HOUSE_UI_VERSION = '1.8.4';
 document.documentElement.setAttribute('data-cm-house-ui', window.CM_HOUSE_UI_VERSION);
 const RES = typeof GetParentResourceName === 'function' ? GetParentResourceName() : 'cm-house';
 
@@ -42,6 +42,27 @@ let W = {
 };
 
 const SEAL_C = 327;
+
+function setWizardProgress(step) {
+  const current = Math.max(1, Math.min(5, Number(step) || 1));
+  document.querySelectorAll('[data-wiz-progress]').forEach((el) => {
+    const n = Number(el.dataset.wizProgress);
+    el.classList.toggle('is-active', n === current);
+    el.classList.toggle('is-done', n < current);
+  });
+}
+
+function wizardStageFor(phase) {
+  if (phase === 'publish') return 5;
+  if (phase === 'pickInterior' || phase === 'pickGarage' || phase === 'room' || phase === 'garageRoom' || phase === 'nameInterior' || phase === 'nameGarage') return 4;
+  return 1;
+}
+
+function setWizardError(message) {
+  $('w-err').textContent = message || '';
+  if (message) $('w-err').classList.add('is-visible');
+  else $('w-err').classList.remove('is-visible');
+}
 
 function paneShow(id) {
   ['w-features', 'w-pick', 'w-rooms', 'w-name', 'w-publish']
@@ -93,14 +114,17 @@ function openWizard(opts) {
   $('w-title').textContent = 'Declare the property';
   $('w-sub').textContent   = 'Everything else — the layout, the garage, the price — follows from this.';
   $('w-next').textContent  = 'Continue';
-  $('w-err').textContent   = '';
+  $('w-next').disabled = false;
+  setWizardError('');
+  setWizardProgress(1);
 
   replaceChildrenSafe($('w-types'), opts.types.map((t) => {
     const b = document.createElement('button');
     b.className = 'tile' + (t.key === W.f.houseType ? ' on' : '');
     b.dataset.type = t.key;
-    b.innerHTML = `<span class="tile__name"></span><span class="tile__cost"></span>`;
+    b.innerHTML = `<span class="tile__name"></span><span class="tile__hint"></span><span class="tile__cost"></span>`;
     b.querySelector('.tile__name').textContent = t.label;
+    b.querySelector('.tile__hint').textContent = t.key === 'apartment' ? 'Compact urban living' : t.key === 'mansion' ? 'Premium full-size property' : 'Private residential property';
     b.querySelector('.tile__cost').textContent = money(t.priceAdd);
     return b;
   }));
@@ -109,8 +133,8 @@ function openWizard(opts) {
     const b = document.createElement('button');
     b.className = 'tog';
     b.dataset.feat = f.key;
-    b.innerHTML = `<span class="tog__dot"></span><span></span><span class="tog__cost"></span>`;
-    b.querySelectorAll('span')[1].textContent = f.label;
+    b.innerHTML = `<span class="tog__dot"></span><span class="tog__label"></span><span class="tog__cost"></span>`;
+    b.querySelector('.tog__label').textContent = f.label;
     b.querySelector('.tog__cost').textContent = '+' + money(f.priceAdd);
     return b;
   }));
@@ -128,7 +152,7 @@ function paintGarages() {
   const none = document.createElement('button');
   none.className = 'tile tile--sm' + (!selectedId ? ' on' : '');
   none.dataset.garage = 'none';
-  none.innerHTML = '<span class="tile__name">No garage</span><span class="tile__cost">$0</span>';
+  none.innerHTML = '<span class="tile__name">No garage</span><span class="tile__hint">Street parking only</span><span class="tile__cost">$0</span>';
   rows.push(none);
 
   templates.forEach((g) => {
@@ -136,7 +160,7 @@ function paintGarages() {
     b.className = 'tile tile--sm' + (Number(g.id) === selectedId ? ' on' : '');
     b.dataset.garage = String(g.id);
     b.dataset.capacity = String(g.capacity || 0);
-    b.innerHTML = `<span class="tile__name"></span><span class="tile__cost"></span>`;
+    b.innerHTML = `<span class="tile__name"></span><span class="tile__hint">Saved placement template</span><span class="tile__cost"></span>`;
     b.querySelector('.tile__name').textContent = `${g.label} · ${g.capacity} cars`;
     b.querySelector('.tile__cost').textContent = '+' + money(g.priceAdd || 0);
     rows.push(b);
@@ -193,6 +217,7 @@ $('w-garages').addEventListener('click', (e) => {
 function wizPick(data, kind) {
   W.phase = kind === 'interior' ? 'pickInterior' : 'pickGarage';
   W.ctx = data;
+  setWizardProgress(4);
 
   $('w-step').textContent  = kind === 'interior' ? 'Interior' : 'Garage';
   $('w-title').textContent = kind === 'interior' ? 'Which layout?' : 'Which garage?';
@@ -231,6 +256,7 @@ $('w-pick-list').addEventListener('click', (e) => {
 /* ---- pick a room ---- */
 function wizRooms(data) {
   W.phase = data.forGarage ? 'garageRoom' : 'room';
+  setWizardProgress(4);
 
   $('w-step').textContent  = data.forGarage ? 'Garage' : 'Interior';
   $('w-title').textContent = data.forGarage ? 'Which garage?' : 'Which room?';
@@ -261,6 +287,7 @@ $('w-room-list').addEventListener('click', (e) => {
 function wizName(data) {
   W.phase = data.kind === 'interior' ? 'nameInterior' : 'nameGarage';
   W.ctx = data;
+  setWizardProgress(4);
 
   $('w-step').textContent  = 'Save the layout';
   $('w-title').textContent = data.kind === 'interior' ? 'Name this interior' : 'Name this garage';
@@ -281,12 +308,31 @@ function wizName(data) {
 
 function wizPublish(data) {
   W.phase = 'publish';
+  setWizardProgress(5);
   paintRail(data.derived);
 
   $('w-step').textContent  = 'Final step';
   $('w-title').textContent = 'Publish the property';
   $('w-sub').textContent   = 'The next House number is assigned automatically.';
   $('w-next').textContent  = 'Publish';
+
+  const checks = [
+    ['Front door placed', data.hasDoor !== false],
+    ['Photo captured', data.hasPhoto !== false],
+    ['Interior layout selected', data.hasInterior !== false],
+  ];
+  if (data.hasGarage) checks.push(['Garage return and vehicle exit placed', data.hasGaragePoints !== false]);
+  if (data.hasHelipad) checks.push(['Helipad landing point placed', data.hasHelipadPoint !== false]);
+  replaceChildrenSafe($('w-checks'), checks.map(([label, ok]) => {
+    const row = document.createElement('div');
+    row.className = `publish-check ${ok ? 'is-ok' : 'is-missing'}`;
+    row.innerHTML = `<span class="publish-check__icon">${ok ? '✓' : '!'}</span><span></span><small>${ok ? 'READY' : 'MISSING'}</small>`;
+    row.querySelector('span:nth-child(2)').textContent = label;
+    return row;
+  }));
+  const ready = checks.every(([, ok]) => ok);
+  $('w-next').disabled = !ready;
+  if (!ready) setWizardError('Finish the missing placement step before publishing.');
 
   paneShow('w-publish');
   $('wiz').classList.add('on');
@@ -318,15 +364,15 @@ $('wiz').addEventListener('click', async (e) => {
 
   if (W.phase === 'features') {
     if (!W.f.houseType) {
-      $('w-err').textContent = 'Pick a property type.';
+      setWizardError('Pick a property type.');
       return;
     }
     if (W.plan && Array.isArray(W.plan.interiors) && W.plan.interiors.length === 0) {
-      $('w-err').textContent = 'Create an interior template from cm-admin before making this house.';
+      setWizardError('Create an interior template from cm-admin before making this house.');
       return;
     }
     if (W.plan && W.plan.derived && W.plan.derived.garageTemplateMeetsMinimum === false) {
-      $('w-err').textContent = `Select a garage template with at least ${Number(W.plan.derived.garageMinimum) || 0} car spaces.`;
+      setWizardError(`Select a garage template with at least ${Number(W.plan.derived.garageMinimum) || 0} car spaces.`);
       return;
     }
     $('wiz').classList.remove('on');
@@ -336,7 +382,7 @@ $('wiz').addEventListener('click', async (e) => {
   if (W.phase === 'nameInterior' || W.phase === 'nameGarage') {
     const label = $('w-name-in').value.trim();
     if (!label) {
-      $('w-err').textContent = 'Give the layout a name.';
+      setWizardError('Give the layout a name.');
       return;
     }
     btn.disabled = true;
@@ -344,7 +390,7 @@ $('wiz').addEventListener('click', async (e) => {
                          { label });
     btn.disabled = false;
     if (r.ok) $('wiz').classList.remove('on');
-    else $('w-err').textContent = r.message || 'The server refused it.';
+    else setWizardError(r.message || 'The server refused it.');
     return;
   }
 
@@ -355,7 +401,7 @@ $('wiz').addEventListener('click', async (e) => {
     btn.disabled = false;
     btn.textContent = 'Publish';
     if (r.ok) $('wiz').classList.remove('on');
-    else $('w-err').textContent = r.message || 'The server refused it.';
+    else setWizardError(r.message || 'The server refused it.');
   }
 });
 
@@ -448,7 +494,7 @@ function renderAdmin() {
       // A layout in use cannot be deleted -- doing so would strand whoever is
       // standing inside it. Say how many, so the block is explicable.
       const acts = ['<button class="mini" data-t="preview">Preview</button>',
-                    '<button class="mini" data-t="rewalk">Re-walk</button>',
+                    '<button class="mini" data-t="rewalk">Edit layout</button>',
                     '<button class="mini" data-t="rename">Rename</button>'];
       if (!t.enabled) acts.push('<button class="mini" data-t="enable">Enable</button>');
       else if (t.usedBy === 0) acts.push('<button class="mini" data-t="disable">Disable</button>');
@@ -481,7 +527,7 @@ function renderAdmin() {
       r.dataset.tpl = String(t.id);
       r.dataset.kind = 'garage';
       const acts = ['<button class="mini" data-t="preview">Preview</button>',
-                    '<button class="mini" data-t="rewalk">Re-walk</button>',
+                    '<button class="mini" data-t="rewalk">Edit layout</button>',
                     '<button class="mini" data-t="rename">Rename</button>'];
       if (!t.enabled) acts.push('<button class="mini" data-t="enable">Enable</button>');
       else if (t.usedBy === 0) acts.push('<button class="mini" data-t="disable">Disable</button>');

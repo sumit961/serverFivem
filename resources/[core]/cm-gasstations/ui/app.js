@@ -53,11 +53,33 @@ function showToast(message, type = 'success') {
   toastTimer = setTimeout(() => toast.classList.add('hidden'), 4200);
 }
 
+let previousFuel = 0;
+
+function spawnDroplets(intensity) {
+  const panel = document.querySelector('.gas-panel');
+  if (!panel) return;
+  const dropCount = Math.min(Math.floor(intensity / 2) + 1, 15);
+  for (let i = 0; i < dropCount; i++) {
+    const drop = document.createElement('div');
+    drop.className = 'droplet';
+    drop.style.left = `${Math.random() * 80 + 10}%`;
+    drop.style.height = `${Math.random() * 8 + 8}px`;
+    drop.style.animationDuration = `${0.35 + Math.random() * 0.15}s`;
+    panel.appendChild(drop);
+    setTimeout(() => drop.remove(), 600);
+  }
+}
+
 function updateFuelVisual() {
   const current = Math.round(Number(context.fuel) || 0);
   const target = context.inCar ? Math.round(order.fuelTarget) : 0;
   const maximum = Math.max(1, Number(context.maxFuel) || 100);
   const percentage = clamp((target / maximum) * 100, 0, 100);
+
+  if (target > previousFuel && previousFuel > 0) {
+    spawnDroplets(target - previousFuel);
+  }
+  previousFuel = target;
 
   $('currentFuelValue').textContent = current;
   $('targetFuelValue').textContent = target;
@@ -69,6 +91,11 @@ function updateFuelVisual() {
   $('fuelRange').value = String(target);
   $('fuelRange').style.setProperty('--range-fill', `${percentage}%`);
   $('fuelRing').style.setProperty('--fuel-angle', `${percentage * 3.6}deg`);
+  const fluid = $('fluidTank');
+  if (fluid) {
+    fluid.style.setProperty('--fluid-level', `${context.inCar ? percentage : 35}%`);
+    fluid.style.height = `${context.inCar ? percentage : 35}%`;
+  }
 }
 
 function updateCheckout() {
@@ -121,6 +148,7 @@ function openPanel(newContext) {
   context.cash = Number(context.cash) || 0;
   context.maxItemQuantity = Number(context.maxItemQuantity) || 10;
   submitting = false;
+  previousFuel = context.inCar ? context.fuel : 0;
   order = {
     fuelTarget: context.inCar ? context.fuel : 0,
     kits: 0,
@@ -129,13 +157,31 @@ function openPanel(newContext) {
   };
 
   $('stationName').textContent = String(context.stationName || 'Gas Station');
-  $('stationMode').textContent = context.inCar ? 'Vehicle secured · engine off · server-priced fuel' : 'Purchase vehicle supplies for your inventory';
+  $('stationMode').textContent = context.inCar ? 'Vehicle secured - engine off - server-priced fuel' : 'Purchase vehicle supplies for your inventory';
   $('repairUnitPrice').textContent = formatMoney(context.repairKitPrice);
   $('fuelCanUnitPrice').textContent = formatMoney(context.fuelCanPrice);
   $('washUnitPrice').textContent = formatMoney(context.washKitPrice);
 
   $('vehicleCard').classList.toggle('hidden', !context.inCar);
   $('storeOnlyCard').classList.toggle('hidden', context.inCar);
+  const station = context.station || {};
+  $('ownerSection').classList.toggle('hidden', station.owned !== true);
+  $('buySection').classList.toggle('hidden', station.owned === true);
+  $('ownerTab').classList.toggle('hidden', station.owned !== true);
+  $('publicStatus').textContent = station.owned === true ? 'PRIVATELY OPERATED' : 'AVAILABLE FOR PURCHASE';
+  $('publicOwner').textContent = station.owned === true ? `Operated by ${station.ownerName || 'station owner'}.` : 'This station is currently operated by the city.';
+  $('publicPrice').textContent = `$${formatMoney(context.pricePerPercent)}`;
+  $('publicStock').textContent = formatMoney(station.stock);
+  $('publicTier').textContent = String(station.priceTier || 'normal').toUpperCase();
+  $('publicPurchase').textContent = `$${formatMoney(station.purchasePrice)}`;
+  switchView('operate');
+  $('businessBalance').textContent = formatMoney(station.businessBalance);
+  $('purchasePrice').textContent = formatMoney(station.purchasePrice);
+  $('taxPaidDays').textContent = `${Math.max(0, Math.ceil((new Date(station.taxDueAt || 0).getTime() - Date.now()) / 86400000))} DAYS`;
+  $('dailyIncome').textContent = `$${formatMoney(station.dailyIncome)}`;
+  $('weeklyIncome').textContent = `$${formatMoney(station.weeklyIncome)}`;
+  $('ownerStock').textContent = formatMoney(station.stock);
+  document.querySelectorAll('[data-price-tier]').forEach((button) => button.classList.toggle('selected', button.dataset.priceTier === (station.priceTier || 'normal')));
 
   if (context.inCar && context.vehicle) {
     $('vehicleName').textContent = String(context.vehicle.label || 'Vehicle');
@@ -147,6 +193,21 @@ function openPanel(newContext) {
   interaction.classList.add('hidden');
   root.classList.remove('hidden');
   root.setAttribute('aria-hidden', 'false');
+}
+
+function switchView(view) {
+  const owner = (context.station || {}).owned === true;
+  const isOwner = view === 'owner' && owner;
+  const isOperate = view === 'operate' || isOwner;
+  $('publicSection').classList.toggle('hidden', isOperate);
+  $('operateView').classList.toggle('hidden', !isOperate);
+  $('checkoutFooter').classList.toggle('hidden', view !== 'operate');
+  $('vehicleCard').classList.toggle('hidden', view !== 'operate' || !context.inCar);
+  $('storeOnlyCard').classList.toggle('hidden', view !== 'operate' || context.inCar);
+  document.querySelectorAll('.station-tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.view === view));
+  $('ownerSection').classList.toggle('hidden', !isOwner);
+  $('storeSection').classList.toggle('hidden', isOwner);
+  $('buySection').classList.toggle('hidden', view !== 'public' || owner);
 }
 
 function closePanel(sendClose = false) {
@@ -180,8 +241,10 @@ document.querySelectorAll('.quantity').forEach((quantity) => {
   });
 });
 
+document.querySelectorAll('.station-tab').forEach((tab) => tab.addEventListener('click', () => switchView(tab.dataset.view)));
+
 document.querySelectorAll('[data-fuel-add]').forEach((button) => {
-  button.addEventListener('click', () => setFuelTarget(Number(context.fuel) + Number(button.dataset.fuelAdd || 0)));
+  button.addEventListener('click', () => setFuelTarget(Number(order.fuelTarget || context.fuel) + Number(button.dataset.fuelAdd || 0)));
 });
 
 document.querySelector('[data-fuel-full]').addEventListener('click', () => setFuelTarget(context.maxFuel));
@@ -203,6 +266,17 @@ $('btnOrder').addEventListener('click', async () => {
     showToast('Could not contact the gas station.', 'error');
   }
 });
+
+$('buyStation').addEventListener('click', () => post('buyStation'));
+$('buyStationPublic').addEventListener('click', () => post('buyStation'));
+$('saveStation').addEventListener('click', () => post('manageStation', { priceTier: document.querySelector('[data-price-tier].selected')?.dataset.priceTier || 'normal' }));
+$('restockStation').addEventListener('click', () => post('manageStation', { priceTier: document.querySelector('[data-price-tier].selected')?.dataset.priceTier || 'normal', restock: true }));
+$('payTax').addEventListener('click', () => post('payTax'));
+$('withdrawBusiness').addEventListener('click', () => post('withdrawBusiness'));
+document.querySelectorAll('[data-price-tier]').forEach((button) => button.addEventListener('click', () => {
+  document.querySelectorAll('[data-price-tier]').forEach((item) => item.classList.remove('selected'));
+  button.classList.add('selected');
+}));
 
 $('btnClose').addEventListener('click', () => closePanel(true));
 

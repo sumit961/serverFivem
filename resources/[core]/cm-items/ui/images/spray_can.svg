@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Spray can">
+  <defs><linearGradient id="can" x1="0" x2="1"><stop stop-color="#17252b"/><stop offset=".5" stop-color="#54d9ef"/><stop offset="1" stop-color="#0b171c"/></linearGradient></defs>
+  <path fill="#b8c8cd" d="M91 35h74v25H91z"/><path fill="#eaf7fa" d="M104 20h48v19h-48z"/>
+  <path fill="url(#can)" stroke="#8cecff" stroke-width="5" d="M78 58h100l11 25v139c0 10-8 18-18 18H85c-10 0-18-8-18-18V83z"/>
+  <path fill="#071217" opacity=".72" d="M67 104h122v76H67z"/><path fill="#53dcef" d="m96 165 20-48h23l-12 28h33l-49 57 13-37z"/>
+  <path fill="#071217" d="M149 27h34v12h-34z"/><circle cx="185" cy="33" r="5" fill="#53dcef"/>
+</svg>

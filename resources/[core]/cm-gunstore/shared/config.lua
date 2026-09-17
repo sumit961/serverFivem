@@ -61,15 +61,15 @@ Config.Target = {
     labelAdmin = 'Gun Store Admin'
 }
 
+-- The "Press E" prompt itself is cm-ui's ShowInteract (name/role shown come
+-- from Config.Ped.names + the 'GUN STORE' role in client/main.lua); this
+-- block only controls the proximity/marker behavior around each shop.
 Config.Interact = {
     distance = 2.2,
     markerDistance = 18.0,
     markerType = 2,
     drawMarker = false, -- NPC interaction is cleaner than ground markers.
     key = 38, -- E
-    prompt = 'Press ~INPUT_CONTEXT~ to open Gun Store',
-    title = 'Talk to Clerk',
-    subtitle = 'Browse weapons, ammo, and armor',
     keyLabel = 'E'
 }
 
@@ -123,12 +123,24 @@ Config.Ped = {
         'Take care.'
     },
 
+    -- Text shown by cm-ui's shared cinematic NPC dialogue (scripted camera +
+    -- letterbox NUI -- see cm-ui/docs/CM_UI_USAGE.md). cm-gunstore only
+    -- supplies the copy; cm-ui owns the camera/UI itself.
     dialog = {
         title = 'How can I help you today?',
         optionStore = 'Show me the catalog',
+        optionLicense = 'Buy a firearms license',
         optionClose = 'Maybe later'
     }
 }
+
+-- ============================================================
+-- NPCs added live from the /gunadmin UI ("Manage NPCs" tab).
+-- These are stored in the cm_gunstore_npcs database table, not here --
+-- this file only holds the shops that ship with the resource. Admins can
+-- stand anywhere in the world, open /gunadmin, and add a fully working
+-- clerk (name + position) without editing this file or restarting anything.
+-- ============================================================
 
 Config.Accounts = {
     cash = 'cash',

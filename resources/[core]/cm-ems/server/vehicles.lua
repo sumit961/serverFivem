@@ -80,7 +80,7 @@ local function mergedRow(catalogRow, settingsRow)
         image = catalogRow.image,
         minTier = settingsRow and math.floor(tonumber(settingsRow.min_tier) or 0) or 0,
         enabled = settingsRow and dbBoolean(settingsRow.enabled) or false,
-        configured = settingsRow ~= nil,
+        configured = settingsRow ~= nil and dbBoolean(settingsRow.location_configured),
         assignedOfficer = FleetAssignments[tostring(catalogRow.model):lower()] and FleetAssignments[tostring(catalogRow.model):lower()].name or nil,
     }
 end
@@ -151,15 +151,18 @@ lib.callback.register('cm-ems:server:setFleetVehicleMinTier', function(src, mode
     return true
 end)
 
-lib.callback.register('cm-ems:server:beginFleetLocationEdit', function(src, model)
+local function beginFleetLocationEdit(src, model, adminStarted)
     local actor, _, err = actorFor(src)
-    if not actor or not has(actor, 'ems.manage_vehicles') then return false, err or 'Your rank cannot manage EMS vehicles.' end
+    local admin = false
+    if adminStarted == true then pcall(function() admin = exports[Config.AdminResource]:HasPermission(src, Config.AdminPermission) == true end) end
+    if not admin and (not actor or not has(actor, 'ems.manage_vehicles')) then return false, err or 'Your rank cannot manage EMS vehicles.' end
     if not rateLimit(src, 'ems_fleet_edit', 1500) then return false, 'Please wait.' end
     model = tostring(model or ''):lower()
     local catalogRow = findCatalogRow(getEmsCatalog(), model)
     if not catalogRow then return false, 'That vehicle is not tagged as an EMS vehicle.' end
     local previous = FleetPlacementBySource[src]
     if previous then pcall(function() exports[VEHICLES_RESOURCE]:DeleteAdminVehicle(previous.plate) end) end
+    FleetPlacementBySource[src] = nil
     local ped = GetPlayerPed(src)
     if not ped or ped == 0 then return false, 'Character is not loaded.' end
     local coords, heading = GetEntityCoords(ped), GetEntityHeading(ped)
@@ -170,9 +173,18 @@ lib.callback.register('cm-ems:server:beginFleetLocationEdit', function(src, mode
         label = ('EMS location dummy: %s'):format(catalogRow.label), placementKind = kind, engineOn = true,
     })
     if type(result) ~= 'table' or result.ok ~= true then return false, tostring(result and result.error or 'Could not create the location dummy.') end
-    FleetPlacementBySource[src] = { model = model, kind = kind, plate = result.plate, netId = result.netId, entity = result.entity }
+    FleetPlacementBySource[src] = { model = model, kind = kind, plate = result.plate, netId = result.netId, entity = result.entity, admin = admin, expiresAt = os.time() + 300 }
     if result.entity and DoesEntityExist(result.entity) then Entity(result.entity).state:set('cmEmsFleet', { model = model, placement = true }, true) end
-    return true, { netId = result.netId, model = model, message = 'Drive the dummy to the vehicle location and press H to save.' }
+    return true, { netId = result.netId, model = model, message = 'Drive to the location. Press H to save or Backspace to cancel.' }
+end
+lib.callback.register('cm-ems:server:beginFleetLocationEdit', function(src, model) return beginFleetLocationEdit(src, model, false) end)
+
+lib.callback.register('cm-ems:server:cancelFleetLocationEdit', function(src)
+    local placement = FleetPlacementBySource[src]
+    if not placement then return false, 'No EMS fleet placement is active.' end
+    FleetPlacementBySource[src] = nil
+    pcall(function() exports[VEHICLES_RESOURCE]:DeleteAdminVehicle(placement.plate) end)
+    return true, 'EMS fleet placement cancelled.'
 end)
 
 -- Location save/update: the player must be DRIVING the exact EMS dummy
@@ -182,7 +194,14 @@ end)
 -- -- never trusted from the client).
 lib.callback.register('cm-ems:server:saveFleetVehicleLocation', function(src, model, kind)
     local actor, actorCid, err = actorFor(src)
-    if not actor or not has(actor, 'ems.manage_vehicles') then return false, err or 'Your rank cannot manage EMS vehicles.' end
+    local placement = FleetPlacementBySource[src]
+    if placement and tonumber(placement.expiresAt) and os.time() >= tonumber(placement.expiresAt) then
+        FleetPlacementBySource[src] = nil
+        pcall(function() exports[VEHICLES_RESOURCE]:DeleteAdminVehicle(placement.plate) end)
+        return false, 'That EMS fleet placement expired. Start it again.'
+    end
+    local admin = placement and placement.admin == true and exports[Config.AdminResource]:HasPermission(src, Config.AdminPermission) == true
+    if not admin and (not actor or not has(actor, 'ems.manage_vehicles')) then return false, err or 'Your rank cannot manage EMS vehicles.' end
     if not rateLimit(src, 'ems_fleet_save', 2000) then return false, 'Please wait.' end
 
     model = tostring(model or ''):lower()
@@ -195,12 +214,12 @@ lib.callback.register('cm-ems:server:saveFleetVehicleLocation', function(src, mo
     if vehicle == 0 or not DoesEntityExist(vehicle) then return false, 'Get in the EMS vehicle first.' end
     if GetPedInVehicleSeat(vehicle, -1) ~= ped then return false, 'Only the driver can save this vehicle\'s location.' end
     if GetHashKey(catalogRow.model) ~= GetEntityModel(vehicle) then return false, 'You are not driving that vehicle.' end
-    local placement = FleetPlacementBySource[src]
+    placement = FleetPlacementBySource[src]
     if not placement or placement.model ~= model or tonumber(placement.entity) ~= tonumber(vehicle) then return false, 'This is not your active EMS location dummy.' end
 
     local coords = GetEntityCoords(vehicle)
     local heading = GetEntityHeading(vehicle)
-    kind = kind == 'helicopter' and 'helicopter' or 'car'
+    kind = placement.kind == 'helicopter' and 'helicopter' or 'car'
 
     local settings = MySQL.single.await('SELECT * FROM cm_ems_fleet_vehicles WHERE model = ? LIMIT 1', { model })
     local vehicleId = settings and tonumber(settings.vehicle_id) or nil
@@ -224,10 +243,10 @@ lib.callback.register('cm-ems:server:saveFleetVehicleLocation', function(src, mo
         return false, 'Could not assign the persistent vehicle to EMS ownership.'
     end
     MySQL.insert.await([[
-        INSERT INTO cm_ems_fleet_vehicles (model, vehicle_id, kind, min_tier, enabled, spawn_x, spawn_y, spawn_z, spawn_h, updated_by)
-        VALUES (?, ?, ?, 0, 1, ?, ?, ?, ?, ?)
+        INSERT INTO cm_ems_fleet_vehicles (model, vehicle_id, kind, min_tier, enabled, location_configured, spawn_x, spawn_y, spawn_z, spawn_h, updated_by)
+        VALUES (?, ?, ?, 0, 1, 1, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
-            vehicle_id = VALUES(vehicle_id), kind = VALUES(kind),
+            vehicle_id = VALUES(vehicle_id), kind = VALUES(kind), location_configured = 1,
             spawn_x = VALUES(spawn_x), spawn_y = VALUES(spawn_y), spawn_z = VALUES(spawn_z), spawn_h = VALUES(spawn_h),
             updated_by = VALUES(updated_by)
     ]], { model, vehicleId, kind, coords.x, coords.y, coords.z, heading, actorCid })
@@ -539,6 +558,67 @@ AddEventHandler('playerDropped', function()
     local placement = FleetPlacementBySource[source]
     FleetPlacementBySource[source] = nil
     if placement then pcall(function() exports[VEHICLES_RESOURCE]:DeleteAdminVehicle(placement.plate) end) end
+end)
+
+CreateThread(function()
+    while true do
+        Wait(30000)
+        local now = os.time()
+        for src, placement in pairs(FleetPlacementBySource) do
+            if tonumber(placement.expiresAt) and now >= tonumber(placement.expiresAt) then
+                FleetPlacementBySource[src] = nil
+                pcall(function() exports[VEHICLES_RESOURCE]:DeleteAdminVehicle(placement.plate) end)
+            end
+        end
+    end
+end)
+
+AddEventHandler('onResourceStop', function(resourceName)
+    if resourceName ~= GetCurrentResourceName() then return end
+    for src, placement in pairs(FleetPlacementBySource) do
+        FleetPlacementBySource[src] = nil
+        pcall(function() exports[VEHICLES_RESOURCE]:DeleteAdminVehicle(placement.plate) end)
+    end
+end)
+
+local function emsAdmin(src)
+    local ok, allowed = pcall(function() return exports[Config.AdminResource]:HasPermission(src, Config.AdminPermission) end)
+    return ok and allowed == true
+end
+
+exports('AdminGetFleet', function(src)
+    if not emsAdmin(tonumber(src)) then return { ok = false, error = 'Permission denied.' } end
+    local settings, vehicles = fleetSettingsByModel(), {}
+    for _, row in ipairs(getEmsCatalog()) do vehicles[#vehicles + 1] = mergedRow(row, settings[tostring(row.model):lower()]) end
+    return { ok = true, vehicles = vehicles }
+end)
+
+exports('AdminConfigureFleetVehicle', function(src, _, data)
+    src, data = tonumber(src), type(data) == 'table' and data or {}
+    if not emsAdmin(src) then return false, 'Permission denied.' end
+    local model = tostring(data.model or ''):lower()
+    if not findCatalogRow(getEmsCatalog(), model) then return false, 'That model is not in the EMS catalog.' end
+    local row = MySQL.single.await('SELECT model,location_configured FROM cm_ems_fleet_vehicles WHERE model = ? LIMIT 1', { model })
+    if not row or not dbBoolean(row.location_configured) then return false, 'Set this vehicle location before enabling it.' end
+    local tier = math.max(0, math.min(100, math.floor(tonumber(data.minTier) or 0)))
+    MySQL.update.await('UPDATE cm_ems_fleet_vehicles SET enabled = ?, min_tier = ?, updated_by = ? WHERE model = ?',
+        { data.enabled == true and 1 or 0, tier, tostring(cid(src) or 'admin'), model })
+    return true, 'EMS fleet vehicle configuration saved.'
+end)
+
+exports('AdminBeginFleetPlacement', function(src, _, model)
+    local ok, result = beginFleetLocationEdit(tonumber(src), model, true)
+    if ok and type(result) == 'table' then TriggerClientEvent('cm-ems:client:adminFleetPlacement', tonumber(src), result) end
+    return ok, type(result) == 'table' and result.message or result
+end)
+
+exports('AdminResetFleetLocation', function(src, _, model)
+    src, model = tonumber(src), tostring(model or ''):lower()
+    if not emsAdmin(src) then return false, 'Permission denied.' end
+    local changed = MySQL.update.await('UPDATE cm_ems_fleet_vehicles SET enabled = 0, location_configured = 0, updated_by = ? WHERE model = ?', { tostring(cid(src) or 'admin'), model })
+    if tonumber(changed) == 0 then return false, 'That EMS vehicle has no saved location.' end
+    removeActiveInstance(model)
+    return true, 'EMS fleet location disabled; persistent vehicle identity was preserved. Set a new location to reactivate it.'
 end)
 
 -- ── Auto-respawn on server (re)start ─────────────────────────────────────

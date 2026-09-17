@@ -281,11 +281,70 @@ local function buildWeeklyStats(fam)
     }
 end
 
+-- Progression is derived from the authoritative family activity and bank
+-- ledgers. This keeps old databases compatible while ensuring reputation cannot
+-- be forged by the client or silently reset on a resource restart.
+local function buildProgression(fam)
+    local activity = MySQL.single.await([[SELECT COUNT(*) AS actions
+        FROM cm_family_activity_log WHERE family_id = ?]], { fam.id }) or {}
+    local bank = MySQL.single.await([[SELECT
+        COALESCE(SUM(CASE WHEN direction = 'deposit' THEN amount ELSE 0 END), 0) AS deposits,
+        COALESCE(SUM(CASE WHEN direction = 'withdraw' THEN amount ELSE 0 END), 0) AS expenses
+        FROM cm_family_bank_log WHERE family_id = ?]], { fam.id }) or {}
+    local reputation = (tonumber(activity.actions) or 0) * 5
+        + math.floor((tonumber(bank.deposits) or 0) / 1000) * 10
+    local level = math.floor(reputation / 1000) + 1
+    local currentXp = reputation % 1000
+    return {
+        reputation = reputation,
+        level = level,
+        currentXp = currentXp,
+        nextLevelXp = 1000,
+        totalActions = tonumber(activity.actions) or 0,
+    }
+end
+
+local function buildTreasury(fam)
+    local row = MySQL.single.await([[SELECT
+        COALESCE(SUM(CASE WHEN direction = 'deposit' THEN amount ELSE 0 END), 0) AS income7d,
+        COALESCE(SUM(CASE WHEN direction = 'withdraw' THEN amount ELSE 0 END), 0) AS expenses7d,
+        COUNT(*) AS transactions7d
+        FROM cm_family_bank_log
+        WHERE family_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)]], { fam.id }) or {}
+    return {
+        balance = tonumber(fam.bank_balance) or 0,
+        income7d = tonumber(row.income7d) or 0,
+        expenses7d = tonumber(row.expenses7d) or 0,
+        transactions7d = tonumber(row.transactions7d) or 0,
+    }
+end
+
+local function buildContributionLeaderboard(members)
+    local out = {}
+    for _, member in ipairs(members or {}) do
+        out[#out + 1] = {
+            cid = member.cid,
+            name = member.name,
+            totalContribution = tonumber(member.totalContribution) or 0,
+            weeklyContribution = tonumber(member.weeklyContribution) or 0,
+            weeklyActions = tonumber(member.weeklyActions) or 0,
+        }
+    end
+    table.sort(out, function(a, b)
+        if a.weeklyContribution == b.weeklyContribution then
+            return a.totalContribution > b.totalContribution
+        end
+        return a.weeklyContribution > b.weeklyContribution
+    end)
+    return out
+end
+
 local function buildRankList(fam)
     local out = {}
     for _, r in pairs(fam.ranksById) do
         local perms = {}
         for _, p in ipairs(Config.Permissions) do perms[p.key] = r.permissions[p.key] == true or r.is_founder end
+
         out[#out + 1] = {
             id = r.id, tier = r.tier, name = r.name, isFounder = r.is_founder,
             bankDailyLimit = r.bank_daily_limit,
@@ -297,6 +356,64 @@ local function buildRankList(fam)
     table.sort(out, function(a, b) return a.tier > b.tier end)
     return out
 end
+
+local function buildFamilyEventList()
+    local out = {}
+    for _, event in ipairs(Config.FamilyEvents or {}) do
+        if type(event) == 'table' and type(event.key) == 'string' and type(event.name) == 'string' then
+            out[#out + 1] = {
+                key = event.key,
+                name = event.name,
+                category = event.category,
+                description = event.description,
+                status = event.status,
+                difficulty = event.difficulty,
+                recommendedMembers = tonumber(event.recommendedMembers) or 1,
+                durationMinutes = tonumber(event.durationMinutes) or 0,
+                cooldownMinutes = tonumber(event.cooldownMinutes) or 0,
+                schedule = event.schedule,
+                location = event.location,
+                accent = event.accent,
+                requirements = type(event.requirements) == 'table' and event.requirements or {},
+                rewards = type(event.rewards) == 'table' and event.rewards or {},
+                rules = type(event.rules) == 'table' and event.rules or {},
+            }
+        end
+    end
+    return out
+end
+
+local function buildFamilyHousePreview(fam)
+    if not fam.house_id then return nil end
+    local house = B.GetHouse(fam.house_id)
+    if type(house) ~= 'table' then
+        local rawNum = tostring(fam.house_id):gsub('^#+', '')
+        return {
+            id = tonumber(fam.house_id) or fam.house_id,
+            houseNumber = rawNum,
+            label = 'House ' .. rawNum,
+        }
+    end
+    local photoData = B.GetHousePhotoData(fam.house_id)
+    local rawNum = tostring(house.house_number or house.id or fam.house_id):gsub('^#+', '')
+    local houseLabel = (house.label or house.name or ('House ' .. rawNum)):gsub('#', '')
+    return {
+        id = tonumber(fam.house_id) or fam.house_id,
+        houseNumber = rawNum,
+        label = houseLabel,
+        image = house.image_url or house.image,
+        imageData = photoData,
+        garageCapacity = tonumber(house.garage_capacity or house.garage_slots or house.max_garage_slots),
+        doorCoords = house.door_coords or house.coords or house.door,
+    }
+end
+
+lib.callback.register('cm-family:server:getHouseCoords', function(src, houseId)
+    if not houseId then return nil end
+    local house = B.GetHouse(houseId)
+    if not house then return nil end
+    return house.door_coords or house.coords or house.door
+end)
 
 lib.callback.register('cm-family:server:getMenu', function(src)
     local ready = databaseReady()
@@ -319,6 +436,8 @@ lib.callback.register('cm-family:server:getMenu', function(src)
     }
     for _, p in ipairs(Config.Permissions) do viewer.permissions[p.key] = RankHasPermission(rank, p.key) end
 
+    local members = buildMemberList(fam)
+
     return {
         ok = true,
         family = {
@@ -334,8 +453,13 @@ lib.callback.register('cm-family:server:getMenu', function(src)
             symbolVisible = true,
         },
         viewer = viewer,
-        members = buildMemberList(fam),
+        members = members,
         weeklyStats = buildWeeklyStats(fam),
+        progression = buildProgression(fam),
+        treasury = buildTreasury(fam),
+        contributionLeaderboard = buildContributionLeaderboard(members),
+        familyEvents = buildFamilyEventList(),
+        familyHouse = buildFamilyHousePreview(fam),
         ranks = buildRankList(fam),
         vehicles = GetFamilyVehiclesWithLevels(fam.id, cid),
         bankLog = RankHasPermission(rank, 'bank.view') and GetBankLog(fam.id, 30) or {},

@@ -2,7 +2,7 @@ fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
 
-version '3.2.0-ems-catalog-export'
+version '3.3.0-safe-model-replacement'
 author 'RN Vehicleshop adapted for CM Framework'
 
 this_is_a_map 'yes'

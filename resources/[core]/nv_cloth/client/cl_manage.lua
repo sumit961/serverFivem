@@ -14,6 +14,10 @@
 
 local manageOpen = false
 local manageReturnCoords = nil
+-- Set by openManageScene when handed a payload.focusRow (e.g. straight from a
+-- freshly captured bag that still needs cross-gender pairing) -- consumed
+-- once, the next time the catalog rows actually arrive, then cleared.
+local pendingFocusRow = nil
 local originalAppearance = nil   -- captured only for a retake's real-model swap
 local retakeSwapPending = false  -- true while the admin panel runs on a swapped model
 local managePreviewToken = 0
@@ -265,6 +269,7 @@ local function openManageScene(payload)
     end
   end
   manageOpen = true
+  pendingFocusRow = (type(payload) == 'table' and type(payload.focusRow) == 'table') and payload.focusRow or nil
 
   local ped = PlayerPedId()
   local coords = GetEntityCoords(ped)
@@ -289,7 +294,8 @@ local function openManageScene(payload)
 
   managePreviewToken = managePreviewToken + 1
   local token = managePreviewToken
-  ensureGenderPed('male', token)
+  local initialGender = (pendingFocusRow and tostring(pendingFocusRow.gender or '')) or 'male'
+  ensureGenderPed(initialGender, token)
   if CreateSkinCam then CreateSkinCam('body') end
   syncPreviewHeadingToCamera()
 
@@ -371,7 +377,8 @@ RegisterNetEvent('nvCloth:client:openManagePanel', function(payload)
 end)
 
 RegisterNetEvent('nvCloth:client:manageCatalog', function(rows)
-  SendNUIMessage({ type = 'manageCatalog', rows = rows or {} })
+  SendNUIMessage({ type = 'manageCatalog', rows = rows or {}, focusRow = pendingFocusRow })
+  pendingFocusRow = nil
 end)
 
 RegisterNetEvent('nvCloth:client:manageItemSaved', function(row)
@@ -471,6 +478,30 @@ RegisterNUICallback('manageSaveItem', function(data, cb)
   cb({ success = true })
 end)
 
+-- One-step undo: swap the current image back to the previous capture.
+RegisterNUICallback('manageRevertImage', function(data, cb)
+  TriggerServerEvent('nvCloth:server:manageRevertImage', type(data) == 'table' and data or {})
+  cb({ success = true })
+end)
+
+-- Pick which captured texture's photo represents the drawable's fallback thumbnail.
+RegisterNUICallback('manageSetCoverImage', function(data, cb)
+  TriggerServerEvent('nvCloth:server:manageSetCoverImage', type(data) == 'table' and data or {})
+  cb({ success = true })
+end)
+
+-- Advisory edit lock: acquired when a row is opened in the detail panel,
+-- released when the admin switches to another row or closes the manager.
+RegisterNUICallback('manageLockRow', function(data, cb)
+  TriggerServerEvent('nvCloth:server:manageLockRow', type(data) == 'table' and data or {})
+  cb({ success = true })
+end)
+
+RegisterNUICallback('manageUnlockRow', function(data, cb)
+  TriggerServerEvent('nvCloth:server:manageUnlockRow', type(data) == 'table' and data or {})
+  cb({ success = true })
+end)
+
 -- Retake: close the manager but keep the (possibly swapped) preview model so
 -- /clothingadmin lists the right gender's drawables, open the admin panel, and
 -- hand the target row to the NUI so it preselects the exact clothe.
@@ -495,7 +526,7 @@ RegisterNUICallback('manageRetake', function(data, cb)
     -- The dressing-room bucket is already active; openClothShop re-enters it,
     -- which is a no-op server-side (same bucket id).
     if type(openClothShop) == 'function' then
-      openClothShop('ADMIN PANEL', { 'torso', 'tshirt', 'pants', 'shoes', 'hat', 'glasses', 'earrings', 'chains', 'bags', 'watches', 'bracelets' }, 'clothes', nil, true)
+      openClothShop('ADMIN PANEL', { 'torso', 'tshirt', 'pants', 'shoes', 'hat', 'glasses', 'earrings', 'chains', 'bags', 'watches', 'bracelets', 'armor' }, 'clothes', nil, true)
       Wait(400)
       SendNUIMessage({ type = 'manageRetakeTarget', row = row })
     end

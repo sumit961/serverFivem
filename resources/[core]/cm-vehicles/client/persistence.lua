@@ -102,6 +102,7 @@ exports('FlushCurrentVehicle', CMVehicles.Client.FlushCurrentVehicle)
 
 CreateThread(function()
     local interval = tonumber(Config.Persistence and Config.Persistence.dirtyCheckIntervalMs) or 1000
+    local lastDrivingCoords = nil
     while true do
         Wait(interval)
         local ped = PlayerPedId()
@@ -109,6 +110,20 @@ CreateThread(function()
         local driving = vehicle ~= 0 and GetPedInVehicleSeat(vehicle, -1) == ped
 
         if driving then
+            local currentCoords = GetEntityCoords(vehicle)
+            if lastDrivingCoords and lastVehicle == vehicle then
+                local distMeters = #(currentCoords - lastDrivingCoords)
+                if distMeters > 0.5 and distMeters < 500.0 then
+                    local deltaKm = distMeters / 1000.0
+                    pcall(function()
+                        local currentMileage = tonumber(Entity(vehicle).state.cmMileage) or 0.0
+                        local newMileage = currentMileage + deltaKm
+                        Entity(vehicle).state:set('cmMileage', newMileage, true)
+                    end)
+                end
+            end
+            lastDrivingCoords = currentCoords
+
             if lastVehicle ~= 0 and lastVehicle ~= vehicle then
                 sendSnapshot(lastVehicle, 'driver_changed_vehicle', true)
                 lastSent = nil
@@ -116,10 +131,13 @@ CreateThread(function()
             lastVehicle = vehicle
             sendSnapshot(vehicle, 'dirty_state', false)
         elseif lastVehicle ~= 0 then
+            lastDrivingCoords = nil
             sendSnapshot(lastVehicle, 'driver_exit', true)
             lastVehicle = 0
             lastSent = nil
             lastSentAt = 0
+        else
+            lastDrivingCoords = nil
         end
     end
 end)

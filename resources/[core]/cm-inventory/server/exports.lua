@@ -45,6 +45,60 @@ exports('GetInventory', function(...)
     return buildInventoryPayload(src)
 end)
 
+-- Trusted server-resource consumable durability contract. Inventory owns the
+-- exact row, metadata update and final empty-container removal.
+local ConsumableDurabilityLocks = {}
+local function usableDurabilityRow(src, itemName)
+    src, itemName = tonumber(src), tostring(itemName or ''):lower()
+    if not src or src <= 0 or itemName == '' then return nil, nil, nil, 'invalid_request' end
+    local ownerType, ownerId = getOwner(src)
+    if not ownerId then return nil, nil, nil, 'character_not_loaded' end
+    local rows = MySQL.query.await([[SELECT id,slot,item_name,quantity,metadata FROM inventory_items
+        WHERE owner_type=? AND owner_id=? AND item_name=? ORDER BY id ASC]], { ownerType, tostring(ownerId), itemName }) or {}
+    local defaultDurability = tonumber((getItemDef(itemName) or {}).durability) or 100
+    for _, row in ipairs(rows) do
+        local metadata = decode(row.metadata)
+        local durability = math.max(0, math.min(100, tonumber(metadata.durability) or defaultDurability))
+        if (tonumber(row.quantity) or 0) > 0 and durability > 0 then return row, metadata, durability, nil, ownerId end
+    end
+    return nil, nil, nil, 'item_empty', ownerId
+end
+
+exports('HasItemDurability', function(src, itemName)
+    local row, _, durability, reason = usableDurabilityRow(src, itemName)
+    return row ~= nil, durability or 0, reason
+end)
+
+exports('ConsumeItemDurability', function(src, itemName, amount, reason)
+    local invoking = tostring(GetInvokingResource() or '')
+    if invoking == '' or invoking == GetCurrentResourceName() then return false, 0, 'trusted_resource_required' end
+    src, itemName = tonumber(src), tostring(itemName or ''):lower()
+    amount = math.max(1, math.min(100, math.floor(tonumber(amount) or 1)))
+    local lockKey = ('%s:%s'):format(tostring(src), itemName)
+    if ConsumableDurabilityLocks[lockKey] then return false, 0, 'item_in_use' end
+    ConsumableDurabilityLocks[lockKey] = true
+    local function finish(ok, remaining, why) ConsumableDurabilityLocks[lockKey] = nil; return ok, remaining, why end
+    local row, metadata, durability, findReason, ownerId = usableDurabilityRow(src, itemName)
+    if not row then return finish(false, 0, findReason) end
+    local remaining = math.max(0, durability - amount)
+    local quantity = math.max(1, tonumber(row.quantity) or 1)
+    local changed
+    if remaining <= 0 and quantity <= 1 then
+        changed = MySQL.update.await('DELETE FROM inventory_items WHERE id=? AND quantity=1', { tonumber(row.id) })
+    else
+        metadata.durability = remaining <= 0 and 100 or remaining
+        changed = MySQL.update.await('UPDATE inventory_items SET quantity=?,metadata=? WHERE id=? AND quantity=?', {
+            remaining <= 0 and quantity - 1 or quantity, encode(metadata), tonumber(row.id), quantity
+        })
+    end
+    if tonumber(changed) ~= 1 then return finish(false, durability, 'inventory_state_changed') end
+    audit(ownerId, 'consume_durability', itemName, 1, row.slot, row.slot, tostring(reason or 'durability_use'), {
+        consumed = amount, durabilityBefore = durability, durabilityAfter = remaining
+    })
+    sendInventorySmart(src)
+    return finish(true, remaining, nil)
+end)
+
 -- Trusted organization lifecycle cleanup. Removes only items whose stored
 -- metadata identifies them as an armory issue from the requested issuer; it
 -- never removes an identically named personal weapon or ammunition stack.
@@ -106,6 +160,7 @@ exports('TransferItemToContainer', function(...)
     local prefix = tostring(args[5] or 'evidence-'):sub(1, 35)
     local slotCount = math.max(1, math.min(200, math.floor(tonumber(args[6]) or 100)))
     local reason = tostring(args[7] or 'trusted_container_transfer'):sub(1, 100)
+    local expectedItem = tostring(args[8] or ''):lower()
     local invoking = tostring(GetInvokingResource() or '')
     if invoking == '' or invoking == GetCurrentResourceName() then return false, 'External trusted resource required.' end
     if not src or sourceSlot == '' or targetType == '' or targetId == '' or prefix == '' then return false, 'Invalid transfer.' end
@@ -117,6 +172,7 @@ exports('TransferItemToContainer', function(...)
     if not ownerId then return finish(false, 'No character owner found.') end
     local row = getItemAt(ownerType, ownerId, sourceSlot)
     if not row or (tonumber(row.quantity) or 0) < 1 then return finish(false, 'The source item no longer exists.') end
+    if expectedItem~='' and tostring(row.item_name):lower()~=expectedItem then return finish(false,'The source item does not match the requested stock item.') end
     local targetSlot
     for index = 1, slotCount do
         local candidate = prefix .. index
@@ -139,6 +195,42 @@ exports('TransferItemToContainer', function(...)
     if isEquipmentSlot(sourceSlot) then syncEquipmentSlot(src, sourceSlot) end
     sendInventorySmart(src)
     return finish(true, { itemName = row.item_name, quantity = quantity, metadata = decode(row.metadata), targetSlot = targetSlot })
+end)
+
+exports('GetEquippedWeaponState',function(src)
+    if GetInvokingResource()~='cm-playerdata'then return nil,'untrusted_resource'end
+    src=tonumber(src);local ownerType,ownerId=getOwner(src);if not ownerId then return nil,'character_not_loaded'end
+    local weapon=getItemAt(ownerType,ownerId,'weapon');local ammoSlot=(Config.Ammo and Config.Ammo.slot)or'ammo';local ammo=getItemAt(ownerType,ownerId,ammoSlot)
+    return{weapon=weapon and tostring(weapon.item_name):lower()or nil,weaponMetadata=weapon and decode(weapon.metadata)or nil,ammo=ammo and tostring(ammo.item_name):lower()or nil,ammoQuantity=ammo and math.max(0,tonumber(ammo.quantity)or 0)or 0}
+end)
+
+exports('ResyncAuthoritativeEquipment',function(src)
+    if GetInvokingResource()~='cm-playerdata'then return false,'untrusted_resource'end
+    src=tonumber(src);if not src or not GetPlayerName(src)then return false,'player_unavailable'end
+    local _,ownerId=getOwner(src);if not ownerId then return false,'character_not_loaded'end
+    syncAllEquipment(src);return true
+end)
+
+-- Trusted reverse of TransferItemToContainer. Used by stock-backed organization
+-- armories to return the exact stored row (serial/durability/metadata intact).
+local ContainerReturnLocks={}
+exports('TransferContainerItemToPlayer',function(src,targetType,targetId,sourceSlot)
+    if GetInvokingResource()~='cm-gang' then return false,'Untrusted resource.' end
+    src,targetType,targetId,sourceSlot=tonumber(src),tostring(targetType or ''),tostring(targetId or ''),tostring(sourceSlot or '')
+    if not src or targetType=='' or targetId=='' or sourceSlot=='' then return false,'Invalid transfer.' end
+    local key=targetType..':'..targetId..':'..sourceSlot; if ContainerReturnLocks[key] then return false,'Transfer busy.' end; ContainerReturnLocks[key]=true
+    local function done(ok,value) ContainerReturnLocks[key]=nil; return ok,value end
+    local playerType,playerId=getOwner(src); if not playerId then return done(false,'Character not loaded.') end
+    local row=getItemAt(targetType,targetId,sourceSlot); if not row then return done(false,'Stock row missing.') end
+    local amount=math.max(1,tonumber(row.quantity) or 1); local carry,carryReason=canCarry(playerType,playerId,row.item_name,amount); if not carry then return done(false,carryReason) end
+    local metadata=decode(row.metadata); local destination=findStackTarget(playerType,playerId,row.item_name,metadata,nil); local slot=destination and destination.slot or findEmptySlot(playerType,playerId)
+    if not slot then return done(false,'No empty inventory slot.') end
+    local statements
+    if destination then statements={{query='UPDATE inventory_items SET quantity=quantity+? WHERE id=?',values={amount,destination.id}},{query='DELETE FROM inventory_items WHERE id=? AND owner_type=? AND owner_id=? AND slot=?',values={row.id,targetType,targetId,sourceSlot}}}
+    else statements={{query=[[INSERT INTO inventory_items(owner_type,owner_id,slot,item_name,quantity,metadata) SELECT ?,?,?,item_name,quantity,metadata FROM inventory_items WHERE id=? AND owner_type=? AND owner_id=? AND slot=?]],values={playerType,tostring(playerId),slot,row.id,targetType,targetId,sourceSlot}},{query='DELETE FROM inventory_items WHERE id=? AND owner_type=? AND owner_id=? AND slot=?',values={row.id,targetType,targetId,sourceSlot}}} end
+    if MySQL.transaction.await(statements)~=true then return done(false,'Inventory transaction failed.') end
+    audit(playerId,'organization_stock_withdraw',row.item_name,amount,sourceSlot,slot,'gang_armory_withdraw',{containerType=targetType,containerId=targetId}); sendInventorySmart(src)
+    return done(true,{itemName=tostring(row.item_name),quantity=amount,metadata=metadata})
 end)
 
 
@@ -230,4 +322,161 @@ exports('GetOpenExternalInventory', function(...)
         slotPrefix = ctx.slotPrefix,
         data = ctx.data
     }
+end)
+
+-- ============================================================
+-- Retroactive clothing type re-sync (nv_cloth /clothingstore).
+-- When an admin changes a captured item's TYPE (e.g. Armor -> Bags), every
+-- already-owned copy -- online or offline, in anyone's inventory -- is
+-- retagged to the new item_name/metadata so it behaves as the new type too
+-- (e.g. starts granting real backpack capacity). Matched purely by physical
+-- identity (gender/componentType/componentIndex/drawableId/textureId), never
+-- by the old item_name, since that's exactly what's changing.
+-- ============================================================
+exports('RetagClothingItems', function(identity, newItemName, metadataPatch)
+    identity = type(identity) == 'table' and identity or {}
+    newItemName = tostring(newItemName or ''):lower()
+    metadataPatch = type(metadataPatch) == 'table' and metadataPatch or {}
+    if newItemName == '' then return false, 'invalid_item_name' end
+
+    local gender = tostring(identity.gender or ''):lower()
+    local componentType = tostring(identity.componentType or 'component'):lower()
+    local componentIndex = tonumber(identity.componentIndex)
+    local drawableId = tonumber(identity.drawableId)
+    local textureId = tonumber(identity.textureId)
+    if not componentIndex or not drawableId then return false, 'invalid_identity' end
+    if textureId == nil then textureId = -1 end
+
+    -- Every purchased clothing item is named clothing_<category>; scanning
+    -- only those keeps this cheap instead of decoding every item in the table.
+    local rows = MySQL.query.await(
+        "SELECT id, owner_type, owner_id, item_name, metadata FROM inventory_items WHERE item_name LIKE 'clothing_%'", {}
+    ) or {}
+
+    local ownerType = Config.OwnerType or 'character'
+    local updated, touchedOwners = 0, {}
+    for _, row in ipairs(rows) do
+        local metadata = decode(row.metadata)
+        local rowType = tostring(metadata.componentType or metadata.component_type or 'component'):lower()
+        local rowIndex = tonumber(metadata.componentIndex or metadata.component_index)
+        local rowDrawable = tonumber(metadata.drawableId or metadata.drawable)
+        local rowTexture = tonumber(metadata.textureId or metadata.texture)
+        if rowTexture == nil then rowTexture = -1 end
+        local rowGender = tostring(metadata.gender or ''):lower()
+
+        if rowType == componentType and rowIndex == componentIndex and rowDrawable == drawableId
+            and (textureId < 0 or rowTexture == textureId) and (gender == '' or rowGender == gender)
+            and tostring(row.item_name):lower() ~= newItemName then
+            for k, v in pairs(metadataPatch) do metadata[k] = v end
+            MySQL.update.await('UPDATE inventory_items SET item_name = ?, metadata = ? WHERE id = ?', {
+                newItemName, encode(metadata), row.id
+            })
+            updated = updated + 1
+            if tostring(row.owner_type) == tostring(ownerType) then
+                touchedOwners[tostring(row.owner_id)] = true
+            end
+        end
+    end
+
+    -- Nudge any currently-online owner so their open inventory/equipment UI
+    -- reflects the change immediately; offline owners pick it up automatically
+    -- the next time their inventory loads.
+    if next(touchedOwners) then
+        for _, playerId in ipairs(GetPlayers()) do
+            local src = tonumber(playerId)
+            if src then
+                local ok, srcOwnerType, srcOwnerId = pcall(getOwner, src)
+                if ok and srcOwnerType == ownerType and srcOwnerId and touchedOwners[tostring(srcOwnerId)] then
+                    sendInventorySmart(src)
+                    TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src)
+                end
+            end
+        end
+    end
+
+    return true, updated
+end)
+
+-- Same identity lookup as RetagClothingItems, but for plain metadata refreshes
+-- (a retaken photo, a corrected label) that don't rename the item and so must
+-- NOT be skipped just because item_name already matches -- RetagClothingItems'
+-- item_name-change guard exists specifically to avoid re-touching rows already
+-- migrated to a new type, which doesn't apply here.
+exports('SyncOwnedClothingMetadata', function(identity, metadataPatch)
+    identity = type(identity) == 'table' and identity or {}
+    metadataPatch = type(metadataPatch) == 'table' and metadataPatch or {}
+    if next(metadataPatch) == nil then return false, 'empty_patch' end
+
+    local gender = tostring(identity.gender or ''):lower()
+    local componentType = tostring(identity.componentType or 'component'):lower()
+    local componentIndex = tonumber(identity.componentIndex)
+    local drawableId = tonumber(identity.drawableId)
+    local textureId = tonumber(identity.textureId)
+    if not componentIndex or not drawableId then return false, 'invalid_identity' end
+    if textureId == nil then textureId = -1 end
+
+    local rows = MySQL.query.await(
+        "SELECT id, owner_type, owner_id, metadata FROM inventory_items WHERE item_name LIKE 'clothing_%'", {}
+    ) or {}
+
+    local ownerType = Config.OwnerType or 'character'
+    local updated, touchedOwners = 0, {}
+    for _, row in ipairs(rows) do
+        local metadata = decode(row.metadata)
+        local rowType = tostring(metadata.componentType or metadata.component_type or 'component'):lower()
+        local rowIndex = tonumber(metadata.componentIndex or metadata.component_index)
+        local rowDrawable = tonumber(metadata.drawableId or metadata.drawable)
+        local rowTexture = tonumber(metadata.textureId or metadata.texture)
+        if rowTexture == nil then rowTexture = -1 end
+        local rowGender = tostring(metadata.gender or ''):lower()
+
+        if rowType == componentType and rowIndex == componentIndex and rowDrawable == drawableId
+            and (textureId < 0 or rowTexture == textureId) and (gender == '' or rowGender == gender) then
+            for k, v in pairs(metadataPatch) do metadata[k] = v end
+            MySQL.update.await('UPDATE inventory_items SET metadata = ? WHERE id = ?', {
+                encode(metadata), row.id
+            })
+            updated = updated + 1
+            if tostring(row.owner_type) == tostring(ownerType) then
+                touchedOwners[tostring(row.owner_id)] = true
+            end
+        end
+    end
+
+    if next(touchedOwners) then
+        for _, playerId in ipairs(GetPlayers()) do
+            local src = tonumber(playerId)
+            if src then
+                local ok, srcOwnerType, srcOwnerId = pcall(getOwner, src)
+                if ok and srcOwnerType == ownerType and srcOwnerId and touchedOwners[tostring(srcOwnerId)] then
+                    sendInventorySmart(src)
+                    TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src)
+                end
+            end
+        end
+    end
+
+    return true, updated
+end)
+
+-- Re-sends inventory and equipment to everyone online.
+--
+-- Owned clothing items read their label/image/price/garment from the live
+-- catalog row every time they are loaded (see applyLiveClothingMetadata in
+-- items.lua), so after an admin edits the catalog nothing in the database needs
+-- rewriting -- the connected players just need to be told to read it again.
+-- Offline players pick the change up on their next login for free.
+exports('RefreshClothingDisplays', function()
+    local refreshed = 0
+    for _, playerId in ipairs(GetPlayers()) do
+        local src = tonumber(playerId)
+        if src then
+            pcall(function()
+                sendInventorySmart(src)
+                TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src)
+            end)
+            refreshed = refreshed + 1
+        end
+    end
+    return true, refreshed
 end)

@@ -243,61 +243,13 @@ local function playerDataMoney(method, src, account, amount, reason)
     return ok, result
 end
 
-local function corePlayerMoney(method, src, account, amount, reason)
-    if GetResourceState('cm-core') ~= 'started' or not exports['cm-core'].GetPlayer then
-        return false, nil
-    end
-    local ok, result = pcall(function()
-        local player = exports['cm-core'].GetPlayer(src)
-        if type(player) ~= 'table' then error('player_not_found') end
-        local fn = player.Functions and player.Functions[method]
-            or player[method]
-            or player[method:sub(1, 1):lower() .. method:sub(2)]
-        if type(fn) ~= 'function' then error('money_method_missing') end
-        return fn(account, amount, reason)
-    end)
-    return ok, result
-end
-
-local function genericMoneyExport(method, src, account, amount, reason)
-    local attempts = {
-        { 'cm-core', method, src, account, amount, reason },
-        { 'cm-core', method, src, amount, account, reason },
-    }
-    if method == 'AddMoney' then
-        attempts[#attempts + 1] = { 'cm-core', 'AddCash', src, amount, reason }
-        attempts[#attempts + 1] = { 'cm-core', 'GiveMoney', src, amount, reason }
-        attempts[#attempts + 1] = { 'cm-core', 'AddPlayerMoney', src, account, amount, reason }
-    else
-        attempts[#attempts + 1] = { 'cm-core', 'RemoveCash', src, amount, reason }
-        attempts[#attempts + 1] = { 'cm-core', 'TakeMoney', src, amount, reason }
-        attempts[#attempts + 1] = { 'cm-core', 'RemovePlayerMoney', src, account, amount, reason }
-    end
-
-    for _, a in ipairs(attempts) do
-        local resource, exportName = a[1], a[2]
-        if GetResourceState(resource) == 'started' and exports[resource] and exports[resource][exportName] then
-            local args = {}
-            for i = 3, #a do args[#args + 1] = a[i] end
-            local ok, result = pcall(function()
-                return exports[resource][exportName](table.unpack(args))
-            end)
-            if ok and result ~= false then return true end
-        end
-    end
-    return false
-end
-
 function CMVehicles.Server.AddMoney(src, amount, reason, account)
     amount = math.floor(tonumber(amount) or 0)
     account = tostring(account or 'cash')
     if amount <= 0 then return false end
 
     local ok, result = playerDataMoney('AddMoney', src, account, amount, reason or 'vehicle-payment')
-    if ok and result ~= false then return true end
-    ok, result = corePlayerMoney('AddMoney', src, account, amount, reason or 'vehicle-payment')
-    if ok and result ~= false then return true end
-    return genericMoneyExport('AddMoney', src, account, amount, reason or 'vehicle-payment')
+    return ok and result == true
 end
 
 function CMVehicles.Server.RemoveMoney(src, amount, reason, account)
@@ -306,10 +258,7 @@ function CMVehicles.Server.RemoveMoney(src, amount, reason, account)
     if amount <= 0 then return true end
 
     local ok, result = playerDataMoney('RemoveMoney', src, account, amount, reason or 'vehicle-charge')
-    if ok then return result == true end
-    ok, result = corePlayerMoney('RemoveMoney', src, account, amount, reason or 'vehicle-charge')
-    if ok then return result ~= false end
-    return genericMoneyExport('RemoveMoney', src, account, amount, reason or 'vehicle-charge')
+    return ok and result == true
 end
 
 function CMVehicles.Server.GetMoney(src, account)
@@ -339,6 +288,9 @@ function CMVehicles.Server.ProcessPendingPayout(src, payout)
     if type(payout) ~= 'table' then return false, 'invalid_payout' end
     local payoutId = tonumber(payout.id)
     if not payoutId or CMVehicles.Server.PayoutLocks[payoutId] then return false, 'busy' end
+    local payoutAmount = tonumber(payout.amount)
+    if not payoutAmount or payoutAmount < 0 then return false, 'invalid_payout_amount' end
+    payoutAmount = math.floor(payoutAmount)
     CMVehicles.Server.PayoutLocks[payoutId] = true
 
     local claimed = MySQL.update.await([[
@@ -351,7 +303,10 @@ function CMVehicles.Server.ProcessPendingPayout(src, payout)
         return false, 'not_pending'
     end
 
-    local paid = CMVehicles.Server.AddMoney(src, payout.amount, payout.reason, payout.account)
+    -- A zero-value state sale still uses the payout journal as the transaction
+    -- guard, but there is no economy mutation to perform.
+    local paid = payoutAmount == 0
+        or CMVehicles.Server.AddMoney(src, payoutAmount, payout.reason, payout.account)
     if not paid then
         MySQL.update.await([[
             UPDATE cm_vehicle_pending_payouts
@@ -377,11 +332,16 @@ function CMVehicles.Server.ProcessPendingPayout(src, payout)
                 WHERE id = ? AND status = 'processing'
             ]], { payoutId })
         end)
+        if payoutAmount == 0 then
+            print(('[cm-vehicles] ^1Zero-value payout %s completed but could not be marked paid. Manual review is required.^7')
+                :format(tostring(payoutId)))
+            return true, 'no_payout_needs_review'
+        end
         print(('[cm-vehicles] ^1Payout %s was sent but could not be marked paid. Manual review is required; do not repay automatically.^7')
             :format(tostring(payoutId)))
         return true, 'paid_needs_review'
     end
-    return true
+    return true, payoutAmount == 0 and 'no_payout' or nil
 end
 
 function CMVehicles.Server.ProcessPendingPayoutsForPlayer(src)
@@ -407,6 +367,35 @@ CreateThread(function()
         Wait(60000)
     end
 end)
+
+local function reconcileSaleValuesAndClaims()
+    -- Backfill only missing values; never overwrite an explicitly configured
+    -- value or a genuine zero-priced vehicle.
+    pcall(function()
+        MySQL.update.await([[
+            UPDATE cm_owned_vehicles v
+            INNER JOIN cm_vehicle_catalog c ON LOWER(c.model) = LOWER(v.model)
+            SET v.state_value = c.price,
+                v.metadata = JSON_SET(COALESCE(v.metadata, '{}'), '$.stateValue', c.price)
+            WHERE (v.state_value IS NULL OR v.state_value <= 0)
+              AND c.price > 0
+        ]])
+    end)
+
+    -- A claim older than five minutes is abandoned. A pending payout is kept
+    -- intact so recovery can still deliver money exactly once.
+    pcall(function()
+        MySQL.update.await([[
+            UPDATE cm_owned_vehicles v
+            LEFT JOIN cm_vehicle_pending_payouts p
+              ON p.vehicle_id = v.id AND p.status = 'pending'
+            SET v.sale_pending_token = NULL, v.sale_pending_at = NULL
+            WHERE v.sale_pending_token IS NOT NULL
+              AND v.sale_pending_at < DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+              AND p.id IS NULL
+        ]])
+    end)
+end
 
 AddEventHandler('cm-playerdata:server:characterLoaded', function(playerSource)
     local src = tonumber(playerSource) or tonumber(source)
@@ -504,7 +493,11 @@ function CMVehicles.Server.ResolvePlate(plate, netId)
         local statePlate = ''
         local ok = pcall(function() statePlate = U.NormalizePlate(Entity(ent).state.cmPlate) end)
         if not ok or statePlate == '' then return '' end
-        if plate ~= '' and plate ~= statePlate then return '' end
+        if plate ~= '' and plate ~= statePlate then
+            local isLicenseTest = false
+            pcall(function() isLicenseTest = Entity(ent).state.cmLicenseTest == true end)
+            if not isLicenseTest or plate ~= 'LICENSE' then return '' end
+        end
         if not CMVehicles.Server.GetVehicleByPlate(statePlate) then return '' end
         return statePlate
     end
@@ -707,13 +700,32 @@ function CMVehicles.Server.VehicleInfoFor(src, plate)
     end
 
     local metadata = type(row.metadata) == 'table' and row.metadata or {}
+    local replacementType = tostring(metadata.replacementType or '')
+    local temporaryReplacement = replacementType == 'temporary' or replacementType == 'restoring'
+    local originalModel = temporaryReplacement and tostring(metadata.replacementOriginalModel or ''):lower() or ''
+    local informationModel = originalModel ~= '' and originalModel or tostring(row.model or ''):lower()
+    local replacementImage = temporaryReplacement and tostring(metadata.replacementOriginalImage or '') or ''
+    local vehicleNotice = metadata.vehicleNotice or metadata.replacementNotice
+    if temporaryReplacement and (not vehicleNotice or tostring(vehicleNotice) == '') then
+        vehicleNotice = ('Temporary model replacement: this vehicle is using %s while %s is unavailable. Its registered details are unchanged.')
+            :format(tostring(row.model or 'a substitute model'), informationModel)
+    end
     local stateValue = numFrom(row.state_value, metadata.stateValue, metadata.state_value, metadata.storePrice, metadata.store_price, metadata.purchasePrice, metadata.purchase_price, metadata.price, metadata.vehiclePrice, metadata.vehicle_price)
+    if stateValue <= 0 then
+        local ok, catalogPrice = pcall(function()
+            return MySQL.scalar.await('SELECT price FROM cm_vehicle_catalog WHERE LOWER(model) = ? LIMIT 1', { informationModel })
+        end)
+        if ok then stateValue = tonumber(catalogPrice) or 0 end
+    end
     local insuranceDays = numFrom(row.insurance_days, row.insurance, metadata.insuranceDays, metadata.insurance_days, metadata.insurance)
     local ownerName = row.owner_name or metadata.ownerName or metadata.owner_name or metadata.owner or CMVehicles.Server.GetCharacterName(src, row.owner_character_id)
 
     return {
         id = row.id,
         model = row.model,
+        informationModel = informationModel,
+        replacementModel = temporaryReplacement and row.model or nil,
+        temporaryReplacement = temporaryReplacement,
         label = row.label,
         plate = row.plate,
         ownerCharacterId = tostring(row.owner_type or 'character') == 'character' and tostring(row.owner_character_id) or nil,
@@ -722,7 +734,9 @@ function CMVehicles.Server.VehicleInfoFor(src, plate)
         ownerName = tostring(ownerName or 'Unknown'),
         insuranceDays = insuranceDays,
         stateValue = stateValue,
-        sellValue = math.floor(stateValue * 0.30),
+        sellValue = metadata.permanentlyRemoved == true and math.floor(stateValue) or math.floor(stateValue * 0.30),
+        vehicleNotice = vehicleNotice,
+        permanentlyRemoved = metadata.permanentlyRemoved == true or metadata.replacementType == 'permanent',
         trunkLevel = row.trunk_level,
         trunkSlots = CMVehicles.Trunk and CMVehicles.Trunk.SlotCount(row.trunk_level) or 0,
         locked = row.is_locked,
@@ -736,7 +750,7 @@ function CMVehicles.Server.VehicleInfoFor(src, plate)
         familyTag = familyContext and tostring(familyContext.familyTag or '') or nil,
         familyRequiredTier = familyContext and tonumber(familyContext.requiredTier) or nil,
         familyHouseId = familyContext and tonumber(familyContext.houseId) or nil,
-        vehicleImage = CMVehicles.Server.GetVehicleCatalogImage(row.model),
+        vehicleImage = replacementImage ~= '' and replacementImage or CMVehicles.Server.GetVehicleCatalogImage(informationModel),
         netId = CMVehicles.Server.GetSpawnedNetId(row.plate),
         fuel = tonumber(row.fuel) or 100,
         engineHealth = U.NormalizeHealth(row.engine_health, 1000.0),
@@ -785,33 +799,54 @@ local TRUSTED_ORGANIZATIONS = {
     sheriff = { resource = 'cm-law', prefix = 'BCSO', name = 'Sheriff' },
     fib = { resource = 'cm-law', prefix = 'FIB', name = 'FIB' },
     army = { resource = 'cm-law', prefix = 'ARMY', name = 'Army' },
+    -- Legacy pre-migration slots kept so any not-yet-migrated cm-gang fleet
+    -- rows (and cm-admin's manual legacy migration path) keep working.
+    gang_1 = { resource = 'cm-gang', prefix = 'GNG1', name = 'Gang One' },
+    gang_2 = { resource = 'cm-gang', prefix = 'GNG2', name = 'Gang Two' },
+    gang_3 = { resource = 'cm-gang', prefix = 'GNG3', name = 'Gang Three' },
+    gang_4 = { resource = 'cm-gang', prefix = 'GNG4', name = 'Gang Four' },
+    -- Canonical five-gang identities.
+    marabunta = { resource = 'cm-gang', prefix = 'MRB', name = 'Marabunta' },
+    bloods    = { resource = 'cm-gang', prefix = 'BLD', name = 'Bloods' },
+    ballas    = { resource = 'cm-gang', prefix = 'BAL', name = 'Ballas' },
+    families  = { resource = 'cm-gang', prefix = 'FAM', name = 'Families' },
+    vagos     = { resource = 'cm-gang', prefix = 'VGS', name = 'Vagos' },
 }
 
 local function trustedOrgInfo(organization, invokingResource)
     local info = TRUSTED_ORGANIZATIONS[organization]
     if info and info.resource == invokingResource then return info end
+    if info and organization == 'police' and invokingResource == 'cm-law' then return info end
     return nil
 end
 
 function CMVehicles.Server.CreateOwnedVehicle(src, model, label, trunkLevel, metadata)
     local charId = CMVehicles.Server.GetCharacterId(src)
-    if not charId then return false, 'Character is not loaded.' end
     model = tostring(model or ''):lower()
     if model == '' then return false, 'Invalid model.' end
     label = tostring(label or model)
     trunkLevel = tonumber(trunkLevel) or Config.DefaultTrunkLevel or 1
     if trunkLevel < 0 then trunkLevel = 0 end
     metadata = type(metadata) == 'table' and metadata or {}
-    local ownerType, ownerId, ownerCharacterId = 'character', tostring(charId), tostring(charId)
+    local ownerType, ownerId, ownerCharacterId
     local organization = tostring(metadata.organization or ''):lower()
     local invokingResource = GetInvokingResource()
     local orgInfo = trustedOrgInfo(organization, invokingResource)
     if orgInfo then
         ownerType, ownerId, ownerCharacterId = 'organization', organization, ('organization:%s'):format(organization)
+    else
+        if not charId then return false, 'Character is not loaded.' end
+        ownerType, ownerId, ownerCharacterId = 'character', tostring(charId), tostring(charId)
     end
     local platePrefix = ownerType == 'organization' and orgInfo.prefix or nil
     local plate = CMVehicles.Server.GeneratePlate(platePrefix, platePrefix and (8 - #platePrefix) or nil)
     local stateValue = numFrom(metadata.stateValue, metadata.state_value, metadata.storePrice, metadata.store_price, metadata.purchasePrice, metadata.purchase_price, metadata.price, metadata.vehiclePrice, metadata.vehicle_price)
+    if stateValue <= 0 then
+        local ok, catalogPrice = pcall(function()
+            return MySQL.scalar.await('SELECT price FROM cm_vehicle_catalog WHERE LOWER(model) = ? LIMIT 1', { model })
+        end)
+        if ok then stateValue = tonumber(catalogPrice) or 0 end
+    end
     local insuranceDays = numFrom(metadata.insuranceDays, metadata.insurance_days, metadata.insurance)
     local ownerName = ownerType == 'organization' and orgInfo.name
         or metadata.ownerName or metadata.owner_name or CMVehicles.Server.GetCharacterName(src, charId)
@@ -825,6 +860,103 @@ function CMVehicles.Server.CreateOwnedVehicle(src, model, label, trunkLevel, met
 
     CMVehicles.Server.Audit(charId, plate, 'vehicle_created', { model = model, label = label, trunkLevel = trunkLevel, stateValue = stateValue })
     return true, { id = id, owner_character_id = ownerCharacterId, owner_type = ownerType, owner_id = ownerId, owner_name = tostring(ownerName or ''), model = model, label = label, plate = plate, trunk_level = trunkLevel, insurance_days = insuranceDays, state_value = stateValue, is_locked = true, fuel = 100, metadata = metadata or {} }
+end
+
+function CMVehicles.Server.CreateOrganizationVehicle(request)
+    if GetConvar('cm_environment', GetConvar('cm_env', 'production')) == 'development' then
+        print(('[cm-vehicles] CreateOrganizationVehicle request actorSource=%s organizationId=%s model=%s label=%s trunkLevel=%s metadataType=%s'):format(
+            type(request) == 'table' and tostring(request.actorSource) or '<unavailable>',
+            type(request) == 'table' and tostring(request.organizationId) or '<unavailable>',
+            type(request) == 'table' and tostring(request.model) or '<unavailable>',
+            type(request) == 'table' and tostring(request.label) or '<unavailable>',
+            type(request) == 'table' and tostring(request.trunkLevel) or '<unavailable>',
+            type(request) == 'table' and type(request.metadata) or '<unavailable>'))
+    end
+    if type(request) ~= 'table' then return false, 'invalid_request_type' end
+
+    local src = tonumber(request.actorSource)
+    if not src or src <= 0 then return false, 'invalid_actor_source' end
+    src = math.floor(src)
+
+    local organization = tostring(request.organizationId or ''):lower():match('^%s*(.-)%s*$')
+    if organization == '' or not organization:match('^[a-z0-9_]+$') then return false, 'invalid_organization_id' end
+    local orgInfo = TRUSTED_ORGANIZATIONS[organization]
+    if not orgInfo then return false, 'unsupported_organization' end
+
+    local model = tostring(request.model or ''):lower():match('^%s*(.-)%s*$')
+    if model == '' or not model:match('^[a-z0-9_]+$') then return false, 'invalid_model' end
+
+    local label = request.label == nil and model or tostring(request.label):match('^%s*(.-)%s*$')
+    if label == '' or #label > 100 then return false, 'invalid_label' end
+    local trunkLevel = request.trunkLevel == nil and (Config.DefaultTrunkLevel or 1) or tonumber(request.trunkLevel)
+    if not trunkLevel then return false, 'invalid_trunk_level' end
+    trunkLevel = math.max(0, math.min(6, math.floor(trunkLevel)))
+    if request.metadata ~= nil and type(request.metadata) ~= 'table' then return false, 'invalid_metadata' end
+    local metadata = request.metadata or {}
+
+    if GetResourceState('rn-vehicleshop') ~= 'started' then return false, 'authorization_owner_unavailable' end
+    local checked, authorized, authorizationError = pcall(function()
+        return exports['rn-vehicleshop']:ConsumeOrganizationVehicleGrant(src, model, organization)
+    end)
+    if not checked then return false, 'authorization_owner_error' end
+    if authorized ~= true then return false, tostring(authorizationError or 'authorization_missing') end
+
+    metadata.source, metadata.organization = 'vehicle_admin_org_grant', organization
+    local plate = CMVehicles.Server.GeneratePlate(orgInfo.prefix, 8 - #orgInfo.prefix)
+    local actorCharacterId = CMVehicles.Server.GetCharacterId(src)
+    local inserted, insertResult = pcall(function()
+        return MySQL.insert.await([[INSERT INTO cm_owned_vehicles
+            (owner_character_id,owner_type,owner_id,owner_name,model,label,plate,trunk_level,metadata)
+            VALUES (?,'organization',?,?,?,?,?,?,?)]], {
+            ('organization:%s'):format(organization), organization, orgInfo.name, model, label, plate,
+            trunkLevel, U.Encode(metadata)
+        })
+    end)
+    if not inserted then
+        if GetConvar('cm_environment', GetConvar('cm_env', 'production')) == 'development' then
+            print(('[cm-vehicles] CreateOrganizationVehicle database insert failed organizationId=%s model=%s'):format(organization, model))
+        end
+        return false, 'database_insert_failed'
+    end
+    local id = tonumber(insertResult)
+    if not id then return false, 'database_insert_failed' end
+    CMVehicles.Server.Audit(actorCharacterId, plate, 'organization_vehicle_created', {
+        vehicleId=id, model=model, organization=organization, actorSource=src
+    })
+    return true, {success=true,id=id,vehicle_id=id,owner_character_id=('organization:%s'):format(organization),
+        owner_type='organization',owner_id=organization,owner_name=orgInfo.name,model=model,label=label,
+        plate=plate,trunk_level=trunkLevel,is_locked=true,fuel=100,metadata=metadata}
+end
+
+function CMVehicles.Server.DeleteOrganizationVehicle(request)
+    if GetInvokingResource() ~= 'cm-gang' or type(request) ~= 'table' then return false, 'untrusted_request' end
+    local vehicleId, organization = tonumber(request.vehicleId), tostring(request.organizationId or ''):lower()
+    local actorSource = tonumber(request.actorSource)
+    if not vehicleId or not TRUSTED_ORGANIZATIONS[organization] or not actorSource or actorSource <= 0 then
+        return false, 'invalid_request'
+    end
+    local row = CMVehicles.Server.GetVehicleById(vehicleId)
+    if not row then return false, 'persistent_vehicle_missing' end
+    if tostring(row.owner_type) ~= 'organization' or tostring(row.owner_id) ~= organization then
+        return false, 'vehicle_ownership_mismatch'
+    end
+    local active, info = CMVehicles.Spawn and CMVehicles.Spawn.GetSpawnedVehicleInfo(vehicleId)
+    if active == true and type(info) == 'table' and tonumber(info.entity) and DoesEntityExist(tonumber(info.entity)) then
+        local entity = tonumber(info.entity)
+        if GetPedInVehicleSeat(entity, -1) ~= 0 or GetVehicleNumberOfPassengers(entity) > 0 then return false, 'vehicle_occupied' end
+    end
+    local committed = MySQL.transaction.await({
+        { query='DELETE FROM inventory_items WHERE owner_type=? AND owner_id=?', values={'vehicle_trunk',tostring(vehicleId)} },
+        { query=[[DELETE FROM cm_owned_vehicles WHERE id=? AND owner_type='organization' AND owner_id=?]], values={vehicleId,organization} },
+    })
+    if committed ~= true or MySQL.scalar.await('SELECT id FROM cm_owned_vehicles WHERE id=? LIMIT 1',{vehicleId}) then
+        return false, 'persistent_delete_failed'
+    end
+    if CMVehicles.Spawn and CMVehicles.Spawn.DeleteVehicle then pcall(CMVehicles.Spawn.DeleteVehicle, vehicleId) end
+    CMVehicles.Server.Audit(CMVehicles.Server.GetCharacterId(actorSource), row.plate, 'organization_vehicle_deleted', {
+        vehicleId=vehicleId,organization=organization,model=row.model
+    })
+    return true, 'organization_vehicle_deleted'
 end
 
 function CMVehicles.Server.EnsureOrganizationOwnership(vehicleId, organization)
@@ -964,17 +1096,26 @@ RegisterNetEvent('cm-vehicles:server:sellToState', function(plate, netId)
     end
 
     local vehicleId = tonumber(row.id)
+    local pendingSale = PendingStateSales[vehicleId]
+    if pendingSale then
+        -- Duplicate NUI/network delivery is idempotent. The original request
+        -- owns the sale and will send the final success/failure notification.
+        if type(pendingSale) == 'table' and tonumber(pendingSale.source) == src then return end
+        return U.Notify(src, 'This vehicle sale is already being processed.', 'error')
+    end
+    PendingStateSales[vehicleId] = { source = src, startedAt = os.time() }
+    local function rejectSale(message, kind)
+        PendingStateSales[vehicleId] = nil
+        return U.Notify(src, message, kind or 'error')
+    end
+
     if GetResourceState('cm-house') == 'started' then
         local checked, garageBusy = pcall(function()
             return exports['cm-house']:IsGarageVehicleOperationActive(vehicleId)
         end)
         if checked and garageBusy == true then
-            return U.Notify(src, 'This vehicle is currently moving through a garage operation. Try again when it finishes.', 'error')
+            return rejectSale('This vehicle is currently moving through a garage operation. Try again when it finishes.')
         end
-    end
-
-    if PendingStateSales[vehicleId] then
-        return U.Notify(src, 'This vehicle sale is already being processed.', 'error')
     end
 
     local metadata = type(row.metadata) == 'table' and row.metadata or {}
@@ -982,34 +1123,48 @@ RegisterNetEvent('cm-vehicles:server:sellToState', function(plate, netId)
         metadata.storePrice, metadata.store_price, metadata.purchasePrice,
         metadata.purchase_price, metadata.price, metadata.vehiclePrice, metadata.vehicle_price)
     if stateValue <= 0 then
-        return U.Notify(src, 'State value is missing for this vehicle.', 'error')
+        local valueModel = (tostring(metadata.replacementType or '') == 'temporary'
+            or tostring(metadata.replacementType or '') == 'restoring')
+            and tostring(metadata.replacementOriginalModel or ''):lower()
+            or tostring(row.model or ''):lower()
+        if valueModel == '' then valueModel = tostring(row.model or ''):lower() end
+        local ok, catalogPrice = pcall(function()
+            return MySQL.scalar.await('SELECT price FROM cm_vehicle_catalog WHERE LOWER(model) = ? LIMIT 1', { valueModel })
+        end)
+        if ok then stateValue = tonumber(catalogPrice) or 0 end
     end
-
-    local payout = math.floor(stateValue * 0.30)
-    if payout <= 0 then
-        return U.Notify(src, 'Sell value is too low.', 'error')
-    end
+    stateValue = math.max(0, math.floor(tonumber(stateValue) or 0))
+    local payout = metadata.permanentlyRemoved == true and stateValue or math.floor(stateValue * 0.30)
+    payout = math.max(0, payout)
 
     local operationToken
-    if CMVehicles.Operations and CMVehicles.Operations.Begin then
-        local opOk, tokenOrReason = CMVehicles.Operations.Begin(vehicleId, 'state_sale', src, {
+    if CMVehicles.Operations and CMVehicles.Operations.BeginInternal then
+        local opOk, tokenOrReason, activeOperation = CMVehicles.Operations.BeginInternal(vehicleId, 'state_sale', src, {
             stage = 'sale_validated', targetState = 'PENDING_DELETE',
             reason = 'vehicle_state_sale', ttl = 90,
         })
         if opOk ~= true then
-            return U.Notify(src, 'This vehicle is already being processed by another operation.', 'error')
+            local activeType = type(activeOperation) == 'table'
+                and tostring(activeOperation.type or ''):gsub('_', ' ') or ''
+            if activeType ~= '' then
+                return rejectSale(('Finish the current vehicle operation (%s) before selling it.'):format(activeType))
+            end
+            if tostring(tokenOrReason):find('operation_table_unavailable', 1, true)
+                or tokenOrReason == 'operation_journal_insert_failed' then
+                return rejectSale('The vehicle sale journal is unavailable. An administrator has been notified.')
+            end
+            return rejectSale('This vehicle is currently busy. Wait a moment and try the sale again.')
         end
         operationToken = tokenOrReason
     end
 
-    PendingStateSales[vehicleId] = true
     local function finish(status, stage, details)
         PendingStateSales[vehicleId] = nil
         if operationToken and CMVehicles.Operations then
-            if status == 'completed' and CMVehicles.Operations.Complete then
-                pcall(CMVehicles.Operations.Complete, vehicleId, operationToken, stage or 'sale_completed', details or {})
-            elseif CMVehicles.Operations.Fail then
-                pcall(CMVehicles.Operations.Fail, vehicleId, operationToken, stage or 'sale_failed', details or {})
+            if status == 'completed' and CMVehicles.Operations.CompleteInternal then
+                pcall(CMVehicles.Operations.CompleteInternal, vehicleId, operationToken, stage or 'sale_completed', details or {})
+            elseif CMVehicles.Operations.FailInternal then
+                pcall(CMVehicles.Operations.FailInternal, vehicleId, operationToken, stage or 'sale_failed', details or {})
             end
         end
     end
@@ -1031,6 +1186,7 @@ RegisterNetEvent('cm-vehicles:server:sellToState', function(plate, netId)
     local affectedHouses = {}
     local hasSlots = databaseTableExists('cm_house_vehicle_slots')
     local hasShared = databaseTableExists('cm_house_shared_vehicles')
+    local hasParking = databaseTableExists('cm_parking_spaces')
     if hasSlots then
         affectedHouses = MySQL.query.await(
             'SELECT DISTINCT house_id FROM cm_house_vehicle_slots WHERE vehicle_id = ?',
@@ -1069,6 +1225,17 @@ RegisterNetEvent('cm-vehicles:server:sellToState', function(plate, netId)
                 UPDATE cm_house_vehicle_slots
                 SET vehicle_id = NULL, owner_class = 'personal',
                     assigned_by = NULL, assigned_at = NULL
+                WHERE vehicle_id = ?
+                  AND EXISTS (SELECT 1 FROM cm_vehicle_pending_payouts WHERE sale_token = ?)
+            ]],
+            values = { vehicleId, saleToken },
+        }
+    end
+    if hasParking then
+        tx[#tx + 1] = {
+            query = [[
+                UPDATE cm_parking_spaces
+                SET vehicle_id = NULL
                 WHERE vehicle_id = ?
                   AND EXISTS (SELECT 1 FROM cm_vehicle_pending_payouts WHERE sale_token = ?)
             ]],
@@ -1132,6 +1299,19 @@ RegisterNetEvent('cm-vehicles:server:sellToState', function(plate, netId)
     local houseIds = {}
     for _, h in ipairs(affectedHouses) do houseIds[#houseIds + 1] = tonumber(h.house_id) end
     if #houseIds > 0 then TriggerEvent('cm-house:server:vehicleDeleted', vehicleId, houseIds) end
+
+    if GetResourceState('cm-family') == 'started' then
+        local familyOk, familyResult = pcall(function()
+            return exports['cm-family']:RemoveFamilyVehicle(vehicleId, charId)
+        end)
+        if not familyOk or familyResult == false then
+            print(('[cm-vehicles] ^3state sale completed but family access cleanup failed for vehicle %s^7')
+                :format(tostring(vehicleId)))
+        end
+    end
+    if GetResourceState('cm-vehiclekeys') == 'started' then
+        pcall(function() exports['cm-vehiclekeys']:RevokeAllForPlate(row.plate) end)
+    end
 
     local payoutRow = MySQL.single.await(
         'SELECT * FROM cm_vehicle_pending_payouts WHERE sale_token = ? LIMIT 1', { saleToken })
@@ -1619,6 +1799,7 @@ end)
 AddEventHandler('onResourceStart', function(resource)
     if resource ~= GetCurrentResourceName() then return end
     CMVehicles.Server.EnsureTables()
+    SetTimeout(5000, reconcileSaleValuesAndClaims)
     print('[CM-VEHICLES] Started v3.5.0 | revocable family keys + RN catalog images | Engine key: Left Ctrl.')
 end)
 
@@ -1635,6 +1816,8 @@ AddEventHandler('onResourceStop', function(resource)
 end)
 
 exports('CreateOwnedVehicle', CMVehicles.Server.CreateOwnedVehicle)
+exports('CreateOrganizationVehicle', CMVehicles.Server.CreateOrganizationVehicle)
+exports('DeleteOrganizationVehicle', CMVehicles.Server.DeleteOrganizationVehicle)
 exports('GetVehicleByPlate', CMVehicles.Server.GetVehicleByPlate)
 exports('IssueVehicleLicense', CMVehicles.Server.IssueVehicleLicense)
 exports('HasVehicleAccess', CMVehicles.Server.HasAccess)

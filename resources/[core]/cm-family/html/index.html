@@ -3,7 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="css/family-v100.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
+  <link rel="stylesheet" href="css/family-v100.css?v=200">
+  <link rel="stylesheet" href="css/ui-bridge-v1.css?v=2">
 </head>
 <body>
   <!-- Invite toast (shown outside the menu) -->
@@ -29,7 +34,9 @@
           <button class="tab" data-tab="members"><span class="tab__icon">03</span><span><strong>Members</strong><small>Roster and roles</small></span></button>
           <button class="tab" data-tab="ranks"><span class="tab__icon">04</span><span><strong>Ranks &amp; access</strong><small>Permission levels</small></span></button>
           <button class="tab" data-tab="vehicles"><span class="tab__icon">05</span><span><strong>Family vehicles</strong><small>Shared transport</small></span></button>
-          <button class="tab" data-tab="logs"><span class="tab__icon">06</span><span><strong>Activity logs</strong><small>Family history</small></span></button>
+          <button class="tab" data-tab="treasury"><span class="tab__icon">07</span><span><strong>Treasury</strong><small>Funds and expenses</small></span></button>
+          <button class="tab" data-tab="events"><span class="tab__icon">08</span><span><strong>Events</strong><small>Robberies &amp; raids</small></span></button>
+          <button class="tab" data-tab="logs"><span class="tab__icon">09</span><span><strong>Activity logs</strong><small>Family history</small></span></button>
         </nav>
         <div class="family-sidebar__footer"><span>ESC</span> Close menu</div>
       </aside>
@@ -62,6 +69,7 @@
     </div>
   </div>
 
-  <script src="js/family-v100.js"></script>
+  <script src="js/ui-bridge-v1.js?v=1"></script>
+  <script src="js/family-v100.js?v=174"></script>
 </body>
 </html>

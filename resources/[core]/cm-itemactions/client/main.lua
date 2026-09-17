@@ -93,6 +93,11 @@ local CLOTHING_CATEGORIES = {
     glasses  = { type = 'prop',      index = 1 },
     earrings = { type = 'prop',      index = 2 },
     watches  = { type = 'prop',      index = 6 },
+    -- Purely decorative slot-9 items an admin flagged "regular clothing" in
+    -- /clothingstore (clothing_armor). Real armor/vests never reach this path
+    -- -- they equip through cm-gunstore's UseVest handler, which also applies
+    -- SetPedArmour; this is a plain cosmetic component swap, no armor stat.
+    armor    = { type = 'component', index = 9 },
 }
 
 local function notify(msg, typ)
@@ -130,6 +135,31 @@ local function readCurrentClothing(ped, def)
     return data
 end
 
+-- Turns an owned item's stored address into the drawable index this client is
+-- currently using. Apparel packs renumber global indexes whenever one is added,
+-- removed or reordered, so an item carrying only an index would equip whichever
+-- garment now happens to sit there. Items saved with a collection address are
+-- resolved through nv_cloth; anything else keeps its raw index.
+-- Returns nil when a collection IS recorded but no loaded pack provides it --
+-- the pack was removed, and falling back to the stale index would put an
+-- unrelated garment on the ped, which is exactly what this avoids.
+local function resolveDrawable(def, metadata, drawable)
+    drawable = tonumber(drawable)
+    if type(metadata) ~= 'table' then return drawable end
+
+    local collection = metadata.collection or metadata.collection_name
+    local localId = tonumber(metadata.collectionLocalId or metadata.collection_local_id)
+    if collection == nil or localId == nil then return drawable end
+    if GetResourceState('nv_cloth') ~= 'started' then return drawable end
+
+    local ok, resolved = pcall(function()
+        return exports['nv_cloth']:ResolveClothingDrawable(
+            def.type, def.index, collection, localId, drawable)
+    end)
+    if not ok then return drawable end
+    return tonumber(resolved)
+end
+
 local function equipClothing(ped, def, drawable, texture)
     drawable = tonumber(drawable)
     texture = tonumber(texture) or 0
@@ -149,11 +179,19 @@ local function equipClothing(ped, def, drawable, texture)
 end
 
 
-local function applyTorso(metadata)
+local TORSO_DEF = { type = 'component', index = 11 }
+
+-- resolvedTorso is passed by the inventory swap path, which has already turned
+-- the item's collection address into a live drawable index. The equipTorso net
+-- event has not, so resolve here when it is absent.
+local function applyTorso(metadata, resolvedTorso)
     metadata = type(metadata) == 'table' and metadata or {}
     local ped = PlayerPedId()
 
-    local torso = tonumber(metadata.drawableId or metadata.drawable)
+    local torso = tonumber(resolvedTorso)
+    if torso == nil then
+        torso = resolveDrawable(TORSO_DEF, metadata, metadata.drawableId or metadata.drawable)
+    end
     local torsoTexture = tonumber(metadata.textureId or metadata.texture) or 0
     if not torso then
         TriggerEvent('cm-hud:client:notify', 'Invalid shirt metadata.', 'error')
@@ -187,6 +225,18 @@ RegisterNetEvent('cm-itemactions:client:swapClothing', function(requestId, itemN
     local category = getCategory(itemName, metadata)
     local def = CLOTHING_CATEGORIES[category]
 
+    -- Trust the purchased item's OWN stored physical slot over whatever the
+    -- category name implies, whenever both are present. This is what lets an
+    -- item be sold/labelled under a different category than the GTA component
+    -- it was actually photographed on (nv_cloth's /clothingstore "sell as"
+    -- override, e.g. a slot-9 capture sold as a Bag) equip on the slot it was
+    -- captured on instead of rendering garbage on the slot the label implies.
+    local metaType = tostring(metadata.componentType or metadata.component_type or ''):lower()
+    local metaIndex = tonumber(metadata.componentIndex or metadata.component_index)
+    if metaIndex then
+        def = { type = (metaType == 'prop' and 'prop') or 'component', index = metaIndex }
+    end
+
     if not def then
         TriggerServerEvent('cm-itemactions:server:clothingSwapComplete', requestId, {
             success = false,
@@ -200,10 +250,22 @@ RegisterNetEvent('cm-itemactions:client:swapClothing', function(requestId, itemN
     local old = readCurrentClothing(ped, def)
     local ok
 
-    if category == 'torso' then
-        ok = applyTorso(metadata)
+    -- Torso's arms/undershirt fit logic only makes sense when the item is
+    -- physically component 11 -- never take this branch for something merely
+    -- labelled "torso" while actually living on a different component.
+    local resolved = resolveDrawable(def, metadata, metadata.drawableId or metadata.drawable)
+    if resolved == nil then
+        TriggerServerEvent('cm-itemactions:server:clothingSwapComplete', requestId, {
+            success = false,
+            message = 'This clothing item comes from an outfit pack that is no longer installed.'
+        })
+        return
+    end
+
+    if category == 'torso' and def.index == 11 then
+        ok = applyTorso(metadata, resolved)
     else
-        ok = equipClothing(ped, def, metadata.drawableId or metadata.drawable, metadata.textureId or metadata.texture)
+        ok = equipClothing(ped, def, resolved, metadata.textureId or metadata.texture)
     end
 
     if not ok then
@@ -215,7 +277,7 @@ RegisterNetEvent('cm-itemactions:client:swapClothing', function(requestId, itemN
     end
 
     if category ~= 'torso' then
-        TriggerEvent('nvCloth:client:equipClothingItem', category, metadata.drawableId or metadata.drawable, metadata.textureId or metadata.texture)
+        TriggerEvent('nvCloth:client:equipClothingItem', category, resolved, metadata.textureId or metadata.texture)
     end
     notify('Clothing equipped.', 'success')
     TriggerServerEvent('cm-itemactions:server:clothingSwapComplete', requestId, {

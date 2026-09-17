@@ -44,8 +44,9 @@ RegisterNUICallback('openWardrobeDressingRoom', function(_, cb)
     cb({ ok = true, items = items or {} })
 end)
 
-RegisterNUICallback('closeWardrobeDressingRoom', function(_, cb)
+RegisterNUICallback('closeWardrobeDressingRoom', function(data, cb)
     closeWardrobe()
+    if data and data.npcMode == true then SetNuiFocus(false, false) end
     cb({ ok = true })
 end)
 
@@ -71,11 +72,41 @@ end
 
 local NpcLocation
 local npcPed, npcBlip = nil, nil
+local wardrobePromptVisible = false
+
+local function normalizeLocation(location)
+    if type(location) ~= 'table' then return nil end
+    if type(location.value) == 'table' then location = location.value end
+    local x, y, z = tonumber(location.x), tonumber(location.y), tonumber(location.z)
+    if not x or not y or not z then return nil end
+    return { x = x, y = y, z = z, heading = tonumber(location.heading or location.w) or 0.0 }
+end
+
+local function drawNpcName()
+    if not NpcLocation then return end
+    SetDrawOrigin(NpcLocation.x, NpcLocation.y, NpcLocation.z + 1.15, 0)
+    SetTextFont(4); SetTextScale(0.0, 0.31); SetTextCentre(true); SetTextOutline()
+    SetTextColour(255, 255, 255, 245)
+    BeginTextCommandDisplayText('STRING')
+    AddTextComponentSubstringPlayerName((Config.Wardrobe or {}).NpcName or 'EMS Wardrobe')
+    EndTextCommandDisplayText(0.0, 0.0)
+    ClearDrawOrigin()
+end
+
+local function setWardrobePrompt(visible)
+    if wardrobePromptVisible == visible then return end
+    wardrobePromptVisible = visible
+    SendNUIMessage(visible and {
+        action = 'npcInteraction:show', name = (Config.Wardrobe or {}).NpcName or 'EMS Wardrobe',
+        role = (Config.Wardrobe or {}).NpcRole or 'Duty Clothing',
+    } or { action = 'npcInteraction:hide' })
+end
 
 local function spawnClothingNpc()
-    if not NpcLocation then return end
     if npcPed and DoesEntityExist(npcPed) then DeleteEntity(npcPed) end
     if npcBlip and DoesBlipExist(npcBlip) then RemoveBlip(npcBlip) end
+    npcPed, npcBlip = nil, nil
+    if not NpcLocation then return end
 
     local hash = GetHashKey((Config.Wardrobe or {}).NpcModel or 'mp_m_shopkeep_01')
     RequestModel(hash)
@@ -94,17 +125,17 @@ local function spawnClothingNpc()
     SetBlipColour(npcBlip, 2)
     SetBlipAsShortRange(npcBlip, true)
     BeginTextCommandSetBlipName('STRING')
-    AddTextComponentSubstringPlayerName('EMS Wardrobe')
+    AddTextComponentSubstringPlayerName((Config.Wardrobe or {}).NpcName or 'EMS Wardrobe')
     EndTextCommandSetBlipName(npcBlip)
 end
 
 CreateThread(function()
-    NpcLocation = lib.callback.await('cm-ems:server:clothingNpcLocation', false)
+    NpcLocation = normalizeLocation(lib.callback.await('cm-ems:server:clothingNpcLocation', false))
     spawnClothingNpc()
 end)
 
 RegisterNetEvent('cm-ems:client:clothingNpcUpdated', function(location)
-    NpcLocation = location
+    NpcLocation = normalizeLocation(location)
     spawnClothingNpc()
 end)
 
@@ -126,7 +157,7 @@ function OpenClothingNpcMenu()
     end
     options[#options + 1] = {
         title = 'Build Duty Outfit', description = 'Try on EMS-approved clothing at this wardrobe',
-        icon = 'shirt', onSelect = function() openWardrobe() end,
+        icon = 'shirt', onSelect = OpenEmsWardrobe,
     }
     for _, favorite in ipairs((data and data.favoriteOutfits) or {}) do
         options[#options + 1] = {
@@ -149,17 +180,30 @@ end
 CreateThread(function()
     while true do
         local wait = 1000
-        if NpcLocation then
+        if NpcLocation and not wardrobeOpen then
             local coords = GetEntityCoords(PlayerPedId())
             local interactDistance = (Config.Wardrobe or {}).NpcInteractDistance or 2.5
             local dist = #(coords - vector3(NpcLocation.x, NpcLocation.y, NpcLocation.z))
-            if dist <= interactDistance then
+            if dist <= 12.0 then
                 wait = 0
-                BeginTextCommandDisplayHelp('STRING')
-                AddTextComponentSubstringPlayerName('Press ~INPUT_CONTEXT~ to open the EMS wardrobe.')
-                EndTextCommandDisplayHelp(0, false, false, 1)
-                if IsControlJustPressed(0, 38) then OpenClothingNpcMenu() end
+                drawNpcName()
+                local blocked = IsPauseMenuActive() or IsPedInAnyVehicle(PlayerPedId(), false) or (IsNuiFocused and IsNuiFocused())
+                setWardrobePrompt(dist <= interactDistance and not blocked)
+                if dist <= interactDistance and not blocked and IsControlJustPressed(0, 38) then
+                    setWardrobePrompt(false)
+                    local member = type(LocalPlayer.state.cmEms) == 'table'
+                    EmsOpenNpcDialogue(npcPed, {
+                        name = (Config.Wardrobe or {}).NpcName or 'EMS Wardrobe',
+                        role = (Config.Wardrobe or {}).NpcRole or 'Duty Clothing',
+                        quote = member and 'I can help you build an approved EMS uniform and prepare you for duty.' or 'This wardrobe is restricted to EMS personnel.',
+                        continueLabel = member and 'Open EMS wardrobe' or 'Leave',
+                    }, member and OpenEmsWardrobe or nil)
+                end
+            else
+                setWardrobePrompt(false)
             end
+        else
+            setWardrobePrompt(false)
         end
         Wait(wait)
     end
@@ -169,6 +213,7 @@ AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end
     if npcPed and DoesEntityExist(npcPed) then DeleteEntity(npcPed) end
     if npcBlip and DoesBlipExist(npcBlip) then RemoveBlip(npcBlip) end
+    setWardrobePrompt(false)
 end)
 
 AddEventHandler('onResourceStop', function(resource)

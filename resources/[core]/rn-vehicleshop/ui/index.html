@@ -7,11 +7,11 @@
 
   <link rel="stylesheet" href="vendor/slick-lite.css"/>
   <link rel="stylesheet" href="vendor/fa-lite.css"/>
-  <link rel="stylesheet" href="style.css?v=310">
+  <link rel="stylesheet" href="style.css?v=325">
 
     <script src="vendor/jquery.min.js"></script>
   <script src="vendor/slick-lite.js"></script>
-  <script src="main.js?v=311" defer></script>
+  <script src="main.js?v=313" defer></script>
   
 </head>
   <body>
@@ -48,9 +48,9 @@
       </div>
       <div id="cinema-right-meta">
         <div id="cinema-counter">0 / 0</div>
-        <button id="cinema-cat-up" class="cinema-arrows" type="button" title="Previous category">⌃</button>
+        <button id="cinema-cat-up" class="cinema-arrows" type="button" title="Previous category" aria-label="Previous category">&#10094;</button>
         <div id="cinema-list-title">SPORTS</div>
-        <button id="cinema-cat-down" class="cinema-arrows" type="button" title="Next category">⌄</button>
+        <button id="cinema-cat-down" class="cinema-arrows" type="button" title="Next category" aria-label="Next category">&#10095;</button>
       </div>
 
 
@@ -328,6 +328,7 @@
                   <option value="store">Store buyable</option>
                   <option value="ems">EMS fleet vehicle</option>
                   <option value="police">Police fleet vehicle</option>
+                  <optgroup id="admin-status-organizations" label="ORGANIZATION FLEETS"></optgroup>
                 </select>
               </label>
             </div>
@@ -385,6 +386,27 @@
             </div>
           </section>
 
+          <section class="admin-section admin-fallback-settings">
+            <div class="admin-section-title">
+              <div><strong>Missing model fallback</strong><span>Shown when this vehicle temporarily uses Komoda</span></div>
+              <button id="admin-save-replacement-notice" class="admin-inline-action" type="button">Update message</button>
+            </div>
+            <label>Vehicle menu message
+              <textarea id="admin-replacement-notice" maxlength="240" rows="3" placeholder="This vehicle is temporarily using a Komoda because its original model is unavailable. It will be fixed soon."></textarea>
+              <small>Leave empty to use the default message. Maximum 240 characters.</small>
+            </label>
+          </section>
+
+          <section class="admin-section admin-carplay-settings">
+            <div class="admin-section-title admin-toggle-title">
+              <div><strong>CarPlay</strong><span>Enable the CarPlay infotainment system for this model</span></div>
+              <label class="admin-switch" aria-label="Enable CarPlay">
+                <input id="admin-has-carplay" type="checkbox" />
+                <span></span>
+              </label>
+            </div>
+          </section>
+
           <section class="admin-section admin-test-drive-settings">
             <div class="admin-section-title admin-toggle-title">
               <div><strong>Public test drive</strong><span>Configure customer test access</span></div>
@@ -394,16 +416,37 @@
               </label>
             </div>
             <div class="admin-field-grid admin-two-cols">
-              <label>Duration<input id="admin-test-duration" type="number" min="10" max="600" step="1" value="60" /><small>Seconds</small></label>
+              <label>Duration<input id="admin-test-duration" type="number" min="10" max="600" step="1" value="300" /><small>Seconds · 5 minutes</small></label>
               <label>Test cost<input id="admin-test-cost" type="number" min="0" step="1" value="50" /><small>Uses cash + bank</small></label>
             </div>
+          </section>
+
+          <section class="admin-section admin-owner-summary">
+            <div class="admin-section-title"><div><strong>Ownership</strong><span>All persistent vehicles registered as this model</span></div></div>
+            <div class="admin-owner-count"><b id="admin-owner-count">0</b><span>character, family and organization vehicles</span></div>
+          </section>
+
+          <section class="admin-section admin-organization-section">
+            <div class="admin-section-title"><div><strong>GIVE ORGANIZATION VEHICLE</strong><span>Create persistent organization ownership directly</span></div></div>
+            <div class="admin-field-grid">
+              <label>Organization<select id="admin-grant-org"></select></label>
+              <div id="admin-grant-rank-fields" class="admin-grant-rank-fields" hidden>
+                <label>Drive rank tier<input id="admin-grant-drive-tier" type="number" min="1" max="100" value="1"></label>
+                <label>Trunk rank tier<input id="admin-grant-trunk-tier" type="number" min="1" max="100" value="1"></label>
+                <small>Gang-only access tiers. Public and legal organizations use their own permission system.</small>
+              </div>
+              <button id="admin-grant-org-vehicle" class="success" type="button"><span>Give vehicle</span><small>Create organization-owned vehicle</small></button>
+            </div>
+            <div id="admin-grant-result" class="admin-grant-result" data-state="idle">No organization vehicle created</div>
           </section>
         </div>
 
         <div class="admin-actions">
           <button id="admin-save" class="primary" type="button"><span>Save vehicle</span><small>Update catalog</small></button>
           <button id="admin-test" class="success" type="button"><span>Test vehicle</span><small>Free admin drive</small></button>
-          <button id="admin-disable" class="danger" type="button">Disable / hide</button>
+          <button id="admin-permanent-remove" class="danger" type="button"><span>Remove permanently</span><small>Owners are moved to Komoda</small></button>
+          <button id="admin-replace" type="button"><span>Replace temporarily</span><small>Owners are moved to Komoda</small></button>
+          <button id="admin-restore" type="button"><span>Retake image &amp; enable</span><small>Bring this model back</small></button>
           <button id="admin-refresh" type="button">Refresh data</button>
         </div>
       </main>

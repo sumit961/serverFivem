@@ -1,11 +1,125 @@
 local Ready = false
 local Assigning = false
+local PrisonLocations = { intake = nil, spawns = {}, release = nil }
+local LocationLocks = {}
+local validLocation, locationPayload, characterId
+
+local function adminAllowed(src)
+    local ok, allowed = pcall(function()
+        return exports[PrisonConfig.AdminResource or 'cm-admin']:HasPermission(tonumber(src), PrisonConfig.AdminPermission or 'orgs.manage')
+    end)
+    return ok and allowed == true
+end
+
+local function currentLocation(src, label)
+    local ped = GetPlayerPed(tonumber(src))
+    if not ped or ped == 0 then return nil end
+    local coords = GetEntityCoords(ped)
+    return { x = coords.x, y = coords.y, z = coords.z, heading = GetEntityHeading(ped),
+        bucket = GetPlayerRoutingBucket(tonumber(src)), name = label }
+end
+
+local function saveLocation(key, value, actor)
+    MySQL.insert.await([[INSERT INTO cm_prison_settings(setting_key, setting_value, updated_by)
+        VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value), updated_by=VALUES(updated_by)]],
+        { key, json.encode(value), tostring(actor or 'admin') })
+end
+
+local function copyLegacyLocations()
+    local ok, rows = pcall(function()
+        return MySQL.query.await("SELECT setting_key, setting_value FROM cm_legal_jail_settings WHERE setting_key IN ('jail_spawns','jail_release')") or {}
+    end)
+    if not ok then return end
+    for _, row in ipairs(rows) do
+        local decodedOk, value = pcall(json.decode, row.setting_value or '')
+        if decodedOk and type(value) == 'table' then
+            local key = row.setting_key == 'jail_release' and 'release' or 'spawns'
+            if key == 'release' and not PrisonLocations.release and validLocation(value) then
+                PrisonLocations.release = value; saveLocation('release', value, 'migration')
+            elseif key == 'spawns' and #PrisonLocations.spawns == 0 then
+                for _, spawn in ipairs(value) do if validLocation(spawn) then PrisonLocations.spawns[#PrisonLocations.spawns + 1] = locationPayload(spawn) end end
+                if #PrisonLocations.spawns > 0 then saveLocation('spawns', PrisonLocations.spawns, 'migration') end
+            end
+        end
+    end
+    if not PrisonLocations.intake then
+        local policeOk, policeRows = pcall(function()
+            return MySQL.query.await("SELECT setting_value FROM cm_police_settings WHERE setting_key='jail_intake' LIMIT 1") or {}
+        end)
+        if policeOk and policeRows[1] then
+            local decodedOk, value = pcall(json.decode, policeRows[1].setting_value or '')
+            if decodedOk and validLocation(value) then
+                PrisonLocations.intake = locationPayload(value)
+                saveLocation('intake', PrisonLocations.intake, 'migration')
+            end
+        end
+    end
+end
+
+local function loadLocations()
+    local rows = MySQL.query.await("SELECT setting_key, setting_value FROM cm_prison_settings") or {}
+    for _, row in ipairs(rows) do
+        local ok, value = pcall(json.decode, row.setting_value or '')
+        if ok then
+            if row.setting_key == 'intake' and validLocation(value) then PrisonLocations.intake = locationPayload(value)
+            elseif row.setting_key == 'release' and validLocation(value) then PrisonLocations.release = locationPayload(value)
+            elseif row.setting_key == 'spawns' and type(value) == 'table' then
+                PrisonLocations.spawns = {}
+                for _, spawn in ipairs(value) do if validLocation(spawn) then PrisonLocations.spawns[#PrisonLocations.spawns + 1] = locationPayload(spawn) end end
+            end
+        end
+    end
+    copyLegacyLocations()
+end
+
+local function locationConfig()
+    return { ready = Ready, intake = PrisonLocations.intake, release = PrisonLocations.release, spawns = PrisonLocations.spawns,
+        capacityPerSpawn = tonumber(PrisonConfig.SpawnCapacity) or 2,
+        intakeRadius = tonumber(PrisonConfig.IntakeRadius) or 8.0,
+        intakeDetails = PrisonConfig.Intake }
+end
+
+exports('GetConfiguration', locationConfig)
+exports('GetIntakeLocation', function() return PrisonLocations.intake end)
+exports('GetJailSpawns', function() return PrisonLocations.spawns end)
+exports('GetReleaseLocation', function() return PrisonLocations.release end)
+exports('SetLocation', function(src, kind)
+    src, kind = tonumber(src), tostring(kind or '')
+    kind = ({ jail_intake = 'intake', jail_spawn = 'spawn', jail_release = 'release' })[kind] or kind
+    if not adminAllowed(src) then return false, 'Permission denied.' end
+    if kind ~= 'intake' and kind ~= 'spawn' and kind ~= 'release' then return false, 'Invalid prison location.' end
+    if LocationLocks[kind] then return false, 'Another prison configuration update is in progress.' end
+    LocationLocks[kind] = true
+    local labels = { intake = 'Prison Intake NPC', spawn = 'Prison Cell Spawn', release = 'Prison Release Point' }
+    local value = currentLocation(src, labels[kind])
+    if not value then LocationLocks[kind] = nil; return false, 'Player location unavailable.' end
+    if kind == 'intake' then PrisonLocations.intake = value; saveLocation('intake', value, characterId(src) or 'admin')
+    elseif kind == 'release' then PrisonLocations.release = value; saveLocation('release', value, characterId(src) or 'admin')
+    else PrisonLocations.spawns[#PrisonLocations.spawns + 1] = value; saveLocation('spawns', PrisonLocations.spawns, characterId(src) or 'admin') end
+    LocationLocks[kind] = nil
+    TriggerClientEvent('cm-prison:client:configurationUpdated', -1)
+    return true, kind == 'spawn' and ('Prison cell spawn %d saved.'):format(#PrisonLocations.spawns) or (labels[kind] .. ' saved.'), locationConfig()
+end)
+exports('ResetLocation', function(src, kind)
+    src, kind = tonumber(src), tostring(kind or '')
+    kind = ({ jail_intake = 'intake', jail_release = 'release', jail_spawns = 'spawns' })[kind] or kind
+    if not adminAllowed(src) then return false, 'Permission denied.' end
+    if kind == 'spawns' then PrisonLocations.spawns = {}; MySQL.update.await("DELETE FROM cm_prison_settings WHERE setting_key='spawns'")
+    elseif kind == 'intake' or kind == 'release' then PrisonLocations[kind] = nil; MySQL.update.await('DELETE FROM cm_prison_settings WHERE setting_key=?', { kind })
+    else return false, 'Invalid prison location.' end
+    TriggerClientEvent('cm-prison:client:configurationUpdated', -1)
+    return true, 'Prison location reset.', locationConfig()
+end)
+exports('SetAdminLocation', function(src, kind) return exports[GetCurrentResourceName()]:SetLocation(src, kind) end)
+exports('ResetAdminLocation', function(src, kind) return exports[GetCurrentResourceName()]:ResetLocation(src, kind) end)
+
+lib.callback.register('cm-prison:server:configuration', function() return locationConfig() end)
 
 local function prisonLog(message)
     print(('[cm-prison] %s'):format(tostring(message)))
 end
 
-local function characterId(src)
+characterId = function(src)
     local ok, value = pcall(function() return exports['cm-playerdata']:GetCharacterId(tonumber(src)) end)
     return ok and value and tostring(value) or nil
 end
@@ -16,11 +130,11 @@ local function sourceByCharacterId(cid)
     end
 end
 
-local function validLocation(value)
+validLocation = function(value)
     return type(value) == 'table' and tonumber(value.x) and tonumber(value.y) and tonumber(value.z)
 end
 
-local function locationPayload(value)
+locationPayload = function(value)
     if not validLocation(value) then return nil end
     return { x = tonumber(value.x), y = tonumber(value.y), z = tonumber(value.z),
         heading = tonumber(value.heading) or 0.0, bucket = math.max(0, math.floor(tonumber(value.bucket) or 0)) }
@@ -149,9 +263,9 @@ exports('JailSuspect', function(officerSrc, targetSrc, minutes, _, config)
     config = type(config) == 'table' and config or {}
     while Assigning do Wait(0) end
     Assigning = true
-    local selected = chooseSpawn(config.spawns)
+    local selected = chooseSpawn(PrisonLocations.spawns)
     if not selected then Assigning = false return false, 'prison_full' end
-    local release = locationPayload(config.release or config.intake)
+    local release = locationPayload(PrisonLocations.release)
     local arrestedBy = tostring(config.arrestedBy or 'Police Department'):gsub('[%c~]+', ' '):sub(1, 80)
     if arrestedBy == '' then arrestedBy = 'Police Department' end
     local releaseEpoch = os.time() + (minutes * 60)
@@ -231,6 +345,11 @@ end)
 
 CreateThread(function()
     local schemaOk, schemaError = pcall(function()
+        MySQL.query.await([[CREATE TABLE IF NOT EXISTS cm_prison_settings (
+        setting_key VARCHAR(32) NOT NULL, setting_value LONGTEXT NOT NULL, updated_by VARCHAR(64) NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY(setting_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]])
         MySQL.query.await([[CREATE TABLE IF NOT EXISTS cm_prison_sentences (
         character_id VARCHAR(64) NOT NULL, officer_cid VARCHAR(64) NULL, arrested_by_name VARCHAR(80) NULL, reason VARCHAR(160) NULL,
         sentence_minutes INT UNSIGNED NOT NULL, release_at DATETIME NOT NULL, spawn_index INT UNSIGNED NOT NULL,
@@ -254,8 +373,19 @@ CreateThread(function()
         prisonLog(('database initialization failed; booking is disabled: %s'):format(tostring(schemaError)))
         return
     end
+    loadLocations()
     Ready = true
     prisonLog('database ready')
+    -- cm-law may create its legacy shared-jail table just after this resource
+    -- starts. Retry the one-time migration so existing cells/release points
+    -- are picked up without a manual SQL step.
+    CreateThread(function()
+        Wait(5000)
+        if #PrisonLocations.spawns == 0 or not PrisonLocations.release then
+            copyLegacyLocations()
+            TriggerClientEvent('cm-prison:client:configurationUpdated', -1)
+        end
+    end)
     for _, value in ipairs(GetPlayers()) do restore(tonumber(value)) end
     while true do
         Wait(5000)

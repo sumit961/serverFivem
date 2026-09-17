@@ -2,6 +2,15 @@
 local open = false
 local current = nil
 
+local function notify(message, kind)
+    local notifyKind = kind or 'inform'
+    if GetResourceState('cm-hud') == 'started' then
+        TriggerEvent('cm-hud:client:notify', tostring(message or ''), notifyKind)
+        return
+    end
+    TriggerEvent('chat:addMessage', { args = { 'Property', tostring(message or '') } })
+end
+
 local function setBusy(value)
     if CMHouseInteraction and CMHouseInteraction.SetBusy then
         CMHouseInteraction.SetBusy('weaponStorage', value == true)
@@ -35,7 +44,7 @@ local function requestOpen(houseId, index)
     local ok, payload = lib.callback.await('cm-house:server:openWeaponStorage', false,
         tonumber(houseId), tonumber(index))
     if not ok then
-        lib.notify({ description = payload or 'Weapon storage would not open.', type = 'error' })
+        notify(payload or 'Weapon storage would not open.', 'error')
         return false
     end
     return showWeaponStorage(payload)
@@ -75,11 +84,32 @@ RegisterNUICallback('weaponStorage:transfer', function(data, cb)
     if ok then
         current = payload
         SendNUIMessage({ action = 'weaponStorage:update', data = payload })
+        notify(tostring(data and data.direction) == 'deposit' and 'Equipment stored in the house armory.' or 'Equipment taken from the house armory.', 'success')
         cb({ ok = true, data = payload })
         return
     end
-    lib.notify({ description = payload or 'The weapon transfer failed.', type = 'error' })
+    notify(payload or 'The weapon transfer failed.', 'error')
     cb({ ok = false, message = payload })
+end)
+
+RegisterNUICallback('weaponStorage:saveSettings', function(data, cb)
+    if not open or not current then cb({ ok = false, message = 'Storage is closed.' }); return end
+    local ok, payload = lib.callback.await('cm-house:server:saveWeaponStorageSettings', false,
+        current.houseId, current.storageIndex, type(data) == 'table' and data or {})
+    if ok then
+        current = payload
+        SendNUIMessage({ action = 'weaponStorage:update', data = payload })
+        notify(payload.settings and payload.settings.open and 'House armory opened.' or 'House armory closed.', 'success')
+        cb({ ok = true, data = payload })
+        return
+    end
+    notify(payload or 'Armory settings could not be saved.', 'error')
+    cb({ ok = false, message = payload })
+end)
+
+RegisterNUICallback('weaponStorage:orderStock', function(_, cb)
+    notify('Stock ordering is coming soon.', 'inform')
+    cb({ ok = false, message = 'Stock ordering is coming soon.' })
 end)
 
 exports('OpenWeaponStorage', requestOpen)

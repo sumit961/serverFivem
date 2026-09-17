@@ -1,24 +1,24 @@
 /* cm-house v1.8.0 — shared CM dashboard adapter.
    Loaded last to convert every house NUI view without changing JS contracts. */
 :root {
-  --house-panel:var(--cm-dashboard-panel,linear-gradient(160deg,#181a2c 0%,#171827 58%,#151625 100%));
-  --house-card:var(--cm-dashboard-card,linear-gradient(155deg,#23263f,#1c1e33));
-  --house-row:#23263f;
-  --house-row-hover:#292e4b;
+  --house-panel:var(--cm-dashboard-panel,linear-gradient(160deg,#111936 0%,#0B1026 58%,#080d20 100%));
+  --house-card:var(--cm-dashboard-card,linear-gradient(155deg,#18244b,#111936));
+  --house-row:#151f43;
+  --house-row-hover:#202d58;
   --house-line:var(--cm-dashboard-line,rgba(255,255,255,.075));
   --house-line-strong:var(--cm-dashboard-line-strong,rgba(91,134,255,.34));
   --house-text:var(--cm-dashboard-text,#f4f6ff);
   --house-soft:var(--cm-dashboard-text-soft,#c3c6de);
   --house-muted:var(--cm-dashboard-muted,#969bb8);
-  --house-blue:var(--cm-dashboard-blue,#5b86ff);
-  --house-blue-dark:var(--cm-dashboard-blue-dark,#3f63e0);
-  --house-cyan:var(--cm-dashboard-cyan,#52dce9);
-  --house-green:var(--cm-dashboard-green,#33d69f);
-  --house-amber:var(--cm-dashboard-amber,#f0b43c);
+  --house-blue:var(--cm-dashboard-blue,#A259FF);
+  --house-blue-dark:var(--cm-dashboard-blue-dark,#7b38d9);
+  --house-cyan:var(--cm-dashboard-cyan,#00D1FF);
+  --house-green:var(--cm-dashboard-green,#00FFA3);
+  --house-amber:var(--cm-dashboard-amber,#FFD166);
   --house-red:var(--cm-dashboard-red,#ff6b6b);
   --house-font:"DM Sans","Segoe UI",Arial,sans-serif;
   --house-font-display:"Poppins","DM Sans","Segoe UI",Arial,sans-serif;
-  --cm-dashboard-primary:linear-gradient(135deg,#5b86ff,#3f63e0);
+  --cm-dashboard-primary:linear-gradient(135deg,#00D1FF,#A259FF);
   --cm-dashboard-shadow:0 38px 110px rgba(3,6,20,.58);
   --cm-dashboard-shadow-button:0 13px 27px -15px rgba(73,115,240,.88);
 }
@@ -30,6 +30,7 @@ h1,h2,h3,strong,.deed__id h1,.row__title,.row__name,.tile__name,.card__name,
   font-family:var(--cm-font-display,var(--house-font-display)) !important;
 }
 body { color:var(--house-text) !important; background:transparent !important; }
+body.cm-photo-clean > * { display:none !important; }
 .screen { padding:clamp(16px,2.5vw,34px) !important; background:rgba(94,103,157,.43) !important; }
 
 .deed,.wiz,.adm,.garage-slot-card,.interior-door-card,.weapon-storage-card {
@@ -121,6 +122,7 @@ body { color:var(--house-text) !important; background:transparent !important; }
   box-shadow:var(--cm-dashboard-shadow-button) !important;
 }
 .act--home { color:#fff !important; background:linear-gradient(135deg,#34d399,#0e9f6e) !important; }
+.act--family { color:#fff !important; background:linear-gradient(135deg,#A259FF,#6840C8) !important; }
 .ghost--sell,.garage-slot-action--danger,.weapon-item-action--danger {
   color:#fff !important; background:linear-gradient(135deg,#f87171,#dc2626) !important;
   border-color:rgba(255,107,107,.34) !important;
@@ -219,6 +221,47 @@ kbd { color:var(--house-text) !important; background:#23263f !important; border-
   .wiz { grid-template-columns:1fr !important; }
   .rail { border-left:0 !important; border-top:1px solid var(--house-line) !important; }
 }
+
+/* v1.8.3 reference-style property door card */
+.property-card-screen .deed {
+  width:min(980px,94vw) !important;
+  display:grid !important;
+  grid-template-columns:330px minmax(0,1fr) !important;
+  grid-template-areas:
+    'head head'
+    'photo ledger'
+    'photo actions'
+    'foot foot' !important;
+  gap:0 !important;
+  background:linear-gradient(145deg,#151b2e,#0c1224) !important;
+  border:1px solid rgba(151,183,255,.28) !important;
+  border-radius:22px !important;
+  box-shadow:0 34px 100px rgba(0,0,0,.65),0 0 50px rgba(162,89,255,.1) !important;
+}
+.property-card-screen .deed__head { grid-area:head; grid-template-columns:auto 1fr auto !important; padding:22px 28px 18px !important; border-color:rgba(151,183,255,.15) !important; background:rgba(11,16,38,.64) !important; }
+.property-card-screen .deed__plate { min-width:86px; padding:9px 12px !important; border:0 !important; border-radius:999px !important; color:#0B1026 !important; background:#FFD166 !important; text-shadow:none !important; text-align:center; font-size:25px !important; box-shadow:0 8px 22px rgba(255,209,102,.22); }
+.property-card-screen .deed__plate .deed__hash { color:#0B1026 !important; opacity:.8; font-size:18px !important; }
+.property-card-screen .deed__id h1 { color:#F4F8FF !important; font-size:28px !important; }
+.property-card-screen .deed__type { color:#9AA9C7 !important; }
+.property-card-screen .property-photo { grid-area:photo; width:auto !important; height:250px !important; margin:22px 0 22px 28px !important; border:1px solid rgba(0,209,255,.24) !important; border-radius:14px !important; background:#0B1026 !important; }
+.property-card-screen .property-photo img { object-fit:cover !important; }
+.property-card-screen .property-ledger { grid-area:ledger; grid-template-columns:1fr 1fr !important; gap:10px 12px !important; align-content:start; padding:22px 28px 8px !important; }
+.property-card-screen .property-ledger .ledger__row { min-height:60px !important; padding:10px 13px !important; border:1px solid rgba(0,209,255,.12) !important; border-radius:10px !important; background:rgba(21,29,66,.62) !important; }
+.property-card-screen .property-ledger .ledger__row--house-number { display:none !important; }
+.property-card-screen .property-ledger dt { color:#9AA9C7 !important; font-size:11px !important; text-transform:uppercase !important; letter-spacing:.08em !important; }
+.property-card-screen .property-ledger dd { color:#F4F8FF !important; font-size:17px !important; }
+.property-card-screen .property-ledger .ledger__row--gov dd { color:#00D1FF !important; }
+.property-card-screen .property-actions { grid-area:actions; grid-template-columns:repeat(3,minmax(0,1fr)) !important; align-self:end; padding:10px 28px 18px !important; }
+.property-card-screen .property-actions .act { min-height:52px !important; border-radius:11px !important; }
+.property-card-screen .deed__foot { grid-area:foot; grid-template-columns:1fr 1fr !important; padding:16px 28px 24px !important; border-top:1px solid rgba(0,209,255,.14) !important; background:rgba(11,16,38,.52) !important; }
+.property-card-screen .deed__foot .ghost { min-height:52px !important; border-radius:11px !important; }
+@media (max-width:720px) {
+  .property-card-screen .deed { width:96vw !important; grid-template-columns:1fr !important; grid-template-areas:'head' 'photo' 'ledger' 'actions' 'foot' !important; }
+  .property-card-screen .property-photo { height:190px !important; margin:14px 18px 6px !important; }
+  .property-card-screen .property-ledger { padding:14px 18px 6px !important; }
+  .property-card-screen .property-actions { padding:10px 18px 14px !important; }
+  .property-card-screen .deed__foot { padding:12px 18px 18px !important; }
+}
 @media (max-width:620px) {
   .screen { padding:10px !important; }
   .deed,.wiz,.adm,.garage-slot-card,.interior-door-card,.weapon-storage-card { border-radius:20px !important; }
@@ -226,3 +269,153 @@ kbd { color:var(--house-text) !important; background:#23263f !important; border-
   .weapon-storage-columns { grid-template-columns:1fr !important; overflow-y:auto; }
   .weapon-storage-divider { display:none !important; }
 }
+
+/* Property creation: make the long placement flow legible without hiding the
+   live, server-derived valuation rail. */
+.wiz-progress{align-items:center;display:flex;gap:5px;margin-top:17px;max-width:650px}
+.wiz-progress__item{align-items:center;color:rgba(255,255,255,.38);display:flex;flex:1;gap:6px;min-width:0}
+.wiz-progress__item i{align-items:center;border:1px solid rgba(255,255,255,.16);border-radius:50%;display:flex;font:700 9px/1 'JetBrains Mono',monospace;height:22px;justify-content:center;width:22px}
+.wiz-progress__item b{font-size:9px;letter-spacing:.08em;overflow:hidden;text-overflow:ellipsis;text-transform:uppercase;white-space:nowrap}
+.wiz-progress__item.is-active{color:#00D1FF}.wiz-progress__item.is-active i{background:rgba(0,209,255,.14);border-color:#00D1FF;box-shadow:0 0 12px rgba(0,209,255,.2);color:#fff}
+.wiz-progress__item.is-done{color:#00FFA3}.wiz-progress__item.is-done i{background:rgba(0,255,163,.13);border-color:#00FFA3;color:#00FFA3}
+.tile__hint{color:rgba(255,255,255,.47);display:block;font-size:10px;line-height:1.3;margin-top:5px;min-height:13px}
+.tile.on .tile__hint{color:rgba(190,247,255,.62)}
+.tog__label{min-width:0}
+.build__err.is-visible{color:#FFD166}
+.publish-intro{align-items:flex-start;background:linear-gradient(135deg,rgba(0,255,163,.1),rgba(0,209,255,.06));border:1px solid rgba(0,255,163,.28);border-radius:10px;display:flex;gap:12px;padding:14px 15px}
+.publish-intro__mark{align-items:center;background:#00FFA3;border-radius:50%;color:#07151b;display:flex;font-weight:900;height:22px;justify-content:center;width:22px}
+.publish-intro strong{display:block;font-size:14px}.publish-intro p{color:rgba(255,255,255,.55);font-size:11px;margin:4px 0 0}
+.publish-checks{display:grid;gap:7px;margin-top:16px}
+.publish-check{align-items:center;border:1px solid rgba(255,255,255,.1);border-radius:8px;display:flex;gap:10px;padding:11px 12px}
+.publish-check__icon{align-items:center;border-radius:50%;display:flex;font-weight:900;height:20px;justify-content:center;width:20px}
+.publish-check.is-ok{border-color:rgba(0,255,163,.2)}.publish-check.is-ok .publish-check__icon{background:rgba(0,255,163,.15);color:#00FFA3}
+.publish-check.is-missing{border-color:rgba(255,209,102,.28)}.publish-check.is-missing .publish-check__icon{background:rgba(255,209,102,.15);color:#FFD166}
+.publish-check small{color:rgba(255,255,255,.42);font:700 9px 'JetBrains Mono',monospace;margin-left:auto}
+@media(max-width:760px){.wiz{grid-template-columns:1fr;width:min(94vw,620px)}.rail{border-left:0;border-top:1px solid var(--line);display:grid;grid-template-columns:110px 1fr;gap:12px;padding:14px 20px}.rail__seal{grid-row:span 2;margin:0;width:100px;height:100px}.rail__note{grid-column:2;margin:0;padding-top:8px}.wiz-progress__item b{display:none}}
+
+/* v1.8.8 — premium front-door property panel */
+.property-card-screen {
+  place-items:center !important;
+  background:linear-gradient(90deg,rgba(5,9,25,.48),rgba(32,29,76,.34)) !important;
+}
+.property-card-screen .deed {
+  position:relative !important;
+  width:min(1080px,94vw) !important;
+  grid-template-columns:400px minmax(0,1fr) !important;
+  grid-template-areas:'head head' 'photo ledger' 'photo actions' 'foot foot' !important;
+  overflow:hidden !important;
+  border:1px solid rgba(0,209,255,.24) !important;
+  border-radius:20px !important;
+  background:linear-gradient(145deg,#111936 0%,#0B1026 62%,#0a0f25 100%) !important;
+  box-shadow:0 32px 95px rgba(0,0,0,.72),0 0 55px rgba(0,209,255,.08) !important;
+}
+.property-card-screen .deed::after {
+  content:''; position:absolute; inset:0 0 auto; height:3px; pointer-events:none;
+  background:linear-gradient(90deg,#00D1FF 0 34%,#00FFA3 54%,#A259FF 78%,#FFD166 100%);
+}
+.property-card-screen .deed__head {
+  grid-template-columns:auto minmax(0,1fr) auto auto !important;
+  gap:16px !important; align-items:center !important;
+  padding:22px 24px !important;
+  background:rgba(8,14,34,.96) !important;
+  border-bottom:1px solid rgba(0,209,255,.13) !important;
+}
+.property-card-screen .deed__plate {
+  min-width:72px !important; padding:9px 13px !important;
+  font-size:22px !important; box-shadow:0 10px 25px rgba(255,209,102,.18) !important;
+}
+.property-card-screen .deed__id { display:grid; gap:3px; }
+.property-card-screen .deed__eyebrow {
+  margin:0; color:#00D1FF; font-size:9px; font-weight:800;
+  letter-spacing:.2em; text-transform:uppercase;
+}
+.property-card-screen .deed__id h1 {
+  margin:0 !important; color:#fff !important; font-size:27px !important;
+  font-weight:750 !important; letter-spacing:-.035em !important;
+}
+.property-card-screen .deed__meta-line { display:flex; gap:8px; align-items:center; min-height:22px; }
+.property-card-screen .deed__type-chip,.property-card-screen .deed__fam {
+  display:inline-flex; align-items:center; width:max-content; min-height:20px; padding:3px 8px;
+  border:1px solid rgba(0,209,255,.2); border-radius:6px;
+  color:#b9c7e4 !important; background:rgba(0,209,255,.07);
+  font-size:9px !important; font-weight:800 !important; letter-spacing:.09em !important;
+  text-transform:uppercase;
+}
+.property-card-screen .deed__fam { color:#d8c6ff !important; border-color:rgba(162,89,255,.26); background:rgba(162,89,255,.1); }
+.property-card-screen .deed__fam:empty { display:none; }
+.property-card-screen .deed__status-chip {
+  padding:8px 11px; border:1px solid rgba(0,255,163,.28); border-radius:9px;
+  color:#00FFA3; background:rgba(0,255,163,.08);
+  font-size:10px; font-weight:850; letter-spacing:.1em; white-space:nowrap;
+}
+.property-card-screen .deed__status-chip[data-state='warning'] { color:#FFD166; border-color:rgba(255,209,102,.32); background:rgba(255,209,102,.09); }
+.property-card-screen .deed__status-chip[data-state='vacant'] { color:#00D1FF; border-color:rgba(0,209,255,.3); background:rgba(0,209,255,.08); }
+.property-card-screen .deed__x { width:38px !important; height:38px !important; border-radius:10px !important; font-size:23px !important; }
+.property-card-screen .property-photo {
+  height:342px !important; margin:24px 0 24px 24px !important;
+  border:1px solid rgba(0,209,255,.28) !important; border-radius:15px !important;
+  box-shadow:0 20px 46px rgba(0,0,0,.38) !important;
+}
+.property-card-screen .property-photo::after {
+  background:linear-gradient(to bottom,transparent 44%,rgba(5,9,24,.16) 63%,rgba(5,9,24,.94) 100%) !important;
+}
+.property-card-screen .property-photo__caption {
+  position:absolute; z-index:3; left:18px; right:18px; bottom:16px;
+  display:grid; gap:3px; pointer-events:none;
+}
+.property-card-screen .property-photo__caption span { color:#00D1FF; font-size:8px; font-weight:850; letter-spacing:.18em; }
+.property-card-screen .property-photo__caption strong { color:#fff; font-size:20px; line-height:1.1; text-shadow:0 3px 12px rgba(0,0,0,.8); }
+.property-card-screen .property-photo[data-has-image='0'] .property-photo__caption { display:none; }
+.property-card-screen .property-ledger {
+  grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+  gap:10px !important; padding:24px 24px 10px !important;
+}
+.property-card-screen .property-ledger .ledger__row {
+  min-height:57px !important; padding:10px 13px !important;
+  border:1px solid rgba(255,255,255,.075) !important; border-radius:10px !important;
+  background:rgba(21,31,67,.68) !important;
+}
+.property-card-screen .property-ledger .ledger__row--type { display:none !important; }
+.property-card-screen .property-ledger .ledger__row--owner { grid-column:span 2; }
+.property-card-screen .property-ledger .ledger__row--price {
+  grid-column:span 2; min-height:72px !important;
+  background:linear-gradient(105deg,rgba(0,209,255,.12),rgba(162,89,255,.09)) !important;
+  border-color:rgba(0,209,255,.22) !important;
+}
+.property-card-screen .property-ledger .ledger__row--price dd { color:#fff !important; font-size:25px !important; letter-spacing:-.03em; }
+.property-card-screen .property-ledger dt { color:#8493b3 !important; font-size:9px !important; letter-spacing:.13em !important; }
+.property-card-screen .property-ledger dd { margin-top:3px; color:#f7f9ff !important; font-size:15px !important; }
+.property-card-screen .property-ledger .ledger__row--gov dd { color:#00D1FF !important; }
+.property-card-screen .property-actions {
+  gap:9px !important; padding:10px 24px 24px !important;
+  background:transparent !important;
+}
+.property-card-screen .property-actions .act {
+  min-height:54px !important; padding:0 12px !important;
+  border-radius:11px !important; box-shadow:none !important;
+}
+.property-card-screen .property-actions .act--lock { background:#1b2345 !important; }
+.property-card-screen .property-actions .act--home { color:#081a1c !important; background:linear-gradient(135deg,#00FFA3,#17c98a) !important; }
+.property-card-screen .property-actions .act--garage { background:linear-gradient(135deg,#00D1FF,#A259FF) !important; }
+.property-card-screen .property-actions .act--raid { color:#fff !important; background:linear-gradient(135deg,#ff667f,#a259ff) !important; }
+.property-card-screen [hidden] { display:none !important; }
+.property-card-screen .deed__foot {
+  display:flex !important; justify-content:flex-end; gap:10px !important;
+  padding:15px 24px 20px !important;
+  border-top:1px solid rgba(0,209,255,.11) !important;
+  background:rgba(6,11,29,.62) !important;
+}
+.property-card-screen .deed__foot .ghost { width:min(260px,100%); min-height:48px !important; }
+.property-card-screen .deed__foot .ghost--buy { color:#07151b !important; background:linear-gradient(135deg,#FFD166,#ffb84d) !important; }
+.property-card-screen .deed__foot .ghost--sell { background:rgba(255,81,104,.12) !important; border-color:rgba(255,81,104,.32) !important; color:#ff7d90 !important; }
+@media(max-width:760px) {
+  .property-card-screen .deed { grid-template-columns:1fr !important; grid-template-areas:'head' 'photo' 'ledger' 'actions' 'foot' !important; }
+  .property-card-screen .deed__head { grid-template-columns:auto 1fr auto !important; }
+  .property-card-screen .deed__status-chip { display:none; }
+  .property-card-screen .property-photo { height:205px !important; margin:14px 16px 4px !important; }
+  .property-card-screen .property-ledger { padding:14px 16px 6px !important; }
+  .property-card-screen .property-actions { padding:10px 16px 16px !important; }
+  .property-card-screen .deed__foot { padding:12px 16px 16px !important; }
+}
+
+/* Garage selector generation removed; see garage-selector-v3.css. */

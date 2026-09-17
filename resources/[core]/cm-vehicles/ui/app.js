@@ -3,22 +3,25 @@ let featuresOpen = false;
 let infoOpen = false;
 let pickerOpen = false;
 let pickerMode = null;
+let saleConfirmOpen = false;
+const actionBusy = new Set();
 const $ = (id) => document.getElementById(id);
 
 const actions = [
-  { id: 1, key: 'info', icon: '🚗', title: 'VIEW TRANSPORT INFORMATION', mode: 'always' },
-  { id: 2, key: 'features', icon: '🏁', title: 'MANAGE DRIFT SETTINGS', mode: 'outside' },
-  { id: 3, key: 'giveKey', icon: '🔑', title: 'GIVE VEHICLE KEY', mode: 'outside' },
-  { id: 4, key: 'repair', icon: '🔧', title: 'TRANSPORTATION REPAIR', mode: 'outside' },
-  { id: 5, key: 'refuel', icon: '⛽', title: 'REFUEL THE VEHICLE', mode: 'outside' },
-  { id: 6, key: 'wash', icon: '🧽', title: 'WASH THE VEHICLE', mode: 'outside' },
-  { id: 7, key: 'charge', icon: '⚡', title: 'CHARGE TRANSPORT', mode: 'outside' },
-  { id: 8, key: 'trunk', icon: '🚙', title: 'OPEN / CLOSE TRUNK', mode: 'always' },
-  { id: 9, key: 'enterTrunk', icon: '📦', title: 'GET IN THE TRUNK', mode: 'outside' },
-  { id: 10, key: 'getOutTrunk', icon: '⬆', title: 'GET PLAYER OUT OF THE TRUNK', mode: 'always' },
-  { id: 11, key: 'passengers', icon: '👥', title: 'GET PASSENGER OUT OF CAR', mode: 'inside' }
-  ,{ id: 12, key: 'policePutDragged', icon: 'POLICE', title: 'PUT DRAGGED SUSPECT IN VEHICLE', mode: 'outside' }
-  ,{ id: 13, key: 'policeRemoveCuffed', icon: 'POLICE', title: 'REMOVE CUFFED SUSPECT FROM VEHICLE', mode: 'outside' }
+  { id: 1, key: 'info', icon: '🚗', title: 'VIEW TRANSPORT INFORMATION', mode: 'always', category: 'vehicle' },
+  { id: 2, key: 'features', icon: '🏁', title: 'MANAGE DRIFT SETTINGS', mode: 'outside', category: 'vehicle' },
+  { id: 3, key: 'giveKey', icon: '🔑', title: 'GIVE VEHICLE KEY', mode: 'outside', category: 'vehicle' },
+  { id: 4, key: 'repair', icon: '🔧', title: 'TRANSPORTATION REPAIR', mode: 'outside', category: 'vehicle' },
+  { id: 5, key: 'refuel', icon: '⛽', title: 'REFUEL THE VEHICLE', mode: 'outside', category: 'vehicle' },
+  { id: 6, key: 'wash', icon: '🧽', title: 'WASH THE VEHICLE', mode: 'outside', category: 'vehicle' },
+  { id: 7, key: 'charge', icon: '⚡', title: 'CHARGE TRANSPORT', mode: 'outside', category: 'vehicle' },
+  { id: 8, key: 'trunk', icon: '🚙', title: 'OPEN / CLOSE TRUNK', mode: 'always', category: 'trunk' },
+  { id: 9, key: 'enterTrunk', icon: '📦', title: 'GET IN THE TRUNK', mode: 'outside', category: 'trunk' },
+  { id: 10, key: 'getOutTrunk', icon: '⬆', title: 'GET PLAYER OUT OF THE TRUNK', mode: 'always', category: 'trunk' },
+  { id: 11, key: 'passengers', icon: '👥', title: 'GET PASSENGER OUT OF CAR', mode: 'inside', category: 'vehicle' },
+  { id: 12, key: 'policePutDragged', icon: '🛡️', title: 'PUT DRAGGED SUSPECT IN VEHICLE', mode: 'outside', category: 'vehicle' },
+  { id: 13, key: 'policeRemoveCuffed', icon: '🛡️', title: 'REMOVE CUFFED SUSPECT FROM VEHICLE', mode: 'outside', category: 'vehicle' },
+  { id: 14, key: 'sellState', icon: '💰', title: 'SELL VEHICLE TO STATE', mode: 'always', category: 'vehicle' },
 ];
 
 function post(name, data = {}) {
@@ -60,6 +63,14 @@ function hidePicker() {
   pickerMode = null;
   $('playerPicker')?.classList.add('hidden');
 }
+function hideSaleConfirm() {
+  saleConfirmOpen = false;
+  const modal = $('saleConfirm');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+}
 function backToMenu() {
   hidePicker();
   infoOpen = false;
@@ -72,6 +83,7 @@ function backToMenu() {
   }
 }
 function closeAll() {
+  hideSaleConfirm();
   $('vehicleMenu')?.classList.add('hidden');
   $('vehicleInfoScreen')?.classList.add('hidden');
   $('featuresPanel')?.classList.add('hidden');
@@ -86,6 +98,34 @@ $('infoClose')?.addEventListener('click', closeAll);
 $('infoBack')?.addEventListener('click', backToMenu);
 $('pickerBack')?.addEventListener('click', backToMenu);
 $('pickerClose')?.addEventListener('click', closeAll);
+$('saleConfirmCancel')?.addEventListener('click', () => hideSaleConfirm());
+$('saleConfirmAccept')?.addEventListener('click', async () => {
+  if (!saleConfirmOpen) return;
+  const accept = $('saleConfirmAccept');
+  if (accept?.disabled) return;
+  if (accept) {
+    accept.disabled = true;
+    accept.textContent = 'PROCESSING SALE...';
+  }
+  hideSaleConfirm();
+  const result = await post('vehicleAction', { action: 'sellState', plate: plateText(), netId: vehicleNetId() });
+  if (result?.ok === false) {
+    showToast(result.error || 'Vehicle sale could not be started.', 'error');
+    if (accept) {
+      accept.disabled = false;
+      accept.textContent = 'CONFIRM SALE';
+    }
+    return;
+  }
+  showToast('Selling vehicle to state...');
+  closeAll();
+});
+
+document.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  if (infoOpen || pickerOpen || featuresOpen) backToMenu();
+  else closeAll();
+});
 
 document.addEventListener('keydown', (e) => {
   const key = String(e.key || '').toLowerCase();
@@ -164,7 +204,7 @@ function actionDisabled(key) {
   if (key === 'getOutTrunk') return !hasAccess();
   if (key === 'passengers') return !inVehicle() || !isDriver();
   if (key === 'repair' || key === 'refuel' || key === 'wash' || key === 'charge') return inVehicle();
-  if (key === 'sellState') return !isOwner() || Number(vehicle?.sellValue || 0) <= 0;
+  if (key === 'sellState') return !isOwner();
   return false;
 }
 function disabledReason(key) {
@@ -179,7 +219,6 @@ function disabledReason(key) {
   if (key === 'passengers' && !inVehicle()) return 'Inside only';
   if (key === 'passengers' && !isDriver()) return 'Driver only';
   if (key === 'sellState' && !isOwner()) return 'Owner only';
-  if (key === 'sellState' && Number(vehicle?.sellValue || 0) <= 0) return 'No state value';
   return '';
 }
 
@@ -236,6 +275,10 @@ function selectPickerPlayer(id) {
   hidePicker();
 }
 function runAction(action) {
+  if (actionBusy.has(action)) {
+    showToast('This vehicle action is already processing.', 'info');
+    return;
+  }
   if (actionDisabled(action)) {
     const reason = disabledReason(action);
     if (reason) showToast(reason, 'error');
@@ -253,37 +296,52 @@ function runAction(action) {
   if (['repair','refuel','wash','charge'].includes(action)) {
     // Handled client-side: uses a repair kit / jerry can from the player's
     // inventory. The client notifies on success or tells them what they need.
+    actionBusy.add(action);
+    showToast(`${action.toUpperCase()} request processing...`);
     post('vehicleAction', { action, plate: plateText(), netId: vehicleNetId() });
     closeAll();
+    setTimeout(() => actionBusy.delete(action), 3500);
     return;
   }
   if (action === 'getOutTrunk') {
+    actionBusy.add(action);
     post('vehicleAction', { action, plate: plateText(), netId: vehicleNetId() });
     showToast('Checking trunk...');
+    setTimeout(() => actionBusy.delete(action), 2500);
     return;
   }
   if (action === 'sellState') {
     const payout = formatMoney(vehicle?.sellValue || 0);
-    const ok = window.confirm(`Sell this vehicle to the state for ${payout}? This cannot be undone.`);
-    if (!ok) return;
-    post('vehicleAction', { action, plate: plateText(), netId: vehicleNetId() });
-    showToast('Selling vehicle to state...');
+    const modal = $('saleConfirm');
+    if (!modal) return;
+    setText('saleConfirmPayout', payout);
+    setText('saleConfirmText', `Sell ${vehicle?.label || vehicle?.model || 'this vehicle'} to the state? This permanently removes the vehicle and its ownership record.`);
+    saleConfirmOpen = true;
+    const accept = $('saleConfirmAccept');
+    if (accept) {
+      accept.disabled = false;
+      accept.textContent = 'CONFIRM SALE';
+    }
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden', 'false');
     return;
   }
   post('vehicleAction', { action, plate: plateText(), netId: vehicleNetId() });
+  actionBusy.add(action);
+  setTimeout(() => actionBusy.delete(action), 2500);
   if (action === 'trunk') { showToast('Trunk opened/closed. Press I near the open trunk for inventory.'); return; }
   if (action === 'enterTrunk') { showToast('Getting in trunk...'); closeAll(); return; }
   if (action === 'drift') { showToast('Request sent.'); return; }
   closeAll();
 }
-function makeActionButton(a, displayIndex) {
+function makeActionButton(a, displayIndex, tone = 'cyan') {
   const div = document.createElement('button');
   const disabled = actionDisabled(a.key);
   const active = (a.key === 'features' && featuresOpen);
-  div.className = `radial-action ${disabled ? 'disabled' : ''} ${active ? 'active' : ''}`;
+  div.className = `radial-action ${tone} ${disabled ? 'disabled' : ''} ${active ? 'active' : ''}`;
   div.dataset.action = a.key;
   const reason = disabled ? `<em>${disabledReason(a.key)}</em>` : '';
-  div.innerHTML = `<span class="num">${displayIndex}</span><span class="r-icon">${a.icon}</span><span class="action-title">${a.title}</span>${reason}`;
+  div.innerHTML = `<span class="action-num-badge ${tone}">${displayIndex}</span><span class="action-title">${a.title}</span>${reason}`;
   return div;
 }
 // The exact list (and order) the menu renders, so number keys always match
@@ -296,10 +354,51 @@ function renderMenuActions() {
   const wrap = $('radialActions');
   if (!wrap) return;
   wrap.innerHTML = '';
-  const list = document.createElement('div');
-  list.className = 'action-list center';
-  visibleActions().forEach((a, index) => list.appendChild(makeActionButton(a, index + 1)));
-  wrap.appendChild(list);
+  const list = visibleActions();
+  const vehicleActions = list.filter(a => a.category !== 'trunk');
+  const trunkActions = list.filter(a => a.category === 'trunk');
+  const cols = document.createElement('div');
+  cols.className = 'action-columns';
+  // Vehicle column
+  if (vehicleActions.length) {
+    const col = document.createElement('div');
+    col.className = 'action-col vehicle-col';
+    const hdr = document.createElement('div');
+    hdr.className = 'action-col-header';
+    hdr.innerHTML = `<div class="hdr-left"><span class="hdr-dot cyan"></span> VEHICLE OPTIONS</div><span class="action-count">${vehicleActions.length} ACTIONS</span>`;
+    col.appendChild(hdr);
+    const listDiv = document.createElement('div');
+    listDiv.className = 'col-actions-list';
+    vehicleActions.forEach((a, index) => listDiv.appendChild(makeActionButton(a, index + 1, 'cyan')));
+    col.appendChild(listDiv);
+    cols.appendChild(col);
+  }
+  // Trunk column
+  if (trunkActions.length) {
+    const col = document.createElement('div');
+    col.className = 'action-col trunk-col';
+    const hdr = document.createElement('div');
+    hdr.className = 'action-col-header';
+    hdr.innerHTML = `<div class="hdr-left"><span class="hdr-dot orange"></span> TRUNK OPTIONS</div><span class="action-count">${trunkActions.length} ACTIONS</span>`;
+    col.appendChild(hdr);
+    const listDiv = document.createElement('div');
+    listDiv.className = 'col-actions-list';
+    trunkActions.forEach((a, index) => listDiv.appendChild(makeActionButton(a, index + 1, 'orange')));
+    col.appendChild(listDiv);
+
+    // Trunk status footer
+    const trunkFooter = document.createElement('div');
+    trunkFooter.className = 'trunk-footer';
+    const isLockedState = isLocked();
+    const isTrunkOpen = vehicle?.trunkOpen === true;
+    const trunkStatusText = isTrunkOpen ? 'OPEN & ACCESSIBLE' : (isLockedState ? 'LOCKED' : 'EMPTY & ACCESSIBLE');
+    const isGood = !isLockedState;
+    trunkFooter.innerHTML = `<span class="trunk-footer-lbl">TRUNK STATUS:</span><span class="trunk-footer-val ${isGood ? 'green' : 'red'}">${trunkStatusText}</span>`;
+    col.appendChild(trunkFooter);
+
+    cols.appendChild(col);
+  }
+  wrap.appendChild(cols);
   wrap.classList.toggle('inside-mode', inVehicle());
 }
 function openMenu(data) {
@@ -329,8 +428,37 @@ function openMenu(data) {
   vehicle.stateValue = stateValue;
   vehicle.sellValue = sellValue;
   setText('infoVehicleName', vehicle.label || vehicle.model || 'Vehicle');
+  const notice = $('vehicleNotice');
+  if (notice) {
+    notice.textContent = vehicle.vehicleNotice || '';
+    notice.classList.toggle('hidden', !vehicle.vehicleNotice);
+    notice.classList.toggle('temporary', vehicle.temporaryReplacement === true);
+    notice.classList.toggle('permanent', vehicle.permanentlyRemoved === true);
+  }
+  const menuNotice = $('mvhNotice');
+  if (menuNotice) {
+    menuNotice.textContent = vehicle.vehicleNotice || '';
+    menuNotice.classList.toggle('hidden', !vehicle.vehicleNotice);
+    menuNotice.classList.toggle('permanent', vehicle.permanentlyRemoved === true);
+  }
   setText('infoOwnerName', vehicle.ownerName || vehicle.owner_name || vehicle.ownerCharacterId || 'Unknown');
   setText('infoPlate', plateText());
+
+  // Populate vehicle header card in G menu
+  setText('mvhName', (vehicle.label || vehicle.model || 'Vehicle').toUpperCase());
+  setText('mvhPlate', plateText());
+  const lockEl = $('mvhLock');
+  if (lockEl) {
+    const locked = isLocked();
+    lockEl.textContent = locked ? '• LOCKED' : '• UNLOCKED';
+    lockEl.className = `mvh-status ${locked ? 'locked' : 'unlocked'}`;
+  }
+  setText('mvhMileage', `${mileage.toFixed(1)} KM`);
+  setText('mvhFuel', `${Math.round(fuel)}%`);
+  const mvhFuelBar = $('mvhFuelBar');
+  if (mvhFuelBar) {
+    mvhFuelBar.style.width = `${fuel}%`;
+  }
 
   const vehicleImage = $('infoVehicleImage');
   if (vehicleImage) {
@@ -384,7 +512,7 @@ function openMenu(data) {
   renderInstalledParts(vehicle.parts);
   const sellBtn = $('sellStateBtn');
   if (sellBtn) {
-    sellBtn.textContent = `SELL CAR TO STATE FOR ${formatMoney(sellValue)} (30%)`;
+    sellBtn.textContent = `SELL CAR TO STATE FOR ${formatMoney(sellValue)}${vehicle.permanentlyRemoved ? ' (FULL REFUND)' : ' (30%)'}`;
     sellBtn.classList.toggle('disabled', actionDisabled('sellState'));
   }
   featuresOpen = false;

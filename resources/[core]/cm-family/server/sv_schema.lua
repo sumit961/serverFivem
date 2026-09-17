@@ -380,24 +380,16 @@ local function detectLegacyRankColumns()
     if not CMFamilyUsesLegacyPermsColumn then return end
 
     -- Most old schemas only use JSON_VALID(perms), which accepts either shape.
-    -- A few add JSON_TYPE checks; detect those so dual-writes satisfy the exact
-    -- installed constraint rather than guessing.
-    local ok, rows = pcall(function()
-        return MySQL.query.await([[
-            SELECT cc.CHECK_CLAUSE
-            FROM information_schema.TABLE_CONSTRAINTS tc
-            JOIN information_schema.CHECK_CONSTRAINTS cc
-              ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
-             AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
-            WHERE tc.TABLE_SCHEMA = DATABASE()
-              AND tc.TABLE_NAME = 'cm_family_ranks'
-              AND tc.CONSTRAINT_TYPE = 'CHECK'
-        ]]) or {}
+    -- A few add JSON_TYPE checks. SHOW CREATE TABLE reads the table definition
+    -- directly and avoids MariaDB's expensive TABLE_CONSTRAINTS/CHECK_CONSTRAINTS
+    -- metadata join during every resource start.
+    local ok, row = pcall(function()
+        return MySQL.single.await('SHOW CREATE TABLE `cm_family_ranks`')
     end)
 
-    if ok then
-        for _, row in ipairs(rows) do
-            local clause = tostring(row.CHECK_CLAUSE or row.check_clause or ''):lower()
+    if ok and type(row) == 'table' then
+        local definition = tostring(row['Create Table'] or row['create table'] or ''):lower()
+        for clause in definition:gmatch('check%s*(%b())') do
             if clause:find('perms', 1, true) and clause:find('json_type', 1, true) then
                 if clause:find('array', 1, true) then
                     CMFamilyLegacyPermsFormat = 'array'

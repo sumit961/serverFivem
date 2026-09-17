@@ -19,6 +19,7 @@ files {
 }
 
 client_scripts {
+    'client/cl_collection.lua',
     'client/cl_framework.lua',
     'client/cl_camera.lua',
     'client/cl_admin.lua',
