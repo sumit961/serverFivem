@@ -4,32 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CM Gun Store</title>
-    <link rel="stylesheet" href="style.css?v=1.9.1" />
+    <link rel="stylesheet" href="style.css?v=1.11.2" />
 </head>
 <body>
-    <section id="interactionPrompt" class="interaction-prompt hidden">
-        <div class="interaction-card">
-            <div class="interaction-key" id="interactionKey">E</div>
-            <div class="interaction-copy">
-                <p id="interactionName">Gun Store Clerk</p>
-                <h3 id="interactionTitle">Talk to Clerk</h3>
-                <span id="interactionSubtitle">Browse weapons, ammo, and armor</span>
-            </div>
-        </div>
-    </section>
-
-    <section id="npcDialog" class="npc-dialog hidden">
-        <div class="dialog-card">
-            <p class="dialog-eyebrow" id="dialogName">Gun Store Clerk</p>
-            <h2 id="dialogTitle">How can I help you today?</h2>
-            <div class="dialog-actions">
-                <button id="dialogStoreBtn" class="dialog-primary">Show me what you have got</button>
-                <button id="dialogLicenseBtn" class="dialog-secondary">Buy a firearms license</button>
-                <button id="dialogCloseBtn" class="dialog-secondary">No thanks</button>
-            </div>
-        </div>
-    </section>
-
+    <!-- The "Press E" prompt and the NPC conversation are cm-ui's shared
+         components (exports['cm-ui']:ShowInteract / OpenNpcDialogue) -- see
+         cm-ui/docs/CM_UI_USAGE.md. This page only owns the catalog/admin UI
+         that opens once the player picks "Show me what you have got". -->
     <main id="app" class="hidden">
         <section class="shell">
             <header class="topbar">
@@ -42,6 +23,7 @@
                     <button class="tab" data-filter="weapon">Weapons</button>
                     <button class="tab" data-filter="ammo">Ammo</button>
                     <button class="tab" data-filter="armor">Armor</button>
+                    <button class="tab admin-only" data-filter="npc">NPCs</button>
                 </div>
                 <button id="refreshBtn" class="ghost">Refresh</button>
                 <button id="closeBtn" class="close">×</button>
@@ -62,6 +44,11 @@
         </section>
     </main>
 
-    <script src="app.js?v=1.9.1"></script>
+    <!-- Only cm-ui.js's confirm()/toast() JS helpers -- a real Promise-based
+         modal, unlike native window.confirm() which is unreliable in FiveM's
+         CEF NUI. Modal/toast styling is gunstore's own (web/style.css) so we
+         don't also pull in cm-ui's page-wide theme CSS. -->
+    <script src="nui://cm-ui/web/cm-ui.js"></script>
+    <script src="app.js?v=1.11.2"></script>
 </body>
 </html>

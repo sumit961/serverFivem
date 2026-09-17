@@ -7,6 +7,97 @@ local openCooldowns = {}
 local orderCooldowns = {}
 local pendingUse = {}
 
+local function gasPlayerData()
+    if GetResourceState('cm-playerdata') ~= 'started' then return nil end
+    return exports['cm-playerdata']
+end
+
+local function characterId(src)
+    local api = gasPlayerData()
+    if not api then return nil end
+    local ok, id = pcall(function() return api:GetCharacterId(src) end)
+    return ok and tonumber(id) or nil
+end
+
+local function getBank(src)
+    local api = gasPlayerData()
+    if not api then return nil end
+    local ok, amount = pcall(function() return api:GetBank(src) end)
+    return ok and tonumber(amount) or nil
+end
+
+local function removeBank(src, amount, reason)
+    local api = gasPlayerData()
+    if not api then return false end
+    local ok, result = pcall(function() return api:RemoveBank(src, math.floor(amount), reason) end)
+    return ok and result == true
+end
+
+local function addBank(src, amount, reason)
+    local api = gasPlayerData()
+    if not api then return false end
+    local ok, result = pcall(function() return api:AddBank(src, math.floor(amount), reason) end)
+    return ok and result == true
+end
+
+local function stationRow(index)
+    if not MySQL then return nil end
+    return MySQL.single.await('SELECT * FROM cm_gas_stations WHERE station_id = ? LIMIT 1', { index })
+end
+
+local function stationPrice(row)
+    local tiers = (Config.Ownership or {}).priceTiers or {}
+    if not row or not row.owner_character_id then return tonumber(tiers.normal) or 8 end
+    return tonumber(tiers[tostring(row.price_tier or 'normal')]) or tonumber(tiers.normal) or 8
+end
+
+CreateThread(function()
+    Wait(1000)
+    if not MySQL then
+        print('[CM-GAS] oxmysql is not ready; station persistence is disabled until the next restart.')
+        return
+    end
+    MySQL.query.await([[CREATE TABLE IF NOT EXISTS cm_gas_stations (
+        station_id INT NOT NULL PRIMARY KEY,
+        owner_character_id BIGINT NULL,
+        owner_name VARCHAR(120) NULL,
+        price_tier VARCHAR(12) NOT NULL DEFAULT 'normal',
+        stock INT NOT NULL DEFAULT 5000,
+        business_balance BIGINT NOT NULL DEFAULT 0,
+        daily_income BIGINT NOT NULL DEFAULT 0,
+        weekly_income BIGINT NOT NULL DEFAULT 0,
+        tax_due_at DATETIME NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )]])
+    MySQL.query.await('ALTER TABLE cm_gas_stations ADD COLUMN IF NOT EXISTS daily_income BIGINT NOT NULL DEFAULT 0')
+    MySQL.query.await('ALTER TABLE cm_gas_stations ADD COLUMN IF NOT EXISTS weekly_income BIGINT NOT NULL DEFAULT 0')
+    for index = 1, #(Config.Stations or {}) do
+        MySQL.insert.await('INSERT IGNORE INTO cm_gas_stations (station_id, stock) VALUES (?, ?)', { index, (Config.Ownership or {}).defaultStock or 5000 })
+    end
+end)
+
+CreateThread(function()
+    while true do
+        Wait(60000)
+        if not MySQL then goto continue end
+        local expired = MySQL.query.await([[SELECT station_id, owner_character_id, business_balance
+            FROM cm_gas_stations WHERE owner_character_id IS NOT NULL AND tax_due_at IS NOT NULL AND tax_due_at < UTC_TIMESTAMP()]]) or {}
+        for _, row in ipairs(expired) do
+            local refund = math.floor((tonumber(row.business_balance) or 0) * 0 + 0)
+            -- Ownership security deposit is represented by the purchase price; return 20% to the former owner's bank.
+            local amount = math.floor((tonumber(Config.Ownership.purchasePrice) or 0) * 0.20)
+            MySQL.update.await('UPDATE cm_gas_stations SET owner_character_id = NULL, owner_name = NULL, price_tier = \'normal\', business_balance = 0, stock = ? , tax_due_at = NULL WHERE station_id = ? AND owner_character_id = ?', { Config.Ownership.defaultStock or 5000, row.station_id, row.owner_character_id })
+            local target = nil
+            for _, player in ipairs(GetPlayers()) do
+                if characterId(tonumber(player)) == tonumber(row.owner_character_id) then target = tonumber(player); break end
+            end
+            if target and amount > 0 then addBank(target, amount, 'gas-station-tax-forfeiture-refund') end
+        end
+        ::continue::
+    end
+end)
+
 local function dbg(...)
     if Config.Debug then print('[CM-GAS]', ...) end
 end
@@ -155,6 +246,75 @@ local function charge(src, amount, reason)
     return true
 end
 
+local function stationContext(src, index)
+    local row = stationRow(index)
+    local charId = characterId(src)
+    local owned = row and charId and tonumber(row.owner_character_id) == charId
+    return row, owned, charId
+end
+
+RegisterNetEvent('cm-gas:server:buyStation', function(index)
+    local src = source
+    index = math.floor(tonumber(index) or 0)
+    local cfg = Config.Ownership or {}
+    local row, _, charId = stationContext(src, index)
+    if not cfg.enabled or not row or not charId then return notify(src, 'Station ownership is unavailable.', 'error') end
+    if row.owner_character_id then return notify(src, 'This station is already owned.', 'error') end
+    local price = math.max(0, math.floor(tonumber(cfg.purchasePrice) or 0))
+    if not removeBank(src, price, 'gas-station-purchase') then return notify(src, ('You need $%d in the bank.'):format(price), 'error') end
+    local name = playerData():GetCharacterFullName(src) or ('Character %d'):format(charId)
+    local due = os.date('!%Y-%m-%d %H:%M:%S', os.time() + ((tonumber(cfg.taxPeriodDays) or 7) * 86400))
+    local changed = MySQL.update.await('UPDATE cm_gas_stations SET owner_character_id = ?, owner_name = ?, price_tier = \'normal\', business_balance = 0, stock = ?, tax_due_at = ? WHERE station_id = ? AND owner_character_id IS NULL', { charId, name, cfg.defaultStock or 5000, due, index })
+    if changed ~= 1 then addBank(src, price, 'gas-station-purchase-refund'); return notify(src, 'The station was bought by someone else.', 'error') end
+    TriggerClientEvent('cm-gas:client:stationUpdated', src, index)
+    notify(src, 'Gas station purchased. Tax is due in 7 days.', 'success')
+end)
+
+RegisterNetEvent('cm-gas:server:manageStation', function(data)
+    local src = source
+    data = type(data) == 'table' and data or {}
+    local index = math.floor(tonumber(data.stationId) or 0)
+    local row, owned = stationContext(src, index)
+    if not row or not owned then return notify(src, 'You do not own this station.', 'error') end
+    local tier = tostring(data.priceTier or 'normal'):lower()
+    if not (Config.Ownership.priceTiers or {})[tier] then return notify(src, 'Invalid price tier.', 'error') end
+    local maxStock = tonumber(Config.Ownership.maxStock) or 25000
+    local stock = math.floor(tonumber(row.stock) or 0)
+    if data.restock == true then
+        local batch = tonumber(Config.Ownership.restockBatch) or 1000
+        local cost = math.floor(batch * (tonumber(Config.Ownership.restockUnitPrice) or 0))
+        if not removeBank(src, cost, 'gas-station-restock') then return notify(src, ('You need $%d in the bank to order stock.'):format(cost), 'error') end
+        stock = math.min(maxStock, stock + batch)
+    end
+    if data.stock ~= nil then stock = math.floor(tonumber(data.stock) or stock) end
+    if stock < 0 or stock > maxStock then return notify(src, 'Stock is outside the allowed range.', 'error') end
+    MySQL.update.await('UPDATE cm_gas_stations SET price_tier = ?, stock = ? WHERE station_id = ? AND owner_character_id = ?', { tier, stock, index, characterId(src) })
+    notify(src, 'Station settings saved.', 'success')
+end)
+
+RegisterNetEvent('cm-gas:server:payTax', function(index)
+    local src = source
+    index = math.floor(tonumber(index) or 0)
+    local row, owned = stationContext(src, index)
+    if not row or not owned then return notify(src, 'You do not own this station.', 'error') end
+    local amount = math.max(0, math.floor(tonumber(Config.Ownership.taxAmount) or 0))
+    if not removeBank(src, amount, 'gas-station-tax') then return notify(src, ('You need $%d in the bank.'):format(amount), 'error') end
+    local due = os.date('!%Y-%m-%d %H:%M:%S', os.time() + ((tonumber(Config.Ownership.taxPeriodDays) or 7) * 86400))
+    MySQL.update.await('UPDATE cm_gas_stations SET tax_due_at = ? WHERE station_id = ? AND owner_character_id = ?', { due, index, characterId(src) })
+    notify(src, 'Station tax paid for 7 days.', 'success')
+end)
+
+RegisterNetEvent('cm-gas:server:withdrawBusiness', function(index)
+    local src = source
+    index = math.floor(tonumber(index) or 0)
+    local row, owned = stationContext(src, index)
+    if not row or not owned then return notify(src, 'You do not own this station.', 'error') end
+    local balance = math.max(0, math.floor(tonumber(row.business_balance) or 0))
+    if balance <= 0 then return notify(src, 'There is no business balance to withdraw.', 'error') end
+    local changed = MySQL.update.await('UPDATE cm_gas_stations SET business_balance = 0 WHERE station_id = ? AND owner_character_id = ? AND business_balance = ?', { index, characterId(src), balance })
+    if changed == 1 and addBank(src, balance, 'gas-station-business-withdrawal') then notify(src, ('$%d transferred to your bank.'):format(balance), 'success') end
+end)
+
 local function canCarry(src, itemName, count)
     if GetResourceState('cm-inventory') ~= 'started' then return false end
     local ok, result = pcall(function()
@@ -182,13 +342,20 @@ local function giveItem(src, itemName, count)
     return false
 end
 
-local function getClosestPump(coords, maximumDistance)
+local function getClosestPump(coords, maxHorizontalDistance, minZ, maxZ)
+    local maxHoriz = tonumber(maxHorizontalDistance) or tonumber(Config.Security.playerPumpTolerance) or 40.0
+    local zMin = tonumber(minZ) or tonumber(Config.Security.minPumpHeightDiff) or -6.0
+    local zMax = tonumber(maxZ) or tonumber(Config.Security.maxPumpHeightDiff) or 32.0
+
     local closestIndex, closestDistance
     for index, pump in ipairs(Config.Pumps or {}) do
-        local distance = #(coords - pump)
-        if distance <= maximumDistance and (not closestDistance or distance < closestDistance) then
-            closestIndex = index
-            closestDistance = distance
+        local dist2d = #(vector2(coords.x, coords.y) - vector2(pump.x, pump.y))
+        local dz = coords.z - pump.z
+        if dist2d <= maxHoriz and dz >= zMin and dz <= zMax then
+            if not closestDistance or dist2d < closestDistance then
+                closestIndex = index
+                closestDistance = dist2d
+            end
         end
     end
     return closestIndex, closestDistance
@@ -237,6 +404,23 @@ local function getLiveFuel(entity, row)
     return clamp(row and row.fuel or 0.0, 0.0, 100.0)
 end
 
+local function isHelicopterEntity(entity, row)
+    if not entity or entity == 0 or not DoesEntityExist(entity) then return false end
+    if type(GetVehicleType) == 'function' then
+        local ok, vType = pcall(GetVehicleType, entity)
+        if ok and tostring(vType):lower() == 'heli' then return true end
+    end
+    if row then
+        local kind = tostring(row.vehicle_type or row.type or row.category or row.vehicle_category or ''):lower()
+        if kind == 'heli' or kind == 'helicopter' or kind:find('heli', 1, true) then return true end
+        local model = tostring(row.model or ''):lower()
+        for _, token in ipairs({ 'heli', 'buzzard', 'frogger', 'maverick', 'annihilator', 'cargobob', 'polmav', 'swift', 'supervolito', 'havok', 'hunter', 'valkyrie', 'volatus', 'seasparrow', 'sparrow', 'akula', 'savage', 'conada' }) do
+            if model:find(token, 1, true) then return true end
+        end
+    end
+    return false
+end
+
 local function validateManagedVehicle(src, netId, suppliedPlate, options)
     options = type(options) == 'table' and options or {}
     local entity = getNetworkVehicle(netId)
@@ -252,11 +436,6 @@ local function validateManagedVehicle(src, netId, suppliedPlate, options)
     local entityBucket = GetEntityRoutingBucket(entity)
     if playerBucket ~= entityBucket then return false, 'Vehicle is in another routing instance.' end
 
-    local playerCoords = GetEntityCoords(ped)
-    local vehicleCoords = GetEntityCoords(entity)
-    local maxDistance = tonumber(options.maxDistance) or tonumber(Config.Security.maxVehicleDistance) or 7.5
-    if #(playerCoords - vehicleCoords) > maxDistance then return false, 'Move closer to the vehicle.' end
-
     local actualPlate = getEntityPlate(entity)
     local expectedPlate = normalizePlate(suppliedPlate)
     if actualPlate == '' or (expectedPlate ~= '' and actualPlate ~= expectedPlate) then
@@ -267,6 +446,16 @@ local function validateManagedVehicle(src, netId, suppliedPlate, options)
     if Config.Security.requireManagedVehicle ~= false and not row then
         return false, 'This vehicle is not registered in CM Vehicles.'
     end
+
+    local isHeli = isHelicopterEntity(entity, row)
+
+    local playerCoords = GetEntityCoords(ped)
+    local vehicleCoords = GetEntityCoords(entity)
+    local maxDistance = isHeli and 15.0 or (tonumber(options.maxDistance) or tonumber(Config.Security.maxVehicleDistance) or 6.0)
+    local maxZ = isHeli and 6.0 or 3.0
+    local p2vDist2d = #(vector2(playerCoords.x, playerCoords.y) - vector2(vehicleCoords.x, vehicleCoords.y))
+    local p2vDz = math.abs(playerCoords.z - vehicleCoords.z)
+    if p2vDist2d > maxDistance or p2vDz > maxZ then return false, 'Move closer to the vehicle.' end
 
     if row then
         local rowPlate = normalizePlate(row.plate)
@@ -315,11 +504,35 @@ local function validateManagedVehicle(src, netId, suppliedPlate, options)
     if options.pumpIndex then
         local pump = Config.Pumps[tonumber(options.pumpIndex) or 0]
         if not pump then return false, 'Fuel pump session is invalid.' end
-        if #(playerCoords - pump) > (tonumber(Config.Security.playerPumpTolerance) or 9.0) then
-            return false, 'You moved away from the fuel pump.'
-        end
-        if #(vehicleCoords - pump) > (tonumber(Config.Security.vehiclePumpTolerance) or 10.0) then
-            return false, 'Move the vehicle closer to the fuel pump.'
+
+        local playerDist2d = #(vector2(playerCoords.x, playerCoords.y) - vector2(pump.x, pump.y))
+        local playerDz = playerCoords.z - pump.z
+        local vehDist2d = #(vector2(vehicleCoords.x, vehicleCoords.y) - vector2(pump.x, pump.y))
+        local vehDz = vehicleCoords.z - pump.z
+
+        if isHeli then
+            local heliRadius = tonumber(Config.Security.heliRooftopRadius) or 30.0
+            local heliMinZ = tonumber(Config.Security.heliMinHeight) or 4.0
+            local heliMaxZ = tonumber(Config.Security.heliMaxHeight) or 32.0
+
+            if vehDist2d > heliRadius or vehDz < heliMinZ or vehDz > heliMaxZ then
+                return false, 'Helicopters must be landed on the station roof to refuel.'
+            end
+            if playerDist2d > heliRadius or playerDz < heliMinZ or playerDz > heliMaxZ then
+                return false, 'You must be on the roof with the helicopter.'
+            end
+        else
+            local vehTol = tonumber(Config.Security.vehiclePumpTolerance) or 25.0
+            local playerTol = tonumber(Config.Security.playerPumpTolerance) or 22.0
+            local minZ = tonumber(Config.Security.groundMinHeightDiff) or -4.0
+            local maxZ = tonumber(Config.Security.groundMaxHeightDiff) or 4.5
+
+            if vehDist2d > vehTol or vehDz < minZ or vehDz > maxZ then
+                return false, 'Move the vehicle closer to the fuel pumps.'
+            end
+            if playerDist2d > playerTol or playerDz < minZ or playerDz > maxZ then
+                return false, 'You moved away from the fuel station.'
+            end
         end
     end
 
@@ -329,6 +542,7 @@ local function validateManagedVehicle(src, netId, suppliedPlate, options)
         plate = actualPlate,
         row = row,
         fuel = getLiveFuel(entity, row),
+        isHeli = isHeli,
     }
 end
 
@@ -368,9 +582,28 @@ RegisterNetEvent('cm-gas:server:requestOpen', function(data)
     end
 
     local playerCoords = GetEntityCoords(ped)
-    local pumpIndex = getClosestPump(playerCoords, tonumber(Config.Security.playerPumpTolerance) or 9.0)
+    local netId = tonumber(data.netId) or 0
+    local searchRadius = netId > 0 and (Config.Security.heliRooftopRadius or 30.0) or (Config.Security.playerPumpTolerance or 22.0)
+    local searchMinZ = Config.Security.groundMinHeightDiff or -4.0
+    local searchMaxZ = netId > 0 and (Config.Security.heliMaxHeight or 32.0) or (Config.Security.groundMaxHeightDiff or 4.5)
+
+    local requestedIndex = tonumber(data.pumpIndex)
+    local pumpIndex
+    if requestedIndex and Config.Pumps[requestedIndex] then
+        local pCoords = Config.Pumps[requestedIndex]
+        local dist2d = #(vector2(playerCoords.x, playerCoords.y) - vector2(pCoords.x, pCoords.y))
+        local dz = playerCoords.z - pCoords.z
+        if dist2d <= searchRadius and dz >= searchMinZ and dz <= searchMaxZ then
+            pumpIndex = requestedIndex
+        end
+    end
+
     if not pumpIndex then
-        return TriggerClientEvent('cm-gas:client:openDenied', src, 'You are not at a fuel pump.')
+        pumpIndex = getClosestPump(playerCoords, searchRadius, searchMinZ, searchMaxZ)
+    end
+
+    if not pumpIndex then
+        return TriggerClientEvent('cm-gas:client:openDenied', src, 'You are not at a fuel station.')
     end
 
     local cash = getCash(src)
@@ -378,17 +611,26 @@ RegisterNetEvent('cm-gas:server:requestOpen', function(data)
         return TriggerClientEvent('cm-gas:client:openDenied', src, 'Payment system unavailable.')
     end
 
+    local station = stationRow(pumpIndex)
+    local stationOwner = characterId(src)
+    local isOwner = station and stationOwner and tonumber(station.owner_character_id) == stationOwner
+
     local vehicleInfo
-    local netId = tonumber(data.netId) or 0
     if netId > 0 then
         local valid, result = validateManagedVehicle(src, netId, data.plate, {
             maxDistance = Config.Security.maxVehicleDistance,
             pumpIndex = pumpIndex,
         })
         if not valid then
-            return TriggerClientEvent('cm-gas:client:openDenied', src, tostring(result))
+            if result == 'License examination vehicles cannot use fuel stations.' then
+                return TriggerClientEvent('cm-gas:client:openDenied', src, tostring(result))
+            end
+            -- If player walked away from vehicle or vehicle is not in immediate range,
+            -- simply open the station menu without a vehicle attached instead of denying access.
+            vehicleInfo = nil
+        else
+            vehicleInfo = result
         end
-        vehicleInfo = result
     end
 
     local token = makeSessionToken(src)
@@ -397,6 +639,7 @@ RegisterNetEvent('cm-gas:server:requestOpen', function(data)
         pumpIndex = pumpIndex,
         netId = vehicleInfo and vehicleInfo.netId or 0,
         plate = vehicleInfo and vehicleInfo.plate or '',
+        isHeli = vehicleInfo and vehicleInfo.isHeli == true or false,
         expiresAt = os.time() + (tonumber(Config.Security.sessionSeconds) or 45),
     }
 
@@ -412,12 +655,27 @@ RegisterNetEvent('cm-gas:server:requestOpen', function(data)
         } or nil,
         fuel = vehicleInfo and math.floor(vehicleInfo.fuel + 0.5) or 0,
         maxFuel = tonumber(Config.Refuel.maxFuel) or 100,
-        pricePerPercent = tonumber(Config.Pricing.pricePerFuelPercent) or 0,
+        pricePerPercent = stationPrice(station),
         fuelCanPrice = tonumber(Config.Pricing.fuelCanPrice) or 0,
         repairKitPrice = tonumber(Config.Pricing.repairKitPrice) or 0,
         washKitPrice = tonumber(Config.Pricing.washKitPrice) or 0,
         maxItemQuantity = tonumber(Config.Security.maxItemQuantity) or 10,
         cash = cash,
+        bank = getBank(src) or 0,
+        station = {
+            id = pumpIndex,
+            owned = isOwner == true,
+            ownerName = station and station.owner_name or nil,
+            priceTier = station and station.price_tier or 'normal',
+            priceTiers = (Config.Ownership or {}).priceTiers or {},
+            stock = station and tonumber(station.stock) or 0,
+            businessBalance = isOwner and tonumber(station.business_balance) or 0,
+            dailyIncome = isOwner and tonumber(station.daily_income) or 0,
+            weeklyIncome = isOwner and tonumber(station.weekly_income) or 0,
+            taxAmount = (Config.Ownership or {}).taxAmount or 0,
+            taxDueAt = isOwner and station.tax_due_at or nil,
+            purchasePrice = (Config.Ownership or {}).purchasePrice or 0,
+        },
     })
 end)
 
@@ -472,9 +730,38 @@ RegisterNetEvent('cm-gas:server:placeOrder', function(data)
             return
         end
         local pump = Config.Pumps[session.pumpIndex]
-        if not pump or #(GetEntityCoords(ped) - pump) > (tonumber(Config.Security.playerPumpTolerance) or 9.0) then
-            fail('You moved away from the fuel pump.', true)
+        if not pump then
+            fail('Fuel station session is invalid.', true)
             return
+        end
+        local playerCoords = GetEntityCoords(ped)
+        local dist2d = #(vector2(playerCoords.x, playerCoords.y) - vector2(pump.x, pump.y))
+        local dz = playerCoords.z - pump.z
+
+        local isHeliSession = session.isHeli == true
+        if not isHeliSession and session.netId and session.netId > 0 then
+            local entity = getNetworkVehicle(session.netId)
+            if entity and isHelicopterEntity(entity) then
+                isHeliSession = true
+            end
+        end
+
+        if isHeliSession then
+            local heliRadius = tonumber(Config.Security.heliRooftopRadius) or 30.0
+            local heliMinZ = tonumber(Config.Security.heliMinHeight) or 4.0
+            local heliMaxZ = tonumber(Config.Security.heliMaxHeight) or 32.0
+            if dist2d > heliRadius or dz < heliMinZ or dz > heliMaxZ then
+                fail('You moved away from the rooftop fuel area.', true)
+                return
+            end
+        else
+            local playerTol = tonumber(Config.Security.playerPumpTolerance) or 22.0
+            local minZ = tonumber(Config.Security.groundMinHeightDiff) or -4.0
+            local maxZ = tonumber(Config.Security.groundMaxHeightDiff) or 4.5
+            if dist2d > playerTol or dz < minZ or dz > maxZ then
+                fail('You moved away from the fuel station.', true)
+                return
+            end
         end
 
         local vehicleInfo
@@ -522,7 +809,13 @@ RegisterNetEvent('cm-gas:server:placeOrder', function(data)
         end
 
         local pricing = Config.Pricing or {}
-        local fuelCost = fuelUnits * math.max(0, math.floor(tonumber(pricing.pricePerFuelPercent) or 0))
+        local station = stationRow(session.pumpIndex)
+        local fuelUnitPrice = stationPrice(station)
+        if fuelUnits > 0 and station and tonumber(station.stock or 0) < fuelUnits then
+            fail('This station is out of fuel. The owner needs to restock it.', false)
+            return
+        end
+        local fuelCost = fuelUnits * math.max(0, math.floor(fuelUnitPrice))
         local kitCost = kits * math.max(0, math.floor(tonumber(pricing.repairKitPrice) or 0))
         local canCost = cans * math.max(0, math.floor(tonumber(pricing.fuelCanPrice) or 0))
         local washCost = washes * math.max(0, math.floor(tonumber(pricing.washKitPrice) or 0))
@@ -577,6 +870,10 @@ RegisterNetEvent('cm-gas:server:placeOrder', function(data)
         end
 
         openSessions[src] = nil
+        if station and station.owner_character_id and paidTotal > 0 then
+            local ownerShare = math.floor(paidTotal * ((tonumber(Config.Ownership.ownerRevenuePercent) or 80) / 100))
+            MySQL.update.await('UPDATE cm_gas_stations SET business_balance = business_balance + ?, daily_income = daily_income + ?, weekly_income = weekly_income + ?, stock = GREATEST(stock - ?, 0) WHERE station_id = ? AND owner_character_id IS NOT NULL', { ownerShare, ownerShare, ownerShare, deliveredFuel, session.pumpIndex })
+        end
         handled = true
         local message = ('Order complete: %s — $%d.'):format(table.concat(parts, ', '), paidTotal)
         sendOrderResult(src, true, message, {

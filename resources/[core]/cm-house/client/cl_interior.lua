@@ -47,6 +47,16 @@ local function nearTo(pc, p)
     return #(pc - vector3(p.x, p.y, p.z)) <= Config.Prompt.distance
 end
 
+local function drawRoomMarker(point, kind)
+    if not point then return end
+    local r, g, b = 0, 209, 255
+    if kind == 'armory' then r, g, b = 255, 209, 102 end
+    DrawMarker(21, point.x, point.y, point.z + 0.18,
+        0.0, 0.0, 0.0, 0.0, 180.0, 0.0,
+        0.48, 0.48, 0.48, r, g, b, 185,
+        true, false, 2, false, nil, nil, false)
+end
+
 local interiorDoorRequestId = nil
 local interiorDoorRendered = false
 local interiorDoorNuiReady = false
@@ -61,7 +71,7 @@ local function closeDoorChoice()
 end
 
 --- Interior navigation uses a dedicated CM cyan NUI. It deliberately does not
---- call lib.registerContext: the player sees the same server-branded interface
+--- call a generic context menu: the player sees the same server-branded interface
 --- at the house door and at the garage door.
 local function openDoorChoice(origin)
     if doorChoiceOpen or not In then return end
@@ -109,7 +119,7 @@ local function openDoorChoice(origin)
 
         if doorChoiceOpen and interiorDoorRequestId == token and not interiorDoorRendered then
             closeDoorChoice()
-            lib.notify({ description = 'The CM door menu could not open. Try again.', type = 'error' })
+            CMNotify('The CM door menu could not open. Try again.', 'error')
             print(('[cm-house] custom interior door UI did not render. ready=%s origin=%s house=%s')
                 :format(tostring(interiorDoorNuiReady), tostring(origin), tostring(payload.houseId)))
         end
@@ -205,8 +215,11 @@ CreateThread(function()
                 end
 
                 for _, w in ipairs(In.weaponStorages or In.wardrobes or {}) do
+                    if #(pc - vector3(w.coords.x, w.coords.y, w.coords.z)) <= 22.0 then
+                        drawRoomMarker(w.coords, 'armory')
+                    end
                     if nearTo(pc, w.coords) then
-                        prompt(w.coords, 'Weapon storage')
+                        prompt(w.coords, 'Armory')
                         if pressed then
                             busy = true
                             if CMHouseInteraction and CMHouseInteraction.BlockFor then CMHouseInteraction.BlockFor(1200) end
@@ -219,8 +232,11 @@ CreateThread(function()
                 end
 
                 for _, st in ipairs(In.stashes or {}) do
+                    if #(pc - vector3(st.coords.x, st.coords.y, st.coords.z)) <= 22.0 then
+                        drawRoomMarker(st.coords, 'wardrobe')
+                    end
                     if nearTo(pc, st.coords) then
-                        prompt(st.coords, st.label or 'Storage')
+                        prompt(st.coords, st.label or 'Wardrobe / storage')
                         if pressed then
                             busy = true
                             SetTimeout(600, function() busy = false end)
@@ -262,13 +278,13 @@ end
 
 RegisterNetEvent('cm-house:client:enterHome', function(houseId)
     if In then
-        lib.notify({ description = 'You are already inside.', type = 'error' })
+        CMNotify('You are already inside.', 'error')
         return
     end
 
     local ok, res = lib.callback.await('cm-house:server:enterHome', false, houseId)
     if not ok then
-        lib.notify({ description = res, type = 'error' })
+        CMNotify(res, 'error')
         return
     end
 
@@ -285,7 +301,7 @@ RegisterNetEvent('cm-house:client:enterHome', function(houseId)
         stashes   = res.stashes or {},
     }
 
-    lib.notify({ description = ('Inside %s.'):format(res.label), type = 'success' })
+    CMNotify(('Inside %s.'):format(res.label), 'success')
 end)
 
 RegisterNetEvent('cm-house:client:leave', function(exitIndex)
@@ -295,7 +311,7 @@ RegisterNetEvent('cm-house:client:leave', function(exitIndex)
     local door = lib.callback.await('cm-house:server:leaveProperty', false, In.houseId, exitIndex)
     if not door then
         busy = false
-        lib.notify({ description = 'Something went wrong. Try /houseexit.', type = 'error' })
+        CMNotify('Something went wrong. Try /houseexit.', 'error')
         return
     end
 
@@ -318,7 +334,7 @@ RegisterNetEvent('cm-house:client:toGarage', function()
     local ok, res = lib.callback.await('cm-house:server:houseToGarage', false, houseId)
     if not ok then
         busy = false
-        lib.notify({ description = res, type = 'error' })
+        CMNotify(res, 'error')
         return
     end
 
@@ -349,7 +365,7 @@ RegisterNetEvent('cm-house:client:toHouse', function()
     local ok, res = lib.callback.await('cm-house:server:garageToHouse', false, houseId)
     if not ok then
         busy = false
-        lib.notify({ description = res, type = 'error' })
+        CMNotify(res, 'error')
         return
     end
 
@@ -378,14 +394,14 @@ RegisterNetEvent('cm-house:client:completeGarageStoreTransition', function(res)
     if type(res) ~= 'table' or res.enterGarage ~= true or type(res.entry) ~= 'table' then
         busy = false
         DoScreenFadeIn(250)
-        lib.notify({ description = 'The vehicle was parked, but the garage transition data was incomplete.', type = 'error' })
+        CMNotify('The vehicle was parked, but the garage transition data was incomplete.', 'error')
         return
     end
 
     if In then
         busy = false
         DoScreenFadeIn(250)
-        lib.notify({ description = 'The vehicle was parked, but you are already inside another property.', type = 'error' })
+        CMNotify('The vehicle was parked, but you are already inside another property.', 'error')
         return
     end
 
@@ -393,7 +409,7 @@ RegisterNetEvent('cm-house:client:completeGarageStoreTransition', function(res)
     if not houseId then
         busy = false
         DoScreenFadeIn(250)
-        lib.notify({ description = 'The vehicle was parked, but the garage identifier was invalid.', type = 'error' })
+        CMNotify('The vehicle was parked, but the garage identifier was invalid.', 'error')
         return
     end
 
@@ -473,7 +489,7 @@ RegisterNetEvent('cm-house:client:openGarage', function(houseId)
 
     local ok, res = lib.callback.await('cm-house:server:enterGarage', false, houseId)
     if not ok then
-        lib.notify({ description = res, type = 'error' })
+        CMNotify(res, 'error')
         return
     end
 
@@ -501,7 +517,7 @@ end)
 -- ------------------------------------------------------------
 RegisterCommand('houseexit', function()
     if not In then
-        lib.notify({ description = 'You are not inside a property.', type = 'error' })
+        CMNotify('You are not inside a property.', 'error')
         return
     end
     TriggerEvent('cm-house:client:leave')

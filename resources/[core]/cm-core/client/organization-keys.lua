@@ -32,19 +32,19 @@ local function route(feature)
     if not kind then return end
 
     if feature == 'dashboard' then
-        if kind == 'police' and GetResourceState('cm-police') == 'started' then TriggerEvent('cm-police:client:openDashboard')
+        if kind == 'police' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openDashboard')
         elseif kind == 'law' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openDashboard')
         elseif kind == 'ems' and GetResourceState('cm-ems') == 'started' then TriggerEvent('cm-ems:client:openDashboard') end
     elseif feature == 'dispatch' then
-        if kind == 'police' and GetResourceState('cm-police') == 'started' then TriggerEvent('cm-police:client:openDispatch')
+        if kind == 'police' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openDispatch')
         elseif kind == 'law' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openDispatch')
         elseif kind == 'ems' and GetResourceState('cm-ems') == 'started' then ExecuteCommand('emsdispatchmenu') end
     elseif feature == 'records' then
-        if kind == 'police' and GetResourceState('cm-police') == 'started' then TriggerEvent('cm-police:client:toggleMdt')
+        if kind == 'police' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openMdt')
         elseif kind == 'law' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openMdt')
         elseif kind == 'ems' and GetResourceState('cm-ems') == 'started' then TriggerEvent('cm-ems:client:openMedicalRecords') end
     elseif feature == 'quick' then
-        if kind == 'police' and GetResourceState('cm-police') == 'started' then ExecuteCommand('policequickmenu')
+        if kind == 'police' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openQuickMenu')
         elseif kind == 'law' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openQuickMenu')
         elseif kind == 'ems' and GetResourceState('cm-ems') == 'started' then TriggerEvent('cm-ems:client:openQuickMenu') end
     end

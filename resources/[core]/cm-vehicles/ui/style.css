@@ -294,6 +294,27 @@ button { cursor: pointer; font-family: inherit; border: none; outline: none; }
   text-shadow: 0 0 8px rgba(46, 204, 113, 0.4);
 }
 
+.mvh-notice {
+  width: 100%;
+  margin-top: -6px;
+  padding: 11px 15px;
+  border: 1px solid rgba(255, 199, 0, 0.52);
+  border-left: 4px solid #ffc700;
+  border-radius: 6px;
+  background: rgba(20, 24, 20, 0.94);
+  color: #ffe8a3;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+.mvh-notice.permanent {
+  border-color: rgba(231, 76, 60, 0.68);
+  border-left-color: #e74c3c;
+  background: rgba(35, 13, 17, 0.94);
+  color: #ffc1c7;
+}
+
 /* ============================================================
    ACTION COLUMNS (VEHICLE OPTIONS & TRUNK OPTIONS)
    ============================================================ */

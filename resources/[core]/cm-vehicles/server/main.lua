@@ -243,61 +243,13 @@ local function playerDataMoney(method, src, account, amount, reason)
     return ok, result
 end
 
-local function corePlayerMoney(method, src, account, amount, reason)
-    if GetResourceState('cm-core') ~= 'started' or not exports['cm-core'].GetPlayer then
-        return false, nil
-    end
-    local ok, result = pcall(function()
-        local player = exports['cm-core'].GetPlayer(src)
-        if type(player) ~= 'table' then error('player_not_found') end
-        local fn = player.Functions and player.Functions[method]
-            or player[method]
-            or player[method:sub(1, 1):lower() .. method:sub(2)]
-        if type(fn) ~= 'function' then error('money_method_missing') end
-        return fn(account, amount, reason)
-    end)
-    return ok, result
-end
-
-local function genericMoneyExport(method, src, account, amount, reason)
-    local attempts = {
-        { 'cm-core', method, src, account, amount, reason },
-        { 'cm-core', method, src, amount, account, reason },
-    }
-    if method == 'AddMoney' then
-        attempts[#attempts + 1] = { 'cm-core', 'AddCash', src, amount, reason }
-        attempts[#attempts + 1] = { 'cm-core', 'GiveMoney', src, amount, reason }
-        attempts[#attempts + 1] = { 'cm-core', 'AddPlayerMoney', src, account, amount, reason }
-    else
-        attempts[#attempts + 1] = { 'cm-core', 'RemoveCash', src, amount, reason }
-        attempts[#attempts + 1] = { 'cm-core', 'TakeMoney', src, amount, reason }
-        attempts[#attempts + 1] = { 'cm-core', 'RemovePlayerMoney', src, account, amount, reason }
-    end
-
-    for _, a in ipairs(attempts) do
-        local resource, exportName = a[1], a[2]
-        if GetResourceState(resource) == 'started' and exports[resource] and exports[resource][exportName] then
-            local args = {}
-            for i = 3, #a do args[#args + 1] = a[i] end
-            local ok, result = pcall(function()
-                return exports[resource][exportName](table.unpack(args))
-            end)
-            if ok and result ~= false then return true end
-        end
-    end
-    return false
-end
-
 function CMVehicles.Server.AddMoney(src, amount, reason, account)
     amount = math.floor(tonumber(amount) or 0)
     account = tostring(account or 'cash')
     if amount <= 0 then return false end
 
     local ok, result = playerDataMoney('AddMoney', src, account, amount, reason or 'vehicle-payment')
-    if ok and result ~= false then return true end
-    ok, result = corePlayerMoney('AddMoney', src, account, amount, reason or 'vehicle-payment')
-    if ok and result ~= false then return true end
-    return genericMoneyExport('AddMoney', src, account, amount, reason or 'vehicle-payment')
+    return ok and result == true
 end
 
 function CMVehicles.Server.RemoveMoney(src, amount, reason, account)
@@ -306,10 +258,7 @@ function CMVehicles.Server.RemoveMoney(src, amount, reason, account)
     if amount <= 0 then return true end
 
     local ok, result = playerDataMoney('RemoveMoney', src, account, amount, reason or 'vehicle-charge')
-    if ok then return result == true end
-    ok, result = corePlayerMoney('RemoveMoney', src, account, amount, reason or 'vehicle-charge')
-    if ok then return result ~= false end
-    return genericMoneyExport('RemoveMoney', src, account, amount, reason or 'vehicle-charge')
+    return ok and result == true
 end
 
 function CMVehicles.Server.GetMoney(src, account)
@@ -339,6 +288,9 @@ function CMVehicles.Server.ProcessPendingPayout(src, payout)
     if type(payout) ~= 'table' then return false, 'invalid_payout' end
     local payoutId = tonumber(payout.id)
     if not payoutId or CMVehicles.Server.PayoutLocks[payoutId] then return false, 'busy' end
+    local payoutAmount = tonumber(payout.amount)
+    if not payoutAmount or payoutAmount < 0 then return false, 'invalid_payout_amount' end
+    payoutAmount = math.floor(payoutAmount)
     CMVehicles.Server.PayoutLocks[payoutId] = true
 
     local claimed = MySQL.update.await([[
@@ -351,7 +303,10 @@ function CMVehicles.Server.ProcessPendingPayout(src, payout)
         return false, 'not_pending'
     end
 
-    local paid = CMVehicles.Server.AddMoney(src, payout.amount, payout.reason, payout.account)
+    -- A zero-value state sale still uses the payout journal as the transaction
+    -- guard, but there is no economy mutation to perform.
+    local paid = payoutAmount == 0
+        or CMVehicles.Server.AddMoney(src, payoutAmount, payout.reason, payout.account)
     if not paid then
         MySQL.update.await([[
             UPDATE cm_vehicle_pending_payouts
@@ -377,11 +332,16 @@ function CMVehicles.Server.ProcessPendingPayout(src, payout)
                 WHERE id = ? AND status = 'processing'
             ]], { payoutId })
         end)
+        if payoutAmount == 0 then
+            print(('[cm-vehicles] ^1Zero-value payout %s completed but could not be marked paid. Manual review is required.^7')
+                :format(tostring(payoutId)))
+            return true, 'no_payout_needs_review'
+        end
         print(('[cm-vehicles] ^1Payout %s was sent but could not be marked paid. Manual review is required; do not repay automatically.^7')
             :format(tostring(payoutId)))
         return true, 'paid_needs_review'
     end
-    return true
+    return true, payoutAmount == 0 and 'no_payout' or nil
 end
 
 function CMVehicles.Server.ProcessPendingPayoutsForPlayer(src)
@@ -1136,17 +1096,26 @@ RegisterNetEvent('cm-vehicles:server:sellToState', function(plate, netId)
     end
 
     local vehicleId = tonumber(row.id)
+    local pendingSale = PendingStateSales[vehicleId]
+    if pendingSale then
+        -- Duplicate NUI/network delivery is idempotent. The original request
+        -- owns the sale and will send the final success/failure notification.
+        if type(pendingSale) == 'table' and tonumber(pendingSale.source) == src then return end
+        return U.Notify(src, 'This vehicle sale is already being processed.', 'error')
+    end
+    PendingStateSales[vehicleId] = { source = src, startedAt = os.time() }
+    local function rejectSale(message, kind)
+        PendingStateSales[vehicleId] = nil
+        return U.Notify(src, message, kind or 'error')
+    end
+
     if GetResourceState('cm-house') == 'started' then
         local checked, garageBusy = pcall(function()
             return exports['cm-house']:IsGarageVehicleOperationActive(vehicleId)
         end)
         if checked and garageBusy == true then
-            return U.Notify(src, 'This vehicle is currently moving through a garage operation. Try again when it finishes.', 'error')
+            return rejectSale('This vehicle is currently moving through a garage operation. Try again when it finishes.')
         end
-    end
-
-    if PendingStateSales[vehicleId] then
-        return U.Notify(src, 'This vehicle sale is already being processed.', 'error')
     end
 
     local metadata = type(row.metadata) == 'table' and row.metadata or {}
@@ -1164,35 +1133,38 @@ RegisterNetEvent('cm-vehicles:server:sellToState', function(plate, netId)
         end)
         if ok then stateValue = tonumber(catalogPrice) or 0 end
     end
-    if stateValue <= 0 then
-        return U.Notify(src, 'State value is missing for this vehicle.', 'error')
-    end
-
-    local payout = metadata.permanentlyRemoved == true and math.floor(stateValue) or math.floor(stateValue * 0.30)
-    if payout <= 0 then
-        return U.Notify(src, 'Sell value is too low.', 'error')
-    end
+    stateValue = math.max(0, math.floor(tonumber(stateValue) or 0))
+    local payout = metadata.permanentlyRemoved == true and stateValue or math.floor(stateValue * 0.30)
+    payout = math.max(0, payout)
 
     local operationToken
-    if CMVehicles.Operations and CMVehicles.Operations.Begin then
-        local opOk, tokenOrReason = CMVehicles.Operations.Begin(vehicleId, 'state_sale', src, {
+    if CMVehicles.Operations and CMVehicles.Operations.BeginInternal then
+        local opOk, tokenOrReason, activeOperation = CMVehicles.Operations.BeginInternal(vehicleId, 'state_sale', src, {
             stage = 'sale_validated', targetState = 'PENDING_DELETE',
             reason = 'vehicle_state_sale', ttl = 90,
         })
         if opOk ~= true then
-            return U.Notify(src, 'This vehicle is already being processed by another operation.', 'error')
+            local activeType = type(activeOperation) == 'table'
+                and tostring(activeOperation.type or ''):gsub('_', ' ') or ''
+            if activeType ~= '' then
+                return rejectSale(('Finish the current vehicle operation (%s) before selling it.'):format(activeType))
+            end
+            if tostring(tokenOrReason):find('operation_table_unavailable', 1, true)
+                or tokenOrReason == 'operation_journal_insert_failed' then
+                return rejectSale('The vehicle sale journal is unavailable. An administrator has been notified.')
+            end
+            return rejectSale('This vehicle is currently busy. Wait a moment and try the sale again.')
         end
         operationToken = tokenOrReason
     end
 
-    PendingStateSales[vehicleId] = true
     local function finish(status, stage, details)
         PendingStateSales[vehicleId] = nil
         if operationToken and CMVehicles.Operations then
-            if status == 'completed' and CMVehicles.Operations.Complete then
-                pcall(CMVehicles.Operations.Complete, vehicleId, operationToken, stage or 'sale_completed', details or {})
-            elseif CMVehicles.Operations.Fail then
-                pcall(CMVehicles.Operations.Fail, vehicleId, operationToken, stage or 'sale_failed', details or {})
+            if status == 'completed' and CMVehicles.Operations.CompleteInternal then
+                pcall(CMVehicles.Operations.CompleteInternal, vehicleId, operationToken, stage or 'sale_completed', details or {})
+            elseif CMVehicles.Operations.FailInternal then
+                pcall(CMVehicles.Operations.FailInternal, vehicleId, operationToken, stage or 'sale_failed', details or {})
             end
         end
     end
@@ -1214,6 +1186,7 @@ RegisterNetEvent('cm-vehicles:server:sellToState', function(plate, netId)
     local affectedHouses = {}
     local hasSlots = databaseTableExists('cm_house_vehicle_slots')
     local hasShared = databaseTableExists('cm_house_shared_vehicles')
+    local hasParking = databaseTableExists('cm_parking_spaces')
     if hasSlots then
         affectedHouses = MySQL.query.await(
             'SELECT DISTINCT house_id FROM cm_house_vehicle_slots WHERE vehicle_id = ?',
@@ -1252,6 +1225,17 @@ RegisterNetEvent('cm-vehicles:server:sellToState', function(plate, netId)
                 UPDATE cm_house_vehicle_slots
                 SET vehicle_id = NULL, owner_class = 'personal',
                     assigned_by = NULL, assigned_at = NULL
+                WHERE vehicle_id = ?
+                  AND EXISTS (SELECT 1 FROM cm_vehicle_pending_payouts WHERE sale_token = ?)
+            ]],
+            values = { vehicleId, saleToken },
+        }
+    end
+    if hasParking then
+        tx[#tx + 1] = {
+            query = [[
+                UPDATE cm_parking_spaces
+                SET vehicle_id = NULL
                 WHERE vehicle_id = ?
                   AND EXISTS (SELECT 1 FROM cm_vehicle_pending_payouts WHERE sale_token = ?)
             ]],
@@ -1315,6 +1299,19 @@ RegisterNetEvent('cm-vehicles:server:sellToState', function(plate, netId)
     local houseIds = {}
     for _, h in ipairs(affectedHouses) do houseIds[#houseIds + 1] = tonumber(h.house_id) end
     if #houseIds > 0 then TriggerEvent('cm-house:server:vehicleDeleted', vehicleId, houseIds) end
+
+    if GetResourceState('cm-family') == 'started' then
+        local familyOk, familyResult = pcall(function()
+            return exports['cm-family']:RemoveFamilyVehicle(vehicleId, charId)
+        end)
+        if not familyOk or familyResult == false then
+            print(('[cm-vehicles] ^3state sale completed but family access cleanup failed for vehicle %s^7')
+                :format(tostring(vehicleId)))
+        end
+    end
+    if GetResourceState('cm-vehiclekeys') == 'started' then
+        pcall(function() exports['cm-vehiclekeys']:RevokeAllForPlate(row.plate) end)
+    end
 
     local payoutRow = MySQL.single.await(
         'SELECT * FROM cm_vehicle_pending_payouts WHERE sale_token = ? LIMIT 1', { saleToken })

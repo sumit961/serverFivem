@@ -154,30 +154,11 @@ RegisterNetEvent('cm-law:client:bookingIntake', function(targetServerId)
     if not preview or not preview.ok then
         return TriggerEvent('cm-hud:client:notify', preview and preview.error or 'Booking is unavailable.', 'error')
     end
-    local options = {}
-    for _, charge in ipairs(preview.charges or {}) do
-        options[#options + 1] = { value = charge.id, label = ('%s (%d min)'):format(charge.label, charge.jailMinutes) }
-    end
-    local input = lib.inputDialog(('Book %s'):format(preview.suspectName or 'Suspect'), {
-        { type = 'multi-select', label = 'Charges', description = ('Select up to %d charges'):format(preview.maxCharges or 10),
-            options = options, required = true, searchable = true },
-        { type = 'textarea', label = 'Arrest reason', description = 'Explain the circumstances of this arrest', required = true,
-            min = 5, max = 500, autosize = true },
-    })
-    if not input then return end
-    local chargeIds, reason = input[1], input[2]
-    local total = 0
-    local lookup = {}
-    for _, charge in ipairs(preview.charges or {}) do lookup[charge.id] = charge end
-    for _, id in ipairs(chargeIds or {}) do total = total + (lookup[id] and tonumber(lookup[id].jailMinutes) or 0) end
-    local decision = lib.alertDialog({ header = 'Confirm booking', centered = true, cancel = true,
-        content = ('Charges: %d\nSentence: %d minutes\nReason: %s'):format(#(chargeIds or {}), total, tostring(reason or '')),
-        labels = { confirm = 'Confirm booking', cancel = 'Cancel' } })
-    if decision ~= 'confirm' then return end
-    local result = lib.callback.await('cm-law:server:bookSuspect', false, {
-        targetServerId = targetServerId, chargeIds = chargeIds, reason = reason,
-    })
-    TriggerEvent('cm-hud:client:notify', result and (result.message or result.error) or 'Booking failed.', result and result.ok and 'success' or 'error')
+    SetNuiFocus(true, true)
+    SendNUIMessage({ cmInterface = 'law', action = 'bookingOpen', data = {
+        targetServerId = targetServerId, suspectName = preview.suspectName, characterId = preview.characterId,
+        charges = preview.charges, maxCharges = preview.maxCharges, maxSentenceMinutes = preview.maxSentenceMinutes,
+    }})
 end)
 
 RegisterNetEvent('cm-law:client:searchPlayer', function(targetServerId)

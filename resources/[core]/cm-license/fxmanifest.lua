@@ -4,7 +4,7 @@ lua54 'yes'
 
 author 'CM Server'
 description 'CM License Test System — Driver, Boat, Air exams'
-version '1.0.0'
+version '1.1.0'
 
 dependencies {
     'cm-core',
@@ -44,24 +44,10 @@ client_scripts {
 
 ui_page 'nui/index.html'
 
+-- Only the NUI assets need shipping to the client; scripts are sent by the
+-- *_scripts blocks above and SQL never leaves the server.
 files {
-    'shared/constants.lua',
-    'shared/utils.lua',
-    'server/database.lua',
-    'server/cache.lua',
-    'server/licenses.lua',
-    'server/tests.lua',
-    'server/admin.lua',
-    'client/nui.lua',
-    'client/npc.lua',
-    'client/test.lua',
-    'client/checkpoints.lua',
-    'client/hud.lua',
-    'client/admin.lua',
     'nui/index.html',
     'nui/style.css',
-    'nui/script.js',
-    'sql/001_cm_license.sql',
-    'sql/002_cm_license_constraints.sql',
-    'sql/003_cm_license_delivery.sql'
+    'nui/script.js'
 }

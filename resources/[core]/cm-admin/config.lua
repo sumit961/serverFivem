@@ -246,10 +246,10 @@ Config.Map = {
     -- minX/maxX = left/right edge of the map image.
     -- minY/maxY = bottom/top edge of the map image.
     Bounds = {
-        minX = -4000,
-        maxX = 4500,
-        minY = -4300,
-        maxY = 8000
+        minX = -3900,
+        maxX = 4619,
+        minY = -4764,
+        maxY = 7510
     },
 
     -- If enabled, the Admin Map Calibration panel can save bounds to this file.

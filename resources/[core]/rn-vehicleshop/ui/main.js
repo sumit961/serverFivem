@@ -37,6 +37,11 @@ let compareList = loadJsonStore('rnVehicleShopCompare', []);
 function money(n){ return Number(n || 0).toLocaleString() + '$'; }
 function safe(v){ return String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
 function post(name, payload){ return $.post(`https://${GetParentResourceName()}/${name}`, JSON.stringify(payload || {})); }
+function vehicleLabelParts(label, model){
+  const words = String(label || model || 'Vehicle').trim().split(/\s+/).filter(Boolean);
+  if(words.length < 2) return { brand: String(model || 'Vehicle'), name: words[0] || 'Vehicle' };
+  return { brand: words.shift(), name: words.join(' ') };
+}
 function beginAdminAction(action, button, workingText){
   if(adminActionState.has(action)){
     showToast('That admin action is already running.');
@@ -1293,6 +1298,7 @@ function renderVehicleCategory(title){
     const fav = isFavorite(vehicleBtn.model);
     const testEnabled = vehicleBtn.testDriveEnabled !== false && vehicleBtn.testDriveEnabled !== 'false';
     const status = buyable ? money(vehicleBtn.costs) : 'Event / Task only';
+    const labelParts = vehicleLabelParts(vehicleBtn.name, vehicleBtn.model);
     const img = vehicleBtn.image
       ? `<img class="vehicle-card-img" src="${safe(vehicleBtn.image)}" alt="${safe(vehicleBtn.name)}" />`
       : `<div class="vehicle-card-img no-img">No Image</div>`;
@@ -1310,7 +1316,8 @@ function renderVehicleCategory(title){
         </div>
         ${img}
         <div class="vehicle-card-info">
-          <span class="vehicle-card-title">${safe(vehicleBtn.name)}</span>
+          <small class="vehicle-card-brand">${safe(labelParts.brand)}</small>
+          <span class="vehicle-card-title">${safe(labelParts.name)}</span>
           <small class="vehicle-card-model">${safe(vehicleBtn.model || '')}</small>
         </div>
         <div class="category-price">${status}</div>
@@ -1357,6 +1364,7 @@ $(document).on('click', '.color', function(){
 $(document).on('click', '.category, .category5', function(){
   $('.category, .category5').removeClass('selected');
   $(this).addClass('selected');
+  this.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   const model = String($(this).data('model'));
   const name = String($(this).data('name'));
   const costs = Number($(this).data('costs') || 0);
@@ -1873,6 +1881,7 @@ function fillAdminForm(model, preview = true){
   $('#admin-test-enabled').prop('checked', td.enabled !== false);
   $('#admin-test-duration').val(td.duration ?? (data && data.testDrive && data.testDrive.testDriveTimer) ?? DEFAULT_TEST_DRIVE_SECONDS);
   $('#admin-test-cost').val(td.cost ?? (data && data.testDrive && data.testDrive.testDriveCost) ?? 0);
+  $('#admin-replacement-notice').val((row.metadata && row.metadata.replacementNotice) || '');
   $('#admin-current-status')
     .text(statusFor(row.model ? row : null))
     .attr('data-status', row.model ? statusMode : 'notset');
@@ -1916,6 +1925,7 @@ $(document).on('click', '#admin-save', function(){
     price: Number($('#admin-price').val() || 0), speedKph: Number($('#admin-speed').val() || 0), trunkLevel: clampTrunkLevel($('#admin-trunk').val()),
     availableServer, availableStore, availableEms, availablePolice, legalOrg, gangId,
     hasCarplay: $('#admin-has-carplay').is(':checked'),
+    replacementNotice: String($('#admin-replacement-notice').val() || '').trim(),
     testDriveEnabled: $('#admin-test-enabled').is(':checked'),
     testDriveTimer: Number($('#admin-test-duration').val() || DEFAULT_TEST_DRIVE_SECONDS),
     testDriveCost: Number($('#admin-test-cost').val() || 0), requestId
@@ -1924,6 +1934,17 @@ $(document).on('click', '#admin-save', function(){
   // adminSaveVehicle NUI callback (currentAdminMods, kept in sync via
   // adminModPatch) -- it is authoritative over anything the NUI could claim.
   post('adminSaveVehicle', payload).fail(() => failAdminActionTransport('save', requestId));
+});
+$(document).on('click', '#admin-save-replacement-notice', function(){
+  const model = String($('#admin-model').val() || '').trim();
+  if(!model){ showToast('Select a vehicle first.'); return; }
+  const requestId = beginAdminAction('notice', this, 'Updatingâ€¦');
+  if(!requestId) return;
+  post('adminUpdateReplacementNotice', {
+    model,
+    notice: String($('#admin-replacement-notice').val() || '').trim(),
+    requestId
+  }).fail(() => failAdminActionTransport('notice', requestId));
 });
 $(document).on('click', '#dealer-dialog-store', function(){ $('body').removeClass('dialog-active'); $('#dealer-dialog').removeClass('show').hide(); $('#interaction-prompt').removeClass('show').hide(); post('dealerDialogStore'); });
 $(document).on('click', '#dealer-dialog-close', function(){ $('body').removeClass('dialog-active'); $('#dealer-dialog').removeClass('show').hide(); post('dealerDialogClose'); });
@@ -1944,7 +1965,10 @@ $(document).on('click', '#admin-replace', function(){
   if(!oldModel || oldModel.toLowerCase() === 'komoda') return;
   if(confirm(`Temporarily replace ${oldModel} with komoda? Vehicle data will be preserved.`)) {
     const requestId=beginAdminAction('replace',this,'Replacing…');if(!requestId)return;
-    post('adminReplaceVehicle', { oldModel, replacementModel: 'komoda', permanent: false, requestId })
+    post('adminReplaceVehicle', {
+      oldModel, replacementModel: 'komoda', permanent: false, requestId,
+      notice: String($('#admin-replacement-notice').val() || '').trim()
+    })
       .fail(() => failAdminActionTransport('replace', requestId));
   }
 });

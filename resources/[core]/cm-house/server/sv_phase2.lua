@@ -103,6 +103,10 @@ function P2.ClearVehicleAssignment(vehicleId, reason, actorCid)
     local ok, committed = pcall(function() return MySQL.transaction.await(tx) end)
     if not ok or committed ~= true then return false, 'assignment_transaction_failed' end
 
+    if CMHouseDeleteGarageEntity then
+        pcall(CMHouseDeleteGarageEntity, assignment.house_id, assignment.slot_index)
+    end
+
     if GetResourceState('cm-vehicles') == 'started' then
         pcall(function() exports['cm-vehicles']:ReconcileVehicleLocation(vehicleId) end)
     end
@@ -344,6 +348,24 @@ function P2.SetFamilyHouseLink(houseId, familyId, actorCid)
             familyWeaponStorageEnabled = familyId ~= nil,
         })
     TriggerClientEvent('cm-house:client:syncHouse', -1, BuildClientHouse(house))
+
+    -- Keep cm-family's active-house cache coherent with the transaction above.
+    -- Without this, assigning an existing family house appears in cm-house but
+    -- family permission checks continue using the old cached house_id.
+    local familyResource = tostring(Config.Family and Config.Family.resource or 'cm-family')
+    local function refreshFamilyHouseLink(targetFamilyId)
+        if not targetFamilyId or GetResourceState(familyResource) ~= 'started' then return end
+        local okRefresh, refreshed, refreshWhy = pcall(function()
+            return exports[familyResource]:RefreshFamilyHouseLink(targetFamilyId)
+        end)
+        if not okRefresh or refreshed ~= true then
+            print(('[cm-house] ^1family house cache refresh failed for family %s: %s^7')
+                :format(tostring(targetFamilyId), tostring(refreshWhy or refreshed)))
+        end
+    end
+
+    if previousFamilyId then refreshFamilyHouseLink(previousFamilyId) end
+    if familyId and familyId ~= previousFamilyId then refreshFamilyHouseLink(familyId) end
 
     if previousFamilyId and P2.RefreshFamilyMembers then
         pcall(P2.RefreshFamilyMembers, previousFamilyId)

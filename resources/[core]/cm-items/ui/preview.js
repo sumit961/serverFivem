@@ -29,13 +29,23 @@ function imgFallback(el){
 window.imgFallback = imgFallback;
 function allRows(){const m=mode.value; if(m==='items')return payload.items; if(m==='catalog')return payload.catalog; return [...payload.items,...payload.catalog];}
 function rowText(r){return [r.kind,r.source,r.name,r.label,r.category,r.itemType,r.gender,r.shop,r.equipmentSlot,r.worldModel,r.propModel].join(' ').toLowerCase();}
-function canGive(r){return r.kind==='catalog' || (r.kind==='item' && r.inventory!==false && r.virtual!==true);}
+// A generic item card (kind:'item') can't supply per-instance metadata like
+// drawable/texture/gender -- for something that needs it (e.g. clothing_bags
+// needs drawableId/textureId/categoryType), giving it here used to hand
+// cm-inventory an empty metadata object and silently produce a blank,
+// non-functional item (no level, no gender, doesn't unlock backpack slots).
+// Route those through their actual catalog tile instead.
+function canGive(r){
+  if(r.kind==='catalog') return true;
+  if(r.kind!=='item' || r.inventory===false || r.virtual===true) return false;
+  return !(Array.isArray(r.metadataRequired) && r.metadataRequired.length>0);
+}
 function canDelete(r){return r.deletable===true || r.kind==='catalog' || r.source==='catalog' || r.source==='clothing_catalog';}
 // Clothing shares ONE prop for all clothes, so no per-item prop editing for it.
 function canSetProp(r){return r.kind==='item' && String(r.category||'').toLowerCase()!=='clothing' && String(r.name||'').indexOf('clothing_')!==0;}
 
 function pushStatus(message, ok){
-  const base = `<span class="pill">Items: ${payload.items.length}</span><span class="pill">Catalog: ${payload.catalog.length}</span><span class="pill">Showing: ${(window.__renderRows||[]).length}</span>`;
+  const base = `<span class="pill">ITEMS: ${payload.items.length}</span><span class="pill">CATALOG: ${payload.catalog.length}</span><span class="pill">SHOWING: ${(window.__renderRows||[]).length}</span>`;
   stats.innerHTML = `${base}<span class="pill ${ok?'ok':'bad'}">${esc(message)}</span>`;
 }
 
@@ -47,7 +57,7 @@ function categories(){
 function renderTabs(){
   const cats=['all',...categories()];
   if(!cats.includes(activeCat)) activeCat='all';
-  tabs.innerHTML=cats.map(c=>`<button class="tab ${c===activeCat?'active':''}" data-cat="${esc(c)}">${c==='all'?'All':esc(c[0].toUpperCase()+c.slice(1))}</button>`).join('');
+  tabs.innerHTML=cats.map(c=>`<button class="tab ${c===activeCat?'active':''}" data-cat="${esc(c)}">${c==='all'?'ALL':esc(c.toUpperCase())}</button>`).join('');
   tabs.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{activeCat=b.dataset.cat; render();});
 }
 
@@ -55,14 +65,14 @@ function renderTabs(){
 async function giveRow(row){
   if(!row) return;
   const res=await post('previewGiveItem', row);
-  pushStatus(res.success?`Added ${res.itemName||row.name}`:(res.message||'Could not add item'), !!res.success);
+  pushStatus(res.success?`ADDED ${res.itemName||row.name}`:(res.message||'Could not add item'), !!res.success);
 }
 async function deleteRow(row){
   if(!row) return;
   const label=row.label||row.name||'this item';
   if(!confirm(`Delete ${label} from the server registry?\n\nThis removes SQL catalog entries. Static shared/items.lua items must be removed from code.`)) return;
   const res=await post('previewDeleteItem', row);
-  pushStatus(res.success?`Deleted ${res.itemName||row.name}`:(res.message||'Could not delete item'), !!res.success);
+  pushStatus(res.success?`DELETED ${res.itemName||row.name}`:(res.message||'Could not delete item'), !!res.success);
 }
 function openProp(row){
   if(!row) return;
@@ -89,13 +99,13 @@ function openImage(row){ if(!row) return; imgTarget=row.name; imgInput.value='';
 imgInput.onchange=()=>{
   const f=imgInput.files[0]; if(!f||!imgTarget) return;
   const fr=new FileReader();
-  fr.onload=async()=>{ const res=await post('previewSetImage',{name:imgTarget, imageData:fr.result}); pushStatus(res.success?`Image set for ${imgTarget}`:(res.message||'Image failed'), !!res.success); };
+  fr.onload=async()=>{ const res=await post('previewSetImage',{name:imgTarget, imageData:fr.result}); pushStatus(res.success?`IMAGE SET FOR ${imgTarget}`:(res.message||'Image failed'), !!res.success); };
   fr.readAsDataURL(f);
 };
 
 async function copyName(row){
   if(!row) return;
-  try{ await navigator.clipboard.writeText(row.name); pushStatus(`Copied "${row.name}"`, true); }
+  try{ await navigator.clipboard.writeText(row.name); pushStatus(`COPIED "${row.name}"`, true); }
   catch(e){ pushStatus('Copy failed', false); }
 }
 
@@ -120,11 +130,11 @@ function openCtx(x, y, row, card){
   card.classList.add('ctx-active');
 
   const items=[];
-  if(canGive(row))    items.push({k:'get',  label:'Get item',      icon:ICONS.get,  cls:'green'});
-  if(row.kind==='item') items.push({k:'img',label:'Set image',     icon:ICONS.img,  cls:''});
-  if(canSetProp(row)) items.push({k:'prop', label:row.propOverride?'Edit drop prop':'Set drop prop', icon:ICONS.prop, cls:''});
-  items.push({k:'copy', label:'Copy item name', icon:ICONS.copy, cls:''});
-  if(canDelete(row))  items.push({sep:true}, {k:'del', label:'Delete item', icon:ICONS.del, cls:'danger'});
+  if(canGive(row))    items.push({k:'get',  label:'Get Item',          icon:ICONS.get,  cls:'green'});
+  if(row.kind==='item') items.push({k:'img',label:'Set Image',         icon:ICONS.img,  cls:''});
+  if(canSetProp(row)) items.push({k:'prop', label:row.propOverride?'Edit Drop Prop':'Set Drop Prop', icon:ICONS.prop, cls:''});
+  items.push({k:'copy', label:'Copy Item Name', icon:ICONS.copy, cls:''});
+  if(canDelete(row))  items.push({sep:true}, {k:'del', label:'Delete Item', icon:ICONS.del, cls:'danger'});
 
   ctxMenu.innerHTML =
     `<div class="ctx-head"><div class="ctx-title">${esc(row.label||row.name)}</div><div class="ctx-sub">${esc(row.name)}</div></div>` +
@@ -167,24 +177,57 @@ function render(){
   const q=search.value.trim().toLowerCase();
   const rows=allRows().filter(r=>(activeCat==='all'||String(r.category||'misc').toLowerCase()===activeCat) && (!q||rowText(r).includes(q)));
   window.__renderRows=rows;
-  stats.innerHTML=`<span class="pill">Items: ${payload.items.length}</span><span class="pill">Catalog: ${payload.catalog.length}</span><span class="pill">Showing: ${rows.length}</span>`;
+  stats.innerHTML=`<span class="pill">ITEMS: ${payload.items.length}</span><span class="pill">CATALOG: ${payload.catalog.length}</span><span class="pill">SHOWING: ${rows.length}</span>`;
 
   grid.innerHTML=rows.map((r,i)=>{
     const propLine = r.kind==='item' ? `prop: ${esc(r.propModel||'-')}` : (r.worldModel?`model: ${esc(r.worldModel)}`:'');
-    const catMeta = r.kind==='catalog' ? ` • ${esc(r.gender)} • ${esc(r.componentIndex)}:${esc(r.drawableId)}:${esc(r.textureId)}` : '';
-    return `<article class="card" data-i="${i}">
-      <div class="thumb"><img src="${esc(r.image)}" loading="lazy" onerror="imgFallback(this)"></div>
+    const catMeta = r.kind==='catalog' ? ` • ${esc(r.gender).toUpperCase()} • ${esc(r.componentIndex)}:${esc(r.drawableId)}:${esc(r.textureId)}` : '';
+
+    // Determine 3px bottom accent line color
+    let accentCls = 'accent-cyan';
+    if(r.enabled === false) accentCls = 'accent-red';
+    else if(r.gender === 'both') accentCls = 'accent-yellow';
+    else if(r.price !== undefined && Number(r.price) > 0) accentCls = 'accent-green';
+    else if(r.kind === 'catalog') accentCls = 'accent-cyan';
+
+    // Build thumbnail badges
+    let badges = [];
+    if(r.kind === 'catalog'){
+      const g = String(r.gender||'').toLowerCase();
+      if(g === 'both') badges.push('<span class="badge-tag both">BOTH</span>');
+      else if(g === 'female') badges.push('<span class="badge-tag female">FEMALE</span>');
+      else if(g === 'male') badges.push('<span class="badge-tag male">MALE</span>');
+
+      if(r.isSkin || r.source === 'clothing_catalog' || String(r.category||'').toLowerCase().includes('skin')){
+        badges.push('<span class="badge-tag skin">SKIN</span>');
+      }
+    }
+    if(r.level !== undefined && r.level !== null && r.level !== ''){
+      badges.push(`<span class="badge-tag level">LVL ${esc(r.level)}</span>`);
+    }
+
+    const badgeHtml = badges.length > 0 ? `<div class="thumb-badges">${badges.join('')}</div>` : '';
+    const formattedPrice = (r.price !== undefined && r.price !== null) ? `$${Number(r.price || 0).toLocaleString()}` : null;
+
+    return `<article class="card ${accentCls}" data-i="${i}">
+      <div class="thumb">
+        ${badgeHtml}
+        <img src="${esc(r.image)}" loading="lazy" onerror="imgFallback(this)">
+      </div>
       <div class="body">
         <div class="name">${esc(r.label||r.name)}</div>
-        <div class="meta">${esc(r.name)}<br>${esc(r.category||'misc')} • ${esc(r.source||'static')}${catMeta}${r.equipmentSlot?` • slot ${esc(r.equipmentSlot)}`:''}${propLine?`<br>${propLine}`:''}</div>
-        ${r.price!==undefined?`<div class="price">$${Number(r.price)||0}</div>`:''}
+        <div class="meta">
+          <span class="meta-code">${esc(r.name)}</span><br>
+          ${esc(r.category||'misc').toUpperCase()} • ${esc(r.source||'static').toUpperCase()}${catMeta}${r.equipmentSlot?` • SLOT ${esc(r.equipmentSlot)}`:''}${propLine?`<br>${propLine}`:''}
+        </div>
+        ${formattedPrice ? `<div class="price">${formattedPrice}</div>` : ''}
         <div class="card-foot">
-          <span class="tag ${r.enabled===false?'off':''}">${esc(r.kind)}${r.enabled===false?' disabled':''}</span>
-          ${r.propOverride?'<span class="dot prop-set" title="Custom drop prop"></span>':''}
+          <span class="tag ${r.enabled===false?'off':''}">${r.enabled===false?'DISABLED':esc(r.kind)}</span>
+          ${r.propOverride?'<span class="dot prop-set" title="Custom drop prop active"></span>':''}
         </div>
       </div>
     </article>`;
-  }).join('') || `<div class="hint" style="grid-column:1/-1;padding:40px 0">No items match.</div>`;
+  }).join('') || `<div class="hint" style="grid-column:1/-1;padding:40px 0">NO ITEMS MATCH SEARCH CRITERIA.</div>`;
 
   // Attach right-click to each card.
   grid.querySelectorAll('.card').forEach(card=>{

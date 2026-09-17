@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>CarPlay</title>
+    <link rel="stylesheet" href="vendor/leaflet.css" />
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div id="root">
+        <div class="carplay-container" id="carplay-container" hidden>
+            <!-- Main tablet UI -->
+            <div class="tablet-container" id="tablet-container">
+                <header class="header">
+                    <div class="left">
+                        <img class="logo" src="assets/logo.png" alt="" />
+                        <div class="date-time">
+                            <div class="brand-title">CARPLAY // OS</div>
+                            <div class="brand-subtitle">VEHICLE CONTROL CENTER</div>
+                            <div class="time" id="header-time">--:--</div>
+                            <div class="date" id="header-date">-- --- ----</div>
+                        </div>
+                    </div>
+                    <div class="right">
+                        <div class="weather" id="header-weather">
+                            <span class="temp" id="header-weather-temp">--&deg;</span>
+                            <span class="condition" id="header-weather-condition">--</span>
+                        </div>
+
+                        <div class="system-status" aria-label="System status">
+                            <span class="status-dot" aria-hidden="true"></span>
+                            <span>ONLINE</span>
+                        </div>
+
+                        <div class="notification-wrapper" id="notification-wrapper">
+                            <button class="notification-icon" id="notification-icon" type="button" aria-label="Notifications"></button>
+                            <div class="notification-dropdown" id="notification-dropdown" hidden>
+                                <div class="notification-header">
+                                    <span data-i18n="UI.header.notifications">Notifications</span>
+                                    <button class="mark-read-btn" id="notifications-mark-read" type="button" data-i18n="UI.header.markAllRead">Mark all read</button>
+                                </div>
+                                <div class="notification-list" id="notification-list"></div>
+                            </div>
+                        </div>
+
+                        <div class="profile-wrapper" id="profile-wrapper">
+                            <button class="profile" id="profile-button" type="button">
+                                <img src="assets/profile.png" alt="" />
+                            </button>
+                            <div class="profile-dropdown" id="profile-dropdown" hidden>
+                                <div class="profile-info">
+                                    <img src="assets/profile.png" alt="" />
+                                    <div class="profile-details">
+                                        <div class="profile-name" id="profile-name" data-i18n="UI.header.player">Player</div>
+                                        <div class="profile-plate" id="profile-plate" data-i18n="UI.header.noVehicle">No Vehicle</div>
+                                    </div>
+                                </div>
+                                <div class="profile-menu-items">
+                                    <button class="profile-menu-item danger" id="profile-remove-tunerchip" type="button">
+                                        <span data-i18n="UI.profile.removeTunerChip">Remove Tuner Chip</span>
+                                    </button>
+                                    <button class="profile-menu-item logout" id="profile-close" type="button">
+                                        <span data-i18n="UI.common.close">Close</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </header>
+
+                <main class="panel-mount" id="panel-mount">
+                    <section class="home-panel" id="home-panel" hidden></section>
+                    <section class="manage-panel" id="manage-panel" hidden></section>
+                    <section class="statistics-panel" id="statistics-panel" hidden></section>
+                    <section class="modifications-panel" id="modifications-panel" hidden></section>
+                    <section class="music-panel" id="music-panel" hidden></section>
+                </main>
+
+                <nav class="bottom-nav" id="bottom-nav">
+                    <!-- populated by app.js from Locale.UI.navigation, one .nav-item per screen -->
+                </nav>
+            </div>
+
+            <div class="floating-dock" id="floating-dock" hidden></div>
+        </div>
+    </div>
+
+    <script src="vendor/leaflet.js"></script>
+    <script src="js/nui.js"></script>
+    <script src="js/locale.js"></script>
+    <script src="js/app.js"></script>
+    <script src="js/home.js"></script>
+    <script src="js/manage.js"></script>
+    <script src="js/statistics.js"></script>
+    <script src="js/modifications.js"></script>
+    <script src="js/music.js"></script>
+    <script src="js/sound-engine.js"></script>
+</body>
+</html>

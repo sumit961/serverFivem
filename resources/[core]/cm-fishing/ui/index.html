@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CM Fishing</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700;800;900&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body class="bg-transparent text-white select-none" style="font-family:'Outfit','Montserrat',sans-serif;">
+
+    <!-- Bottom-center interaction prompt -->
+    <div id="interaction" class="hidden fixed left-1/2 bottom-[9%] -translate-x-1/2 flex items-center gap-3 bg-[#09131D]/90 border border-[#182C3F] rounded-xl px-4 py-2.5 shadow-[0_8px_24px_rgba(0,0,0,0.5)] min-w-[260px]">
+        <div id="interaction-key" class="w-8 h-8 rounded-lg bg-gradient-to-r from-[#F59E0B] to-[#D97706] text-[#04080E] font-black text-sm flex items-center justify-center flex-none">E</div>
+        <div class="flex-1">
+            <div id="interaction-title" class="text-[10px] font-extrabold tracking-wider uppercase text-[#819BB0]">Fishing</div>
+            <div id="interaction-label" class="text-[13px] font-semibold text-white"></div>
+        </div>
+        <div id="interaction-hint" class="hidden text-[11px] text-[#B7C6D3] border-l border-[#182C3F] pl-3 max-w-[170px]"></div>
+    </div>
+
+    <!-- Catch minigame overlay -->
+    <div id="minigame" class="hidden fixed inset-0 flex items-end justify-center pb-[12%]">
+        <div class="w-[540px] bg-[#09131D]/95 border border-[#182C3F] rounded-2xl px-6 py-5 shadow-[0_12px_40px_rgba(0,0,0,0.6)]">
+            <div class="text-center mb-3.5">
+                <div id="minigame-eyebrow" class="text-[10px] font-extrabold tracking-[0.2em] uppercase text-[#EF4444]">Fish On</div>
+                <div id="minigame-title" class="text-2xl font-black uppercase text-white mt-0.5">Reel It In</div>
+                <div id="minigame-hint" class="text-xs text-[#B7C6D3] mt-1">Hold the window over the fish with <b class="text-[#F59E0B]">A</b> / <b class="text-[#F59E0B]">D</b></div>
+            </div>
+            <div id="minigame-track" class="relative h-7 rounded-lg bg-[#04080E] border border-[#182C3F] overflow-hidden mb-2.5">
+                <div id="minigame-target" class="absolute top-[3px] bottom-[3px] w-2.5 rounded bg-[#F59E0B] shadow-[0_0_10px_rgba(245,158,11,0.7)]" style="left:45%;"></div>
+                <div id="minigame-window" class="absolute top-0 bottom-0 border-l-2 border-r-2 border-[#00E5FF] bg-[#00E5FF]/15" style="width:30%;left:35%;"></div>
+            </div>
+            <div class="h-2.5 rounded-full bg-[#04080E] border border-[#182C3F] overflow-hidden mb-2">
+                <div id="minigame-progress-fill" class="h-full bg-[#10B981] transition-[width] duration-75 ease-linear" style="width:0%;"></div>
+            </div>
+            <div class="h-1 rounded-full bg-[#04080E] overflow-hidden">
+                <div id="minigame-timer-fill" class="h-full bg-[#F59E0B] transition-[width] duration-100 ease-linear" style="width:100%;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Catch result modal -->
+    <div id="catch-modal" class="hidden fixed inset-0 bg-[#04080E]/80 flex items-center justify-center">
+        <div class="w-[380px] bg-white rounded-2xl px-7 py-7 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
+            <span id="catch-badge" class="inline-block text-[10px] font-extrabold tracking-widest text-white bg-[#819BB0] rounded-full px-3 py-1 mb-3.5 uppercase">Common</span>
+            <div id="catch-heavy" class="hidden text-[11px] font-black tracking-widest text-[#EF4444] uppercase mb-1">&#9888; Heavy Catch -- Rod Strained</div>
+            <div id="catch-title" class="text-xl font-black uppercase text-[#0B171E] mb-1.5">You caught a Trout!</div>
+            <div id="catch-sub" class="text-sm font-semibold text-[#10B981] mb-5">+5 XP</div>
+            <button id="catch-close" class="w-full bg-gradient-to-r from-[#F59E0B] to-[#D97706] text-[#04080E] rounded-xl py-3 text-xs font-black uppercase tracking-wider">Nice</button>
+        </div>
+    </div>
+
+    <!-- Store / exchange / boat rental -->
+    <div id="store" class="hidden fixed inset-0 flex items-center justify-center p-4 bg-[#04080E]/60">
+        <div class="w-full max-w-5xl max-h-[86vh] bg-[#09131D] rounded-2xl border border-[#182C3F] shadow-[0_0_80px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden">
+
+            <div class="h-1 w-full bg-gradient-to-r from-transparent via-[#00E5FF] to-transparent opacity-80 flex-none"></div>
+
+            <!-- Header -->
+            <header class="px-7 py-5 bg-[#060D15]/80 border-b border-[#142434] flex flex-wrap items-center justify-between gap-4 flex-none">
+                <div class="flex items-center gap-3.5">
+                    <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-[#00E5FF] to-[#007799] text-[#04080E] flex items-center justify-center shadow-[0_0_15px_rgba(0,229,255,0.4)] flex-none">
+                        <svg class="w-6 h-6 fill-current" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3zm1 10a1 1 0 0 1-2 0V5a1 1 0 0 1 2 0v7zm-1 3a5.002 5.002 0 0 1-4.9-4H5a7 7 0 0 0 13.9 1c0 3.86-3.14 7-7 7a6.97 6.97 0 0 1-5-2.14V19a1 1 0 1 1-2 0v-4.5a1 1 0 0 1 1-1H5.5a1 1 0 0 1 .71 1.71A4.98 4.98 0 0 0 12 17a5 5 0 0 0 5-5h-2a3 3 0 0 1-2 3z" /></svg>
+                    </div>
+                    <div>
+                        <span class="text-[10px] font-extrabold tracking-[0.25em] text-[#00E5FF] uppercase block">CM FISHING SYSTEM</span>
+                        <h1 class="text-2xl font-black tracking-wide text-white uppercase leading-none">ANGLER SUPPLY STORE</h1>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <!-- Level chip (click for the unlocks panel) -->
+                    <button id="level-chip" class="bg-[#0C1926] px-3.5 py-2 rounded-xl border border-[#192E42] hover:border-[#00E5FF]/60 flex items-center gap-3 transition-colors">
+                        <div id="level-badge" class="w-8 h-8 rounded-lg bg-[#00E5FF]/10 border border-[#00E5FF]/40 text-[#00E5FF] flex items-center justify-center font-black text-xs flex-none">0</div>
+                        <div class="space-y-1 text-left">
+                            <div class="flex justify-between text-[9px] font-black uppercase text-[#819BB0] gap-4">
+                                <span id="level-name">LEVEL 0 ANGLER</span>
+                                <span id="level-xp" class="text-[#00E5FF]">0 / 60 XP</span>
+                            </div>
+                            <div class="w-28 h-1.5 bg-[#04080E] rounded-full overflow-hidden">
+                                <div id="level-xp-fill" class="h-full bg-[#00E5FF] rounded-full transition-[width] duration-300" style="width:0%;"></div>
+                            </div>
+                        </div>
+                        <svg class="w-3.5 h-3.5 fill-current text-[#819BB0] flex-none" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" /></svg>
+                    </button>
+
+                    <div class="bg-gradient-to-r from-[#102B1D] to-[#0A1C13] px-4 py-2 rounded-xl border border-[#1E4D34] flex items-center gap-2.5">
+                        <span class="w-6 h-6 rounded-full bg-[#10B981]/20 text-[#10B981] flex items-center justify-center font-black text-xs border border-[#10B981]/40 flex-none">$</span>
+                        <div>
+                            <span class="text-[8px] font-black text-[#10B981] uppercase tracking-widest block leading-tight">CASH</span>
+                            <span id="store-cash" class="text-lg font-extrabold text-white tracking-wider">$0</span>
+                        </div>
+                    </div>
+
+                    <button id="store-close" class="w-9 h-9 rounded-xl bg-[#142434] hover:bg-[#EF4444] text-[#819BB0] hover:text-white border border-[#1E364D] hover:border-[#EF4444] flex items-center justify-center text-sm font-bold transition-all active:scale-95">✕</button>
+                </div>
+            </header>
+
+            <!-- Tabs -->
+            <div class="px-7 pt-4 bg-[#070F18] border-b border-[#142434] flex items-center gap-2 flex-none">
+                <button class="store-tab active px-5 py-2.5 rounded-t-xl font-extrabold text-xs tracking-wider uppercase flex items-center gap-2 -mb-[1px]" data-tab="rods">
+                    <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M12 2L2 12h3v8h6v-6h2v6h6v-8h3L12 2z" /></svg>
+                    <span>Rods</span>
+                </button>
+                <button class="store-tab px-5 py-2.5 rounded-t-xl font-extrabold text-xs tracking-wider uppercase flex items-center gap-2 transition-all" data-tab="bait">
+                    <svg class="w-4 h-4 fill-current opacity-70" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" /></svg>
+                    <span>Bait</span>
+                </button>
+                <button class="store-tab px-5 py-2.5 rounded-t-xl font-extrabold text-xs tracking-wider uppercase flex items-center gap-2 transition-all" data-tab="sell">
+                    <svg class="w-4 h-4 fill-current opacity-70" viewBox="0 0 24 24"><path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z" /></svg>
+                    <span>Sell Fish</span>
+                </button>
+                <button class="store-tab px-5 py-2.5 rounded-t-xl font-extrabold text-xs tracking-wider uppercase flex items-center gap-2 transition-all" data-tab="boats">
+                    <svg class="w-4 h-4 fill-current opacity-70" viewBox="0 0 24 24"><path d="M20 21c-1.39 0-2.78-.47-4-1.32-2.44 1.71-5.56 1.71-8 0C6.78 20.53 5.39 21 4 21H2v2h2c1.38 0 2.74-.35 4-.99a8.9 8.9 0 0 0 8 0c1.26.65 2.62.99 4 .99h2v-2h-2zM3.95 19H4c1.6 0 3.02-.88 4-2 .98 1.12 2.4 2 4 2s3.02-.88 4-2c.98 1.12 2.4 2 4 2h.05l1.89-6.68a1 1 0 0 0-.63-1.25L20 10.62V6c0-1.1-.9-2-2-2h-3V1H9v3H6c-1.1 0-2 .9-2 2v4.62l-1.31.45a1 1 0 0 0-.63 1.25L3.95 19zM6 6h12v3.97L12 8 6 9.97V6z" /></svg>
+                    <span>Boats</span>
+                </button>
+                <button class="store-tab px-5 py-2.5 rounded-t-xl font-extrabold text-xs tracking-wider uppercase flex items-center gap-2 transition-all" data-tab="info">
+                    <svg class="w-4 h-4 fill-current opacity-70" viewBox="0 0 24 24"><path d="M11 7h2v2h-2V7zm0 4h2v6h-2v-6zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" /></svg>
+                    <span>Info</span>
+                </button>
+            </div>
+
+            <!-- Content -->
+            <main class="p-7 bg-[#08111A] overflow-y-auto flex-1">
+                <div class="tab-grid grid grid-cols-3 gap-5" id="grid-rods"></div>
+                <div class="tab-grid grid grid-cols-3 gap-5 hidden" id="grid-bait"></div>
+                <div class="tab-grid grid grid-cols-3 gap-5 hidden" id="grid-sell"></div>
+                <div class="tab-grid grid grid-cols-3 gap-5 hidden" id="grid-boats"></div>
+                <div class="hidden space-y-5" id="grid-info"></div>
+            </main>
+
+            <!-- Footer -->
+            <footer class="px-7 py-3 bg-[#060D15] border-t border-[#142434] flex items-center justify-between text-[10px] font-bold text-[#819BB0] flex-none">
+                <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-[#00E5FF]"></span>
+                    <span>PRESS <kbd class="px-1.5 py-0.5 bg-[#122232] text-white rounded border border-[#1E344A]">ESC</kbd> TO EXIT STORE</span>
+                </div>
+                <div class="text-[#00E5FF] tracking-widest uppercase">CM FISHING &middot; READY</div>
+            </footer>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

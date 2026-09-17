@@ -136,6 +136,10 @@ For every future FiveM development task, editing files is not the end of
 the task. Unless the user explicitly says `do not restart` or
 `do not runtime test`, complete this workflow before reporting completion:
 
+**Default rule: every edit requires an affected-resource restart and a new
+console-error check. Do not report the task complete until that check has
+been performed, or clearly report the runtime blocker.**
+
 ```text
 INSPECT
 -> EDIT
@@ -153,6 +157,23 @@ console, fix the next runtime error, or restart again. This is a mandatory
 post-edit validation step attached to normal development tasks; it is not
 authorization to create an autonomous project-development loop or generate
 new feature prompts.
+
+### Automatic restart default
+
+- Treat a normal edit to any FiveM resource as authorization to restart the
+  affected development resource after static validation, unless the user
+  explicitly says not to restart or the runtime tools report that the server
+  is not a managed local development server.
+- Use `tools/cm-runtime/runtime-controller.ps1 -StartIfNeeded -ChangedResource`
+  or `tools/cm-runtime/send-command.ps1 "restart <resource>"`; do not start a
+  second FXServer/txAdmin process and do not restart the entire server when a
+  resource restart is sufficient.
+- After each restart, read the new console window with `read-errors.ps1` and
+  repair code-level startup errors before reporting completion.
+- If the runtime controller cannot persist its local state metadata, use the
+  allowlisted `send-command.ps1` restart/start command directly, verify the
+  resource transition in `default/logs/fxserver.log`, and report the metadata
+  write limitation instead of treating it as a clean controller run.
 
 ### Changed-resource identification
 

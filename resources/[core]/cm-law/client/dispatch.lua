@@ -7,6 +7,10 @@ local activeBlips = {} -- [callId] = blipHandle
 local activeCallCoords = {} -- [callId] = { x, y, z }
 local activeCallColours = {} -- [callId] = blip colour
 
+local function isGenericLawMember()
+    return type(LocalPlayer.state.cmLegalOrg) == 'table'
+end
+
 local function removeBlip(callId)
     local blip = activeBlips[callId]
     if blip and DoesBlipExist(blip) then RemoveBlip(blip) end
@@ -56,7 +60,7 @@ local function addCallBlip(call, notify)
     activeBlips[call.id] = blip
     activeCallCoords[call.id] = { x = call.coords.x, y = call.coords.y, z = call.coords.z }
     activeCallColours[call.id] = colour
-    SendNUIMessage({ action = 'dispatchRefresh' })
+    SendNUIMessage({ cmInterface = "law", action = 'dispatchRefresh' })
 end
 
 RegisterNetEvent('cm-law:client:dispatchCall', function(call)
@@ -64,12 +68,23 @@ RegisterNetEvent('cm-law:client:dispatchCall', function(call)
 end)
 
 RegisterNetEvent('cm-law:client:dispatchCallUpdated', function(_)
-    SendNUIMessage({ action = 'dispatchRefresh' })
+    SendNUIMessage({ cmInterface = "law", action = 'dispatchRefresh' })
 end)
 
 RegisterNetEvent('cm-law:client:dispatchCallResolved', function(callId)
     removeBlip(tonumber(callId))
-    SendNUIMessage({ action = 'dispatchRefresh' })
+    SendNUIMessage({ cmInterface = "law", action = 'dispatchRefresh' })
+end)
+
+RegisterNetEvent('cm-law:client:liveOperationsUpdated', function()
+    if isGenericLawMember() then SendNUIMessage({ cmInterface = "law", action = 'liveOperationsRefresh' }) end
+end)
+
+RegisterNetEvent('cm-law:client:dispatchAssigned', function(call)
+    if not isGenericLawMember() or type(call) ~= 'table' then return end
+    TriggerEvent('cm-hud:client:notify', ('Assigned to call #%s · %s'):format(tostring(call.id), tostring(call.location or 'Unknown location')), 'success')
+    addCallBlip(call, false)
+    LawSetDispatchRoute(call.id)
 end)
 
 function LawRequestOfficerAlert(alertType)

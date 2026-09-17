@@ -3278,3 +3278,666 @@ body.admin-active:not(.admin-capture-mode) #admin-panel #admin-permanent-remove{
   body.admin-active:not(.admin-capture-mode) #admin-panel .admin-car em{display:none !important;}
   body.admin-active:not(.admin-capture-mode) #admin-panel .admin-car-meta{padding-right:0 !important;}
 }
+
+/* =====================================================================
+   STORE V15 — ANGULAR SHOWROOM HUD
+   Public catalog only. Admin/capture views retain their dedicated layouts.
+   The centre stays transparent so the live FiveM vehicle remains visible.
+   ===================================================================== */
+body.store-active{
+  --shop-cyan:#18dff3;
+  --shop-cyan-bright:#72f2ff;
+  --shop-line:rgba(24,223,243,.30);
+  --shop-ink:#06131a;
+  --shop-copy:#f4fbff;
+  --shop-muted:#7893a2;
+  --shop-yellow:#ffc400;
+  --shop-green:#29d98b;
+}
+body.store-active #shop-grid{
+  background:
+    linear-gradient(90deg,rgba(2,17,24,.94) 0,rgba(2,17,24,.67) 17%,transparent 37%,transparent 63%,rgba(2,17,24,.60) 83%,rgba(2,17,24,.94) 100%),
+    linear-gradient(180deg,rgba(1,10,15,.58),transparent 20%,transparent 76%,rgba(1,10,15,.64));
+}
+body.store-active #shop-grid::before,
+body.store-active #shop-grid::after{
+  content:'';
+  position:fixed;
+  top:54px;
+  bottom:54px;
+  z-index:41;
+  width:1px;
+  background:linear-gradient(180deg,var(--shop-cyan),rgba(24,223,243,.08) 22%,rgba(24,223,243,.08) 78%,var(--shop-cyan));
+  box-shadow:0 0 18px rgba(24,223,243,.18);
+  pointer-events:none;
+}
+body.store-active #shop-grid::before{left:5px;}
+body.store-active #shop-grid::after{right:5px;}
+
+body.store-active #cinema-top-stats{top:54px;gap:12px;}
+body.store-active .cinema-top-stat{
+  width:198px;
+  min-width:198px;
+  height:66px;
+  border-radius:0;
+  border:1px solid rgba(101,184,203,.16);
+  background:linear-gradient(160deg,rgba(18,42,53,.92),rgba(8,25,34,.91));
+  box-shadow:0 12px 24px rgba(0,0,0,.28);
+  clip-path:polygon(9px 0,100% 0,calc(100% - 12px) 100%,0 100%);
+}
+body.store-active .cinema-top-stat:nth-child(2){
+  border-color:var(--shop-cyan);
+  background:linear-gradient(160deg,rgba(11,48,58,.96),rgba(5,25,33,.94));
+  box-shadow:inset 0 0 18px rgba(24,223,243,.08),0 0 16px rgba(24,223,243,.14);
+}
+body.store-active .cinema-top-stat span{color:var(--shop-muted);font-size:11px;letter-spacing:.11em;}
+body.store-active .cinema-top-stat strong{margin-top:5px;font-size:16px;}
+body.store-active #cinema-consumption-value{color:var(--shop-cyan);}
+
+body.store-active #hud-bar{top:18px;right:86px;gap:16px;}
+body.store-active .hud-chip{
+  min-width:auto;
+  height:32px;
+  gap:7px;
+  padding:0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+}
+body.store-active .hud-ic{display:none;}
+body.store-active .hud-k{display:inline;margin-right:5px;color:var(--shop-muted);font-size:10px;letter-spacing:.12em;}
+body.store-active .hud-v{display:inline;color:var(--shop-copy);font-size:13px;}
+body.store-active #right-panel .rp-head{left:auto;right:24px;top:18px;}
+body.store-active #esc-close{
+  width:55px;
+  height:30px;
+  border-radius:0;
+  border:1px solid rgba(24,223,243,.24);
+  color:var(--shop-cyan);
+  background:rgba(0,78,91,.24);
+  box-shadow:none;
+  clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);
+}
+
+body.store-active #title-container{top:148px;width:min(880px,46vw);}
+body.store-active .veh-name{
+  color:#fff;
+  font-size:clamp(38px,2.8vw,60px);
+  font-style:italic;
+  letter-spacing:.045em;
+  text-shadow:0 5px 24px rgba(0,0,0,.72),0 0 20px rgba(24,223,243,.08);
+}
+body.store-active .veh-status{
+  display:table;
+  margin:14px auto 0;
+  padding:6px 19px 7px;
+  border-bottom:2px solid var(--shop-yellow);
+  color:var(--shop-yellow);
+  background:rgba(1,10,14,.68);
+  font-size:13px;
+  letter-spacing:.17em;
+  clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%);
+}
+body.store-active .veh-tiles{display:none;}
+
+body.store-active #statistics-container{
+  left:28px;
+  top:86px;
+  width:480px;
+  min-height:320px;
+  padding:10px 18px 8px 14px;
+  border:0;
+  border-radius:0;
+  background:linear-gradient(90deg,rgba(5,24,32,.78),rgba(5,24,32,.18) 78%,transparent);
+  box-shadow:none;
+}
+body.store-active #statistics-container::before{
+  margin:0 0 26px;
+  padding-bottom:12px;
+  color:#8ba7b5;
+  font-size:14px;
+  letter-spacing:.19em;
+  text-shadow:none;
+  border-bottom:1px solid rgba(24,223,243,.17);
+}
+body.store-active #statistics-container::after{display:none;}
+body.store-active .vehicle-stat{margin:0 0 20px;}
+body.store-active .stat-name{margin:0 0 9px;font-size:13px;letter-spacing:.045em;}
+body.store-active .prog-num{color:var(--shop-cyan);font-size:14px;font-style:italic;}
+body.store-active .stat-progress{
+  width:96%;
+  height:12px;
+  border-radius:0;
+  transform:skewX(-16deg);
+  background:repeating-linear-gradient(90deg,rgba(24,223,243,.11) 0,rgba(24,223,243,.11) 31px,transparent 31px,transparent 37px);
+  box-shadow:none;
+}
+body.store-active .prog-line{
+  border-radius:0;
+  background:repeating-linear-gradient(90deg,var(--shop-cyan) 0,var(--shop-cyan) 31px,transparent 31px,transparent 37px);
+  box-shadow:0 0 14px rgba(24,223,243,.26);
+}
+body.store-active #tune-note{display:none;}
+
+body.store-active #color-warp{
+  left:28px;
+  top:430px;
+  width:480px;
+  padding:10px 18px 14px 14px;
+  border:0;
+  border-radius:0;
+  background:linear-gradient(90deg,rgba(5,24,32,.74),rgba(5,24,32,.16) 78%,transparent);
+  box-shadow:none;
+}
+body.store-active #color-warp .lp-section-title{
+  padding:0 0 15px;
+  margin-bottom:12px;
+  border-bottom:1px solid rgba(24,223,243,.17);
+  color:#8ba7b5;
+  font-size:14px;
+  letter-spacing:.17em;
+}
+body.store-active #colors-container{grid-template-columns:repeat(5,64px);justify-content:start;gap:14px 16px;}
+body.store-active #colors-container .color{
+  width:64px;
+  height:64px;
+  border:2px solid transparent;
+  border-radius:0;
+  box-shadow:none;
+  transform:skewX(-9deg);
+}
+body.store-active #colors-container .color:hover{
+  transform:skewX(-9deg) scale(1.07);
+  border-color:rgba(114,242,255,.68);
+  box-shadow:0 0 16px rgba(24,223,243,.16);
+}
+body.store-active #colors-container .color.selected{
+  transform:skewX(-9deg) scale(1.06);
+  border-color:var(--shop-cyan);
+  box-shadow:0 0 0 2px rgba(4,17,23,.94),0 0 0 4px var(--shop-cyan),0 0 18px rgba(24,223,243,.28);
+}
+body.store-active .color-icon{transform:skewX(9deg);}
+
+body.store-active #cinema-right-meta{
+  right:32px;
+  top:86px;
+  width:480px;
+  height:50px;
+  display:grid;
+  grid-template-columns:1fr 40px 40px;
+  align-items:center;
+  text-align:left;
+  border-bottom:1px solid rgba(24,223,243,.18);
+}
+body.store-active #cinema-list-title{order:1;margin:0;color:#8ba7b5;font-size:14px;letter-spacing:.19em;}
+body.store-active #cinema-cat-up{order:2;}
+body.store-active #cinema-cat-down{order:3;}
+body.store-active .cinema-arrows{width:38px;height:38px;color:#8199a6;font-size:20px;}
+body.store-active .cinema-arrows:hover{color:var(--shop-cyan);}
+body.store-active #cinema-counter{display:none;}
+
+body.store-active #vehicle-container{
+  right:22px;
+  top:148px;
+  width:500px;
+  height:min(790px,calc(100vh - 280px));
+  padding:0;
+}
+body.store-active #vehicle-warp{gap:3px;max-height:100%;padding:0 4px 12px 0;}
+body.store-active .category,
+body.store-active .category5{
+  min-height:88px;
+  grid-template-columns:92px minmax(0,1fr) auto;
+  grid-template-rows:1fr;
+  gap:14px;
+  padding:11px 15px 11px 18px;
+  border-width:0 0 0 2px;
+  border-style:solid;
+  border-color:transparent;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+  clip-path:polygon(9px 0,100% 0,calc(100% - 9px) 100%,0 100%);
+}
+body.store-active .category:hover,
+body.store-active .category5:hover{
+  transform:translateX(-3px);
+  border-color:rgba(24,223,243,.52);
+  background:linear-gradient(90deg,rgba(24,223,243,.075),rgba(24,223,243,.015));
+  box-shadow:none;
+}
+body.store-active .category.selected,
+body.store-active .category5.selected{
+  border-color:var(--shop-cyan);
+  background:linear-gradient(90deg,rgba(24,223,243,.20),rgba(24,223,243,.035));
+  box-shadow:inset 0 0 28px rgba(24,223,243,.025);
+}
+body.store-active .vehicle-card-img{
+  grid-row:1;
+  width:92px;
+  height:58px;
+  padding:4px;
+  background:rgba(0,8,12,.26);
+  filter:drop-shadow(0 7px 8px rgba(0,0,0,.36));
+  transform:skewX(-10deg);
+}
+body.store-active .vehicle-card-info{display:flex;min-width:0;flex-direction:column;justify-content:center;}
+body.store-active .vehicle-card-brand{
+  display:block;
+  order:1;
+  color:#7893a2;
+  font-size:10px;
+  line-height:1;
+  font-weight:850;
+  letter-spacing:.09em;
+  text-transform:uppercase;
+}
+body.store-active .vehicle-card-title{
+  order:2;
+  margin-top:5px;
+  color:#f6fbff;
+  font-size:15px;
+  letter-spacing:.025em;
+  text-transform:uppercase;
+}
+body.store-active .vehicle-card-model{display:none;}
+body.store-active .category-price{align-self:center;justify-self:end;color:var(--shop-green);font-size:14px;font-style:italic;}
+body.store-active .category.owned .category-price,
+body.store-active .category5.owned .category-price{color:#718a98;}
+body.store-active .category.selected .category-price,
+body.store-active .category5.selected .category-price{color:var(--shop-cyan);}
+body.store-active .card-badges{left:3px;top:3px;}
+body.store-active .badge{height:15px;min-width:18px;padding:0 4px;border-radius:0;font-size:7px;}
+
+body.store-active #btn-warp{bottom:34px;}
+body.store-active #btn-container{grid-template-columns:250px 300px 230px;gap:14px;}
+body.store-active #cinema-buy-nav{display:none;}
+body.store-active .btn{
+  min-height:68px;
+  border-radius:0;
+  border:1px solid rgba(109,166,184,.20);
+  background:linear-gradient(160deg,rgba(18,42,53,.96),rgba(7,23,32,.96));
+  box-shadow:0 10px 22px rgba(0,0,0,.30);
+  clip-path:polygon(13px 0,100% 0,calc(100% - 13px) 100%,0 100%);
+  color:#f5fbff;
+  font-size:14px;
+  letter-spacing:.08em;
+}
+body.store-active .btn:hover{transform:translateY(-2px);border-color:rgba(24,223,243,.55);background:linear-gradient(160deg,rgba(24,59,71,.98),rgba(8,29,39,.98));}
+body.store-active #buy-btn{
+  min-height:68px;
+  border-color:var(--shop-yellow);
+  color:#070b0d;
+  background:var(--shop-yellow);
+  box-shadow:0 9px 25px rgba(255,196,0,.18);
+  font-size:15px;
+}
+body.store-active #buy-btn:hover{background:#ffd436;}
+body.store-active #buy-btn::before{content:'\2713';font-size:16px;}
+body.store-active #buy-btn.disabled-buy{border-color:rgba(109,166,184,.20);color:#6f8793;background:rgba(12,31,41,.94);box-shadow:none;}
+body.store-active #buy-btn.disabled-buy::before{content:'\2715';}
+body.store-active #test-btn::before{content:'\25C9';font-size:15px;}
+body.store-active #favorite-btn::before{content:'\2605';color:var(--shop-yellow);font-size:15px;}
+body.store-active #favorite-btn.active{border-color:rgba(255,196,0,.48);}
+body.store-active .vp-hint{
+  bottom:115px;
+  border:0;
+  border-radius:0;
+  background:rgba(2,12,17,.46);
+  color:rgba(187,213,224,.58);
+  font-size:10px;
+  letter-spacing:.06em;
+}
+
+@media (max-width:1600px){
+  body.store-active #statistics-container,
+  body.store-active #color-warp{left:20px;width:390px;}
+  body.store-active #colors-container{grid-template-columns:repeat(5,50px);gap:11px 13px;}
+  body.store-active #colors-container .color{width:50px;height:50px;}
+  body.store-active #cinema-right-meta{right:24px;width:390px;}
+  body.store-active #vehicle-container{right:16px;width:410px;}
+  body.store-active #btn-container{grid-template-columns:210px 255px 190px;}
+  body.store-active #title-container{width:560px;}
+}
+@media (max-height:820px){
+  body.store-active #cinema-top-stats{top:42px;}
+  body.store-active #title-container{top:112px;}
+  body.store-active #statistics-container{top:68px;min-height:245px;}
+  body.store-active #statistics-container::before{margin-bottom:14px;}
+  body.store-active .vehicle-stat{margin-bottom:12px;}
+  body.store-active #color-warp{top:326px;}
+  body.store-active #vehicle-container{top:116px;height:calc(100vh - 220px);}
+  body.store-active #cinema-right-meta{top:68px;}
+  body.store-active #btn-warp{bottom:18px;}
+  body.store-active .vp-hint{bottom:83px;}
+}
+@media (max-width:1180px){
+  body.store-active #statistics-container,
+  body.store-active #color-warp{width:310px;}
+  body.store-active #colors-container{grid-template-columns:repeat(5,39px);gap:9px;}
+  body.store-active #colors-container .color{width:39px;height:39px;}
+  body.store-active #cinema-right-meta{width:310px;}
+  body.store-active #vehicle-container{width:325px;}
+  body.store-active .category,
+  body.store-active .category5{grid-template-columns:58px minmax(0,1fr) auto;padding-left:9px;gap:8px;}
+  body.store-active .vehicle-card-img{width:58px;height:42px;}
+  body.store-active #title-container{width:420px;}
+  body.store-active #btn-container{grid-template-columns:170px 205px 160px;}
+}
+
+/* =====================================================================
+   MANAGE VEHICLES V16 — LARGE IN-GAME CATALOG MANAGER
+   Keeps the live vehicle unobstructed in the centre. Both working rails
+   and every persistent action remain inside the FiveM viewport.
+   ===================================================================== */
+body.admin-active:not(.admin-capture-mode){
+  --manager-inset:clamp(14px,1.15vw,24px);
+  --manager-gap:clamp(14px,1.1vw,22px);
+  --manager-left:clamp(350px,20.5vw,420px);
+  --manager-right:clamp(440px,25.5vw,520px);
+  --manager-panel:rgba(11,28,38,.965);
+  --manager-panel-deep:rgba(6,18,26,.98);
+  --manager-field:rgba(3,13,19,.64);
+  --manager-line:rgba(37,218,239,.20);
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel > .admin-preview-badge{
+  top:22px !important;
+  min-width:190px !important;
+  min-height:38px !important;
+  justify-content:center !important;
+  padding:9px 18px !important;
+  border-radius:999px !important;
+  border-color:rgba(24,223,243,.48) !important;
+  background:rgba(5,30,39,.94) !important;
+  color:#20e9fa !important;
+  box-shadow:0 12px 34px rgba(0,0,0,.34),inset 0 0 18px rgba(24,223,243,.05) !important;
+  font-size:11px !important;
+  letter-spacing:.18em !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel > .admin-preview-badge small{
+  display:none !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel > .admin-shell{
+  padding:var(--manager-inset) !important;
+  gap:var(--manager-gap) !important;
+  grid-template-columns:var(--manager-left) minmax(120px,1fr) var(--manager-right) !important;
+  align-items:stretch !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-left,
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-form{
+  height:calc(100dvh - var(--manager-inset) - var(--manager-inset)) !important;
+  max-height:calc(100dvh - var(--manager-inset) - var(--manager-inset)) !important;
+  border-radius:5px !important;
+  border:1px solid rgba(114,188,205,.18) !important;
+  background:linear-gradient(180deg,var(--manager-panel),var(--manager-panel-deep)) !important;
+  box-shadow:0 22px 52px rgba(0,0,0,.40),inset 0 1px 0 rgba(255,255,255,.035) !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-left{
+  padding:0 !important;
+  gap:0 !important;
+  border-left:3px solid #17dff2 !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-form{
+  align-self:stretch !important;
+  border-right:3px solid #17dff2 !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-surface::before{
+  left:0 !important;
+  right:0 !important;
+  background:linear-gradient(90deg,rgba(24,223,243,.65),rgba(24,223,243,.08) 45%,transparent) !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-brand-row{
+  min-height:98px !important;
+  grid-template-columns:minmax(0,1fr) 38px !important;
+  gap:12px !important;
+  padding:21px 22px 18px !important;
+  border-bottom:1px solid rgba(128,191,207,.11) !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-logo{
+  display:none !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-brand-row h1{
+  margin-top:8px !important;
+  font-size:25px !important;
+  line-height:1 !important;
+  letter-spacing:.015em !important;
+  text-transform:uppercase !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-kicker{
+  font-size:10px !important;
+  letter-spacing:.17em !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-close{
+  width:38px !important;
+  height:38px !important;
+  border:0 !important;
+  border-radius:0 !important;
+  background:transparent !important;
+  font-size:27px !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-search-wrap{
+  margin:20px 22px 16px !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-search{
+  min-height:48px !important;
+  border-radius:2px !important;
+  background:rgba(3,14,20,.54) !important;
+  font-size:12px !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-list-heading{
+  padding:0 22px 13px !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-list-heading strong{
+  color:#a7bdc8 !important;
+  font-size:10px !important;
+  letter-spacing:.12em !important;
+  text-transform:uppercase !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-list{
+  gap:0 !important;
+  padding:0 14px 0 22px !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-car{
+  min-height:74px !important;
+  grid-template-columns:76px minmax(0,1fr) !important;
+  gap:14px !important;
+  padding:10px 12px 10px 18px !important;
+  border-width:0 0 0 3px !important;
+  border-radius:0 !important;
+  border-color:transparent !important;
+  background:transparent !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-car:hover{
+  transform:none !important;
+  border-color:rgba(24,223,243,.52) !important;
+  background:rgba(24,223,243,.055) !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-car.selected{
+  border-color:#18dff3 !important;
+  background:linear-gradient(90deg,rgba(24,223,243,.17),rgba(24,223,243,.035)) !important;
+  box-shadow:inset 0 0 24px rgba(24,223,243,.025) !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-car-thumb{
+  width:76px !important;
+  max-width:76px !important;
+  height:52px !important;
+  border-radius:2px !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-car-meta b{
+  font-size:13px !important;
+  text-transform:uppercase !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-car-meta span,
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-car-meta small{
+  font-size:9px !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-discovery-strip,
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-left-footer{
+  margin:0 !important;
+  padding:11px 22px !important;
+  border-top:1px solid rgba(128,191,207,.09) !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-form-head{
+  min-height:98px !important;
+  align-items:center !important;
+  padding:20px 22px 17px !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-form-head h2{
+  max-width:330px !important;
+  margin-top:8px !important;
+  font-size:25px !important;
+  letter-spacing:.015em !important;
+  text-transform:uppercase !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-head-badges{
+  display:grid !important;
+  justify-items:end !important;
+  gap:6px !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-resource-pill,
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-status-pill{
+  border-radius:2px !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-form-scroll{
+  padding:16px 22px 20px !important;
+  gap:12px !important;
+  scrollbar-gutter:stable !important;
+  overscroll-behavior:contain !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-section{
+  border-radius:2px !important;
+  border-color:rgba(128,191,207,.11) !important;
+  background:rgba(255,255,255,.022) !important;
+  padding:15px !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-section-title strong{
+  font-size:11px !important;
+  letter-spacing:.10em !important;
+  text-transform:uppercase !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-form input,
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-form select,
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-form textarea{
+  min-height:46px !important;
+  border-radius:2px !important;
+  background:var(--manager-field) !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-form textarea{
+  width:100% !important;
+  min-height:76px !important;
+  resize:vertical !important;
+  padding:11px 12px !important;
+  border:1px solid var(--va-border) !important;
+  color:var(--va-text) !important;
+  font:650 12px/1.45 var(--cm-font),Arial,sans-serif !important;
+  outline:none !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-form textarea:focus{
+  border-color:var(--va-border-strong) !important;
+  box-shadow:0 0 0 3px rgba(0,229,240,.09) !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-image-row{
+  min-height:112px !important;
+  border-radius:2px !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-actions{
+  position:relative !important;
+  z-index:3 !important;
+  flex:0 0 auto !important;
+  grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+  gap:8px 10px !important;
+  padding:15px 22px 18px !important;
+  border-top:1px solid rgba(24,223,243,.19) !important;
+  background:rgba(4,16,23,.99) !important;
+  box-shadow:0 -18px 36px rgba(0,0,0,.18) !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel .admin-actions button{
+  min-height:48px !important;
+  max-height:52px !important;
+  padding:8px 10px !important;
+  border-radius:2px !important;
+  text-transform:uppercase !important;
+  letter-spacing:.065em !important;
+  overflow:hidden !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel #admin-save{
+  color:#041014 !important;
+  background:#20d98a !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel #admin-test{
+  color:#0b1114 !important;
+  border-color:#ffc400 !important;
+  background:#ffc400 !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel #admin-replace{
+  color:#68effb !important;
+  border-color:rgba(24,223,243,.68) !important;
+  background:rgba(24,223,243,.06) !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-panel #admin-restore,
+body.admin-active:not(.admin-capture-mode) #admin-panel #admin-refresh{
+  color:#a9c1cc !important;
+  background:rgba(255,255,255,.035) !important;
+}
+body.admin-active:not(.admin-capture-mode) #admin-toast{
+  left:50% !important;
+  right:auto !important;
+  bottom:24px !important;
+  transform:translateX(-50%) !important;
+}
+
+@media (max-width:1500px){
+  body.admin-active:not(.admin-capture-mode){
+    --manager-inset:12px;
+    --manager-gap:12px;
+    --manager-left:clamp(300px,22vw,350px);
+    --manager-right:clamp(390px,29vw,440px);
+  }
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-brand-row,
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-form-head{min-height:86px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-brand-row h1,
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-form-head h2{font-size:21px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-car{min-height:67px !important;}
+}
+
+@media (max-width:1180px){
+  body.admin-active:not(.admin-capture-mode){
+    --manager-inset:9px;
+    --manager-gap:9px;
+    --manager-left:270px;
+    --manager-right:360px;
+  }
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-brand-row,
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-form-head{padding-left:14px !important;padding-right:14px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-search-wrap{margin-left:14px !important;margin-right:14px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-list-heading{padding-left:14px !important;padding-right:14px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-list{padding-left:14px !important;padding-right:8px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-form-scroll,
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-actions{padding-left:14px !important;padding-right:14px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-head-badges{display:none !important;}
+}
+
+@media (max-height:820px){
+  body.admin-active:not(.admin-capture-mode) #admin-panel > .admin-preview-badge{top:12px !important;min-height:32px !important;padding:6px 14px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-brand-row,
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-form-head{min-height:72px !important;padding-top:13px !important;padding-bottom:11px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-brand-row h1,
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-form-head h2{margin-top:5px !important;font-size:19px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-search-wrap{margin-top:11px !important;margin-bottom:10px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-search{min-height:41px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-car{min-height:58px !important;padding-top:6px !important;padding-bottom:6px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-car-thumb{height:44px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-form-scroll{padding-top:10px !important;padding-bottom:12px !important;gap:8px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-section{padding:10px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-actions{gap:6px 8px !important;padding-top:10px !important;padding-bottom:11px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-actions button{min-height:38px !important;max-height:40px !important;padding:5px 8px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-actions button small{display:none !important;}
+}
+
+@media (max-height:660px){
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-actions{grid-template-columns:repeat(3,minmax(0,1fr)) !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-actions button{min-height:34px !important;max-height:36px !important;font-size:8px !important;}
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-discovery-strip,
+  body.admin-active:not(.admin-capture-mode) #admin-panel .admin-left-footer{display:none !important;}
+}

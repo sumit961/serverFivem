@@ -4,14 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CM Bank</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /* Safety gate: keep NUI hidden even if the main stylesheet cannot load. */
+    #bank-root[aria-hidden="true"],#interaction[aria-hidden="true"]{display:none!important}
+  </style>
   <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <aside id="interaction" class="npc-interaction hidden" aria-hidden="true">
+  <aside id="interaction" class="npc-interaction hidden" aria-hidden="true" style="display:none">
     <span class="npc-interaction__key" id="interactionKey">E</span>
     <span class="npc-interaction__line"></span>
     <span class="npc-interaction__copy">
@@ -20,7 +21,8 @@
     </span>
   </aside>
 
-  <div id="bank-root" class="bank-root hidden" aria-hidden="true">
+  <div id="bank-root" class="bank-root hidden" aria-hidden="true" style="display:none">
+    <img class="bank-hero-art" src="img/cm-bank-hero.png" alt="" aria-hidden="true">
     <div class="bg-grid" aria-hidden="true"></div>
     <div class="bg-notes" aria-hidden="true">
       <img class="note note-a" src="img/cash-1.png" alt="">
@@ -31,15 +33,16 @@
     <main class="vault" role="dialog" aria-modal="true" aria-labelledby="panelTitle">
       <header class="vault-header">
         <div class="brand-block">
-          <div class="brand">
+          <div class="brand" id="panelTitle">
             <span>CM</span><span class="brand-sep">//</span><span>BANK</span>
           </div>
           <div class="brand-sub">
             <span class="brand-rule"></span>
-            <span>PERSONAL BANKING</span>
+            <span>LOS SANTOS FINANCIAL NETWORK</span>
           </div>
         </div>
         <div class="header-right">
+          <span class="session-state"><i></i> Secure session</span>
           <span class="header-id">•••• 2111</span>
           <span class="header-clock" id="headerClock">00:00</span>
           <button class="icon-button" id="btnClose" type="button" aria-label="Close">
@@ -47,6 +50,48 @@
           </button>
         </div>
       </header>
+
+      <section class="display-settings hidden" id="displaySettings" aria-label="Display settings" aria-hidden="true">
+        <div class="display-settings__head">
+          <div>
+            <span class="section-title">DISPLAY SETTINGS</span>
+            <small>Adjust this UI on your screen</small>
+          </div>
+          <button class="settings-done" id="btnSettingsDone" type="button">Done</button>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-copy"><b>UI SIZE</b><small>Scale the complete bank window</small></div>
+          <div class="step-control">
+            <button type="button" data-setting="uiScale" data-step="-0.05" aria-label="Decrease UI size">−</button>
+            <output id="uiScaleValue">100%</output>
+            <button type="button" data-setting="uiScale" data-step="0.05" aria-label="Increase UI size">+</button>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-copy"><b>TEXT SIZE</b><small>Change text without resizing the window</small></div>
+          <div class="step-control">
+            <button type="button" data-setting="fontScale" data-step="-0.05" aria-label="Decrease text size">−</button>
+            <output id="fontScaleValue">100%</output>
+            <button type="button" data-setting="fontScale" data-step="0.05" aria-label="Increase text size">+</button>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-copy"><b>CASH ART</b><small>Control floating cash visibility</small></div>
+          <div class="step-control">
+            <button type="button" data-setting="cash" data-step="-0.1" aria-label="Decrease cash artwork">−</button>
+            <output id="cashValueSetting">60%</output>
+            <button type="button" data-setting="cash" data-step="0.1" aria-label="Increase cash artwork">+</button>
+          </div>
+        </div>
+
+        <div class="settings-footer">
+          <button class="contrast-toggle" id="btnContrast" type="button" aria-pressed="false">High contrast: Off</button>
+          <button class="settings-reset" id="btnSettingsReset" type="button">Reset</button>
+        </div>
+      </section>
 
       <div class="vault-grid">
         <div class="col col-primary">
@@ -64,11 +109,11 @@
           </div>
 
           <nav class="tabs" id="tabs">
-            <button class="tab active" data-tab="deposit" type="button">Deposit</button>
-            <button class="tab" data-tab="withdraw" type="button">Withdraw</button>
-            <button class="tab" data-tab="transfer" type="button">Transfer</button>
-            <button class="tab" data-tab="payees" type="button">Payees</button>
-            <button class="tab" data-tab="own" type="button">Own</button>
+            <button class="tab active" data-tab="deposit" data-index="01" type="button">Deposit</button>
+            <button class="tab" data-tab="withdraw" data-index="02" type="button">Withdraw</button>
+            <button class="tab" data-tab="transfer" data-index="03" type="button">Transfer</button>
+            <button class="tab" data-tab="payees" data-index="04" type="button">Payees</button>
+            <button class="tab" data-tab="own" data-index="05" type="button">Manage</button>
           </nav>
 
           <div class="action-card">
@@ -76,7 +121,7 @@
               <div class="atm" id="atm">
                 <div class="atm-glow" aria-hidden="true"></div>
                 <div class="atm-shadow" aria-hidden="true"></div>
-                <img class="atm-img" src="img/atm-neon.png" alt="">
+                <img class="atm-render" src="img/cm-bank-terminal.png" alt="">
               </div>
 
               <div class="action-copy">
@@ -302,7 +347,7 @@
 
         <div class="col col-sidebar">
           <div class="activity-head">
-            <span class="section-title">RECENT ACTIVITY</span>
+            <span class="section-title"><i class="live-dot"></i>RECENT ACTIVITY</span>
             <button class="view-all-btn" id="btnViewAllStatements" type="button">View All</button>
           </div>
           <div class="activity-filters" id="activityFilters">

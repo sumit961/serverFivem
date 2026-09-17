@@ -7,6 +7,10 @@ const HUD_MODULES = {
         id: 'hud-top-right',
         render: renderTopRight
     },
+    raid: {
+        id: 'hud-raid',
+        render: renderRaid
+    },
     bottomLeft: {
         id: 'hud-bottom-left', 
         render: renderBottomLeft
@@ -95,6 +99,10 @@ let state = {
     
     // Notifications queue
     notifications: [],
+
+    // Reusable event HUD state. cm-family and other event resources can feed
+    // this without owning their own NUI page.
+    raid: null,
 
 };
 
@@ -403,6 +411,45 @@ function bindHudAdminEvents() {
 }
 
 // ========== RENDER FUNCTIONS ==========
+
+function renderRaid() {
+    const el = document.getElementById(HUD_MODULES.raid.id);
+    if (!el) return;
+    const raid = state.raid;
+    if (!raid || !state.hudVisible || state.externalHidden) {
+        el.classList.add('hidden');
+        el.innerHTML = '';
+        return;
+    }
+
+    const now = Date.now() / 1000;
+    const target = Number(raid.endsAt || raid.startsAt || now);
+    const remaining = Math.max(0, Math.floor(target - now));
+    const minutes = String(Math.floor(remaining / 60)).padStart(2, '0');
+    const seconds = String(remaining % 60).padStart(2, '0');
+    const phase = String(raid.phase || 'forming').toLowerCase();
+    const families = Array.isArray(raid.families) ? raid.families.slice(0, 2) : [];
+    while (families.length < 2) families.push({ name: 'WAITING', alive: 0, total: 0 });
+
+    const rows = families.map((family, index) => {
+        const count = Number(family.alive ?? family.total ?? 0) || 0;
+        const name = escapeHtml(String(family.name || (index === 0 ? 'YOUR FAMILY' : 'WAITING')).toUpperCase().slice(0, 18));
+        const status = index === 0
+            ? (phase === 'overtime' ? 'OVERTIME' : phase === 'active' ? 'ACTIVE' : phase === 'countdown' ? 'STARTING' : 'FORMING')
+            : 'PENDING';
+        const badge = index === 0 ? 'raid-count-red' : 'raid-count-muted';
+        const statusClass = index === 0 ? 'raid-status-active' : 'raid-status-pending';
+        return `<div class="raid-row">
+            <div class="raid-row-left"><span class="raid-count ${badge}">${count}</span><span class="raid-family-name">${name}</span></div>
+            <span class="raid-status ${statusClass}">${status}</span>
+        </div>`;
+    }).join('');
+
+    el.classList.remove('hidden');
+    el.innerHTML = `<div class="raid-accent"></div>
+        <div class="raid-head"><div class="raid-title"><span class="raid-dot"></span><span>RAID</span></div><span class="raid-time">${minutes}:${seconds}</span></div>
+        <div class="raid-rows">${rows}</div>`;
+}
 
 function renderWantedStars() {
     if (!state.wantedStars || state.wantedStars <= 0) return '';
@@ -1378,6 +1425,16 @@ window.addEventListener('message', function(event) {
             if (state.adminOpen) renderHudAdmin();
             break;
 
+        case 'setRaidHud':
+            state.raid = data.raid && typeof data.raid === 'object' ? data.raid : null;
+            updateModule('raid');
+            break;
+
+        case 'clearRaidHud':
+            state.raid = null;
+            updateModule('raid');
+            break;
+
         case 'openHudAdmin':
             state.adminOpen = true;
             setHudSettings(data.settings || {}, false);
@@ -1713,6 +1770,12 @@ function addNotification(text, type = 'info') {
         }, 250);
     }, 4200);
 }
+
+// Raid countdown is rendered by cm-hud so every resource gets the same
+// presentation and the timer stays live without per-frame game drawing.
+setInterval(() => {
+    if (state.raid) renderRaid();
+}, 500);
 
 // ========== CLOCK UPDATE ==========
 setInterval(() => {

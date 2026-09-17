@@ -115,6 +115,7 @@
   var atmBusy = false;
   var payeeActionPending = false;
   var toastTimer = null;
+  var clockTimer = null;
   var activity = [];
   var activityFilter = 'all';
   var balanceShown = 0;
@@ -145,6 +146,68 @@
   var pendingLargeTransferTargetId = 0;
   var lastReceiptTransferTargetId = null;
 
+  // v2 uses a fresh key so legacy scale choices cannot distort the redesigned terminal.
+  var DISPLAY_STORAGE_KEY = 'cm-bank-display-v2';
+  var DISPLAY_DEFAULTS = { uiScale: 1, fontScale: 1, cash: 0.58, highContrast: false };
+  var DISPLAY_LIMITS = {
+    uiScale: { min: 0.8, max: 1.15 },
+    fontScale: { min: 0.85, max: 1.35 },
+    cash: { min: 0, max: 0.9 }
+  };
+  var displaySettings = Object.assign({}, DISPLAY_DEFAULTS);
+
+  function clampDisplayValue(name, value) {
+    var limits = DISPLAY_LIMITS[name];
+    if (!limits) return 0;
+    var numeric = Number(value);
+    if (!isFinite(numeric)) numeric = DISPLAY_DEFAULTS[name];
+    return Math.max(limits.min, Math.min(limits.max, numeric));
+  }
+
+  function displayPercent(value) {
+    return Math.round(Number(value) * 100) + '%';
+  }
+
+  function applyDisplaySettings() {
+    var page = document.documentElement;
+    page.style.setProperty('--ui-scale', String(displaySettings.uiScale));
+    page.style.fontSize = (16 * displaySettings.fontScale) + 'px';
+    page.style.setProperty('--cash-opacity', String(displaySettings.cash));
+    root.classList.toggle('high-contrast', displaySettings.highContrast === true);
+
+    el('uiScaleValue').textContent = displayPercent(displaySettings.uiScale);
+    el('fontScaleValue').textContent = displayPercent(displaySettings.fontScale);
+    el('cashValueSetting').textContent = displayPercent(displaySettings.cash);
+    el('btnContrast').textContent = 'High contrast: ' + (displaySettings.highContrast ? 'On' : 'Off');
+    el('btnContrast').classList.toggle('active', displaySettings.highContrast === true);
+    el('btnContrast').setAttribute('aria-pressed', displaySettings.highContrast ? 'true' : 'false');
+  }
+
+  function saveDisplaySettings() {
+    try { localStorage.setItem(DISPLAY_STORAGE_KEY, JSON.stringify(displaySettings)); } catch (_) {}
+  }
+
+  function loadDisplaySettings() {
+    try {
+      var saved = JSON.parse(localStorage.getItem(DISPLAY_STORAGE_KEY) || 'null');
+      if (saved && typeof saved === 'object') {
+        displaySettings.uiScale = clampDisplayValue('uiScale', saved.uiScale);
+        displaySettings.fontScale = clampDisplayValue('fontScale', saved.fontScale);
+        displaySettings.cash = clampDisplayValue('cash', saved.cash);
+        displaySettings.highContrast = saved.highContrast === true;
+      }
+    } catch (_) {
+      displaySettings = Object.assign({}, DISPLAY_DEFAULTS);
+    }
+    applyDisplaySettings();
+  }
+
+  function setDisplayPanel(open) {
+    el('displaySettings').classList.toggle('hidden', !open);
+    var displayButton = el('btnDisplaySettings');
+    if (displayButton) displayButton.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
   function showToast(message, type) {
     type = type || 'success';
     el('toastMessage').textContent = String(message || '');
@@ -163,19 +226,13 @@
   }
 
   function animateBalance(target) {
-    var from = balanceShown, t0 = Date.now(), dur = 500;
-    clearInterval(balanceTween);
-    balanceTween = setInterval(function () {
-      var p = Math.min(1, (Date.now() - t0) / dur);
-      var k = 1 - Math.pow(1 - p, 3);
-      balanceShown = from + (target - from) * k;
-      el('balanceHero').textContent = '$' + formatMoney(balanceShown);
-      if (p >= 1) {
-        clearInterval(balanceTween);
-        balanceShown = target;
-        el('balanceHero').textContent = '$' + formatMoney(balanceShown);
-      }
-    }, 30);
+    // Balances can update several times during a transaction. Rendering the
+    // final value once avoids a persistent timer in FiveM's CEF process and
+    // keeps the interface responsive on lower-end clients.
+    if (balanceTween) cancelAnimationFrame(balanceTween);
+    balanceShown = Number(target) || 0;
+    el('balanceHero').textContent = '$' + formatMoney(balanceShown);
+    balanceTween = null;
   }
 
   function updateClock() {
@@ -665,6 +722,8 @@
 
     var isOwnTab = currentTab === 'own';
     var isPayeesTab = currentTab === 'payees';
+    var actionCard = document.querySelector('.action-card');
+    if (actionCard) actionCard.classList.toggle('scrollable', isOwnTab);
     el('transactionForm').hidden = atmInfo.disabled || isOwnTab || isPayeesTab;
     el('ownPanel').hidden = atmInfo.disabled || !isOwnTab;
     el('payeesPanel').hidden = atmInfo.disabled || !isPayeesTab;
@@ -766,11 +825,19 @@
 
   function setRootVisible(visible) {
     if (visible) {
+      root.style.display = '';
       root.classList.remove('hidden');
       root.setAttribute('aria-hidden', 'false');
+      updateClock();
+      if (!clockTimer) clockTimer = setInterval(updateClock, 1000);
     } else {
+      root.style.display = 'none';
       root.classList.add('hidden');
       root.setAttribute('aria-hidden', 'true');
+      if (clockTimer) {
+        clearInterval(clockTimer);
+        clockTimer = null;
+      }
     }
   }
 
@@ -884,12 +951,14 @@
     balanceShown = availableBalance();
     render();
 
+    interaction.style.display = 'none';
     interaction.classList.add('hidden');
     interaction.setAttribute('aria-hidden', 'true');
     setRootVisible(true);
   }
 
   function closePanel(sendClose) {
+    setDisplayPanel(false);
     setRootVisible(false);
     submitting = false;
     atmBusy = false;
@@ -915,12 +984,14 @@
 
   function updateInteraction(data) {
     if (!data.visible) {
+      interaction.style.display = 'none';
       interaction.classList.add('hidden');
       interaction.setAttribute('aria-hidden', 'true');
       return;
     }
     el('interactionKey').textContent = String(data.key || 'E');
     el('interactionText').textContent = [data.name, data.role].filter(Boolean).join(' · ');
+    interaction.style.display = '';
     interaction.classList.remove('hidden');
     interaction.setAttribute('aria-hidden', 'false');
   }
@@ -1497,6 +1568,37 @@
     closePanel(true);
   });
 
+  var displayButton = el('btnDisplaySettings');
+  if (displayButton) displayButton.addEventListener('click', function () {
+    setDisplayPanel(el('displaySettings').classList.contains('hidden'));
+  });
+
+  el('btnSettingsDone').addEventListener('click', function () {
+    setDisplayPanel(false);
+  });
+
+  document.querySelectorAll('[data-setting][data-step]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var name = button.getAttribute('data-setting');
+      var step = Number(button.getAttribute('data-step')) || 0;
+      displaySettings[name] = Math.round(clampDisplayValue(name, displaySettings[name] + step) * 100) / 100;
+      applyDisplaySettings();
+      saveDisplaySettings();
+    });
+  });
+
+  el('btnContrast').addEventListener('click', function () {
+    displaySettings.highContrast = !displaySettings.highContrast;
+    applyDisplaySettings();
+    saveDisplaySettings();
+  });
+
+  el('btnSettingsReset').addEventListener('click', function () {
+    displaySettings = Object.assign({}, DISPLAY_DEFAULTS);
+    applyDisplaySettings();
+    saveDisplaySettings();
+  });
+
   function statementAmountText(row, meta) {
     var isDebit = meta.sign === 'negative';
     var total = isDebit ? (row.amount + row.feeAmount) : row.amount;
@@ -1739,6 +1841,11 @@
 
   document.addEventListener('keydown', function (event) {
     if (root.classList.contains('hidden')) return;
+    if (event.key === 'Escape' && el('displaySettings') && !el('displaySettings').classList.contains('hidden')) {
+      event.preventDefault();
+      setDisplayPanel(false);
+      return;
+    }
     for (var i = 0; i < ESCAPABLE_MODALS.length; i++) {
       var modal = ESCAPABLE_MODALS[i];
       if (!el(modal.id).classList.contains('hidden')) {
@@ -1967,9 +2074,8 @@
     }
   });
 
+  loadDisplaySettings();
   setRootVisible(false);
-  updateClock();
-  setInterval(updateClock, 1000);
 
   try {
     if (new URLSearchParams(window.location.search).get('preview') === '1') {

@@ -105,7 +105,12 @@ exports('GetVehicleAccessDecision', function(characterId, vehicleId, action)
     if not vehicleId then return false, 'not_legal_fleet_vehicle' end
     local settings = MySQL.single.await([[SELECT organization_id, min_tier FROM cm_legal_fleet_vehicles
         WHERE vehicle_id = ? AND enabled = 1 LIMIT 1]], { vehicleId })
-    if not settings then return false, 'not_legal_fleet_vehicle' end
+    if not settings then
+        if type(PoliceLegacyVehicleAccessDecision) == 'function' then
+            return PoliceLegacyVehicleAccessDecision(characterId, vehicleId, action)
+        end
+        return false, 'not_legal_fleet_vehicle'
+    end
     local orgId = validOrgId(settings.organization_id)
     local member = orgId and memberFor(tostring(characterId or ''), orgId) or nil
     if not member then return false, 'not_organization_member' end

@@ -109,9 +109,8 @@ local function rebuild(targetServerId)
 end
 
 local function showContext(id, title, options)
-    if type(lib) ~= 'table' or type(lib.registerContext) ~= 'function' then return end
-    lib.registerContext({ id = id, title = title, options = options })
-    lib.showContext(id)
+    CMFamilyRegisterContext({ id = id, title = title, options = options })
+    CMFamilyShowContext(id)
 end
 
 RegisterNetEvent('cm-family:client:showPublicFamilyProfile', function(profile)
@@ -193,7 +192,7 @@ end)
 RegisterNetEvent('cm-family:client:confirmOwnershipTransfer', function(data)
     if type(data) ~= 'table' or not data.token then return end
     CreateThread(function()
-        local result = lib.alertDialog({
+        local result = CMFamilyAlert({
             header = 'Transfer Family Ownership',
             content = ('Transfer **%s** to **%s** (CID %s)?\n\nYou will step down to the next-highest rank. This changes family bank, house, rank, and vehicle-management authority.'):format(
                 tostring(data.familyName or 'the family'),

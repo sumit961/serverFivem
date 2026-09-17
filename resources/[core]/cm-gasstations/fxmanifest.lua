@@ -8,6 +8,8 @@ version '2.0.0'
 
 shared_script 'shared/config.lua'
 
+server_script '@oxmysql/lib/MySQL.lua'
+
 client_script 'client/main.lua'
 server_script 'server/main.lua'
 
@@ -17,6 +19,12 @@ files {
     'ui/index.html',
     'ui/style.css',
     'ui/app.js'
+}
+
+dependencies {
+    'oxmysql',
+    'cm-playerdata',
+    'cm-ui'
 }
 
 -- Recommended order:

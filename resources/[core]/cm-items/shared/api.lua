@@ -181,7 +181,7 @@ local function validateSchemaValue(field, rule, value)
     elseif rule == 'gender' then
         if value == nil or value == '' then return true end
         local v = tostring(value):lower()
-        return v == 'male' or v == 'female' or v == 'm' or v == 'f' or v == 'mp_m_freemode_01' or v == 'mp_f_freemode_01', ('Metadata field %s must be male/female'):format(field)
+        return v == 'male' or v == 'female' or v == 'both' or v == 'unisex' or v == 'shared' or v == 'all' or v == 'any' or v == 'm' or v == 'f' or v == 'mp_m_freemode_01' or v == 'mp_f_freemode_01', ('Metadata field %s must be male/female/both'):format(field)
     end
     return true
 end

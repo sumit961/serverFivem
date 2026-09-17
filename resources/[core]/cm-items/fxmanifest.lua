@@ -45,6 +45,9 @@ files {
     'ui/images/clothing/custom/*.webp',
     'ui/images/clothing/custom/*.jpg',
     'ui/images/clothing/custom/*.jpeg',
+    -- One file per captured clothing item: items/<asset_id>_<version>.png
+    'ui/images/clothing/items/*.png',
+    'ui/images/clothing/items/*.webp',
     'ui/images/catalog/*.png',
     'ui/images/catalog/*.webp',
     'ui/images/catalog/*.jpg',

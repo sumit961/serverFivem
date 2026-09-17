@@ -307,13 +307,13 @@ function CMVehicles.Server.StoreVehicle(src, vehicleId, garage, opts)
     if state == '' then state = garage:match('^house:') and L.States.HOUSE_GARAGE or garage:match('^job:') and L.States.JOB_GARAGE or L.States.PUBLIC_GARAGE end
     if not L.NormalizeState(state) or state == L.States.OUTSIDE then return false, 'invalid_storage_target' end
     local token
-    if CMVehicles.Operations and CMVehicles.Operations.Begin then
-        local began, result = CMVehicles.Operations.Begin(vehicleId, 'store', src, { stage = 'store_validated', targetState = state, targetRef = garage, targetSlot = tonumber(opts.slot), ttl = 60 })
+    if CMVehicles.Operations and CMVehicles.Operations.BeginInternal then
+        local began, result = CMVehicles.Operations.BeginInternal(vehicleId, 'store', src, { stage = 'store_validated', targetState = state, targetRef = garage, targetSlot = tonumber(opts.slot), ttl = 60 })
         if began ~= true then return false, 'operation_active' end
         token = result
     end
     local function fail(reason)
-        if token and CMVehicles.Operations and CMVehicles.Operations.Fail then pcall(CMVehicles.Operations.Fail, vehicleId, token, 'store_failed', { reason = reason }) end
+        if token and CMVehicles.Operations and CMVehicles.Operations.FailInternal then pcall(CMVehicles.Operations.FailInternal, vehicleId, token, 'store_failed', { reason = reason }) end
         return false, reason
     end
     if CMVehicles.Persistence and CMVehicles.Persistence.CaptureVehicle then
@@ -329,7 +329,7 @@ function CMVehicles.Server.StoreVehicle(src, vehicleId, garage, opts)
     end
     local stored, result = L.Transition(vehicleId, state, { ref = garage ~= '' and garage or nil, slot = tonumber(opts.slot), reason = opts.reason or 'vehicle_store', actorCharacterId = charId })
     if stored ~= true and type(stored) ~= 'table' then return fail('store_transition_failed') end
-    if token and CMVehicles.Operations and CMVehicles.Operations.Complete then pcall(CMVehicles.Operations.Complete, vehicleId, token, 'stored', { state = state, ref = garage }) end
+    if token and CMVehicles.Operations and CMVehicles.Operations.CompleteInternal then pcall(CMVehicles.Operations.CompleteInternal, vehicleId, token, 'stored', { state = state, ref = garage }) end
     return true, result or L.Get(vehicleId)
 end
 

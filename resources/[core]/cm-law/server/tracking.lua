@@ -17,7 +17,7 @@ local meetingCooldowns = {}
 local BROADCAST_INTERVAL_MS = 3000
 
 local function permitted(member, permission)
-    if not member then return false end
+    if not member or member.suspended or member.onDuty ~= true then return false end
     if member.isLeader then return true end
     return type(member.permissions) == 'table' and member.permissions[permission] == true
 end
@@ -76,7 +76,12 @@ CreateThread(function()
         local byOrg = {}
         for src, organizationId in pairs(watchers) do
             if GetPlayerName(src) then
-                if organizationId and not byOrg[organizationId] then
+                local characterId = characterIdFor(src)
+                local member = characterId and organizationId and memberFor(characterId, organizationId)
+                if not permitted(member, 'law.view_member_map') then
+                    watchers[src] = nil
+                    TriggerClientEvent('cm-law:client:trackingDisabled', src)
+                elseif organizationId and not byOrg[organizationId] then
                     byOrg[organizationId] = onDutyMembers(organizationId)
                 end
             else
@@ -143,7 +148,8 @@ lib.callback.register('cm-law:server:setMeetingPoint', function(src, payload)
     for _, playerId in ipairs(GetPlayers()) do
         local targetSrc = tonumber(playerId)
         local targetCid = targetSrc and characterIdFor(targetSrc)
-        if targetCid and memberFor(targetCid, member.organizationId) then
+        local targetMember = targetCid and memberFor(targetCid, member.organizationId)
+        if targetMember and targetMember.onDuty and not targetMember.suspended then
             TriggerClientEvent('cm-law:client:setMeetingPoint', targetSrc, {
                 x = x, y = y, z = z, setterName = setterName, label = label,
             })

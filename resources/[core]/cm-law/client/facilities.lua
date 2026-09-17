@@ -1,7 +1,14 @@
 local facilities, peds = {}, {}
 local refreshing = false
 local promptKey, dialogueOpen, dialoguePed, dialogueCam, dialogueAction, dialogueServiceFacility
+local dialogueSession, dialogueBusy = 0, false
 local HUD_REASON = 'cm-law:facility-dialogue'
+
+local function facilityRequest(name, ...)
+    local ok, result = pcall(lib.callback.await, name, false, ...)
+    if ok then return result end
+    return { ok = false, error = 'Service unavailable. Please try again.' }
+end
 
 local function notify(message, kind)
     TriggerEvent('cm-hud:client:notify', tostring(message or ''), kind or 'info')
@@ -17,7 +24,7 @@ local function drawNpcName(location, name)
 end
 
 local function hidePrompt()
-    if promptKey then SendNUIMessage({ action = 'facilityPrompt', visible = false }); promptKey = nil end
+    if promptKey then SendNUIMessage({ cmInterface = "law", action = 'facilityPrompt', visible = false }); promptKey = nil end
 end
 
 local function clearPeds()
@@ -54,6 +61,9 @@ local function refreshFacilities()
     if refreshing then return end
     refreshing = true
     facilities = lib.callback.await('cm-law:server:facilities', false) or {}
+    for index = #facilities, 1, -1 do
+        if facilities[index].facilityType == 'intake' then table.remove(facilities, index) end
+    end
     spawnAll()
     refreshing = false
 end
@@ -90,18 +100,33 @@ end
 local function closeDialogue()
     if not dialogueOpen then return end
     dialogueOpen = false
+    dialogueSession = dialogueSession + 1
+    dialogueBusy = false
     if dialogueCam and DoesCamExist(dialogueCam) then
         RenderScriptCams(false, true, 350, true, true); DestroyCam(dialogueCam, false)
     end
     dialogueCam, dialoguePed, dialogueAction, dialogueServiceFacility = nil, nil, nil, nil
     FreezeEntityPosition(PlayerPedId(), false)
     SetNuiFocus(false, false)
-    SendNUIMessage({ action = 'facilityDialogue', visible = false })
+    SendNUIMessage({ cmInterface = "law", action = 'facilityDialogue', visible = false })
     TriggerEvent('cm-hud:client:showAfterUi', HUD_REASON)
 end
 
+-- Prevent another NUI from leaving organization NPC dialogues trapped.
+CreateThread(function()
+    while true do
+        if dialogueOpen then
+            DisableControlAction(0, 322, true)
+            if IsDisabledControlJustPressed(0, 322) then closeDialogue() end
+        end
+        Wait(dialogueOpen and 0 or 250)
+    end
+end)
+
 local function openDialogue(ped, facility, allowed, refusal)
     if dialogueOpen or not DoesEntityExist(ped) then return end
+    dialogueSession = dialogueSession + 1
+    local session = dialogueSession
     hidePrompt(); dialogueOpen, dialoguePed = true, ped
     dialogueAction = allowed and facility or nil
     local forward = GetEntityForwardVector(ped)
@@ -112,7 +137,7 @@ local function openDialogue(ped, facility, allowed, refusal)
     SetEntityHeading(player, (GetEntityHeading(ped) + 180.0) % 360.0)
     FreezeEntityPosition(player, true)
     dialogueShot('wide')
-    SetTimeout(950, function() if dialogueOpen then dialogueShot('close') end end)
+    SetTimeout(950, function() if dialogueOpen and session == dialogueSession then dialogueShot('close') end end)
     TriggerEvent('cm-hud:client:hideForUi', HUD_REASON)
     SetNuiFocus(true, true)
     local quote = refusal
@@ -121,7 +146,7 @@ local function openDialogue(ped, facility, allowed, refusal)
             or facility.facilityType == 'intake' and 'Bring the cuffed suspect to this desk. I will process the approved charges and transfer them to the shared jail.'
             or ('I can help you access the %s %s.'):format(facility.shortLabel, facility.label:lower())
     end
-    SendNUIMessage({ action = 'facilityDialogue', visible = true, name = facility.name,
+    SendNUIMessage({ cmInterface = "law", action = 'facilityDialogue', visible = true, name = facility.name,
         role = facility.role, quote = quote, continueLabel = allowed and (facility.facilityType == 'front_desk'
             and 'Show me public services' or ('Open ' .. facility.label)) or 'Leave' })
 end
@@ -131,17 +156,22 @@ RegisterNUICallback('facilityDialogueClose', function(_, cb)
 end)
 
 RegisterNUICallback('facilityDialogueContinue', function(_, cb)
+    if not dialogueOpen or dialogueBusy then return cb({ ok = false }) end
+    local session = dialogueSession
+    dialogueBusy = true
     local facility = dialogueAction
     dialogueAction = nil; cb({ ok = true })
     if not facility then closeDialogue(); return end
     CreateThread(function()
         local keepCinematic = facility.facilityType == 'front_desk' or facility.facilityType == 'intake'
         if not keepCinematic then closeDialogue() else dialogueShot('close') end
-        local result = lib.callback.await('cm-law:server:useFacility', false,
+        local result = facilityRequest('cm-law:server:useFacility',
             facility.organizationId, facility.facilityType)
+        if keepCinematic and (not dialogueOpen or session ~= dialogueSession) then return end
+        if keepCinematic then dialogueBusy = false end
         if keepCinematic and result and result.ok == true and result.action == 'frontdesk' then
             dialogueServiceFacility = facility
-            SendNUIMessage({ action = 'facilityDialogueChoices', message = 'How can I help you today?', choices = {
+            SendNUIMessage({ cmInterface = "law", action = 'facilityDialogueChoices', message = 'How can I help you today?', choices = {
                 { id = 'assistance', label = 'Request assistance', description = 'Notify all on-duty legal units that you need help here.', primary = true },
                 { id = 'surrender', label = 'Voluntary surrender', description = 'Turn yourself in for your active wanted level.' },
                 { id = 'weapons', label = 'Surrender illegal items', description = 'Hand over unlicensed weapons, ammunition, and illegal items.' },
@@ -150,11 +180,11 @@ RegisterNUICallback('facilityDialogueContinue', function(_, cb)
         end
         if keepCinematic then
             local ok = result and result.ok == true
-            SendNUIMessage({ action = 'facilityDialogueResponse',
+            SendNUIMessage({ cmInterface = "law", action = 'facilityDialogueResponse',
                 message = ok and (result.message or 'Your request has been accepted.')
                     or (result and result.error or 'Service unavailable.'), tone = ok and 'success' or 'error' })
             Wait(tonumber(Config.CinematicResponseDuration) or 2200)
-            closeDialogue()
+            if session == dialogueSession then closeDialogue() end
             return
         end
         if not result or result.ok ~= true then return notify(result and result.error or 'Service unavailable.', 'error') end
@@ -171,7 +201,7 @@ RegisterNUICallback('facilityDialogueContinue', function(_, cb)
 end)
 
 local function showFrontDeskChoices(message)
-    SendNUIMessage({ action = 'facilityDialogueChoices', message = message or 'How can I help you today?', choices = {
+    SendNUIMessage({ cmInterface = "law", action = 'facilityDialogueChoices', message = message or 'How can I help you today?', choices = {
         { id = 'assistance', label = 'Request assistance', description = 'Notify all on-duty legal units that you need help here.', primary = true },
         { id = 'surrender', label = 'Voluntary surrender', description = 'Turn yourself in for your active wanted level.' },
         { id = 'weapons', label = 'Surrender illegal items', description = 'Hand over unlicensed weapons, ammunition, and illegal items.' },
@@ -180,25 +210,29 @@ end
 
 RegisterNUICallback('facilityPublicService', function(data, cb)
     local facility, supplied = dialogueServiceFacility, tostring(data and data.service or '')
+    if not dialogueOpen or not facility or dialogueBusy then return cb({ ok = false }) end
     cb({ ok = true })
-    if not dialogueOpen or not facility then return end
+    local session = dialogueSession
     if supplied == 'back' then showFrontDeskChoices(); return end
+    dialogueBusy = true
     local service, token = supplied:match('^([^:]+):(.+)$')
     service = service or supplied
     CreateThread(function()
-        local result = lib.callback.await('cm-law:server:frontDeskService', false, facility.organizationId, service, token)
+        local result = facilityRequest('cm-law:server:frontDeskService', facility.organizationId, service, token)
+        if not dialogueOpen or session ~= dialogueSession then return end
+        dialogueBusy = false
         if result and result.confirmation then
-            SendNUIMessage({ action = 'facilityDialogueChoices', message = result.message, choices = {
+            SendNUIMessage({ cmInterface = "law", action = 'facilityDialogueChoices', message = result.message, choices = {
                 { id = result.confirmAction .. ':' .. result.token, label = 'Confirm', primary = true },
                 { id = 'back', label = 'Go back' },
             } })
             return
         end
         local ok = result and result.ok == true
-        SendNUIMessage({ action = 'facilityDialogueResponse', message = ok and (result.message or 'Your request has been accepted.')
+        SendNUIMessage({ cmInterface = "law", action = 'facilityDialogueResponse', message = ok and (result.message or 'Your request has been accepted.')
             or (result and result.error or 'Service unavailable.'), tone = ok and 'success' or 'error' })
         Wait(tonumber(Config.CinematicResponseDuration) or 2200)
-        closeDialogue()
+        if session == dialogueSession then closeDialogue() end
     end)
 end)
 
@@ -229,7 +263,7 @@ CreateThread(function()
                     local key = nearest.organizationId .. ':' .. nearest.facilityType
                     if promptKey ~= key then
                         promptKey = key
-                        SendNUIMessage({ action = 'facilityPrompt', visible = true,
+                        SendNUIMessage({ cmInterface = "law", action = 'facilityPrompt', visible = true,
                             name = nearest.name, role = nearest.organizationLabel .. ' · ' .. nearest.label })
                     end
                     if IsControlJustPressed(0, 38) then

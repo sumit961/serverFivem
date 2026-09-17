@@ -33,7 +33,6 @@ Config.FacilityTypes = {
     evidence = { label = 'Evidence Storage', role = 'Evidence Custodian', icon = 'fingerprint' },
     fleet = { label = 'Fleet', role = 'Fleet Coordinator', icon = 'car' },
     impound = { label = 'Impound Operator', role = 'Vehicle Impound', icon = 'truck-ramp-box', public = true },
-    intake = { label = 'Prison Intake', role = 'Booking Officer', icon = 'building-lock' },
 }
 
 -- Tier-based permission ladder shared by every organization below, so rank
@@ -55,6 +54,7 @@ local supervisorPermissions = {
     'law.mdt', 'law.cuff', 'law.drag', 'law.search', 'law.vehicle',
     'law.armory', 'law.storage', 'law.spike', 'law.barricade', 'law.cite',
     'law.impound', 'law.radar', 'law.clamp', 'law.alpr',
+    'law.view_member_map', 'law.set_meeting', 'law.manage_dispatch',
     'law.logistics.request', 'law.logistics.accept', 'law.logistics.prepare',
     'law.logistics.load', 'law.logistics.deliver', 'law.logistics.cancel', 'law.logistics.recover',
 }
@@ -64,6 +64,7 @@ local commandPermissions = {
     'law.armory', 'law.storage', 'law.spike', 'law.barricade', 'law.fleet',
     'law.cite', 'law.manage_citations', 'law.impound', 'law.manage_impound',
     'law.radar', 'law.clamp', 'law.k9', 'law.alpr', 'law.manage_alpr', 'law.manage_members',
+    'law.view_member_map', 'law.set_meeting', 'law.manage_dispatch',
     'law.manage_ranks', 'law.manage_permissions', 'law.manage_armory',
     'law.logistics.request', 'law.logistics.accept', 'law.logistics.prepare',
     'law.logistics.load', 'law.logistics.deliver', 'law.logistics.cancel', 'law.logistics.recover',
@@ -333,6 +334,7 @@ Config.Permissions = {
     ['law.chat'] = 'Use organization chat channel',
     ['law.radio'] = 'Use organization radio channel',
     ['law.receive_dispatch'] = 'Receive 911 dispatch calls',
+    ['law.manage_dispatch'] = 'Assign units and manage live operations',
     ['law.mdt'] = 'Access the MDT',
     ['law.cuff'] = 'Cuff, escort, and book suspects',
     ['law.drag'] = 'Drag/escort restrained suspects',

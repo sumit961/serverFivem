@@ -73,6 +73,9 @@ local buildPreviewPayload
 
 RegisterNetEvent('cm-items:client:setClothingCatalog', function(catalog)
     CMItems.SetClothingCatalog(catalog or { male = {}, female = {} })
+    if previewOpen then
+        SendNUIMessage({ type = 'openItemPreview', payload = buildPreviewPayload() })
+    end
     if CMItems.Config and CMItems.Config.Debug then
         print('[CM-ITEMS] Clothing catalog synced to client')
     end
@@ -144,6 +147,7 @@ end
 
 local function flattenCatalog()
     local rows = {}
+    local seenPairs = {}
     local catalog = CMItems.Clothing and CMItems.Clothing.Catalog or {}
     for gender, byComponent in pairs(catalog) do
         if type(byComponent) == 'table' then
@@ -153,38 +157,84 @@ local function flattenCatalog()
                         if type(entryWrap) == 'table' then
                             local function addEntry(textureId, entry)
                                 if type(entry) ~= 'table' then return end
+                                local resolved = CMItems.GetClothingCatalogEntry(gender, entry.componentType or 'component', tonumber(componentIndex), tonumber(drawableId), tonumber(textureId)) or entry
+
+                                local pairedDrawable = tonumber(resolved.pairedDrawableId or entry.pairedDrawableId)
+                                local pairedTexture = tonumber(resolved.pairedTextureId or entry.pairedTextureId) or 0
+                                local isPaired = (pairedDrawable ~= nil and pairedDrawable >= 0)
+
+                                local effectiveGender = gender
+                                if isPaired then
+                                    local otherGender = (gender == 'female') and 'male' or 'female'
+                                    local thisKey = ('%s:%s:%s:%s'):format(gender, componentIndex, drawableId, textureId)
+                                    local thisDrawKey = ('%s:%s:%s'):format(gender, componentIndex, drawableId)
+                                    if seenPairs[thisKey] or seenPairs[thisDrawKey] then
+                                        return
+                                    end
+                                    local otherKey = ('%s:%s:%s:%s'):format(otherGender, componentIndex, pairedDrawable, pairedTexture)
+                                    local otherDrawKey = ('%s:%s:%s'):format(otherGender, componentIndex, pairedDrawable)
+                                    seenPairs[otherKey] = true
+                                    seenPairs[otherDrawKey] = true
+                                    effectiveGender = 'both'
+                                end
+
                                 rows[#rows + 1] = {
                                     kind = 'catalog',
-                                    name = ('%s %s:%s:%s'):format(tostring(gender), tostring(componentIndex), tostring(drawableId), tostring(textureId)),
-                                    label = entry.label or ('Clothing ' .. tostring(drawableId)),
-                                    category = entry.category or 'clothing',
-                                    gender = gender,
-                                    componentType = entry.componentType or 'component',
+                                    name = ('%s %s:%s:%s'):format(tostring(effectiveGender), tostring(componentIndex), tostring(drawableId), tostring(textureId)),
+                                    label = resolved.label or entry.label or ('Clothing ' .. tostring(drawableId)),
+                                    category = resolved.category or entry.category or 'clothing',
+                                    gender = effectiveGender,
+                                    sourceGender = gender,
+                                    componentType = resolved.componentType or entry.componentType or 'component',
                                     componentIndex = tonumber(componentIndex),
                                     drawableId = tonumber(drawableId),
                                     textureId = tonumber(textureId) or 0,
-                                    price = tonumber(entry.price) or 0,
-                                    enabled = entry.enabled ~= false,
-                                    shop = entry.shop or 'clothes',
-                                    image = imageUrlForCatalog(entry.image),
-                                    description = entry.description or '',
-                                    arms = entry.arms,
-                                    armsTexture = entry.armsTexture or entry.arms_texture,
-                                    undershirt = entry.undershirt,
-                                    undershirtTexture = entry.undershirtTexture or entry.undershirt_texture,
-                                    sleeveStyle = entry.sleeveStyle or entry.sleeve_style,
-                                    bagLevel = entry.bagLevel or entry.bag_level,
+                                    price = tonumber(resolved.price or entry.price) or 0,
+                                    enabled = resolved.enabled ~= false,
+                                    shop = resolved.shop or entry.shop or 'clothes',
+                                    image = imageUrlForCatalog(entry.image or resolved.image),
+                                    description = resolved.description or entry.description or '',
+                                    arms = resolved.arms or entry.arms,
+                                    armsTexture = resolved.armsTexture or resolved.arms_texture or entry.armsTexture or entry.arms_texture,
+                                    undershirt = resolved.undershirt or entry.undershirt,
+                                    undershirtTexture = resolved.undershirtTexture or resolved.undershirt_texture or entry.undershirtTexture or entry.undershirt_texture,
+                                    sleeveStyle = resolved.sleeveStyle or resolved.sleeve_style or entry.sleeveStyle or entry.sleeve_style,
+                                    bagLevel = resolved.bagLevel or resolved.bag_level or entry.bagLevel or entry.bag_level,
+                                    bagSkin = resolved.bagSkin == true or entry.bagSkin == true,
+                                    pairedDrawableId = resolved.pairedDrawableId or entry.pairedDrawableId,
+                                    pairedTextureId = resolved.pairedTextureId or entry.pairedTextureId,
+                                    sellCategory = resolved.sellCategory or entry.sellCategory,
+                                    armorValue = resolved.armorValue or entry.armorValue,
                                     source = 'clothing_catalog',
                                     deletable = true,
                                 }
                             end
-                            if type(entryWrap.default) == 'table' then addEntry(-1, entryWrap.default) end
+                            local hasTextureRow = false
                             if type(entryWrap.textures) == 'table' then
-                                for textureId, entry in pairs(entryWrap.textures) do addEntry(textureId, entry) end
+                                for textureId, entry in pairs(entryWrap.textures) do
+                                    addEntry(textureId, entry)
+                                    hasTextureRow = true
+                                end
                             else
                                 for textureId, entry in pairs(entryWrap) do
-                                    if type(textureId) == 'number' and type(entry) == 'table' then addEntry(textureId, entry) end
+                                    if type(textureId) == 'number' and type(entry) == 'table' then
+                                        addEntry(textureId, entry)
+                                        hasTextureRow = true
+                                    end
                                 end
+                            end
+                            -- The texture = -1 "default"/master row is a
+                            -- /clothingstore management-only bookkeeping row
+                            -- (tracks price/publish/shop for the WHOLE
+                            -- drawable) -- not a separate photographed item.
+                            -- Listing it here made one real capture show up
+                            -- as 2 tiles once the admin managed it in
+                            -- /clothingstore. Skip it whenever a real
+                            -- texture-specific row already represents this
+                            -- drawable; only show it standalone for legacy
+                            -- data that somehow has no texture row at all.
+                            if not hasTextureRow and type(entryWrap.default) == 'table' then
+                                addEntry(-1, entryWrap.default)
                             end
                         end
                     end
@@ -244,6 +294,12 @@ function buildPreviewPayload()
             propOverride = prop.override,
             source = (CMItems.CatalogItems and CMItems.CatalogItems[name]) and 'catalog' or 'static',
             deletable = (CMItems.CatalogItems and CMItems.CatalogItems[name]) ~= nil,
+            -- Non-empty for items like clothing_bags that need per-instance
+            -- metadata (drawable/texture/gender/...) to mean anything. This
+            -- generic card can't supply that -- the UI uses it to hide "Get
+            -- item" here and point the admin at the item's actual catalog
+            -- tile instead (see cm-items:server:previewGiveItem's matching guard).
+            metadataRequired = type(item.metadataRequired) == 'table' and item.metadataRequired or {},
         }
     end
     table.sort(items, function(a, b) return (a.category .. a.name) < (b.category .. b.name) end)

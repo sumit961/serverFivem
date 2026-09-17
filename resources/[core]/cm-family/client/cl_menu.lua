@@ -93,6 +93,31 @@ RegisterNUICallback('refresh', function(_, cb)
     cb({ ok = true })
 end)
 
+RegisterNUICallback('routeToHouse', function(payload, cb)
+    payload = payload or {}
+    local coords = payload.coords
+    local x, y
+    if type(coords) == 'table' then
+        x = tonumber(coords.x or coords[1])
+        y = tonumber(coords.y or coords[2])
+    end
+
+    if (not x or not y) and payload.houseId then
+        local serverCoords = lib.callback.await('cm-family:server:getHouseCoords', false, tonumber(payload.houseId))
+        if type(serverCoords) == 'table' then
+            x = tonumber(serverCoords.x or serverCoords[1])
+            y = tonumber(serverCoords.y or serverCoords[2])
+        end
+    end
+
+    if x and y then
+        SetNewWaypoint(x + 0.0, y + 0.0)
+        cb({ ok = true })
+    else
+        cb({ ok = false, error = 'missing_coords' })
+    end
+end)
+
 RegisterNUICallback('close', function(_, cb)
     menuOpen = false
     setFocus(false)

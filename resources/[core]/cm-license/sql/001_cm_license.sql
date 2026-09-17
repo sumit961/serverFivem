@@ -26,12 +26,14 @@ CREATE TABLE IF NOT EXISTS cm_license_types (
 CREATE TABLE IF NOT EXISTS cm_license_routes (
     id INT PRIMARY KEY AUTO_INCREMENT,
     license_type_id INT NOT NULL,
+    label VARCHAR(100) COMMENT 'Admin-facing route name',
     vehicle_spawn JSON NOT NULL COMMENT 'Vehicle spawn: {x, y, z, heading}',
+    enabled BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
+    -- A type may own several routes; the exam draws one at random.
     FOREIGN KEY (license_type_id) REFERENCES cm_license_types(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_route_per_type (license_type_id),
     INDEX idx_license_type_id (license_type_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -90,7 +92,10 @@ CREATE TABLE IF NOT EXISTS cm_license_active_tests (
     operation_key VARCHAR(96) UNIQUE,
     character_id INT NOT NULL,
     license_type_id INT NOT NULL,
-    test_started_at BIGINT NOT NULL COMMENT 'Unix timestamp',
+    route_id INT COMMENT 'Which route was drawn for this attempt',
+    test_started_at BIGINT NOT NULL COMMENT 'Unix timestamp when the fee was taken',
+    test_began_at BIGINT COMMENT 'Unix timestamp when the player crossed the start marker',
+    test_ended_at BIGINT COMMENT 'Unix timestamp when the session finished',
     current_checkpoint INT NOT NULL DEFAULT 0 COMMENT 'Last completed checkpoint',
     total_checkpoints INT NOT NULL COMMENT 'Total in route',
     vehicle_netid INT COMMENT 'Network ID of spawned vehicle',

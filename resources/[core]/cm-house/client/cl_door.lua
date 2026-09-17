@@ -19,6 +19,10 @@ local doorRenderConfirmed = false
 local nuiBootReady = false
 local doorNuiReady = false
 
+local function hudNotify(message, kind)
+    TriggerEvent('cm-hud:client:notify', tostring(message or ''), kind or 'inform')
+end
+
 MyHouses = {}        -- [houseId] = true
 
 -- ------------------------------------------------------------
@@ -28,7 +32,8 @@ local function refreshBlip(h)
     if Blips[h.id] then RemoveBlip(Blips[h.id]) Blips[h.id] = nil end
 
     local mine = MyHouses[h.id]
-    if not mine and not h.forSale and not Config.HouseBlip.showOthers then
+    local familyHouse = h.isFamilyHouse == true or tonumber(h.familyId) ~= nil
+    if not mine and not h.forSale and not familyHouse and not Config.HouseBlip.showOthers then
         return   -- do not paint 500 white dots across the map
     end
 
@@ -37,13 +42,18 @@ local function refreshBlip(h)
     SetBlipScale(b, Config.HouseBlip.scale)
     SetBlipAsShortRange(b, true)
     SetBlipColour(b,
-        mine and Config.HouseBlip.colorOwned
+        familyHouse and Config.HouseBlip.colorFamily
+        or (mine and Config.HouseBlip.colorOwned)
         or (h.forSale and Config.HouseBlip.colorForSale)
         or Config.HouseBlip.colorOther)
     BeginTextCommandSetBlipName('STRING')
     -- Keep one shared pause-map legend category. Numbered selection remains in
     -- the property/admin menus instead of creating hundreds of legend rows.
-    AddTextComponentString('House')
+    AddTextComponentString(
+        familyHouse and 'Family House'
+        or (mine and 'Owned House')
+        or (h.forSale and 'House For Sale')
+        or 'House')
     EndTextCommandSetBlipName(b)
     Blips[h.id] = b
 end
@@ -75,43 +85,42 @@ local function openHelipad(house)
         'cm-house:server:helipadVehicles', false, house.id)
     helipadBusy = false
     if not callbackOk then
-        return lib.notify({
-            description = 'The helipad service is still starting. Restart cm-house and try again.',
-            type = 'error',
-        })
+        return hudNotify('The helipad service is still starting. Restart cm-house and try again.', 'error')
     end
     if type(vehicles) ~= 'table' then
-        return lib.notify({ description = why or 'The helipad is unavailable.', type = 'error' })
+        return hudNotify(why or 'The helipad is unavailable.', 'error')
     end
     if #vehicles == 0 then
-        return lib.notify({ description = 'No accessible helicopters were found.', type = 'inform' })
+        return hudNotify('No accessible helicopters were found.', 'inform')
     end
 
-    local options = {}
-    for _, vehicle in ipairs(vehicles) do
-        local vehicleId = tonumber(vehicle.id)
-        options[#options + 1] = {
-            title = tostring(vehicle.label or vehicle.model or 'Helicopter'),
-            description = ('%s%s'):format(tostring(vehicle.plate or ''), vehicle.family and ' · Family' or ''),
-            icon = 'helicopter',
-            onSelect = function()
-                local callbackWorked, ok, message = pcall(lib.callback.await,
-                    'cm-house:server:callHelicopter', false, house.id, vehicleId)
-                if not callbackWorked then
-                    return lib.notify({ description = 'The helipad service restarted. Try again.', type = 'error' })
-                end
-                lib.notify({ description = message or (ok and 'Helicopter called.' or 'Call failed.'),
-                    type = ok and 'success' or 'error' })
-            end,
-        }
-    end
-    lib.registerContext({
-        id = ('cm_house_helipad_%s'):format(house.id),
-        title = ('House #%s Helipad'):format(house.houseNumber or '?'),
-        options = options,
-    })
-    lib.showContext(('cm_house_helipad_%s'):format(house.id))
+    SetNuiFocus(true, true)
+    SendNUIMessage({ action = 'openHelipadPicker', data = {
+        houseId = tonumber(house.id), houseNumber = house.houseNumber,
+        vehicles = vehicles,
+    } })
 end
+
+RegisterNUICallback('helipad:close', function(_, cb)
+    SetNuiFocus(false, false)
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('helipad:call', function(data, cb)
+    local houseId = tonumber(data and data.houseId)
+    local vehicleId = tonumber(data and data.vehicleId)
+    if not houseId or not vehicleId then cb({ ok = false }); return end
+    local callbackWorked, ok, message = pcall(lib.callback.await,
+        'cm-house:server:callHelicopter', false, houseId, vehicleId)
+    SetNuiFocus(false, false)
+    if not callbackWorked then
+        hudNotify('The helipad service restarted. Try again.', 'error')
+        cb({ ok = false })
+        return
+    end
+    hudNotify(message or (ok and 'Helicopter called.' or 'Call failed.'), ok and 'success' or 'error')
+    cb({ ok = ok == true })
+end)
 
 CreateThread(function()
     while true do
@@ -295,7 +304,7 @@ function CloseDoorMenu()
 
     if fallbackContextOpen then
         fallbackContextOpen = false
-        pcall(function() lib.hideContext(false) end)
+        pcall(function() CMHideContext(false) end)
     end
 
     closingDoorMenu = false
@@ -334,7 +343,7 @@ local function openFallbackDoorMenu(view)
             icon = 'cart-shopping',
             onSelect = function()
                 local ok, msg = lib.callback.await('cm-house:server:buyHouse', false, view.id)
-                lib.notify({ description = msg, type = ok and 'success' or 'error' })
+                hudNotify(msg, ok and 'success' or 'error')
                 CloseDoorMenu()
             end,
         }
@@ -371,7 +380,7 @@ local function openFallbackDoorMenu(view)
             icon = view.locked and 'lock-open' or 'lock',
             onSelect = function()
                 local ok, msg = lib.callback.await('cm-house:server:toggleLock', false, view.id)
-                lib.notify({ description = msg, type = ok and 'success' or 'error' })
+                hudNotify(msg, ok and 'success' or 'error')
                 CloseDoorMenu()
             end,
         }
@@ -383,16 +392,13 @@ local function openFallbackDoorMenu(view)
             description = ('Government payout: $%s.'):format(formatMoney(view.govValue or 0)),
             icon = 'money-bill-transfer',
             onSelect = function()
-                local confirm = lib.alertDialog({
-                    header = 'Sell this house?',
-                    content = 'It goes back on the market and stored contents are removed. This cannot be undone.',
-                    centered = true,
-                    cancel = true,
-                    labels = { confirm = 'Sell it', cancel = 'Keep it' },
-                })
-                if confirm == 'confirm' then
+                local confirmed = CMHouseConfirm and CMHouseConfirm(
+                    'Sell this house?',
+                    'It goes back on the market and stored contents are removed. This cannot be undone.',
+                    'Sell it', 'Keep it', 'danger')
+                if confirmed then
                     local ok, msg = lib.callback.await('cm-house:server:sellHouse', false, view.id)
-                    lib.notify({ description = msg, type = ok and 'success' or 'error' })
+                    hudNotify(msg, ok and 'success' or 'error')
                 end
                 CloseDoorMenu()
             end,
@@ -407,7 +413,7 @@ local function openFallbackDoorMenu(view)
         end,
     }
 
-    lib.registerContext({
+    CMRegisterContext({
         id = 'cm_house_door_fallback',
         title = 'Property menu',
         canClose = true,
@@ -420,8 +426,8 @@ local function openFallbackDoorMenu(view)
         options = options,
     })
 
-    lib.showContext('cm_house_door_fallback')
-    print(('[cm-house] Door UI did not confirm visibility; opened ox_lib fallback for house %s. coreReady=%s doorReady=%s safePayload=true')
+    CMShowContext('cm_house_door_fallback')
+    print(('[cm-house] Door UI did not confirm visibility; opened CM fallback for house %s. coreReady=%s doorReady=%s safePayload=true')
         :format(tostring(view.id), tostring(nuiBootReady), tostring(doorNuiReady)))
 end
 
@@ -467,14 +473,15 @@ local function buildDoorNuiPayload(view, requestId)
         garageCapacity  = number(view.garageCapacity, 0),
         hasGarage       = view.hasGarage == true,
         hasHelipad      = view.hasHelipad == true,
+        raid            = type(view.raid) == 'table' and view.raid or nil,
         liveView        = false,
         can = {
             lock    = can.lock == true,
             enter   = can.enter == true,
             garage  = can.garage == true,
             sell    = can.sell == true,
-            activity = can.activity == true,
             buy     = can.buy == true,
+            raid    = can.raid == true,
         },
     }
 end
@@ -494,7 +501,7 @@ function OpenDoorMenu(houseId)
 
     if not view then
         menuOpen = false
-        lib.notify({ description = 'That house is not registered.', type = 'error' })
+        hudNotify('That house is not registered.', 'error')
         return
     end
 
@@ -631,7 +638,7 @@ end)
 RegisterNUICallback('door:toggleLock', function(d, cb)
     local ok, msg, locked = lib.callback.await('cm-house:server:toggleLock', false, d.houseId)
     if not ok then
-        lib.notify({ description = msg, type = 'error' })
+        hudNotify(msg, 'error')
     else
         PlaySoundFrontend(-1, locked and 'Lock' or 'Unlock',
             'DLC_HEIST_HACKING_SNAKE_SOUNDS', true)
@@ -654,7 +661,7 @@ end)
 RegisterNUICallback('door:activity', function(d, cb)
     local rows, reason = lib.callback.await('cm-house:server:getHouseActivity', false, d.houseId)
     if type(rows) ~= 'table' then
-        lib.notify({ description = reason or 'Activity is unavailable.', type = 'error' })
+        hudNotify(reason or 'Activity is unavailable.', 'error')
         cb({ ok = false })
         return
     end
@@ -674,29 +681,38 @@ RegisterNUICallback('door:activity', function(d, cb)
     end
     if #options == 0 then options[1] = { title = 'No house activity yet', disabled = true } end
     closeMenu()
-    lib.registerContext({ id = 'cm_house_activity', title = 'House Activity', options = options })
-    lib.showContext('cm_house_activity')
+    CMRegisterContext({ id = 'cm_house_activity', title = 'House Activity', options = options })
+    CMShowContext('cm_house_activity')
     cb({ ok = true })
+end)
+
+RegisterNUICallback('door:startRaid', function(d, cb)
+    local ok, message = lib.callback.await('cm-house:server:startFamilyRaid', false, d and d.houseId)
+    if ok then
+        hudNotify(message or 'Family raid started.', 'success')
+        closeMenu()
+    else
+        hudNotify(message or 'The family raid could not start.', 'error')
+    end
+    cb({ ok = ok == true, message = message })
 end)
 
 RegisterNUICallback('door:buy', function(d, cb)
     local ok, msg = lib.callback.await('cm-house:server:buyHouse', false, d.houseId)
-    lib.notify({ description = msg, type = ok and 'success' or 'error' })
+    hudNotify(msg, ok and 'success' or 'error')
     if ok then closeMenu() end
     cb({ ok = ok, message = msg })
 end)
 
 RegisterNUICallback('door:sell', function(d, cb)
-    local confirm = lib.alertDialog({
-        header   = 'Sell this house?',
-        content  = 'It goes back on the market and you lose everything stored inside. This cannot be undone.',
-        centered = true, cancel = true,
-        labels   = { confirm = 'Sell it', cancel = 'Keep it' },
-    })
-    if confirm ~= 'confirm' then cb({ ok = false }) return end
+    local confirmed = CMHouseConfirm and CMHouseConfirm(
+        'Sell this house?',
+        'It goes back on the market and you lose everything stored inside. This cannot be undone.',
+        'Sell it', 'Keep it', 'danger')
+    if not confirmed then cb({ ok = false }) return end
 
     local ok, msg = lib.callback.await('cm-house:server:sellHouse', false, d.houseId)
-    lib.notify({ description = msg, type = ok and 'success' or 'error' })
+    hudNotify(msg, ok and 'success' or 'error')
     if ok then closeMenu() end
     cb({ ok = ok, message = msg })
 end)
@@ -773,5 +789,5 @@ RegisterCommand('housefix', function()
     DisplayRadar(true)
     FreezeEntityPosition(PlayerPedId(), false)
     DoScreenFadeIn(200)
-    lib.notify({ description = 'Menu and camera reset.', type = 'success' })
+    hudNotify('Menu and camera reset.', 'success')
 end, false)

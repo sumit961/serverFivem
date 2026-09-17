@@ -7,11 +7,11 @@
 
   <link rel="stylesheet" href="vendor/slick-lite.css"/>
   <link rel="stylesheet" href="vendor/fa-lite.css"/>
-  <link rel="stylesheet" href="style.css?v=321">
+  <link rel="stylesheet" href="style.css?v=325">
 
     <script src="vendor/jquery.min.js"></script>
   <script src="vendor/slick-lite.js"></script>
-  <script src="main.js?v=311" defer></script>
+  <script src="main.js?v=313" defer></script>
   
 </head>
   <body>
@@ -48,9 +48,9 @@
       </div>
       <div id="cinema-right-meta">
         <div id="cinema-counter">0 / 0</div>
-        <button id="cinema-cat-up" class="cinema-arrows" type="button" title="Previous category">⌃</button>
+        <button id="cinema-cat-up" class="cinema-arrows" type="button" title="Previous category" aria-label="Previous category">&#10094;</button>
         <div id="cinema-list-title">SPORTS</div>
-        <button id="cinema-cat-down" class="cinema-arrows" type="button" title="Next category">⌄</button>
+        <button id="cinema-cat-down" class="cinema-arrows" type="button" title="Next category" aria-label="Next category">&#10095;</button>
       </div>
 
 
@@ -384,6 +384,17 @@
               <label>Top speed <small>km/h; 0 uses handling default</small><input id="admin-speed" type="number" min="0" max="1000" step="1" /></label>
               <label>Trunk level <small>0 none · 1 six cells · 6 thirty</small><input id="admin-trunk" type="number" min="0" max="6" step="1" /></label>
             </div>
+          </section>
+
+          <section class="admin-section admin-fallback-settings">
+            <div class="admin-section-title">
+              <div><strong>Missing model fallback</strong><span>Shown when this vehicle temporarily uses Komoda</span></div>
+              <button id="admin-save-replacement-notice" class="admin-inline-action" type="button">Update message</button>
+            </div>
+            <label>Vehicle menu message
+              <textarea id="admin-replacement-notice" maxlength="240" rows="3" placeholder="This vehicle is temporarily using a Komoda because its original model is unavailable. It will be fixed soon."></textarea>
+              <small>Leave empty to use the default message. Maximum 240 characters.</small>
+            </label>
           </section>
 
           <section class="admin-section admin-carplay-settings">

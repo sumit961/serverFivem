@@ -1,0 +1,62 @@
+/* CM interaction prompt ("Press [key]" style). Auto-injected by CMUI.showInteract(). */
+
+.cm-interact {
+    position: fixed;
+    right: 9.5vw;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 9800;
+    display: flex;
+    align-items: center;
+    gap: var(--cm-space-3);
+    color: var(--cm-text-strong);
+    pointer-events: none;
+    text-shadow: 0 1px 5px rgba(0, 0, 0, 0.9);
+}
+
+.cm-interact[hidden] {
+    display: none !important;
+}
+
+.cm-interact__key {
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    border: 2px solid var(--cm-text-strong);
+    border-radius: 50%;
+    background: rgba(var(--cm-primary-rgb), 0.14);
+    font: 700 17px var(--cm-font-display);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08), 0 3px 12px rgba(0, 0, 0, 0.45), var(--cm-glow);
+}
+
+.cm-interact__line {
+    width: 42px;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.18));
+}
+
+.cm-interact__copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 145px;
+}
+
+.cm-interact__copy b {
+    font: 700 13px var(--cm-font-display);
+    letter-spacing: 0.12em;
+}
+
+.cm-interact__copy small {
+    color: rgba(234, 247, 255, 0.72);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+}
+
+@media (max-width: 900px) {
+    .cm-interact {
+        right: 5vw;
+    }
+}

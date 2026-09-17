@@ -6,8 +6,10 @@ local O = CMVehicles.Operations
 local active = {}
 local ensureTable
 local tableReady = false
+local internalAccess = {}
 
-local function allowed()
+local function allowed(access)
+    if access == internalAccess then return true end
     local invoker = GetInvokingResource()
     if not invoker or invoker == GetCurrentResourceName() then return true end
     local list = Config.Operations and Config.Operations.authorizedResources or {}
@@ -18,8 +20,8 @@ local function tokenFor(vehicleId, kind)
     return ('veh-op:%s:%s:%s:%s'):format(vehicleId, tostring(kind or 'operation'), os.time(), math.random(100000, 999999))
 end
 
-function O.Begin(vehicleId, operationType, src, details)
-    if not allowed() then return false, 'resource_not_authorized' end
+local function begin(access, vehicleId, operationType, src, details)
+    if not allowed(access) then return false, 'resource_not_authorized' end
     vehicleId = tonumber(vehicleId)
     details = type(details) == 'table' and details or {}
     if not vehicleId then return false, 'invalid_vehicle_id' end
@@ -52,29 +54,47 @@ function O.Begin(vehicleId, operationType, src, details)
         expiresAt = os.time() + ttl, details = details,
     }
     active[vehicleId] = op
-    local insertedOk, inserted = pcall(function()
-        return MySQL.insert.await([[
+    local insertedOk, affectedRows = pcall(function()
+        -- The operation token is the journal identity. MySQL.insert returns
+        -- only an AUTO_INCREMENT id, which valid legacy schemas may omit.
+        -- MySQL.update returns the affected-row count needed here instead.
+        return MySQL.update.await([[
             INSERT INTO cm_vehicle_operations
                 (token, vehicle_id, resource_name, operation_type, actor_character_id,
                  source_state, source_ref, source_slot, target_state, target_ref, target_slot,
                  stage, status, details, expires_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, DATE_ADD(NOW(), INTERVAL ? SECOND))
         ]], {
-            token, vehicleId, tostring(GetInvokingResource() or GetCurrentResourceName()), op.type, op.characterId,
+            token, vehicleId, tostring(access == internalAccess and GetCurrentResourceName()
+                or GetInvokingResource() or GetCurrentResourceName()), op.type, op.characterId,
             row and row.state or nil, row and row.ref or nil, row and row.slot or nil,
             details.targetState, details.targetRef, details.targetSlot,
             op.stage, U.Encode(details), ttl,
         })
     end)
-    if not insertedOk or not inserted then
+    if not insertedOk or tonumber(affectedRows) ~= 1 then
         active[vehicleId] = nil
+        local failure = tostring(affectedRows or 'insert_affected_no_rows')
+        local safeReason = failure:match("Unknown column '[^']+'")
+            or failure:match("Table '[^']+' doesn't exist")
+            or failure:match('Duplicate entry')
+            or 'database rejected the operation journal insert'
+        print(('[cm-vehicles] ^1operation journal insert failed: %s^7'):format(safeReason))
         return false, 'operation_journal_insert_failed'
     end
     return true, token
 end
 
-function O.Advance(vehicleId, token, stage, details)
-    if not allowed() then return false, 'resource_not_authorized' end
+function O.Begin(vehicleId, operationType, src, details)
+    return begin(nil, vehicleId, operationType, src, details)
+end
+
+function O.BeginInternal(vehicleId, operationType, src, details)
+    return begin(internalAccess, vehicleId, operationType, src, details)
+end
+
+local function advance(access, vehicleId, token, stage, details)
+    if not allowed(access) then return false, 'resource_not_authorized' end
     vehicleId = tonumber(vehicleId)
     local op = active[vehicleId]
     if not op or tostring(op.token) ~= tostring(token) then return false, 'operation_not_owned' end
@@ -89,8 +109,16 @@ function O.Advance(vehicleId, token, stage, details)
     return true
 end
 
-local function finish(vehicleId, token, status, stage, details)
-    if not allowed() then return false, 'resource_not_authorized' end
+function O.Advance(vehicleId, token, stage, details)
+    return advance(nil, vehicleId, token, stage, details)
+end
+
+function O.AdvanceInternal(vehicleId, token, stage, details)
+    return advance(internalAccess, vehicleId, token, stage, details)
+end
+
+local function finish(access, vehicleId, token, status, stage, details)
+    if not allowed(access) then return false, 'resource_not_authorized' end
     vehicleId = tonumber(vehicleId)
     local op = active[vehicleId]
     if op and tostring(op.token) ~= tostring(token) then return false, 'operation_not_owned' end
@@ -105,10 +133,16 @@ local function finish(vehicleId, token, status, stage, details)
 end
 
 function O.Complete(vehicleId, token, stage, details)
-    return finish(vehicleId, token, 'completed', stage or 'completed', details)
+    return finish(nil, vehicleId, token, 'completed', stage or 'completed', details)
 end
 function O.Fail(vehicleId, token, stage, details)
-    return finish(vehicleId, token, 'failed', stage or 'failed', details)
+    return finish(nil, vehicleId, token, 'failed', stage or 'failed', details)
+end
+function O.CompleteInternal(vehicleId, token, stage, details)
+    return finish(internalAccess, vehicleId, token, 'completed', stage or 'completed', details)
+end
+function O.FailInternal(vehicleId, token, stage, details)
+    return finish(internalAccess, vehicleId, token, 'failed', stage or 'failed', details)
 end
 function O.IsActive(vehicleId)
     local op = active[tonumber(vehicleId)]

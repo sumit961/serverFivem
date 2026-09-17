@@ -24,6 +24,7 @@ ACTIONS = {
     WEAPON_STORAGE_USE      = 'weapon_storage.use',
     WEAPON_STORAGE_DEPOSIT  = 'weapon_storage.deposit',
     WEAPON_STORAGE_WITHDRAW = 'weapon_storage.withdraw',
+    WEAPON_STORAGE_MANAGE   = 'weapon_storage.manage',
     -- Backward-compatible constant; old integrations resolve to the secure locker.
     WARDROBE_USE            = 'weapon_storage.use',
     STORAGE_USE         = 'storage.use',
@@ -40,7 +41,6 @@ ACTIONS = {
 -- Actions only the legal owner may ever take. No rank, no key, no family.
 local OWNER_ONLY = {
     ['house.sell']           = true,
-    ['house.manage_access']  = true,
 }
 
 -- What a plain key gets you. A key is not family membership: it opens the
@@ -94,12 +94,13 @@ end
 local FAMILY_PERMISSION_MAP = {
     ['house.enter'] = 'door.enter',
     ['house.lock'] = 'door.lock',
-    ['house.manage_access'] = 'keys.grant',
-    ['house.set_spawn'] = 'door.enter',
+    ['house.manage_access'] = 'house.manage_access',
+    ['house.set_spawn'] = 'house.set_spawn',
     ['house.view_logs'] = 'house.view_logs',
     ['weapon_storage.use'] = 'weapon_storage.access',
     ['weapon_storage.deposit'] = 'weapon_storage.deposit',
     ['weapon_storage.withdraw'] = 'weapon_storage.withdraw',
+    ['weapon_storage.manage'] = 'weapon_storage.manage',
     ['wardrobe.use'] = 'weapon_storage.access',
     ['storage.use'] = 'storage.access',
     ['garage.enter'] = 'garage.access',
@@ -111,9 +112,7 @@ local FAMILY_PERMISSION_MAP = {
 }
 
 
-local BASIC_FAMILY_MEMBER_PERMISSIONS = {
-    ['door.enter'] = true,
-}
+local BASIC_FAMILY_MEMBER_PERMISSIONS = {}
 
 local function committedFamilyMembershipAllows(cid, house, permission)
     if not house or not house.id or not house.family_id then return false end

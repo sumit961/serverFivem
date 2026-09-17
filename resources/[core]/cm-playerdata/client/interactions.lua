@@ -246,6 +246,18 @@ local function GetFamilySymbol(serverId)
     if type(family) ~= 'table' or family.active ~= true or family.symbolVisible == false then return nil, nil end
     if IsFamilySymbolMasked(state) then return nil, nil end
 
+    -- Do not leak another family's emblem to unrelated players.  The state
+    -- bag is replicated so we can compare identities locally without adding
+    -- a server round-trip for every overhead label.
+    if GetCfg('ShowFamilySymbolsToOutsiders', false) ~= true then
+        local mine = LocalPlayer.state.cmFamily
+        local myFamilyId = type(mine) == 'table' and mine.active == true and tonumber(mine.id) or nil
+        local targetFamilyId = tonumber(family.id)
+        if not myFamilyId or not targetFamilyId or myFamilyId ~= targetFamilyId then
+            return nil, nil
+        end
+    end
+
     local symbol = tostring(family.symbol or 'shield'):lower()
     if not FAMILY_SYMBOLS[symbol] then symbol = 'shield' end
     return symbol, HexToRgb(family.symbolColor or family.color)

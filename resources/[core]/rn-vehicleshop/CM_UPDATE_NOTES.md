@@ -5,6 +5,7 @@
 - Vehicle replacement now preserves the existing `cm_owned_vehicles.id` / `vehicle_id`.
 - Fuel, health, damage, plate, garage, trunk, metadata, keys, family access and organisation ownership are not rewritten.
 - Stored vehicles migrate immediately; vehicles currently outside a garage remain in their live model and migrate automatically after storage.
+- If the original streamed model is already missing and no live entity remains, `cm-vehicles` finalizes the pending migration immediately before the next spawn so the same persistent vehicle can be recalled as Komoda.
 - The old catalog row is retired instead of deleted, and replacement history is stored in `cm_vehicle_replacements`.
 - Replacement images must already be captured on the target model before the migration can run.
 - Direct deletion is blocked when any owned vehicle still uses the model.

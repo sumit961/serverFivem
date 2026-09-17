@@ -116,6 +116,21 @@ RegisterNetEvent('cm-law:client:clearMeetingPoint', function()
     if lib then lib.notify({ title = 'Meeting point', description = 'Meeting point cleared.', type = 'inform' }) end
 end)
 
+RegisterNetEvent('cm-law:client:trackingDisabled', function()
+    enabled = false
+    clearMembers()
+end)
+
+RegisterNetEvent('cm-law:client:forceDutyCleanup', function()
+    enabled = false
+    clearMembers()
+    if meetingBlip and DoesBlipExist(meetingBlip) then
+        SetBlipRoute(meetingBlip, false)
+        RemoveBlip(meetingBlip)
+    end
+    meetingBlip = nil
+end)
+
 AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end
     clearMembers()

@@ -12,11 +12,15 @@ local function nearHelipad(src, house)
 end
 
 local function isHelicopter(row)
-    local kind = tostring(row.vehicle_type or ''):lower()
-    if kind == 'heli' or kind == 'helicopter' then return true end
+    local kind = tostring(row.vehicle_type or row.type or row.category or row.vehicle_category or ''):lower()
+    if kind == 'heli' or kind == 'helicopter' or kind:find('heli', 1, true) then return true end
     if type(GetVehicleTypeFromName) == 'function' then
         local ok, resolved = pcall(GetVehicleTypeFromName, joaat(tostring(row.model or '')))
-        return ok and tostring(resolved):lower() == 'heli'
+        if ok and tostring(resolved):lower() == 'heli' then return true end
+    end
+    local model = tostring(row.model or ''):lower()
+    for _, token in ipairs({ 'heli', 'buzzard', 'frogger', 'maverick', 'annihilator', 'cargobob', 'polmav', 'swift', 'supervolito', 'havok', 'hunter', 'valkyrie', 'volatus', 'seasparrow', 'sparrow' }) do
+        if model:find(token, 1, true) then return true end
     end
     return false
 end
@@ -54,8 +58,9 @@ lib.callback.register('cm-house:server:helipadVehicles', function(src, houseId)
     local rows
     if house.family_id and GetResourceState('cm-family') == 'started' then
         rows = MySQL.query.await([[
-            SELECT DISTINCT vehicle.*
+            SELECT DISTINCT vehicle.*, catalog.image, catalog.category AS vehicle_category
             FROM cm_owned_vehicles vehicle
+            LEFT JOIN cm_vehicle_catalog catalog ON LOWER(catalog.model) = LOWER(vehicle.model)
             LEFT JOIN cm_family_vehicle_access family_vehicle
               ON family_vehicle.vehicle_id = vehicle.id AND family_vehicle.family_id = ?
             LEFT JOIN cm_house_vehicle_slots family_slot
@@ -69,7 +74,8 @@ lib.callback.register('cm-house:server:helipadVehicles', function(src, houseId)
         ]], { tonumber(house.family_id), tonumber(house.id), tostring(cid) }) or {}
     else
         rows = MySQL.query.await([[
-            SELECT * FROM cm_owned_vehicles
+            SELECT vehicle.*, catalog.image, catalog.category AS vehicle_category FROM cm_owned_vehicles vehicle
+            LEFT JOIN cm_vehicle_catalog catalog ON LOWER(catalog.model) = LOWER(vehicle.model)
             WHERE owner_character_id = ?
             ORDER BY id DESC
             LIMIT 200
@@ -84,6 +90,7 @@ lib.callback.register('cm-house:server:helipadVehicles', function(src, houseId)
                 vehicles[#vehicles + 1] = {
                     id = tonumber(row.id), plate = tostring(row.plate or ''),
                     model = tostring(row.model or ''), label = tostring(row.label or row.model or 'Helicopter'),
+                    image = row.image and tostring(row.image) or nil,
                     family = tostring(row.owner_character_id) ~= tostring(cid) or accessKind == 'family',
                 }
             end

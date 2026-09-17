@@ -3,8 +3,8 @@ game 'gta5'
 
 name 'cm-store'
 author 'CM'
-description 'General item store. Admin adds any cm-items item; players buy it into their inventory.'
-version '1.0.0'
+description 'Convenience store system with gas-station styled UI, ownership, overstock, cm-ui E-interact and NPC dialogue.'
+version '2.0.0'
 lua54 'yes'
 
 ui_page 'web/index.html'
@@ -17,7 +17,8 @@ files {
     'web/images/custom/*.png',
     'web/images/custom/*.jpg',
     'web/images/custom/*.jpeg',
-    'web/images/custom/*.webp'
+    'web/images/custom/*.webp',
+    'sql/001_cm_store.sql'
 }
 
 shared_scripts {
@@ -38,8 +39,6 @@ dependencies {
     'cm-playerdata',
     'cm-inventory',
     'cm-items',
+    'cm-ui',
     'oxmysql'
 }
-
--- ox_target is optional. Ensure order in server.cfg:
--- ensure ox_lib, ensure cm-items, ensure cm-inventory, ensure cm-itemactions, ensure cm-store.

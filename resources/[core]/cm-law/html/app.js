@@ -1,6 +1,48 @@
 const app=document.querySelector('#app'),roster=document.querySelector('#roster'),toast=document.querySelector('#toast');let state=null,facilityOnly=false;
-const post=(name,data={})=>fetch(`https://${GetParentResourceName()}/${name}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(r=>r.json());
+const res=typeof GetParentResourceName==='function'?GetParentResourceName():'cm-law';
+const post=async(name,data={})=>{if(window.cmRequest)return window.cmRequest(`https://${res}/${name}`,data);try{const r=await fetch(`https://${res}/${name}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});if(!r.ok)return{ok:false,error:`Request failed (${r.status}).`};return await r.json()}catch(_){return{ok:false,error:'The organization terminal did not respond.'}}};
+// Shared booking review. It is intentionally outside the dashboard lifecycle so
+// the same intake form works from the player interaction menu while F6 is closed.
+const bookingPanel=document.querySelector('#bookingPanel');let bookingData=null,bookingBusy=false;
+function renderBooking(data){
+  bookingData=data||{}; bookingBusy=false; bookingPanel?.classList.remove('is-busy'); if(!bookingPanel)return;
+  bookingPanel.hidden=false; document.querySelector('#bookingTitle').textContent=`Book ${data.suspectName||'Suspect'}`;
+  document.querySelector('#bookingSuspectMeta').textContent=`Suspect · CID ${data.characterId||'—'} · Shared prison intake`;
+  const charges=document.querySelector('#bookingCharges'); const max=Number(data.maxCharges||10);
+  charges.innerHTML=(data.charges||[]).map(c=>`<label class="booking-charge"><input type="checkbox" value="${esc(c.id)}" data-booking-charge><span><strong>${esc(c.label)}</strong><small>${Number(c.jailMinutes||0)} minute${Number(c.jailMinutes||0)===1?'':'s'}</small></span></label>`).join('')||'<p class="hint">No charge catalogue is available.</p>';
+  document.querySelector('#bookingChargeCount').textContent=`0 / ${max}`;document.querySelector('#bookingMinutes').textContent='0 min';document.querySelector('#bookingSummaryText').textContent='Select at least one charge.';document.querySelector('#bookingReason').value='';document.querySelector('#bookingReasonCount').textContent='0';document.querySelector('#bookingStatus').textContent='';
+}
+function closeBooking(){if(!bookingPanel||bookingPanel.hidden)return;bookingPanel.hidden=true;bookingData=null;bookingBusy=false;bookingPanel.classList.remove('is-busy');post('bookingClose')}
+function updateBookingPreview(){
+  const selected=[...document.querySelectorAll('[data-booking-charge]:checked')],max=Number(bookingData?.maxCharges||10),lookup=new Map((bookingData?.charges||[]).map(c=>[String(c.id),c]));
+  const minutes=selected.reduce((sum,n)=>sum+Number(lookup.get(n.value)?.jailMinutes||0),0);document.querySelector('#bookingChargeCount').textContent=`${selected.length} / ${max}`;document.querySelector('#bookingMinutes').textContent=`${minutes} min`;document.querySelector('#bookingSummaryText').textContent=selected.length?`${selected.length} charge${selected.length===1?'':'s'} selected · server will verify before custody transfer`:'Select at least one charge.';selected.forEach(n=>n.closest('.booking-charge')?.classList.toggle('is-selected',true));
+}
+document.querySelector('#bookingCharges')?.addEventListener('change',updateBookingPreview);document.querySelector('#bookingReason')?.addEventListener('input',e=>document.querySelector('#bookingReasonCount').textContent=e.target.value.length);document.querySelector('#bookingClose')?.addEventListener('click',closeBooking);document.querySelector('#bookingCancel')?.addEventListener('click',closeBooking);
+document.querySelector('#bookingSubmit')?.addEventListener('click',async()=>{if(!bookingData||bookingBusy)return;const chargeIds=[...document.querySelectorAll('[data-booking-charge]:checked')].map(n=>n.value),reason=document.querySelector('#bookingReason').value.trim();if(!chargeIds.length)return document.querySelector('#bookingStatus').textContent='Select at least one charge.';if(reason.length<5)return document.querySelector('#bookingStatus').textContent='Enter a clear arrest reason.';bookingBusy=true;bookingPanel.classList.add('is-busy');document.querySelector('#bookingStatus').textContent='Verifying custody and transferring to prison…';const result=await post('bookingSubmit',{targetServerId:bookingData.targetServerId,chargeIds,reason});if(result?.ok){document.querySelector('#bookingStatus').textContent='Booking confirmed.';setTimeout(closeBooking,650)}else{bookingBusy=false;bookingPanel.classList.remove('is-busy');document.querySelector('#bookingStatus').textContent=result?.error||'Booking failed; the suspect remains cuffed.'}});
+// Native window.confirm()/confirm() never render in FiveM's NUI CEF (no JS
+// dialog handler is registered), so it returns false immediately without
+// showing anything -- every guarded action below would silently do nothing.
+// This overlay replaces it. Queued so a second call before the first
+// resolves waits its turn instead of orphaning the first caller's promise.
+let lawConfirmQueue=Promise.resolve();
+function showConfirmOverlay(title,message,yesLabel='Confirm',noLabel='Cancel'){
+  const overlay=document.getElementById('lawConfirm');
+  const run=()=>new Promise(resolve=>{
+    document.getElementById('lawConfirmTitle').textContent=title||'Confirm';
+    document.getElementById('lawConfirmMessage').textContent=message||'Are you sure?';
+    const yesBtn=document.getElementById('lawConfirmYes'),noBtn=document.getElementById('lawConfirmNo');
+    yesBtn.textContent=yesLabel;noBtn.textContent=noLabel;
+    overlay.hidden=false;
+    const cleanup=result=>{overlay.hidden=true;yesBtn.onclick=null;noBtn.onclick=null;resolve(result)};
+    yesBtn.onclick=()=>cleanup(true);
+    noBtn.onclick=()=>cleanup(false);
+  });
+  const result=lawConfirmQueue.then(run);
+  lawConfirmQueue=result;
+  return result;
+}
 function notice(message,kind='success'){toast.textContent=message||'';toast.className=`show ${kind}`;clearTimeout(notice.timer);notice.timer=setTimeout(()=>toast.className='',2600)}
+function formatTerminalTime(value){const raw=String(value??'').trim();if(!raw)return'';const numeric=Number(raw.replace(/[^0-9.+-]/g,''));const date=Number.isFinite(numeric)&&numeric>0?new Date(numeric>1e12?numeric:numeric>1e9?numeric*1000:numeric):new Date(raw);return Number.isNaN(date.getTime())?raw:date.toLocaleString([], {month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
 const orgBranding={
   sahp:{logo:'assets/org/sahp.svg',banner:'assets/org/sahp-banner.svg',art:'assets/org/sahp-officer.png',mark:'SAHP',label:'San Andreas Highway Patrol',shortLabel:'SAHP',jurisdiction:'State highway patrol coverage'},
   sheriff:{logo:'assets/org/sheriff.svg',banner:'assets/org/sheriff-banner.svg',art:'assets/org/sheriff-officer.png',mark:'BCSO',label:"Blaine County Sheriff's Office",shortLabel:'BCSO',jurisdiction:'Blaine County and county contract areas'},
@@ -27,16 +69,54 @@ function render(data){
   const jurisdictionEl=document.querySelector('#jurisdiction'); if(jurisdictionEl) jurisdictionEl.textContent=o.jurisdiction||'';
   const rankNameEl=document.querySelector('#rankName'); if(rankNameEl) rankNameEl.textContent=m.rankName||'—';
   const dutyStatusEl=document.querySelector('#dutyStatus'); if(dutyStatusEl) dutyStatusEl.textContent=m.suspended?'Suspended':m.onDuty?'On duty':'Off duty';
+  const dispatchTab=document.querySelector('#dispatchTab');if(dispatchTab)dispatchTab.classList.toggle('hidden',data.canDispatch!==true);
+  const mdtTab=document.querySelector('#mdtTab');if(mdtTab)mdtTab.classList.toggle('hidden',data.canMdt!==true);
+  const dutyButton=document.querySelector('#dashboardDutyButton');
+  if(dutyButton){dutyButton.textContent=m.onDuty?'End duty':'Off duty';dutyButton.disabled=m.onDuty!==true;dutyButton.classList.toggle('is-on',m.onDuty===true)}
   const fleetAllowed = data.canFleetManage || data.canFleetSpawn || Number(data?.summary?.fleetConfigured||0)>0;
   const logsAllowed = data.canManage || data.canViewActivity === true;
   const fleetTab=document.querySelector('#fleetTab'); if(fleetTab) fleetTab.classList.toggle('hidden',!fleetAllowed);
   const fleetRecall=document.querySelector('#fleetRecallAll'); if(fleetRecall) fleetRecall.classList.toggle('hidden',!data.canFleetManage);
   const logsTab=document.querySelector('#logsTab'); if(logsTab) logsTab.classList.toggle('hidden',!logsAllowed);
+  const custodyTab=document.querySelector('#custodyTab'); if(custodyTab) custodyTab.classList.toggle('hidden',data.canCustody!==true);
   const logisticsTab=document.querySelector('#logisticsTab'); if(logisticsTab) logisticsTab.classList.toggle('hidden',data.logisticsVisible!==true);
   const ranks=(data.ranks||[]).filter(r=>!r.is_leader&&Number(r.tier)<Number(m.tier||0));
   roster.innerHTML=(data.roster||[]).map(x=>`<article class="member"><div><div class="member-name">${esc(x.name||x.character_id)}</div><div class="meta">CID ${esc(x.character_id)} · ${esc(x.rank_name)}</div></div><span class="badge ${x.suspended?'suspended':x.on_duty?'on':''}">${x.suspended?'Suspended':x.on_duty?'On duty':'Off duty'}</span>${data.canManage&&!x.is_leader&&Number(x.tier)<Number(m.tier||0)?`<div class="actions"><select data-rank="${esc(x.character_id)}">${ranks.map(r=>`<option value="${r.id}" ${Number(r.id)===Number(x.rank_id)?'selected':''}>${esc(r.name)}</option>`).join('')}</select><button data-action="rank" data-cid="${esc(x.character_id)}">Set rank</button><button data-action="${x.suspended?'reinstate':'suspend'}" data-cid="${esc(x.character_id)}">${x.suspended?'Reinstate':'Suspend'}</button><button data-action="fire" data-cid="${esc(x.character_id)}">Remove</button></div>`:'<div></div>'}</article>`).join('')||(data.canViewMembers?'<p>No members found.</p>':'<p>Your rank does not have roster visibility.</p>');
   const f=data.facilities||{},types=data.facilityTypes||{};document.querySelector('#facilities').innerHTML=Object.entries(types).map(([id,t])=>{const set=!!f[id];return `<article class="facility-card"><small>${esc(t.role)}</small><h3>${esc(t.label)}</h3><p>${set?'Configured and active':'Location not configured'}</p>${data.canManage?`<div class="actions"><button data-facility="${esc(id)}" data-reset="false">Set here</button>${set?`<button class="danger" data-facility="${esc(id)}" data-reset="true">Reset</button>`:''}</div>`:''}</article>`}).join('');
-  renderOverview({...data,organization:o});renderRanksList()
+  renderOverview({...data,organization:o});renderRanksList();renderLawRecordRail(data,o,m)
+}
+
+// ── Right-hand member record rail (persistent across every tab) ────────────
+function renderLawRecordRail(data,o,m){
+  const cid=data.characterId||m.characterId||'—';
+  const me=(data.roster||[]).find(x=>String(x.character_id)===String(cid));
+  const myName=(me&&(me.name||me.character_id))||cid;
+  const dutyText=m.suspended?'Suspended':m.onDuty?'On duty':'Off duty';
+  const railArt=document.querySelector('#railArt');if(railArt)railArt.src=o.art;
+  const railTitle=document.querySelector('#railTitle');if(railTitle)railTitle.textContent=`${o.shortLabel||'LEGAL'} RECORD`;
+  const railInfo=document.querySelector('#railInfo');
+  if(railInfo)railInfo.innerHTML=[
+    ['Rank',m.rankName||'—'],
+    ['Character',`CID ${cid}`],
+    ['Status',dutyText],
+    ['Terminal','F6 · Organization'],
+  ].map(([label,value])=>`<div class="law-record-rail__row"><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`).join('');
+  const tabVisible=tab=>{const el=document.querySelector(`#${tab}Tab`);return !el||!el.classList.contains('hidden')};
+  const actions=[
+    {label:'Ranks & access',tab:'ranks',show:true},
+    {label:'Custody monitor',tab:'custody',show:data.canCustody===true},
+    {label:'Fleet vehicles',tab:'fleet',show:tabVisible('fleet')},
+    {label:'Activity logs',tab:'logs',show:tabVisible('logs')},
+    {label:'Logistics',tab:'logistics',show:tabVisible('logistics')},
+  ].filter(a=>a.show);
+  const railActions=document.querySelector('#railActions');
+  if(railActions){
+    railActions.innerHTML=actions.map(a=>`<button type="button" data-rail-tab="${esc(a.tab)}">${esc(a.label)}</button>`).join('');
+    railActions.onclick=e=>{const b=e.target.closest('[data-rail-tab]');if(b){const tab=document.querySelector(`.tab[data-tab="${b.dataset.railTab}"]`);if(tab)tab.click()}};
+  }
+  const railName=document.querySelector('#railName');if(railName)railName.textContent=myName;
+  const railRankTier=document.querySelector('#railRankTier');if(railRankTier)railRankTier.textContent=`${m.rankName||'—'} · Tier ${Number(m.tier||0)}`;
+  const dot=document.querySelector('#sideDutyDot');if(dot)dot.classList.toggle('is-on',m.onDuty===true);
 }
 
 // ── Overview ───────────────────────────────────────────────────────────────
@@ -49,19 +129,56 @@ function renderOverview(data){
   const onDutyCount = Number(summary.onDutyCount ?? dutyRoster.length ?? 0);
   const leaderName = summary.leaderName || data.organization.leaderName || 'Not assigned';
   const leaderCid = summary.leaderCid || data.organization.leaderCid || '';
+  const activeCalls=Number(summary.activeCalls||0),assignedCalls=Number(summary.assignedCalls||0);
+  const priorityCall=summary.priorityCall;
+  const prison=data.prison||{};
+  const cid=data.characterId||m.characterId||'—';
+  const me=roster.find(x=>String(x.character_id)===String(cid));
+  const memberName=(me&&(me.name||me.character_id))||`CID ${cid}`;
+  const priorityAlert=document.querySelector('#overviewPriorityAlert');
+  if(priorityAlert){
+    priorityAlert.classList.toggle('hidden',!priorityCall);
+    priorityAlert.classList.toggle('is-critical',Number(priorityCall?.priority||0)>=3);
+    if(priorityCall){
+      document.querySelector('#overviewPriorityBadge').textContent=Number(priorityCall.priority)>=3?'OFFICER ASSISTANCE':'ACTIVE CALL';
+      document.querySelector('#overviewPriorityTitle').textContent=priorityCall.details||'Emergency call awaiting response';
+      document.querySelector('#overviewPriorityMeta').textContent=`${priorityCall.location||'Unknown location'} · ${timeAgo(priorityCall.createdAt)} · ${priorityCall.status==='accepted'?'Units assigned':'Awaiting unit'}`;
+      const viewCall=document.querySelector('[data-overview-dispatch]');if(viewCall)viewCall.hidden=data.canDispatch!==true;
+      document.querySelector('#overviewRespond').dataset.callId=priorityCall.id;
+      document.querySelector('#overviewRespond').hidden=data.canDispatch!==true;
+    }
+  }
   document.querySelector('#overviewShortLabel').textContent=data.organization.shortLabel||'LEGAL ORGANIZATION';
   document.querySelector('#overviewOrgName').textContent=data.organization.label||'Organization';
   document.querySelector('#overviewJurisdiction').textContent=data.organization.jurisdiction||'Authorized jurisdiction';
   document.querySelector('#overviewRank').textContent=m.rankName||'—';
   document.querySelector('#overviewCharacterId').textContent=`CID ${esc(data.characterId||m.characterId||'—')}`;
+  document.querySelector('#overviewMemberName').textContent=memberName;
+  document.querySelector('#overviewTier').textContent=Number(m.tier||0);
   const dutyBadge=document.querySelector('#overviewDutyBadge');
   const dutyText=m.suspended?'SUSPENDED':m.onDuty?'ON DUTY':'OFF DUTY';
   dutyBadge.textContent=dutyText; dutyBadge.className=`status-pill ${m.suspended?'is-suspended':m.onDuty?'is-on':'is-off'}`;
+  const readinessPct=memberCount>0?Math.min(100,Math.round((onDutyCount/memberCount)*100)):0;
+  document.querySelector('#overviewReadinessMeta').textContent=`${onDutyCount} / ${memberCount}`;
+  document.querySelector('#overviewReadinessTotal').textContent=`${onDutyCount} unit${onDutyCount===1?'':'s'}`;
+  document.querySelector('#overviewReadinessBar').style.width=`${readinessPct}%`;
+  const prisonCard=document.querySelector('#overviewPrisonStatus');
+  if(prisonCard){
+    const configured=prison.configured===true, online=prison.ready===true;
+    const occupied=Math.max(0,Number(prison.activeCount||0)), capacity=Math.max(0,Number(prison.capacity||0));
+    document.querySelector('#overviewPrisonCells').textContent=`${occupied} / ${capacity}`;
+    document.querySelector('#overviewPrisonSpawns').textContent=String(Number(prison.spawnCount||0));
+    const stateNode=document.querySelector('#overviewPrisonState');
+    stateNode.textContent=!online?'OFFLINE':configured?'READY':'SETUP REQUIRED';
+    stateNode.className=`prison-status-card__state ${!online?'is-offline':configured?'is-ready':'is-warning'}`;
+    document.querySelector('#overviewPrisonMeta').textContent=!online?'cm-prison is not ready. Start it before booking.':configured?'One intake location shared by every law organization.':'Configure intake, release, and cell spawns once in prison admin.';
+    prisonCard.classList.toggle('is-warning',online&&!configured);
+  }
   document.querySelector('#overviewStats').innerHTML=[
-    ['COMMAND',leaderName,leaderCid?`CID ${leaderCid}`:'Leader not assigned','command'],
-    ['MEMBERS',memberCount.toLocaleString(),`${onDutyCount} currently on duty`,'members'],
-    ['ON DUTY',onDutyCount.toLocaleString(),onDutyCount===1?'1 active unit':'Active personnel','duty'],
+    ['ON DUTY',onDutyCount.toLocaleString(),`${memberCount} total personnel`,'duty'],
+    ['ACTIVE CALLS',activeCalls.toLocaleString(),`${assignedCalls} assigned · ${Number(summary.priorityCalls||0)} priority`,'calls'],
     ['FLEET AVAILABLE',Number(summary.fleetAvailable||0).toLocaleString(),`${Number(summary.fleetConfigured||0)} configured for agency`,'fleet'],
+    ['COMMAND',leaderName,leaderCid?`CID ${leaderCid}`:'Leader not assigned','command'],
   ].map(([label,value,sub,kind])=>`<div class="stat stat--${kind}"><span class="stat-icon" aria-hidden="true"></span><div><small>${esc(label)}</small><strong>${esc(value)}</strong><span>${esc(sub)}</span></div></div>`).join('');
   const enabled=Object.entries(caps).filter(([,on])=>on===true);
   document.querySelector('#overviewCapabilityCount').textContent=`${enabled.length} ACTIVE`;
@@ -88,7 +205,7 @@ function renderOverview(data){
   const activity=data.recentActivity||[];
   activityPanel.classList.toggle('is-restricted',data.canViewActivity!==true);
   document.querySelector('#overviewRecentActivity').innerHTML=data.canViewActivity===true
-    ? (activity.length?activity.map(row=>{const label=(typeof activityLabels!=='undefined'&&activityLabels[row.action])||String(row.action||'Activity').replaceAll('_',' ');const desc=typeof describeLog==='function'?describeLog(row.detail):'';return `<div class="activity-item"><span class="activity-marker"></span><div><strong>${esc(row.actorName||'System')}</strong><p>${esc(label)}${desc?` · ${desc}`:''}</p></div><time>${esc(row.createdAt||'')}</time></div>`}).join(''):'<p class="overview-copy">No organization activity recorded yet.</p>')
+    ? (activity.length?activity.map(row=>{const label=(typeof activityLabels!=='undefined'&&activityLabels[row.action])||String(row.action||'Activity').replaceAll('_',' ');const desc=typeof describeLog==='function'?describeLog(row.detail):'';return `<div class="activity-item"><span class="activity-marker"></span><div><strong>${esc(row.actorName||'System')}</strong><p>${esc(label)}${desc?` · ${desc}`:''}</p></div><time>${esc(formatTerminalTime(row.createdAt))}</time></div>`}).join(''):'<p class="overview-copy">No organization activity recorded yet.</p>')
     : '<div class="activity-restricted"><span>Restricted</span><p>Recent organization activity is available to command staff.</p></div>';
 }
 
@@ -104,7 +221,7 @@ function renderRanksList(){
     const pills=!data.canInspectRankPermissions?'<span class="perm-pill perm-pill--empty">Permission details restricted</span>':granted.length?granted.map(k=>`<span class="perm-pill">${esc(permLabels[k]||k)}</span>`).join(''):'<span class="perm-pill perm-pill--empty">No permissions</span>';
     return `<article class="rank-card${r.is_leader?' leader':''}">
       <div class="rank-card__head"><strong>${esc(r.name)}</strong><span class="badge">Tier ${r.tier}</span>${r.is_leader?'<span class="badge leader">Leader</span>':''}</div>
-      <div class="perm-pills">${pills}</div>
+      <details class="rank-access"><summary>${data.canInspectRankPermissions?`${granted.length} permissions`:"Restricted access"}<span>View details</span></summary><div class="perm-pills">${pills}</div></details>
       ${editable?`<div class="actions"><button data-rank-edit="${r.id}">Edit</button><button class="danger" data-rank-delete="${r.id}">Delete</button></div>`:''}
     </article>`;
   }).join('')||'<p>No ranks configured.</p>';
@@ -136,7 +253,7 @@ document.querySelector('#ranksList').onclick=async e=>{
   const editBtn=e.target.closest('[data-rank-edit]'),delBtn=e.target.closest('[data-rank-delete]');
   if(editBtn){const rank=(state.ranks||[]).find(r=>Number(r.id)===Number(editBtn.dataset.rankEdit));if(rank)openRankEditor(rank)}
   if(delBtn){
-    if(!confirm('Delete this rank? Members must be reassigned first.'))return;
+    if(!(await showConfirmOverlay('Delete rank','Delete this rank? Members must be reassigned first.','Delete','Cancel')))return;
     const r=await post('deleteRank',{rankId:Number(delBtn.dataset.rankDelete)});
     notice(r.message||r.error,r.ok?'success':'error');
   }
@@ -190,10 +307,36 @@ function renderActivityLog(){
   document.querySelector('#activityLogList').innerHTML=activityLogRows.map(row=>{
     const label=activityLabels[row.action]||row.action;
     const desc=describeLog(row.detail);
-    return `<article class="log-row"><div class="log-row__main"><strong>${esc(row.actorName)}</strong> ${esc(label)}${desc?` · ${desc}`:''}</div><time>${esc(row.createdAt)}</time></article>`;
+    return `<article class="log-row"><div class="log-row__main"><strong>${esc(row.actorName)}</strong> ${esc(label)}${desc?` · ${desc}`:''}</div><time>${esc(formatTerminalTime(row.createdAt))}</time></article>`;
   }).join('')||'<p>No activity recorded yet.</p>';
 }
 async function loadActivityLog(){const r=await post('activityLog');activityLogRows=r?.list||[];renderActivityLog()}
+
+// ── Shared Custody ─────────────────────────────────────────────────────────
+let custodyRows = {items:[], updatedAt:null}, custodyLoading = false;
+function formatRemaining(seconds){
+  seconds=Math.max(0,Math.floor(Number(seconds)||0));
+  const days=Math.floor(seconds/86400); seconds%=86400;
+  const hours=Math.floor(seconds/3600); seconds%=3600;
+  const minutes=Math.floor(seconds/60), secs=seconds%60;
+  return days>0?`${days}d ${String(hours).padStart(2,'0')}h`:hours>0?`${hours}h ${String(minutes).padStart(2,'0')}m`:`${minutes}m ${String(secs).padStart(2,'0')}s`;
+}
+function renderCustody(){
+  const box=document.querySelector('#custodyList'); if(!box)return;
+  document.querySelector('#custodyCount').textContent=String(custodyRows.length);
+  document.querySelector('#custodyUpdated').textContent=custodyRows.updatedAt?formatTerminalTime(custodyRows.updatedAt):'—';
+  const rows=custodyRows.items||[];
+  box.innerHTML=rows.length?rows.map(row=>`<article class="custody-row"><div class="custody-row__identity"><span class="custody-avatar">CID</span><div><strong>${esc(row.name)}</strong><small>CID ${esc(row.characterId)} · Booked by ${esc(row.arrestedBy)}</small></div></div><div class="custody-row__reason"><small>BOOKING REASON</small><span>${esc(row.reason)}</span></div><div class="custody-row__release"><small>RELEASES IN</small><strong data-custody-release="${Number(row.releaseEpoch)||0}">${formatRemaining(row.remainingSeconds)}</strong><span>${row.releaseEpoch?new Date(Number(row.releaseEpoch)*1000).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'—'}</span></div></article>`).join(''):'<div class="custody-empty"><span>✓</span><strong>No active prisoners</strong><p>The central custody list is clear.</p></div>';
+}
+async function loadCustody(){
+  if(custodyLoading)return; const box=document.querySelector('#custodyList'); if(!box)return;
+  custodyLoading=true; box.innerHTML='<p class="hint">Loading central custody records…</p>';
+  const result=await post('custody'); custodyLoading=false;
+  if(!result?.ok){custodyRows=[];document.querySelector('#custodyCount').textContent='—';document.querySelector('#custodyUpdated').textContent='—';box.innerHTML=`<div class="custody-empty is-error"><span>!</span><strong>Custody unavailable</strong><p>${esc(result?.error||'The prison did not respond.')}</p></div>`;return}
+  custodyRows={items:result.prisoners||[],updatedAt:result.fetchedAt?Number(result.fetchedAt)*1000:Date.now()}; renderCustody();
+}
+document.querySelector('#custodyRefresh')?.addEventListener('click',loadCustody);
+setInterval(()=>document.querySelectorAll('[data-custody-release]').forEach(node=>{const epoch=Number(node.dataset.custodyRelease||0);if(epoch)node.textContent=formatRemaining(epoch-Math.floor(Date.now()/1000))}),1000);
 
 // ── Fleet vehicles ─────────────────────────────────────────────────────────
 // Appearance (model/label/category/image) comes live from the vehicle shop
@@ -225,7 +368,7 @@ document.querySelector('#fleetRoster').addEventListener('change',async e=>{
   if(!r?.ok)loadFleet();
 });
 document.querySelector('#fleetRecallAll').onclick=async()=>{
-  if(!confirm('Recall every enabled fleet vehicle back to its saved location?'))return;
+  if(!(await showConfirmOverlay('Recall fleet','Recall every enabled fleet vehicle back to its saved location?','Recall','Cancel')))return;
   const r=await post('recallAllFleetVehicles');
   notice(r.message||r.error,r.ok?'success':'error');
 };
@@ -238,7 +381,7 @@ function renderDispatchActiveList(){
   document.querySelector('#lawDispatchAssignedCount').textContent=dispatchActiveCalls.filter(call=>(call.responders||[]).length>0).length;
   document.querySelector('#dispatchActiveList').innerHTML = dispatchActiveCalls.map(call => {
     const mine = myCid && (call.responders || []).find(r => r.characterId === myCid);
-    const responders = (call.responders || []).map(r => `${esc(r.name)} (${r.status === 'en_route' ? 'En Route' : 'Accepted'})`).join(', ') || 'No one responding yet';
+    const responders = (call.responders || []).map(r => `${esc(r.callsign || r.name)} (${r.status === 'on_scene' ? 'On Scene' : r.status === 'en_route' ? 'En Route' : 'Accepted'})`).join(', ') || 'No one responding yet';
     const callType=call.callType||'citizen',priority=Number(call.priority||1);
     return `<article class="dispatch-call-row priority-${priority}">
       <div class="dispatch-call-main"><strong><span class="dispatch-type ${esc(callType)}">${esc(callType)}</span>${esc(call.details)}</strong>
@@ -263,30 +406,42 @@ document.querySelector('#dispatchActiveList').onclick=async e=>{
   if(enroute){const r=await post('dispatchEnRoute',{callId:Number(enroute.dataset.dispatchEnroute)});notice(r.message||r.error,r.ok?'success':'error');loadDispatchActiveCalls()}
   if(resolve){const r=await post('dispatchResolve',{callId:Number(resolve.dataset.dispatchResolve)});notice(r.message||r.error,r.ok?'success':'error');if(r.ok){loadDispatchActiveCalls();loadDispatchHistory()}}
 };
-document.querySelector('#dispatchBackup').onclick=async()=>{if(!confirm('Request backup and send your current location to all available legal units?'))return;const r=await post('dispatchOfficerAlert',{alertType:'backup',confirmed:true});notice(r.message||r.error,r.ok?'success':'error')};
-document.querySelector('#dispatchPanic').onclick=async()=>{if(!confirm('Activate the panic button and send an urgent officer-in-distress alert?'))return;const r=await post('dispatchOfficerAlert',{alertType:'panic',confirmed:true});notice(r.message||r.error,r.ok?'success':'error')};
-function esc(v){const d=document.createElement('div');d.textContent=String(v??'');return d.innerHTML}
-window.addEventListener('message',e=>{const {action,data,kind,message,initialTab}=e.data||{};if(action==='open'){facilityOnly=e.data?.facilityOnly===true;const standalone=e.data?.standaloneMode===true;app.classList.toggle('standalone-interface',standalone);app.classList.toggle('standalone-dispatch',standalone&&initialTab==='dispatch');app.classList.toggle('standalone-mdt',standalone&&initialTab==='mdt');app.classList.remove('hidden');render(data);if(standalone&&initialTab){document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));document.querySelector(`#${initialTab}View`)?.classList.remove('hidden');document.querySelector('#pageTitle').textContent=pageTitles[initialTab]||initialTab;if(initialTab==='dispatch'){loadDispatchActiveCalls();loadDispatchHistory()}}else{const requested=initialTab&&document.querySelector(`[data-tab="${initialTab}"]`);const tab=requested&&!requested.classList.contains('hidden')?requested:document.querySelector('[data-tab="overview"]');if(tab)tab.click()}}if(action==='dashboard')render(data);if(action==='close'){app.classList.add('hidden');app.classList.remove('standalone-interface','standalone-dispatch','standalone-mdt')}if(action==='notice')notice(message,kind);if(action==='dispatchRefresh'&&!app.classList.contains('hidden')&&!document.querySelector('#dispatchView').classList.contains('hidden'))loadDispatchActiveCalls()});
-document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>post('close'));document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!document.querySelector('#legalArmory').classList.contains('hidden'))post('legalArmoryClose');else if(!document.querySelector('#wardrobeRoom').classList.contains('hidden'))post('legalWardrobeCancel');else if(!document.querySelector('#facilityDialogue').classList.contains('hidden'))post('facilityDialogueClose');else post('close')}});
+document.querySelector('#dispatchBackup').onclick=async()=>{if(!(await showConfirmOverlay('Request backup','Request backup and send your current location to all available legal units?','Request','Cancel')))return;const r=await post('dispatchOfficerAlert',{alertType:'backup',confirmed:true});notice(r.message||r.error,r.ok?'success':'error')};
+document.querySelector('#dispatchPanic').onclick=async()=>{if(!(await showConfirmOverlay('Panic button','Activate the panic button and send an urgent officer-in-distress alert?','Activate','Cancel')))return;const r=await post('dispatchOfficerAlert',{alertType:'panic',confirmed:true});notice(r.message||r.error,r.ok?'success':'error')};
+document.querySelector('[data-overview-dispatch]').onclick=()=>document.querySelector('#dispatchTab')?.click();
+document.querySelector('[data-overview-respond]').onclick=async e=>{const callId=Number(e.currentTarget.dataset.callId||0);if(!callId)return;const r=await post('dispatchAccept',{callId,route:true});notice(r.message||r.error,r.ok?'success':'error');if(r.ok){document.querySelector('#dispatchTab')?.click();refresh()}};
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+window.addEventListener('message',e=>{const {action,data,kind,message,initialTab}=e.data||{};if(action==='bookingOpen'){renderBooking(data);return}if(action==='bookingResult'){bookingBusy=false;bookingPanel?.classList.remove('is-busy');if(!data?.ok&&bookingPanel)document.querySelector('#bookingStatus').textContent=data?.error||'Booking failed.';return}if(action==='open'){facilityOnly=e.data?.facilityOnly===true;const standalone=e.data?.standaloneMode===true;app.classList.toggle('standalone-interface',standalone);app.classList.toggle('standalone-dispatch',standalone&&initialTab==='dispatch');app.classList.toggle('standalone-mdt',standalone&&initialTab==='mdt');app.classList.remove('hidden');render(data);if(standalone&&initialTab){document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));document.querySelector(`#${initialTab}View`)?.classList.remove('hidden');document.querySelector('#pageTitle').textContent=pageTitles[initialTab]||initialTab;if(initialTab==='dispatch'){loadDispatchActiveCalls();loadDispatchHistory()}}else{const requested=initialTab&&document.querySelector(`[data-tab="${initialTab}"]`);const tab=requested&&!requested.classList.contains('hidden')?requested:document.querySelector('[data-tab="overview"]');if(tab)tab.click()}}if(action==='dashboard')render(data);if(action==='close'){closeBooking();app.classList.add('hidden');app.classList.remove('standalone-interface','standalone-dispatch','standalone-mdt');document.getElementById('lawConfirmNo').click()}if(action==='notice')notice(message,kind);if(action==='dispatchRefresh'&&!app.classList.contains('hidden')&&!document.querySelector('#dispatchView').classList.contains('hidden'))loadDispatchActiveCalls()});
+document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>post('close'));window.cmHandleEscape=()=>{if(bookingPanel&&!bookingPanel.hidden)closeBooking();else if(!document.getElementById('lawConfirm').hidden)document.getElementById('lawConfirmNo').click();else if(!document.querySelector('#legalArmory').classList.contains('hidden'))post('legalArmoryClose');else if(!document.querySelector('#wardrobeRoom').classList.contains('hidden'))post('legalWardrobeCancel');else if(!document.querySelector('#facilityDialogue').classList.contains('hidden'))post('facilityDialogueClose');else post('escape')};document.addEventListener('keydown',e=>{if(e.key==='Escape'||e.key==='Esc'||e.keyCode===27){e.preventDefault();if(!e.repeat)window.cmHandleEscape()}});
 let logisticsData={items:[],orders:[]};
 function renderLogistics(){const info=state?.logistics||{},form=document.querySelector('#logisticsOrderForm');form.classList.toggle('hidden',info.canRequest!==true);document.querySelector('#logisticsHint').textContent=info.canRequest===true?'Submit from your on-duty organization armory. Army quartermasters accept, prepare, load, and deliver orders.':'View order progress here; your rank cannot submit routine supply requests.';document.querySelector('#logisticsItem').innerHTML=(logisticsData.items||[]).map(x=>`<option value="${esc(x.itemName)}">${esc(x.label)} · ${esc(x.itemName)}</option>`).join('');document.querySelector('#logisticsOrders').innerHTML=(logisticsData.orders||[]).map(o=>{const lines=(o.lines||[]).map(l=>`${esc(l.itemName)} × ${l.quantity}`).join(', ');const buttons=Object.keys(o.actions||{}).map(a=>`<button data-logistics-action="${esc(a)}" data-order-id="${o.id}">${esc(a.replaceAll('_',' '))}</button>`).join('');return `<article class="logistics-order"><div><strong>Order #${o.id} · ${esc(o.status.replaceAll('_',' '))}</strong><small>${esc(o.requesterLabel)} · ${lines}</small>${o.shipment?`<small>Shipment ${esc(o.shipment)}</small>`:''}</div><div class="actions">${buttons}</div></article>`}).join('')||'<p>No supply orders.</p>'}
 async function loadLogistics(){const r=await post('logistics');if(!r?.ok)return notice(r?.error||'Logistics unavailable.','error');logisticsData=r;renderLogistics()}
 async function loadArsenalHistory(){const r=await post('arsenalHistory'),box=document.querySelector('#arsenalHistory');if(!box)return;if(!r?.ok){box.innerHTML=`<p>${esc(r?.error||'Arsenal history unavailable.')}</p>`;return}box.innerHTML=(r.history||[]).map(row=>`<article class="logistics-order"><div><strong>ARSENAL RESUPPLY · ${esc(row.status)}</strong><small>${row.endedAt?new Date(Number(row.endedAt)*1000).toLocaleString():'In progress'} · Army ${Number(row.armyPercent||0)}% · Gangs ${Number(row.gangPercent||0)}% · Lost ${Number(row.lostPercent||0)}%</small><details><summary>VIEW DETAILS</summary><small>Reference ${esc(row.eventId)} · ${esc(row.reason||'No result reason')}</small><small>Incoming ${Number(row.totalValue||0).toLocaleString()} value · Army ${Number(row.armyValue||0).toLocaleString()} · Gangs ${Number(row.gangValue||0).toLocaleString()} · Lost ${Number(row.lostValue||0).toLocaleString()}</small><small>${(row.standings||[]).map(g=>`${esc(String(g.gang_id||g.gangId||'').toUpperCase())}: ${Number(g.percent||0)}%`).join(' · ')||'No gang extraction'}</small></details></div></article>`).join('')||'<p>No Arsenal history.</p>'}
 document.querySelector('#logisticsOrderForm').onsubmit=async e=>{e.preventDefault();const r=await post('logisticsCreate',{lines:[{itemName:document.querySelector('#logisticsItem').value,quantity:Number(document.querySelector('#logisticsQuantity').value||0)}]});notice(r.message||r.error,r.ok?'success':'error');if(r.ok)loadLogistics()};
 document.querySelector('#logisticsOrders').onclick=async e=>{const b=e.target.closest('[data-logistics-action]');if(!b)return;const r=await post('logisticsAction',{action:b.dataset.logisticsAction,orderId:Number(b.dataset.orderId)});notice(r.message||r.error,r.ok?'success':'error');if(r.ok)loadLogistics()};
-const pageTitles={overview:'Overview',roster:'Members',ranks:'Ranks & Access',facilities:'Facilities',fleet:'Fleet Vehicles',logs:'Activity Logs',dispatch:'Dispatch',mdt:'Shared MDT',logistics:'Logistics'};
-document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));document.querySelector(`#${b.dataset.tab}View`).classList.remove('hidden');document.querySelector('#pageTitle').textContent=pageTitles[b.dataset.tab]||b.dataset.tab;if(b.dataset.tab==='dispatch'){loadDispatchActiveCalls();loadDispatchHistory()}if(b.dataset.tab==='fleet')loadFleet();if(b.dataset.tab==='logs')loadActivityLog();if(b.dataset.tab==='logistics'){loadLogistics();loadArsenalHistory()}});
+const pageTitles={overview:'Overview',roster:'Members',ranks:'Ranks & Access',facilities:'Facilities',fleet:'Fleet Vehicles',logs:'Activity Logs',custody:'Custody',dispatch:'Dispatch',mdt:'Shared MDT',logistics:'Logistics'};
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));document.querySelector(`#${b.dataset.tab}View`).classList.remove('hidden');document.querySelector('#pageTitle').textContent=pageTitles[b.dataset.tab]||b.dataset.tab;if(b.dataset.tab==='dispatch'){loadDispatchActiveCalls();loadDispatchHistory()}if(b.dataset.tab==='fleet')loadFleet();if(b.dataset.tab==='logs')loadActivityLog();if(b.dataset.tab==='custody')loadCustody();if(b.dataset.tab==='logistics'){loadLogistics();loadArsenalHistory()}});
 document.querySelector('#arsenalHistoryRefresh')?.addEventListener('click',loadArsenalHistory);
-roster.onclick=async e=>{const b=e.target.closest('[data-action]');if(!b)return;const action=b.dataset.action,cid=b.dataset.cid;if(action==='fire'&&!confirm('Remove this member from the organization?'))return;const rank=roster.querySelector(`[data-rank="${CSS.escape(cid)}"]`);const r=await post('staffAction',{action,characterId:cid,rankId:rank?Number(rank.value):null});notice(r.message||r.error,r.ok?'success':'error')};
+roster.onclick=async e=>{const b=e.target.closest('[data-action]');if(!b)return;const action=b.dataset.action,cid=b.dataset.cid;if(action==='fire'&&!(await showConfirmOverlay('Remove member','Remove this member from the organization?','Remove','Cancel')))return;const rank=roster.querySelector(`[data-rank="${CSS.escape(cid)}"]`);const r=await post('staffAction',{action,characterId:cid,rankId:rank?Number(rank.value):null});notice(r.message||r.error,r.ok?'success':'error')};
 
 async function refresh(){ const data = await post('refresh'); if (data && data.ok !== false) render(data); }
+document.querySelector('#dashboardRefresh').onclick=async e=>{const button=e.currentTarget;button.disabled=true;try{await refresh()}finally{button.disabled=false}};
+document.querySelector('#dashboardDutyButton').onclick=async e=>{const button=e.currentTarget;if(!state?.member?.onDuty)return;if(!(await showConfirmOverlay('End duty','End your current legal organization shift?','End duty','Cancel')))return;button.disabled=true;try{const r=await post('endDuty');notice(r.message||r.error,r.ok?'success':'error');if(r.ok)await refresh()}finally{button.disabled=false}};
+function updateDashboardClock(){const clock=document.querySelector('#dashboardClock');if(clock)clock.textContent=new Intl.DateTimeFormat(undefined,{weekday:'short',hour:'2-digit',minute:'2-digit'}).format(new Date())}
+updateDashboardClock();setInterval(updateDashboardClock,30000);
 const facilityPrompt=document.querySelector('#facilityPrompt'),facilityDialogue=document.querySelector('#facilityDialogue');
 window.addEventListener('message',e=>{const d=e.data||{};if(d.action==='facilityPrompt'){facilityPrompt.classList.toggle('hidden',!d.visible);document.querySelector('#facilityPromptText').textContent=d.name?`${d.name} · ${d.role||''}`:''}if(d.action==='facilityDialogue'){facilityDialogue.className=`npc-dialogue${d.visible?'':' hidden'}`;if(d.visible){document.querySelector('#facilityName').textContent=d.name||'';document.querySelector('#facilityRole').textContent=d.role||'';document.querySelector('#facilityQuote').textContent=d.quote||'';document.querySelector('#facilitySignature').textContent=`— ${d.name||''}`;document.querySelector('#facilityContinue').textContent=d.continueLabel||'Continue'}}if(d.action==='facilityDialogueResponse'){facilityDialogue.className=`npc-dialogue response ${d.tone||'inform'}`;document.querySelector('#facilityQuote').textContent=d.message||''}});
-document.querySelector('#facilityContinue').onclick=()=>post('facilityDialogueContinue');
-document.querySelector('#facilityClose').onclick=()=>post('facilityDialogueClose');
+// Delegated fallback for the facility iframe: keeps controls working even
+// when a layered dashboard stylesheet replaces a direct button handler.
+document.addEventListener('click', (event) => {
+  const target = event.target.closest?.('#facilityContinue,#facilityClose');
+  if (!target) return;
+  event.preventDefault();
+  post(target.id === 'facilityContinue' ? 'facilityDialogueContinue' : 'facilityDialogueClose');
+}, true);
 const facilityOptions=document.querySelector('#facilityOptions');
 window.addEventListener('message',e=>{const d=e.data||{};if(d.action==='facilityDialogue'){facilityOptions.classList.add('hidden');facilityOptions.innerHTML=''}if(d.action==='facilityDialogueChoices'){facilityDialogue.className='npc-dialogue services';document.querySelector('#facilityQuote').textContent=d.message||'How can I help you?';facilityOptions.innerHTML=(d.choices||[]).map(x=>`<button class="npc-dialogue__option ${x.primary?'npc-dialogue__option--primary':''}" data-facility-service="${esc(x.id)}">${esc(x.label)}${x.description?`<small>${esc(x.description)}</small>`:''}</button>`).join('');facilityOptions.classList.remove('hidden')}if(d.action==='facilityDialogueResponse')facilityOptions.classList.add('hidden')});
-facilityOptions.onclick=e=>{const b=e.target.closest('[data-facility-service]');if(b)post('facilityPublicService',{service:b.dataset.facilityService})};
+facilityOptions.addEventListener('click',e=>{const b=e.target.closest('[data-facility-service]');if(!b)return;e.preventDefault();post('facilityPublicService',{service:b.dataset.facilityService})},true);
 
 const wardrobe=document.querySelector('#wardrobeRoom');let wardrobeItems=[],wardrobeCategory='',wardrobeOption=0,wardrobeColor=0;
 const categoryNames={torso:'Outerwear',pants:'Pants',shoes:'Shoes',tshirt:'Shirts',chains:'Accessories',bags:'Bags',hat:'Headwear',glasses:'Glasses',earrings:'Earrings',watches:'Watches'};
@@ -322,7 +477,7 @@ function renderArmoryManagement(){
 window.addEventListener('message',e=>{const d=e.data||{};if(d.action==='legalArmoryOpen'){app.classList.add('hidden');facilityDialogue.classList.add('hidden');facilityPrompt.classList.add('hidden');const label=d.label||'LEGAL ORGANIZATION';document.querySelector('#armoryOrg').textContent=label;document.querySelector('#armoryRailOrg').textContent=label;armoryData=d.data||{items:[]};armoryFilter='all';document.querySelectorAll('[data-armory-filter]').forEach(x=>x.classList.toggle('active',x.dataset.armoryFilter==='all'));legalArmory.classList.remove('hidden');armoryManager.classList.add('hidden');renderArmory()}if(d.action==='legalArmoryClose'){legalArmory.classList.add('hidden');armoryManager.classList.add('hidden')}});
 document.querySelector('#armoryClose').onclick=()=>post('legalArmoryClose');
 document.querySelector('#armoryFilters').onclick=e=>{const b=e.target.closest('[data-armory-filter]');if(!b)return;armoryFilter=b.dataset.armoryFilter;document.querySelectorAll('[data-armory-filter]').forEach(x=>x.classList.toggle('active',x===b));renderArmory()};
-document.querySelector('#armoryGrid').onclick=async e=>{const b=e.target.closest('[data-armory-checkout]');if(!b)return;b.disabled=true;const r=await post('legalArmoryCheckout',{itemName:b.dataset.armoryCheckout});notice(r.message||r.error,r.ok?'success':'error');if(r.ok&&r.armory){armoryData=r.armory;renderArmory()}else{const fresh=await post('legalArmoryRefresh');if(fresh?.ok){armoryData=fresh;renderArmory()}}};
+document.querySelector('#armoryGrid').onclick=async e=>{const b=e.target.closest('[data-armory-checkout]');if(!b)return;b.disabled=true;const r=await post('legalArmoryCheckout',{itemName:b.dataset.armoryCheckout});notice(r.message||r.error,r.ok?'success':'error');if(r.ok&&r.armory){armoryData=r.armory;renderArmory()}else{const fresh=await post('legalArmoryRefresh');if(fresh?.ok){armoryData=fresh;renderArmory()}}b.disabled=false};
 document.querySelector('#lawArmorList').onclick=e=>document.querySelector('#armoryGrid').onclick(e);
 document.querySelector('#armoryManage').onclick=async()=>{const r=await post('legalArmoryManagement');if(!r?.ok)return notice(r?.error||'Management unavailable.','error');armoryManagement=r.items||[];renderArmoryManagement();armoryManager.classList.remove('hidden')};
 document.querySelector('#armoryManagerClose').onclick=async()=>{armoryManager.classList.add('hidden');const r=await post('legalArmoryRefresh');if(r?.ok){armoryData=r;renderArmory()}};
@@ -363,12 +518,12 @@ document.querySelector('#memberMap').onclick=async()=>{
 document.querySelector('#meetingPoint').onclick=async()=>{
   // One click routes every online member of this organization to your
   // position, so make it deliberate.
-  if(!confirm('Set the meeting point at your current position? Every online member of your organization gets a map route to it.'))return;
+  if(!(await showConfirmOverlay('Set meeting point','Set the meeting point at your current position? Every online member of your organization gets a map route to it.','Set point','Cancel')))return;
   const r=await post('setMeetingPoint',{});
   notice(r.message||r.error,r.ok?'success':'error');
 };
 document.querySelector('#clearMeeting').onclick=async()=>{
-  if(!confirm('Clear the meeting point for everyone in your organization?'))return;
+  if(!(await showConfirmOverlay('Clear meeting point','Clear the meeting point for everyone in your organization?','Clear','Cancel')))return;
   const r=await post('setMeetingPoint',{clear:true});
   notice(r.message||r.error,r.ok?'success':'error');
 };

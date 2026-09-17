@@ -184,8 +184,8 @@ function R.Action(src, identity, action, data)
         recall = 'HOUSE_GARAGE', delete_entity = 'PENDING_DELETE',
     }
     local operationToken
-    if CMVehicles.Operations and CMVehicles.Operations.Begin then
-        local opOk, tokenOrReason = CMVehicles.Operations.Begin(row.id, 'admin_recovery_' .. action, src, {
+    if CMVehicles.Operations and CMVehicles.Operations.BeginInternal then
+        local opOk, tokenOrReason = CMVehicles.Operations.BeginInternal(row.id, 'admin_recovery_' .. action, src, {
             stage = 'admin_recovery_started', targetState = targetStates[action],
             targetRef = data.ref, targetSlot = data.slot, ttl = 90,
         })
@@ -195,11 +195,11 @@ function R.Action(src, identity, action, data)
 
     local function done(ok, result)
         if operationToken and CMVehicles.Operations then
-            if ok == true and CMVehicles.Operations.Complete then
-                pcall(CMVehicles.Operations.Complete, row.id, operationToken,
+            if ok == true and CMVehicles.Operations.CompleteInternal then
+                pcall(CMVehicles.Operations.CompleteInternal, row.id, operationToken,
                     'admin_recovery_completed', { action = action, result = result })
-            elseif CMVehicles.Operations.Fail then
-                pcall(CMVehicles.Operations.Fail, row.id, operationToken,
+            elseif CMVehicles.Operations.FailInternal then
+                pcall(CMVehicles.Operations.FailInternal, row.id, operationToken,
                     'admin_recovery_failed', { action = action, error = result })
             end
         end

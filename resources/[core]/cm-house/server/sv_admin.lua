@@ -633,8 +633,34 @@ lib.callback.register('cm-house:server:adminTemplate', function(src, action, kin
     -- Re-walk every point of an existing layout. This also works for disabled
     -- templates because it reads directly from the database rather than cache.
     if action == 'rewalk' then
-        TriggerClientEvent('cm-house:client:adminCaptureTemplate', src, kind, id)
-        return true, ('Re-walking "%s". Set every point again.'):format(t.label)
+        local seed
+        if kind == 'garage' then
+            local slots = {}
+            for index = 1, tonumber(t.capacity) or 0 do
+                local slot = t.slots[index]
+                if slot and slot.coords then
+                    slots[#slots + 1] = {
+                        x = slot.coords.x, y = slot.coords.y, z = slot.coords.z,
+                        h = slot.coords.h or slot.coords.w,
+                        icon = slot.icon,
+                    }
+                end
+            end
+            seed = {
+                playerEntry = t.player_entry,
+                vehicleExits = t.vehicle_exits,
+                slots = slots,
+            }
+        else
+            seed = {
+                entry = t.entry,
+                exitPoint = t.exit_point,
+                weaponStorages = t.weapon_storages or t.wardrobes or {},
+                stashes = t.stashes or {},
+            }
+        end
+        TriggerClientEvent('cm-house:client:adminCaptureTemplate', src, kind, id, seed)
+        return true, ('Editing "%s" in 3D mode. You will be teleported to the layout with preview cars loaded.'):format(t.label)
     end
 
     if action == 'rename' then

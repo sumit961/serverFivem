@@ -1,65 +1,78 @@
-# Police migration: Phase 1
+# Embedded Police migration — cm-law 2.0
 
-Phase 1 makes `cm-law` the owner of generic law contracts without moving
-Police-specific gameplay or database tables.
+`cm-law` now contains the complete LSPD implementation. Run only `cm-law`;
+the standalone `cm-police` resource must not be started at the same time.
 
-## Generic Law API
+If both resources are started, both clients receive the same legacy
+`cm-police:client:openDashboard` event. The standalone dashboard can cover the
+embedded dashboard, and ESC may appear not to close because it only closes one
+of the two active NUI layers. cm-law 2.4 prints a red server-console warning and
+an in-game warning when this conflict is detected, but it cannot safely stop a
+separate resource on the user's behalf.
 
-Server resources should use these `cm-law` exports:
+## Install
 
-- `GetLawMember(source)`
-- `GetLawMemberByCharacterId(characterId, organizationId)`
-- `GetLawOrganization(organizationId)`
-- `HasLawPermission(source, permission, organizationId)`
-- `IsLawMember(source)`
-- `IsLawMemberOf(source, organizationId)`
-- `GetOrganizationArmoryStock(organizationId)`
-- `GetOrganizationArmoryItem(organizationId, itemId)`
-- `AddOrganizationArmoryStock(organizationId, itemId, amount, context)`
-- `RemoveOrganizationArmoryStock(organizationId, itemId, amount, context)`
-- `CanAccessOrganizationArmory(source, organizationId)`
-- `CheckoutOrganizationArmoryItem(source, organizationId, itemId)`
-- `CanUseOrganizationVehicle(source, vehicleId, action)`
-- `GetOrganizationMembers(organizationId)`
-- `CanManageOrganizationMembers(source, organizationId, targetCharacterId)`
-- `SetOrganizationRank(source, targetCharacterId, rankId, organizationId)`
-- `RemoveOrganizationMember(source, targetCharacterId, organizationId)`
+1. Back up the current `cm-law` and `cm-police` folders and database.
+2. Replace the existing `cm-law` folder with this release.
+3. Remove `ensure cm-police` from `server.cfg` and keep `ensure cm-law`.
+4. Do not delete or rename any `cm_police_*` tables. The embedded module reads
+   them in place, preserving members, ranks, MDT records, evidence, outfits,
+   fleet, facilities, ALPR, and activity history.
+5. Restart the server. A live resource restart is not recommended because both
+   resources register commands, interaction actions, and state bags at startup.
 
-The source-based APIs resolve the active character on the server. Callers
-must not pass or display FiveM source IDs as player identity.
+The legacy `cm-police:*` callbacks and network events are intentionally kept,
+so existing event callers continue to work after the standalone folder is gone.
 
-British-spelling `Organisation` aliases are also provided for the shared
-armory, fleet, and membership APIs. Armory mutations require a unique
-`context.operationId`, a positive integer amount, and a reason. Reusing an
-operation ID is idempotent and cannot apply the stock mutation twice.
+## Export callers in other resources
 
-## Phase 2 ownership mapping
+FiveM exports include the resource name, so an external call written as
+`exports['cm-police']:Name(...)` cannot be intercepted after that resource is
+deleted. Change its resource name to `cm-law`.
 
-| System | Authority | Compatibility status |
-| --- | --- | --- |
-| Organisation membership, ranks, duty, permissions | `cm-law` | Police legacy exports retained |
-| Organisation armory catalog, stock, and issue records | `cm-law` / `cm_legal_*` | Police UI/callbacks retained |
-| Organisation fleet access | `cm-law` / `cm_legal_fleet_vehicles` | `cm-police` Police-only info/track fallback retained |
-| Shared dispatch lifecycle and recipients | `cm-law` | `CreatePoliceCall` delegates to Law |
-| Organisation activity/history | `cm-law` / `cm_legal_activity_logs` | Existing Police-specific incident logs retained |
+These Police-only names are unchanged and only need that resource replacement:
 
-`cm-police` remains responsible for MDT, ALPR, K9, radar, evidence,
-citations, impound, NPC interactions, wardrobe, and Police-specific station
-gameplay. No Police SQL table is renamed, copied, or deleted in Phase 2.
+- `CreatePoliceCall`, `CanUseVehicle`, `AutoIssueWarrant`
+- `GetCuffedSuspectInVehicle`, `GetDraggedSuspectForVehicle`
+- `GetJailLocation`, `GetJailSpawns`
+- `GetLicenseNumber`, `HasValidLicense`, `PurchaseLicense`, `SyncWantedStars`
+- `GetPoliceDiagnostics`, `IsCapabilityEnabled`
 
-## Compatibility boundary
+Shared names collide with cm-law's generic API. Use these Police contracts:
 
-`cm-police` remains the owner of Police-specific membership fields and
-legacy exports during this phase. `GetMember`, `HasPermission`, `IsOnDuty`,
-licensing, MDT, ALPR, K9, radar, impound, evidence, citations, wardrobe,
-and Police SQL tables are intentionally unchanged.
+| Old Police export | cm-law 2.0 export |
+| --- | --- |
+| `GetMember` | `GetMember(characterId, 'police')` |
+| `HasPermission` | `HasPermission(characterId, permission, 'police')` |
+| `IsOnDuty` | `IsOnDuty(characterId, 'police')` |
+| `GetVehicleAccessDecision` | `GetVehicleAccessDecision` (automatic fallback) |
+| `GetOrganizationSummary` | `PoliceLegacyGetOrganizationSummary` |
+| `AdminAssignLeader` | `PoliceLegacyAdminAssignLeader` |
+| `AdminRemoveLeader` | `PoliceLegacyAdminRemoveLeader` |
+| `AdminGetFleet` | `PoliceLegacyAdminGetFleet` |
+| `AdminConfigureFleetVehicle` | `PoliceLegacyAdminConfigureFleetVehicle` |
+| `AdminBeginFleetPlacement` | `PoliceLegacyAdminBeginFleetPlacement` |
+| `AdminResetFleetLocation` | `PoliceLegacyAdminResetFleetLocation` |
+| `AdminGetArmory` | `PoliceLegacyAdminGetArmory` |
+| `AdminConfigureArmory` | `PoliceLegacyAdminConfigureArmory` |
+| `AdminGetCapabilities` | `PoliceLegacyAdminGetCapabilities` |
+| `AdminConfigureCapability` | `PoliceLegacyAdminConfigureCapability` |
+| `AdminGetNpcs` | `PoliceLegacyAdminGetNpcs` |
+| `AdminConfigureNpc` | `PoliceLegacyAdminConfigureNpc` |
+| `AdminSetFacility` | `PoliceLegacyAdminSetFacility` |
 
-New Law events and scene-equipment callbacks are namespaced under
-`cm-law:*`. The old Police client handoff events remain as compatibility
-listeners where existing Police UI contracts require them.
+The dedicated `/policeadmin` workspace remains enabled. The central cm-admin
+Police adapter is disabled because its generic export names would otherwise
+target `cm_legal_*` rather than the authoritative `cm_police_*` tables.
 
-## Not included
+## UI and controls
 
-This phase does not migrate Police SQL data, rename tables, remove legacy
-exports, move Police modules, or change `server.cfg` start order. Those
-changes require a separate compatibility and data-migration plan.
+Both dashboards use one NUI shell and the same command-center stylesheet. The
+Police dashboard, MDT, wardrobe, NPC dialogue, impound UI, cinematics, and quick
+menu use namespaced NUI callbacks, avoiding duplicate close, refresh, dispatch,
+fleet, and admin handlers.
+
+`/police` now opens the full LSPD dashboard; `/policequickmenu` remains the field
+action menu. `/policeadmin`, `/reportcrime`, legacy `cm-police:*` open events,
+and existing Police key routes remain available. Generic organization contracts
+stay under `cm-law:*`.

@@ -155,6 +155,10 @@ local function canPlayerReceiveRow(src, ownerType, ownerId, destSlot, incomingRo
     local canSlot, slotErr = canPlaceInSlot(incomingRow.item_name, destSlot)
     if not canSlot then return false, slotErr end
 
+    if destSlot == 'bagskin' and not rowCanActAsBag(getItemAt(ownerType, ownerId, 'bag')) then
+        return false, 'Equip a real bag first before adding a Bag Skin.'
+    end
+
     local genderOk, genderErr = validateEquipmentGender(src, destSlot, incomingRow)
     if not genderOk then return false, genderErr end
 

@@ -454,13 +454,14 @@ function GarageVehicles(houseId)
     ReseatHomelessVehicles(houseId)
 
     return MySQL.query.await([[
-        SELECT v.id, v.plate, v.model, v.label, v.owner_character_id,
+        SELECT v.id, v.plate, v.model, v.label, catalog.image, v.owner_character_id,
                v.fuel, v.engine_health, v.body_health, v.tank_health, v.dirt_level,
                v.condition_state, v.is_locked, v.is_stored, v.garage,
                v.location_state, v.location_ref, v.location_slot,
                s.slot_index, s.owner_class
         FROM cm_house_vehicle_slots s
         INNER JOIN cm_owned_vehicles v ON v.id = s.vehicle_id
+        LEFT JOIN cm_vehicle_catalog catalog ON LOWER(catalog.model) = LOWER(v.model)
         WHERE s.house_id = ?
         ORDER BY s.slot_index
     ]], { houseId }) or {}

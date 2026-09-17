@@ -1601,6 +1601,12 @@ RegisterNUICallback('adminReplaceVehicle', function(data, cb)
     cb({ accepted = true, pending = true, requestId = data.requestId })
 end)
 
+RegisterNUICallback('adminUpdateReplacementNotice', function(data, cb)
+    data = type(data) == 'table' and data or {}
+    TriggerServerEvent('rn-vehicleshop:server:updateReplacementNotice', data)
+    cb({ accepted = true, pending = true, requestId = data.requestId })
+end)
+
 RegisterNUICallback('adminGrantOrganizationVehicle', function(data, cb)
     data = type(data) == 'table' and data or {}
     TriggerServerEvent('rn-vehicleshop:server:grantOrganizationVehicle', data.model, data.organization, data.minimumTier, data.trunkMinimumTier, data.requestId)

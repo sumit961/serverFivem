@@ -108,6 +108,21 @@ local function startClothingSwap(src, itemName, item)
         return result(false, 0, 'This clothing item has no drawable metadata.')
     end
 
+    -- Admin-side "temporarily disabled" flag (separate from store publish
+    -- state): blocks equipping this exact physical item for players who
+    -- already own it, without touching their inventory item or deleting the
+    -- catalog entry. Checked here so SetPedComponentVariation is never
+    -- reached for a disabled item.
+    if GetResourceState('cm-items') == 'started' then
+        local gender = tostring(metadata.gender or ''):lower()
+        local ok, disabled = pcall(function()
+            return exports['cm-items']:IsClothingTempDisabled(gender, def.index, drawable, texture)
+        end)
+        if ok and disabled == true then
+            return result(false, 0, 'This clothe is temporarily disabled.')
+        end
+    end
+
     ClothingReqCounter = ClothingReqCounter + 1
     local requestId = ('%s:%s:%s'):format(src, GetGameTimer(), ClothingReqCounter)
 

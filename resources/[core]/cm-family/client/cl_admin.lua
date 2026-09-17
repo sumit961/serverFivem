@@ -4,7 +4,7 @@ local adminOpen = false
 RegisterNetEvent('cm-family:client:openAdmin', function()
     local data = lib.callback.await('cm-family:server:adminData', false)
     if type(data) ~= 'table' then
-        lib.notify({ description = 'You cannot open Family Admin.', type = 'error' })
+        CMFamilyNotify({ description = 'You cannot open Family Admin.', type = 'error' })
         return
     end
     adminOpen = true
@@ -18,11 +18,11 @@ RegisterNUICallback('familyAdminAction', function(payload, cb)
     local ok, result = lib.callback.await('cm-family:server:adminAction', false,
         tostring(payload.action or ''), tonumber(payload.familyId))
     if ok then
-        lib.notify({ description = result or 'Family recovery completed.', type = 'success' })
+        CMFamilyNotify({ description = result or 'Family recovery completed.', type = 'success' })
         local data = lib.callback.await('cm-family:server:adminData', false)
         SendNUIMessage({ action = 'family:adminRefresh', data = data })
     else
-        lib.notify({ description = result or 'Family recovery failed.', type = 'error' })
+        CMFamilyNotify({ description = result or 'Family recovery failed.', type = 'error' })
     end
     cb({ ok = ok, message = result })
 end)

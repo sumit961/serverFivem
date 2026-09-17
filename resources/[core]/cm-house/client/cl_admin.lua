@@ -45,7 +45,7 @@ end
 
 local function askNewTemplateGps(kind)
     kind = kind == 'garage' and 'garage' or 'interior'
-    local input = lib.inputDialog(kind == 'garage' and 'New garage location' or 'New interior location', {
+    local input = CMInputDialog(kind == 'garage' and 'New garage location' or 'New interior location', {
         {
             type = 'input',
             label = 'GPS coordinates',
@@ -102,7 +102,7 @@ RegisterNetEvent('cm-house:client:openAdmin', function(openTab)
 
     local data = lib.callback.await('cm-house:server:adminData', false)
     if not data then
-        lib.notify({ description = 'You cannot manage properties.', type = 'error' })
+        CMNotify('You cannot manage properties.', 'error')
         return
     end
 
@@ -152,12 +152,12 @@ RegisterNUICallback('admin:action', function(d, cb)
     end
 
     if ok then
-        lib.notify({ description = type(res) == 'string' and res or 'Done.', type = 'success' })
+        CMNotify(type(res) == 'string' and res or 'Done.', 'success')
         -- Refresh so the list never shows something that is no longer true.
         local data = lib.callback.await('cm-house:server:adminData', false)
         SendNUIMessage({ action = 'adminRefresh', data = data })
     else
-        lib.notify({ description = res or 'That did not work.', type = 'error' })
+        CMNotify(res or 'That did not work.', 'error')
     end
 
     cb({ ok = ok, message = res })
@@ -167,18 +167,18 @@ RegisterNUICallback('admin:vehicleRecovery', function(d, cb)
     local ok, result = lib.callback.await('cm-house:server:adminVehicleRecovery', false,
         d.identity, d.action, d.data or {})
     if ok then
-        lib.notify({ description = type(result) == 'string' and result or 'Recovery completed.', type = 'success' })
+        CMNotify(type(result) == 'string' and result or 'Recovery completed.', 'success')
         local data = lib.callback.await('cm-house:server:adminData', false)
         SendNUIMessage({ action = 'adminRefresh', data = data })
     else
-        lib.notify({ description = result or 'Recovery failed.', type = 'error' })
+        CMNotify(result or 'Recovery failed.', 'error')
     end
     cb({ ok = ok, message = type(result) == 'string' and result or nil, data = result })
 end)
 
 RegisterNUICallback('admin:weaponRecovery', function(d, cb)
     local ok, result = lib.callback.await('cm-house:server:adminWeaponRecovery', false, tonumber(d.id))
-    lib.notify({ description = result or (ok and 'Weapon restored.' or 'Recovery failed.'), type = ok and 'success' or 'error' })
+    CMNotify(result or (ok and 'Weapon restored.' or 'Recovery failed.'), ok and 'success' or 'error')
     if ok then
         local data = lib.callback.await('cm-house:server:adminData', false)
         SendNUIMessage({ action = 'adminRefresh', data = data })
@@ -203,7 +203,7 @@ RegisterNUICallback('admin:template', function(d, cb)
             local coords = askNewTemplateGps(d.kind)
             if not coords then
                 local label = d.kind == 'garage' and 'Garage' or 'Interior'
-                lib.notify({ description = label .. ' creation cancelled or the GPS coordinates were invalid.', type = 'inform' })
+                CMNotify(label .. ' creation cancelled or the GPS coordinates were invalid.', 'inform')
                 TriggerEvent('cm-house:client:openAdmin', d.kind == 'garage' and 'garages' or 'interiors')
                 return
             end
@@ -214,7 +214,7 @@ RegisterNUICallback('admin:template', function(d, cb)
         local ok, res = lib.callback.await('cm-house:server:adminTemplate', false,
             d.action, d.kind, tonumber(d.id), d.arg)
         if not ok then
-            lib.notify({ description = res or 'The layout capture could not start.', type = 'error' })
+            CMNotify(res or 'The layout capture could not start.', 'error')
             TriggerEvent('cm-house:client:openAdmin', d.kind == 'garage' and 'garages' or 'interiors')
         end
         return
@@ -231,11 +231,11 @@ RegisterNUICallback('admin:template', function(d, cb)
     end
 
     if ok then
-        lib.notify({ description = type(res) == 'string' and res or 'Done.', type = 'success' })
+        CMNotify(type(res) == 'string' and res or 'Done.', 'success')
         local data = lib.callback.await('cm-house:server:adminData', false)
         SendNUIMessage({ action = 'adminRefresh', data = data })
     else
-        lib.notify({ description = res or 'That did not work.', type = 'error' })
+        CMNotify(res or 'That did not work.', 'error')
     end
 
     cb({ ok = ok, message = res })
@@ -262,11 +262,7 @@ function walkPreview(p)
     DoScreenFadeIn(400)
 
     preview = p
-    lib.notify({
-        title = 'Layout preview',
-        description = 'Every point is drawn. Press BACKSPACE to leave.',
-        type = 'inform', duration = 7000,
-    })
+    CMNotify('Every layout point is drawn. Press BACKSPACE to leave.', 'inform')
 end
 
 local function mk(pt, r, g, b, size, label)
@@ -327,7 +323,7 @@ CreateThread(function()
 
             if IsControlJustReleased(0, 194) then
                 preview = nil
-                lib.notify({ description = 'Preview closed.', type = 'inform' })
+                CMNotify('Preview closed.', 'inform')
             end
         end
 
@@ -343,7 +339,7 @@ RegisterNUICallback('admin:retake', function(d, cb)
     local houseId = tonumber(d.houseId)
     local ok, cfg = lib.callback.await('cm-house:server:retakePhoto', false, houseId)
     if not ok then
-        lib.notify({ description = cfg, type = 'error' })
+        CMNotify(cfg, 'error')
         return
     end
 
@@ -352,32 +348,26 @@ RegisterNUICallback('admin:retake', function(d, cb)
 
     StartPhotoCam(cfg.cam, cfg.door, function(cam)
         if not cam then
-            lib.notify({ description = 'Cancelled.', type = 'inform' })
+            CMNotify('Cancelled.', 'inform')
             return
         end
 
-        lib.notify({ description = 'Saving house photo…', type = 'inform' })
+        CMNotify('Saving house photo…', 'inform')
 
         CaptureAndSave(cfg, cam, function(url, err)
             if not url then
-                lib.notify({
-                    title = 'Photo save failed',
-                    description = err or 'Unknown error.',
-                    type = 'error', duration = 7000 })
+                CMNotify(err or 'Photo save failed.', 'error')
                 return
             end
 
-            lib.notify({
-                description = 'Photo updated.',
-                type = 'success',
-            })
+            CMNotify('Photo updated.', 'success')
         end)
     end)
 end)
 
 RegisterNUICallback('admin:pricing', function(d, cb)
     local ok, msg = lib.callback.await('cm-house:server:adminPricing', false, d.changes)
-    lib.notify({ description = msg, type = ok and 'success' or 'error' })
+    CMNotify(msg, ok and 'success' or 'error')
     cb({ ok = ok, message = msg })
 end)
 

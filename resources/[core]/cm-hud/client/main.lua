@@ -1353,6 +1353,28 @@ RegisterNetEvent('cm-hud:notify', function(text, type)
     Notify(text, type)
 end)
 
+-- Reusable compact event HUD. Gameplay resources publish data only; cm-hud
+-- owns the shared top-right presentation and countdown rendering.
+local function setRaidHud(payload)
+    if type(payload) ~= 'table' then
+        SendNUIMessage({ action = 'clearRaidHud' })
+        return
+    end
+    SendNUIMessage({ action = 'setRaidHud', raid = payload })
+end
+
+exports('SetRaidHud', setRaidHud)
+exports('ClearRaidHud', function()
+    SendNUIMessage({ action = 'clearRaidHud' })
+end)
+
+RegisterNetEvent('cm-hud:client:setRaidHud', function(payload)
+    setRaidHud(payload)
+end)
+RegisterNetEvent('cm-hud:client:clearRaidHud', function()
+    SendNUIMessage({ action = 'clearRaidHud' })
+end)
+
 -- Reusable local-only event announcement contract. The owning event resource
 -- decides which clients are eligible; cm-hud only sanitizes and presents it.
 local function eventText(value, fallback, maxLength)

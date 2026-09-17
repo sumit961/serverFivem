@@ -47,7 +47,7 @@ let state = {
 
 const equipmentLabels = {
   mask: 'Mask', glasses: 'Glasses', headwear: 'Headwear', earrings: 'Earrings',
-  outerwear: 'Outerwear', shirt: 'Shirt', bodyarmor: 'Body Armor', bag: 'Bag', accessory: 'Accessories',
+  outerwear: 'Outerwear', shirt: 'Shirt', bodyarmor: 'Body Armor', bag: 'Bag', bagskin: 'Bag Skin', accessory: 'Accessories',
   weapon: 'Weapon', ammo: 'Ammo', watch: 'Watch', pants: 'Pants', shoes: 'Shoes'
 };
 
@@ -222,6 +222,10 @@ function imgSrc(item) {
 
     // Catalog clothing images (e.g. "custom/shared_bags_5_86_19.png") live in cm-items, not cm-inventory.
     if (icon.startsWith('custom/')) {
+      return `https://cfx-nui-cm-items/ui/images/clothing/${icon}`;
+    }
+    // Per-item capture folders: "items/<asset_id>/<version>.png".
+    if (icon.startsWith('items/')) {
       return `https://cfx-nui-cm-items/ui/images/clothing/${icon}`;
     }
     if (icon.startsWith('clothing/')) {
@@ -1084,7 +1088,24 @@ function render() {
     gearEl.classList.remove('external-grid');
     gearEl.classList.add('gear-grid');
     const gear = ['mask', 'glasses', 'headwear', 'earrings', 'outerwear', 'shirt', 'bodyarmor', 'bag', 'accessory', 'weapon', 'ammo', 'watch', 'pants', 'shoes'];
-    gear.forEach(slot => gearEl.appendChild(makeSlot(slot, 'equipment')));
+    gear.forEach(slot => {
+      const cell = makeSlot(slot, 'equipment');
+      if (slot === 'bag') {
+        // Small nested slot for a Bag Skin -- only shown once a REAL bag
+        // (not a standalone skin, not empty) is equipped, since a skin only
+        // ever reskins an existing bag's look and never grants capacity itself.
+        const bagItem = itemBySlot('bag');
+        const hasRealBag = bagItem && String(bagItem.item_name || '').toLowerCase() === 'clothing_bags';
+        if (hasRealBag) {
+          cell.classList.add('has-subslot');
+          const sub = makeSlot('bagskin', 'equipment-sub');
+          sub.classList.add('sub-slot');
+          sub.title = 'Bag Skin';
+          cell.appendChild(sub);
+        }
+      }
+      gearEl.appendChild(cell);
+    });
   }
 }
 

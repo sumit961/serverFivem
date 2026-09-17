@@ -9,11 +9,13 @@
          fonts.googleapis.com. -->
     <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
     <link rel="stylesheet" href="nui://cm-ui/web/cm-dashboard.css">
-    <link rel="stylesheet" href="css/style-v110.css">
+    <link rel="stylesheet" href="css/style-v110.css?v=221">
     <link rel="stylesheet" href="css/phase2-ice-cyan-v173.css">
-    <link rel="stylesheet" href="css/weapon-storage-v150.css">
-    <link rel="stylesheet" href="css/cm-dashboard-house-v180.css">
+    <link rel="stylesheet" href="css/cm-dashboard-house-v180.css?v=192">
     <link rel="stylesheet" href="nui://cm-ui/web/cm-armory.css?v=7">
+    <link rel="stylesheet" href="css/cm-armory-control.css?v=3">
+    <link rel="stylesheet" href="css/weapon-storage-v150.css?v=200">
+    <link rel="stylesheet" href="css/garage-selector-v3.css?v=241">
 </head>
 <body>
 <!-- Unified world interaction prompt -->
@@ -24,6 +26,13 @@
   </div>
 </div>
 
+<div id="helipad-picker" class="screen helipad-picker-screen" aria-hidden="true">
+  <section class="helipad-picker-card" role="dialog" aria-modal="true" aria-labelledby="hp-title">
+    <header class="helipad-picker-head"><div><p>HOUSE HELIPAD</p><h2 id="hp-title">Select helicopter</h2><span id="hp-subtitle">Choose an aircraft to call.</span></div><button type="button" data-helipad-act="close">&times;</button></header>
+    <div class="helipad-vehicle-list" id="hp-list"></div>
+  </section>
+</div>
+
 
 <!-- ============================================================
      DOOR -- compact CM ice-blue property card
@@ -31,11 +40,16 @@
 <div id="door" class="screen property-card-screen" aria-hidden="true">
   <section class="deed" role="dialog" aria-modal="true" aria-labelledby="d-label">
     <header class="deed__head">
+      <div class="deed__plate"><span class="deed__hash">#</span><span id="d-number-plate">000</span></div>
       <div class="deed__id">
+        <p class="deed__eyebrow">PROPERTY ACCESS</p>
         <h1 id="d-label">House</h1>
-        <div class="panel-accent" aria-hidden="true"></div>
-        <p class="deed__type"><span id="d-family" class="deed__fam"></span></p>
+        <div class="deed__meta-line">
+          <span class="deed__type-chip" id="d-type-chip">House</span>
+          <span id="d-family" class="deed__fam"></span>
+        </div>
       </div>
+      <div class="deed__status-chip" id="d-status-chip">VACANT</div>
       <button class="deed__x" data-act="close" aria-label="Close">&times;</button>
     </header>
 
@@ -45,6 +59,10 @@
         <span>HOUSE PHOTO</span>
         <small>No saved photo</small>
       </div>
+      <figcaption class="property-photo__caption">
+        <span>LOS SANTOS PROPERTY</span>
+        <strong id="d-photo-title">House</strong>
+      </figcaption>
     </figure>
 
     <!-- Kept for the existing status controller without displaying the old
@@ -61,16 +79,16 @@
     </div>
 
     <dl class="ledger property-ledger">
-      <div class="ledger__row">
+      <div class="ledger__row ledger__row--house-number">
         <dt>House No</dt><dd><span class="ledger__hash">#</span><span id="d-number">000</span></dd>
       </div>
-      <div class="ledger__row">
+      <div class="ledger__row ledger__row--type">
         <dt>Type</dt><dd id="d-type">House</dd>
       </div>
-      <div class="ledger__row">
+      <div class="ledger__row ledger__row--owner">
         <dt>Owner</dt><dd id="d-owner">For sale</dd>
       </div>
-      <div class="ledger__row">
+      <div class="ledger__row ledger__row--price">
         <dt>Price</dt><dd id="d-price">&mdash;</dd>
       </div>
       <div class="ledger__row">
@@ -87,7 +105,7 @@
       </div>
     </dl>
 
-    <div class="acts property-actions">
+    <div class="acts property-actions" aria-label="Property actions">
       <button class="act act--lock" data-act="lock" id="d-lock">
         <span class="act__icon" id="d-lock-icon">&#128274;</span>
         <span class="act__label" id="d-lock-label">Unlock</span>
@@ -100,9 +118,9 @@
         <span class="act__icon">&#128663;</span>
         <span class="act__label">Open garage</span>
       </button>
-      <button class="act" data-act="activity" id="d-activity">
-        <span class="act__icon">&#128203;</span>
-        <span class="act__label">Activity</span>
+      <button class="act act--raid" data-act="raid" id="d-raid" hidden>
+        <span class="act__icon">&#9876;</span>
+        <span class="act__label" id="d-raid-label">Start family raid</span>
       </button>
     </div>
 
@@ -159,6 +177,17 @@
 <!-- ============================================================
      GARAGE SLOT  -- assign, recall or remove a vehicle
      ============================================================ -->
+<div id="garage-confirm" class="garage-confirm" hidden aria-hidden="true">
+    <div class="garage-confirm__card" role="alertdialog" aria-modal="true" aria-labelledby="gc-title" aria-describedby="gc-text">
+      <span class="garage-confirm__eyebrow">CONFIRM ACTION</span>
+      <h3 id="gc-title">Confirm action</h3>
+      <p id="gc-text"></p>
+      <div class="garage-confirm__actions">
+        <button id="gc-cancel" class="garage-confirm__button garage-confirm__button--cancel" type="button" data-confirm="cancel">CANCEL</button>
+        <button id="gc-ok" class="garage-confirm__button garage-confirm__button--ok" type="button" data-confirm="ok">CONFIRM</button>
+      </div>
+    </div>
+  </div>
 <div id="garage-slot" class="screen garage-slot-screen" aria-hidden="true">
   <section class="garage-slot-card" role="dialog" aria-modal="true" aria-labelledby="gs-title">
     <header class="garage-slot-head">
@@ -172,6 +201,7 @@
     </header>
 
     <section class="garage-current" id="gs-current" hidden>
+      <img class="garage-vehicle-image garage-vehicle-image--current" id="gs-current-image" alt="Current vehicle" hidden>
       <div>
         <span class="garage-current__tag">CURRENT VEHICLE</span>
         <strong id="gs-current-name">Vehicle</strong>
@@ -179,6 +209,8 @@
       </div>
       <span class="garage-current__state" id="gs-current-state">PARKED</span>
     </section>
+
+    <div class="garage-current-rank" id="gs-current-rank" hidden></div>
 
     <div class="garage-slot-actions" id="gs-actions" hidden>
       <button class="garage-slot-action garage-slot-action--cyan" type="button" data-garage-act="recall">
@@ -191,11 +223,26 @@
 
     <div class="garage-vehicle-section" id="gs-vehicle-section">
       <div class="garage-vehicle-section__head">
-        <span id="gs-list-title">YOUR AVAILABLE VEHICLES</span>
-        <span id="gs-count">0</span>
+        <div>
+          <span id="gs-list-title">YOUR ROAD VEHICLES</span>
+          <small>Choose a vehicle for this parking space</small>
+        </div>
+        <span class="garage-vehicle-count" aria-live="polite"><strong id="gs-count">0</strong> CARS</span>
+      </div>
+      <div class="garage-vehicle-toolbar">
+        <div class="garage-vehicle-search">
+          <span class="garage-vehicle-search__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg></span>
+          <input id="gs-search" type="search" placeholder="Search vehicle name, model or plate" autocomplete="off" spellcheck="false" aria-label="Search your road vehicles">
+          <button class="garage-vehicle-search__clear" id="gs-search-clear" type="button" aria-label="Clear vehicle search" title="Clear search" hidden>&times;</button>
+        </div>
+        <div class="garage-vehicle-filters" role="group" aria-label="Vehicle status filter">
+          <button type="button" class="is-active" data-garage-filter="all">All</button>
+          <button type="button" data-garage-filter="available">Available</button>
+          <button type="button" data-garage-filter="assigned">Assigned</button>
+        </div>
       </div>
       <div class="garage-vehicle-list" id="gs-list"></div>
-      <p class="garage-vehicle-empty" id="gs-empty" hidden>No available owned vehicles were found.</p>
+      <p class="garage-vehicle-empty" id="gs-empty" role="status" hidden>No eligible road vehicles match this view.</p>
     </div>
 
     <footer class="garage-slot-foot">
@@ -215,56 +262,35 @@
      HOUSE WEAPON STORAGE -- weapons and ammunition only
      ============================================================ -->
 <div id="weapon-storage" class="screen weapon-storage-screen" aria-hidden="true">
-  <section class="weapon-storage-card" role="dialog" aria-modal="true" aria-labelledby="ws-title">
-    <header class="weapon-storage-head">
-      <div class="weapon-storage-mark" aria-hidden="true">WS</div>
-      <div class="weapon-storage-heading">
-        <p class="weapon-storage-eyebrow">SECURE PROPERTY LOCKER</p>
-        <h2 id="ws-title">Weapon Storage</h2>
-        <p id="ws-subtitle">Property</p>
+  <section class="gang-control" role="dialog" aria-modal="true" aria-labelledby="ws-control-title">
+    <aside class="gang-control__rail">
+      <div class="gang-control__vertical">ARMOR</div>
+      <div class="gang-control__rail-head"><span>PROTECTIVE EQUIPMENT</span><strong id="ws-player-count">0 MODELS</strong></div>
+      <div id="ws-player-list" class="gang-control__armor-list"></div>
+      <p id="ws-player-empty" class="gang-control__empty" hidden>No armor is configured.</p>
+      <button class="gang-control__exit" type="button" data-ws-close>← CLOSE ARMORY</button>
+    </aside>
+    <main class="gang-control__main">
+      <header class="gang-control__header">
+        <div class="gang-control__heading"><i></i><h2 id="ws-control-title">CONTROL</h2><span id="ws-capacity">0 / 60 SLOTS</span><span id="armory-operating-state">● ARMORY OPEN</span></div>
+        <nav class="gang-control__tabs" aria-label="Armory categories">
+          <button class="active" data-ws-filter="weapon"><i></i>WEAPONS <b id="ws-count-weapon">0</b></button>
+          <button data-ws-filter="ammo"><i></i>AMMO <b id="ws-count-ammo">0</b></button>
+          <button data-ws-filter="armor"><i></i>ARMOR <b id="ws-count-armor">0</b></button>
+          <button data-ws-filter="all"><i></i>ALL <b id="ws-storage-count">0</b></button>
+          <button id="ws-order-stock" hidden>ORDER STOCK</button>
+          <button id="ws-settings" class="gang-control__settings" hidden><span>⚙</span> SETTINGS</button>
+          <button type="button" data-ws-refresh aria-label="Refresh">↻</button>
+        </nav>
+      </header>
+      <div class="gang-control__meta"><small id="ws-subtitle">PROPERTY WEAPON STORAGE</small></div>
+      <div class="gang-control__toolbar">
+        <label class="gang-control__search" for="ws-search"><span aria-hidden="true"></span><input id="ws-search" type="search" autocomplete="off" placeholder="Search weapon, ammunition or item name"></label>
+        <strong id="ws-result-count" class="gang-control__result-count">0 shown</strong>
       </div>
-      <button class="weapon-storage-close" type="button" data-ws-close aria-label="Close">&times;</button>
-    </header>
-
-    <div class="weapon-storage-tools">
-      <div class="weapon-storage-tabs" role="tablist">
-        <button class="ws-tab is-active" type="button" data-ws-filter="all">All</button>
-        <button class="ws-tab" type="button" data-ws-filter="weapon">Weapons</button>
-        <button class="ws-tab" type="button" data-ws-filter="ammo">Ammo</button>
-      </div>
-      <label class="weapon-storage-search">
-        <span aria-hidden="true">⌕</span>
-        <input id="ws-search" type="search" placeholder="Search weapons or ammunition" autocomplete="off">
-      </label>
-      <button class="weapon-storage-refresh" type="button" data-ws-refresh>Refresh</button>
-    </div>
-
-    <div class="weapon-storage-columns">
-      <section class="weapon-storage-pane">
-        <header class="weapon-storage-pane-head">
-          <div><span>PLAYER INVENTORY</span><strong>Your weapons &amp; ammo</strong></div>
-          <b id="ws-player-count">0</b>
-        </header>
-        <div class="weapon-storage-list" id="ws-player-list"></div>
-        <p class="weapon-storage-empty" id="ws-player-empty" hidden>No weapons or ammunition in your inventory.</p>
-      </section>
-
-      <div class="weapon-storage-divider" aria-hidden="true"><span>⇄</span></div>
-
-      <section class="weapon-storage-pane">
-        <header class="weapon-storage-pane-head">
-          <div><span>HOUSE LOCKER</span><strong>Stored weapons &amp; ammo</strong></div>
-          <b id="ws-storage-count">0</b>
-        </header>
-        <div class="weapon-storage-list" id="ws-storage-list"></div>
-        <p class="weapon-storage-empty" id="ws-storage-empty" hidden>This weapon storage is empty.</p>
-      </section>
-    </div>
-
-    <footer class="weapon-storage-foot">
-      <span id="ws-capacity">0 / 60 storage slots</span>
-      <span>Only weapons and ammunition are accepted &nbsp; <kbd>ESC</kbd> CLOSE</span>
-    </footer>
+      <div id="ws-storage-list" class="gang-control__grid"></div>
+      <p id="ws-storage-empty" class="gang-control__empty" hidden>This armory is empty.</p>
+    </main>
   </section>
 </div>
 
@@ -280,6 +306,13 @@
         <p class="wiz__eyebrow" id="w-step">Step 1 — What is this property?</p>
         <h1 id="w-title">Declare the property</h1>
         <p class="wiz__sub" id="w-sub">Everything else — the layout, the garage, the price — follows from this.</p>
+        <nav class="wiz-progress" aria-label="Property creation progress">
+          <span class="wiz-progress__item is-active" data-wiz-progress="1"><i>01</i><b>Property</b></span>
+          <span class="wiz-progress__item" data-wiz-progress="2"><i>02</i><b>Exterior</b></span>
+          <span class="wiz-progress__item" data-wiz-progress="3"><i>03</i><b>Photo</b></span>
+          <span class="wiz-progress__item" data-wiz-progress="4"><i>04</i><b>Layouts</b></span>
+          <span class="wiz-progress__item" data-wiz-progress="5"><i>05</i><b>Publish</b></span>
+        </nav>
       </header>
 
       <div class="wiz__body" id="w-body">
@@ -327,12 +360,11 @@
 
         <!-- PUBLISH -->
         <section class="pane" id="w-publish" hidden>
-          <div class="build__grid">
-            <div class="f">
-              <span class="f__label">House identity</span>
-              <span class="f__hint">The server assigns the next number automatically and publishes it as House #number.</span>
-            </div>
+          <div class="publish-intro">
+            <span class="publish-intro__mark">✓</span>
+            <div><strong>Ready for final review</strong><p>The server will re-check every item and assign the next house number.</p></div>
           </div>
+          <div class="publish-checks" id="w-checks"></div>
         </section>
 
       </div>
@@ -401,11 +433,14 @@
   </div>
 </div>
 
+<link rel="stylesheet" href="css/ui-bridge-v1.css?v=1">
+<script src="js/ui-bridge-v1.js?v=1"></script>
 <script src="js/interaction-v203.js"></script>
 <script src="js/interior-door-v110.js"></script>
-<script src="js/garage-slot-v114.js"></script>
-<script src="js/door-v105.js"></script>
-<script src="js/weapon-storage-v150.js"></script>
-<script src="js/app-v105.js"></script>
+<script src="js/garage-slot-v114.js?v=240"></script>
+<script src="js/helipad-picker-v100.js"></script>
+<script src="js/door-v105.js?v=195"></script>
+<script src="js/weapon-storage-v150.js?v=200"></script>
+<script src="js/app-v105.js?v=185"></script>
 </body>
 </html>

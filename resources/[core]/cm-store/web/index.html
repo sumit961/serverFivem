@@ -1,31 +1,235 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CM Store</title>
-  <link rel="stylesheet" href="style.css?v=1.1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CM Network - Tactical System Store</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main id="app" class="hidden">
-    <header>
-      <div>
-        <h1 id="title">Store</h1>
-        <p id="subtitle">Browse items for sale</p>
-      </div>
-      <div class="head-actions">
-        <select id="method">
-          <option value="cash">Pay Cash</option>
-          <option value="bank">Pay Bank</option>
-        </select>
-        <button id="close">Close ESC</button>
-      </div>
-    </header>
+  <div id="store-root" class="store-root hidden" aria-hidden="true">
+    <!-- Background Item Pile (Physics Zone) -->
+    <div class="bg-pile" id="bgPile"></div>
 
-    <nav class="tabs" id="tabs"></nav>
-    <section class="grid" id="grid"></section>
-  </main>
+    <!-- CENTERED COMPACT HUD CONTAINER -->
+    <div class="hud-container">
+      <!-- HUD HEADER -->
+      <header class="hud-header">
+        <div class="header-left">
+          <div class="store-badge" id="storeBadgeBox">24/7</div>
+          <div class="welcome-text">
+            <div class="sub-label heading">REGULATED COMMERCE</div>
+            <div class="title-main heading" id="storeName">STRAWBERRY 24/7</div>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="balance-card">
+            <div class="balance-val font-mono" id="playerBalanceDisplay">$0</div>
+            <div class="sub-label heading">AVAILABLE BALANCE</div>
+          </div>
+          <button class="btn-close-box" id="btnClose" type="button" aria-label="Close Store">✕</button>
+        </div>
+      </header>
 
-  <script src="app.js?v=1.1.0"></script>
+      <!-- DIRECTIVE NAV TABS -->
+      <nav class="nav-tabs" aria-label="Store navigation">
+        <button class="nav-tab active" data-view="catalog" type="button">Hardware &amp; Supplies</button>
+        <button class="nav-tab" data-view="public" type="button">Public Info</button>
+        <button class="nav-tab hidden" id="ownerTab" data-view="owner" type="button">Account Console</button>
+      </nav>
+
+      <!-- MAIN CONTENT CONTAINER -->
+      <main class="main-content" id="mainContent">
+        <!-- VIEW 1: CATALOG / SHOPPING -->
+        <section id="catalogView" class="view-container">
+          <div class="filter-bar">
+            <div class="search-wrap">
+              <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+              </svg>
+              <input id="searchInput" type="text" placeholder="Search consumables, tools, gear..." autocomplete="off">
+            </div>
+            <div class="category-tabs cm-scrollbar" id="categoryPills"></div>
+          </div>
+
+          <div class="grid-container cm-scrollbar">
+            <div class="item-grid" id="productsGrid"></div>
+          </div>
+        </section>
+
+        <!-- VIEW 2: PUBLIC INFO & STORE PURCHASE -->
+        <section id="publicView" class="view-container hidden">
+          <div class="public-content cm-scrollbar">
+            <div class="public-hero">
+              <span class="sub-label heading">STORE PROFILE</span>
+              <h2 id="publicStatus" class="heading text-white">AVAILABLE FOR PURCHASE</h2>
+              <p id="publicOwner">This 24/7 store is currently operated by the city.</p>
+            </div>
+            <div class="info-grid">
+              <div class="info-card">
+                <span class="sub-label">PRICE TIER</span>
+                <strong id="publicTier">NORMAL</strong>
+                <small id="publicMultiplier">1.00x BASE</small>
+              </div>
+              <div class="info-card">
+                <span class="sub-label">STOCK UNITS</span>
+                <strong id="publicStock">0</strong>
+                <small>REMAINING IN WAREHOUSE</small>
+              </div>
+              <div class="info-card">
+                <span class="sub-label">STORE PURCHASE</span>
+                <strong id="publicPurchase" class="text-green">$0</strong>
+                <small>BANK TRANSFER</small>
+              </div>
+              <div class="info-card">
+                <span class="sub-label">7-DAY TAX</span>
+                <strong id="publicTax">$0</strong>
+                <small>RENEWAL FEE</small>
+              </div>
+            </div>
+            <div class="public-note">
+              80% of all item sales revenue flows directly into the owner's business account. Owners are required to pay property tax every 7 days to maintain ownership.
+            </div>
+            <div id="buyStoreContainer">
+              <button id="btnBuyStore" class="btn-cta-yellow" type="button">PURCHASE THIS STORE</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- VIEW 3: OWNER CONSOLE -->
+        <section id="ownerView" class="view-container hidden">
+          <div class="owner-content cm-scrollbar">
+            <div class="section-heading">
+              <div>
+                <span class="sub-label heading">MANAGEMENT &amp; FINANCE</span>
+                <h2 class="heading text-white">Store Owner Console</h2>
+              </div>
+              <span class="cash-pill">BUSINESS <b>$<span id="ownerBalance">0</span></b></span>
+            </div>
+
+            <div class="info-grid owner-metrics">
+              <div class="info-card">
+                <span class="sub-label">TAX COVERAGE</span>
+                <strong id="ownerTaxDays">0 DAYS</strong>
+                <small>PAID IN ADVANCE</small>
+              </div>
+              <div class="info-card">
+                <span class="sub-label">DAILY REVENUE</span>
+                <strong id="ownerDailyIncome" class="text-green">$0</strong>
+                <small>80% OWNER SHARE</small>
+              </div>
+              <div class="info-card">
+                <span class="sub-label">WEEKLY REVENUE</span>
+                <strong id="ownerWeeklyIncome" class="text-green">$0</strong>
+                <small>80% OWNER SHARE</small>
+              </div>
+              <div class="info-card">
+                <span class="sub-label">STORE STOCK</span>
+                <strong id="ownerStockUnits">0</strong>
+                <small id="ownerStockSub">CAPACITY: 5,000</small>
+              </div>
+            </div>
+
+            <!-- Stock Bar -->
+            <div class="stock-overview">
+              <div class="stock-bar-track">
+                <div class="stock-bar-fill" id="stockBarFill" style="width: 20%;"></div>
+                <div class="stock-bar-overstock" id="stockBarOverstock" style="width: 0%;"></div>
+              </div>
+              <div class="stock-bar-labels">
+                <span>0 units</span>
+                <span>Max Standard: <b id="lblMaxStock">5,000</b></span>
+                <span>Overstock Limit: <b id="lblOverstock">8,000</b></span>
+              </div>
+            </div>
+
+            <!-- Price Tier Selector -->
+            <div class="control-row">
+              <div class="control-copy">
+                <h3 class="heading">PRICE TIER</h3>
+                <p>Select customer price markup / discount (affects all items)</p>
+              </div>
+              <div class="tier-buttons">
+                <button class="tier-btn" data-tier="low" type="button">LOW (-15%)</button>
+                <button class="tier-btn selected" data-tier="normal" type="button">NORMAL (100%)</button>
+                <button class="tier-btn" data-tier="high" type="button">HIGH (+25%)</button>
+              </div>
+            </div>
+
+            <!-- Stock Restock Controls -->
+            <div class="control-row">
+              <div class="control-copy">
+                <h3 class="heading">INVENTORY RESTOCK</h3>
+                <p>Order fresh stock batches delivered directly to store warehouse</p>
+              </div>
+              <div class="stock-actions">
+                <button id="btnRestockBatch" class="btn-tier-action" type="button">ORDER BATCH (+500 - $3,000)</button>
+                <button id="btnOverstockBatch" class="btn-tier-action overstock" type="button">OVERSTOCK SHIPMENT (+500 - $4,000)</button>
+              </div>
+            </div>
+
+            <!-- Financial Actions -->
+            <div class="quick-grid">
+              <button id="btnSaveSettings" class="action-btn" type="button">SAVE SETTINGS</button>
+              <button id="btnPayTax" class="action-btn" type="button">PAY 7-DAY TAX ($12,000)</button>
+              <button id="btnWithdraw" class="action-btn action-withdraw" type="button">WITHDRAW BUSINESS BALANCE</button>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <!-- FLOATING CART FOOTER -->
+      <footer class="hud-footer" id="cartFooter">
+        <div class="cart-left">
+          <div class="cart-icon-box" id="cartIconBox" aria-label="Shopping Cart">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49A1.003 1.003 0 0 0 20 4H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z"/>
+            </svg>
+            <div class="cart-badge" id="cartBadge" style="display:none;">0</div>
+          </div>
+
+          <!-- Stepper Cart List -->
+          <div class="cart-items-track cm-scrollbar" id="cartList">
+            <div class="empty-text" id="emptyText">Cargo bay empty. Click cards to load items.</div>
+          </div>
+        </div>
+
+        <div class="cart-right">
+          <div class="payment-method-toggle">
+            <button type="button" class="pay-btn active" data-method="cash">CASH</button>
+            <button type="button" class="pay-btn" data-method="bank">BANK</button>
+          </div>
+
+          <div class="total-block">
+            <div class="total-label heading">Total Requisition</div>
+            <div class="total-val" id="totalPrice">$0</div>
+          </div>
+
+          <button class="checkout-btn empty-state" id="btnCheckout" type="button">
+            <span id="orderButtonText">CART EMPTY</span>
+          </button>
+        </div>
+      </footer>
+
+      <!-- ESC DISMISS LEGEND -->
+      <div class="esc-legend">
+        <div class="esc-location">COMMERCE NETWORK <span class="cyan-dot">•</span> SECURE TERMINAL</div>
+        <div class="esc-hint">
+          <span class="esc-kbd">ESC</span>
+          <span>CLOSE</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Feedback -->
+    <div id="toast" class="toast-overlay hidden" role="status">
+      <span id="toastMessage">Action message</span>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
 </body>
 </html>

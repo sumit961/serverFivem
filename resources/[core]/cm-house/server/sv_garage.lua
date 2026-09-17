@@ -412,6 +412,7 @@ local function deleteGarageEntity(houseId, slotIndex)
     end
     return true
 end
+CMHouseDeleteGarageEntity = deleteGarageEntity
 
 local function cleanupGarageEntities(houseId)
     houseId = tonumber(houseId)

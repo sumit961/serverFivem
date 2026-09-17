@@ -1,9 +1,13 @@
-/* cm-gunstore/web/app.js (v1.9.0)
+/* cm-gunstore/web/app.js (v1.11.2)
  * Store rework: the player store no longer lists ammo in its own column.
  * Instead, selecting a weapon reveals an "Add ammunition" panel populated from
  * that weapon's linked ammo (resolved server-side). Ammo bought this way is
  * delivered together with the gun in a single validated purchase.
  * Admin panels (weapon picker / ammo picker / armor creator) are unchanged.
+ *
+ * The "Press E" prompt and the NPC conversation are cm-ui's shared components
+ * now (client/main.lua uses exports['cm-ui']:ShowInteract/OpenNpcDialogue),
+ * so this page only owns the catalog/admin UI -- no interaction/dialog DOM.
  */
 
 const app = document.getElementById('app');
@@ -12,17 +16,6 @@ const titleEl = document.getElementById('title');
 const modeLabel = document.getElementById('modeLabel');
 const closeBtn = document.getElementById('closeBtn');
 const refreshBtn = document.getElementById('refreshBtn');
-const npcDialog = document.getElementById('npcDialog');
-const dialogName = document.getElementById('dialogName');
-const dialogTitle = document.getElementById('dialogTitle');
-const dialogStoreBtn = document.getElementById('dialogStoreBtn');
-const dialogLicenseBtn = document.getElementById('dialogLicenseBtn');
-const dialogCloseBtn = document.getElementById('dialogCloseBtn');
-const interactionPrompt = document.getElementById('interactionPrompt');
-const interactionKey = document.getElementById('interactionKey');
-const interactionName = document.getElementById('interactionName');
-const interactionTitle = document.getElementById('interactionTitle');
-const interactionSubtitle = document.getElementById('interactionSubtitle');
 
 const state = {
   mode: 'store',
@@ -40,6 +33,11 @@ const state = {
   ammoGroup: 'pistol',
   ammoSearch: '',
   selectedName: '',
+  npcs: [],            // custom NPCs loaded for the admin "Manage NPCs" tab
+  npcName: '',
+  npcLabel: 'Gun Store',
+  npcModel: '',
+  npcScenario: '',
   ammoQty: 1,          // ammo quantity when an ammo item is itself selected (admin/back-compat)
   // ammo-per-weapon flow:
   weaponAmmo: {},      // { [weaponItemName]: { item_name, label, image, price, pack_size, buyable } | null }
@@ -55,6 +53,19 @@ function post(path, body = {}) { return fetch(`https://${resName()}/${path}`, { 
 function money(n) { n = Number(n) || 0; return `$${n.toLocaleString()}`; }
 function escapeAttr(v) { return String(v ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function escapeHtml(v) { return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+/* Native `confirm()` is unreliable inside FiveM's CEF NUI (it can return
+ * immediately without actually blocking/showing), which is why the old
+ * delete buttons here silently did nothing. cm-ui's CMUI.confirm is a real
+ * DOM modal that returns a Promise<boolean>, so use that when cm-ui is
+ * running and fall back to native confirm only if it truly isn't loaded. */
+function cmConfirm(message, opts = {}) {
+  if (window.CMUI && typeof CMUI.confirm === 'function') {
+    return CMUI.confirm({ title: opts.title || 'Confirm', message, confirmText: opts.confirmText || 'Confirm', danger: opts.danger === true });
+  }
+  return Promise.resolve(confirm(message));
+}
+function confirmDelete(message) { return cmConfirm(message, { title: 'Remove item', confirmText: 'Remove', danger: true }); }
 function clampRounds(n) { return Math.max(1, Math.min(999, Math.floor(Number(n) || 1))); }
 
 function imgSrc(value) {
@@ -357,7 +368,7 @@ function armorCreator() {
       <input type="hidden" id="newType" value="armor">
       <input type="hidden" id="newWeaponHash" value="">
       <input type="hidden" id="newComponent" value="9">
-      <input type="hidden" id="newDrawable" value="0">
+      <input type="hidden" id="newDrawable" value="">
       <input type="hidden" id="newTexture" value="0">
       <input type="hidden" id="newGender" value="both">
       <input type="hidden" id="newStock" value="-1">
@@ -365,6 +376,7 @@ function armorCreator() {
       <label><span>Name</span><input id="newLabel" placeholder="Heavy Tactical Vest" /></label>
       <label><span>Price</span><input id="newPrice" type="number" min="0" value="1000" /></label>
       <label><span>Armor Health</span><input id="newArmor" type="number" min="0" max="100" value="50" /></label>
+      ${accessFieldsHtml('public', '')}
     </div>
     <div class="creator-actions">
       <button id="captureVestBtn" class="ghost-action">Capture Vest (Clothing Studio)</button>
@@ -373,6 +385,68 @@ function armorCreator() {
     </div>
     <p class="creator-note">Gun and ammo creation moved to /cmweaponadmin. Use this only for wearable armor/vest store items.</p>
   </section>`;
+}
+
+/* ===== Admin: Manage NPCs (add a live clerk from the player's own position) ===== */
+function npcRow(n) {
+  return `<article class="npc-item" data-npcid="${escapeAttr(n.id)}">
+    <div class="npc-summary">
+      <h4>${escapeHtml(n.name)}</h4>
+      <span class="npc-meta">${escapeHtml(n.label || 'Gun Store')} · ${escapeHtml(n.model || '')}</span>
+      <code class="npc-coords">${Number(n.x).toFixed(1)}, ${Number(n.y).toFixed(1)}, ${Number(n.z).toFixed(1)}</code>
+    </div>
+    <button class="delete" data-npcdelete="${escapeAttr(n.id)}">Remove</button>
+  </article>`;
+}
+
+function npcManagerView() {
+  const list = Array.isArray(state.npcs) ? state.npcs : [];
+  return `<section class="npc-manager">
+    <div class="creator-head">
+      <div><p class="eyebrow">MANAGE NPCS</p><h2>Add a gun store clerk here</h2></div>
+      <span>Walk to where you want the clerk, fill this in, then click Add NPC Here</span>
+    </div>
+    <div class="creator-grid">
+      <label><span>Name</span><input id="npcName" placeholder="Marcus Reed" value="${escapeAttr(state.npcName)}" /></label>
+      <label><span>Shop Label (blip)</span><input id="npcLabel" placeholder="Gun Store" value="${escapeAttr(state.npcLabel)}" /></label>
+      <label><span>Ped Model</span><input id="npcModel" placeholder="s_m_y_ammucity_01 (blank = default)" value="${escapeAttr(state.npcModel)}" /></label>
+      <label><span>Scenario</span><input id="npcScenario" placeholder="WORLD_HUMAN_GUARD_STAND (blank = default)" value="${escapeAttr(state.npcScenario)}" /></label>
+    </div>
+    <div class="creator-actions">
+      <button id="addNpcHereBtn" class="save">Add NPC Here</button>
+    </div>
+    <p class="creator-note">The NPC spawns at your exact position/heading, opens the normal cinematic dialog + store, and is saved so it survives a restart. Remove it below any time.</p>
+    <div class="npc-list">${list.length ? list.map(npcRow).join('') : '<div class="empty">No custom NPCs yet.</div>'}</div>
+  </section>`;
+}
+
+/* ===== Access control (Public / Gang Members / Law Org) shared by every
+ * admin card + the armor creator. Fixed gang roster mirrors cm-gang's
+ * Config.GangIds (marabunta/bloods/ballas/families/vagos never change). ===== */
+const FIXED_GANGS = ['marabunta', 'bloods', 'ballas', 'families', 'vagos'];
+function gangLabel(id) { return id ? id.charAt(0).toUpperCase() + id.slice(1) : id; }
+
+function accessFieldsHtml(scope, gangId, itemName) {
+  scope = scope || 'public';
+  gangId = gangId || '';
+  const nameAttr = itemName ? ` data-name="${escapeAttr(itemName)}"` : '';
+  const scopeIdAttr = itemName ? '' : ' id="newAccessScope"';
+  const gangIdAttr = itemName ? '' : ' id="newAccessGang"';
+  const gangOptions = FIXED_GANGS.map(g => `<option value="${g}" ${gangId === g ? 'selected' : ''}>${gangLabel(g)}</option>`).join('');
+  return `
+    <label><span>Access</span>
+      <select data-field="access_scope"${nameAttr}${scopeIdAttr}>
+        <option value="public" ${scope === 'public' ? 'selected' : ''}>Public Store</option>
+        <option value="gang" ${scope === 'gang' ? 'selected' : ''}>Gang Members</option>
+        <option value="law" ${scope === 'law' ? 'selected' : ''}>Law Org (any)</option>
+      </select>
+    </label>
+    <label><span>Gang (if Gang access)</span>
+      <select data-field="access_gang_id"${nameAttr}${gangIdAttr}>
+        <option value="">Any Gang</option>
+        ${gangOptions}
+      </select>
+    </label>`;
 }
 
 function card(row) {
@@ -402,10 +476,15 @@ function adminRow(row) {
         ${row.item_type === 'weapon'
       ? `<label><span>Damage</span><input value="${Number(row.damage) || 0}" disabled /></label><label><span>Ammo</span><input value="${escapeAttr(row.ammo_item || '')}" disabled /></label>`
       : `<label><span>Pack Size</span><input value="${Number(row.pack_size) || 1}" disabled /></label><label><span>Pickup Hash</span><input value="${escapeAttr(row.pickup_hash || '')}" disabled /></label>`}
+        ${accessFieldsHtml(row.access_scope, row.access_gang_id, itemName)}
         <label class="wide"><span>Image from /cmweaponadmin</span><input data-field="image" data-name="${itemName}" value="${escapeAttr(row.image)}" disabled /></label>
         <label class="wide"><span>Description from cm-weapons config</span><textarea data-field="description" data-name="${itemName}" disabled>${escapeHtml(row.description || '')}</textarea></label>
       </div>
-      <div class="admin-actions"><label class="admin-toggle"><input data-field="enabled" data-name="${itemName}" type="checkbox" ${row.enabled ? 'checked' : ''}/><span>Store</span></label><button class="save" data-save="${itemName}">Save Store</button><button class="delete" data-delete="${itemName}">Remove Store</button></div>
+      <div class="admin-actions">
+        <label class="admin-toggle"><input data-field="enabled" data-name="${itemName}" type="checkbox" ${row.enabled ? 'checked' : ''}/><span>Store</span></label>
+        ${row.item_type === 'weapon' ? `<label class="admin-toggle banned-toggle"><input data-field="banned" data-name="${itemName}" type="checkbox" ${row.banned ? 'checked' : ''}/><span>Banned everywhere</span></label>` : ''}
+        <button class="save" data-save="${itemName}">Save Store</button><button class="delete" data-delete="${itemName}">Remove Store</button>
+      </div>
     </article>`;
   }
 
@@ -421,6 +500,7 @@ function adminRow(row) {
       <label><span>Texture</span><input data-field="texture_id" data-name="${itemName}" type="number" value="${Number(row.texture_id || row.textureId || 0)}" /></label>
       <label><span>Gender</span><input data-field="gender" data-name="${itemName}" value="${escapeAttr(row.gender || 'both')}" /></label>
       <label><span>Stock</span><input data-field="stock" data-name="${itemName}" type="number" value="${Number(row.stock ?? -1)}" /></label>
+      ${accessFieldsHtml(row.access_scope, row.access_gang_id, itemName)}
       <label class="wide"><span>Image Path</span><input data-field="image" data-name="${itemName}" value="${escapeAttr(row.image)}" /></label>
       <label class="wide file-line"><span>Replace Image From PC</span><input data-image-file="${itemName}" type="file" accept="image/png,image/jpeg,image/webp" /></label>
       <label class="wide"><span>Description</span><textarea data-field="description" data-name="${itemName}">${escapeHtml(row.description || '')}</textarea></label>
@@ -440,19 +520,11 @@ function render() {
   if (!admin) { itemsEl.innerHTML = storeView(); return; }
   if (admin && state.filter === 'weapon') { itemsEl.innerHTML = weaponPickerView(); return; }
   if (admin && state.filter === 'ammo') { itemsEl.innerHTML = ammoPickerView(); return; }
+  if (admin && state.filter === 'npc') { itemsEl.innerHTML = npcManagerView(); return; }
 
   const rows = visibleRows();
   const creator = admin && (state.filter === 'armor' || state.filter === 'all') ? armorCreator() : '';
   itemsEl.innerHTML = creator + (rows.length ? rows.map(card).join('') : '<div class="empty">No items available</div>');
-}
-
-function setInteraction(data = {}) {
-  if (!data.show) { interactionPrompt.classList.add('hidden'); return; }
-  interactionKey.textContent = data.key || 'E';
-  interactionName.textContent = data.clerkName || 'Gun Store Clerk';
-  interactionTitle.textContent = data.title || 'Talk to Clerk';
-  interactionSubtitle.textContent = data.subtitle || 'Browse weapons, ammo, and armor';
-  interactionPrompt.classList.remove('hidden');
 }
 
 function resetSelectionAmmoState() {
@@ -462,7 +534,6 @@ function resetSelectionAmmoState() {
 }
 
 function open(data) {
-  interactionPrompt.classList.add('hidden');
   state.mode = data.mode || 'store';
   state.catalog = Array.isArray(data.catalog) ? data.catalog : [];
   state.busy = false;
@@ -471,7 +542,6 @@ function open(data) {
   resetSelectionAmmoState();
   if (state.mode !== 'admin') state.filter = 'all';
   if (!state.catalog.some(x => x.item_name === state.selectedName)) state.selectedName = '';
-  npcDialog.classList.add('hidden');
   if (state.mode === 'admin' && state.filter === 'all') state.filter = 'weapon';
   app.classList.remove('hidden');
   render();
@@ -479,23 +549,7 @@ function open(data) {
   if (state.mode === 'admin' && state.filter === 'ammo') post('adminRequestAmmoPicker', {});
 }
 
-function openDialog(data = {}) {
-  interactionPrompt.classList.add('hidden');
-  state.mode = 'dialog';
-  state.busy = false;
-  app.classList.add('hidden');
-  app.classList.remove('admin-mode');
-  dialogName.textContent = data.clerkName || 'Gun Store Clerk';
-  dialogTitle.textContent = data.title || 'How can I help you today?';
-  dialogStoreBtn.textContent = data.optionStore || 'Show me what you have got';
-  dialogLicenseBtn.textContent = data.optionLicense || 'Buy a firearms license';
-  dialogCloseBtn.textContent = data.optionClose || 'No thanks';
-  npcDialog.classList.remove('hidden');
-}
-
 function close() {
-  interactionPrompt.classList.add('hidden');
-  npcDialog.classList.add('hidden');
   app.classList.add('hidden');
   app.classList.remove('admin-mode');
   state.busy = false;
@@ -518,13 +572,36 @@ function rowData(itemName) {
     component_id: Number(get('component_id')?.value || 9),
     drawable_id: get('drawable_id')?.value === '' ? null : Number(get('drawable_id')?.value),
     texture_id: Number(get('texture_id')?.value || 0),
-    gender: get('gender')?.value || 'both'
+    gender: get('gender')?.value || 'both',
+    access_scope: get('access_scope')?.value || 'public',
+    access_gang_id: get('access_gang_id')?.value || '',
+    banned: get('banned')?.checked === true
   };
 }
 
 function readFileAsData(file) { return new Promise((resolve) => { if (!file) return resolve(''); const r = new FileReader(); r.onload = () => resolve(String(r.result || '')); r.onerror = () => resolve(''); r.readAsDataURL(file); }); }
 
 async function createArmorData(enabled) {
+  // Empty string here means "Capture Vest" was never run (or didn't return a
+  // component) -- must stay null, NOT coerce to 0. Drawable 0 is itself a
+  // real, valid GTA component variation (usually "nothing equipped" for the
+  // Accessories slot armor uses), so silently defaulting an un-captured vest
+  // to drawable_id=0 makes it LOOK captured while actually just clearing
+  // whatever the player is wearing there -- no visible vest ever appears,
+  // even though armor value still applies. This was the actual bug behind
+  // "gives shield but doesn't put a vest on the body."
+  const drawableRaw = document.getElementById('newDrawable')?.value ?? '';
+  const hasCapturedLook = drawableRaw !== '';
+
+  if (!hasCapturedLook) {
+    const proceed = await cmConfirm(
+      'No vest look was captured (click "Capture Vest" first to attach one). ' +
+      'This item will only give armor value — it will not visually equip anything. Create it anyway?',
+      { title: 'No vest look captured', confirmText: 'Create Anyway', danger: true }
+    );
+    if (!proceed) return;
+  }
+
   const data = {
     item_type: 'armor',
     label: document.getElementById('newLabel')?.value || '',
@@ -535,9 +612,11 @@ async function createArmorData(enabled) {
     description: document.getElementById('newDesc')?.value || '',
     image: document.getElementById('newImage')?.value || '',
     component_id: Number(document.getElementById('newComponent')?.value || 9),
-    drawable_id: Number(document.getElementById('newDrawable')?.value || 0),
+    drawable_id: hasCapturedLook ? Number(drawableRaw) : null,
     texture_id: Number(document.getElementById('newTexture')?.value || 0),
     gender: document.getElementById('newGender')?.value || 'both',
+    access_scope: document.getElementById('newAccessScope')?.value || 'public',
+    access_gang_id: document.getElementById('newAccessGang')?.value || '',
     enabled,
   };
   if (!data.image) data.imageData = state.capturedArmorImage || state.imageData || '';
@@ -565,14 +644,13 @@ function prefillArmorForm(p) {
 window.addEventListener('message', (event) => {
   const msg = event.data || {};
   if (msg.action === 'open') open(msg.data || {});
-  if (msg.action === 'dialog') openDialog(msg.data || {});
   if (msg.action === 'close') close();
   if (msg.action === 'purchaseResult') state.busy = false;
-  if (msg.action === 'interaction') setInteraction(msg.data || {});
   if (msg.action === 'captureFlash') document.body.classList.toggle('capture-flash', msg.data?.show === true);
   if (msg.action === 'prefillArmor') prefillArmorForm(msg.data || {});
   if (msg.action === 'weaponPicker') { state.weaponPicker = Array.isArray(msg.data?.list) ? msg.data.list : []; state.weaponGroups = Array.isArray(msg.data?.groups) ? msg.data.groups : state.weaponGroups; if (state.mode === 'admin' && state.filter === 'weapon') render(); }
   if (msg.action === 'ammoPicker') { state.ammoPicker = Array.isArray(msg.data?.list) ? msg.data.list : []; state.ammoGroups = Array.isArray(msg.data?.groups) ? msg.data.groups : state.ammoGroups; if (state.mode === 'admin' && state.filter === 'ammo') render(); }
+  if (msg.action === 'npcAdminList') { state.npcs = Array.isArray(msg.data?.list) ? msg.data.list : []; if (state.mode === 'admin' && state.filter === 'npc') render(); }
   if (msg.action === 'weaponAmmo') {
     const d = msg.data || {};
     if (d.weapon) {
@@ -590,7 +668,27 @@ document.addEventListener('click', async (e) => {
     state.filter = tab.dataset.filter || 'all';
     if (state.mode === 'admin' && state.filter === 'weapon') post('adminRequestWeaponPicker', {});
     if (state.mode === 'admin' && state.filter === 'ammo') post('adminRequestAmmoPicker', {});
+    if (state.mode === 'admin' && state.filter === 'npc') post('adminRequestNpcs', {});
     render();
+    return;
+  }
+
+  if (e.target.id === 'addNpcHereBtn') {
+    const name = document.getElementById('npcName')?.value.trim() || '';
+    if (!name) { document.getElementById('npcName')?.focus(); return; }
+    state.npcName = name;
+    state.npcLabel = document.getElementById('npcLabel')?.value.trim() || 'Gun Store';
+    state.npcModel = document.getElementById('npcModel')?.value.trim() || '';
+    state.npcScenario = document.getElementById('npcScenario')?.value.trim() || '';
+    post('adminCreateNpcHere', { name: state.npcName, label: state.npcLabel, model: state.npcModel, scenario: state.npcScenario });
+    state.npcName = '';
+    return;
+  }
+
+  const npcDelete = e.target.closest('[data-npcdelete]');
+  if (npcDelete) {
+    const id = npcDelete.dataset.npcdelete;
+    if (id && await confirmDelete('Remove this NPC and its gun store?')) post('adminDeleteNpc', { id: Number(id) });
     return;
   }
 
@@ -639,7 +737,7 @@ document.addEventListener('click', async (e) => {
   const wdelete = e.target.closest('[data-wdelete]');
   if (wdelete) {
     const name = wdelete.dataset.wdelete || '';
-    if (name && confirm(`Remove ${name} from this gun store? It will stay in cm-weapons.`)) post('adminDeleteItem', { item_name: name });
+    if (name && await confirmDelete(`Remove ${name} from this gun store? It will stay in cm-weapons.`)) post('adminDeleteItem', { item_name: name });
     return;
   }
 
@@ -693,7 +791,11 @@ document.addEventListener('click', async (e) => {
   const save = e.target.closest('[data-save]');
   if (save) { const data = rowData(save.dataset.save); if (data) post('adminSaveItem', data); return; }
   const del = e.target.closest('[data-delete]');
-  if (del) { const name = del.dataset.delete || ''; if (name && confirm(`Remove ${name} from this gun store? Weapon/ammo stays in cm-weapons.`)) post('adminDeleteItem', { item_name: name }); return; }
+  if (del) {
+    const name = del.dataset.delete || '';
+    if (name && await confirmDelete(`Remove ${name} from this gun store? Weapon/ammo stays in cm-weapons.`)) post('adminDeleteItem', { item_name: name });
+    return;
+  }
   if (e.target.id === 'createStoreBtn') { createArmorData(true); return; }
   if (e.target.id === 'createHiddenBtn') { createArmorData(false); return; }
   if (e.target.id === 'captureVestBtn') { post('adminOpenVestCapture', {}); return; }
@@ -745,7 +847,4 @@ document.addEventListener('input', (e) => {
 
 closeBtn.addEventListener('click', () => post('close'));
 refreshBtn.addEventListener('click', () => post('refreshCatalog'));
-dialogStoreBtn.addEventListener('click', () => post('dialogOpenStore'));
-dialogLicenseBtn.addEventListener('click', () => post('dialogBuyLicense'));
-dialogCloseBtn.addEventListener('click', () => post('dialogClose'));
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') post('close'); });

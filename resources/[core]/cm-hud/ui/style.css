@@ -4170,3 +4170,112 @@ body.hud-hidden #hud-weapon { display: none !important; }
     .hud-offer .offer-actions { gap: 16px; padding-top: 11px; }
     .hud-offer .offer-actions > div { min-height: 30px; font-size: 14px; }
 }
+
+/* Reusable compact raid HUD. Event resources only provide data; cm-hud owns
+   this presentation so future events can reuse the same surface. */
+#hud-raid {
+    top: 16px;
+    /* Keep the event card immediately left of the CM-RP/server-info stack. */
+    right: clamp(220px, 14vw, 300px);
+    width: 176px;
+    z-index: 120;
+    pointer-events: none;
+    color: #f4f5f7;
+    font-family: 'Nunito', 'Segoe UI', sans-serif;
+    text-transform: uppercase;
+}
+#hud-raid.hidden { display: none !important; }
+#hud-raid .raid-accent {
+    width: 100%;
+    height: 3px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #ef4444 0%, #fb7185 58%, #fbbf24 100%);
+    box-shadow: 0 0 8px rgba(239,68,68,.22);
+}
+#hud-raid .raid-head,
+#hud-raid .raid-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-width: 0;
+    background: rgba(0,0,0,.24);
+    /* Keep the compact card translucent without blurring/darkening the HUD. */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+#hud-raid .raid-head {
+    min-height: 29px;
+    padding: 5px 9px 4px;
+    border-radius: 2px;
+}
+#hud-raid .raid-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: #fb7185;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: .12em;
+}
+#hud-raid .raid-dot {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 50%;
+    background: #ef4444;
+    box-shadow: 0 0 9px rgba(239,68,68,.75);
+    animation: cmRaidPulse 1.4s ease-in-out infinite;
+}
+#hud-raid .raid-time {
+    color: #fbbf24;
+    font: 900 11px/1 'Roboto Mono', monospace;
+    letter-spacing: .04em;
+}
+#hud-raid .raid-rows {
+    display: grid;
+    gap: 4px;
+    margin-top: 4px;
+}
+#hud-raid .raid-row {
+    min-height: 30px;
+    padding: 4px 8px;
+    border-radius: 2px;
+}
+#hud-raid .raid-row-left {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+}
+#hud-raid .raid-count {
+    min-width: 26px;
+    padding: 3px 5px;
+    border-radius: 3px;
+    color: #fff;
+    font: 900 10px/1 'Roboto Mono', monospace;
+    text-align: center;
+}
+#hud-raid .raid-count-red { background: #ef4444; }
+#hud-raid .raid-count-muted { background: rgba(255,255,255,.12); color: #d1d5db; }
+#hud-raid .raid-family-name {
+    overflow: hidden;
+    color: #e5e7eb;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: .04em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#hud-raid .raid-status {
+    flex: none;
+    margin-left: 7px;
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: .03em;
+}
+#hud-raid .raid-status-active { color: #22d3ee; }
+#hud-raid .raid-status-pending { color: #fbbf24; }
+@keyframes cmRaidPulse { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
+@media (max-width: 900px) {
+    #hud-raid { right: 210px; }
+}

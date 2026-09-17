@@ -40,6 +40,23 @@ const sharedGenderWrap  = $('sharedGenderWrap');
 const textureStatus     = $('textureStatus');
 const bulkProgress      = $('bulkProgress');
 const capturePreview    = $('capturePreview');
+const bagPairOverlay       = $('bagPairOverlay');
+const bagPairGenderLabel   = $('bagPairGenderLabel');
+const bagPairSourceLabel   = $('bagPairSourceLabel');
+const bagPairSourceGender  = $('bagPairSourceGender');
+const bagPairSourceDrawable = $('bagPairSourceDrawable');
+const bagPairSourceTexture = $('bagPairSourceTexture');
+const bagPairDrawableInput = $('bagPairDrawableInput');
+const bagPairDrawableTotal = $('bagPairDrawableTotal');
+const bagPairTextureInput  = $('bagPairTextureInput');
+const bagPairTextureTotal  = $('bagPairTextureTotal');
+const bagPairPrev          = $('bagPairPrev');
+const bagPairNext          = $('bagPairNext');
+const bagPairTexPrev       = $('bagPairTexPrev');
+const bagPairTexNext       = $('bagPairTexNext');
+const bagPairTurnPed       = $('bagPairTurnPed');
+const bagPairConfirm       = $('bagPairConfirm');
+const bagPairSkip          = $('bagPairSkip');
 const cropEditorModal   = $('cropEditorModal');
 const cropEditorPreview = $('cropEditorPreview');
 const cropTrimLeft      = $('cropTrimLeft');
@@ -95,11 +112,26 @@ const manageDetailNoImg   = $('manageDetailNoImg');
 const manageDetailMeta    = $('manageDetailMeta');
 const manageLabel         = $('manageLabel');
 const managePrice         = $('managePrice');
+const manageTempDisabled  = $('manageTempDisabled');
 const manageOrgChoices    = $('manageOrgChoices');
+const manageOrgSection    = $('manageOrgSection');
+const manageArmorTypeSection = $('manageArmorTypeSection');
+const manageArmorType     = $('manageArmorType');
+const manageArmorSection  = $('manageArmorSection');
+const manageArmorValue    = $('manageArmorValue');
+const manageBagLevelSection = $('manageBagLevelSection');
+const manageBagLevel      = $('manageBagLevel');
+const manageBagPairSection = $('manageBagPairSection');
+const manageBagPairGrid    = $('manageBagPairGrid');
+const manageBagPairRestore = $('manageBagPairRestore');
+const manageLockBanner    = $('manageLockBanner');
+const manageAuditTrail    = $('manageAuditTrail');
 const managePublishBtn    = $('managePublishBtn');
 const manageSaveBtn       = $('manageSaveBtn');
 const managePreviewBtn    = $('managePreviewBtn');
 const manageRetakeBtn     = $('manageRetakeBtn');
+const manageRevertBtn     = $('manageRevertBtn');
+const manageCoverBtn      = $('manageCoverBtn');
 const manageDetailState   = $('manageDetailState');
 const manageTorsoFit      = $('manageTorsoFit');
 const manageArmsPrev      = $('manageArmsPrev');
@@ -232,6 +264,13 @@ let S = {
   exactTextureRows: [], // catalog rows for current drawable's textures
   adminTorsoTarget: null,
   pendingRetake: null,                 // clothe handed over by /clothingstore for an image retake
+  // Asset id of the clothe being retaken. While this is set, TAKE IMAGE
+  // REPLACES that item -- new garment and new photo together -- instead of
+  // adding a new one, so the admin can browse to different clothes during a
+  // retake and have the item become them.
+  retakeAssetId: null,
+  retakeLabel: '',
+  activeReplaceAssetId: null,          // armed for the single capture in flight only
   cart: [],
   favourites: new Set(),   // fav keys: gender:category:drawable (global across shops)
   captureCrops: {},         // admin: saved per-category crop { left, top, right, bottom }
@@ -253,6 +292,11 @@ let S = {
   captureMode: null,
   manualCropNextCapture: false,
   cropEditor: null,
+  // Post-capture bag pairing (see enterBagPairing). Non-null only while the
+  // admin is being asked to pick the matching bag on the other gender, right
+  // inside /clothingadmin -- never touches S.filtered/S.selected so it can't
+  // corrupt normal capture browsing state.
+  bagPairing: null,
 };
 
 /* ══════════════════════════════════════════════════════════
@@ -275,6 +319,22 @@ function normCat(row) {
     if (indexedCategory) c = indexedCategory;
   }
   return c || '';
+}
+
+// Valid "sell as" targets, mirroring sv_cloth.lua's CATEGORY_COMPONENTS minus
+// 'armor' -- only a genuine component-9 capture can ever be sold as real
+// armor (that's the native/no-override state for it), never a target choice.
+const SELL_AS_CATEGORIES = ['tshirt', 'torso', 'pants', 'shoes', 'chains', 'bags', 'hat', 'glasses', 'earrings', 'watches', 'bracelets'];
+
+// /clothingstore "sell as" override: the category this row is priced, grouped
+// and equip-mechanic'd as. Falls back to the physical category (normCat) when
+// no override is set. Physical identity (componentType/componentIndex,
+// texture/master merging) must keep using normCat/row.category directly --
+// only shop-tab/manage-grid grouping and filtering should use this.
+function effCatOf(row) {
+  const phys = normCat(row);
+  const sell = String(row.sellCategory || row.sell_category || '').toLowerCase();
+  return (sell && sell !== phys) ? sell : phys;
 }
 
 function exactCmItemName(row = {}) {
@@ -444,11 +504,10 @@ function getRowsForCategory(category) {
     return uniqueByDrawable(imaged);
   }
   if (!S.isAdmin) {
-    const imaged  = catalogRows(false).filter(r => r.category === category && hasImage(r) && rowMatchesFilters(r));
-    const unique  = uniqueByDrawable(imaged);
-    if (unique.length || S.useCatalogOnly) return unique;
+    const imaged  = catalogRows(false).filter(r => effCatOf(r) === category && hasImage(r) && rowMatchesFilters(r));
+    return uniqueByDrawable(imaged);
   }
-  // Admin: merge catalog rows with generated placeholders
+  // Admin & fallback: merge catalog rows with native GTA clothing drawables
   const byDrawKey = new Map();
   for (const row of catalogRows(true).filter(r => r.category === category)) {
     const key = drawKey(row);
@@ -475,8 +534,8 @@ function getRowsForCategory(category) {
     const gen = {
       category, drawable: i, texture: 0,
       gender: S.adminGender,
-      label: `${CAT_LABELS[category] || category} ${i}`,
-      price: Number(S.prices[category] || 0),
+      label: `${CAT_LABELS[category] || category} #${i + 1}`,
+      price: Number(S.prices[category] || 50),
       enabled: true, generated: true,
     };
     const uid = clothingUniqueId(gen.gender, category, i, 0, gen);
@@ -501,9 +560,11 @@ function renderCategories() {
     const favChip = document.createElement('button');
     favChip.className = `category category--fav${S.activeCategory === '__fav' ? ' active' : ''}`;
     favChip.innerHTML = `
-      <span class="cat-icon">★</span>
-      <span class="cat-label">Favourites</span>
-      <span class="cat-count">${S.favourites.size}</span>`;
+      <span class="cat-left">
+        <span class="cat-icon">★</span>
+        <span class="cat-label">FAVOURITES</span>
+      </span>
+      <span class="cat-count">${S.favourites.size} ITEMS</span>`;
     favChip.onclick = () => setCategory('__fav');
     categoriesEl.appendChild(favChip);
   }
@@ -517,10 +578,12 @@ function renderCategories() {
     btn.className = `category${isActive ? ' active' : ''}`;
     btn.disabled = S.bulkRunning;
 
-    const countStr = S.isAdmin ? `${enabled}/${rows.length}` : String(rows.length);
+    const countStr = S.isAdmin ? `${enabled}/${rows.length}` : (isActive ? 'ACTIVE' : `${rows.length} ITEMS`);
     btn.innerHTML = `
-      <span class="cat-icon">${CAT_ICONS[cat] || '★'}</span>
-      <span class="cat-label">${CAT_LABELS[cat] || cat}</span>
+      <span class="cat-left">
+        <span class="cat-icon">${CAT_ICONS[cat] || '★'}</span>
+        <span class="cat-label">${(CAT_LABELS[cat] || cat).toUpperCase()}</span>
+      </span>
       <span class="cat-count">${countStr}</span>`;
     btn.onclick = () => setCategory(cat);
     categoriesEl.appendChild(btn);
@@ -532,11 +595,15 @@ function textureSaved(texture) {
   if (!S.selected) return false;
   const { category, drawable } = S.selected;
   const t = Number(texture);
+  // "Captured" means a photo exists for this exact texture -- NOT that it's
+  // published. /clothingadmin captures always save unpublished (enabled=false)
+  // until an admin publishes them in /clothingstore, so requiring
+  // enabled !== false here meant this pill could never show as done for a
+  // capture-only session, no matter how many textures had already been shot.
   return catalogRows(true).some(r =>
     r.category === category &&
     Number(r.drawable) === Number(drawable) &&
     Number(r.texture) === t &&
-    r.enabled !== false &&
     hasImage(r)
   );
 }
@@ -561,6 +628,56 @@ function renderTextureStatus() {
   });
 }
 
+function renderStoreTextureSwatches(has) {
+  const container = $('textureSwatches');
+  if (!container) return;
+  if (!has || S.isAdmin) {
+    container.innerHTML = '';
+    return;
+  }
+  const count = (S.exactTextureRows && S.exactTextureRows.length > 0)
+    ? S.exactTextureRows.length
+    : Math.max(1, S.textureCount || 1);
+  if (count <= 1) {
+    container.innerHTML = '';
+    return;
+  }
+  const palette = [
+    '#2C3E50', '#E74C3C', '#3498DB', '#2ECC71', '#F1C40F', '#9B59B6',
+    '#E67E22', '#1ABC9C', '#34495E', '#D35400', '#7F8C8D', '#BDC3C7',
+    '#16A085', '#27AE60', '#2980B9', '#8E44AD'
+  ];
+  let html = '';
+  const displayCount = Math.min(count, 16);
+  for (let i = 0; i < displayCount; i++) {
+    let texVal = i;
+    if (S.exactTextureRows && S.exactTextureRows.length > 0) {
+      texVal = previewTexture(S.exactTextureRows[i].texture);
+    }
+    const isActive = Number(S.texture) === texVal;
+    const bg = palette[i % palette.length];
+    html += `<button type="button" class="tex-swatch-dot${isActive ? ' active' : ''}" data-tex="${texVal}" style="background-color: ${bg};" title="Texture ${texVal}"></button>`;
+  }
+  container.innerHTML = html;
+  container.querySelectorAll('.tex-swatch-dot').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const t = Number(btn.dataset.tex);
+      if (S.exactTextureRows && S.exactTextureRows.length > 0) {
+        const row = S.exactTextureRows.find(r => Number(r.texture) === t) || S.exactTextureRows[0];
+        S.texture = previewTexture(row.texture);
+        S.selected = { ...S.selected, ...row };
+      } else {
+        S.texture = t;
+      }
+      if (S.activeCategory === 'torso' && S.selected)
+        S.adminTorsoTarget = { ...S.selected, texture: S.texture, textureId: S.texture };
+      updateBottom();
+      previewSelected();
+    };
+  });
+  if (container) container.innerHTML = '';
+}
 
 /* ── Update right panel bottom ────────────────────── */
 function updateBottom() {
@@ -569,8 +686,20 @@ function updateBottom() {
 
   buyBtn.disabled = !has || S.bulkRunning;
 
-  // Item name
-  let nameText = has ? item.label : 'Select clothing';
+  // Category Title
+  const catLabel = (CAT_LABELS[S.activeCategory] || S.activeCategory || 'OUTERWEAR').toUpperCase();
+  if ($('rpCategoryTitle')) {
+    $('rpCategoryTitle').textContent = has ? `${catLabel} #${S.itemPos + 1}` : catLabel;
+  }
+  if ($('previewCategoryIcon')) {
+    $('previewCategoryIcon').innerHTML = CAT_ICONS[S.activeCategory] || '👕';
+  }
+  if ($('previewVariantSub')) {
+    $('previewVariantSub').textContent = has ? (item.label || `${catLabel} APPAREL`).toUpperCase() : 'SELECT GARMENT';
+  }
+
+  // Item name / variant
+  let nameText = has ? (S.isAdmin ? item.label : `CLOTHING ITEM VARIANT #${S.itemPos + 1}`) : 'Select clothing';
   if (S.isAdmin && has) {
     if (S.activeCategory === 'arms' && S.adminTorsoTarget)
       nameText = `Fit for ${S.adminTorsoTarget.label} — pick arms/shirt`;
@@ -580,24 +709,75 @@ function updateBottom() {
   $('itemName').textContent = nameText;
 
   // Price
-  $('price').textContent = has ? String(item.price || 0) : '0';
+  const priceVal = has ? (item.price || 50) : 0;
+  $('price').textContent = String(priceVal);
+
+  if (!S.isAdmin && buyBtn) {
+    buyBtn.innerHTML = has ? `<span class="btn-content">BUY CLOTHING ($${priceVal})</span>` : `<span class="btn-content">NO ITEMS AVAILABLE</span>`;
+  }
+
+  // Floating outfit summary pill (store mode)
+  if ($('outfitName')) $('outfitName').textContent = has ? item.label : 'None selected';
+  if ($('outfitCost')) $('outfitCost').textContent = `$${has ? (item.price || 0) : 0}`;
+
+  // Clothing preview image viewport
+  const previewImg = $('storeClothingImg');
+  const placeholder = $('storeClothingPlaceholder');
+  if (previewImg && placeholder) {
+    const url = has ? manageImageUrl(item) : '';
+    if (url) {
+      previewImg.src = url;
+      previewImg.classList.remove('hidden');
+      placeholder.classList.add('hidden');
+    } else {
+      previewImg.src = '';
+      previewImg.classList.add('hidden');
+      placeholder.classList.remove('hidden');
+    }
+  }
+
+  // Model scrub slider sync
+  const scrubSlider = $('modelScrubSlider');
+  if (scrubSlider) {
+    scrubSlider.max = Math.max(0, S.filtered.length - 1);
+    scrubSlider.value = S.itemPos;
+  }
+
+  // Interactive texture swatches
+  renderStoreTextureSwatches(has);
+  // Direct cloth type & texture number inputs sync
+  const typeInput = $('clothTypeInput');
+  if (typeInput && document.activeElement !== typeInput) {
+    typeInput.min = 1;
+    typeInput.max = Math.max(1, S.filtered.length);
+    typeInput.value = has ? (S.itemPos + 1) : 1;
+  }
+  const texInput = $('clothTextureInput');
+  if (texInput && document.activeElement !== texInput) {
+    texInput.min = 0;
+    texInput.max = Math.max(0, S.textureCount - 1);
+    texInput.value = has ? S.texture : 0;
+  }
 
   // Admin price field auto-fill
   if (S.isAdmin && customItemPrice && has && document.activeElement !== customItemPrice)
     customItemPrice.value = String(item.price || S.prices[item.category] || 0);
 
-  // Selector counters
-  $('itemIndex').textContent   = has ? `${S.itemPos+1} / ${S.filtered.length}` : '—';
-  $('textureIndex').textContent = has ? `${S.texture} / ${Math.max(0, S.textureCount-1)}` : '—';
+  // Selector counters matching mockup
+  const modelMax = Math.max(1, S.filtered.length);
+  const texMax = Math.max(1, S.textureCount);
+  if ($('modelCounter')) $('modelCounter').textContent = has ? `${S.itemPos + 1} / ${modelMax}` : '—';
+  if ($('textureCounter')) $('textureCounter').textContent = has ? `${S.texture + 1} / ${texMax}` : '—';
+  if ($('itemIndex')) $('itemIndex').textContent = has ? String(S.itemPos + 1) : '1';
+  if ($('textureIndex')) $('textureIndex').textContent = has ? String(S.texture) : '0';
 
   // Empty notice
   const showEmpty = !has && catalogRows(false).length === 0 && !S.isAdmin;
   emptyNotice.classList.toggle('hidden', !showEmpty);
 
-  // Bag level — only overwrite the dropdown when the item has a catalog-saved level.
-  // If the user manually picked a level (item is a generated placeholder with no saved level),
-  // leave the dropdown alone so the selected level survives previewSelected() / captureOneTexture() calls.
-  if (bagLevelControls) bagLevelControls.classList.toggle('hidden', !(S.isAdmin && has && item.category === 'bags'));
+  // Bag level controls
+  if (bagLevelControls)
+    bagLevelControls.classList.toggle('hidden', !S.isAdmin || !has || item.category !== 'bags');
   if (bagLevel && has && item.category === 'bags') {
     const savedLevel = item.bagLevel || item.bag_level || item.level;
     if (savedLevel) bagLevel.value = String(savedLevel);
@@ -638,7 +818,8 @@ function updateBottom() {
 
 function updateAdminButton() {
   if (!S.isAdmin) {
-    buyBtn.textContent = S.cart.length > 0 ? 'ADD TO CART +' : 'ADD TO CART';
+    const total = S.cart.length > 0 ? cartAmount() : (S.selected ? (S.selected.price || 0) : 150);
+    buyBtn.innerHTML = `<span class="btn-content">BUY CLOTHING ($${total})</span>`;
     buyBtn.classList.remove('btn--fit');
     if (adjustCaptureBtn) adjustCaptureBtn.classList.add('hidden');
     return;
@@ -649,11 +830,11 @@ function updateAdminButton() {
     adjustCaptureBtn.disabled = !canAdjust;
   }
   if (S.activeCategory === 'arms' && S.adminTorsoTarget) {
-    buyBtn.textContent = 'SAVE FIT TO TORSO';
+    buyBtn.innerHTML = '<span class="btn-content">SAVE FIT TO TORSO</span>';
     buyBtn.classList.add('btn--fit');
   } else {
     const existing = hasStoredCatalogData(S.selected || {});
-    buyBtn.textContent = existing ? 'UPDATE / RETAKE IMAGE' : 'TAKE IMAGE + SAVE';
+    buyBtn.innerHTML = `<span class="btn-content">${existing ? 'UPDATE / RETAKE IMAGE' : 'TAKE IMAGE + SAVE'}</span>`;
     buyBtn.classList.remove('btn--fit');
   }
 }
@@ -1038,7 +1219,21 @@ function autoPriceFor(row) {
    ══════════════════════════════════════════════════════════ */
 function openShop(data) {
   S.open = data.value !== false;
-  if (!S.open) { app.classList.add('hidden'); return; }
+  if (!S.open) {
+    app.classList.add('hidden');
+    app.classList.remove('store-mode');
+    app.classList.remove('admin-mode');
+    app.style.display = 'none';
+    return;
+  }
+  app.classList.remove('hidden');
+  app.style.display = '';
+
+  if (data.adminMode !== undefined) {
+    setAdminMode(data.adminMode === true);
+  } else if (!S.isAdmin) {
+    setAdminMode(false);
+  }
 
   if (String(data.gender || '').toLowerCase() === 'female') S.adminGender = 'female';
   else if (String(data.gender || '').toLowerCase() === 'male') S.adminGender = 'male';
@@ -1052,6 +1247,18 @@ function openShop(data) {
   if (data.iconCapture) S.captureSettings = { ...S.captureSettings, ...data.iconCapture };
 
   app.classList.remove('hidden');
+
+  if (data.bank !== undefined) {
+    if ($('brandBank')) $('brandBank').textContent = `$${Number(data.bank).toLocaleString()} BANK`;
+    if ($('storeTopBank')) $('storeTopBank').textContent = `$${Number(data.bank).toLocaleString()}`;
+  }
+  if (data.cash !== undefined && $('storeTopCash')) {
+    $('storeTopCash').textContent = `$${Number(data.cash).toLocaleString()}`;
+  }
+  if (data.label) {
+    if ($('brandSublabel')) $('brandSublabel').textContent = String(data.label).toUpperCase();
+    if ($('storeBrandSub')) $('storeBrandSub').textContent = String(data.label).toUpperCase();
+  }
 
   // Always reset UI navigation on every fresh open. This prevents the store from
   // reopening on the last category/item/texture the player selected earlier.
@@ -1141,9 +1348,10 @@ function applyAdminGenderChanged(gender, counts) {
   if (S.activeCategory) setCategory(S.activeCategory);
 }
 
-async function switchAdminGender(gender) {
+async function switchAdminGender(gender, force = false) {
   gender = String(gender || '').toLowerCase() === 'female' ? 'female' : 'male';
-  if (!S.isAdmin || S.adminGenderSwitching || S.bulkRunning || gender === S.adminGender) return;
+  if (!S.isAdmin || S.adminGenderSwitching || (!force && S.bulkRunning)) return;
+  if (gender === S.adminGender && !force) return;
   S.adminGenderSwitching = true;
   syncAdminGenderSwitch();
   const res = await post('adminSetGender', { gender });
@@ -1157,15 +1365,224 @@ async function switchAdminGender(gender) {
 }
 
 /* ══════════════════════════════════════════════════════════
+   POST-CAPTURE BAG PAIRING (stays inside /clothingadmin)
+   GTA/addon bag meshes don't reliably look the same at the same drawable
+   index on both freemode models, so a captured bag isn't "done" until the
+   admin also says which drawable on the OTHER gender is the same physical
+   bag. This switches the ped to that gender right here and lets the admin
+   scroll through its already-photographed bags (never blank/uncaptured
+   slots) to pick the match, then saves the pairing via the same
+   pairedDrawableId/pairedTextureId mechanism /clothingstore uses.
+   ══════════════════════════════════════════════════════════ */
+function renderBagPairOverlay() {
+  if (!bagPairOverlay) return;
+  const bp = S.bagPairing;
+  bagPairOverlay.classList.toggle('hidden', !bp);
+  if (!bp) return;
+
+  if (bagPairGenderLabel) bagPairGenderLabel.textContent = bp.otherGender.toUpperCase();
+  if (bagPairSourceLabel) bagPairSourceLabel.textContent = bp.sourceEntry?.label || 'Bag';
+  if (bagPairSourceGender) bagPairSourceGender.textContent = bp.sourceGender.charAt(0).toUpperCase() + bp.sourceGender.slice(1);
+  if (bagPairSourceDrawable) bagPairSourceDrawable.textContent = String(bp.sourceDrawable);
+  if (bagPairSourceTexture) bagPairSourceTexture.textContent = String(bp.sourceTexture);
+
+  if (bagPairDrawableInput && document.activeElement !== bagPairDrawableInput) {
+    bagPairDrawableInput.value = bp.currentDrawable;
+    bagPairDrawableInput.max = Math.max(0, bp.maxDrawables - 1);
+  }
+  if (bagPairDrawableTotal) {
+    bagPairDrawableTotal.textContent = `/ ${Math.max(0, bp.maxDrawables - 1)}`;
+  }
+
+  if (bagPairTextureInput && document.activeElement !== bagPairTextureInput) {
+    bagPairTextureInput.value = bp.currentTexture;
+    bagPairTextureInput.max = Math.max(0, bp.maxTextures - 1);
+  }
+  if (bagPairTextureTotal) {
+    bagPairTextureTotal.textContent = `/ ${Math.max(0, bp.maxTextures - 1)}`;
+  }
+}
+
+async function previewBagPair() {
+  const bp = S.bagPairing;
+  if (!bp) return;
+  const res = await post('sendSelectedArticle', {
+    category: 'bags',
+    drawable: bp.currentDrawable,
+    texture: bp.currentTexture,
+    drawableId: bp.currentDrawable,
+    textureId: bp.currentTexture,
+  });
+  if (res && Number.isFinite(res.count) && res.count > 0) {
+    bp.maxTextures = res.count;
+    if (bp.currentTexture >= bp.maxTextures) {
+      bp.currentTexture = 0;
+    }
+    renderBagPairOverlay();
+  }
+}
+
+function stepBagPairDrawable(dir) {
+  const bp = S.bagPairing;
+  if (!bp || bp.maxDrawables <= 0) return;
+  bp.currentDrawable = (bp.currentDrawable + dir + bp.maxDrawables) % bp.maxDrawables;
+  bp.currentTexture = 0;
+  renderBagPairOverlay();
+  previewBagPair();
+}
+
+function setBagPairDrawable(val) {
+  const bp = S.bagPairing;
+  if (!bp) return;
+  const max = Math.max(1, bp.maxDrawables);
+  bp.currentDrawable = Math.max(0, Math.min(max - 1, Number(val) || 0));
+  bp.currentTexture = 0;
+  renderBagPairOverlay();
+  previewBagPair();
+}
+
+function stepBagPairTexture(dir) {
+  const bp = S.bagPairing;
+  if (!bp || bp.maxTextures <= 0) return;
+  bp.currentTexture = (bp.currentTexture + dir + bp.maxTextures) % bp.maxTextures;
+  renderBagPairOverlay();
+  previewBagPair();
+}
+
+function setBagPairTexture(val) {
+  const bp = S.bagPairing;
+  if (!bp) return;
+  const max = Math.max(1, bp.maxTextures);
+  bp.currentTexture = Math.max(0, Math.min(max - 1, Number(val) || 0));
+  renderBagPairOverlay();
+  previewBagPair();
+}
+
+async function exitBagPairing(switchBack) {
+  const bp = S.bagPairing;
+  S.bagPairing = null;
+  renderBagPairOverlay();
+  if (switchBack && bp) {
+    await switchAdminGender(bp.sourceGender, true);
+  }
+}
+
+async function confirmBagPairing() {
+  const bp = S.bagPairing;
+  if (!bp) return;
+  const entry = bp.sourceEntry || {};
+  const isSkin = bp.isSkin === true;
+  const bagLevelVal = isSkin ? null : Math.max(1, Math.min(4, Number(bp.bagLevel || 1)));
+
+  const payload = {
+    category: 'bags',
+    sourceGender: bp.sourceGender,
+    sourceDrawable: bp.sourceDrawable,
+    sourceTexture: bp.sourceTexture,
+    targetGender: bp.otherGender,
+    targetDrawable: bp.currentDrawable,
+    targetTexture: bp.currentTexture,
+    image: entry.image || entry.icon || '',
+    label: entry.label || getAdminName('Bag'),
+    price: Number(entry.price || 0),
+    orgs: Array.isArray(entry.organizations) ? entry.organizations : [],
+    publicStore: String(entry.shop || 'clothes').toLowerCase() === 'clothes',
+    published: entry.enabled === true,
+    bagSkin: isSkin,
+    bagLevel: bagLevelVal,
+  };
+
+  const res = await post('saveBagPairing', payload);
+  if (res && res.success !== false) {
+    toast(`Bag paired & saved for both ${bp.sourceGender} (D${bp.sourceDrawable}) and ${bp.otherGender} (D${bp.currentDrawable})!`, 'success');
+  } else {
+    toast(`Pair save failed: ${res?.error || 'unknown error'}`, 'error');
+  }
+  await exitBagPairing(true);
+}
+
+async function enterBagPairing(entry) {
+  if (!entry) return;
+  const isAutomatedBulk = S.captureMode && (
+    S.captureMode.startsWith('wholecategory_') ||
+    S.captureMode === 'all_genders_all_textures' ||
+    S.captureMode === 'category_missing' ||
+    S.captureMode === 'category_all'
+  );
+  if (isAutomatedBulk) return; // never interrupt mass automated capture
+
+  const sourceGender = String(entry.gender || S.adminGender || 'male').toLowerCase() === 'female' ? 'female' : 'male';
+  const otherGender = sourceGender === 'female' ? 'male' : 'female';
+  const sourceDrawable = Number(entry.drawableId ?? entry.drawable ?? 0);
+  const sourceTexture = Number(entry.textureId ?? entry.texture ?? 0);
+  const rawLvl = entry.bagLevel || entry.bag_level || (bagLevel ? bagLevel.value : 'skin');
+  const isSkin = entry.bagSkin === true || String(rawLvl) === 'skin';
+
+  S.bagPairing = {
+    sourceGender,
+    sourceDrawable,
+    sourceTexture,
+    sourceEntry: entry,
+    otherGender,
+    currentDrawable: sourceDrawable,
+    currentTexture: 0,
+    maxDrawables: 250,
+    maxTextures: 1,
+    isSkin,
+    bagLevel: isSkin ? null : Math.max(1, Math.min(4, Number(rawLvl) || 1)),
+  };
+
+  renderBagPairOverlay();
+  await switchAdminGender(otherGender, true);
+  if (!S.bagPairing) return;
+
+  const count = (S.counts && S.counts['bags']) ? Number(S.counts['bags']) : 250;
+  S.bagPairing.maxDrawables = count;
+  if (S.bagPairing.currentDrawable >= count) {
+    S.bagPairing.currentDrawable = Math.max(0, count - 1);
+  }
+
+  renderBagPairOverlay();
+  await previewBagPair();
+  await post('rotatePed', { turn180: true, delta: 180.0 });
+}
+
+// Re-derive the bag-pairing drawable/texture bounds once a fresh catalog
+// (and its counts) for the target gender has actually landed -- switchAdminGender's
+// own promise can resolve before the async 'clothingCatalog' push arrives.
+function refreshBagPairCandidates() {
+  const bp = S.bagPairing;
+  if (!bp) return;
+  const count = (S.counts && S.counts['bags']) ? Number(S.counts['bags']) : bp.maxDrawables;
+  if (Number.isFinite(count) && count > 0) {
+    bp.maxDrawables = count;
+    if (bp.currentDrawable >= count) bp.currentDrawable = Math.max(0, count - 1);
+  }
+  renderBagPairOverlay();
+}
+
+if (bagPairPrev)          bagPairPrev.onclick          = () => stepBagPairDrawable(-1);
+if (bagPairNext)          bagPairNext.onclick          = () => stepBagPairDrawable(1);
+if (bagPairTexPrev)       bagPairTexPrev.onclick       = () => stepBagPairTexture(-1);
+if (bagPairTexNext)       bagPairTexNext.onclick       = () => stepBagPairTexture(1);
+if (bagPairDrawableInput) bagPairDrawableInput.onchange= (e) => setBagPairDrawable(e.target.value);
+if (bagPairTextureInput)  bagPairTextureInput.onchange = (e) => setBagPairTexture(e.target.value);
+if (bagPairTurnPed)       bagPairTurnPed.onclick       = () => post('rotatePed', { delta: 180.0 });
+if (bagPairConfirm)       bagPairConfirm.onclick       = () => confirmBagPairing();
+if (bagPairSkip)          bagPairSkip.onclick          = () => exitBagPairing(true);
+
+/* ══════════════════════════════════════════════════════════
    ADMIN HELPERS
    ══════════════════════════════════════════════════════════ */
 const getAdminName   = (fb) => { const v = customItemName   ? customItemName.value.trim() : ''; return v || fb; };
 const getAdminDest   = ()   => itemDestination ? (itemDestination.value || 'store') : 'store';
 const getAdminPrice  = (fb) => { const v = customItemPrice ? Number(customItemPrice.value) : NaN; return Number.isFinite(v) && v >= 0 ? Math.floor(v) : Number(fb || 0) || 0; };
 const getBagLevel    = ()   => {
-  const v = bagLevel ? Number(bagLevel.value) : NaN;
-  if (!Number.isFinite(v)) return null;
-  return Math.max(1, Math.min(4, Math.floor(v)));
+  const v = bagLevel ? bagLevel.value : '';
+  if (v === 'skin') return 'skin';
+  const num = Number(v);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(1, Math.min(4, Math.floor(num)));
 };
 
 function getAdminTarget() {
@@ -1191,6 +1608,10 @@ function getAdminTarget() {
     captureBackground: captureBackground ? (captureBackground.value || preset.bg || 'green') : (preset.bg || 'green'),
     sharedGender:     cat === 'bags' ? (sharedGender ? sharedGender.checked !== false : true) : false,
   };
+  // Present only while a /clothingstore RETAKE is in flight. The server
+  // validates it and, when set, moves that item onto this garment + photo
+  // instead of creating a new catalog row.
+  t.replaceAssetId = S.activeReplaceAssetId || null;
   t.label       = getAdminName(t.label);
   t.name        = t.label;
   t.destination = getAdminDest();
@@ -1208,10 +1629,18 @@ function getAdminTarget() {
   t.clothing_id = uid;
   if (t.category === 'bags') {
     const lvl = getBagLevel();
-    if (!lvl) { toast('Select bag level 1-4 before saving.', 'error'); return null; }
-    t.level = lvl;
-    t.bagLevel = lvl;
-    t.bag_level = lvl;
+    if (!lvl) { toast('Select bag level 1-4 or Skin before saving.', 'error'); return null; }
+    if (lvl === 'skin') {
+      t.bagSkin = true;
+      t.level = null;
+      t.bagLevel = null;
+      t.bag_level = null;
+    } else {
+      t.bagSkin = false;
+      t.level = lvl;
+      t.bagLevel = lvl;
+      t.bag_level = lvl;
+    }
   }
   console.log('[nv_cloth:UI] admin target', { category: t.category, drawable: t.drawableId, texture: t.textureId, image: t.image, bagLevel: t.bagLevel });
   return t;
@@ -1600,11 +2029,18 @@ async function runBulkCapture(mode, adjustPosition = false) {
       : `Capture ${indices.length} missing texture(s)?`;
     if (!window.confirm(msg)) return;
   }
+  // A replace targets ONE item, so it is armed only for a single deliberate
+  // capture. A bulk or whole-category run must never replay the same replace
+  // across many drawables, which would overwrite that item repeatedly.
+  S.activeReplaceAssetId = (mode === 'current' && indices.length === 1)
+    ? (S.retakeAssetId || null)
+    : null;
   beginBulk('category_' + mode);
   S.manualCropNextCapture = false;
   const manualRun = adjustPosition === true && MANUAL_POSE_CATS.has(String(S.activeCategory));
   S.singleManual = manualRun && (mode === 'current' && indices.length === 1);
   let saved = 0;
+  let lastCapturedEntry = null;
   for (let i = 0; i < indices.length; i++) {
     await waitWhileBulkPaused();
     if (S.bulkCancel) break;
@@ -1615,10 +2051,19 @@ async function runBulkCapture(mode, adjustPosition = false) {
     setBulkProgress(`Saving ${i+1}/${indices.length} · T${tex}`);
     const target = { ...(S.selected || {}), texture: tex, textureId: tex };
     const r = await captureWithRetry(target, () => captureOneTexture(tex, target), `T${tex}`);
-    if (r && r.success) saved++;
+    if (r && r.success) {
+      saved++;
+      lastCapturedEntry = r.entry || target;
+    }
     await delay(350);
   }
   endBulk();
+  // The replace is spent: consumed on success, and dropped on failure so a
+  // retry is a deliberate act rather than a stale arm firing later.
+  if (S.activeReplaceAssetId) {
+    S.activeReplaceAssetId = null;
+    if (saved > 0) clearRetakeTarget();
+  }
   S.manualCropNextCapture = false;
   S.singleManual = false;
   setCaptureStatus(false);
@@ -1627,6 +2072,12 @@ async function runBulkCapture(mode, adjustPosition = false) {
   const done = S.bulkCancel ? 'Cancelled' : 'Done';
   setBulkProgress(`${done}: saved ${saved}/${indices.length}${S.bulkFailures.length ? ` · Failed: ${S.bulkFailures.length}` : ''}`, true);
   setTimeout(() => setBulkProgress('', false), 5000);
+
+  if (mode === 'current' && String(S.activeCategory || '').toLowerCase() === 'bags' && saved > 0 && lastCapturedEntry) {
+    if (!lastCapturedEntry.imageOnly) {
+      await enterBagPairing(lastCapturedEntry);
+    }
+  }
 }
 
 // Batch capture every drawable and every native texture in the active category.
@@ -1634,6 +2085,8 @@ async function runBulkCapture(mode, adjustPosition = false) {
 // Each item is auto-named, auto-priced, and routed to store/hidden by the economy rules.
 async function runCategoryCapture(mode) {
   if (!S.isAdmin || !S.activeCategory || S.bulkRunning) return;
+  // Captures many different drawables; a replace targets exactly one item.
+  S.activeReplaceAssetId = null;
   const cat = S.activeCategory;
   if (cat === 'arms' || cat === '__fav') {
     setBulkProgress('Pick a clothing category first.', true);
@@ -2093,20 +2546,30 @@ const M = {
   fit: { arms: null, armsTexture: 0, armsCount: 0, undershirt: null, undershirtTexture: 0, undershirtCount: 0 },
   switchingGender: false,
   previewReady: false,
+  // Cross-gender bag pairing picker state (see renderManageDetail). Not part
+  // of the saved row -- rowKey tracks which row this pending choice belongs
+  // to, so switching to a different clothe resets it from that row's own
+  // saved pairing instead of leaking a previous item's in-progress pick.
+  bagPair: { rowKey: null, pending: null, previewingOther: false },
 };
 
 function manageImageUrl(row) {
   const img = String(row.image || row.icon || '').trim();
   if (!img) return '';
   if (/^(nui:|https?:|data:)/i.test(img)) return img;
-  if (img.startsWith('generated_images/')) {
-    const version = encodeURIComponent(String(row.imageVersion || row.image_version || ''));
-    return `nui://${resource}/${img}${version ? `?v=${version}` : ''}`;
-  }
-  if (img.startsWith('ui/images/')) return `nui://cm-items/${img}`;
-  if (img.startsWith('images/')) return `nui://cm-items/ui/${img}`;
-  if (img.startsWith('custom/')) return `nui://cm-items/ui/images/clothing/${img}`;
-  if (img.startsWith('clothing/')) return `nui://cm-items/ui/images/${img}`;
+  // The capture file name is stable across retakes (same drawable/texture/gender
+  // always writes the same path), so CEF happily keeps serving the pre-retake
+  // bytes unless the URL itself changes. row.imageVersion (stamped fresh server
+  // side on every manage-catalog fetch) busts that cache -- every branch below
+  // must apply it, not just the local-dev generated_images/ copy.
+  const version = encodeURIComponent(String(row.imageVersion || row.image_version || ''));
+  const withVersion = (url) => version ? `${url}?v=${version}` : url;
+  if (img.startsWith('generated_images/')) return withVersion(`nui://${resource}/${img}`);
+  if (img.startsWith('ui/images/')) return withVersion(`nui://cm-items/${img}`);
+  if (img.startsWith('images/')) return withVersion(`nui://cm-items/ui/${img}`);
+  if (img.startsWith('custom/')) return withVersion(`nui://cm-items/ui/images/clothing/${img}`);
+  if (img.startsWith('items/')) return withVersion(`nui://cm-items/ui/images/clothing/${img}`);
+  if (img.startsWith('clothing/')) return withVersion(`nui://cm-items/ui/images/${img}`);
   return img;
 }
 
@@ -2175,6 +2638,12 @@ function manageGrouped() {
         _previewTexture: manageTextureOf(captured),
         image: captured.image || captured.icon || master.image || master.icon,
         icon: captured.icon || captured.image || master.icon || master.image,
+        // The spread above lets the drawable-level row win, but identity must
+        // come from the CAPTURED texture row: that is the row players' owned
+        // items are linked to. Taking the master's id here would aim a retake
+        // (and a revert) at the grouping row instead of the real item, and
+        // nobody's inventory would change.
+        assetId: captured.assetId || master.assetId,
       });
     } else {
       rows.push({ ...captured, _tex: manageTextureOf(captured) });
@@ -2191,7 +2660,7 @@ function manageFiltered() {
   return manageGrouped()
     .filter(r => {
       if (String(r.gender || 'male').toLowerCase() !== M.gender) return false;
-      if (M.category !== 'all' && r.category !== M.category) return false;
+      if (M.category !== 'all' && effCatOf(r) !== M.category) return false;
       const org = manageOrgOf(r);
       const pub = manageEnabled(r);
       if (M.status === 'published' && !pub) return false;
@@ -2199,7 +2668,7 @@ function manageFiltered() {
       if (M.status === 'org' && !org) return false;
       if (M.status === 'noimage' && manageHasImage(r)) return false;
       if (q) {
-        const hay = `${r.label || ''} ${r.category} ${manageDrawableOf(r)} ${manageTextureOf(r)} ${org}`.toLowerCase();
+        const hay = `${r.label || ''} ${effCatOf(r)} ${manageDrawableOf(r)} ${manageTextureOf(r)} ${org}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -2229,7 +2698,7 @@ function fillManageOrgOptions() {
 
 function fillManageCategoryOptions() {
   if (!manageCategoryFilter) return;
-  const cats = [...new Set(manageGrouped().map(r => r.category))].sort();
+  const cats = [...new Set(manageGrouped().map(r => effCatOf(r)))].sort();
   const cur = M.category;
   manageCategoryFilter.innerHTML = '<option value="all">All categories</option>' +
     cats.map(c => `<option value="${c}">${CAT_LABELS[c] || c}</option>`).join('');
@@ -2280,16 +2749,29 @@ function renderManageGrid() {
     const pub = manageEnabled(r);
     const organizations = manageOrganizationsOf(r);
     const org = organizations.join(' ');
+    const effCat = effCatOf(r);
+    const overridden = normCat(r) !== effCat;
+    let accentCls = 'accent-cyan';
+    if (!manageHasImage(r)) accentCls = 'accent-red';
+    else if (r.pairedDrawableId !== undefined && Number(r.pairedDrawableId) >= 0) accentCls = 'accent-yellow';
+    else if (pub) accentCls = 'accent-green';
+
+    const isPaired = (r.pairedDrawableId !== undefined && Number(r.pairedDrawableId) >= 0);
     const badges = [
+      isPaired ? '<span class="m-badge m-badge--both">BOTH</span>' : '',
       organizations.map(value => `<span class="m-badge m-badge--org">${value.toUpperCase()}</span>`).join(''),
       pub ? '<span class="m-badge m-badge--on">IN STORE</span>' : '<span class="m-badge m-badge--off">SAVED</span>',
       manageHasImage(r) ? '' : '<span class="m-badge m-badge--warn">NO IMG</span>',
+      r.tempDisabled === true ? '<span class="m-badge m-badge--warn">TEMP DISABLED</span>' : '',
+      overridden ? `<span class="m-badge m-badge--org">TYPE: ${(CAT_LABELS[effCat] || effCat).toUpperCase()}</span>` : '',
+      (normCat(r) === 'bags' && r.bagSkin === true) ? '<span class="m-badge m-badge--warn">SKIN — NO CAPACITY</span>' : '',
     ].join('');
-    const name = r.label || `${CAT_LABELS[r.category] || r.category} ${manageDrawableOf(r)}/${manageTextureOf(r)}`;
-    return `<button type="button" class="m-card${key === M.selectedKey ? ' active' : ''}" data-key="${key}">
+    const name = r.label || `${CAT_LABELS[effCat] || effCat} ${manageDrawableOf(r)}/${manageTextureOf(r)}`;
+    const formattedPrice = `$${Number(r.price || 0).toLocaleString()}`;
+    return `<button type="button" class="m-card ${accentCls}${key === M.selectedKey ? ' active' : ''}" data-key="${key}">
       <div class="m-card-img">${img ? `<img src="${img}" loading="lazy" alt="" onerror="this.style.display='none'">` : '<span class="m-card-noimg">NO IMG</span>'}</div>
       <div class="m-card-name">${name}</div>
-      <div class="m-card-sub">${CAT_LABELS[r.category] || r.category} · D${manageDrawableOf(r)} T${manageTextureOf(r)} · $${Number(r.price || 0)}</div>
+      <div class="m-card-sub">${CAT_LABELS[effCat] || effCat} · D${manageDrawableOf(r)} T${manageTextureOf(r)} · <strong class="m-card-price">${formattedPrice}</strong></div>
       <div class="m-card-badges">${badges}</div>
     </button>`;
   }).join('');
@@ -2308,15 +2790,166 @@ function renderManageDetail() {
     manageDetailImg.classList.toggle('hidden', !img);
   }
   if (manageDetailNoImg) manageDetailNoImg.classList.toggle('hidden', !!img);
-  if (manageDetailMeta) manageDetailMeta.textContent =
-    `${CAT_LABELS[row.category] || row.category} · ${String(row.gender || 'male').toUpperCase()} · Drawable ${manageDrawableOf(row)} · Texture ${manageTextureOf(row)}`;
+  if (manageDetailMeta) {
+    // Bags are captured once (male) and mirrored identically to female --
+    // there's no separate male/female bag, so showing a gender tag here would
+    // wrongly imply this specific bag only applies to one gender.
+    const genderPart = normCat(row) === 'bags' ? '' : ` · ${String(row.gender || 'male').toUpperCase()}`;
+    manageDetailMeta.textContent =
+      `${CAT_LABELS[row.category] || row.category}${genderPart} · Drawable ${manageDrawableOf(row)} · Texture ${manageTextureOf(row)}`;
+  }
   if (manageLabel && document.activeElement !== manageLabel) manageLabel.value = row.label || '';
   if (managePrice && document.activeElement !== managePrice) managePrice.value = String(Number(row.price || 0));
-  if (manageOrgChoices) {
+  if (manageTempDisabled) manageTempDisabled.checked = row.tempDisabled === true;
+
+  const physCat = normCat(row);
+  const storedSellCategory = String(row.sellCategory || row.sell_category || '').toLowerCase();
+  const effCat = (storedSellCategory && storedSellCategory !== physCat) ? storedSellCategory : physCat;
+  const isVestMode = physCat === 'armor' && effCat === 'armor';
+
+  if (manageArmorTypeSection) {
+    manageArmorTypeSection.classList.remove('hidden');
+    if (manageArmorType) {
+      const nativeLabel = physCat === 'armor' ? 'Body Armor (Gun Store)' : `Default (${CAT_LABELS[physCat] || physCat})`;
+      const options = [`<option value="">${nativeLabel}</option>`]
+        .concat(SELL_AS_CATEGORIES.filter(c => c !== physCat)
+          .map(c => `<option value="${c}">${CAT_LABELS[c] || c}</option>`));
+      manageArmorType.innerHTML = options.join('');
+      manageArmorType.value = effCat === physCat ? '' : effCat;
+    }
+  }
+
+  if (manageOrgSection) manageOrgSection.classList.toggle('hidden', isVestMode);
+  if (manageArmorSection) manageArmorSection.classList.toggle('hidden', effCat !== 'armor');
+  if (manageBagLevelSection) manageBagLevelSection.classList.toggle('hidden', effCat !== 'bags');
+  if (effCat === 'armor') {
+    if (manageArmorValue && document.activeElement !== manageArmorValue) {
+      manageArmorValue.value = String(Number(row.armorValue ?? row.armor_value ?? 50));
+    }
+  }
+  if (effCat === 'bags' && manageBagLevel) {
+    // Skin (cosmetic, no capacity) only makes sense on a NATIVE bags capture
+    // -- an off-slot item "sold as bags" has no bag-slot look to reskin, so
+    // it's always functional there and only gets the plain level choices.
+    const isNativeBags = physCat === 'bags';
+    // Only 4 real bags total, one per level, shared across genders (same
+    // drawable = same logical bag). A level already published on a DIFFERENT
+    // drawable is disabled here -- once all 4 are taken, Skin is the only
+    // selectable option left, matching the server-side rule that actually
+    // enforces this at save time.
+    const myDrawable = manageDrawableOf(row);
+    const myLevel = Number(row.bagLevel ?? row.bag_level ?? -1);
+    const takenLevels = new Map();
+    for (const other of M.rows) {
+      if (normCat(other) !== 'bags' || other.bagSkin === true) continue;
+      if (manageEnabled(other) !== true) continue;
+      if (manageDrawableOf(other) === myDrawable) continue;
+      const lvl = Number(other.bagLevel ?? other.bag_level);
+      // Never lock out the item's OWN current level, even if a pre-existing
+      // data conflict has it duplicated elsewhere -- the server still blocks
+      // publishing a genuine duplicate, this is display-only.
+      if (lvl >= 1 && lvl <= 4 && lvl !== myLevel) takenLevels.set(lvl, manageDrawableOf(other));
+    }
+    const levelOptions = [1, 2, 3, 4].map(n => {
+      const takenBy = takenLevels.get(n);
+      return `<option value="${n}" ${takenBy != null ? 'disabled' : ''}>Level ${n}${takenBy != null ? ` — taken (D${takenBy})` : ''}</option>`;
+    }).join('');
+    manageBagLevel.innerHTML = isNativeBags
+      ? `<option value="skin">Skin (No Capacity)</option>${levelOptions}`
+      : levelOptions;
+    if (document.activeElement !== manageBagLevel) {
+      let defaultLevel = String(Math.max(1, Math.min(4, Number(row.bagLevel ?? row.bag_level ?? 1))));
+      // A fresh/never-leveled capture defaulting to a level someone else
+      // already holds would select a disabled option -- fall back to Skin
+      // (native bags only) or the first still-open level.
+      if (takenLevels.has(Number(defaultLevel)) && Number(defaultLevel) !== myLevel) {
+        const firstOpen = [1, 2, 3, 4].find(n => !takenLevels.has(n));
+        defaultLevel = isNativeBags ? 'skin' : (firstOpen != null ? String(firstOpen) : defaultLevel);
+      }
+      manageBagLevel.value = (isNativeBags && row.bagSkin === true) ? 'skin' : defaultLevel;
+    }
+  }
+
+  const isNativeBagsRow = physCat === 'bags';
+  const showBagPair = isNativeBagsRow && effCat === 'bags';
+  if (manageBagPairSection) manageBagPairSection.classList.toggle('hidden', !showBagPair);
+  if (showBagPair && manageBagPairGrid) {
+    const rowKey = manageRowKey(row);
+    if (M.bagPair.rowKey !== rowKey) {
+      const d = row.pairedDrawableId ?? row.paired_drawable_id;
+      const t = row.pairedTextureId ?? row.paired_texture_id;
+      M.bagPair = { rowKey, pending: (d != null) ? { d: Number(d), t: Number(t ?? -1) } : null, previewingOther: false };
+    }
+    const otherGender = String(row.gender || 'male').toLowerCase() === 'female' ? 'male' : 'female';
+    const candidates = M.rows.filter(r => normCat(r) === 'bags' && String(r.gender || 'male').toLowerCase() === otherGender);
+    const pending = M.bagPair.pending;
+
+    const noneCard = `<div class="pair-card none-card${!pending ? ' active' : ''}" data-pair-none>NO PAIR<br>(CLEAR)</div>`;
+    const cards = candidates.map(c => {
+      const d = manageDrawableOf(c), t = manageTextureOf(c);
+      const active = pending && pending.d === d && pending.t === t;
+      const img = manageImageUrl(c);
+      const tag = c.bagSkin === true ? 'Skin' : `Lvl ${c.bagLevel ?? c.bag_level ?? '?'}`;
+      const name = c.label || `Bag ${d}/${t}`;
+      return `<div class="pair-card${active ? ' active' : ''}" data-pair-d="${d}" data-pair-t="${t}" title="${name} — ${tag} — D${d} T${t}">
+        <div class="pair-card-img">${img ? `<img src="${img}" loading="lazy">` : ''}</div>
+        <div class="pair-card-label">D${d} T${t}</div>
+      </div>`;
+    });
+    manageBagPairGrid.innerHTML = [noneCard, ...cards].join('');
+
+    const noneEl = manageBagPairGrid.querySelector('[data-pair-none]');
+    if (noneEl) noneEl.onclick = () => {
+      M.bagPair.pending = null;
+      M.bagPair.previewingOther = false;
+      post('managePreviewItem', { row });
+      renderManageDetail();
+    };
+    manageBagPairGrid.querySelectorAll('[data-pair-d]').forEach(el => {
+      el.onclick = () => {
+        const d = Number(el.dataset.pairD), t = Number(el.dataset.pairT);
+        M.bagPair.pending = { d, t };
+        M.bagPair.previewingOther = true;
+        const candidate = candidates.find(c => manageDrawableOf(c) === d && manageTextureOf(c) === t);
+        if (candidate) post('managePreviewItem', { row: candidate });
+        renderManageDetail();
+      };
+    });
+
+    if (manageBagPairRestore) {
+      manageBagPairRestore.classList.toggle('hidden', !M.bagPair.previewingOther);
+      manageBagPairRestore.onclick = () => {
+        M.bagPair.previewingOther = false;
+        post('managePreviewItem', { row });
+        renderManageDetail();
+      };
+    }
+  }
+
+  if (!isVestMode && manageOrgChoices) {
     const organizations = new Set(manageOrganizationsOf(row));
     const publicInput = manageOrgChoices.querySelector('[data-public-store]');
     if (publicInput) publicInput.checked = row.publicStore === true || String(row.shop || '').toLowerCase() === 'clothes';
     manageOrgChoices.querySelectorAll('[data-org]').forEach(input => { input.checked = organizations.has(input.dataset.org); });
+  }
+
+  if (manageLockBanner) {
+    if (row.lockedBy) {
+      manageLockBanner.textContent = `${row.lockedBy} has this clothe open right now — saves here may overwrite theirs.`;
+      manageLockBanner.classList.remove('hidden');
+    } else {
+      manageLockBanner.classList.add('hidden');
+    }
+  }
+  if (manageAuditTrail) {
+    const who = row.updatedBy || row.createdBy || '';
+    const when = row.updatedAt || row.createdAt || '';
+    if (who || when) {
+      manageAuditTrail.textContent = `Last saved by ${who || 'unknown'}${when ? ` on ${when}` : ''}.`;
+      manageAuditTrail.classList.remove('hidden');
+    } else {
+      manageAuditTrail.classList.add('hidden');
+    }
   }
   const isTorso = row.category === 'torso';
   if (manageTorsoFit) manageTorsoFit.classList.toggle('hidden', !isTorso);
@@ -2337,19 +2970,39 @@ function renderManageDetail() {
     managePublishBtn.classList.toggle('btn--close', pub);
   }
   if (manageDetailState) {
-    const organizations = manageOrganizationsOf(row);
-    const destinations = [row.publicStore === true || String(row.shop || '').toLowerCase() === 'clothes' ? 'PUBLIC STORE' : '',
-      ...organizations.map(value => `${value.toUpperCase()} LOCKER`)].filter(Boolean);
-    manageDetailState.textContent = pub
-      ? `Published in: ${destinations.join(' · ') || 'no destination selected'}.`
-      : 'Saved only — players cannot see this clothe yet.';
+    if (isVestMode) {
+      manageDetailState.textContent = pub
+        ? 'Published: purchasable in the gun store.'
+        : 'Saved only — not yet purchasable in the gun store.';
+    } else {
+      const organizations = manageOrganizationsOf(row);
+      const destinations = [row.publicStore === true || String(row.shop || '').toLowerCase() === 'clothes' ? 'PUBLIC STORE' : '',
+        ...organizations.map(value => `${value.toUpperCase()} LOCKER`)].filter(Boolean);
+      manageDetailState.textContent = pub
+        ? `Published in: ${destinations.join(' · ') || 'no destination selected'}.`
+        : 'Saved only — players cannot see this clothe yet.';
+    }
     manageDetailState.classList.remove('hidden');
     manageDetailState.classList.toggle('item-state-note--ok', pub);
     manageDetailState.classList.toggle('item-state-note--warn', !pub);
   }
 }
 
+function manageLockPayload(row) {
+  return row ? { gender: row.gender, category: row.category, drawableId: manageDrawableOf(row) } : null;
+}
+function unlockManageRow(row) {
+  const payload = manageLockPayload(row);
+  if (payload) post('manageUnlockRow', payload);
+}
+function lockManageRow(row) {
+  const payload = manageLockPayload(row);
+  if (payload) post('manageLockRow', payload);
+}
+
 function selectManageRow(key) {
+  const previous = manageSelectedRow();
+  if (previous && manageRowKey(previous) !== key) unlockManageRow(previous);
   M.selectedKey = key || null;
   const row = manageSelectedRow();
   M.previewReady = false;
@@ -2383,12 +3036,43 @@ function manageBuildSavePayload(row, published) {
     publicStore: destinations.publicStore,
     published: published === true,
     image: row.image || row.icon || '',
+    tempDisabled: manageTempDisabled ? manageTempDisabled.checked : (row.tempDisabled === true),
   };
   if (row.category === 'torso') {
     payload.arms = M.fit.arms;
     payload.armsTexture = M.fit.armsTexture;
     payload.undershirt = M.fit.undershirt;
     payload.undershirtTexture = M.fit.undershirtTexture;
+  }
+  const physCat = normCat(row);
+  const sellCategory = manageArmorType ? manageArmorType.value : (row.sellCategory || row.sell_category || '');
+  payload.sellCategory = sellCategory || '';
+  const effCat = (sellCategory && sellCategory !== physCat) ? sellCategory : physCat;
+  if (effCat === 'armor') {
+    payload.armorValue = manageArmorValue && manageArmorValue.value !== ''
+      ? Math.max(0, Math.min(100, Math.floor(Number(manageArmorValue.value) || 0)))
+      : Number(row.armorValue ?? row.armor_value ?? 50);
+  }
+  if (effCat === 'bags') {
+    const bagValue = manageBagLevel ? manageBagLevel.value : (row.bagSkin === true ? 'skin' : String(row.bagLevel ?? row.bag_level ?? 1));
+    if (physCat === 'bags' && bagValue === 'skin') {
+      payload.bagSkin = true;
+    } else {
+      payload.bagSkin = false;
+      payload.bagLevel = bagValue !== '' ? Math.max(1, Math.min(4, Math.floor(Number(bagValue) || 1))) : Number(row.bagLevel ?? row.bag_level ?? 1);
+    }
+  }
+  if (physCat === 'bags' && effCat === 'bags' && M.bagPair.rowKey === manageRowKey(row)) {
+    const pending = M.bagPair.pending;
+    if (pending) {
+      payload.pairedDrawableId = pending.d;
+      payload.pairedTextureId = pending.t;
+    } else {
+      // Explicitly cleared (picked "No Pair") -- send -1 to distinguish "leave
+      // whatever pairing already existed" (field omitted) from "the admin
+      // picked None" (server treats this drawable as unpaired).
+      payload.pairedDrawableId = -1;
+    }
   }
   return payload;
 }
@@ -2402,6 +3086,14 @@ async function manageSaveSelected(publishOverride) {
     return;
   }
   await post('manageSaveItem', manageBuildSavePayload(row, published));
+  // If a pairing candidate on the other gender was left previewing on the
+  // ped, switch back to showing this row's own look now that the save (and
+  // its pairing choice) is committed.
+  if (M.bagPair.previewingOther && M.bagPair.rowKey === manageRowKey(row)) {
+    M.bagPair.previewingOther = false;
+    post('managePreviewItem', { row });
+    renderManageDetail();
+  }
 }
 
 function applyManageSaved(row) {
@@ -2426,6 +3118,16 @@ function applyManageSaved(row) {
       armsTexture: row.armsTexture ?? row.arms_texture,
       undershirt: row.undershirt,
       undershirtTexture: row.undershirtTexture ?? row.undershirt_texture,
+      armorValue: row.armorValue ?? row.armor_value,
+      bagLevel: row.bagLevel ?? row.bag_level ?? existing.bagLevel,
+      bagSkin: row.bagSkin ?? existing.bagSkin,
+      pairedDrawableId: row.pairedDrawableId ?? row.paired_drawable_id ?? existing.pairedDrawableId,
+      pairedTextureId: row.pairedTextureId ?? row.paired_texture_id ?? existing.pairedTextureId,
+      sellCategory: row.sellCategory ?? row.sell_category ?? existing.sellCategory,
+      createdBy: row.createdBy ?? existing.createdBy,
+      updatedBy: row.updatedBy ?? existing.updatedBy,
+      createdAt: row.createdAt ?? existing.createdAt,
+      updatedAt: row.updatedAt ?? existing.updatedAt,
     };
   });
   if (!updated) M.rows.push(row);
@@ -2442,8 +3144,16 @@ function openManage(data) {
   M.open = data.value !== false;
   if (managePanel) managePanel.classList.toggle('hidden', !M.open);
   app.classList.toggle('manage-mode', M.open);
-  if (M.open) app.classList.remove('hidden');
-  else if (!S.open) app.classList.add('hidden');
+  if (M.open) {
+    app.classList.remove('hidden');
+    app.classList.remove('store-mode');
+    app.classList.remove('admin-mode');
+    app.style.display = 'block';
+  } else if (!S.open) {
+    app.classList.add('hidden');
+    app.classList.remove('manage-mode');
+    app.style.display = 'none';
+  }
   if (!M.open) return;
   M.orgs = Array.isArray(data.orgs) ? data.orgs : [];
   M.rows = [];
@@ -2520,10 +3230,59 @@ function tryApplyPendingRetake() {
     updateBottom();
     previewSelected();
   }
-  $('itemName').textContent = `RETAKE: ${row.label || `${cat} ${target}`} — use TAKE IMAGE / UPDATE`;
+  // Keep the item's identity for the capture that follows. Browsing to another
+  // drawable now changes THIS item rather than creating a second one.
+  S.retakeAssetId = row.assetId || row.asset_id || null;
+  S.retakeLabel = row.label || `${cat} ${target}`;
+  renderRetakeBanner();
+  $('itemName').textContent = S.retakeAssetId
+    ? `RETAKE: ${S.retakeLabel} — pick any clothes, TAKE IMAGE replaces it`
+    : `RETAKE: ${S.retakeLabel} — use TAKE IMAGE / UPDATE`;
 }
 
-if (manageCloseBtn)   manageCloseBtn.onclick   = () => post('manageClose');
+// Standing reminder that the next capture replaces an existing item, with a way
+// out. Without it an admin who wandered off to browse would have no way of
+// knowing their next photo overwrites a clothe rather than adding one.
+function renderRetakeBanner() {
+  let el = document.getElementById('retakeBanner');
+  if (!S.retakeAssetId) { if (el) el.remove(); return; }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'retakeBanner';
+    el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);top:calc(12px + env(safe-area-inset-top,0px));z-index:9999;background:#1d4ed8;color:#fff;padding:8px 14px;border-radius:8px;font:600 13px system-ui,sans-serif;display:flex;gap:12px;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,.35);max-width:92vw;';
+    document.body.appendChild(el);
+  }
+  el.innerHTML = '';
+  const text = document.createElement('span');
+  text.textContent = `REPLACING "${S.retakeLabel}" — your next photo changes this item's clothes and picture`;
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.textContent = 'CANCEL';
+  cancel.style.cssText = 'background:rgba(255,255,255,.18);color:#fff;border:0;border-radius:5px;padding:4px 10px;font:600 12px system-ui,sans-serif;cursor:pointer;';
+  cancel.onclick = () => { clearRetakeTarget(); toast('Replace cancelled — captures now add new items.', 'success'); };
+  el.appendChild(text);
+  el.appendChild(cancel);
+}
+
+function clearRetakeTarget() {
+  S.retakeAssetId = null;
+  S.retakeLabel = '';
+  S.activeReplaceAssetId = null;
+  renderRetakeBanner();
+}
+
+if (manageCloseBtn)   manageCloseBtn.onclick   = () => {
+  const r = manageSelectedRow();
+  if (r) unlockManageRow(r);
+  M.open = false;
+  if (managePanel) managePanel.classList.add('hidden');
+  app.classList.remove('manage-mode');
+  if (!S.open) {
+    app.classList.add('hidden');
+    app.style.display = 'none';
+  }
+  post('manageClose');
+};
 if (manageRefreshBtn) manageRefreshBtn.onclick = () => post('manageRefresh');
 if (manageGenderMale)   manageGenderMale.onclick   = () => setManageGender('male');
 if (manageGenderFemale) manageGenderFemale.onclick = () => setManageGender('female');
@@ -2534,6 +3293,18 @@ if (manageCategoryFilter) manageCategoryFilter.onchange = () => {
   renderManageDetail();
 };
 if (manageStatusFilter) manageStatusFilter.onchange = () => { M.status = manageStatusFilter.value; renderManageGrid(); };
+if (manageArmorType) manageArmorType.onchange = () => {
+  const r = manageSelectedRow();
+  if (!r) return;
+  // Preview the section swap immediately; nothing is persisted until SAVE CHANGES.
+  const physCat = normCat(r);
+  const sellCategory = manageArmorType.value;
+  const effCat = (sellCategory && sellCategory !== physCat) ? sellCategory : physCat;
+  const isVestMode = physCat === 'armor' && effCat === 'armor';
+  if (manageOrgSection) manageOrgSection.classList.toggle('hidden', isVestMode);
+  if (manageArmorSection) manageArmorSection.classList.toggle('hidden', effCat !== 'armor');
+  if (manageBagLevelSection) manageBagLevelSection.classList.toggle('hidden', effCat !== 'bags');
+};
 if (manageSearch) manageSearch.addEventListener('input', () => { M.q = manageSearch.value; renderManageGrid(); });
 if (managePublishBtn) managePublishBtn.onclick = () => {
   const r = manageSelectedRow();
@@ -2553,6 +3324,20 @@ if (manageRetakeBtn) manageRetakeBtn.onclick = () => {
   const r = manageSelectedRow();
   if (r) post('manageRetake', { row: r });
 };
+if (manageRevertBtn) manageRevertBtn.onclick = async () => {
+  const r = manageSelectedRow();
+  if (!r || r.id == null) { toast('Nothing to revert — refresh and try again.', 'error'); return; }
+  await post('manageRevertImage', { id: r.id, assetId: r.assetId || null });
+  post('manageRefresh');
+};
+if (manageCoverBtn) manageCoverBtn.onclick = async () => {
+  const r = manageSelectedRow();
+  if (!r || !manageHasImage(r)) { toast('This clothe has no image to use as a cover photo.', 'error'); return; }
+  await post('manageSetCoverImage', {
+    gender: r.gender, category: r.category, drawableId: manageDrawableOf(r), image: r.image || r.icon || '',
+  });
+  post('manageRefresh');
+};
 
 /* ══════════════════════════════════════════════════════════
    NUI MESSAGE HANDLER
@@ -2569,6 +3354,10 @@ window.addEventListener('message', ({ data = {} }) => {
       else renderCategories();
       // A /clothingstore retake may be waiting for this catalog.
       tryApplyPendingRetake();
+      // The real catalog for a just-switched gender arrives here, async and
+      // AFTER switchAdminGender's own promise already resolved -- refresh
+      // bag-pairing candidates now that S.catalog actually reflects it.
+      refreshBagPairCandidates();
       break;
     case 'adminMode':         setAdminMode(data.value);                         break;
     case 'adminGenderChanged':
@@ -2580,6 +3369,25 @@ window.addEventListener('message', ({ data = {} }) => {
     case 'manageCatalog':
       M.rows = Array.isArray(data.rows) ? data.rows : [];
       fillManageCategoryOptions();
+      if (data.focusRow) {
+        // Handed off straight from a fresh bag capture -- jump the manager
+        // to that exact row so the admin can pick its cross-gender pairing
+        // immediately, instead of having to find it themselves.
+        const fr = data.focusRow;
+        const frGender = String(fr.gender || 'male').toLowerCase() === 'female' ? 'female' : 'male';
+        const frCat = String(fr.category || '').toLowerCase();
+        const match = M.rows.find(r => normCat(r) === frCat
+          && String(r.gender || 'male').toLowerCase() === frGender
+          && manageDrawableOf(r) === Number(fr.drawableId)
+          && manageTextureOf(r) === Number(fr.textureId));
+        if (match) {
+          M.gender = frGender;
+          M.category = frCat || 'all';
+          setManageGenderTabs();
+          if (manageCategoryFilter) manageCategoryFilter.value = M.category;
+          M.selectedKey = manageRowKey(match);
+        }
+      }
       renderManageGrid();
       renderManageDetail();
       break;
@@ -2640,6 +3448,11 @@ window.addEventListener('message', ({ data = {} }) => {
           : (data.entry?.enabled === true
             ? '✓ IMAGE RETAKEN — CLOTHE STAYS PUBLISHED'
             : '✓ CLOTHE SAVED — PUBLISH IT IN /clothingstore');
+        if (data.entry && !data.entry.imageOnly && String(data.entry.category || '').toLowerCase() === 'bags') {
+          if (!S.bulkRunning) {
+            enterBagPairing(data.entry);
+          }
+        }
       } else {
         $('itemName').textContent = `✗ ICON SAVE FAILED: ${data.error || 'unknown'}`;
       }
@@ -2816,6 +3629,76 @@ $('prevItem').onclick    = () => moveItem(-1);
 $('nextItem').onclick    = () => moveItem(1);
 $('prevTexture').onclick = () => moveTexture(-1);
 $('nextTexture').onclick = () => moveTexture(1);
+if ($('modelScrubSlider')) {
+  $('modelScrubSlider').oninput = (e) => {
+    const idx = Number(e.target.value);
+    if (idx !== S.itemPos && S.filtered[idx]) {
+      S.itemPos = idx;
+      S.selected = S.filtered[S.itemPos];
+      if (S.activeCategory === 'torso' && S.selected) S.adminTorsoTarget = { ...S.selected };
+      S.texture = previewTexture(S.selected.texture);
+      S.textureCount = 1;
+      applyTextureModeFromCatalog(S.texture);
+      updateBottom();
+      previewSelected();
+    }
+  };
+}
+
+if ($('clothTypeInput')) {
+  $('clothTypeInput').onchange = (e) => {
+    let val = parseInt(e.target.value, 10);
+    if (isNaN(val)) val = 1;
+    val = Math.max(1, Math.min(S.filtered.length, val));
+    e.target.value = val;
+    const newPos = val - 1;
+    if (newPos !== S.itemPos && S.filtered[newPos]) {
+      S.itemPos = newPos;
+      S.selected = S.filtered[S.itemPos];
+      if (S.activeCategory === 'torso' && S.selected) S.adminTorsoTarget = { ...S.selected };
+      S.texture = previewTexture(S.selected.texture);
+      S.textureCount = 1;
+      applyTextureModeFromCatalog(S.texture);
+      updateBottom();
+      previewSelected();
+    }
+  };
+  $('clothTypeInput').onkeydown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      $('clothTypeInput').blur();
+    }
+  };
+}
+
+if ($('clothTextureInput')) {
+  $('clothTextureInput').onchange = (e) => {
+    let val = parseInt(e.target.value, 10);
+    if (isNaN(val)) val = 0;
+    const maxTex = Math.max(0, S.textureCount - 1);
+    val = Math.max(0, Math.min(maxTex, val));
+    e.target.value = val;
+    if (val !== S.texture) {
+      if (S.exactTextureRows && S.exactTextureRows.length > 0) {
+        const row = S.exactTextureRows.find(r => Number(r.texture) === val) || S.exactTextureRows[0];
+        S.texture = previewTexture(row.texture);
+        S.selected = { ...S.selected, ...row };
+      } else {
+        S.texture = val;
+      }
+      if (S.activeCategory === 'torso' && S.selected)
+        S.adminTorsoTarget = { ...S.selected, texture: S.texture, textureId: S.texture };
+      updateBottom();
+      previewSelected();
+    }
+  };
+  $('clothTextureInput').onkeydown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      $('clothTextureInput').blur();
+    }
+  };
+}
 
 if (adminGenderMale) adminGenderMale.onclick = () => switchAdminGender('male');
 if (adminGenderFemale) adminGenderFemale.onclick = () => switchAdminGender('female');
@@ -2898,6 +3781,9 @@ $('closeBtn').onclick = () => {
   S.isAdmin         = false;
   S.adminTorsoTarget = null;
   S.cart            = [];
+  // Leaving the panel drops any pending replace, so reopening it later starts
+  // clean and a forgotten retake cannot overwrite an item much later.
+  clearRetakeTarget();
   S.lastAdminSyncKey = ''; 
   hidePurchaseStatus();
   if (customItemName)   customItemName.value   = '';
@@ -2908,13 +3794,20 @@ $('closeBtn').onclick = () => {
   updateCartUI();
   setCaptureStatus(false);
   post('closeMenu');
+  S.open = false;
   app.classList.add('hidden');
+  app.classList.remove('store-mode');
+  app.classList.remove('admin-mode');
+  app.style.display = 'none';
 };
 
 // Keyboard shortcuts
 document.addEventListener('keydown', e => {
   if (M.open) {
-    if (e.key === 'Escape') post('manageClose');
+    if (e.key === 'Escape') {
+      if (manageCloseBtn) manageCloseBtn.click();
+      else post('manageClose');
+    }
     return;
   }
   if (!S.open) return;

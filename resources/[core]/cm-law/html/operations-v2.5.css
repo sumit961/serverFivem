@@ -1,0 +1,64 @@
+/* Shared operations theme: no backdrop filters, one palette for both interfaces. */
+:root{--desk-bg:#0b1026;--desk-panel:#111b2d;--desk-raised:#18253a;--desk-text:#eef6ff;--desk-muted:#9eb0c7;--desk-cyan:#00d1ff;--desk-green:#00ffa3;--desk-gold:#ffd166}
+#app .shell{background:var(--desk-bg)!important;border:1px solid #31415b!important;border-radius:20px!important;box-shadow:0 28px 95px #0009!important}
+#app .side{background:linear-gradient(180deg,#142237,#0b1425)!important;border-right:1px solid #27364c!important}
+#app .workspace{background:linear-gradient(135deg,#0d1828,#0b1026)!important;min-width:0!important}
+#app .side nav{overflow-y:auto!important;min-height:0;scrollbar-width:thin;scrollbar-color:#3c5971 transparent}
+#app .side .tab,#app .side .nav{border-radius:10px!important;margin:3px 0!important;transition:background .15s ease,color .15s ease!important}
+#app .side .tab.active,#app .side .nav.active{background:#00d1ff1c!important;color:#e5faff!important;box-shadow:inset 3px 0 var(--desk-cyan)!important}
+#app .side nav button:not(.active):hover{background:#ffffff0a!important}
+#app .workspace>header{background:#101a2be8!important;border-bottom:1px solid #2b3a51!important;min-height:74px!important}
+#app .content{scrollbar-width:thin;scrollbar-color:#3c5971 transparent;padding:22px!important}
+#app .card,#app .command-panel,#app .facility-card,#app .fleet-card,#app .rank-card,#app .logistics-order{border-radius:14px!important;background:#131f31!important;border-color:#2b3c52!important;box-shadow:none!important}
+#app .member,#app .log-row{border-radius:10px!important;border-color:#293b50!important;background:#111d2e!important}
+#app button,.police-confirm-overlay button,.npc-dialogue button,.legal-armory button,.wardrobe-room button,.police-quick-menu-overlay button,.impound-release button{transition:background .15s ease,border-color .15s ease,transform .15s ease}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--desk-cyan)!important;outline-offset:3px!important}
+button:disabled{cursor:not-allowed!important;opacity:.45!important}
+#app input:not([type=checkbox]),#app select,#app textarea{background:#0c1727!important;color:var(--desk-text)!important;border:1px solid #3a5069!important;border-radius:9px!important;min-height:40px;padding:10px 12px!important;box-sizing:border-box}
+#app label,#app .hint{line-height:1.6!important}
+#app input::placeholder,#app textarea::placeholder{color:#879ab2!important}
+#app .primary,.desk-save button{background:#00d1ff!important;color:#07131f!important;border-color:#00d1ff!important;font-weight:750!important}
+#app .danger{color:#ff9c9c!important;border-color:#854856!important;background:#452535!important}
+#app .badge,#app .status-pill{border-radius:6px!important;letter-spacing:.06em!important}
+#app .law-record-rail{background:#101a2c!important;border-left:1px solid #2b3c52!important}
+.npc-dialogue__identity h1{font-size:clamp(30px,4vw,60px)!important;line-height:1.1!important;max-width:48vw;overflow-wrap:anywhere}
+.npc-dialogue__choices{width:min(540px,43vw)!important;max-height:72vh;overflow-y:auto;scrollbar-width:thin;padding:4px}
+.npc-dialogue__quote{border-radius:12px!important;background:#0b1528f2!important;border-left:3px solid var(--desk-cyan)!important;padding:20px!important}
+.npc-dialogue__option{border-radius:10px!important;background:#14243bf2!important;border-color:#4a627e!important;font-size:14px!important;line-height:1.4!important;text-align:left!important}
+.npc-dialogue__option:hover{background:#1c3853!important;border-color:var(--desk-cyan)!important}
+.npc-dialogue__option--primary{background:var(--desk-cyan)!important;color:#061725!important;font-weight:750!important}
+.npc-dialogue__option small{color:inherit!important;opacity:.8!important;font-weight:400}
+.police-confirm-card,.law-confirm-card{background:#142137!important;border:1px solid #42617d!important;border-radius:18px!important;box-shadow:0 20px 70px #0009!important;max-width:min(520px,90vw)!important}
+.police-quick-menu{background:#112036!important;border:1px solid #395875!important;border-radius:16px!important;max-height:80vh;overflow-y:auto}
+.police-quick-menu-item{border-radius:9px!important;background:#182b42!important;border-color:#39536d!important;line-height:1.5!important}
+.wardrobe-sidebar,.wardrobe-controls{background:#0d192cf2!important;border-color:#324963!important;padding:24px!important;overflow-y:auto;scrollbar-width:thin}
+.wardrobe-selector{background:#142940!important;border-radius:12px!important;border-color:#395a74!important}
+.legal-armory{background:#0e192a!important;border-color:#35526b!important;border-radius:18px!important}
+.armory-manager{background:#0e1b2d!important}.armory-manage-row{background:#17273b!important;border-radius:10px!important}
+#mdtTerminal input,#mdtTerminal select,#mdtTerminal textarea{border-radius:8px!important;background:#101e30!important;color:#eff7ff!important;border-color:#395570!important}
+#app .desk-entry{width:100%;display:flex!important;align-items:center;justify-content:space-between;gap:18px;padding:18px 22px!important;background:linear-gradient(110deg,#153b4a,#17263e)!important;border:1px solid #337184!important;border-radius:14px!important;color:#eafaff!important;text-align:left!important;grid-column:1/-1}
+.desk-entry small{display:block;color:#85d6e8;font-size:10px;letter-spacing:.12em;margin-bottom:5px}.desk-entry strong{font-size:18px}.desk-entry>span:last-child{font-size:12px;color:#b9d9e6}
+#app .daily-desk{color:var(--desk-text)!important;max-width:1400px;margin:0 auto;width:100%;box-sizing:border-box}
+#app .daily-desk.active,#app .daily-desk.view:not(.hidden){display:flex!important;flex-direction:column;gap:20px!important}
+#app .daily-desk.page:not(.active),#app .daily-desk.hidden{display:none!important}
+.desk-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:28px;border-radius:16px;background:linear-gradient(115deg,#133346,#142038);border:1px solid #32566d}
+.desk-hero small,.desk-heading small{font-size:10px;letter-spacing:.13em;color:#78d8eb;font-weight:700}
+#app .desk-hero h2{font-size:clamp(22px,2.2vw,34px)!important;margin:8px 0!important;line-height:1.2!important}.desk-hero p{margin:0;color:var(--desk-muted);font-size:13px;line-height:1.6}.desk-hero>span{font-size:12px;white-space:nowrap;color:#ffd166}
+.desk-shortcuts{display:flex;flex-wrap:wrap;gap:10px}.desk-shortcuts button{flex:1;min-width:145px;background:#172d43!important;color:#e4f7ff!important;border:1px solid #34556f!important;border-radius:10px!important;padding:14px!important;text-align:left!important}
+.desk-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.desk-card{padding:24px;background:var(--desk-panel);border:1px solid #2c4158;border-radius:16px;min-width:0}
+.desk-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}.desk-heading h3{font-size:19px!important;margin:6px 0 0!important;letter-spacing:0!important}.desk-heading>strong{color:#00ffa3;font-size:17px}.desk-heading>span{font-size:11px;color:#9eb0c7;white-space:nowrap}
+.desk-meter{height:5px;border-radius:10px;background:#293b4f;overflow:hidden}.desk-meter i{display:block;width:0;height:100%;background:#00ffa3;transition:width .2s ease}
+.desk-help{font-size:12px;color:#a7bad0;line-height:1.6;display:block;margin:12px 0}
+.desk-task{display:flex!important;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid #293c51;cursor:pointer}.desk-task:last-child{border:0}.desk-task input{width:19px;height:19px;accent-color:#00d1ff;flex:none}.desk-task span{display:grid;gap:4px}.desk-task strong{font-size:13px}.desk-task small{font-size:11px;color:#a7bad0}.desk-task:has(input:checked) strong{color:#77edc1}
+#app #deskNotes{width:100%;height:245px;resize:vertical;max-height:45vh;font-family:inherit!important;font-size:13px!important;line-height:1.7!important;margin-top:8px}
+.desk-save{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:16px}.desk-save span{font-size:12px;color:#b0c5db}.desk-save button{padding:12px 20px;border-radius:9px;border:0;white-space:nowrap}.desk-save .desk-error{color:#ffaaa2}
+#app .desk-secondary{margin-top:14px;background:transparent!important;color:#a6c4db!important;border:0!important;font-size:11px!important;padding:4px 0!important}
+#deskHistory{font-size:13px;color:#a9bbd0}#deskHistory details{border-bottom:1px solid #2d4257;padding:14px 0}#deskHistory summary{cursor:pointer;color:#d8eafa}#deskHistory p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7;color:#acbfd4}
+button[aria-busy=true]{pointer-events:none!important;opacity:.65!important;cursor:progress!important}
+#cmRequestStatus{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:20000;max-width:80vw;padding:10px 18px;border:1px solid #48758b;border-radius:10px;background:#10273bf5;color:#ecfaff;font:13px/1.5 sans-serif;pointer-events:none}#cmRequestStatus[hidden]{display:none!important}
+#app [hidden],#app .hidden{display:none!important}
+@media(max-width:1100px){.desk-grid{grid-template-columns:1fr}.desk-hero{align-items:flex-start;flex-direction:column;padding:22px}#app .content{padding:16px!important}.desk-entry>span:last-child{display:none}.npc-dialogue__choices{width:55vw!important}}
+@media(max-height:760px){.npc-dialogue__choices{bottom:5vh!important;max-height:65vh}.npc-dialogue__option{min-height:46px!important;padding:10px 14px!important}.desk-card{padding:18px}.desk-hero{padding:20px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+.desk-objectives{padding:18px 20px}.desk-objectives .desk-heading{margin-bottom:4px}.desk-objective-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.desk-objective{display:grid;gap:9px;padding:12px;border:1px solid rgba(76,145,165,.28);border-radius:10px;background:rgba(7,23,34,.45)}.desk-objective>div{display:grid;gap:5px}.desk-objective strong{font-size:12px}.desk-objective small{color:#9db5c2;font-size:10px}.desk-objective i{display:block;height:4px;border-radius:9px;background:#263c4d;overflow:hidden}.desk-objective i b{display:block;height:100%;border-radius:9px;background:linear-gradient(90deg,#00d1ff,#00ffa3)}
+@media(max-width:760px){.desk-objective-list{grid-template-columns:1fr}}

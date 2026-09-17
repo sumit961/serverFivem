@@ -314,20 +314,24 @@ local function placementPlate(value)
     return tostring(value or ''):upper():gsub('^%s+', ''):gsub('%s+$', '')
 end
 
-local function rememberPlacementVehicle(src, plate)
+local function rememberPlacementVehicle(src, plate, kind, netId)
     plate = placementPlate(plate)
     if plate == '' then return end
     PlacementVehicles[src] = PlacementVehicles[src] or {}
-    PlacementVehicles[src][plate] = true
+    PlacementVehicles[src][plate] = {
+        kind = tostring(kind or 'car'),
+        netId = tonumber(netId),
+    }
 end
 
 local function forgetPlacementVehicle(src, plate)
     plate = placementPlate(plate)
     local set = PlacementVehicles[src]
-    if not set or set[plate] ~= true then return false end
+    if not set or not set[plate] then return false end
+    local record = set[plate]
     set[plate] = nil
     if next(set) == nil then PlacementVehicles[src] = nil end
-    return true
+    return record
 end
 
 local function placementSpec(payload)
@@ -403,7 +407,10 @@ lib.callback.register('cm-house:server:spawnPlacer', function(src, payload)
     end
     if not res.netId then return false, 'The placement vehicle did not spawn.' end
 
-    rememberPlacementVehicle(src, res.plate)
+    rememberPlacementVehicle(src, res.plate, kind, res.netId)
+    if kind == 'helicopter' then
+        TriggerClientEvent('cm-house:client:setPlacementGhost', -1, tonumber(res.netId), true)
+    end
     return true, {
         plate = res.plate,
         netId = res.netId,
@@ -414,7 +421,11 @@ end)
 
 RegisterNetEvent('cm-house:server:deletePlacer', function(plate)
     local src = source
-    if not forgetPlacementVehicle(src, plate) then return end
+    local record = forgetPlacementVehicle(src, plate)
+    if not record then return end
+    if record.kind == 'helicopter' and record.netId then
+        TriggerClientEvent('cm-house:client:setPlacementGhost', -1, record.netId, false)
+    end
     if GetResourceState('cm-vehicles') ~= 'started' then return end
 
     pcall(function()
@@ -425,9 +436,15 @@ end)
 local function clearPlacementVehicles(src)
     local set = PlacementVehicles[src]
     PlacementVehicles[src] = nil
-    if not set or GetResourceState('cm-vehicles') ~= 'started' then return end
-    for plate in pairs(set) do
-        pcall(function() exports['cm-vehicles']:DeleteAdminVehicle(plate) end)
+    if not set then return end
+    local vehiclesStarted = GetResourceState('cm-vehicles') == 'started'
+    for plate, record in pairs(set) do
+        if record.kind == 'helicopter' and record.netId then
+            TriggerClientEvent('cm-house:client:setPlacementGhost', -1, record.netId, false)
+        end
+        if vehiclesStarted then
+            pcall(function() exports['cm-vehicles']:DeleteAdminVehicle(plate) end)
+        end
     end
 end
 

@@ -398,9 +398,46 @@ local function getDisplayDescription(itemName, def, metadata)
     return metadata.description or def.description or ''
 end
 
+-- Refreshes a clothing item from its live catalog row. Every read of an owned
+-- item goes through rowToItem, so this is the one place that has to apply it --
+-- inventory display, equipment slots, drops and external containers all inherit
+-- it, and so does the metadata the client receives for equipping.
+--
+-- The item stores asset_id, a permanent pointer to the catalog row, so editing
+-- that row (rename, new photo, new price, or a different garment behind it)
+-- reaches every copy that already exists, including offline players', with no
+-- migration. If the row was deleted, the item keeps its own stored snapshot and
+-- carries on working.
+local function applyLiveClothingMetadata(itemName, metadata, rowId)
+    if not isClothingItemName(itemName) then return metadata end
+    if type(metadata) ~= 'table' then return metadata end
+
+    local hadAssetId = (metadata.assetId or metadata.asset_id) ~= nil
+    local refreshed = safeItemCall('ApplyLiveClothingMetadata', metadata)
+    if type(refreshed) ~= 'table' then return metadata end
+
+    -- Items bought before asset_id existed are matched by their drawable tuple
+    -- instead, and that match is written back here, once. Without this they
+    -- would keep relying on the tuple forever -- which breaks the moment the
+    -- item's garment is replaced, because the row moves to a different drawable
+    -- and the tuple no longer finds it. Persisting the link on first sight is
+    -- what lets old items follow a replacement the same as new ones.
+    if not hadAssetId and refreshed.assetId and rowId then
+        CreateThread(function()
+            pcall(function()
+                MySQL.update.await('UPDATE inventory_items SET metadata = ? WHERE id = ?', {
+                    encode(refreshed), rowId
+                })
+            end)
+        end)
+    end
+
+    return refreshed
+end
+
 local function rowToItem(row)
     local def = getItemDef(row.item_name) or { label = row.item_name, weight = 0, category = 'misc', image = 'placeholder.png', stack = true, description = '' }
-    local metadata = decode(row.metadata)
+    local metadata = applyLiveClothingMetadata(row.item_name, decode(row.metadata), row.id)
     local rarity = getItemRarity(def, metadata)
     local durability = getItemDurability(def, metadata)
     return {

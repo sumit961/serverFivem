@@ -5,6 +5,22 @@ local useLocks = {}
 local stockLocks = {}
 local inviteCooldowns = {}
 
+
+local function warnStandalonePoliceConflict()
+    if GetResourceState('cm-police') == 'started' then
+        print('^1[cm-law] CONFLICT: standalone cm-police is also started. Remove "ensure cm-police"; its old F6 NUI will overlap the embedded Police dashboard and prevent ESC from appearing to close.^7')
+    end
+end
+
+CreateThread(function()
+    Wait(1500)
+    warnStandalonePoliceConflict()
+end)
+
+AddEventHandler('onResourceStart', function(resource)
+    if resource == 'cm-police' then SetTimeout(500, warnStandalonePoliceConflict) end
+end)
+
 -- Bare global: server/cuffs.lua/booking.lua are separate chunks and can't
 -- see this file's own `ready` local directly.
 function LawIsReady() return ready end
@@ -85,7 +101,11 @@ end
 
 local function permissionsFor(rank)
     if not rank then return {} end
-    local decoded = type(rank.permissions) == 'table' and rank.permissions or json.decode(rank.permissions or '[]') or {}
+    local decoded = type(rank.permissions) == 'table' and rank.permissions or nil
+    if not decoded then
+        local ok, value = pcall(json.decode, rank.permissions or '[]')
+        decoded = ok and type(value) == 'table' and value or {}
+    end
     local out = {}
     for key, value in pairs(decoded) do
         if type(key) == 'number' then out[tostring(value)] = true else out[tostring(key)] = value == true end
@@ -135,7 +155,11 @@ end
 local CapabilityCache = {}
 
 function LawCapabilityEnabled(orgId, capability)
-    orgId, capability = validOrgId(orgId), tostring(capability or '')
+    orgId, capability = tostring(orgId or ''):lower(), tostring(capability or '')
+    if orgId == 'police' then
+        return type(PoliceCapabilityEnabled) ~= 'function' or PoliceCapabilityEnabled(capability) ~= false
+    end
+    orgId = validOrgId(orgId)
     if not orgId or capability == '' then return false end
     local orgCache = CapabilityCache[orgId]
     if orgCache and orgCache[capability] ~= nil then return orgCache[capability] end
@@ -158,9 +182,7 @@ function LawAuthorizeEnforcement(src, capability, permission)
     src = tonumber(src)
     local characterId = src and characterIdFor(src)
     if not characterId then return nil, 'Character is not loaded.' end
-    local row = MySQL.single.await([[SELECT organization_id FROM cm_legal_members
-        WHERE character_id = ? ORDER BY on_duty DESC LIMIT 1]], { tostring(characterId) })
-    local member = row and memberFor(characterId, row.organization_id) or nil
+    local member = activeMemberForSource(src)
     if not member then return nil, 'You are not a legal organization member.' end
     if member.suspended then return nil, 'Your organization access is suspended.' end
     if not member.onDuty then return nil, 'You must be on duty.' end
@@ -181,8 +203,12 @@ exports('AuthorizeEnforcement', function(src, capability, permission)
 end)
 
 exports('LogEnforcementAction', function(context, action, detail)
-    if type(context) ~= 'table' or not validOrgId(context.organizationId)
-        or not context.characterId then return false end
+    if type(context) ~= 'table' or not context.characterId then return false end
+    if context.organizationId == 'police' and type(log) == 'function' then
+        log(context.characterId, tostring(action or 'enforcement_action'), detail or {})
+        return true
+    end
+    if not validOrgId(context.organizationId) then return false end
     logActivity(context.organizationId, context.characterId, tostring(action or 'enforcement_action'), detail or {})
     return true
 end)
@@ -249,7 +275,31 @@ function activeMemberForSource(src)
         JOIN cm_legal_ranks r ON r.id = m.rank_id AND r.organization_id = m.organization_id
         WHERE m.character_id = ? ORDER BY m.on_duty DESC, r.tier DESC LIMIT 1
     ]], { characterId })
-    return row and memberFor(characterId, row.organization_id) or nil, characterId
+    if row then return memberFor(characterId, row.organization_id), characterId end
+    if type(PoliceLegacyMemberFor) == 'function' then
+        local police = PoliceLegacyMemberFor(characterId)
+        if police then
+            local permissions = {}
+            if type(has) == 'function' then
+                permissions['police.receive_dispatch'] = has(police, 'police.receive_dispatch')
+                permissions['police.impound'] = has(police, 'police.impound')
+                permissions['police.manage_alpr'] = has(police, 'police.manage_alpr')
+                permissions['police.set_meeting'] = has(police, 'police.set_meeting')
+            end
+            permissions['law.receive_dispatch'] = permissions['police.receive_dispatch'] == true
+            permissions['law.impound'] = permissions['police.impound'] == true
+            permissions['law.alpr'] = permissions['police.manage_alpr'] == true
+            permissions['law.manage_dispatch'] = permissions['police.set_meeting'] == true
+            return {
+                organizationId = 'police', characterId = tostring(characterId),
+                rankId = tonumber(police.rank_id), rankName = police.rank_name,
+                tier = tonumber(police.tier) or 0,
+                isLeader = dbBoolean(police.is_leader), onDuty = dbBoolean(police.on_duty),
+                suspended = dbBoolean(police.is_suspended), permissions = permissions,
+            }, characterId
+        end
+    end
+    return nil, characterId
 end
 
 function canManage(member)
@@ -346,6 +396,39 @@ local function dashboardFor(src)
             SUM(CASE WHEN enabled = 1 AND location_configured = 1 AND min_tier <= ? THEN 1 ELSE 0 END) AS available_count
         FROM cm_legal_fleet_vehicles WHERE organization_id = ?
     ]], { tonumber(member.tier) or 0, member.organizationId }) or {}
+    local canDispatch = member.onDuty and not member.suspended
+        and (member.isLeader or member.permissions['law.receive_dispatch'] == true)
+    local canCustody = member.onDuty and not member.suspended
+        and LawCapabilityEnabled(member.organizationId, 'prisonIntake')
+        and (member.isLeader or member.permissions['law.cuff'] == true)
+    local routingBucket = GetPlayerRoutingBucket(src)
+    local dispatchSummary, priorityCall = {}, nil
+    if canDispatch then
+        dispatchSummary = MySQL.single.await([[
+            SELECT COUNT(*) AS active_count,
+                   SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END) AS assigned_count,
+                   SUM(CASE WHEN priority >= 3 THEN 1 ELSE 0 END) AS priority_count
+            FROM cm_legal_incidents
+            WHERE status IN ('waiting', 'accepted') AND routing_bucket = ?
+              AND (call_type <> 'front_desk' OR organization_id = ?)
+        ]], { routingBucket, member.organizationId }) or {}
+        priorityCall = MySQL.single.await([[
+            SELECT id, caller_name, details, location, status, call_type, priority,
+                   UNIX_TIMESTAMP(created_at) AS created_at
+            FROM cm_legal_incidents
+            WHERE status IN ('waiting', 'accepted') AND routing_bucket = ?
+              AND (call_type <> 'front_desk' OR organization_id = ?)
+            ORDER BY priority DESC, id ASC LIMIT 1
+        ]], { routingBucket, member.organizationId })
+    end
+    if priorityCall then
+        priorityCall.id = tonumber(priorityCall.id)
+        priorityCall.callerName = tostring(priorityCall.caller_name or 'Unknown caller')
+        priorityCall.callType = tostring(priorityCall.call_type or 'citizen')
+        priorityCall.priority = tonumber(priorityCall.priority) or 1
+        priorityCall.createdAt = tonumber(priorityCall.created_at) or os.time()
+        priorityCall.caller_name, priorityCall.call_type, priorityCall.created_at = nil, nil, nil
+    end
     local recentActivity, canViewActivity = {}, canManage(member)
     if canViewActivity then
         recentActivity = MySQL.query.await([[
@@ -360,10 +443,25 @@ local function dashboardFor(src)
             row.actorCid = tostring(row.actor_cid or '')
             row.actorName = row.actor_name ~= '' and row.actor_name or (row.actorCid ~= '' and ('CID ' .. row.actorCid) or 'System')
             row.createdAt = tostring(row.created_at or '')
-            row.detail = (type(row.detail) == 'string' and json.decode(row.detail)) or {}
+            local decodedOk, decoded = pcall(json.decode, type(row.detail) == 'string' and row.detail or '{}')
+            row.detail = decodedOk and type(decoded) == 'table' and decoded or {}
             row.actor_cid, row.actor_name, row.created_at = nil, nil, nil
         end
     end
+    local prison = { ready = false, intakeConfigured = false, releaseConfigured = false, spawnCount = 0, capacity = 0, activeCount = 0 }
+    if GetResourceState('cm-prison') == 'started' then
+        local ok, configured = pcall(function() return exports['cm-prison']:GetConfiguration() end)
+        if ok and type(configured) == 'table' then
+            prison.ready = configured.ready == true
+            prison.intakeConfigured = type(configured.intake) == 'table'
+            prison.releaseConfigured = type(configured.release) == 'table'
+            prison.spawnCount = type(configured.spawns) == 'table' and #configured.spawns or 0
+            prison.capacity = prison.spawnCount * (tonumber(configured.capacityPerSpawn) or 0)
+        end
+        local activeOk, sentences = pcall(function() return exports['cm-prison']:GetActiveSentences() end)
+        if activeOk and type(sentences) == 'table' then prison.activeCount = #sentences end
+    end
+    prison.configured = prison.intakeConfigured and prison.releaseConfigured and prison.spawnCount > 0
     local payload = statePayload(member, activeUniform(member.characterId, member.organizationId) ~= nil)
 
     return { ok = true, organization = { id = member.organizationId, label = org.label, shortLabel = org.shortLabel,
@@ -371,8 +469,9 @@ local function dashboardFor(src)
         member = payload, canManage = canManage(member), characterId = member.characterId,
         canViewMembers = canViewMembers,
         canInspectRankPermissions = canInspectRankPermissions,
-        canDispatch = not member.suspended and (member.isLeader or member.permissions['law.receive_dispatch'] == true),
-        canMdt = not member.suspended and (member.isLeader or member.permissions['law.mdt'] == true),
+        canDispatch = canDispatch,
+        canCustody = canCustody,
+        canMdt = member.onDuty and not member.suspended and (member.isLeader or member.permissions['law.mdt'] == true),
         canFleetManage = not member.suspended and (member.isLeader or member.permissions['law.fleet'] == true),
         canFleetSpawn = not member.suspended and (member.isLeader or member.permissions['law.vehicle'] == true),
         logistics = {
@@ -385,9 +484,10 @@ local function dashboardFor(src)
             canRecover = member.organizationId == Config.Logistics.SourceOrganization and (member.isLeader or member.permissions['law.logistics.recover'] == true),
         },
         logisticsVisible = true,
-        canViewMemberMap = not member.suspended and (member.isLeader or member.permissions['law.view_member_map'] == true),
-        canSetMeeting = not member.suspended and (member.isLeader or member.permissions['law.set_meeting'] == true),
+        canViewMemberMap = member.onDuty and not member.suspended and (member.isLeader or member.permissions['law.view_member_map'] == true),
+        canSetMeeting = member.onDuty and not member.suspended and (member.isLeader or member.permissions['law.set_meeting'] == true),
         canManageRanks = canManageRanks,
+        prison = prison,
         canManagePermissions = canManagePermissions,
         permissions = canInspectRankPermissions and Config.Permissions or {},
         summary = {
@@ -397,6 +497,10 @@ local function dashboardFor(src)
             leaderName = leaderCid and (nameFor(leaderCid) or ('CID ' .. leaderCid)) or 'Not assigned',
             fleetConfigured = tonumber(fleetSummary.configured_count) or 0,
             fleetAvailable = tonumber(fleetSummary.available_count) or 0,
+            activeCalls = tonumber(dispatchSummary.active_count) or 0,
+            assignedCalls = tonumber(dispatchSummary.assigned_count) or 0,
+            priorityCalls = tonumber(dispatchSummary.priority_count) or 0,
+            priorityCall = priorityCall,
         },
         canViewActivity = canViewActivity,
         recentActivity = recentActivity,
@@ -656,7 +760,13 @@ local function removeLeader(src, orgId)
         nameFor(leaderCid) or leaderCid, Config.Organizations[orgId].label)
 end
 
-exports('GetMember', memberFor)
+exports('GetMember', function(characterId, orgId)
+    if type(PoliceLegacyMemberFor) == 'function' then
+        local police = PoliceLegacyMemberFor(characterId)
+        if tostring(orgId or ''):lower() == 'police' or (orgId == nil and police) then return police end
+    end
+    return memberFor(characterId, orgId)
+end)
 exports('GetOrganizationSummary', summary)
 exports('AdminAssignLeader', assignLeader)
 exports('AdminRemoveLeader', removeLeader)
@@ -683,10 +793,18 @@ exports('GetOrganizations', function()
     return organizations
 end)
 exports('HasPermission', function(characterId, permission, orgId)
+    if type(PoliceLegacyMemberFor) == 'function' and type(has) == 'function' then
+        local police = PoliceLegacyMemberFor(tostring(characterId))
+        if tostring(orgId or ''):lower() == 'police' or (orgId == nil and police) then return has(police, tostring(permission)) end
+    end
     local member = memberFor(characterId, orgId)
     return member and (member.isLeader or member.permissions[tostring(permission)] == true) or false
 end)
 exports('IsOnDuty', function(characterId, orgId)
+    if type(PoliceLegacyMemberFor) == 'function' then
+        local police = PoliceLegacyMemberFor(tostring(characterId))
+        if tostring(orgId or ''):lower() == 'police' or (orgId == nil and police) then return police and dbBoolean(police.on_duty) or false end
+    end
     local member = memberFor(characterId, orgId)
     return member and member.onDuty == true or false
 end)
@@ -718,6 +836,34 @@ end)
 lib.callback.register('cm-law:server:dashboard', function(src)
     if not ready then return { ok = false, error = 'Legal organizations are still starting.' } end
     return dashboardFor(src)
+end)
+
+lib.callback.register('cm-law:server:custody', function(src)
+    if not ready then return { ok = false, error = 'Legal organizations are still starting.' } end
+    local member = activeMemberForSource(src)
+    if not member or member.suspended or not member.onDuty
+        or not LawCapabilityEnabled(member.organizationId, 'prisonIntake')
+        or not (member.isLeader or member.permissions['law.cuff'] == true) then
+        return { ok = false, error = 'Custody monitoring requires on-duty prison-intake permission.' }
+    end
+    if GetResourceState('cm-prison') ~= 'started' then return { ok = false, error = 'The central prison resource is offline.' } end
+    local ok, sentences = pcall(function() return exports['cm-prison']:GetActiveSentences() end)
+    if not ok or type(sentences) ~= 'table' then return { ok = false, error = 'Prison custody data is not ready.' } end
+    local rows = {}
+    for _, row in ipairs(sentences) do
+        local cid = tostring(row.character_id or row.characterId or '')
+        if cid ~= '' then
+            rows[#rows + 1] = {
+                characterId = cid, name = nameFor(cid) or ('CID ' .. cid),
+                arrestedBy = tostring(row.arrested_by_name or 'Law enforcement'),
+                reason = tostring(row.reason or 'No reason recorded'),
+                sentenceMinutes = tonumber(row.sentence_minutes) or 0,
+                releaseEpoch = tonumber(row.release_epoch) or 0,
+                remainingSeconds = tonumber(row.remaining_seconds) or 0,
+            }
+        end
+    end
+    return { ok = true, prisoners = rows, fetchedAt = os.time() }
 end)
 
 local function endLawDuty(src, characterId, orgId, reason)
@@ -994,7 +1140,8 @@ lib.callback.register('cm-law:server:activityLog', function(src)
         row.actorCid = tostring(row.actor_cid or '')
         row.actorName = row.actor_name ~= '' and row.actor_name or row.actorCid
         row.createdAt = tostring(row.created_at or '')
-        row.detail = (type(row.detail) == 'string' and json.decode(row.detail)) or {}
+        local decodedOk, decoded = pcall(json.decode, type(row.detail) == 'string' and row.detail or '{}')
+        row.detail = decodedOk and type(decoded) == 'table' and decoded or {}
         row.actor_cid, row.actor_name, row.created_at = nil, nil, nil
     end
     return rows
@@ -1019,7 +1166,7 @@ local function facilityAccess(src, orgId, facilityType)
     local capability = facilityType == 'armory' and 'armory'
         or facilityType == 'evidence' and 'evidence'
         or facilityType == 'fleet' and 'fleet'
-        or facilityType == 'intake' and 'prisonIntake' or nil
+        or nil
     if capability and not LawCapabilityEnabled(orgId, capability) then
         return nil, characterId, 'This service is disabled for your organization.'
     end
@@ -1030,7 +1177,7 @@ local function facilityAccess(src, orgId, facilityType)
         or facilityType == 'storage' and 'law.storage'
         or facilityType == 'evidence' and 'law.search'
         or facilityType == 'fleet' and 'law.fleet'
-        or facilityType == 'intake' and 'law.cuff' or nil
+        or nil
     if permission and not member.isLeader and member.permissions[permission] ~= true then
         return nil, characterId, 'Your rank does not have access to this service.'
     end
@@ -1188,7 +1335,7 @@ local function setFacility(src, orgId, facilityType, reset)
 end
 
 exports('AdminSetFacility', function(src, orgId, facilityType, reset)
-    if facilityType == 'jail_spawn' or facilityType == 'jail_release' or facilityType == 'jail_spawns' then
+    if facilityType == 'jail_spawn' or facilityType == 'jail_release' or facilityType == 'jail_spawns' or facilityType == 'jail_intake' or facilityType == 'intake' then
         if type(LawAdminSetSharedJail) ~= 'function' then return false, 'Shared jail configuration is still loading.' end
         return LawAdminSetSharedJail(tonumber(src), facilityType, reset == true)
     end
@@ -1314,7 +1461,7 @@ lib.callback.register('cm-law:server:facilities', function()
         for facilityType, location in pairs(facilityRows(orgId)) do
             local typeConfig = Config.FacilityTypes[facilityType]
             local override = overrides[facilityType]
-            if typeConfig and (not override or dbBoolean(override.enabled)) then
+            if facilityType ~= 'intake' and typeConfig and (not override or dbBoolean(override.enabled)) then
                 local defaults = defaultNpc(orgId, facilityType)
                 list[#list + 1] = {
                     organizationId = orgId, organizationLabel = org.label, shortLabel = org.shortLabel,
@@ -1355,9 +1502,6 @@ lib.callback.register('cm-law:server:useFacility', function(src, orgId, facility
     end
     if facilityType == 'armory' then
         return { ok = true, action = 'armory', organizationId = orgId, label = org.label .. ' Armory' }
-    end
-    if facilityType == 'intake' then
-        return { ok = true, message = 'Bring a cuffed suspect to this desk, open their G interaction, and select Book Suspect.' }
     end
     if GetResourceState('cm-inventory') ~= 'started' then return { ok = false, error = 'Inventory is unavailable.' } end
     local ownerType = facilityType == 'evidence' and 'legal_org_evidence' or 'legal_org_storage'
@@ -1563,7 +1707,6 @@ CreateThread(function()
                 { id = 'storage', label = 'Storage' },
                 { id = 'evidence', label = 'Evidence' },
                 { id = 'fleet', label = 'Fleet' },
-                { id = 'intake', label = 'Prison intake' },
                 { id = 'jail_spawn', label = 'Shared jail: add spawn' },
                 { id = 'jail_release', label = 'Shared jail: release point' },
                 { id = 'jail_spawns', label = 'Shared jail: all spawns' },

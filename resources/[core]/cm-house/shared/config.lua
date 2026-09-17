@@ -196,6 +196,9 @@ Config.Integration = {
         ['cm-vehicles'] = {
             garage = true, recovery = true,
         },
+        ['cm-parking-v2'] = {
+            garage = true,
+        },
     },
 }
 

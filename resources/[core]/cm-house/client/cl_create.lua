@@ -14,6 +14,52 @@
 -- ============================================================
 
 local W = nil    -- the whole wizard state, or nil when idle
+local GhostPlacementVehicles = {}
+
+RegisterNetEvent('cm-house:client:setPlacementGhost', function(netId, enabled)
+    netId = tonumber(netId)
+    if not netId then return end
+    if enabled == true then
+        GhostPlacementVehicles[netId] = true
+    else
+        local entity = NetworkGetEntityFromNetworkId(netId)
+        if entity and entity ~= 0 and DoesEntityExist(entity) then
+            ResetEntityAlpha(entity)
+            SetEntityInvincible(entity, false)
+        end
+        GhostPlacementVehicles[netId] = nil
+    end
+end)
+
+-- Collision is disabled pair-by-pair so the placement helicopter still lands
+-- on roofs and helipads while passing safely through players and vehicles.
+CreateThread(function()
+    while true do
+        local sleep = 500
+        if next(GhostPlacementVehicles) then
+            sleep = 0
+            local localPed = PlayerPedId()
+            for netId in pairs(GhostPlacementVehicles) do
+                local ghost = NetworkGetEntityFromNetworkId(netId)
+                if ghost and ghost ~= 0 and DoesEntityExist(ghost) then
+                    SetEntityAlpha(ghost, 145, false)
+                    SetEntityInvincible(ghost, true)
+                    if localPed and localPed ~= 0 and DoesEntityExist(localPed) then
+                        SetEntityNoCollisionEntity(ghost, localPed, true)
+                        SetEntityNoCollisionEntity(localPed, ghost, true)
+                    end
+                    for _, vehicle in ipairs(GetGamePool('CVehicle')) do
+                        if vehicle ~= ghost and DoesEntityExist(vehicle) then
+                            SetEntityNoCollisionEntity(ghost, vehicle, true)
+                            SetEntityNoCollisionEntity(vehicle, ghost, true)
+                        end
+                    end
+                end
+            end
+        end
+        Wait(sleep)
+    end
+end)
 
 local function blank()
     return {
@@ -210,7 +256,7 @@ local function stepFeatures()
 
     local opts = lib.callback.await('cm-house:server:getFeatureOptions', false)
     if not opts then
-        lib.notify({ description = 'You cannot create properties.', type = 'error' })
+        CMNotify('You cannot create properties.', 'error')
         reset(true)
         return
     end
@@ -238,7 +284,7 @@ RegisterNUICallback('wizard:features', function(f, cb)
     cb({})
     local plan = replan(f)
     if not plan then
-        lib.notify({ description = 'Could not price that property.', type = 'error' })
+        CMNotify('Could not price that property.', 'error')
         reset(true)
         return
     end
@@ -246,11 +292,7 @@ RegisterNUICallback('wizard:features', function(f, cb)
     SetNuiFocus(false, false)
     SendNUIMessage({ action = 'wizardClose' })
 
-    lib.notify({
-        title = 'Now place the exterior',
-        description = 'Stand at the front door and press H.',
-        type = 'inform', duration = 6000,
-    })
+    CMNotify('Stand at the front door and press H.', 'inform')
     stepExterior(1)
 end)
 
@@ -281,11 +323,7 @@ local function spawnHelipadPlacer()
         coords = { x = spawn.x, y = spawn.y, z = spawn.z, h = GetEntityHeading(ped) },
     })
     if not ok then
-        lib.notify({
-            title = 'Cannot place helipad',
-            description = res or 'The placement helicopter could not be created.',
-            type = 'error', duration = 7000,
-        })
+        CMNotify(res or 'The placement helicopter could not be created.', 'error')
         return false
     end
 
@@ -298,13 +336,14 @@ local function spawnHelipadPlacer()
     end
     if entity == 0 or not DoesEntityExist(entity) then
         if res.plate then TriggerServerEvent('cm-house:server:deletePlacer', res.plate) end
-        lib.notify({ description = 'The placement helicopter did not appear.', type = 'error' })
+        CMNotify('The placement helicopter did not appear.', 'error')
         return false
     end
 
     helipadPlacer = entity
     helipadPlacerPlate = res.plate
     SetEntityInvincible(entity, true)
+    SetEntityAlpha(entity, 145, false)
     SetVehicleEngineOn(entity, true, true, false)
     SetHeliBladesFullSpeed(entity)
     SetVehicleDoorsLocked(entity, 1)
@@ -375,11 +414,7 @@ stepExterior = function(i)
             reset(true)
             return
         end
-        lib.notify({
-            title = 'Place the helipad',
-            description = 'Fly the cyan helicopter to the intended pad, land fully, stop and press H.',
-            type = 'inform', duration = 9000,
-        })
+        CMNotify('Fly the cyan helicopter to the intended pad, land fully, stop and press H.', 'inform')
     end
 
     CreateThread(function()
@@ -397,7 +432,7 @@ stepExterior = function(i)
                 if s.key == 'helipad' then
                     local landed, why = landedHelipadTransform()
                     if not landed then
-                        lib.notify({ description = why, type = 'error' })
+                        CMNotify(why, 'error')
                         goto skip
                     end
                     pt = landed
@@ -408,9 +443,7 @@ stepExterior = function(i)
                     local d = #(vector3(pt.x, pt.y, pt.z)
                              - vector3(W.garageZone.x, W.garageZone.y, W.garageZone.z))
                     if d < 6.0 then
-                        lib.notify({
-                            description = 'Too close to the return zone. Cars would spawn on top of each other.',
-                            type = 'error' })
+                        CMNotify('Too close to the return zone. Cars would spawn on top of each other.', 'error')
                         goto skip
                     end
                 end
@@ -431,7 +464,7 @@ stepExterior = function(i)
 
             if kCancel() then
                 if s.key == 'helipad' then clearHelipadPlacer() end
-                lib.notify({ description = 'Cancelled. Back where you started.', type = 'inform' })
+                CMNotify('Cancelled. Back where you started.', 'inform')
                 reset(true)
                 return
             end
@@ -456,11 +489,7 @@ stepPhoto = function()
         -- Photos are optional. If local file capture is unavailable, keep going and
         -- retain the saved camera framing -- a missing photo must never
         -- block someone from publishing a property.
-        lib.notify({
-            title = 'No photo',
-            description = cfg .. ' Framing the camera instead.',
-            type = 'inform', duration = 6000,
-        })
+        CMNotify(cfg .. ' Framing the camera instead.', 'inform')
         StartPhotoCam(nil, W.door, function(cam)
             if not cam then reset(true) return end
             W.photoCam = cam
@@ -472,25 +501,21 @@ stepPhoto = function()
 
     StartPhotoCam(nil, W.door, function(cam)
         if not cam then
-            lib.notify({ description = 'Cancelled.', type = 'inform' })
+            CMNotify('Cancelled.', 'inform')
             reset(true)
             return
         end
 
         W.photoCam = cam
-        lib.notify({ description = 'Saving property photo…', type = 'inform' })
+        CMNotify('Saving property photo…', 'inform')
 
         CaptureAndSave(cfg, cam, function(url, err)
             if url then
                 W.imageUrl = url
                 W.photoToken = cfg.token
-                lib.notify({ description = 'Photo saved to the house files.', type = 'success' })
+                CMNotify('Photo saved to the house files.', 'success')
             else
-                lib.notify({
-                    title = 'Photo save failed',
-                    description = (err or 'Unknown error') .. ' The live view will be used instead.',
-                    type = 'error', duration = 7000,
-                })
+                CMNotify((err or 'Unknown error') .. ' The live view will be used instead.', 'error')
             end
 
             stepInterior()
@@ -512,10 +537,7 @@ stepInterior = function()
         'cm-house:server:interiorsFor', false, W.plan.signature)
 
     if not list then
-        lib.notify({
-            title = 'Could not read layouts',
-            description = 'The server did not answer. Try again.',
-            type = 'error' })
+        CMNotify('The server did not answer while reading layouts. Try again.', 'error')
         reset(true)
         return
     end
@@ -525,20 +547,13 @@ stepInterior = function()
     if #list == 1 then
         -- Exactly one layout for this feature set. Nothing to ask.
         W.interiorTemplateId = list[1].id
-        lib.notify({
-            description = ('Using the "%s" layout.'):format(list[1].label),
-            type = 'inform',
-        })
+        CMNotify(('Using the "%s" layout.'):format(list[1].label), 'inform')
         stepGarage()
         return
     end
 
     if #list == 0 then
-        lib.notify({
-            title = 'Interior template required',
-            description = 'Create an interior template from cm-admin first, then restart this house setup.',
-            type = 'error', duration = 8000,
-        })
+        CMNotify('Create an interior template from cm-admin first, then restart this house setup.', 'error')
         reset(true)
         return
     end
@@ -558,7 +573,7 @@ RegisterNUICallback('wizard:pickInterior', function(d, cb)
 
     local id = tonumber(d.templateId)
     if not id then
-        lib.notify({ description = 'Create templates from cm-admin; new layouts are disabled here.', type = 'error' })
+        CMNotify('Create templates from cm-admin; new layouts are disabled here.', 'error')
         reset(true)
         return
     end
@@ -624,9 +639,7 @@ function walkInterior(i)
                 if s.multi then
                     W.interior[s.key][#W.interior[s.key] + 1] = pt
                     PlaySoundFrontend(-1, 'SELECT', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true)
-                    lib.notify({
-                        description = ('%s %d placed.'):format(s.title:lower(), #W.interior[s.key]),
-                        type = 'success' })
+                    CMNotify(('%s %d placed.'):format(s.title:lower(), #W.interior[s.key]), 'success')
                 else
                     W.interior[s.key] = pt
                     PlaySoundFrontend(-1, 'SELECT', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true)
@@ -642,7 +655,7 @@ function walkInterior(i)
             end
 
             if kCancel() then
-                lib.notify({ description = 'Cancelled. Back where you started.', type = 'inform' })
+                CMNotify('Cancelled. Back where you started.', 'inform')
                 reset(true)
                 return
             end
@@ -690,11 +703,7 @@ stepGarage = function()
         if tonumber(row.id) == templateId then valid = true break end
     end
     if not valid then
-        lib.notify({
-            title = 'Garage template unavailable',
-            description = 'Select an existing garage template. Create or edit templates from cm-admin.',
-            type = 'error', duration = 8000,
-        })
+        CMNotify('Select an existing garage template. Create or edit templates from cm-admin.', 'error')
         reset(true)
         return
     end
@@ -764,7 +773,7 @@ local function spawnLocalPlacer(at)
     local started = GetGameTimer()
     while not HasModelLoaded(model) and GetGameTimer() - started < 7000 do Wait(10) end
     if not HasModelLoaded(model) then
-        lib.notify({ description = 'Could not load the placement car model.', type = 'error' })
+        CMNotify('Could not load the placement car model.', 'error')
         return false
     end
 
@@ -808,11 +817,7 @@ local function spawnPlacer(at)
     })
 
     if not ok then
-        lib.notify({
-            title = 'Placement car fallback',
-            description = tostring(res or 'The server could not create the network car. Nudge mode will be used.'),
-            type = 'warning', duration = 7000,
-        })
+        CMNotify(tostring(res or 'The server could not create the network car. Nudge mode will be used.'), 'warning')
         return spawnLocalPlacer(at)
     end
 
@@ -829,11 +834,7 @@ local function spawnPlacer(at)
     if ent == 0 or not DoesEntityExist(ent) then
         -- Delete the unreachable server entity before using a local fallback.
         if res.plate then TriggerServerEvent('cm-house:server:deletePlacer', res.plate) end
-        lib.notify({
-            title = 'Placement car fallback',
-            description = 'The network car did not stream into this interior. Nudge mode is active.',
-            type = 'warning', duration = 7000,
-        })
+        CMNotify('The network car did not stream into this interior. Nudge mode is active.', 'warning')
         return spawnLocalPlacer(at)
     end
 
@@ -935,13 +936,9 @@ function walkGarage(i)
 
     if s.kind == 'slots' and not CMHouseGaragePlacer.Exists() then
         if not CMHouseGaragePlacer.Spawn(nil) then reset(true) return end
-        lib.notify({
-            title = ('Space 1 of %d'):format(cap),
-            description = CMHouseGaragePlacer.IsLocal()
-                and 'Nudge the cyan car with arrow keys, then press H.'
-                or 'Drive the cyan car into the first space, then press H.',
-            type = 'inform', duration = 7000,
-        })
+        CMNotify(CMHouseGaragePlacer.IsLocal()
+            and 'Nudge the cyan car with arrow keys, then press H.'
+            or 'Drive the cyan car into the first space, then press H.', 'inform')
     end
 
     CreateThread(function()
@@ -971,18 +968,18 @@ function walkGarage(i)
                     return
                 elseif s.kind == 'points' then
                     if #list >= (tonumber(s.max) or 24) then
-                        lib.notify({ description = 'Maximum points reached. Press G to continue.', type = 'error' })
+                        CMNotify('Maximum points reached. Press G to continue.', 'error')
                     else
                         list[#list + 1] = pt
                         PlaySoundFrontend(-1, 'SELECT', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true)
                     end
                 elseif s.kind == 'slots' then
                     if not CMHouseGaragePlacer.Exists() then
-                        lib.notify({ description = 'The placement car is missing.', type = 'error' })
+                        CMNotify('The placement car is missing.', 'error')
                         goto continue
                     end
                     if not CMHouseGaragePlacer.IsLocal() and GetVehiclePedIsIn(PlayerPedId(), false) ~= CMHouseGaragePlacer.Entity() then
-                        lib.notify({ description = 'Sit in the placement car before saving this space.', type = 'error' })
+                        CMNotify('Sit in the placement car before saving this space.', 'error')
                         goto continue
                     end
                     local pos = GetEntityCoords(CMHouseGaragePlacer.Entity())
@@ -991,7 +988,7 @@ function walkGarage(i)
                         if #(pos - vector3(old.x, old.y, old.z)) < 3.2 then clash = j break end
                     end
                     if clash then
-                        lib.notify({ description = ('Too close to space %d.'):format(clash), type = 'error' })
+                        CMNotify(('Too close to space %d.'):format(clash), 'error')
                         goto continue
                     end
                     local coords = CMHouseGaragePlacer.Freeze()
@@ -1000,20 +997,20 @@ function walkGarage(i)
                     local n = #W.garage.slots
                     PlaySoundFrontend(-1, 'SELECT', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true)
                     if n >= cap then
-                        lib.notify({ title = 'All spaces placed', description = ('%d real car spaces saved.'):format(cap), type = 'success' })
+                        CMNotify(('%d real car spaces saved.'):format(cap), 'success')
                         Wait(500)
                         nameGarage()
                         return
                     end
                     Wait(250)
                     if not CMHouseGaragePlacer.Spawn(nil) then reset(true) return end
-                    lib.notify({ description = ('Park space %d of %d.'):format(n + 1, cap), type = 'inform' })
+                    CMNotify(('Park space %d of %d.'):format(n + 1, cap), 'inform')
                 end
             end
 
             if s.kind == 'points' and kFinish() then
                 if #list < (tonumber(s.min) or 0) then
-                    lib.notify({ description = ('Place at least %d point%s.'):format(s.min, s.min == 1 and '' or 's'), type = 'error' })
+                    CMNotify(('Place at least %d point%s.'):format(s.min, s.min == 1 and '' or 's'), 'error')
                 else
                     walkGarage(i + 1)
                     return
@@ -1029,7 +1026,7 @@ function walkGarage(i)
                     table.remove(W.garage.slots)
                     clearPlacer()
                     if not CMHouseGaragePlacer.Spawn(nil) then reset(true) return end
-                    lib.notify({ description = ('Park space %d again.'):format(#W.garage.slots + 1), type = 'inform' })
+                    CMNotify(('Park space %d again.'):format(#W.garage.slots + 1), 'inform')
                 end
             end
 
@@ -1078,6 +1075,11 @@ stepPublish = function()
             derived  = W.plan.derived,
             hasGarage = W.plan.derived.garageCapacity > 0,
             hasHelipad = W.features.hasHelipad,
+            hasDoor = W.door ~= nil,
+            hasPhoto = (W.photoCam ~= nil or (W.imageUrl and W.imageUrl ~= '')) and true or false,
+            hasInterior = W.interiorTemplateId ~= nil,
+            hasGaragePoints = (W.garageZone ~= nil and W.vehicleExit ~= nil) and true or false,
+            hasHelipadPoint = W.helipad ~= nil,
         },
     })
 end
@@ -1102,29 +1104,29 @@ RegisterNUICallback('wizard:publish', function(_, cb)
     cb({ ok = ok, message = msg })
 
     if not ok then
-        lib.notify({ title = 'Not published', description = msg, type = 'error' })
+        CMNotify(msg, 'error')
         SetNuiFocus(true, true)
         return
     end
 
-    lib.notify({ title = 'Published', description = msg, type = 'success' })
+    CMNotify(msg, 'success')
     reset()
 end)
 
 RegisterNUICallback('wizard:cancel', function(_, cb)
     cb({})
-    lib.notify({ description = 'Cancelled.', type = 'inform' })
+    CMNotify('Cancelled.', 'inform')
     reset(true)
 end)
 
 -- ============================================================
 RegisterNetEvent('cm-house:client:startPlacement', function()
-    if not lib or not lib.notify then
+    if type(CMNotify) ~= 'function' then
         print('[cm-house] ^1ox_lib is not loaded.^7')
         return
     end
     if W then
-        lib.notify({ description = 'You are already building a property.', type = 'error' })
+        CMNotify('You are already building a property.', 'error')
         return
     end
     W = blank()
@@ -1141,7 +1143,7 @@ RegisterNetEvent('cm-house:client:startPlacement', function()
 end)
 
 RegisterNetEvent('cm-house:client:notify', function(msg, kind)
-    lib.notify({ description = msg, type = kind or 'inform' })
+    CMNotify(msg, kind or 'inform')
 end)
 
 -- Note: the authoritative 'cm-house:client:forceExit' handler lives in
@@ -1151,6 +1153,14 @@ end)
 
 AddEventHandler('onResourceStop', function(res)
     if res ~= GetCurrentResourceName() then return end
+    for netId in pairs(GhostPlacementVehicles) do
+        local entity = NetworkGetEntityFromNetworkId(netId)
+        if entity and entity ~= 0 and DoesEntityExist(entity) then
+            ResetEntityAlpha(entity)
+            SetEntityInvincible(entity, false)
+        end
+    end
+    GhostPlacementVehicles = {}
     ClearGarageCars()
     clearHelipadPlacer()
     if W then reset() end

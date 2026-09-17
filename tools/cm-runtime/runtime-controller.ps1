@@ -20,7 +20,7 @@ function Read-LogWindow([string]$Path, [int64]$Offset) {
 }
 
 foreach ($resource in @($state.changedResources)) {
-    if ($resource -notmatch '^(cm-[a-z0-9_-]+|rn-vehicleshop)$') { throw "Unsafe resource name: $resource" }
+    if ($resource -notmatch '^(cm-[a-z0-9_-]+|rn-vehicleshop|nv_cloth)$') { throw "Unsafe resource name: $resource" }
     $log = Get-CmConsoleLog $config; if (-not $log) { throw 'CURRENT_FXSERVER_CONSOLE_LOG_NOT_FOUND' }
     $offset = [int64]$log.Length
     $bridgeOutput = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'send-command.ps1') "restart $resource" 2>&1

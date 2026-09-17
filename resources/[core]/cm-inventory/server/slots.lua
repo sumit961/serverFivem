@@ -144,13 +144,23 @@ local function validateBagTransition(ownerType, ownerId, fromSlot, toSlot, sourc
 
     if toSlot == 'bag' then
         -- Equipping/replacing bag: the source item becomes the active bag.
-        if not rowCanActAsBag(sourceRow) then return true end
+        if not rowCanActAsBag(sourceRow) then
+            -- Not a capacity-granting bag (e.g. a Bag Skin worn standalone as
+            -- the primary look). A Bag Skin already attached in the nested
+            -- 'bagskin' slot only makes sense next to a REAL bag -- don't let
+            -- it silently end up orphaned behind a non-functional bag look.
+            local skinRow = getItemAt(ownerType, ownerId, 'bagskin')
+            if skinRow then return false, 'Remove the Bag Skin from your bag first.' end
+            return true
+        end
         newLevel = getBagLevelFromItem(sourceRow)
     elseif fromSlot == 'bag' then
         -- Removing current bag, or swapping with another bag from destination.
         if destRow and rowCanActAsBag(destRow) then
             newLevel = getBagLevelFromItem(destRow)
         else
+            local skinRow = getItemAt(ownerType, ownerId, 'bagskin')
+            if skinRow then return false, 'Remove the Bag Skin from your bag first.' end
             newLevel = 0
         end
     end
@@ -160,6 +170,8 @@ end
 
 local function validateBagRemovalFromSlot(ownerType, ownerId, slot, row)
     if slot ~= 'bag' or not rowCanActAsBag(row) then return true end
+    local skinRow = getItemAt(ownerType, ownerId, 'bagskin')
+    if skinRow then return false, 'Remove the Bag Skin from your bag first.' end
     -- Dropping/giving/consuming the active bag means new level 0.
     return validatePostBagState(ownerType, ownerId, 0, row, nil, slot, nil)
 end

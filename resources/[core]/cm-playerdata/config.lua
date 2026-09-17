@@ -175,6 +175,9 @@ CMPlayerData.Config = {
         -- Family identity is a symbol only. No family tag, rank or custom
         -- title text is drawn above the player.
         ShowFamilySymbols = true,
+        -- Symbols identify your own family only by default. Set true if the
+        -- server intentionally wants family emblems visible to outsiders.
+        ShowFamilySymbolsToOutsiders = false,
         ShowFamilySymbolInAdminMode = true,
         HideFamilySymbolWhenMasked = false,
         FamilyMaskedStateKeys = { 'cm_masked', 'masked', 'isMasked', 'mask_on' },

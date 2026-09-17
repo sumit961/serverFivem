@@ -221,4 +221,11 @@ function B.GetHouse(houseId)
     return nil
 end
 
+function B.GetHousePhotoData(houseId)
+    if not started(HOUSE) then return nil end
+    local ok, data = pcall(function() return exports[HOUSE]:GetPropertyPhotoData(houseId) end)
+    if ok and type(data) == 'string' and data:match('^data:image/jpeg;base64,') then return data end
+    return nil
+end
+
 return B

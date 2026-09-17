@@ -17,6 +17,33 @@ function PushOwnership(cid)
 end
 exports('PushOwnership', PushOwnership)
 
+lib.callback.register('cm-house:server:startFamilyRaid', function(src, houseId)
+    houseId = tonumber(houseId)
+    local house = houseId and Houses[houseId]
+    local doorCoords = house and (house.door_coords or house.door)
+    if not house or type(doorCoords) ~= 'table' then return false, 'That family house is unavailable.' end
+    local ped = GetPlayerPed(src)
+    if not ped or ped == 0 then return false, 'Your player position could not be verified.' end
+    local coords = GetEntityCoords(ped)
+    local door = vector3(tonumber(doorCoords.x) or 0.0, tonumber(doorCoords.y) or 0.0, tonumber(doorCoords.z) or 0.0)
+    if #(coords - door) > 7.0 then return false, 'Stand at the family-house door to join the raid.' end
+    if not house.family_id or GetResourceState('cm-family') ~= 'started' then
+        return false, 'This property is not linked to a family.'
+    end
+    local callOk, raidOk, message = pcall(function()
+        return exports['cm-family']:StartFamilyRaid(src, houseId,
+            { x = door.x, y = door.y, z = door.z }, house.family_id)
+    end)
+    if not callOk then return false, 'The family raid service is unavailable.' end
+    -- Deliver the authoritative payload directly to the starter as well as
+    -- the family-wide broadcast. This covers clients that miss the initial
+    -- circle event while the NUI callback is closing.
+    if raidOk == true and type(message) == 'table' then
+        TriggerClientEvent('cm-family:client:raidUpdate', src, message)
+    end
+    return raidOk == true, message or (raidOk and 'Family raid started.' or 'Family raid could not start.')
+end)
+
 
 -- ------------------------------------------------------------
 --  Purchase reservations

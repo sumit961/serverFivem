@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CM Electrician</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="interaction" class="interaction hidden" aria-hidden="true">
+    <div class="interaction-key" id="interactionKey">E</div>
+    <div class="interaction-copy">
+      <span class="interaction-title" id="interactionTitle">ELECTRICIAN</span>
+      <strong id="interactionLabel">Get employed</strong>
+      <small id="interactionHint">Electrician switchboard</small>
+    </div>
+  </div>
+
+  <div id="hold-root" class="hold-root hidden" aria-hidden="true">
+    <div class="hold-track"><i id="holdFill"></i></div>
+    <span id="holdLabel">Hold E</span>
+  </div>
+
+  <div id="job-hud" class="job-hud hidden" aria-hidden="true">
+    <div class="job-hud-header">
+      <span class="job-hud-dot"></span>
+      <span>ELECTRICIAN &middot; LVL <b id="hudLevel">1</b></span>
+    </div>
+    <div class="job-hud-row">
+      <span>Panels fixed</span>
+      <b id="hudPanels">0</b>
+    </div>
+    <div class="job-hud-row" id="hudPlatesRow">
+      <span>Plates fixed</span>
+      <b id="hudPlates">0</b>
+    </div>
+  </div>
+
+  <div id="menu-root" class="menu-root hidden" aria-hidden="true">
+    <div class="screen-shade"></div>
+
+    <main class="job-panel" role="dialog" aria-modal="true" aria-labelledby="jobTitle">
+      <header class="panel-header">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 48 48">
+            <path d="M26 4 8 27h11l-3 17 20-25H25l1-15Z"/>
+          </svg>
+        </div>
+        <div class="heading-copy">
+          <span class="eyebrow">CM PUBLIC WORKS</span>
+          <h1 id="jobTitle">Electrician</h1>
+          <p>Switchboard repair &amp; city power maintenance</p>
+        </div>
+        <button class="icon-button" id="btnClose" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </header>
+
+      <section class="status-card">
+        <div class="status-row">
+          <span class="section-label">EMPLOYMENT STATUS</span>
+          <span class="status-badge" id="statusBadge"><i></i> OFF DUTY</span>
+        </div>
+        <div class="level-row">
+          <div class="level-badge">
+            <span>LEVEL</span>
+            <strong id="levelValue">1</strong>
+          </div>
+          <div class="level-copy">
+            <h2 id="levelTitle">Switchboard Technician</h2>
+            <p id="levelSubtitle">Repair panels at the power plant to advance.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="progress-section">
+        <div class="progress-item">
+          <div class="progress-heading">
+            <span>Panel repairs</span>
+            <b><span id="panelsValue">0</span> / <span id="panelGoalValue">50</span></b>
+          </div>
+          <div class="progress-track"><i id="panelsFill"></i></div>
+        </div>
+        <div class="progress-item" id="platesProgress">
+          <div class="progress-heading">
+            <span>Deposit plate repairs</span>
+            <b><span id="platesValue">0</span> / <span id="plateGoalValue">500</span></b>
+          </div>
+          <div class="progress-track"><i id="platesFill"></i></div>
+        </div>
+      </section>
+
+      <section class="earnings-section">
+        <span class="section-label">PAY RATES</span>
+        <div class="earnings-grid">
+          <div class="earnings-card">
+            <span>Panel</span>
+            <strong>$<span id="perPanelValue">30</span></strong>
+          </div>
+          <div class="earnings-card" id="perPlateCard">
+            <span>Deposit plate</span>
+            <strong>$<span id="perPlateValue">300</span></strong>
+          </div>
+          <div class="earnings-card" id="perOutageCard">
+            <span>Outage response</span>
+            <strong>$<span id="perOutageValue">1000</span></strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="requirements-section">
+        <span class="section-label">REQUIREMENTS</span>
+        <ul id="requirementsList" class="requirements-list"></ul>
+      </section>
+
+      <p class="description" id="jobDescription"></p>
+
+      <footer class="checkout">
+        <button id="btnToggle" class="primary-button" type="button">
+          <span id="toggleButtonText">Get employed</span>
+          <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>
+        </button>
+      </footer>
+
+      <div class="key-hint"><kbd>ESC</kbd><span>Close menu</span></div>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

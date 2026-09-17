@@ -1,0 +1,3 @@
+# Add this line to the server-only configuration when using Fivemanage.
+# Never place the key in config.lua or any shared script.
+set prism_carplay_fivemanage_api_key "YOUR_API_KEY"

@@ -1,5 +1,5 @@
 /* ============================================================
-   cm-house | garage parking-slot UI v1.1.4
+   cm-house | garage parking-slot UI v1.2.0
    ============================================================ */
 (function () {
   'use strict';
@@ -7,9 +7,24 @@
   var root = document.getElementById('garage-slot');
   var current = null;
   var busy = false;
+  var rankBusy = false;
+  var activeFilter = 'all';
+  var searchQuery = '';
+  var confirmRoot = document.getElementById('garage-confirm');
+  var confirmOpen = false;
 
   function el(id) { return document.getElementById(id); }
   function text(id, value) { var n = el(id); if (n) n.textContent = value == null ? '' : String(value); }
+  function searchable(value) {
+    var normalized = String(value == null ? '' : value).toLowerCase();
+    if (typeof normalized.normalize === 'function') normalized = normalized.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    return normalized.replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+  function syncSearchUi() {
+    var input = el('gs-search');
+    var clear = el('gs-search-clear');
+    if (clear) clear.hidden = !input || input.value.length === 0;
+  }
   function post(name, body, done) {
     var xhr = new XMLHttpRequest();
     xhr.open('POST', 'https://' + RES + '/' + name, true);
@@ -25,10 +40,36 @@
   }
 
   function closeLocal(send) {
+    closeConfirm(false);
     if (root) { root.classList.remove('on'); root.style.display = 'none'; root.setAttribute('aria-hidden', 'true'); }
     current = null;
     busy = false;
     if (send) post('garageSlot:close', {});
+  }
+
+  function closeConfirm(send, confirmed) {
+    if (!confirmRoot || !confirmOpen) return;
+    confirmOpen = false;
+    confirmRoot.hidden = true;
+    confirmRoot.style.display = 'none';
+    confirmRoot.setAttribute('aria-hidden', 'true');
+    if (send) post('garageSlot:confirm', { confirmed: confirmed === true });
+  }
+
+  function openConfirm(data) {
+    if (!confirmRoot) return;
+    data = data || {};
+    text('gc-title', data.title || 'Confirm action');
+    text('gc-text', data.content || 'Are you sure?');
+    text('gc-ok', data.confirmLabel || 'Confirm');
+    text('gc-cancel', data.cancelLabel || 'Cancel');
+    confirmRoot.setAttribute('data-tone', data.tone === 'danger' ? 'danger' : 'cyan');
+    confirmRoot.hidden = false;
+    confirmRoot.style.display = 'grid';
+    confirmRoot.setAttribute('aria-hidden', 'false');
+    confirmOpen = true;
+    var cancel = el('gc-cancel');
+    if (cancel) cancel.focus();
   }
 
   function actionButton(label, action, vehicle, extraClass) {
@@ -46,47 +87,151 @@
     return button;
   }
 
+  function rankControl(vehicle, compact) {
+    if (!vehicle || vehicle.showFamilyRank !== true) return null;
+    var wrap = document.createElement('label');
+    wrap.className = 'garage-vehicle-rank' + (compact ? ' garage-vehicle-rank--compact' : '');
+    var caption = document.createElement('span');
+    caption.className = 'garage-vehicle-rank__label';
+    caption.textContent = 'DRIVER ACCESS';
+    var select = document.createElement('select');
+    select.className = 'garage-vehicle-rank__select';
+    select.setAttribute('data-family-rank', '1');
+    select.setAttribute('data-vehicle-id', String(vehicle.id));
+    select.disabled = vehicle.canManageVehicleRank !== true;
+    select.title = select.disabled ? 'Your family rank cannot change vehicle access' : 'Minimum family rank';
+    var options = Array.isArray(vehicle.rankOptions) ? vehicle.rankOptions.slice() : [];
+    options.sort(function (a, b) { return Number(b.tier || 0) - Number(a.tier || 0); });
+    for (var i = 0; i < options.length; i += 1) {
+      var option = document.createElement('option');
+      option.value = String(options[i].tier);
+      option.textContent = String(options[i].name || ('Tier ' + options[i].tier));
+      if (Number(options[i].tier) === Number(vehicle.requiredTier)) option.selected = true;
+      select.appendChild(option);
+    }
+    if (!options.length) {
+      var fallback = document.createElement('option');
+      fallback.value = String(vehicle.requiredTier || '');
+      fallback.textContent = vehicle.requiredRankName || 'Top rank';
+      fallback.selected = true;
+      select.appendChild(fallback);
+    }
+    wrap.appendChild(caption); wrap.appendChild(select);
+    return wrap;
+  }
+
+  function vehicleState(vehicle) {
+    if (vehicle.canPark) return { key: 'available', label: 'AVAILABLE', tone: 'available', action: 'park', actionLabel: 'ASSIGN HERE' };
+    if (vehicle.canCall) return { key: 'assigned', label: vehicle.inGarage ? 'PARKED' : 'ASSIGNED', tone: 'assigned', action: 'call', actionLabel: 'MOVE HERE' };
+    var code = String(vehicle.statusCode || '').toUpperCase();
+    var tone = code === 'IMPOUNDED' || code === 'POLICE_SEIZED' ? 'danger' : 'blocked';
+    return { key: vehicle.assigned || vehicle.parked ? 'assigned' : 'blocked', label: vehicle.statusLabel || 'UNAVAILABLE', tone: tone };
+  }
+
+  function vehicleLocation(vehicle) {
+    if (vehicle.parkedHouseLabel) {
+      return String(vehicle.parkedHouseLabel) + (vehicle.parkedSlotIndex ? ' · SPACE ' + String(vehicle.parkedSlotIndex) : '');
+    }
+    if (vehicle.canPark) return 'READY TO ASSIGN';
+    return vehicle.unavailableReason || 'NOT AVAILABLE FOR THIS SPACE';
+  }
+
   function row(vehicle, replacing) {
     var item = document.createElement('div');
-    item.className = 'garage-vehicle-row';
+    var hasImage = !!(vehicle.image && /^(nui|https?):\/\//i.test(String(vehicle.image)));
+    var state = vehicleState(vehicle);
+    item.className = 'garage-vehicle-row garage-vehicle-row--' + state.tone + (hasImage ? '' : ' garage-vehicle-row--no-image');
+    item.setAttribute('data-filter-state', state.key);
+    item.setAttribute('data-search', searchable([vehicle.label, vehicle.model, vehicle.plate].join(' ')));
+
+    var media = document.createElement('div');
+    media.className = 'garage-vehicle-row__media';
+    if (hasImage) {
+      var image = document.createElement('img');
+      image.className = 'garage-vehicle-image';
+      image.src = String(vehicle.image);
+      image.alt = vehicle.label || vehicle.model || 'Vehicle';
+      image.loading = 'lazy';
+      image.onerror = function () { media.classList.add('is-missing'); image.remove(); };
+      media.appendChild(image);
+    } else {
+      media.classList.add('is-missing');
+    }
+    var fallback = document.createElement('span');
+    fallback.className = 'garage-vehicle-row__fallback';
+    fallback.textContent = 'CM';
+    media.appendChild(fallback);
+    item.appendChild(media);
 
     var copy = document.createElement('span');
     copy.className = 'garage-vehicle-row__copy';
+    var top = document.createElement('span');
+    top.className = 'garage-vehicle-row__top';
     var name = document.createElement('strong');
     name.textContent = vehicle.label || vehicle.model || 'Vehicle';
+    name.title = name.textContent;
+    var badge = document.createElement('span');
+    badge.className = 'garage-vehicle-row__status garage-vehicle-row__status--' + state.tone;
+    badge.textContent = state.label;
+    top.appendChild(name); top.appendChild(badge);
     var plate = document.createElement('small');
-    var status = vehicle.plate || 'NO PLATE';
-    if (vehicle.statusLabel) {
-      status += ' · ' + String(vehicle.statusLabel).toUpperCase();
-    } else if (vehicle.assigned || vehicle.parked) {
-      status += vehicle.inGarage ? ' · PARKED HERE' : ' · RESERVED / OUTSIDE';
-    } else if (vehicle.canPark) {
-      status += ' · AVAILABLE';
-    } else if (vehicle.unavailableReason) {
-      status += ' · ' + String(vehicle.unavailableReason).toUpperCase();
-    }
-    if (vehicle.parkedHouseLabel) status += ' · ' + vehicle.parkedHouseLabel;
-    if (vehicle.parkedSlotIndex) status += ' · SPACE ' + String(vehicle.parkedSlotIndex);
-    plate.textContent = status;
-    copy.appendChild(name); copy.appendChild(plate);
+    plate.className = 'garage-vehicle-row__plate';
+    plate.textContent = vehicle.plate || 'NO PLATE';
+    var model = document.createElement('small');
+    model.className = 'garage-vehicle-row__model';
+    model.textContent = String(vehicle.model || 'ROAD VEHICLE').toUpperCase();
+    var location = document.createElement('small');
+    location.className = 'garage-vehicle-row__location';
+    location.textContent = vehicleLocation(vehicle);
+    location.title = location.textContent;
+    copy.appendChild(top); copy.appendChild(plate); copy.appendChild(model); copy.appendChild(location);
 
     var actions = document.createElement('span');
     actions.className = 'garage-vehicle-row__actions';
-    if (!replacing && vehicle.canCall) {
-      actions.appendChild(actionButton('CALL HERE', 'call', vehicle, ''));
-    } else if (!replacing && vehicle.canPark) {
-      actions.appendChild(actionButton('CALL HERE', 'park', vehicle, ''));
+    var rank = rankControl(vehicle, false);
+    if (rank) actions.appendChild(rank);
+    if (!replacing && state.action) {
+      actions.appendChild(actionButton(state.actionLabel, state.action, vehicle, 'garage-vehicle-row__button--cyan'));
     } else {
       var unavailable = document.createElement('span');
       unavailable.className = 'garage-vehicle-row__unavailable';
       unavailable.textContent = replacing
         ? 'CURRENT SPACE IS OCCUPIED'
-        : (vehicle.statusLabel || (vehicle.assigned || vehicle.parked ? 'CANNOT MOVE THIS CAR' : 'UNAVAILABLE'));
+        : 'ACTION UNAVAILABLE';
       actions.appendChild(unavailable);
     }
 
     item.appendChild(copy); item.appendChild(actions);
     return item;
+  }
+
+  function renderVehicleList() {
+    var vehicles = current && Array.isArray(current.vehicles) ? current.vehicles : [];
+    var list = el('gs-list');
+    if (!list) return;
+    while (list.firstChild) list.removeChild(list.firstChild);
+    var shown = 0;
+    for (var i = 0; i < vehicles.length; i += 1) {
+      var vehicle = vehicles[i];
+      var state = vehicleState(vehicle);
+      var vehicleSearch = searchable([vehicle.label, vehicle.model, vehicle.plate].join(' '));
+      if (activeFilter !== 'all' && state.key !== activeFilter) continue;
+      if (searchQuery && vehicleSearch.indexOf(searchQuery) === -1
+          && vehicleSearch.replace(/\s/g, '').indexOf(searchQuery.replace(/\s/g, '')) === -1) continue;
+      var card = row(vehicle, false);
+      if (shown === 0 && activeFilter === 'all' && !searchQuery) {
+        var suggested = document.createElement('span');
+        suggested.className = 'garage-vehicle-row__suggested';
+        suggested.textContent = 'SUGGESTED';
+        var media = card.querySelector('.garage-vehicle-row__media');
+        if (media) media.appendChild(suggested);
+      }
+      list.appendChild(card);
+      shown += 1;
+    }
+    text('gs-count', shown === vehicles.length ? vehicles.length : shown + '/' + vehicles.length);
+    var empty = el('gs-empty');
+    if (empty) empty.hidden = shown !== 0;
   }
 
   function render(data) {
@@ -98,7 +243,11 @@
 
     text('gs-eyebrow', occupied ? 'OCCUPIED PARKING' : 'AVAILABLE PARKING');
     text('gs-title', 'Parking space ' + String(current.slotIndex || '?'));
-    text('gs-subtitle', occupied ? 'Recall the assigned vehicle, or cancel the car to clear this space.' : 'Choose any eligible owned vehicle. A car assigned elsewhere will move to this space.');
+    text('gs-subtitle', occupied
+      ? 'Recall the assigned vehicle, or cancel the car to clear this space.'
+      : (current.isFamilyGarage
+        ? 'Choose an eligible family vehicle. A car assigned elsewhere will move to this space.'
+        : 'Choose any eligible owned vehicle. A car assigned elsewhere will move to this space.'));
     var symbol = el('gs-symbol');
     if (symbol) { symbol.setAttribute('data-occupied', occupied ? '1' : '0'); symbol.textContent = occupied ? '!' : 'P'; }
 
@@ -112,20 +261,43 @@
       var currentState = el('gs-current-state');
       text('gs-current-state', vehicle.statusLabel || (vehicle.inGarage ? 'PARKED HERE' : 'RESERVED · OUTSIDE'));
       if (currentState) currentState.setAttribute('data-status', vehicle.statusCode || '');
+      var currentImage = el('gs-current-image');
+      if (currentImage) {
+        if (vehicle.image && /^(nui|https?):\/\//i.test(String(vehicle.image))) {
+          currentImage.src = String(vehicle.image);
+          currentImage.alt = vehicle.label || vehicle.model || 'Current vehicle';
+          currentImage.hidden = false;
+        } else {
+          currentImage.removeAttribute('src');
+          currentImage.hidden = true;
+        }
+      }
+      var currentRank = el('gs-current-rank');
+      if (currentRank) {
+        while (currentRank.firstChild) currentRank.removeChild(currentRank.firstChild);
+        var currentControl = rankControl(vehicle, true);
+        currentRank.hidden = !currentControl;
+        if (currentControl) currentRank.appendChild(currentControl);
+      }
+    } else {
+      var emptyRank = el('gs-current-rank');
+      if (emptyRank) { emptyRank.hidden = true; while (emptyRank.firstChild) emptyRank.removeChild(emptyRank.firstChild); }
     }
 
     var vehicleSection = el('gs-vehicle-section');
     if (vehicleSection) vehicleSection.hidden = occupied;
 
-    text('gs-list-title', 'ALL YOUR VEHICLES');
-    text('gs-count', vehicles.length);
-    var list = el('gs-list');
-    if (list) {
-      while (list.firstChild) list.removeChild(list.firstChild);
-      for (var i = 0; i < vehicles.length; i += 1) list.appendChild(row(vehicles[i], occupied));
+    text('gs-list-title', current.isFamilyGarage ? 'FAMILY ROAD VEHICLES' : 'YOUR ROAD VEHICLES');
+    activeFilter = 'all';
+    searchQuery = '';
+    var search = el('gs-search');
+    if (search) search.value = '';
+    syncSearchUi();
+    var filters = root.querySelectorAll('[data-garage-filter]');
+    for (var fi = 0; fi < filters.length; fi += 1) {
+      filters[fi].classList.toggle('is-active', filters[fi].getAttribute('data-garage-filter') === 'all');
     }
-    var empty = el('gs-empty');
-    if (empty) empty.hidden = vehicles.length !== 0;
+    renderVehicleList();
 
     root.style.display = 'grid'; root.classList.add('on'); root.setAttribute('aria-hidden', 'false');
     var token = current.requestId == null ? '' : String(current.requestId);
@@ -136,6 +308,29 @@
   }
 
   if (root) root.addEventListener('click', function (event) {
+    var confirmButton = event.target.closest && event.target.closest('[data-confirm]');
+    if (confirmButton) {
+      closeConfirm(true, confirmButton.getAttribute('data-confirm') === 'ok');
+      return;
+    }
+    if (confirmOpen) return;
+    var searchClear = event.target.closest && event.target.closest('#gs-search-clear');
+    if (searchClear) {
+      var searchField = el('gs-search');
+      if (searchField) { searchField.value = ''; searchField.focus(); }
+      searchQuery = '';
+      syncSearchUi();
+      renderVehicleList();
+      return;
+    }
+    var filter = event.target.closest && event.target.closest('[data-garage-filter]');
+    if (filter) {
+      activeFilter = filter.getAttribute('data-garage-filter') || 'all';
+      var filterNodes = root.querySelectorAll('[data-garage-filter]');
+      for (var f = 0; f < filterNodes.length; f += 1) filterNodes[f].classList.toggle('is-active', filterNodes[f] === filter);
+      renderVehicleList();
+      return;
+    }
     var node = event.target;
     while (node && node !== root && !(node.getAttribute && node.getAttribute('data-garage-act'))) node = node.parentNode;
     if (!node || !node.getAttribute) return;
@@ -161,18 +356,68 @@
     });
   });
 
+  if (root) root.addEventListener('change', function (event) {
+    var select = event.target.closest && event.target.closest('[data-family-rank]');
+    if (!select || rankBusy || select.disabled) return;
+    var vehicleId = Number(select.getAttribute('data-vehicle-id'));
+    var level = Number(select.value);
+    if (!vehicleId || !level) return;
+    rankBusy = true;
+    select.disabled = true;
+    post('garageSlot:setRank', { vehicleId: vehicleId, level: level }, function (response) {
+      if (response && response.ok && current) {
+        var updatedLevel = Number(response.requiredTier || level);
+        if (current.current && Number(current.current.id) === vehicleId) current.current.requiredTier = updatedLevel;
+        var fleet = Array.isArray(current.vehicles) ? current.vehicles : [];
+        for (var i = 0; i < fleet.length; i += 1) if (Number(fleet[i].id) === vehicleId) fleet[i].requiredTier = updatedLevel;
+      }
+      rankBusy = false;
+      select.disabled = current && current.current && Number(current.current.id) === vehicleId
+        ? current.current.canManageVehicleRank !== true
+        : false;
+    });
+  });
+
+  if (confirmRoot) confirmRoot.addEventListener('click', function (event) {
+    var confirmButton = event.target.closest && event.target.closest('[data-confirm]');
+    if (!confirmButton) return;
+    closeConfirm(true, confirmButton.getAttribute('data-confirm') === 'ok');
+  });
+
+  var searchInput = el('gs-search');
+  if (searchInput) searchInput.addEventListener('input', function () {
+    searchQuery = searchable(searchInput.value);
+    syncSearchUi();
+    renderVehicleList();
+  });
+
   window.addEventListener('message', function (event) {
     var m = event.data || {};
     try {
       if (m.action === 'openGarageSlot') render(m.data || {});
       else if (m.action === 'closeGarageSlot') closeLocal(false);
+      else if (m.action === 'openGarageConfirm') openConfirm(m.data || {});
     } catch (error) {
       post('garageSlot:error', { message: error && error.message ? error.message : String(error) });
     }
   });
 
   document.addEventListener('keydown', function (event) {
-    if (event.key === 'Escape' && root && root.classList.contains('on')) closeLocal(true);
+    var open = root && root.classList.contains('on');
+    if (event.key === '/' && open && document.activeElement !== searchInput) {
+      event.preventDefault();
+      if (searchInput) searchInput.focus();
+    } else if (event.key === 'Escape' && confirmOpen) {
+      closeConfirm(true, false);
+    } else if (event.key === 'Escape' && open && searchInput && searchInput.value) {
+      searchInput.value = '';
+      searchQuery = '';
+      syncSearchUi();
+      renderVehicleList();
+      searchInput.focus();
+    } else if (event.key === 'Escape' && open) {
+      closeLocal(true);
+    }
   });
-  post('garageSlot:ready', { version: '2.0.0', rootFound: !!root });
+  post('garageSlot:ready', { version: '3.1.0', rootFound: !!root });
 }());

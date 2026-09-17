@@ -19,15 +19,7 @@ end
 local function notify(message, kind)
     message = tostring(message or '')
     kind = kind or 'inform'
-    if lib and type(lib.notify) == 'function' then
-        lib.notify({
-            title = 'Family',
-            description = message,
-            type = kind == 'inform' and 'inform' or kind,
-        })
-        return
-    end
-    TriggerEvent('cm-playerdata:client:interactionNotify', message, kind)
+    CMFamilyNotify(message, kind == 'inform' and 'inform' or kind)
 end
 
 local function hexToRgb(hex)

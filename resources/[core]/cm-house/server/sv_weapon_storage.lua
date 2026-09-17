@@ -17,8 +17,38 @@ local SLOT_PREFIX = tostring(Config.WeaponStorage and Config.WeaponStorage.slotP
 local MAX_SLOTS = math.max(1, math.min(120, tonumber(Config.WeaponStorage and Config.WeaponStorage.slots) or 60))
 local ALLOW_WEAPONS = not Config.WeaponStorage or Config.WeaponStorage.allowWeapons ~= false
 local ALLOW_AMMO = not Config.WeaponStorage or Config.WeaponStorage.allowAmmo ~= false
+local ALLOW_ARMOR = not Config.WeaponStorage or Config.WeaponStorage.allowArmor ~= false
 local locks = {}
+local withdrawCooldowns = {}
 local catalog = { expires = 0, byName = {}, rows = {} }
+local decode, encode
+
+local function settingsKey(houseId, index)
+    return ('weapon-storage-settings:%d:%d'):format(tonumber(houseId) or 0, tonumber(index) or 0)
+end
+
+local function storageSettings(houseId, index)
+    local raw = GetResourceKvpString(settingsKey(houseId, index))
+    local value = decode(raw)
+    return {
+        open = value.open ~= false,
+        weaponLimit = math.max(1, math.min(10, math.floor(tonumber(value.weaponLimit) or 10))),
+        ammoLimit = math.max(1, math.min(1000, math.floor(tonumber(value.ammoLimit) or 1000))),
+        cooldownMinutes = math.max(0, math.min(60, math.floor(tonumber(value.cooldownMinutes) or 1))),
+    }
+end
+
+local function saveStorageSettings(houseId, index, value)
+    value = type(value) == 'table' and value or {}
+    local settings = {
+        open = value.open == true,
+        weaponLimit = math.max(1, math.min(10, math.floor(tonumber(value.weaponLimit) or 10))),
+        ammoLimit = math.max(1, math.min(1000, math.floor(tonumber(value.ammoLimit) or 1000))),
+        cooldownMinutes = math.max(0, math.min(60, math.floor(tonumber(value.cooldownMinutes) or 1))),
+    }
+    SetResourceKvp(settingsKey(houseId, index), encode(settings))
+    return settings
+end
 
 local REQUIRED_DURABILITY = math.max(1, math.min(100,
     tonumber(Config.WeaponStorage and Config.WeaponStorage.fullWeaponDurability) or 100))
@@ -41,14 +71,14 @@ local function weaponDurability(metadata, row)
 end
 
 
-local function decode(value)
+decode = function(value)
     if type(value) == 'table' then return value end
     if type(value) ~= 'string' or value == '' then return {} end
     local ok, data = pcall(json.decode, value)
     return ok and type(data) == 'table' and data or {}
 end
 
-local function encode(value)
+encode = function(value)
     local ok, data = pcall(json.encode, type(value) == 'table' and value or {})
     return ok and data or '{}'
 end
@@ -139,12 +169,15 @@ local function mergeCatalogRow(target, row, forcedType)
     local itemName = normaliseName(row.item_name or row.itemName or row.name)
     if itemName == '' then return end
     local itemType = tostring(forcedType or row.item_type or row.itemType or row.category or ''):lower()
-    if itemType ~= 'weapon' and itemType ~= 'ammo' then
+    if itemType == 'vest' then itemType = 'armor' end
+    if itemType ~= 'weapon' and itemType ~= 'ammo' and itemType ~= 'armor' then
         if itemName:sub(1, 7) == 'weapon_' then itemType = 'weapon'
         elseif itemName:sub(1, 5) == 'ammo_' then itemType = 'ammo'
         else return end
     end
-    if (itemType == 'weapon' and not ALLOW_WEAPONS) or (itemType == 'ammo' and not ALLOW_AMMO) then return end
+    if (itemType == 'weapon' and not ALLOW_WEAPONS)
+        or (itemType == 'ammo' and not ALLOW_AMMO)
+        or (itemType == 'armor' and not ALLOW_ARMOR) then return end
     local previous = target[itemName] or {}
     local hash = tostring(row.weapon_hash or row.weaponHash or row.hash or previous.weaponHash or ''):upper()
     target[itemName] = {
@@ -156,6 +189,8 @@ local function mergeCatalogRow(target, row, forcedType)
         group = tostring(row.group or row.group_key or row.ammo_key or previous.group or itemType),
         weaponHash = hash,
         ammoItem = normaliseName(row.ammo_item or row.ammoItem or row.ammo or previous.ammoItem),
+        armorValue = math.max(0, math.min(100,
+            math.floor(tonumber(row.armor_value or row.armorValue or previous.armorValue) or 0))),
     }
 end
 
@@ -206,6 +241,11 @@ local function itemDefinition(itemName, metadata)
     if ALLOW_AMMO and (itemName:sub(1, 5) == 'ammo_' or metaType == 'ammo') then
         return { itemName = itemName, itemType = 'ammo', label = metadata.label or itemName,
             image = localImage(metadata.image or metadata.icon or metadata.img, 'ammo'), group = metadata.ammoKey or 'ammo' }
+    end
+    if ALLOW_ARMOR and (metaType == 'armor' or metaType == 'vest') then
+        return { itemName = itemName, itemType = 'armor', label = metadata.label or itemName,
+            image = localImage(metadata.image or metadata.icon or metadata.img, 'armor'),
+            group = 'armor', armorValue = tonumber(metadata.armorValue or metadata.armor_value) or 0 }
     end
     return nil
 end
@@ -272,6 +312,7 @@ local function rowToPublic(row)
         durability = weaponDurability(metadata, row),
         canStore = def.itemType ~= 'weapon' or (not REQUIRE_FULL_DURABILITY) or (weaponDurability(metadata, row) or -1) >= (REQUIRED_DURABILITY - 0.001),
         weaponHash = tostring(def.weaponHash or metadata.weaponHash or ''),
+        ammoItem = normaliseName(def.ammoItem or metadata.ammoItem or metadata.ammo_item or metadata.ammo),
     }
 end
 
@@ -298,6 +339,8 @@ function WS.BuildPayload(src, houseId, index)
     if not ok then return false, ctx end
     local canDeposit = CanAccessProperty(ctx.cid, houseId, ACTIONS.WEAPON_STORAGE_DEPOSIT)
     local canWithdraw = CanAccessProperty(ctx.cid, houseId, ACTIONS.WEAPON_STORAGE_WITHDRAW)
+    local canManage = CanAccessProperty(ctx.cid, houseId, ACTIONS.WEAPON_STORAGE_MANAGE)
+    local settings = storageSettings(houseId, index)
     local family = ctx.house.family_id and GetFamilyDisplay(ctx.house.family_id) or nil
     local familyName = family and tostring(family.name or family.label or '') or nil
     return true, {
@@ -313,6 +356,9 @@ function WS.BuildPayload(src, houseId, index)
         capacity = MAX_SLOTS,
         canDeposit = canDeposit == true,
         canWithdraw = canWithdraw == true,
+        canManage = canManage == true,
+        settings = settings,
+        catalog = WS.RefreshCatalog(false).rows,
     }
 end
 
@@ -423,6 +469,36 @@ lib.callback.register('cm-house:server:openWeaponStorage', function(src, houseId
     return WS.BuildPayload(src, houseId, index)
 end)
 
+lib.callback.register('cm-house:server:saveWeaponStorageSettings', function(src, houseId, index, request)
+    local access, ctx = requireAccess(src, houseId, index, ACTIONS.WEAPON_STORAGE_MANAGE)
+    if not access then return false, ctx end
+    request = type(request) == 'table' and request or {}
+    if type(request.open) ~= 'boolean' then return false, 'Choose whether the armory is open or closed.' end
+    local weaponLimit = tonumber(request.weaponLimit)
+    local ammoLimit = tonumber(request.ammoLimit)
+    local cooldownMinutes = tonumber(request.cooldownMinutes)
+    if not weaponLimit or weaponLimit ~= math.floor(weaponLimit) or weaponLimit < 1 or weaponLimit > 10 then
+        return false, 'Maximum guns must be between 1 and 10.'
+    end
+    if not ammoLimit or ammoLimit ~= math.floor(ammoLimit) or ammoLimit < 1 or ammoLimit > 1000 then
+        return false, 'Maximum ammunition must be between 1 and 1000.'
+    end
+    if not cooldownMinutes or cooldownMinutes ~= math.floor(cooldownMinutes) or cooldownMinutes < 0 or cooldownMinutes > 60 then
+        return false, 'Cooldown must be between 0 and 60 minutes.'
+    end
+    local settings = saveStorageSettings(houseId, index, {
+        open = request.open,
+        weaponLimit = weaponLimit,
+        ammoLimit = ammoLimit,
+        cooldownMinutes = cooldownMinutes,
+    })
+    LogHouse(tonumber(houseId), ctx.house.family_id, ctx.cid, 'weapon_storage_settings', {
+        point = tonumber(index), open = settings.open, weaponLimit = settings.weaponLimit,
+        ammoLimit = settings.ammoLimit, cooldownMinutes = settings.cooldownMinutes,
+    })
+    return WS.BuildPayload(src, houseId, index)
+end)
+
 lib.callback.register('cm-house:server:weaponStorageTransfer', function(src, houseId, index, direction, rowId, amount)
     houseId, index, rowId = tonumber(houseId), tonumber(index), tonumber(rowId)
     direction = tostring(direction or ''):lower()
@@ -432,6 +508,16 @@ lib.callback.register('cm-house:server:weaponStorageTransfer', function(src, hou
     local action = direction == 'deposit' and ACTIONS.WEAPON_STORAGE_DEPOSIT or ACTIONS.WEAPON_STORAGE_WITHDRAW
     local access, ctx = requireAccess(src, houseId, index, action)
     if not access then return false, ctx end
+    local settings = storageSettings(houseId, index)
+    if direction == 'withdraw' and settings.open ~= true then
+        return false, 'This weapon storage is closed.'
+    end
+    local cooldownKey = ('%s:%s:%s'):format(tostring(ctx.cid), tostring(houseId), tostring(index))
+    local now = GetGameTimer()
+    if direction == 'withdraw' and (withdrawCooldowns[cooldownKey] or 0) > now then
+        local seconds = math.max(1, math.ceil((withdrawCooldowns[cooldownKey] - now) / 1000))
+        return false, ('Wait %d seconds before taking more equipment.'):format(seconds)
+    end
     local key = ('%s:%s'):format(houseId, index)
 
     local ok, reason = withLock(key, function()
@@ -443,7 +529,7 @@ lib.callback.register('cm-house:server:weaponStorageTransfer', function(src, hou
             if not row then return false, 'That item is no longer in your inventory.' end
             local meta = decode(row.metadata)
             local def = itemDefinition(row.item_name, meta)
-            if not def then return false, 'Only weapons and ammunition can be stored here.' end
+            if not def then return false, 'Only weapons, ammunition and armor can be stored here.' end
             if def.itemType == 'weapon' and REQUIRE_FULL_DURABILITY then
                 local durability = weaponDurability(meta, row)
                 if durability == nil then
@@ -454,7 +540,7 @@ lib.callback.register('cm-house:server:weaponStorageTransfer', function(src, hou
                 end
             end
             local available = math.max(1, tonumber(row.quantity) or 1)
-            if def.itemType == 'weapon' then amount = 1 else amount = math.min(amount, available) end
+            amount = math.min(amount, available)
             -- Existing weapon/ammo rows consume no new slot. This also permits
             -- adding to a stack when every physical locker slot is occupied.
             local hasStack = findStackRow(ctx.ownerId, row.item_name) ~= nil
@@ -511,9 +597,13 @@ lib.callback.register('cm-house:server:weaponStorageTransfer', function(src, hou
         if not row then return false, 'That stored item no longer exists.' end
         local meta = decode(row.metadata)
         local def = itemDefinition(row.item_name, meta)
-        if not def then return false, 'That row is not a valid weapon or ammunition item.' end
+        if not def then return false, 'That row is not valid armory equipment.' end
         local available = math.max(1, tonumber(row.quantity) or 1)
-        if def.itemType == 'weapon' then amount = 1 else amount = math.min(amount, available) end
+        local checkoutLimit = def.itemType == 'ammo' and settings.ammoLimit or settings.weaponLimit
+        if amount > checkoutLimit then
+            return false, ('You can take at most %d at once.'):format(checkoutLimit)
+        end
+        amount = math.min(amount, available)
 
         -- Legacy locker rows may predate the startup serial cleanup or may have
         -- been stored while an older cm-house version was running. Sanitize at
@@ -578,6 +668,9 @@ lib.callback.register('cm-house:server:weaponStorageTransfer', function(src, hou
     end)
 
     if not ok then return false, reason end
+    if direction == 'withdraw' and settings.cooldownMinutes > 0 then
+        withdrawCooldowns[cooldownKey] = GetGameTimer() + (settings.cooldownMinutes * 60 * 1000)
+    end
     return WS.BuildPayload(src, houseId, index)
 end)
 
@@ -703,6 +796,7 @@ exports('GetHouseWeaponStorageContract', function()
             access = ACTIONS.WEAPON_STORAGE_USE,
             deposit = ACTIONS.WEAPON_STORAGE_DEPOSIT,
             withdraw = ACTIONS.WEAPON_STORAGE_WITHDRAW,
+            manage = ACTIONS.WEAPON_STORAGE_MANAGE,
         },
         exports = {
             'GetWeaponStorageCatalog', 'GetHouseWeaponStorage',
@@ -715,6 +809,7 @@ exports('GetHouseWeaponStorageContract', function()
             access = 'weapon_storage.access',
             deposit = 'weapon_storage.deposit',
             withdraw = 'weapon_storage.withdraw',
+            manage = 'weapon_storage.manage',
         },
     }
 end)

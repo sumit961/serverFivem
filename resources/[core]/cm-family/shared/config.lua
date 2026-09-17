@@ -23,10 +23,10 @@ Config.Database = {
 -- Maximum number of ranks a family may have (including the founder rank).
 Config.MaxRanks = 15
 
--- Default required level applied to a family vehicle that has no explicit
--- per-vehicle entry yet. Keep low so newly parked cars are broadly usable
--- until an officer restricts them.
-Config.DefaultVehicleLevel = 1
+-- Fail-safe threshold for a family vehicle without an explicit access row.
+-- The vehicle service resolves this to the family's highest existing rank;
+-- MaxRanks is the safe fallback while a family's rank cache is unavailable.
+Config.DefaultVehicleLevel = Config.MaxRanks
 
 -- ============================================================
 --  NPC
@@ -79,14 +79,8 @@ Config.Permissions = {
     { key = 'family.view_logs',     label = 'View family activity',  group = 'management' },
     { key = 'family.set_meeting',   label = 'Set meeting point',     group = 'management' },
     { key = 'family.manage_announcement', label = 'Edit family announcement', group = 'management' },
+    { key = 'family.raid_start',      label = 'Start family raids', group = 'management' },
     { key = 'vehicle.track',        label = 'Track shared vehicles', group = 'vehicles' },
-
-    -- Armory (stocked quartermaster: admin/leader-curated catalog, shared
-    -- stock pool, rank-tier gating -- distinct from the personal/shared
-    -- weapon_storage locker below, which has no catalog or stock concept).
-    { key = 'family.armory',          label = 'Access the family armory', group = 'armory' },
-    { key = 'family.armory_deposit',  label = 'Return equipment to stock', group = 'armory' },
-    { key = 'family.manage_armory',   label = 'Manage armory equipment',  group = 'armory' },
 
     -- Bank
     { key = 'bank.view',            label = 'View bank',             group = 'bank' },
@@ -96,6 +90,8 @@ Config.Permissions = {
     -- House-forwarded (answered to cm-house)
     { key = 'door.enter',           label = 'Enter house',           group = 'house' },
     { key = 'door.lock',            label = 'Lock / unlock',         group = 'house' },
+    { key = 'house.manage_access',  label = 'Manage house access',   group = 'house' },
+    { key = 'house.set_spawn',      label = 'Set house spawn',       group = 'house' },
     { key = 'garage.access',        label = 'Open garage',           group = 'house' },
     { key = 'garage.take',          label = 'Take vehicles',         group = 'house' },
     { key = 'garage.store',         label = 'Store vehicles',        group = 'house' },
@@ -104,6 +100,7 @@ Config.Permissions = {
     { key = 'weapon_storage.access',   label = 'Open weapon storage', group = 'house' },
     { key = 'weapon_storage.deposit',  label = 'Deposit weapons',    group = 'house' },
     { key = 'weapon_storage.withdraw', label = 'Withdraw weapons',   group = 'house' },
+    { key = 'weapon_storage.manage',   label = 'Manage weapon storage', group = 'house' },
     { key = 'storage.access',       label = 'General storage',       group = 'house' },
     { key = 'helipad.use',          label = 'Use helipad',           group = 'house' },
     { key = 'house.view_logs',      label = 'View house activity',   group = 'house' },
@@ -113,10 +110,11 @@ Config.Permissions = {
 -- HasHousePermission. Anything not in this set is treated as management-only.
 Config.HousePermissionKeys = {
     ['door.enter'] = true, ['door.lock'] = true,
+    ['house.manage_access'] = true, ['house.set_spawn'] = true,
     ['garage.access'] = true, ['garage.take'] = true, ['garage.store'] = true,
     ['garage.manage_shared'] = true, ['garage.take_any'] = true,
     ['weapon_storage.access'] = true, ['weapon_storage.deposit'] = true,
-    ['weapon_storage.withdraw'] = true,
+    ['weapon_storage.withdraw'] = true, ['weapon_storage.manage'] = true,
     ['storage.access'] = true, ['trunk.access'] = true, ['helipad.use'] = true,
     ['house.view_logs'] = true,
 }
@@ -136,9 +134,7 @@ Config.VehicleLevelActions = {
 -- Storage, weapons, garage, trunk, helipad and logs remain rank-authoritative.
 -- This is intentionally DB-membership based so legacy rank-id/grade schemas
 -- cannot strand a valid member outside their own family property.
-Config.BasicMemberHousePermissions = {
-    ['door.enter'] = true,
-}
+Config.BasicMemberHousePermissions = {}
 
 -- ============================================================
 --  Default ranks created for a new family.
@@ -157,13 +153,13 @@ Config.DefaultRanks = {
         permissions = {
             'family.invite', 'family.kick', 'family.promote', 'family.demote',
             'family.manage_vehicles', 'family.manage_tags', 'family.manage_titles', 'family.view_logs', 'vehicle.track',
-            'family.manage_announcement',
+            'family.manage_announcement', 'family.raid_start',
             'bank.view', 'bank.deposit', 'bank.withdraw',
-            'door.enter', 'door.lock', 'garage.access', 'garage.take', 'garage.store',
+            'door.enter', 'door.lock', 'house.manage_access', 'house.set_spawn',
+            'garage.access', 'garage.take', 'garage.store',
             'garage.manage_shared', 'trunk.access', 'weapon_storage.access', 'weapon_storage.deposit',
-            'weapon_storage.withdraw', 'storage.access', 'helipad.use',
+            'weapon_storage.withdraw', 'weapon_storage.manage', 'storage.access', 'helipad.use',
             'house.view_logs',
-            'family.armory', 'family.armory_deposit', 'family.manage_armory',
         },
     },
     {
@@ -173,7 +169,6 @@ Config.DefaultRanks = {
             'bank.view', 'bank.deposit',
             'door.enter', 'garage.access', 'garage.take', 'garage.store',
             'trunk.access', 'weapon_storage.access', 'storage.access',
-            'family.armory', 'family.armory_deposit',
         },
     },
     {
@@ -204,6 +199,23 @@ Config.Bank = {
     authorizedExternalResources = {
         -- ['cm-shops'] = true,
     },
+}
+
+-- Family-vs-family raid event. The arena circle is centered on the linked
+-- family-house door; once a player joins, their existing position is kept and
+-- only their routing bucket changes, isolating the fight from the public world.
+Config.Raid = {
+    enabled = true,
+    durationSeconds = 15 * 60,
+    countdownSeconds = 10,
+    joinRadius = 4.0,
+    -- Players may join only from the perimeter band, never from the centre.
+    joinEdgeBand = 3.0,
+    arenaRadius = 50.0,
+    boundaryGraceSeconds = 5,
+    reward = 50000,
+    maxFamilies = 2,
+    bucketBase = 700000,
 }
 
 -- ============================================================
@@ -266,6 +278,49 @@ Config.Chat = {
     maxLength = 180,
     cooldownMs = 1200,
     prefix = 'Family',
+}
+
+-- ============================================================
+--  Family gameplay events
+-- ============================================================
+-- Catalogue only: these entries describe events in the family dashboard.
+-- Starting/joining an event must be implemented by its owning gameplay
+-- resource and validated server-side before an action button is enabled.
+Config.FamilyEvents = {
+    {
+        key = 'store_robbery',
+        name = 'Store Robbery',
+        category = 'Robbery',
+        description = 'Coordinate a fast convenience-store robbery and escape before the response closes in.',
+        status = 'available',
+        difficulty = 'Medium',
+        recommendedMembers = 2,
+        durationMinutes = 20,
+        cooldownMinutes = 45,
+        schedule = 'Available at any time',
+        location = 'Convenience stores across Los Santos',
+        accent = '#52dce9',
+        requirements = { '2 online family members recommended', 'Required robbery equipment', 'No active family event' },
+        rewards = { 'Family reputation', 'Shared robbery payout', 'Weekly objective progress' },
+        rules = { 'Police response may interrupt the event', 'Rewards are granted only after server validation', 'Leaving the area can fail the event' },
+    },
+    {
+        key = 'family_raid',
+        name = 'Family Raid',
+        category = 'Competitive',
+        description = 'Assemble your strongest crew for a coordinated, high-risk family combat objective.',
+        status = 'scheduled',
+        difficulty = 'High',
+        recommendedMembers = 4,
+        durationMinutes = 45,
+        cooldownMinutes = 180,
+        schedule = 'Scheduled by server administration',
+        location = 'Announced before the raid begins',
+        accent = '#ff5d6c',
+        requirements = { '4 online family members recommended', 'Family leadership approval', 'No active family event' },
+        rewards = { 'Large family reputation reward', 'Raid reward pool', 'Family leaderboard progress' },
+        rules = { 'One active raid per family', 'Only registered participants qualify', 'All outcomes are decided by the authoritative raid resource' },
+    },
 }
 
 

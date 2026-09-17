@@ -12,7 +12,7 @@ CMInventory.Config = {
         backpack = { prefix = 'backpack-', count = 30 },
         equipment = {
             'mask', 'glasses', 'headwear', 'earrings',
-            'outerwear', 'shirt', 'bodyarmor', 'bag',
+            'outerwear', 'shirt', 'bodyarmor', 'bag', 'bagskin',
             'accessory', 'weapon', 'ammo',
             'watch', 'pants', 'shoes'
         }
@@ -171,7 +171,18 @@ CMInventory.Config = {
         outerwear = { 'outerwear', 'jacket' },
         shirt = { 'shirt', 'tshirt' },
         bodyarmor = { 'armor', 'bodyarmor' },
+        -- Distinct from bodyarmor: a decorative slot-9 clothing item flagged
+        -- "regular clothing" in /clothingstore. Equipping it must not
+        -- conflict with or unequip real armor (bodyarmor), so it gets its
+        -- own rule group.
+        vest = { 'vest' },
         bag = { 'bag' },
+        -- Small nested slot inside the bag slot: only ever holds a Bag Skin
+        -- (cosmetic reskin, no capacity of its own). The extra rule that this
+        -- only accepts a Bag Skin while a REAL bag is equipped lives in
+        -- server/slots.lua's validateBagTransition, since that needs to query
+        -- the player's current bag row -- this table only checks item shape.
+        bagskin = { 'clothing_bags_skin' },
         accessory = { 'accessory' },
         weapon = { 'weapon' },
         ammo = { 'ammo' },

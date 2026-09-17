@@ -256,6 +256,13 @@ CMItems.Clothing.Categories = {
     shoes    = { type = 'component', index = 6,  label = 'Shoes',       itemName = 'clothing_shoes',    equipmentSlot = 'shoes' },
     chains   = { type = 'component', index = 7,  label = 'Chain',       itemName = 'clothing_chains',   equipmentSlot = 'accessory' },
     tshirt   = { type = 'component', index = 8,  label = 'T-Shirt',     itemName = 'clothing_tshirt',   equipmentSlot = 'shirt' },
+    -- Component 9 is GTA's armor/accessory slot. Most drawables there are real
+    -- body armor and are sold/equipped exclusively through cm-gunstore (never
+    -- through this table). This entry only matters for the subset an admin has
+    -- explicitly flagged "regular clothing" (treatAsClothing) in /clothingstore
+    -- -- purely decorative slot-9 items sold through nv_cloth's own shop like
+    -- any other clothing category, with no armor stat.
+    armor    = { type = 'component', index = 9,  label = 'Vest',        itemName = 'clothing_armor',    equipmentSlot = 'vest' },
     decals   = { type = 'component', index = 10, label = 'Decals',      itemName = 'clothing_decals',   equipmentSlot = 'decals' },
     torso    = { type = 'component', index = 11, label = 'Top',         itemName = 'clothing_torso',    equipmentSlot = 'outerwear' },
     hat      = { type = 'prop',      index = 0,  label = 'Hat',         itemName = 'clothing_hat',      equipmentSlot = 'headwear' },
@@ -301,9 +308,12 @@ function CMItems.GetClothingItemName(category)
     return def and def.itemName or nil
 end
 
-function CMItems.NormalizeClothingGender(gender)
+function CMItems.NormalizeClothingGender(gender, allowBoth)
     if gender == true then return 'female' end
     local g = tostring(gender or ''):lower()
+    if (allowBoth or allowBoth == nil) and (g == 'both' or g == 'unisex' or g == 'shared' or g == 'all' or g == 'any') then
+        return 'both'
+    end
     if g == 'female' or g == 'f' or g == 'woman' or g == 'mp_f_freemode_01' or g == '1' then
         return 'female'
     end
@@ -317,6 +327,7 @@ function CMItems.GetClothingImage(gender, componentType, componentIndex, drawabl
     end
 
     gender = CMItems.NormalizeClothingGender(gender)
+    if gender == 'both' then gender = 'male' end
     componentType = tostring(componentType or 'component'):lower()
     local propPrefix = componentType == 'prop' and 'prop_' or ''
 
@@ -497,7 +508,13 @@ end
 -- Catalog[gender][componentIndex][drawable].default
 -- Catalog[gender][componentIndex][drawable][texture]
 function CMItems.GetClothingCatalogEntry(gender, componentTypeOrIndex, componentIndex, drawableId, textureId)
-    gender = CMItems.NormalizeClothingGender(gender)
+    local g = tostring(gender or ''):lower()
+    if g == 'both' or g == 'unisex' or g == 'shared' or g == 'all' or g == 'any' then
+        local entry = CMItems.GetClothingCatalogEntry('male', componentTypeOrIndex, componentIndex, drawableId, textureId)
+        if entry then return entry end
+        return CMItems.GetClothingCatalogEntry('female', componentTypeOrIndex, componentIndex, drawableId, textureId)
+    end
+    gender = CMItems.NormalizeClothingGender(gender, false)
 
     local index = tonumber(componentIndex)
     if index == nil and tonumber(componentTypeOrIndex) ~= nil then
@@ -544,16 +561,45 @@ function CMItems.GetClothingCatalogEntry(gender, componentTypeOrIndex, component
     if type(base) == 'table' and type(textureEntry) == 'table' and textureEntry ~= base then
         local merged = cmDeepMerge(base, textureEntry)
         -- The drawable-level (texture = -1) "default" row is the authoritative
-        -- /clothingstore manager row for publish state, price and shop/org
-        -- assignment; the exact-texture row only owns the captured image. A
-        -- plain override-merge let an unpublished/disabled texture row (still
-        -- awaiting a photo) silently disable an otherwise-published drawable,
-        -- so these management fields are always taken from the base row.
+        -- /clothingstore manager row for all management fields: publish state,
+        -- price, label, description, bag level, bag skin, sell category,
+        -- cross-gender pairing, fit, armor, and shop/org assignment.
+        -- The exact-texture row owns the captured image and texture identity.
         merged.enabled = base.enabled
         merged.price = base.price
+        if base.label and base.label ~= '' then merged.label = base.label end
+        if base.name and base.name ~= '' then merged.name = base.name elseif base.label and base.label ~= '' then merged.name = base.label end
+        if base.description and base.description ~= '' then merged.description = base.description end
         merged.shop = base.shop
         merged.job = base.job
         merged.gang = base.gang
+        if base.organizations ~= nil then merged.organizations = base.organizations end
+        if base.bagLevel ~= nil then merged.bagLevel = base.bagLevel end
+        if base.bag_level ~= nil then merged.bag_level = base.bag_level end
+        if base.bagSkin ~= nil then merged.bagSkin = base.bagSkin end
+        if base.bag_skin ~= nil then merged.bag_skin = base.bag_skin end
+        if base.sellCategory ~= nil then merged.sellCategory = base.sellCategory end
+        if base.sell_category ~= nil then merged.sell_category = base.sell_category end
+        if base.pairedDrawableId ~= nil then merged.pairedDrawableId = base.pairedDrawableId end
+        if base.paired_drawable_id ~= nil then merged.paired_drawable_id = base.paired_drawable_id end
+        if base.pairedTextureId ~= nil then merged.pairedTextureId = base.pairedTextureId end
+        if base.paired_texture_id ~= nil then merged.paired_texture_id = base.paired_texture_id end
+        if base.arms ~= nil then merged.arms = base.arms end
+        if base.armsTexture ~= nil then merged.armsTexture = base.armsTexture end
+        if base.arms_texture ~= nil then merged.arms_texture = base.arms_texture end
+        if base.undershirt ~= nil then merged.undershirt = base.undershirt end
+        if base.undershirtTexture ~= nil then merged.undershirtTexture = base.undershirtTexture end
+        if base.undershirt_texture ~= nil then merged.undershirt_texture = base.undershirt_texture end
+        if base.sleeveStyle ~= nil then merged.sleeveStyle = base.sleeveStyle end
+        if base.sleeve_style ~= nil then merged.sleeve_style = base.sleeve_style end
+        if base.armorValue ~= nil then merged.armorValue = base.armorValue end
+        if base.armor_value ~= nil then merged.armor_value = base.armor_value end
+        if base.backpackSlots ~= nil then merged.backpackSlots = base.backpackSlots end
+        if base.backpack_slots ~= nil then merged.backpack_slots = base.backpack_slots end
+        if base.maxWeight ~= nil then merged.maxWeight = base.maxWeight end
+        if base.max_weight ~= nil then merged.max_weight = base.max_weight end
+        merged.image = (textureEntry.image and textureEntry.image ~= '') and textureEntry.image or base.image
+        merged.icon = (textureEntry.icon and textureEntry.icon ~= '') and textureEntry.icon or (merged.image or base.icon)
         return merged
     end
     return type(textureEntry) == 'table' and textureEntry or base
@@ -625,6 +671,12 @@ function CMItems.BuildClothingMetadata(categoryOrRaw, raw, opts)
     metadata.job = catalog.job or metadata.job
     metadata.gang = catalog.gang or metadata.gang
     metadata.sleeveStyle = catalog.sleeveStyle or catalog.sleeve or metadata.sleeveStyle
+    metadata.arms = catalog.arms or metadata.arms
+    metadata.armsTexture = catalog.armsTexture or catalog.arms_texture or metadata.armsTexture
+    metadata.undershirt = catalog.undershirt or metadata.undershirt
+    metadata.undershirtTexture = catalog.undershirtTexture or catalog.undershirt_texture or metadata.undershirtTexture
+    metadata.armorValue = catalog.armorValue or catalog.armor_value or metadata.armorValue
+    metadata.sellCategory = catalog.sellCategory or catalog.sell_category or metadata.sellCategory
 
     if catalog.image and catalog.image ~= '' then
         if tostring(catalog.image):find('^nui://') or tostring(catalog.image):find('^https?://') then
@@ -636,16 +688,43 @@ function CMItems.BuildClothingMetadata(categoryOrRaw, raw, opts)
     end
 
     if metadata.categoryType == 'bags' then
-        local catalogLevel = tonumber(catalog.bagLevel or catalog.bag_level or catalog.level)
-        local incomingLevel = tonumber(metadata.bagLevel or metadata.bag_level or metadata.level)
-        local finalLevel = catalogLevel or incomingLevel
-        if finalLevel ~= nil then
-            finalLevel = math.max(1, math.min(4, math.floor(finalLevel)))
-            metadata.bagLevel = finalLevel
-            if catalog.description and tostring(catalog.description) ~= '' then
-                metadata.description = catalog.description
+        if catalog.bagSkin == true or metadata.bagSkin == true then
+            metadata.bagSkin = true
+            metadata.bagLevel = nil
+            metadata.description = catalog.description or 'Cosmetic bag-slot clothing item.'
+        end
+        local pairedDrawable = tonumber(catalog.pairedDrawableId or catalog.paired_drawable_id or metadata.pairedDrawableId)
+        local pairedTexture = tonumber(catalog.pairedTextureId or catalog.paired_texture_id or metadata.pairedTextureId) or 0
+        if pairedDrawable ~= nil and pairedDrawable >= 0 then
+            metadata.pairedDrawableId = pairedDrawable
+            metadata.pairedTextureId = pairedTexture
+            local currentGender = tostring(metadata.gender or 'male'):lower()
+            if currentGender == 'male' then
+                metadata.maleDrawableId = metadata.drawableId
+                metadata.maleTextureId = metadata.textureId
+                metadata.femaleDrawableId = pairedDrawable
+                metadata.femaleTextureId = pairedTexture
             else
-                metadata.description = ('Level %s bag. Unlocks backpack slots.'):format(finalLevel)
+                metadata.femaleDrawableId = metadata.drawableId
+                metadata.femaleTextureId = metadata.textureId
+                metadata.maleDrawableId = pairedDrawable
+                metadata.maleTextureId = pairedTexture
+            end
+            metadata.gender = 'both'
+        end
+
+        if not metadata.bagSkin then
+            local catalogLevel = tonumber(catalog.bagLevel or catalog.bag_level or catalog.level)
+            local incomingLevel = tonumber(metadata.bagLevel or metadata.bag_level or metadata.level)
+            local finalLevel = catalogLevel or incomingLevel
+            if finalLevel ~= nil then
+                finalLevel = math.max(1, math.min(4, math.floor(finalLevel)))
+                metadata.bagLevel = finalLevel
+                if catalog.description and tostring(catalog.description) ~= '' then
+                    metadata.description = catalog.description
+                else
+                    metadata.description = ('Level %s bag. Unlocks backpack slots.'):format(finalLevel)
+                end
             end
         end
         metadata.bag_level = nil

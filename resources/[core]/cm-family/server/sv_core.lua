@@ -368,6 +368,23 @@ end
 function GetRankForCid(cid)
     local m = GetMembership(cid)
     if not m and CMFamilyRefreshMembership then m = CMFamilyRefreshMembership(cid) end
+    -- Legacy databases can retain the authoritative founder on cm_families
+    -- while the companion member row was not cached after a restart. Repair
+    -- that narrow case from founder_cid so family-house actions still work;
+    -- ordinary non-members never receive this fallback.
+    if not m then
+        for familyId, candidate in pairs(Families) do
+            if candidate and candidate.founder_cid ~= nil
+                and tostring(candidate.founder_cid) == tostring(cid) then
+                local founderRank = highestFamilyRank(candidate)
+                if founderRank then
+                    m = { family_id = familyId, rank_id = founderRank.id }
+                    MemberByCid[tostring(cid)] = m
+                    break
+                end
+            end
+        end
+    end
     if not m then return nil end
     local fam = Families[tonumber(m.family_id) or m.family_id]
     if not fam then return nil end
@@ -670,6 +687,29 @@ exports('GetFamilyById', function(familyId)
     }
 end)
 
+-- cm-house owns the authoritative family/property association. When an
+-- existing family is linked or unlinked outside the family creation flow,
+-- refresh the cached house id immediately so permission checks do not keep
+-- comparing against stale state until cm-family is restarted.
+exports('RefreshFamilyHouseLink', function(familyId)
+    if GetInvokingResource() ~= tostring(Config.HouseResource or 'cm-house') then
+        return false, 'resource_not_authorized'
+    end
+
+    familyId = tonumber(familyId)
+    if not familyId then return false, 'invalid_family_id' end
+
+    local family = Families[familyId]
+    if not family then return false, 'family_not_loaded' end
+
+    local row = MySQL.single.await(
+        'SELECT house_id FROM cm_families WHERE id = ? LIMIT 1', { familyId })
+    if not row then return false, 'family_not_found' end
+
+    family.house_id = tonumber(row.house_id) or nil
+    return true, family.house_id
+end)
+
 -- Publish the import contract cm-family satisfies, so cm-house's
 -- GetFamilyImportContract lines up during integration checks.
 exports('GetFamilyExportContract', function()
@@ -678,6 +718,7 @@ exports('GetFamilyExportContract', function()
         permission = 'HasHousePermission(characterId, familyId, houseId, permissionKey, action) -> boolean',
         lookups = {
             'GetFamilyForCharacter', 'GetFamilyMemberCharacterIds', 'GetFamilyById',
+            'RefreshFamilyHouseLink',
             'GetMemberIdentity', 'GetFamilyMember', 'CanUseFamilyVehicle',
             'GetFamilyVehicleAccessDecision',
         },

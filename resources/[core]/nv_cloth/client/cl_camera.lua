@@ -688,9 +688,15 @@ end)
 --========================================================
 -- exports("destroySkinCam", DestroySkinCam)
 
--- Smooth mouse-drag rotation from the new live-preview shop UI.
+-- Smooth mouse-drag rotation from the new live-preview shop UI, or 180° turn.
 RegisterNUICallback("rotatePed", function(data, cb)
   local ped = PlayerPedId()
+  if data and (data.turn180 or math.abs(tonumber(data.delta) or 0) >= 90) then
+    local delta = tonumber(data and data.delta) or 180.0
+    SetEntityHeading(ped, (GetEntityHeading(ped) + delta) % 360.0)
+    cb({ success = true })
+    return
+  end
   local delta = tonumber(data and data.delta) or 0.0
   if delta > 25.0 then delta = 25.0 end
   if delta < -25.0 then delta = -25.0 end

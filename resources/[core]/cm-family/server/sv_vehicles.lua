@@ -14,6 +14,40 @@ local imageCache = {}
 -- [characterId][vehicleId] = unix time when another snapshot may be requested.
 local trackCooldown = {}
 
+local function orderedFamilyRanks(familyId)
+    local family = GetFamilyById(tonumber(familyId))
+    local ranks = {}
+    for _, rank in pairs((family and family.ranksById) or {}) do
+        local tier = math.floor(tonumber(rank.tier) or 0)
+        if tier > 0 then
+            ranks[#ranks + 1] = {
+                id = tonumber(rank.id) or rank.id,
+                name = tostring(rank.name or ('Rank ' .. tier)),
+                tier = tier,
+                isFounder = rank.is_founder == true or tonumber(rank.is_founder) == 1,
+            }
+        end
+    end
+    table.sort(ranks, function(a, b)
+        if a.tier == b.tier then return tostring(a.name) < tostring(b.name) end
+        return a.tier > b.tier
+    end)
+    return ranks
+end
+
+local function highestFamilyVehicleLevel(familyId)
+    local ranks = orderedFamilyRanks(familyId)
+    return ranks[1] and tonumber(ranks[1].tier) or tonumber(Config.DefaultVehicleLevel) or Config.MaxRanks
+end
+
+local function validFamilyVehicleLevel(familyId, value)
+    local requested = math.floor(tonumber(value) or highestFamilyVehicleLevel(familyId))
+    for _, rank in ipairs(orderedFamilyRanks(familyId)) do
+        if tonumber(rank.tier) == requested then return requested end
+    end
+    return nil
+end
+
 local function revokeCharacterKeys(characterId, reason)
     if GetResourceState(KEYS) ~= 'started' then return 0 end
     local ok, removed = pcall(function()
@@ -51,16 +85,16 @@ local function ensureFamilyLoaded(familyId)
         'SELECT vehicle_id, level FROM cm_family_vehicle_access WHERE family_id = ?', { familyId }) or {}) do
         local vehicleId = tonumber(row.vehicle_id)
         if vehicleId then
-            levelCache[familyId][vehicleId] = tonumber(row.level) or Config.DefaultVehicleLevel
+            levelCache[familyId][vehicleId] = tonumber(row.level) or highestFamilyVehicleLevel(familyId)
         end
     end
 end
 
 function GetVehicleLevel(familyId, vehicleId)
     familyId, vehicleId = tonumber(familyId), tonumber(vehicleId)
-    if not familyId or not vehicleId then return Config.DefaultVehicleLevel end
+    if not familyId or not vehicleId then return tonumber(Config.DefaultVehicleLevel) or Config.MaxRanks end
     ensureFamilyLoaded(familyId)
-    return levelCache[familyId][vehicleId] or Config.DefaultVehicleLevel
+    return levelCache[familyId][vehicleId] or highestFamilyVehicleLevel(familyId)
 end
 exports('GetFamilyVehicleLevel', GetVehicleLevel)
 
@@ -112,8 +146,9 @@ end
 
 function SetVehicleLevel(familyId, vehicleId, level, actorCid)
     familyId, vehicleId = tonumber(familyId), tonumber(vehicleId)
-    level = math.max(1, math.min(Config.MaxRanks, math.floor(tonumber(level) or Config.DefaultVehicleLevel)))
     if not familyId or not vehicleId then return false, 'invalid_arguments' end
+    level = validFamilyVehicleLevel(familyId, level)
+    if not level then return false, 'invalid_family_rank' end
     if not isSharedFamilyVehicle(familyId, vehicleId) then
         return false, 'vehicle_is_not_shared_with_this_family'
     end
@@ -141,6 +176,35 @@ exports('SetFamilyVehicleLevel', function(familyId, vehicleId, level, actorCid)
         return false, 'resource_not_authorized'
     end
     return SetVehicleLevel(familyId, vehicleId, level, actorCid)
+end)
+
+local function familyGarageRankContext(characterId, familyId)
+    characterId, familyId = tostring(characterId or ''), tonumber(familyId)
+    if characterId == '' or not familyId then return nil, 'invalid_arguments' end
+    local rank, family = GetRankForCid(characterId)
+    if not rank or not family or tonumber(family.id) ~= familyId then
+        return nil, 'not_in_this_family'
+    end
+
+    local canManage = rank.is_founder == true or tonumber(rank.is_founder) == 1
+        or RankHasPermission(rank, 'family.manage_vehicles')
+    return {
+        familyId = familyId,
+        familyName = tostring(family.name or 'Family'),
+        viewerTier = tonumber(rank.tier) or 0,
+        canManage = canManage == true,
+        defaultTier = highestFamilyVehicleLevel(familyId),
+        ranks = orderedFamilyRanks(familyId),
+    }
+end
+
+exports('GetFamilyGarageRankContext', familyGarageRankContext)
+
+exports('SetFamilyVehicleLevelFromGarage', function(characterId, familyId, vehicleId, level)
+    local context, why = familyGarageRankContext(characterId, familyId)
+    if not context then return false, why end
+    if context.canManage ~= true then return false, 'no_permission' end
+    return SetVehicleLevel(familyId, vehicleId, level, characterId)
 end)
 
 function CMFamilyResolveVehicleId(action)
@@ -217,7 +281,7 @@ local function familyVehicleDecision(characterId, vehicleId, action)
         return false, ('rank_missing_permission:%s'):format(permission)
     end
 
-    local level = tonumber(GetVehicleLevel(fam.id, vehicleId)) or Config.DefaultVehicleLevel
+    local level = tonumber(GetVehicleLevel(fam.id, vehicleId)) or highestFamilyVehicleLevel(fam.id)
     if tier < level then
         return false, ('vehicle_requires_tier:%s'):format(level)
     end
@@ -335,12 +399,12 @@ function GetFamilyVehiclesWithLevels(familyId, viewerCid)
                 house_id = tonumber(v.house_id) or v.house_id,
                 house_label = v.house_label,
                 slot_index = tonumber(v.slot_index) or v.slot_index,
-                level = levelCache[familyId][vehicleId] or Config.DefaultVehicleLevel,
+                level = GetVehicleLevel(familyId, vehicleId),
                 shared = v.shared == true or tonumber(v.shared) == 1 or tostring(v.owner_class) == 'family',
                 owner_character_id = tostring(v.owner_character_id or ''),
                 isOwner = viewerCid ~= nil and tostring(v.owner_character_id or '') == tostring(viewerCid),
                 eligible = v.family_house_eligible == true or tonumber(v.family_house_eligible) == 1,
-                canTrack = canTrackRank == true and (tonumber(viewerRank and viewerRank.tier) or 0) >= (levelCache[familyId][vehicleId] or Config.DefaultVehicleLevel),
+                canTrack = canTrackRank == true and (tonumber(viewerRank and viewerRank.tier) or 0) >= GetVehicleLevel(familyId, vehicleId),
                 trackCooldownSeconds = viewerCid and vehicleTrackRemaining(viewerCid, vehicleId) or 0,
             }
         end
@@ -364,7 +428,7 @@ function SetVehicleSharedAndLevel(actorCid, vehicleId, shared, level)
     if not sharedOk then return false, sharedErr or 'vehicle_share_failed' end
 
     if shared == true then
-        local ok, why = SetVehicleLevel(fam.id, vehicleId, level, actorCid)
+        local ok, why = SetVehicleLevel(fam.id, vehicleId, level or highestFamilyVehicleLevel(fam.id), actorCid)
         if not ok then
             B.SetVehicleFamilyShared(vehicleId, false, actorCid)
             return false, why
@@ -393,6 +457,24 @@ end)
 function InvalidateVehicleCache(familyId)
     levelCache[tonumber(familyId)] = nil
 end
+exports('InvalidateVehicleCache', InvalidateVehicleCache)
+
+exports('RemoveFamilyVehicle', function(vehicleId, actorCid)
+    vehicleId = tonumber(vehicleId)
+    if not vehicleId then return false end
+    local rows = MySQL.query.await('SELECT family_id FROM cm_family_vehicle_access WHERE vehicle_id = ?', { vehicleId }) or {}
+    for _, row in ipairs(rows) do
+        local fid = tonumber(row.family_id)
+        if fid and levelCache[fid] then
+            levelCache[fid][vehicleId] = nil
+        end
+        if fid then
+            pcall(revokeVehicleKeys, vehicleId, fid, 'family-vehicle-removed')
+        end
+    end
+    MySQL.update.await('DELETE FROM cm_family_vehicle_access WHERE vehicle_id = ?', { vehicleId })
+    return true
+end)
 
 
 AddEventHandler('cm-playerdata:server:characterUnloaded', function(_, data)

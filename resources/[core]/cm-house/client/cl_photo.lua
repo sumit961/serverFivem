@@ -13,6 +13,24 @@ local Cam = {
     onDone = nil,     -- called with (camTable) when H is pressed
 }
 
+local function setCleanPhotoFrame(active)
+    active = active == true
+    SendNUIMessage({ action = 'photoCaptureClean', data = { active = active } })
+    if LocalPlayer and LocalPlayer.state then
+        LocalPlayer.state:set('cmHousePhotoMode', active, false)
+    end
+    -- Other CM UI resources can hide themselves during this explicit window.
+    TriggerEvent('cm-house:client:photoMode', active)
+    TriggerEvent('cm-hud:client:photoMode', active)
+    DisplayHud(not active)
+    DisplayRadar(not active)
+end
+
+local function hideEveryHudComponent()
+    HideHudAndRadarThisFrame()
+    for component = 1, 22 do HideHudComponentThisFrame(component) end
+end
+
 -- ------------------------------------------------------------
 --  Free-fly camera
 -- ------------------------------------------------------------
@@ -174,17 +192,21 @@ function CaptureAndSave(cfg, cam, onDone)
     local ped = PlayerPedId()
     SetEntityVisible(ped, false, false)
     SetEntityLocallyInvisible(ped)
-    DisplayRadar(false)
+    SetNuiFocus(false, false)
+    SetNuiFocusKeepInput(false)
+    setCleanPhotoFrame(true)
 
-    for _ = 1, 6 do
-        HideHudAndRadarThisFrame()
+    -- Let every NUI resource consume photo mode before screenshot-basic is
+    -- asked for the frame. This also clears notifications drawn one frame late.
+    for _ = 1, 12 do
+        hideEveryHudComponent()
         Wait(0)
     end
 
     local capturePending = true
     CreateThread(function()
         while capturePending do
-            HideHudAndRadarThisFrame()
+            hideEveryHudComponent()
             Wait(0)
         end
     end)
@@ -196,7 +218,7 @@ function CaptureAndSave(cfg, cam, onDone)
 
     capturePending = false
     SetEntityVisible(ped, true, false)
-    DisplayRadar(true)
+    setCleanPhotoFrame(false)
     DropPhotoCam()
 
     if not callOk then
@@ -213,3 +235,10 @@ end
 -- Compatibility alias for older cm-house files that still call the previous
 -- function name. New integrations should use CaptureAndSave.
 CaptureAndUpload = CaptureAndSave
+
+AddEventHandler('onResourceStop', function(resource)
+    if resource ~= GetCurrentResourceName() then return end
+    setCleanPhotoFrame(false)
+    local ped = PlayerPedId()
+    if ped and ped ~= 0 and DoesEntityExist(ped) then SetEntityVisible(ped, true, false) end
+end)

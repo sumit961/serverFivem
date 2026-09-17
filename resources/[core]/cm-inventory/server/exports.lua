@@ -323,3 +323,160 @@ exports('GetOpenExternalInventory', function(...)
         data = ctx.data
     }
 end)
+
+-- ============================================================
+-- Retroactive clothing type re-sync (nv_cloth /clothingstore).
+-- When an admin changes a captured item's TYPE (e.g. Armor -> Bags), every
+-- already-owned copy -- online or offline, in anyone's inventory -- is
+-- retagged to the new item_name/metadata so it behaves as the new type too
+-- (e.g. starts granting real backpack capacity). Matched purely by physical
+-- identity (gender/componentType/componentIndex/drawableId/textureId), never
+-- by the old item_name, since that's exactly what's changing.
+-- ============================================================
+exports('RetagClothingItems', function(identity, newItemName, metadataPatch)
+    identity = type(identity) == 'table' and identity or {}
+    newItemName = tostring(newItemName or ''):lower()
+    metadataPatch = type(metadataPatch) == 'table' and metadataPatch or {}
+    if newItemName == '' then return false, 'invalid_item_name' end
+
+    local gender = tostring(identity.gender or ''):lower()
+    local componentType = tostring(identity.componentType or 'component'):lower()
+    local componentIndex = tonumber(identity.componentIndex)
+    local drawableId = tonumber(identity.drawableId)
+    local textureId = tonumber(identity.textureId)
+    if not componentIndex or not drawableId then return false, 'invalid_identity' end
+    if textureId == nil then textureId = -1 end
+
+    -- Every purchased clothing item is named clothing_<category>; scanning
+    -- only those keeps this cheap instead of decoding every item in the table.
+    local rows = MySQL.query.await(
+        "SELECT id, owner_type, owner_id, item_name, metadata FROM inventory_items WHERE item_name LIKE 'clothing_%'", {}
+    ) or {}
+
+    local ownerType = Config.OwnerType or 'character'
+    local updated, touchedOwners = 0, {}
+    for _, row in ipairs(rows) do
+        local metadata = decode(row.metadata)
+        local rowType = tostring(metadata.componentType or metadata.component_type or 'component'):lower()
+        local rowIndex = tonumber(metadata.componentIndex or metadata.component_index)
+        local rowDrawable = tonumber(metadata.drawableId or metadata.drawable)
+        local rowTexture = tonumber(metadata.textureId or metadata.texture)
+        if rowTexture == nil then rowTexture = -1 end
+        local rowGender = tostring(metadata.gender or ''):lower()
+
+        if rowType == componentType and rowIndex == componentIndex and rowDrawable == drawableId
+            and (textureId < 0 or rowTexture == textureId) and (gender == '' or rowGender == gender)
+            and tostring(row.item_name):lower() ~= newItemName then
+            for k, v in pairs(metadataPatch) do metadata[k] = v end
+            MySQL.update.await('UPDATE inventory_items SET item_name = ?, metadata = ? WHERE id = ?', {
+                newItemName, encode(metadata), row.id
+            })
+            updated = updated + 1
+            if tostring(row.owner_type) == tostring(ownerType) then
+                touchedOwners[tostring(row.owner_id)] = true
+            end
+        end
+    end
+
+    -- Nudge any currently-online owner so their open inventory/equipment UI
+    -- reflects the change immediately; offline owners pick it up automatically
+    -- the next time their inventory loads.
+    if next(touchedOwners) then
+        for _, playerId in ipairs(GetPlayers()) do
+            local src = tonumber(playerId)
+            if src then
+                local ok, srcOwnerType, srcOwnerId = pcall(getOwner, src)
+                if ok and srcOwnerType == ownerType and srcOwnerId and touchedOwners[tostring(srcOwnerId)] then
+                    sendInventorySmart(src)
+                    TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src)
+                end
+            end
+        end
+    end
+
+    return true, updated
+end)
+
+-- Same identity lookup as RetagClothingItems, but for plain metadata refreshes
+-- (a retaken photo, a corrected label) that don't rename the item and so must
+-- NOT be skipped just because item_name already matches -- RetagClothingItems'
+-- item_name-change guard exists specifically to avoid re-touching rows already
+-- migrated to a new type, which doesn't apply here.
+exports('SyncOwnedClothingMetadata', function(identity, metadataPatch)
+    identity = type(identity) == 'table' and identity or {}
+    metadataPatch = type(metadataPatch) == 'table' and metadataPatch or {}
+    if next(metadataPatch) == nil then return false, 'empty_patch' end
+
+    local gender = tostring(identity.gender or ''):lower()
+    local componentType = tostring(identity.componentType or 'component'):lower()
+    local componentIndex = tonumber(identity.componentIndex)
+    local drawableId = tonumber(identity.drawableId)
+    local textureId = tonumber(identity.textureId)
+    if not componentIndex or not drawableId then return false, 'invalid_identity' end
+    if textureId == nil then textureId = -1 end
+
+    local rows = MySQL.query.await(
+        "SELECT id, owner_type, owner_id, metadata FROM inventory_items WHERE item_name LIKE 'clothing_%'", {}
+    ) or {}
+
+    local ownerType = Config.OwnerType or 'character'
+    local updated, touchedOwners = 0, {}
+    for _, row in ipairs(rows) do
+        local metadata = decode(row.metadata)
+        local rowType = tostring(metadata.componentType or metadata.component_type or 'component'):lower()
+        local rowIndex = tonumber(metadata.componentIndex or metadata.component_index)
+        local rowDrawable = tonumber(metadata.drawableId or metadata.drawable)
+        local rowTexture = tonumber(metadata.textureId or metadata.texture)
+        if rowTexture == nil then rowTexture = -1 end
+        local rowGender = tostring(metadata.gender or ''):lower()
+
+        if rowType == componentType and rowIndex == componentIndex and rowDrawable == drawableId
+            and (textureId < 0 or rowTexture == textureId) and (gender == '' or rowGender == gender) then
+            for k, v in pairs(metadataPatch) do metadata[k] = v end
+            MySQL.update.await('UPDATE inventory_items SET metadata = ? WHERE id = ?', {
+                encode(metadata), row.id
+            })
+            updated = updated + 1
+            if tostring(row.owner_type) == tostring(ownerType) then
+                touchedOwners[tostring(row.owner_id)] = true
+            end
+        end
+    end
+
+    if next(touchedOwners) then
+        for _, playerId in ipairs(GetPlayers()) do
+            local src = tonumber(playerId)
+            if src then
+                local ok, srcOwnerType, srcOwnerId = pcall(getOwner, src)
+                if ok and srcOwnerType == ownerType and srcOwnerId and touchedOwners[tostring(srcOwnerId)] then
+                    sendInventorySmart(src)
+                    TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src)
+                end
+            end
+        end
+    end
+
+    return true, updated
+end)
+
+-- Re-sends inventory and equipment to everyone online.
+--
+-- Owned clothing items read their label/image/price/garment from the live
+-- catalog row every time they are loaded (see applyLiveClothingMetadata in
+-- items.lua), so after an admin edits the catalog nothing in the database needs
+-- rewriting -- the connected players just need to be told to read it again.
+-- Offline players pick the change up on their next login for free.
+exports('RefreshClothingDisplays', function()
+    local refreshed = 0
+    for _, playerId in ipairs(GetPlayers()) do
+        local src = tonumber(playerId)
+        if src then
+            pcall(function()
+                sendInventorySmart(src)
+                TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src)
+            end)
+            refreshed = refreshed + 1
+        end
+    end
+    return true, refreshed
+end)

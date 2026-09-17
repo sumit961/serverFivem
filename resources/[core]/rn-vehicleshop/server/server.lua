@@ -16,6 +16,8 @@ local CHARACTER_CACHE_TTL_MS = 30000
 local CATALOG_CACHE_TTL_MS = 15000
 local OwnedVehicleHasStoredColumn = false
 local ReplacementPollStarted = false
+local PendingReplacementResolveLocks = {}
+local AutomaticFallbackLocks = {}
 local ImageCaptureSequence = 0
 
 local function nowMs()
@@ -1861,7 +1863,7 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
     local modelOk, modelErr = isKnownOrAllowedModel(model, true)
     if not modelOk then return reject(modelErr or 'Invalid model.', 'invalid_model') end
 
-    local existingCatalog = MySQL.single.await('SELECT retired, replacement_model, image, mods FROM cm_vehicle_catalog WHERE model = ? LIMIT 1', { model })
+    local existingCatalog = MySQL.single.await('SELECT retired, replacement_model, image, metadata, mods FROM cm_vehicle_catalog WHERE model = ? LIMIT 1', { model })
     if existingCatalog then
         local activeReplacement = MySQL.single.await([[
             SELECT status FROM cm_vehicle_replacements
@@ -1946,6 +1948,7 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
     if testDriveTimer > 600 then testDriveTimer = 600 end
     local testDriveCost = math.floor(tonumber(data.testDriveCost or data.test_drive_cost) or tonumber(testDriveCfg.testDriveCost) or 0)
     if testDriveCost < 0 then testDriveCost = 0 end
+    local replacementNotice = safeUtf8Sub(data.replacementNotice or data.replacement_notice, 240, '')
 
     -- Keep any previously captured image unless this save provides a new path.
     local image = data.image and tostring(data.image) ~= '' and safeUtf8Sub(data.image, 255) or nil
@@ -1964,6 +1967,7 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
             label = label, category = category, price = price, speedKph = speedKph, trunkLevel = trunkLevel,
             availableStore = availableStore, availableServer = availableServer, availableEms = availableEms, availablePolice = availablePolice, legalOrg = legalOrg, gangId = gangId,
             hasCarplay = hasCarplay,
+            replacementNotice = replacementNotice,
             testDriveEnabled = testDriveEnabled, testDriveTimer = testDriveTimer, testDriveCost = testDriveCost, requestId = requestId
         })
         return
@@ -1991,15 +1995,16 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
             retired = 0,
             replacement_model = NULL
     ]]
-    local saveValues = { model, label, category, price, speedKph, trunkLevel, availableStore and 1 or 0, availableServer and 1 or 0, availableEms and 1 or 0, availablePolice and 1 or 0, legalOrg, gangId, image, encode({
-        savedBy = GetPlayerName(src),
-        savedAt = os.time(),
-        testDrive = {
-            enabled = testDriveEnabled,
-            duration = testDriveTimer,
-            cost = testDriveCost
-        }
-    }), savedMods, hasCarplay and 1 or 0 }
+    local catalogMetadata = decode(existingCatalog and existingCatalog.metadata)
+    catalogMetadata.savedBy = GetPlayerName(src)
+    catalogMetadata.savedAt = os.time()
+    catalogMetadata.replacementNotice = replacementNotice ~= '' and replacementNotice or nil
+    catalogMetadata.testDrive = {
+        enabled = testDriveEnabled,
+        duration = testDriveTimer,
+        cost = testDriveCost
+    }
+    local saveValues = { model, label, category, price, speedKph, trunkLevel, availableStore and 1 or 0, availableServer and 1 or 0, availableEms and 1 or 0, availablePolice and 1 or 0, legalOrg, gangId, image, encode(catalogMetadata), savedMods, hasCarplay and 1 or 0 }
     local writeOk, committed = pcall(function()
         return MySQL.transaction.await({ { query = saveQuery, values = saveValues } })
     end)
@@ -2013,7 +2018,7 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
     local successMessage = ('Saved %s.'):format(label)
     notify(src, successMessage, 'success')
     sendAdminActionResult(src, 'save', requestId, true, successMessage, { model=model })
-    structuredAdminLog('catalog', 'saved', src, { model = model, label = label, category = category, price = price, trunkLevel = trunkLevel, availableStore = availableStore, availableServer = availableServer, availableEms = availableEms, availablePolice = availablePolice, legalOrg = legalOrg, hasCarplay = hasCarplay, testDrive = { enabled = testDriveEnabled, duration = testDriveTimer, cost = testDriveCost } }, 'success')
+    structuredAdminLog('catalog', 'saved', src, { model = model, label = label, category = category, price = price, trunkLevel = trunkLevel, availableStore = availableStore, availableServer = availableServer, availableEms = availableEms, availablePolice = availablePolice, legalOrg = legalOrg, hasCarplay = hasCarplay, replacementNoticeConfigured = replacementNotice ~= '', testDrive = { enabled = testDriveEnabled, duration = testDriveTimer, cost = testDriveCost } }, 'success')
     local sourceList = flattenSourceVehicles()
     TriggerClientEvent('rn-vehicleshop:client:adminData', src, sourceList, getCatalog(true), adminMeta())
 end)
@@ -2135,6 +2140,247 @@ local function cleanupOrphanedPendingReplacementRecords()
     if removed > 0 then debugPrint(('Removed %d orphaned pending vehicle replacement record(s).'):format(removed)) end
     return removed
 end
+
+-- Finalize one already-authorized replacement immediately before cm-vehicles
+-- creates a new entity. This closes the recovery gap where an old streamed
+-- model is missing while its database row is still marked outside, so it can
+-- never be stored to satisfy the normal replacement poller.
+local function resolvePendingModelReplacementForSpawn(vehicleId)
+    vehicleId = tonumber(vehicleId)
+    if not vehicleId or vehicleId <= 0 then return false, 'invalid_vehicle_id' end
+    if PendingReplacementResolveLocks[vehicleId] then return false, 'replacement_busy' end
+    PendingReplacementResolveLocks[vehicleId] = true
+
+    local callOk, applied, result = pcall(function()
+        local row = MySQL.single.await([[
+            SELECT p.vehicle_id, p.old_model, p.new_model,
+                   v.model AS current_model, v.metadata,
+                   r.old_model AS replacement_old_model,
+                   r.new_model AS replacement_new_model,
+                   r.status AS replacement_status
+            FROM cm_vehicle_replacement_pending p
+            INNER JOIN cm_owned_vehicles v ON v.id = p.vehicle_id
+            INNER JOIN cm_vehicle_replacements r ON r.id = p.replacement_id
+            WHERE p.vehicle_id = ?
+            LIMIT 1
+        ]], { vehicleId })
+        if not row then return false, 'not_pending' end
+
+        local oldModel = normalizeModel(row.old_model)
+        local newModel = normalizeModel(row.new_model)
+        local currentModel = normalizeModel(row.current_model)
+        local replacementOld = normalizeModel(row.replacement_old_model)
+        local replacementNew = normalizeModel(row.replacement_new_model)
+        local replacementStatus = tostring(row.replacement_status or '')
+        local metadata = decode(row.metadata)
+        local restoring = tostring(metadata.replacementType or '') == 'restoring'
+            and normalizeModel(metadata.replacementOriginalModel) == newModel
+        local validForward = replacementOld == oldModel and replacementNew == newModel
+            and (replacementStatus == 'temporary' or replacementStatus == 'permanent')
+        local validRestore = replacementOld == newModel and replacementNew == oldModel
+            and replacementStatus == 'restored' and restoring
+
+        if not isValidModelName(oldModel) or not isValidModelName(newModel)
+            or (not validForward and not validRestore) then
+            return false, 'invalid_replacement_record'
+        end
+
+        if currentModel ~= newModel then
+            if currentModel ~= oldModel then return false, 'vehicle_model_changed' end
+            local updated = MySQL.update.await(
+                'UPDATE cm_owned_vehicles SET model = ? WHERE id = ? AND model = ?',
+                { newModel, vehicleId, oldModel }
+            )
+            if not updated or tonumber(updated) <= 0 then
+                local confirmed = normalizeModel(MySQL.scalar.await(
+                    'SELECT model FROM cm_owned_vehicles WHERE id = ? LIMIT 1', { vehicleId }
+                ))
+                if confirmed ~= newModel then return false, 'model_update_failed' end
+            end
+        end
+
+        if restoring then
+            MySQL.update.await([[
+                UPDATE cm_owned_vehicles
+                SET metadata = JSON_REMOVE(COALESCE(metadata, '{}'),
+                    '$.vehicleNotice', '$.replacementType', '$.permanentlyRemoved',
+                    '$.replacementOriginalModel', '$.replacementOriginalImage')
+                WHERE id = ?
+            ]], { vehicleId })
+        end
+
+        MySQL.update.await([[
+            DELETE FROM cm_vehicle_replacement_pending
+            WHERE vehicle_id = ? AND old_model = ? AND new_model = ?
+        ]], { vehicleId, oldModel, newModel })
+        cleanupCompletedReplacementRecords()
+        return true, newModel
+    end)
+
+    PendingReplacementResolveLocks[vehicleId] = nil
+    if not callOk then
+        debugPrint(('Could not resolve pending replacement for vehicle %s: %s')
+            :format(tostring(vehicleId), tostring(applied)))
+        return false, 'replacement_database_error'
+    end
+    return applied, result
+end
+
+-- Server-only compatibility contract for cm-vehicles. The caller supplies
+-- only the persistent vehicle ID; the target model is resolved from the
+-- authoritative replacement journal and is never accepted from a client.
+exports('ResolvePendingModelReplacement', function(vehicleId)
+    if GetInvokingResource() ~= 'cm-vehicles' then return false, 'not_allowed' end
+    return resolvePendingModelReplacementForSpawn(vehicleId)
+end)
+
+local DEFAULT_TEMPORARY_REPLACEMENT_NOTICE =
+    'This vehicle is temporarily using a Komoda because its original model is unavailable. It will be fixed soon.'
+
+local function temporaryReplacementNotice(catalogRow, requestedNotice)
+    local requested = safeUtf8Sub(requestedNotice, 240, '')
+    if requested ~= '' then return requested end
+    local metadata = decode(catalogRow and catalogRow.metadata)
+    local configured = safeUtf8Sub(metadata.replacementNotice, 240, '')
+    return configured ~= '' and configured or DEFAULT_TEMPORARY_REPLACEMENT_NOTICE
+end
+
+-- Server-only recovery contract used after cm-vehicles has failed to create an
+-- owned model. The persistent vehicle ID, owner, value, condition and plate do
+-- not change; only its model is conditionally moved to the known Komoda
+-- fallback. The original model remains in metadata and the existing restore
+-- workflow can move it back after the stream files are repaired.
+local function applyMissingModelFallback(vehicleId, reasonCode)
+    vehicleId = tonumber(vehicleId)
+    if not vehicleId or vehicleId <= 0 then return false, 'invalid_vehicle_id' end
+    if modelReplacementCfg().enabled == false then return false, 'replacement_disabled' end
+    if AutomaticFallbackLocks[vehicleId] or PendingReplacementResolveLocks[vehicleId] then
+        return false, 'replacement_busy'
+    end
+    AutomaticFallbackLocks[vehicleId] = true
+
+    local callOk, applied, result, notice = pcall(function()
+        local vehicle = MySQL.single.await(
+            'SELECT id, model, label, metadata FROM cm_owned_vehicles WHERE id = ? LIMIT 1',
+            { vehicleId }
+        )
+        if not vehicle then return false, 'vehicle_not_found' end
+
+        local currentModel = normalizeModel(vehicle.model)
+        local currentMetadata = decode(vehicle.metadata)
+        if currentModel == 'komoda' then
+            local originalModel = normalizeModel(currentMetadata.replacementOriginalModel)
+            if originalModel ~= '' and tostring(currentMetadata.replacementType or '') == 'temporary' then
+                return true, 'komoda', safeUtf8Sub(currentMetadata.vehicleNotice, 240,
+                    DEFAULT_TEMPORARY_REPLACEMENT_NOTICE)
+            end
+            return false, 'fallback_model_unavailable'
+        end
+        if not isValidModelName(currentModel) then return false, 'invalid_original_model' end
+
+        local komoda = MySQL.single.await(
+            'SELECT * FROM cm_vehicle_catalog WHERE model = ? LIMIT 1', { 'komoda' })
+        if not komoda then return false, 'komoda_not_in_catalog' end
+
+        local oldCatalog = MySQL.single.await(
+            'SELECT * FROM cm_vehicle_catalog WHERE model = ? LIMIT 1', { currentModel })
+        local replacement = MySQL.single.await(
+            'SELECT id, new_model, status FROM cm_vehicle_replacements WHERE old_model = ? LIMIT 1',
+            { currentModel }
+        )
+        if replacement and tostring(replacement.status or '') == 'permanent' then
+            return false, 'permanent_replacement_exists'
+        end
+        if replacement and tostring(replacement.status or '') == 'restored' then
+            local pendingRestores = tonumber(MySQL.scalar.await(
+                'SELECT COUNT(*) FROM cm_vehicle_replacement_pending WHERE replacement_id = ?',
+                { tonumber(replacement.id) }
+            )) or 0
+            if pendingRestores > 0 then return false, 'restore_in_progress' end
+        end
+        if replacement and tostring(replacement.status or '') ~= 'restored'
+            and normalizeModel(replacement.new_model) ~= 'komoda' then
+            return false, 'different_replacement_exists'
+        end
+
+        local fallbackNotice = temporaryReplacementNotice(oldCatalog)
+        local oldSnapshot = encode(oldCatalog and catalogSnapshot(oldCatalog) or {
+            model = currentModel,
+            label = vehicle.label,
+        })
+        local createdBy = 'system:' .. safeUtf8Sub(reasonCode, 48, 'model_unavailable')
+        local committed = MySQL.transaction.await({
+            {
+                query = [[
+                    INSERT INTO cm_vehicle_replacements
+                        (old_model, new_model, old_catalog, old_image, new_image, status, created_by, applied_at)
+                    VALUES (?, 'komoda', ?, ?, ?, 'temporary', ?, CURRENT_TIMESTAMP)
+                    ON DUPLICATE KEY UPDATE
+                        new_model = VALUES(new_model), old_catalog = VALUES(old_catalog),
+                        old_image = VALUES(old_image), new_image = VALUES(new_image),
+                        status = 'temporary', created_by = VALUES(created_by), applied_at = CURRENT_TIMESTAMP
+                ]],
+                values = {
+                    currentModel, oldSnapshot, oldCatalog and oldCatalog.image or nil,
+                    komoda.image, createdBy
+                }
+            },
+            {
+                query = [[
+                    UPDATE cm_owned_vehicles
+                    SET model = 'komoda',
+                        metadata = JSON_SET(COALESCE(metadata, '{}'),
+                            '$.vehicleNotice', ?, '$.replacementType', 'temporary',
+                            '$.permanentlyRemoved', false,
+                            '$.replacementOriginalModel', ?, '$.replacementOriginalImage', ?)
+                    WHERE id = ? AND model = ?
+                ]],
+                values = {
+                    fallbackNotice, currentModel,
+                    oldCatalog and tostring(oldCatalog.image or '') or '',
+                    vehicleId, currentModel
+                }
+            }
+        })
+        if committed ~= true then return false, 'fallback_transaction_failed' end
+
+        local confirmed = MySQL.single.await(
+            'SELECT model, metadata FROM cm_owned_vehicles WHERE id = ? LIMIT 1', { vehicleId })
+        local confirmedMetadata = decode(confirmed and confirmed.metadata)
+        if normalizeModel(confirmed and confirmed.model) ~= 'komoda'
+            or normalizeModel(confirmedMetadata.replacementOriginalModel) ~= currentModel then
+            return false, 'fallback_update_not_confirmed'
+        end
+
+        structuredAdminLog('catalog', 'automatic_missing_model_fallback', 0, {
+            vehicleId = vehicleId,
+            oldModel = currentModel,
+            newModel = 'komoda',
+            reason = safeUtf8Sub(reasonCode, 48, 'model_unavailable'),
+            preservedVehicleId = true,
+        }, 'warning')
+        return true, 'komoda', fallbackNotice
+    end)
+
+    AutomaticFallbackLocks[vehicleId] = nil
+    if not callOk then
+        debugPrint(('Automatic Komoda fallback failed for vehicle %s: %s')
+            :format(tostring(vehicleId), tostring(applied)))
+        return false, 'fallback_database_error'
+    end
+    return applied, result, notice
+end
+
+exports('ApplyMissingModelFallback', function(vehicleId, reasonCode)
+    if GetInvokingResource() ~= 'cm-vehicles' then return false, 'not_allowed' end
+    local allowedReasons = {
+        model_unavailable = true,
+        server_create_failed = true,
+    }
+    reasonCode = tostring(reasonCode or '')
+    if not allowedReasons[reasonCode] then return false, 'invalid_reason' end
+    return applyMissingModelFallback(vehicleId, reasonCode)
+end)
 
 local function processPendingModelReplacements()
     cleanupOrphanedPendingReplacementRecords()
@@ -2263,7 +2509,7 @@ local function safeApplyModelReplacement(src, data)
     local oldSnapshot = encode(catalogSnapshot(oldRow))
     local notice = permanent
         and 'This vehicle model was permanently removed. Sell this vehicle to the state to receive a full refund.'
-        or ('Temporary model replacement: this vehicle is using %s while %s is unavailable. Its name, photo, ownership, value, modifications and condition are unchanged.'):format(newModel, oldModel)
+        or temporaryReplacementNotice(oldRow, data.notice)
     local replacementStatus = permanent and 'permanent' or 'temporary'
     local createdBy = GetPlayerName(src) or ('source:' .. tostring(src))
     local operations = {
@@ -2361,6 +2607,80 @@ RegisterNetEvent('rn-vehicleshop:server:replaceAdminVehicle', function(data)
     if success then
         TriggerClientEvent('rn-vehicleshop:client:adminData', src, flattenSourceVehicles(), getCatalog(true), adminMeta())
     end
+end)
+
+RegisterNetEvent('rn-vehicleshop:server:updateReplacementNotice', function(data)
+    local src = source
+    data = type(data) == 'table' and data or {}
+    local requestId = adminRequestId(data.requestId)
+    local function reject(message, code)
+        sendAdminActionResult(src, 'notice', requestId, false, message, { code = code or 'rejected' })
+        notify(src, message, 'error')
+        return false
+    end
+    if not isAdmin(src) then return reject('No permission.', 'permission_denied') end
+    if AdminModes[src] ~= 'manage' then return reject('Use /managevehicle first.', 'wrong_admin_mode') end
+    if not checkRateLimit(src, 'replacementNotice', 1000) then
+        return reject('Please wait before updating the message again.', 'rate_limited')
+    end
+
+    local model = normalizeModel(data.model)
+    if not isValidModelName(model) then return reject('Invalid model.', 'invalid_model') end
+    local catalog = MySQL.single.await(
+        'SELECT model, metadata FROM cm_vehicle_catalog WHERE model = ? LIMIT 1', { model })
+    if not catalog then return reject('Vehicle was not found in the catalog.', 'catalog_missing') end
+
+    local configuredNotice = safeUtf8Sub(data.notice, 240, '')
+    local effectiveNotice = configuredNotice ~= ''
+        and configuredNotice or DEFAULT_TEMPORARY_REPLACEMENT_NOTICE
+    local catalogQuery
+    local catalogValues
+    if configuredNotice ~= '' then
+        catalogQuery = [[
+            UPDATE cm_vehicle_catalog
+            SET metadata = JSON_SET(COALESCE(metadata, '{}'), '$.replacementNotice', ?)
+            WHERE model = ?
+        ]]
+        catalogValues = { configuredNotice, model }
+    else
+        catalogQuery = [[
+            UPDATE cm_vehicle_catalog
+            SET metadata = JSON_REMOVE(COALESCE(metadata, '{}'), '$.replacementNotice')
+            WHERE model = ?
+        ]]
+        catalogValues = { model }
+    end
+
+    local writeOk, committed = pcall(function()
+        return MySQL.transaction.await({
+            { query = catalogQuery, values = catalogValues },
+            {
+                query = [[
+                    UPDATE cm_owned_vehicles
+                    SET metadata = JSON_SET(COALESCE(metadata, '{}'), '$.vehicleNotice', ?)
+                    WHERE JSON_VALID(metadata)
+                      AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.replacementOriginalModel'))) = ?
+                      AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.replacementType')) IN ('temporary', 'restoring')
+                ]],
+                values = { effectiveNotice, model }
+            }
+        })
+    end)
+    if not writeOk or committed ~= true then
+        return reject('The fallback message was not updated.', 'database_write_failed')
+    end
+
+    invalidateCatalogCache()
+    structuredAdminLog('catalog', 'replacement_notice_updated', src, {
+        model = model,
+        custom = configuredNotice ~= '',
+    }, 'success')
+    local message = configuredNotice ~= ''
+        and 'Fallback message updated.' or 'Fallback message reset to the default.'
+    notify(src, message, 'success')
+    sendAdminActionResult(src, 'notice', requestId, true, message, { model = model })
+    TriggerClientEvent('rn-vehicleshop:client:adminData', src,
+        flattenSourceVehicles(), getCatalog(true), adminMeta())
 end)
 
 RegisterNetEvent('rn-vehicleshop:server:disableAdminVehicle', function(model)

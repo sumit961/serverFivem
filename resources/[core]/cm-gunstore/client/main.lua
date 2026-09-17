@@ -11,12 +11,20 @@ local Perf = Config.Perf or { farSleep = 1500, nearSleep = 400, activeSleep = 0 
 local isOpen = false
 local currentMode = 'store'
 local shopPeds = {}
+local shopBlips = {}
 local activeShop = nil
-local interactionVisible = false
-local interactionKey = ''
+
+-- True while the NPC is talking (cm-ui's cinematic dialogue is on screen).
+-- Distinct from `isOpen`, which tracks cm-gunstore's own catalog NUI.
+local dialogueActive = false
+local uiPromptVisible = false
+
+-- Shops = Config.Shops (built-in) + custom NPCs added live from /gunadmin.
+-- Rebuilt whenever the server pushes an updated custom NPC list.
+local Shops = {}
 
 -- forward declares
-local setOpen, requestCatalog, closeUi, getShopCoordsAndHeading, drawMarkerAt, spawnShopPeds, cleanupShopPeds
+local setOpen, requestCatalog, closeUi, getShopCoordsAndHeading, drawMarkerAt, spawnShopPeds, cleanupShopPeds, refreshBlips, rebuildShops
 
 math.randomseed(GetGameTimer())
 
@@ -29,15 +37,23 @@ local function nui(action, payload)
 end
 
 -- ============================================================
--- Screen interaction prompt (only re-sent when its content changes)
+-- NPC interact prompt + cinematic dialogue: both provided by cm-ui, the
+-- shared design system every other job/NPC resource in this framework uses
+-- (cm-license, cm-electrician, cm-police). See cm-ui/docs/CM_UI_USAGE.md.
+-- These wrappers just no-op safely if cm-ui isn't running.
 -- ============================================================
-local function setScreenInteraction(show, payload)
-    payload = payload or {}
-    local key = show and ((payload.clerkName or '') .. '|' .. (payload.title or '') .. '|' .. (payload.subtitle or '')) or ''
-    if interactionVisible == show and interactionKey == key then return end
-    interactionVisible = show == true
-    interactionKey = key
-    nui('interaction', { show = interactionVisible, clerkName = payload.clerkName, title = payload.title, subtitle = payload.subtitle, key = payload.key or 'E' })
+local function uiAvailable()
+    return GetResourceState('cm-ui') == 'started'
+end
+
+local function uiShowInteract(payload)
+    if not uiAvailable() then return end
+    exports['cm-ui']:ShowInteract(payload)
+end
+
+local function uiHideInteract()
+    if not uiAvailable() then return end
+    exports['cm-ui']:HideInteract()
 end
 
 local function drawText3D(coords, lines)
@@ -135,24 +151,75 @@ local function playFarewell(shop)
 end
 
 -- ============================================================
--- Dialog / UI open-close
+-- NPC dialogue -- cm-ui's shared cinematic dialogue (scripted camera +
+-- letterbox NUI) instead of a one-off camera/NUI built into this resource.
+-- Same component cm-license/cm-electrician/cm-police use for their NPCs.
 -- ============================================================
 local function openNpcDialog(shop)
-    if isOpen then return end
-    setScreenInteraction(false)
+    if isOpen or dialogueActive then return end
+    if not shop or not shop._ped or not DoesEntityExist(shop._ped) then return end
+    if not uiAvailable() then
+        dbg('cm-ui is not started -- cannot open the gun store NPC dialogue')
+        return
+    end
+
+    uiHideInteract()
+    uiPromptVisible = false
     activeShop = shop
-    currentMode = 'dialog'
-    setOpen(true)
-    local pedConfig = Config.Ped or {}
-    local dialog = pedConfig.dialog or {}
-    nui('dialog', {
-        clerkName = shop and shop._clerkName or 'Gun Store Clerk',
-        title = dialog.title or 'How can I help you today?',
-        optionStore = dialog.optionStore or 'Show me what you have got',
-        optionLicense = dialog.optionLicense or 'Buy a firearms license',
-        optionClose = dialog.optionClose or 'No thanks'
+    dialogueActive = true
+
+    local dialog = (Config.Ped or {}).dialog or {}
+    exports['cm-ui']:OpenNpcDialogue(shop._ped, {
+        name = shop._clerkName or 'Gun Store Clerk',
+        role = 'GUN STORE',
+        quote = dialog.title or 'How can I help you today?',
+        choices = {
+            {
+                id = 'store',
+                label = dialog.optionStore or 'Show me what you have got',
+                description = 'Browse weapons, ammo, and armor',
+                event = 'cm-gunstore:client:dialogueChoiceStore',
+            },
+            {
+                id = 'license',
+                label = dialog.optionLicense or 'Buy a firearms license',
+                description = 'Firearms license office',
+                event = 'cm-gunstore:client:dialogueChoiceLicense',
+                close = false, -- stays open; the server's reply closes it via NpcDialogueRespond
+            },
+        },
+        closeEvent = 'cm-gunstore:client:dialogueDismissed',
     })
 end
+
+-- Player picked "Show me what you have got": cm-ui already closed its own
+-- dialogue (default choice.close behavior), so just open the catalog.
+AddEventHandler('cm-gunstore:client:dialogueChoiceStore', function()
+    dialogueActive = false
+    requestCatalog('store')
+end)
+
+-- Player picked "Buy a firearms license": dialogue stays open (choice.close
+-- = false above) until the server answers via licenseResult below.
+AddEventHandler('cm-gunstore:client:dialogueChoiceLicense', function()
+    TriggerServerEvent('cm-gunstore:server:buyLicense')
+end)
+
+RegisterNetEvent('cm-gunstore:client:licenseResult', function(message, ok)
+    if uiAvailable() then
+        exports['cm-ui']:NpcDialogueRespond(tostring(message or ''), ok and 'success' or 'error', 2400)
+    end
+    dialogueActive = false
+    activeShop = nil
+end)
+
+-- Player dismissed the dialogue (Esc or "I'm not interested right now").
+AddEventHandler('cm-gunstore:client:dialogueDismissed', function()
+    local shop = activeShop
+    dialogueActive = false
+    activeShop = nil
+    playFarewell(shop)
+end)
 
 function setOpen(value)
     isOpen = value == true
@@ -167,7 +234,6 @@ end
 
 function closeUi()
     activeShop = nil
-    setScreenInteraction(false)
     setOpen(false)
     nui('close', {})
 end
@@ -218,34 +284,47 @@ end
 function spawnShopPeds()
     if Config.Ped and Config.Ped.enabled == false then return end
     local pedConfig = Config.Ped or {}
-    local hash = loadModel(pedConfig.model or 's_m_y_ammucity_01')
-    if not hash then return end
+    local defaultHash = loadModel(pedConfig.model or 's_m_y_ammucity_01')
+    local loadedCustomHashes = {}
 
-    for index, shop in ipairs(Config.Shops or {}) do
+    for index, shop in ipairs(Shops or {}) do
         local coords, heading = getShopCoordsAndHeading(shop)
         if coords then
-            shop._clerkName = shop.name or shop.clerkName or getRandomClerkName(index)
-            local ped = CreatePed(4, hash, coords.x, coords.y, coords.z - 1.0, heading, false, true)
-            if ped and ped ~= 0 then
-                SetEntityAsMissionEntity(ped, true, true)
-                SetEntityHeading(ped, heading)
-                SetBlockingOfNonTemporaryEvents(ped, pedConfig.blockEvents ~= false)
-                SetPedCanRagdoll(ped, false)
-                SetPedDiesWhenInjured(ped, false)
-                SetPedFleeAttributes(ped, 0, false)
-                SetPedCombatAttributes(ped, 46, true)
-                if pedConfig.invincible ~= false then SetEntityInvincible(ped, true) end
-                if pedConfig.freeze ~= false then FreezeEntityPosition(ped, true) end
-                if pedConfig.scenario and pedConfig.scenario ~= '' then
-                    TaskStartScenarioInPlace(ped, pedConfig.scenario, 0, true)
+            local hash = defaultHash
+            if shop.model and shop.model ~= '' then
+                hash = loadedCustomHashes[shop.model]
+                if not hash then
+                    hash = loadModel(shop.model)
+                    if hash then loadedCustomHashes[shop.model] = hash end
                 end
-                shopPeds[index] = ped
-                shop._ped = ped
-                dbg(('spawned gun store npc index=%s'):format(index))
+                if not hash then hash = defaultHash end
+            end
+            if hash then
+                shop._clerkName = shop.name or shop.clerkName or getRandomClerkName(index)
+                local ped = CreatePed(4, hash, coords.x, coords.y, coords.z - 1.0, heading, false, true)
+                if ped and ped ~= 0 then
+                    SetEntityAsMissionEntity(ped, true, true)
+                    SetEntityHeading(ped, heading)
+                    SetBlockingOfNonTemporaryEvents(ped, pedConfig.blockEvents ~= false)
+                    SetPedCanRagdoll(ped, false)
+                    SetPedDiesWhenInjured(ped, false)
+                    SetPedFleeAttributes(ped, 0, false)
+                    SetPedCombatAttributes(ped, 46, true)
+                    if pedConfig.invincible ~= false then SetEntityInvincible(ped, true) end
+                    if pedConfig.freeze ~= false then FreezeEntityPosition(ped, true) end
+                    local scenario = (shop.scenario and shop.scenario ~= '') and shop.scenario or pedConfig.scenario
+                    if scenario and scenario ~= '' then
+                        TaskStartScenarioInPlace(ped, scenario, 0, true)
+                    end
+                    shopPeds[index] = ped
+                    shop._ped = ped
+                    dbg(('spawned gun store npc index=%s custom=%s'):format(index, tostring(shop.custom == true)))
+                end
             end
         end
     end
-    SetModelAsNoLongerNeeded(hash)
+    if defaultHash then SetModelAsNoLongerNeeded(defaultHash) end
+    for _, hash in pairs(loadedCustomHashes) do SetModelAsNoLongerNeeded(hash) end
 end
 
 function cleanupShopPeds()
@@ -253,6 +332,65 @@ function cleanupShopPeds()
         if ped and DoesEntityExist(ped) then DeleteEntity(ped) end
     end
     shopPeds = {}
+end
+
+-- ============================================================
+-- Blips (rebuilt whenever the shop list changes)
+-- ============================================================
+function refreshBlips()
+    for _, blip in ipairs(shopBlips) do
+        if DoesBlipExist(blip) then RemoveBlip(blip) end
+    end
+    shopBlips = {}
+    for _, shop in ipairs(Shops or {}) do
+        if shop.blip and shop.coords then
+            local blip = AddBlipForCoord(shop.coords.x, shop.coords.y, shop.coords.z)
+            SetBlipSprite(blip, shop.blip.sprite or 110)
+            SetBlipColour(blip, shop.blip.color or 1)
+            SetBlipScale(blip, shop.blip.scale or 0.65)
+            SetBlipAsShortRange(blip, true)
+            BeginTextCommandSetBlipName('STRING')
+            AddTextComponentString(shop.label or 'Gun Store')
+            EndTextCommandSetBlipName(blip)
+            shopBlips[#shopBlips + 1] = blip
+        end
+    end
+end
+
+-- ============================================================
+-- Custom NPCs: merge Config.Shops with whatever /gunadmin added, then
+-- respawn peds + blips. Called on resource start and whenever the server
+-- pushes an updated custom NPC list (npcsSync).
+-- ============================================================
+local function customNpcRowToShop(row)
+    row = type(row) == 'table' and row or {}
+    local blip = nil
+    if Config.Interact and Config.Interact.customNpcBlip ~= false then
+        blip = { sprite = 110, color = 1, scale = 0.65 }
+    end
+    return {
+        id = row.id,
+        custom = true,
+        label = tostring(row.label or 'Gun Store'),
+        name = tostring(row.name or 'Gun Store Clerk'),
+        model = tostring(row.model or ''),
+        scenario = tostring(row.scenario or ''),
+        coords = vec3(tonumber(row.x) or 0.0, tonumber(row.y) or 0.0, tonumber(row.z) or 0.0),
+        pedCoords = vec4(tonumber(row.x) or 0.0, tonumber(row.y) or 0.0, tonumber(row.z) or 0.0, tonumber(row.heading) or 0.0),
+        blip = blip
+    }
+end
+
+function rebuildShops(customRows)
+    cleanupShopPeds()
+    local list = {}
+    for i, s in ipairs(Config.Shops or {}) do list[i] = s end
+    for _, row in ipairs(customRows or {}) do
+        list[#list + 1] = customNpcRowToShop(row)
+    end
+    Shops = list
+    spawnShopPeds()
+    refreshBlips()
 end
 
 -- ============================================================
@@ -374,6 +512,30 @@ RegisterNUICallback('adminCreateAmmo', function(data, cb)
     cb({ ok = true })
 end)
 
+RegisterNUICallback('adminRequestNpcs', function(_, cb)
+    TriggerServerEvent('cm-gunstore:server:adminRequestNpcs')
+    cb({ ok = true })
+end)
+
+-- Admin clicks "Add NPC Here": read the admin's OWN current position/heading
+-- and forward it with the name/model/scenario typed in the NUI form.
+RegisterNUICallback('adminCreateNpcHere', function(data, cb)
+    data = type(data) == 'table' and data or {}
+    local ped = PlayerPedId()
+    local coords = GetEntityCoords(ped)
+    local heading = GetEntityHeading(ped)
+    TriggerServerEvent('cm-gunstore:server:adminCreateNpc', {
+        name = data.name, label = data.label, model = data.model, scenario = data.scenario,
+        x = coords.x, y = coords.y, z = coords.z, heading = heading
+    })
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('adminDeleteNpc', function(data, cb)
+    TriggerServerEvent('cm-gunstore:server:adminDeleteNpc', data or {})
+    cb({ ok = true })
+end)
+
 RegisterNUICallback('adminOpenVestCapture', function(_, cb)
     closeUi()
     TriggerServerEvent('cm-gunstore:server:openArmorCapture')
@@ -381,24 +543,7 @@ RegisterNUICallback('adminOpenVestCapture', function(_, cb)
 end)
 
 RegisterNUICallback('refreshCatalog', function(_, cb)
-    requestCatalog(currentMode == 'dialog' and 'store' or currentMode)
-    cb({ ok = true })
-end)
-
-RegisterNUICallback('dialogOpenStore', function(_, cb)
-    requestCatalog('store')
-    cb({ ok = true })
-end)
-
-RegisterNUICallback('dialogBuyLicense', function(_, cb)
-    TriggerServerEvent('cm-gunstore:server:buyLicense')
-    cb({ ok = true })
-end)
-
-RegisterNUICallback('dialogClose', function(_, cb)
-    local shop = activeShop
-    closeUi()
-    playFarewell(shop)
+    requestCatalog(currentMode)
     cb({ ok = true })
 end)
 
@@ -430,26 +575,25 @@ RegisterNUICallback('getVestList', function(_, cb)
 end)
 
 -- ============================================================
--- Blips
+-- Custom NPC sync from server
 -- ============================================================
-CreateThread(function()
-    for _, shop in ipairs(Config.Shops or {}) do
-        if shop.blip and shop.coords then
-            local blip = AddBlipForCoord(shop.coords.x, shop.coords.y, shop.coords.z)
-            SetBlipSprite(blip, shop.blip.sprite or 110)
-            SetBlipColour(blip, shop.blip.color or 1)
-            SetBlipScale(blip, shop.blip.scale or 0.65)
-            SetBlipAsShortRange(blip, true)
-            BeginTextCommandSetBlipName('STRING')
-            AddTextComponentString(shop.label or 'Gun Store')
-            EndTextCommandSetBlipName(blip)
-        end
-    end
+RegisterNetEvent('cm-gunstore:client:npcsSync', function(rows)
+    rebuildShops(rows or {})
 end)
 
+RegisterNetEvent('cm-gunstore:client:npcAdminList', function(rows)
+    nui('npcAdminList', { list = rows or {} })
+end)
+
+-- Static Config.Shops spawn immediately so there is no visual delay; custom
+-- NPCs added from /gunadmin are merged in as soon as the server responds.
 CreateThread(function()
     Wait(800)
+    Shops = {}
+    for i, s in ipairs(Config.Shops or {}) do Shops[i] = s end
     spawnShopPeds()
+    refreshBlips()
+    TriggerServerEvent('cm-gunstore:server:requestShops')
 end)
 
 -- ============================================================
@@ -469,8 +613,10 @@ CreateThread(function()
     while true do
         local sleep = Perf.farSleep
         local pos = GetEntityCoords(PlayerPedId())
+        local busy = isOpen or dialogueActive
+        local nearAny = false
 
-        for _, shop in ipairs(Config.Shops or {}) do
+        for _, shop in ipairs(Shops or {}) do
             local coords
             if shop._ped and DoesEntityExist(shop._ped) then
                 coords = GetEntityCoords(shop._ped)
@@ -489,7 +635,7 @@ CreateThread(function()
 
                     local clerkName = shop._clerkName or 'Gun Store Clerk'
 
-                    if dist <= speechDistance and not isOpen then
+                    if dist <= speechDistance and not busy then
                         if shop._wasNear ~= true then
                             shop._wasNear = true
                             shop._nextGreetingAt = 0
@@ -500,30 +646,35 @@ CreateThread(function()
                         clearNpcSpeech(shop)
                     end
 
-                    if dist <= nameDistance and not isOpen and (Config.Ped == nil or Config.Ped.showName ~= false) then
+                    if dist <= nameDistance and not busy and (Config.Ped == nil or Config.Ped.showName ~= false) then
                         drawText3D(vec3(coords.x, coords.y, coords.z + (pedConfig.nameHeight or 1.28)), {
                             { text = clerkName, r = 93, g = 232, b = 255, a = 245, scale = 1.0, box = false }
                         })
                     end
 
-                    if dist <= interactDistance and not isOpen then
+                    if dist <= interactDistance and not busy then
                         -- at the counter: need 0ms for responsive marker + E press
                         sleep = Perf.activeSleep
-                        setScreenInteraction(true, {
-                            clerkName = clerkName,
-                            title = Config.Interact.title or 'Talk to Clerk',
-                            subtitle = Config.Interact.subtitle or 'Browse weapons, ammo, and armor',
-                            key = Config.Interact.keyLabel or 'E'
+                        nearAny = true
+                        uiShowInteract({
+                            key = Config.Interact.keyLabel or 'E',
+                            label = 'INTERACTION',
+                            name = clerkName,
+                            role = 'GUN STORE'
                         })
+                        uiPromptVisible = true
                         if IsControlJustPressed(0, Config.Interact.key or 38) then
                             openNpcDialog(shop)
                             Wait(350)
                         end
-                    elseif interactionVisible and not isOpen then
-                        setScreenInteraction(false)
                     end
                 end
             end
+        end
+
+        if not nearAny and uiPromptVisible then
+            uiHideInteract()
+            uiPromptVisible = false
         end
 
         Wait(sleep)
@@ -553,14 +704,21 @@ end)
 AddEventHandler('onResourceStop', function(resourceName)
     if resourceName ~= GetCurrentResourceName() then return end
     closeUi()
+    if uiAvailable() then
+        exports['cm-ui']:HideInteract()
+        exports['cm-ui']:CancelNpcDialogue()
+    end
     cleanupShopPeds()
+    for _, blip in ipairs(shopBlips) do
+        if DoesBlipExist(blip) then RemoveBlip(blip) end
+    end
     SetNuiFocus(false, false)
     SetNuiFocusKeepInput(false)
 end)
 
 if Config.EnableDebugCommand == true then
     RegisterCommand(Config.DebugCommand or 'guntargetdebug', function()
-        for index, shop in ipairs(Config.Shops or {}) do
+        for index, shop in ipairs(Shops or {}) do
             print(('[cm-gunstore] npc index=%s exists=%s'):format(index, tostring(shop._ped and DoesEntityExist(shop._ped))))
         end
     end, false)

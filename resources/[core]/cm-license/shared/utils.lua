@@ -4,6 +4,7 @@ Utils = {}
 
 -- Convert timestamp to readable date string
 function Utils.FormatDate(timestamp)
+    timestamp = tonumber(timestamp)
     if not timestamp or timestamp == 0 then
         return 'Never'
     end
@@ -12,11 +13,11 @@ end
 
 -- Calculate remaining days until expiration
 function Utils.CalculateRemainingDays(expiresAt)
+    expiresAt = tonumber(expiresAt)
     if not expiresAt then
         return 0
     end
-    local now = os.time()
-    local secondsLeft = expiresAt - now
+    local secondsLeft = expiresAt - os.time()
     if secondsLeft <= 0 then
         return 0
     end
@@ -25,6 +26,7 @@ end
 
 -- Check if license is expired
 function Utils.IsExpired(expiresAt)
+    expiresAt = tonumber(expiresAt)
     if not expiresAt then
         return true
     end
@@ -33,7 +35,7 @@ end
 
 -- Calculate expiration timestamp from days
 function Utils.CalculateExpiration(validDays)
-    return os.time() + (validDays * 86400)
+    return os.time() + ((tonumber(validDays) or 30) * 86400)
 end
 
 -- Format money with commas
@@ -48,21 +50,18 @@ function Utils.Distance(v1, v2)
     return #(v1 - v2)
 end
 
+-- Squared distance between a vector and a table of {x, y, z}
+function Utils.DistanceSquared(coords, point)
+    if not coords or not point then return math.huge end
+    local dx = coords.x - point.x
+    local dy = coords.y - point.y
+    local dz = coords.z - point.z
+    return (dx * dx) + (dy * dy) + (dz * dz)
+end
+
 -- Check if player is in range of coordinates
 function Utils.IsPlayerNear(playerCoords, targetCoords, distance)
     return Utils.Distance(playerCoords, targetCoords) <= distance
-end
-
--- Merge two tables
-function Utils.MergeTables(t1, t2)
-    local result = {}
-    for k, v in pairs(t1 or {}) do
-        result[k] = v
-    end
-    for k, v in pairs(t2 or {}) do
-        result[k] = v
-    end
-    return result
 end
 
 -- Deep copy a table
@@ -86,37 +85,23 @@ end
 
 -- Validate coordinates format
 function Utils.IsValidCoords(coords)
-    if not coords then return false end
-    if type(coords) == 'table' then
-        return coords.x and coords.y and coords.z and 
-               type(coords.x) == 'number' and 
-               type(coords.y) == 'number' and 
-               type(coords.z) == 'number'
-    end
-    return false
+    if type(coords) ~= 'table' then return false end
+    return type(coords.x) == 'number' and type(coords.y) == 'number' and type(coords.z) == 'number'
 end
 
--- Get vehicle category from model
-function Utils.GetVehicleCategory(modelName)
-    -- This would need to be expanded with actual vehicle model lists
-    -- For now, basic categorization
-    local boatModels = {'dinghy', 'jetmax', 'speeder', 'tug', 'trash', 'trflat', 'tugboat', 'predator', 'seashark', 'squalo', 'coastguard'}
-    local airModels = {'frogger', 'maverick', 'swift', 'annihilator', 'cargobob', 'buzzard', 'police_maverick', 'volatus', 'akula', 'hunter', 'lazer', 'jet', 'p996lazer', 'dodo', 'mallard', 'luxor', 'vestra', 'velum', 'shamal'}
-    
-    local model = string.lower(modelName or '')
-    for _, boatModel in pairs(boatModels) do
-        if string.find(model, boatModel) then
-            return 'boat'
-        end
-    end
-    
-    for _, airModel in pairs(airModels) do
-        if string.find(model, airModel) then
-            return 'air'
-        end
-    end
-    
-    return 'ground'
+-- Decode a value that may already be a table or may be a JSON string
+function Utils.DecodeObject(value)
+    if type(value) == 'table' then return value end
+    if type(value) ~= 'string' then return nil end
+    local ok, decoded = pcall(json.decode, value)
+    return ok and type(decoded) == 'table' and decoded or nil
+end
+
+-- The client touch radius for a vehicle category
+function Utils.TouchRadius(category)
+    local touch = CMLicenseConfig and CMLicenseConfig.Checkpoint and CMLicenseConfig.Checkpoint.Touch
+    if not touch then return 4.0 end
+    return touch[tostring(category or 'ground')] or touch.ground or 4.0
 end
 
 -- Clamp number between min and max
@@ -130,24 +115,6 @@ end
 function Utils.Round(num, decimals)
     local mult = 10 ^ (decimals or 0)
     return math.floor(num * mult + 0.5) / mult
-end
-
--- Generate unique ID
-function Utils.GenerateId()
-    return math.random(100000, 999999)
-end
-
--- Check if player is in vehicle
-function Utils.IsPlayerInVehicle(ped)
-    return IsPedInAnyVehicle(ped, false)
-end
-
--- Get player's current vehicle
-function Utils.GetPlayerVehicle(ped)
-    if not Utils.IsPlayerInVehicle(ped) then
-        return nil
-    end
-    return GetVehiclePedIsIn(ped, false)
 end
 
 return Utils

@@ -866,7 +866,7 @@ function cmOffline(action, characterId, identifier) {
 // Uses the same stitched 6-tile atlas style as cm-climatime, but with admin
 // selection/action panels for players and vehicles.
 // ---------------------------------------------------------------------------
-const MAP_DEFAULT_BOUNDS = { minX: -4000, maxX: 4500, minY: -4300, maxY: 8000 };
+const MAP_DEFAULT_BOUNDS = { minX: -3900, maxX: 4619, minY: -4764, maxY: 7510 };
 let mapImg = null, mapImgTried = false, mapDrawQueued = false;
 
 function cleanBounds(input) {

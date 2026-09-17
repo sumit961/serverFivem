@@ -5,7 +5,7 @@ lua54 'yes'
 name        'cm-family'
 author      'Sumit'
 description 'CM Framework | Family system (ranks, vehicles, bank, family house)'
-version     '1.6.20'
+version     '1.7.6'
 
 shared_scripts {
     '@ox_lib/init.lua',
@@ -13,14 +13,15 @@ shared_scripts {
 }
 
 client_scripts {
+    'client/cl_ui_bridge.lua',
     'client/cl_npc.lua',
     'client/cl_menu.lua',
     'client/cl_invites.lua',
     'client/cl_gmenu.lua',
     'client/cl_chat.lua',
     'client/cl_tracking.lua',
+    'client/cl_raid.lua',
     'client/cl_admin.lua',
-    'client/cl_armory.lua',
 }
 
 server_scripts {
@@ -30,10 +31,10 @@ server_scripts {
     'server/sv_core.lua',     -- state + HasHousePermission (the seam cm-house calls)
     'server/sv_audit.lua',    -- durable activity audit + cm-admin read contract
     'server/sv_vehicles.lua', -- per-vehicle access level
+    'server/sv_raid.lua',     -- family-vs-family raid event
     'server/sv_ranks.lua',    -- rank create/edit with authority rules
     'server/sv_members.lua',  -- invite/kick/promote/succession
     'server/sv_bank.lua',     -- family bank
-    'server/sv_armory.lua',   -- stocked family quartermaster (shared cm-law backend)
     'server/sv_gmenu.lua',    -- cm-playerdata G-menu integration
     'server/sv_chat.lua',     -- private family chat + cm-chat integration event
     'server/sv_menu.lua',     -- NPC create flow + menu callbacks
@@ -47,6 +48,7 @@ files {
     'html/css/*.css',
     'html/js/*.js',
     'html/fonts/*.ttf',
+    'html/assets/*.png',
     'audit_pending.json',
 }
 
@@ -56,9 +58,8 @@ dependencies {
     'cm-house',
     'cm-playerdata',
     'cm-vehiclekeys',
-    'cm-inventory', -- armory checkout/deposit now calls cm-inventory directly
-    'cm-ui',        -- shared cm-theme.css / cm-armory.css skin
-    'cm-law',       -- shared armory backend (server/sv_armory.lua); cm-law never depends on cm-family, so this is not a cycle
+    'cm-ui',
+    'cm-hud',
 }
 
 -- Soft/optional at runtime:

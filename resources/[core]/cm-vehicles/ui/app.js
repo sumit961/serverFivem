@@ -99,7 +99,7 @@ $('infoBack')?.addEventListener('click', backToMenu);
 $('pickerBack')?.addEventListener('click', backToMenu);
 $('pickerClose')?.addEventListener('click', closeAll);
 $('saleConfirmCancel')?.addEventListener('click', () => hideSaleConfirm());
-$('saleConfirmAccept')?.addEventListener('click', () => {
+$('saleConfirmAccept')?.addEventListener('click', async () => {
   if (!saleConfirmOpen) return;
   const accept = $('saleConfirmAccept');
   if (accept?.disabled) return;
@@ -108,7 +108,15 @@ $('saleConfirmAccept')?.addEventListener('click', () => {
     accept.textContent = 'PROCESSING SALE...';
   }
   hideSaleConfirm();
-  post('vehicleAction', { action: 'sellState', plate: plateText(), netId: vehicleNetId() });
+  const result = await post('vehicleAction', { action: 'sellState', plate: plateText(), netId: vehicleNetId() });
+  if (result?.ok === false) {
+    showToast(result.error || 'Vehicle sale could not be started.', 'error');
+    if (accept) {
+      accept.disabled = false;
+      accept.textContent = 'CONFIRM SALE';
+    }
+    return;
+  }
   showToast('Selling vehicle to state...');
   closeAll();
 });
@@ -196,7 +204,7 @@ function actionDisabled(key) {
   if (key === 'getOutTrunk') return !hasAccess();
   if (key === 'passengers') return !inVehicle() || !isDriver();
   if (key === 'repair' || key === 'refuel' || key === 'wash' || key === 'charge') return inVehicle();
-  if (key === 'sellState') return !isOwner() || Number(vehicle?.sellValue || 0) <= 0;
+  if (key === 'sellState') return !isOwner();
   return false;
 }
 function disabledReason(key) {
@@ -211,7 +219,6 @@ function disabledReason(key) {
   if (key === 'passengers' && !inVehicle()) return 'Inside only';
   if (key === 'passengers' && !isDriver()) return 'Driver only';
   if (key === 'sellState' && !isOwner()) return 'Owner only';
-  if (key === 'sellState' && Number(vehicle?.sellValue || 0) <= 0) return 'No state value';
   return '';
 }
 
@@ -427,6 +434,12 @@ function openMenu(data) {
     notice.classList.toggle('hidden', !vehicle.vehicleNotice);
     notice.classList.toggle('temporary', vehicle.temporaryReplacement === true);
     notice.classList.toggle('permanent', vehicle.permanentlyRemoved === true);
+  }
+  const menuNotice = $('mvhNotice');
+  if (menuNotice) {
+    menuNotice.textContent = vehicle.vehicleNotice || '';
+    menuNotice.classList.toggle('hidden', !vehicle.vehicleNotice);
+    menuNotice.classList.toggle('permanent', vehicle.permanentlyRemoved === true);
   }
   setText('infoOwnerName', vehicle.ownerName || vehicle.owner_name || vehicle.ownerCharacterId || 'Unknown');
   setText('infoPlate', plateText());

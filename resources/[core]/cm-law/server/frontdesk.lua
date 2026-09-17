@@ -48,8 +48,8 @@ local function confiscatableInventory(src, characterId)
     local inventory = exports['cm-inventory']:GetInventory(src)
     if type(inventory) ~= 'table' then return nil, 'Your inventory could not be verified.' end
     local personallyLicensed = false
-    if GetResourceState('cm-police') == 'started' then
-        pcall(function() personallyLicensed = exports['cm-police']:HasValidLicense(src, 'firearms') == true end)
+    if type(HasValidLicense) == 'function' then
+        pcall(function() personallyLicensed = exports['cm-law']:HasValidLicense(src, 'firearms') == true end)
     end
     local issues = {}
     for _, row in ipairs(MySQL.query.await([[SELECT license_number,status FROM cm_legal_armory_issues WHERE character_id=?]], { characterId }) or {}) do

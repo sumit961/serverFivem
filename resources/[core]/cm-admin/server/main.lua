@@ -39,7 +39,7 @@ local function normalizeMapBounds(bounds)
 end
 
 local function configuredMapBounds()
-    return normalizeMapBounds(Config.Map and Config.Map.Bounds) or { minX = -4000, maxX = 4500, minY = -4300, maxY = 8000 }
+    return normalizeMapBounds(Config.Map and Config.Map.Bounds) or { minX = -3900, maxX = 4619, minY = -4764, maxY = 7510 }
 end
 
 local function mapBoundsFile()
@@ -63,6 +63,18 @@ local function effectiveMapBounds()
     end
     return configuredMapBounds(), 'config'
 end
+
+-- Read-only integration for resources that render the same calibrated GTA
+-- atlas as cm-admin. Return a copy so consumers cannot mutate admin state.
+exports('GetMapBounds', function()
+    local bounds, source = effectiveMapBounds()
+    return {
+        minX = bounds.minX,
+        maxX = bounds.maxX,
+        minY = bounds.minY,
+        maxY = bounds.maxY,
+    }, source
+end)
 
 local function saveMapBounds(bounds)
     bounds = normalizeMapBounds(bounds)

@@ -505,12 +505,20 @@ RegisterNetEvent('cm-vehicles:client:createGarageNetworkVehicle', function(token
         return
     end
 
+    if not IsModelInCdimage(modelHash) or not IsModelAVehicle(modelHash) then
+        TriggerServerEvent('cm-vehicles:server:garageVehicleCreated', token, 0,
+            ('Vehicle model %s is not installed or is not a valid vehicle.'):format(tostring(data.model or modelHash)),
+            'model_unavailable')
+        return
+    end
+
     RequestModel(modelHash)
     local modelDeadline = GetGameTimer() + 10000
     while not HasModelLoaded(modelHash) and GetGameTimer() < modelDeadline do Wait(0) end
     if not HasModelLoaded(modelHash) then
         TriggerServerEvent('cm-vehicles:server:garageVehicleCreated', token, 0,
-            ('Vehicle model %s could not be loaded.'):format(tostring(data.model or modelHash)))
+            ('Vehicle model %s could not be loaded.'):format(tostring(data.model or modelHash)),
+            'model_unavailable')
         return
     end
 

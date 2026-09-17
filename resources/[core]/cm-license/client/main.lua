@@ -2,194 +2,202 @@
 
 Client = {
     ActiveTest = nil,
-    NPCLocations = {},
-    CurrentHUD = nil
 }
 
--- Check if currently in test
 function Client.IsInTest()
     return Client.ActiveTest ~= nil
 end
 
--- Initialize client
-AddEventHandler('onClientResourceStart', function(resourceName)
-    if GetCurrentResourceName() ~= resourceName then return end
-    
-    print('^2[CM-License Client]^7 Started')
-    
-    -- Initialize NPC interactions
-    NPC.Init()
-    
-    -- Initialize test system
-    Test.Init()
-    
-    -- Initialize checkpoint markers
-    Checkpoints.Init()
-    
-    -- Initialize HUD
-    HUD.Init()
+-- One notification path: cm-hud when it is running, chat otherwise.
+function Client.Notify(message, kind)
+    if not message then return end
+    if GetResourceState('cm-hud') == 'started' then
+        local ok = pcall(function() exports['cm-hud']:Notify(tostring(message), kind or 'inform') end)
+        if ok then return end
+    end
+    TriggerEvent('chat:addMessage', {
+        args = { 'License System', tostring(message) },
+        color = kind == 'error' and { 255, 80, 80 } or kind == 'success' and { 90, 220, 120 } or { 0, 229, 255 }
+    })
+end
+
+-- Big centre-screen text for time-critical prompts.
+function Client.Alert(text, durationMs)
+    if not text then return end
+    BeginTextCommandPrint('STRING')
+    AddTextComponentSubstringPlayerName(tostring(text))
+    EndTextCommandPrint(durationMs or 2500, true)
+end
+
+RegisterNetEvent('cm-license:client:notify', function(message, kind)
+    Client.Notify(message, kind)
 end)
 
--- Test started event
+AddEventHandler('onClientResourceStart', function(resourceName)
+    if GetCurrentResourceName() ~= resourceName then return end
+
+    NPC.Init()
+    Test.Init()
+    Checkpoints.Init()
+    HUD.Init()
+
+    print('^2[CM-License Client]^7 Started')
+end)
+
+-- ============================================================================
+-- TEST LIFECYCLE EVENTS
+-- ============================================================================
+
 RegisterNetEvent(Constants.EVENTS.CLIENT.TEST_STARTED, function(data)
     if not data then return end
+
     SendNUIMessage({ type = 'hideLoading' })
-    SendNUIMessage({ type = 'builderHint', message = nil })
-    
+
     Client.ActiveTest = {
         testId = data.testId,
         licenseType = data.licenseType,
         licenseLabel = data.licenseLabel,
+        category = data.category or Constants.VEHICLE_CATEGORY.GROUND,
         vehicleModel = data.vehicleModel,
-        vehicleSpawn = data.vehicleSpawn,
+        maxMistakes = tonumber(data.maxMistakes) or 0,
+        timeoutSeconds = tonumber(data.timeoutSeconds) or 1200,
+        secondsRemaining = tonumber(data.secondsRemaining) or tonumber(data.timeoutSeconds) or 1200,
         currentCheckpoint = 0,
-        seatingGraceUntil = GetGameTimer() + 8000
+        seatingGraceUntil = GetGameTimer() + ((tonumber(CMLicenseConfig.TestSession.SeatingGraceSeconds) or 8) * 1000),
     }
 
-    local test = Test
-    test.ActiveTest = Client.ActiveTest
     Checkpoints.SetCheckpoints(data.checkpoints or {})
+
     local netId = tonumber(data.vehicleNetId)
     local timeout = GetGameTimer() + 10000
     while netId and not NetworkDoesEntityExistWithNetworkId(netId) and GetGameTimer() < timeout do Wait(50) end
+
     local vehicle = netId and NetToVeh(netId) or 0
     if vehicle == 0 or not DoesEntityExist(vehicle) then
-        TriggerServerEvent(Constants.EVENTS.SERVER.TEST_FAILED, 'vehicle_spawn_failed')
-        Client.ActiveTest = nil
-        test.ActiveTest = nil
+        TriggerServerEvent(Constants.EVENTS.SERVER.TEST_FAILED, Constants.FAIL_REASON.VEHICLE_SPAWN_FAILED)
+        Test.Cleanup()
         return
     end
-    test.TestVehicle = vehicle
+
+    Test.TestVehicle = vehicle
     Client.ActiveTest.vehicleNetId = netId
+
     SetEntityAsMissionEntity(vehicle, false, false)
     SetVehicleCustomPrimaryColour(vehicle, 0, 229, 255)
     SetVehicleCustomSecondaryColour(vehicle, 5, 28, 36)
-    SetVehicleNumberPlateText(vehicle, 'LICENSE')
-    SetVehicleNumberPlateTextIndex(vehicle, 0)
+    -- Only relabel when the server could not apply the exam plate itself.
+    if not data.plateAlreadySet then
+        SetVehicleNumberPlateText(vehicle, data.vehiclePlate or CMLicenseConfig.TestVehicle.Plate)
+        SetVehicleNumberPlateTextIndex(vehicle, 0)
+    end
+
     local ped = PlayerPedId()
     if GetVehiclePedIsIn(ped, false) ~= vehicle then
         TaskWarpPedIntoVehicle(ped, vehicle, -1)
     end
-    
-    print('^2[CM-License]^7 Test started: ' .. data.licenseLabel)
-    
-    -- Notify player
-    TriggerEvent('chat:addMessage', {
-        args = { 'License System', 'Test started! Proceed to the vehicle spawn location.' }
-    })
-    
-    -- The driving timer begins only when the player reaches the start marker.
+
+    Client.Notify('Test booked. Drive to the cyan start marker to begin — the clock is already running.', 'success')
 end)
 
--- Checkpoint update event
+RegisterNetEvent('cm-license:client:testBegan', function(data)
+    if not Client.ActiveTest then return end
+    HUD.SyncDeadline(data and data.secondsRemaining)
+    Client.Alert('~g~Examination started. Follow the checkpoints.~s~', 3000)
+end)
+
 RegisterNetEvent(Constants.EVENTS.CLIENT.SET_CHECKPOINT, function(data)
     if not Client.ActiveTest then return end
-    
+
     Client.ActiveTest.currentCheckpoint = data.currentCheckpoint
     Checkpoints.CurrentCheckpoint = data.currentCheckpoint
-    Checkpoints.AwaitingAck = false
+    Checkpoints.ClearAck()
     Checkpoints.UpdateRouteBlip()
+
     local completed = data.currentCheckpoint >= data.totalCheckpoints
     PlaySoundFrontend(-1, completed and 'CHECKPOINT_PERFECT' or 'CHECKPOINT_NORMAL', 'HUD_MINI_GAME_SOUNDSET', true)
+
     Checkpoints.ShowInstruction(data.currentCheckpoint)
-    
-    print('^2[CM-License]^7 Checkpoint ' .. data.currentCheckpoint .. '/' .. data.totalCheckpoints)
-    
-    -- Update HUD
     HUD.UpdateCheckpoint(data)
-    
-    -- Show notification
-    TriggerEvent('chat:addMessage', {
-        args = { 'Checkpoint', data.currentCheckpoint .. ' / ' .. data.totalCheckpoints }
-    })
 end)
 
--- Test completed event
+RegisterNetEvent(Constants.EVENTS.CLIENT.CHECKPOINT_REJECTED, function(data)
+    if not Client.ActiveTest then return end
+    -- Older payloads were a bare string.
+    Checkpoints.OnCheckpointRejected(type(data) == 'table' and data or { message = data })
+end)
+
+RegisterNetEvent(Constants.EVENTS.CLIENT.COMPLETION_REJECTED, function(data)
+    if not Client.ActiveTest then return end
+    Test.ResumeAfterRejectedCompletion(data)
+end)
+
+RegisterNetEvent('cm-license:client:mistake', function(data)
+    if not Client.ActiveTest then return end
+    HUD.UpdateMistakes(data or {})
+    PlaySoundFrontend(-1, 'CHECKPOINT_MISSED', 'HUD_MINI_GAME_SOUNDSET', true)
+    Client.Alert(('~r~MISTAKE %d / %d~s~'):format(tonumber(data and data.mistakes) or 0, tonumber(data and data.maxMistakes) or 0), 2000)
+end)
+
 RegisterNetEvent(Constants.EVENTS.CLIENT.TEST_COMPLETED, function(data)
     if not Client.ActiveTest then return end
-    
-    print('^2[CM-License]^7 Test completed!')
-    
-    -- Stop HUD
-    HUD.StopTest()
-    
-    Client.ActiveTest = nil
+
+    local returnPosition = data and data.returnPosition
     Test.Cleanup()
-    
-    -- Show success screen
-    TriggerEvent('chat:addMessage', {
-        args = { 'Success', 'Test passed! License added to inventory.' },
-        color = { 0, 255, 0 }
-    })
+
+    if returnPosition and returnPosition.x and returnPosition.y and returnPosition.z then
+        DoScreenFadeOut(350)
+        local fadeTimeout = GetGameTimer() + 3000
+        while not IsScreenFadedOut() and GetGameTimer() < fadeTimeout do Wait(0) end
+
+        local ped = PlayerPedId()
+        RequestCollisionAtCoord(returnPosition.x, returnPosition.y, returnPosition.z)
+        SetEntityCoordsNoOffset(ped, returnPosition.x, returnPosition.y, returnPosition.z + 0.5, false, false, false)
+        SetEntityHeading(ped, returnPosition.heading or 0.0)
+        SetEntityVelocity(ped, 0.0, 0.0, 0.0)
+        Wait(250)
+        DoScreenFadeIn(350)
+    end
 end)
 
--- Test failed event
 RegisterNetEvent(Constants.EVENTS.CLIENT.TEST_FAILED, function(data)
+    data = type(data) == 'table' and data or {}
     SendNUIMessage({ type = 'hideLoading' })
-    
-    print('^3[CM-License]^7 Test failed: ' .. tostring(data.reason))
-    
-    -- Stop HUD
-    HUD.StopTest()
-    
+
     if Client.ActiveTest then
-        Client.ActiveTest = nil
         Test.Cleanup()
     end
-    
-    -- Show failure message
-    TriggerEvent('chat:addMessage', {
-        args = { 'Test Failed', data.message or 'Unknown reason' },
-        color = { 255, 0, 0 }
-    })
-end)
 
--- Update HUD event
-RegisterNetEvent(Constants.EVENTS.CLIENT.UPDATE_HUD, function(data)
-    if not Client.ActiveTest then return end
-    HUD.Update(data)
+    -- The result screen carries the message unless the server already sent a
+    -- notification for it (a rejected start, for example).
+    if data.silent and data.message then
+        return
+    end
+
+    CMLog('Test failed: ' .. tostring(data.reason))
 end)
 
 -- ============================================================================
--- KEYBINDS
+-- KEYBINDS AND LOOPS
 -- ============================================================================
 
--- E key for interactions
-Citizen.CreateThread(function()
+CreateThread(function()
     while true do
-        Wait(0)
-        
-        if IsControlJustReleased(0, 38) then  -- E key
-            -- Check if near NPC
-            NPC.CheckNPCInteraction()
-            
-            -- Check if can start test at start point
-            if Client.IsInTest() then
-                Test.CheckStartPoint()
+        if NPC.NearbyPed or Client.IsInTest() then
+            Wait(0)
+            if IsControlJustReleased(0, 38) then  -- E
+                if NPC.NearbyPed and not Client.IsInTest() then
+                    NPC.CheckNPCInteraction()
+                elseif Client.IsInTest() then
+                    Test.CheckStartPoint()
+                end
             end
+        else
+            Wait(300)
         end
     end
 end)
 
-RegisterNetEvent('cm-license:client:checkpointRejected', function(message)
-    Checkpoints.AwaitingAck = false
-    if message then
-        BeginTextCommandPrint('STRING')
-        AddTextComponentSubstringPlayerName(('~y~%s~s~'):format(tostring(message)))
-        EndTextCommandPrint(2500, true)
-    end
-end)
-
-AddEventHandler('onClientResourceStop', function(resourceName)
-    if GetCurrentResourceName() ~= resourceName then return end
-    Test.Cleanup()
-    for _, ped in ipairs(NPC.Peds) do
-        if DoesEntityExist(ped) then DeleteEntity(ped) end
-    end
-    SetNuiFocus(false, false)
-end)
-
-Citizen.CreateThread(function()
+CreateThread(function()
     while true do
         if Client.IsInTest() then
             Wait(0)
@@ -200,19 +208,22 @@ Citizen.CreateThread(function()
     end
 end)
 
--- ============================================================================
--- MAIN LOOP
--- ============================================================================
-
-Citizen.CreateThread(function()
+CreateThread(function()
     while true do
-        Wait(500)  -- Update HUD every 500ms
-        
+        Wait(500)
         if Client.IsInTest() then
             Test.UpdateTestState()
-            HUD.Update()
         end
     end
+end)
+
+AddEventHandler('onClientResourceStop', function(resourceName)
+    if GetCurrentResourceName() ~= resourceName then return end
+    Test.Cleanup()
+    if NPC.PromptVisible then pcall(function() exports['cm-ui']:HideInteract() end) end
+    NPC.CloseMenu()
+    NPC.DespawnAll()
+    SetNuiFocus(false, false)
 end)
 
 print('^2[CM-License Client]^7 Client loaded')
