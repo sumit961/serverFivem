@@ -9,13 +9,18 @@ ProgressionByFamily = {} -- [familyId] = { level, currentXp, lifetimeReputation,
 
 local progressionLocks = {}
 
-local function acquireProgressionLock(familyId)
-    local timeout = 50 -- 50 * 10ms = 500ms max wait
-    while progressionLocks[familyId] and timeout > 0 do
+local function acquireProgressionLock(familyId, maxWaitMs)
+    maxWaitMs = tonumber(maxWaitMs) or 2000
+    local elapsed = 0
+    while progressionLocks[familyId] do
         Wait(10)
-        timeout = timeout - 1
+        elapsed = elapsed + 10
+        if elapsed >= maxWaitMs then
+            return false, 'progression_lock_timeout'
+        end
     end
     progressionLocks[familyId] = true
+    return true
 end
 
 local function releaseProgressionLock(familyId)
@@ -155,7 +160,10 @@ function AddFamilyReputation(familyId, amount, source, uniqueId, metadata)
     end
 
     -- Serialize per-family updates to prevent lost XP from concurrent awards
-    acquireProgressionLock(familyId)
+    local lockOk, lockErr = acquireProgressionLock(familyId)
+    if not lockOk then
+        return false, lockErr or 'progression_lock_timeout'
+    end
 
     local execOk, resultSuccess, resultPayload = pcall(function()
         -- 1. Read authoritative progression fresh from DB
@@ -278,7 +286,10 @@ function RemoveFamilyReputation(familyId, amount, reason)
         return false, 'invalid_arguments'
     end
 
-    acquireProgressionLock(familyId)
+    local lockOk, lockErr = acquireProgressionLock(familyId)
+    if not lockOk then
+        return false, lockErr or 'progression_lock_timeout'
+    end
 
     local execOk, resSuccess, resPayload = pcall(function()
         local row = MySQL.single.await([[
@@ -338,7 +349,18 @@ function AwardFamilyActivityReward(payload)
     local familyId = tonumber(payload.familyId)
     if not familyId then return false, 'invalid_family_id' end
 
+    local repReward = math.max(0, math.floor(tonumber(payload.reputation) or 0))
+    local contribReward = math.max(0, math.floor(tonumber(payload.memberContribution) or 0))
+    local treasuryReward = math.max(0, math.floor(tonumber(payload.treasuryAmount) or 0))
     local uniqueId = payload.uniqueId and tostring(payload.uniqueId) or nil
+
+    -- Requirement 5: Require uniqueId for any rewarded activity
+    if repReward > 0 or contribReward > 0 or treasuryReward > 0 then
+        if not uniqueId or uniqueId == '' then
+            return false, 'unique_id_required'
+        end
+    end
+
     if uniqueId and uniqueId ~= '' then
         if not CanAwardFamilyReputation(familyId, uniqueId) then
             return false, 'duplicate_reward_unique_id'
@@ -347,12 +369,29 @@ function AwardFamilyActivityReward(payload)
 
     local eventType = tostring(payload.eventType or 'activity')
     local actorCid = payload.actorCid and tostring(payload.actorCid) or nil
-    local repReward = math.max(0, math.floor(tonumber(payload.reputation) or 0))
-    local contribReward = math.max(0, math.floor(tonumber(payload.memberContribution) or 0))
-    local treasuryReward = math.max(0, math.floor(tonumber(payload.treasuryAmount) or 0))
     local participants = type(payload.participants) == 'table' and payload.participants or {}
 
-    acquireProgressionLock(familyId)
+    -- Resolve unique participant CIDs
+    local targetCids = {}
+    local seenCids = {}
+    if #participants > 0 then
+        for _, p in ipairs(participants) do
+            local cid = type(p) == 'table' and (p.cid or p.characterId) or tostring(p)
+            if cid and cid ~= '' and not seenCids[cid] then
+                seenCids[cid] = true
+                targetCids[#targetCids + 1] = cid
+            end
+        end
+    elseif actorCid and actorCid ~= '' then
+        targetCids[1] = actorCid
+    end
+
+    local lockOk, lockErr = acquireProgressionLock(familyId)
+    if not lockOk then
+        return false, lockErr or 'progression_lock_timeout'
+    end
+
+    local currentWeekKey = (type(CMFamilyGetWeekKey) == 'function' and CMFamilyGetWeekKey()) or os.date('%Y-W%W')
 
     local execOk, resSuccess, resPayload = pcall(function()
         local statements = {}
@@ -419,7 +458,49 @@ function AwardFamilyActivityReward(payload)
             }
         end
 
-        -- Execute core family-level transaction
+        -- 4. Requirement 4: Include participant contributions in the SAME transaction!
+        if contribReward > 0 and #targetCids > 0 then
+            for _, cid in ipairs(targetCids) do
+                local childId = uniqueId and ('%s:participant:%s'):format(uniqueId, cid) or nil
+                if childId then
+                    statements[#statements + 1] = {
+                        query = [[
+                            INSERT INTO cm_family_reward_history (unique_id, family_id, reward_type, amount, source)
+                            VALUES (?, ?, 'participant_contribution', ?, ?)
+                        ]],
+                        values = { childId, familyId, contribReward, eventType }
+                    }
+                end
+
+                statements[#statements + 1] = {
+                    query = [[
+                        INSERT INTO cm_family_member_contributions
+                          (family_id, character_id, total_points, weekly_points, event_points, last_contribution_at)
+                        VALUES (?, ?, ?, ?, ?, NOW())
+                        ON DUPLICATE KEY UPDATE
+                          total_points = total_points + VALUES(total_points),
+                          weekly_points = weekly_points + VALUES(weekly_points),
+                          event_points = event_points + VALUES(event_points),
+                          last_contribution_at = NOW()
+                    ]],
+                    values = { familyId, cid, contribReward, contribReward, contribReward }
+                }
+
+                statements[#statements + 1] = {
+                    query = [[
+                        INSERT INTO cm_family_contribution_weekly
+                          (family_id, character_id, week_key, total_points, event_points)
+                        VALUES (?, ?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE
+                          total_points = total_points + VALUES(total_points),
+                          event_points = event_points + VALUES(event_points)
+                    ]],
+                    values = { familyId, cid, currentWeekKey, contribReward, contribReward }
+                }
+            end
+        end
+
+        -- Execute core family-level transaction (including all participant rows)
         local txCommitted = MySQL.transaction.await(statements)
         if txCommitted ~= true then
             return false, 'transaction_failed'
@@ -459,26 +540,6 @@ function AwardFamilyActivityReward(payload)
         return false, tostring(resPayload or 'root_reward_failed')
     end
 
-    -- 4. Participant contributions with deterministic child IDs
-    if contribReward > 0 then
-        local targetCids = {}
-        if #participants > 0 then
-            for _, p in ipairs(participants) do
-                local cid = type(p) == 'table' and (p.cid or p.characterId) or tostring(p)
-                if cid and cid ~= '' then targetCids[#targetCids + 1] = cid end
-            end
-        elseif actorCid then
-            targetCids[1] = actorCid
-        end
-
-        for _, cid in ipairs(targetCids) do
-            local childUniqueId = uniqueId and ('%s:participant:%s'):format(uniqueId, cid) or nil
-            if type(AddFamilyMemberContribution) == 'function' then
-                AddFamilyMemberContribution(cid, familyId, contribReward, 'event', eventType, childUniqueId)
-            end
-        end
-    end
-
     -- 5. Advance weekly objectives
     if type(AdvanceFamilyObjective) == 'function' then
         AdvanceFamilyObjective(familyId, 'family_actions', 1, actorCid)
@@ -493,7 +554,7 @@ function AwardFamilyActivityReward(payload)
         reputation = repReward,
         memberContribution = contribReward,
         treasury = treasuryReward,
-        participantCount = #participants,
+        participantCount = #targetCids,
     })
 
     return true, {
@@ -502,6 +563,7 @@ function AwardFamilyActivityReward(payload)
         reputation = repReward,
         treasury = treasuryReward,
         memberContribution = contribReward,
+        participants = targetCids,
     }
 end
 exports('AwardFamilyActivityReward', AwardFamilyActivityReward)

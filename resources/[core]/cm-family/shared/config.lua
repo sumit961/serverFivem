@@ -4,6 +4,8 @@ Config = {}
 --  General
 -- ============================================================
 Config.Debug = false
+-- Set to false in production environments to disable in-game/console automated test commands.
+Config.DevTests = true
 Config.HouseResource = 'cm-house'
 Config.VehiclesResource = 'cm-vehicles'
 Config.VehicleKeysResource = 'cm-vehiclekeys'
@@ -657,3 +659,16 @@ Config.Objectives = {
         },
     },
 }
+
+-- ============================================================
+-- Shared Server/Client Week Key Helper
+-- Format: YYYY-Www (e.g. 2026-W38).
+-- Timezone Policy: Server local system time. Week boundaries roll over Monday 00:00:00 local time.
+-- Used uniformly by objectives, weekly contributions, and future family events.
+-- ============================================================
+function CMFamilyGetWeekKey(timestamp)
+    if timestamp then
+        return os.date('%Y-W%W', tonumber(timestamp))
+    end
+    return os.date('%Y-W%W')
+end

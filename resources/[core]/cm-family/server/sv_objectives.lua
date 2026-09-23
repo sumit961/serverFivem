@@ -7,6 +7,9 @@
 local B = CMFamilyBridge
 
 local function getCurrentWeekKey()
+    if type(CMFamilyGetWeekKey) == 'function' then
+        return CMFamilyGetWeekKey()
+    end
     return os.date('%Y-W%W')
 end
 
@@ -41,9 +44,63 @@ local function getWeeklyObjectivesForFamily(familyId)
     return selected, weekKey
 end
 
+-- Crash recovery for stuck processing objectives
+function RecoverStaleObjectiveProcessing(targetFamilyId)
+    local query
+    local params
+    if targetFamilyId then
+        query = [[
+            SELECT id, family_id, objective_key, week_key, reward_state, reward_processing_at
+            FROM cm_family_objective_progress
+            WHERE family_id = ? AND reward_state = 'processing'
+              AND (reward_processing_at IS NULL OR reward_processing_at < NOW() - INTERVAL 1 MINUTE)
+        ]]
+        params = { tonumber(targetFamilyId) }
+    else
+        query = [[
+            SELECT id, family_id, objective_key, week_key, reward_state, reward_processing_at
+            FROM cm_family_objective_progress
+            WHERE reward_state = 'processing'
+              AND (reward_processing_at IS NULL OR reward_processing_at < NOW() - INTERVAL 1 MINUTE)
+        ]]
+        params = {}
+    end
+
+    local rows = MySQL.query.await(query, params) or {}
+    local recoveredCount = 0
+
+    for _, r in ipairs(rows) do
+        local rootUniqueId = ('obj:%s:%s:%s'):format(r.family_id, r.week_key, r.objective_key)
+        local rootExists = MySQL.scalar.await([[
+            SELECT 1 FROM cm_family_reward_history WHERE unique_id = ? LIMIT 1
+        ]], { rootUniqueId })
+
+        if rootExists then
+            MySQL.update.await([[
+                UPDATE cm_family_objective_progress
+                SET reward_state = 'delivered', reward_claimed = 1
+                WHERE id = ?
+            ]], { r.id })
+        else
+            MySQL.update.await([[
+                UPDATE cm_family_objective_progress
+                SET reward_state = 'failed'
+                WHERE id = ?
+            ]], { r.id })
+        end
+        recoveredCount = recoveredCount + 1
+    end
+
+    return recoveredCount
+end
+exports('RecoverStaleObjectiveProcessing', RecoverStaleObjectiveProcessing)
+
 function GetFamilyWeeklyObjectives(familyId)
     familyId = tonumber(familyId)
     if not familyId then return {} end
+
+    -- Recover any stuck processing objectives before loading
+    pcall(function() RecoverStaleObjectiveProcessing(familyId) end)
 
     local objectives, weekKey = getWeeklyObjectivesForFamily(familyId)
     if #objectives == 0 then return {} end
@@ -72,9 +129,6 @@ function GetFamilyWeeklyObjectives(familyId)
     end
 
     -- Special real-time evaluations:
-    -- 1. unique_active_members: count online members or members active this week
-    -- 2. member_count: total roster size
-    -- 3. fleet_vehicles: vehicles stored in family garage
     local result = {}
     for _, obj in ipairs(objectives) do
         local prog = progressMap[obj.key]
@@ -103,8 +157,8 @@ function GetFamilyWeeklyObjectives(familyId)
 
             if val >= obj.targetValue and not completed then
                 completed = true
-                -- Mark completed in DB and award rewards
-                CompleteObjective(familyId, obj, weekKey, val)
+                -- Mark completed in DB and award rewards (no actor cid available for real-time stat evaluations)
+                CompleteObjective(familyId, obj, weekKey, val, nil)
             end
         end
 
@@ -130,9 +184,10 @@ function GetFamilyWeeklyObjectives(familyId)
 end
 exports('GetFamilyWeeklyObjectives', GetFamilyWeeklyObjectives)
 
-function CompleteObjective(familyId, obj, weekKey, finalValue)
+function CompleteObjective(familyId, obj, weekKey, finalValue, actorCid)
     familyId = tonumber(familyId)
     weekKey = weekKey or getCurrentWeekKey()
+    actorCid = actorCid and tostring(actorCid) or nil
 
     -- 1. Atomically reserve completion and transition reward_state to 'processing'
     -- Only transitions from 'unclaimed' or 'failed' to prevent duplicate execution
@@ -140,7 +195,8 @@ function CompleteObjective(familyId, obj, weekKey, finalValue)
     pcall(function()
         local affected = MySQL.update.await([[
             UPDATE cm_family_objective_progress
-            SET current_value = ?, completed = 1, completed_at = COALESCE(completed_at, NOW()), reward_state = 'processing'
+            SET current_value = ?, completed = 1, completed_at = COALESCE(completed_at, NOW()),
+                reward_state = 'processing', reward_processing_at = NOW()
             WHERE family_id = ? AND objective_key = ? AND week_key = ? AND (reward_state = 'unclaimed' OR reward_state = 'failed')
         ]], { finalValue or obj.targetValue, familyId, obj.key, weekKey })
 
@@ -150,8 +206,8 @@ function CompleteObjective(familyId, obj, weekKey, finalValue)
             -- If row does not exist yet, attempt insert with reward_state = 'processing'
             local ins = MySQL.insert.await([[
                 INSERT INTO cm_family_objective_progress
-                  (family_id, objective_key, week_key, current_value, completed, completed_at, reward_claimed, reward_state)
-                VALUES (?, ?, ?, ?, 1, NOW(), 0, 'processing')
+                  (family_id, objective_key, week_key, current_value, completed, completed_at, reward_claimed, reward_state, reward_processing_at)
+                VALUES (?, ?, ?, ?, 1, NOW(), 0, 'processing', NOW())
                 ON DUPLICATE KEY UPDATE
                   completed = 1,
                   completed_at = COALESCE(completed_at, NOW())
@@ -167,6 +223,11 @@ function CompleteObjective(familyId, obj, weekKey, finalValue)
     end
 
     -- 2. Execute root idempotent activity reward operation
+    -- Requirement 8: The completing actor receives configured rewardContribution
+    local contribReward = math.max(0, math.floor(tonumber(obj.rewardContribution) or 0))
+    local participants = (actorCid and actorCid ~= '' and contribReward > 0) and { actorCid } or {}
+    local awardedContribution = (actorCid and actorCid ~= '') and contribReward or 0
+
     local uniqueRewardId = ('obj:%s:%s:%s'):format(familyId, weekKey, obj.key)
     local okReward, rewardErr = AwardFamilyActivityReward({
         familyId = familyId,
@@ -174,10 +235,14 @@ function CompleteObjective(familyId, obj, weekKey, finalValue)
         eventType = 'weekly_objective',
         reputation = obj.rewardReputation or 0,
         treasuryAmount = obj.rewardTreasury or 0,
+        memberContribution = awardedContribution,
+        actorCid = actorCid,
+        participants = participants,
         metadata = {
             objectiveKey = obj.key,
             title = obj.title,
             weekKey = weekKey,
+            completedBy = actorCid,
         }
     })
 
@@ -208,12 +273,14 @@ function CompleteObjective(familyId, obj, weekKey, finalValue)
         return false, tostring(rewardErr or 'reward_delivery_failed')
     end
 
-    LogFamily(familyId, nil, 'family_objective_completed', {
+    LogFamily(familyId, actorCid, 'family_objective_completed', {
         objectiveKey = obj.key,
         title = obj.title,
         weekKey = weekKey,
         reputation = obj.rewardReputation,
         treasury = obj.rewardTreasury,
+        awardedContribution = awardedContribution,
+        completedBy = actorCid,
     }, { severity = 'info' })
 
     return true
@@ -248,7 +315,7 @@ function AdvanceFamilyObjective(familyId, objectiveType, count, characterId)
             ]], { familyId, obj.key, weekKey })
 
             if row and tonumber(row.completed) ~= 1 and (tonumber(row.current_value) or 0) >= obj.targetValue then
-                CompleteObjective(familyId, obj, weekKey, tonumber(row.current_value))
+                CompleteObjective(familyId, obj, weekKey, tonumber(row.current_value), characterId)
             end
         end
     end
@@ -256,4 +323,12 @@ function AdvanceFamilyObjective(familyId, objectiveType, count, characterId)
     return true
 end
 exports('AdvanceFamilyObjective', AdvanceFamilyObjective)
+
+-- Startup background check to recover stale processing rows
+CreateThread(function()
+    Wait(5000)
+    pcall(function()
+        RecoverStaleObjectiveProcessing()
+    end)
+end)
 
