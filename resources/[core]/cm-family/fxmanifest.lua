@@ -5,7 +5,7 @@ lua54 'yes'
 name        'cm-family'
 author      'Sumit'
 description 'CM Framework | Family system (ranks, vehicles, bank, family house)'
-version     '1.8.0'
+version     '1.8.1'
 
 shared_scripts {
     '@ox_lib/init.lua',
@@ -43,6 +43,7 @@ server_scripts {
     'server/sv_chat.lua',     -- private family chat + cm-chat integration event
     'server/sv_menu.lua',     -- NPC create flow + menu callbacks
     'server/sv_admin.lua',    -- cm-admin launcher + guarded recovery panel
+    'server/sv_hardening_tests.lua', -- live automated verification suite for transactions/hardening
 }
 
 ui_page 'html/index.html'

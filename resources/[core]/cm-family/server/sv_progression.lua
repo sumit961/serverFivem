@@ -1,11 +1,26 @@
 -- ============================================================
--- cm-family | sv_progression.lua | v1.8.0
+-- cm-family | sv_progression.lua | v1.8.1
 -- Authoritative, persistent family progression, reputation, and level engine.
--- Server-only validation; client requests cannot award reputation.
+-- Fully transactional, concurrency-safe, and idempotent.
 -- ============================================================
 
 local B = CMFamilyBridge
 ProgressionByFamily = {} -- [familyId] = { level, currentXp, lifetimeReputation, seasonReputation }
+
+local progressionLocks = {}
+
+local function acquireProgressionLock(familyId)
+    local timeout = 50 -- 50 * 10ms = 500ms max wait
+    while progressionLocks[familyId] and timeout > 0 do
+        Wait(10)
+        timeout = timeout - 1
+    end
+    progressionLocks[familyId] = true
+end
+
+local function releaseProgressionLock(familyId)
+    progressionLocks[familyId] = nil
+end
 
 local function getProgressionConfig()
     return Config.Progression or { maxLevel = 25 }
@@ -30,8 +45,7 @@ function LoadFamilyProgression(familyId)
     ]], { familyId })
 
     if not row then
-        -- Initialize row for existing or new family
-        local ok = pcall(function()
+        pcall(function()
             MySQL.insert.await([[
                 INSERT INTO cm_family_progression (family_id, level, current_xp, lifetime_reputation, season_reputation)
                 VALUES (?, 1, 0, 0, 0)
@@ -90,6 +104,34 @@ function CanAwardFamilyReputation(familyId, uniqueId)
 end
 exports('CanAwardFamilyReputation', CanAwardFamilyReputation)
 
+-- Transactional calculation helper using fresh DB state
+local function calculateNewProgression(currentLevel, currentXp, lifetimeRep, seasonRep, addedAmount)
+    local maxLevel = getProgressionConfig().maxLevel or 25
+    local oldLevel = currentLevel
+    local newXp = currentXp + addedAmount
+    local newLifetime = lifetimeRep + addedAmount
+    local newSeason = seasonRep + addedAmount
+    local newLevel = currentLevel
+    local leveledUp = false
+
+    while newLevel < maxLevel do
+        local required = getNextLevelXp(newLevel)
+        if newXp >= required then
+            newXp = newXp - required
+            newLevel = newLevel + 1
+            leveledUp = true
+        else
+            break
+        end
+    end
+
+    if newLevel >= maxLevel then
+        newXp = math.min(newXp, getNextLevelXp(maxLevel))
+    end
+
+    return newLevel, newXp, newLifetime, newSeason, leveledUp, oldLevel
+end
+
 function AddFamilyReputation(familyId, amount, source, uniqueId, metadata)
     familyId = tonumber(familyId)
     amount = math.floor(tonumber(amount) or 0)
@@ -104,6 +146,7 @@ function AddFamilyReputation(familyId, amount, source, uniqueId, metadata)
         return false, 'family_not_found'
     end
 
+    -- Pre-check unique ID
     if uniqueId and uniqueId ~= '' then
         uniqueId = tostring(uniqueId)
         if not CanAwardFamilyReputation(familyId, uniqueId) then
@@ -111,105 +154,121 @@ function AddFamilyReputation(familyId, amount, source, uniqueId, metadata)
         end
     end
 
-    local prog = ProgressionByFamily[familyId] or LoadFamilyProgression(familyId)
-    if not prog then
-        return false, 'progression_unavailable'
-    end
+    -- Serialize per-family updates to prevent lost XP from concurrent awards
+    acquireProgressionLock(familyId)
 
-    local maxLevel = getProgressionConfig().maxLevel or 25
-    local oldLevel = prog.level
-    local currentXp = prog.currentXp + amount
-    local lifetime = prog.lifetimeReputation + amount
-    local season = prog.seasonReputation + amount
-    local level = prog.level
-    local leveledUp = false
-
-    -- Calculate level progressions
-    while level < maxLevel do
-        local required = getNextLevelXp(level)
-        if currentXp >= required then
-            currentXp = currentXp - required
-            level = level + 1
-            leveledUp = true
-        else
-            break
-        end
-    end
-
-    if level >= maxLevel then
-        currentXp = math.min(currentXp, getNextLevelXp(maxLevel))
-    end
-
-    -- If uniqueId is provided, atomically insert reward history first.
-    -- The DB unique index `uniq_reward_uid` guarantees duplicate prevention even under concurrent calls.
-    if uniqueId and uniqueId ~= '' then
-        local insOk, insRes = pcall(function()
-            return MySQL.insert.await([[
-                INSERT INTO cm_family_reward_history (unique_id, family_id, reward_type, amount, source, metadata)
-                VALUES (?, ?, 'reputation', ?, ?, ?)
-            ]], { uniqueId, familyId, amount, source, metadata and json.encode(metadata) or nil })
-        end)
-        if not insOk or not insRes then
-            return false, 'duplicate_reward_unique_id'
-        end
-    end
-
-    -- Update database progression
-    local ok = pcall(function()
-        return MySQL.update.await([[
-            UPDATE cm_family_progression
-            SET level = ?, current_xp = ?, lifetime_reputation = ?, season_reputation = ?
+    local execOk, resultSuccess, resultPayload = pcall(function()
+        -- 1. Read authoritative progression fresh from DB
+        local row = MySQL.single.await([[
+            SELECT level, current_xp, lifetime_reputation, season_reputation
+            FROM cm_family_progression
             WHERE family_id = ?
-        ]], { level, currentXp, lifetime, season, familyId })
-    end)
+            LIMIT 1
+        ]], { familyId })
 
-    if not ok then
-        return false, 'database_update_failed'
-    end
+        if not row then
+            LoadFamilyProgression(familyId)
+            row = MySQL.single.await([[
+                SELECT level, current_xp, lifetime_reputation, season_reputation
+                FROM cm_family_progression
+                WHERE family_id = ?
+                LIMIT 1
+            ]], { familyId })
+        end
 
-    prog.level = level
-    prog.currentXp = currentXp
-    prog.lifetimeReputation = lifetime
-    prog.seasonReputation = season
+        local curLevel = math.max(1, tonumber(row and row.level) or 1)
+        local curXp = math.max(0, tonumber(row and row.current_xp) or 0)
+        local curLifetime = math.max(0, tonumber(row and row.lifetime_reputation) or 0)
+        local curSeason = math.max(0, tonumber(row and row.season_reputation) or 0)
 
-    -- Audit log
-    LogFamily(familyId, nil, 'reputation_awarded', {
-        amount = amount,
-        source = source,
-        uniqueId = uniqueId,
-        newLevel = level,
-        leveledUp = leveledUp,
-    })
+        local newLevel, newXp, newLifetime, newSeason, leveledUp, oldLevel =
+            calculateNewProgression(curLevel, curXp, curLifetime, curSeason, amount)
 
-    if leveledUp then
-        LogFamily(familyId, nil, 'family_level_up', {
-            oldLevel = oldLevel,
-            newLevel = level,
-            unlocked = Config.GetLevelUnlocks and Config.GetLevelUnlocks(level) or nil,
-        }, { severity = 'warning' })
+        -- 2. Build atomic transaction statements
+        local statements = {}
 
-        -- Notify all online family members
-        for cid, membership in pairs(MemberByCid) do
-            if tonumber(membership.family_id) == familyId then
-                local playerSrc = B.GetSrcByCid(cid)
-                if playerSrc then
-                    B.Notify(playerSrc, ('Family reached Level %d! Check your progression unlocks.'):format(level), 'success')
+        if uniqueId and uniqueId ~= '' then
+            statements[#statements + 1] = {
+                query = [[
+                    INSERT INTO cm_family_reward_history (unique_id, family_id, reward_type, amount, source, metadata)
+                    VALUES (?, ?, 'reputation', ?, ?, ?)
+                ]],
+                values = { uniqueId, familyId, amount, source, metadata and json.encode(metadata) or nil }
+            }
+        end
+
+        statements[#statements + 1] = {
+            query = [[
+                UPDATE cm_family_progression
+                SET level = ?, current_xp = ?, lifetime_reputation = ?, season_reputation = ?
+                WHERE family_id = ?
+            ]],
+            values = { newLevel, newXp, newLifetime, newSeason, familyId }
+        }
+
+        -- 3. Execute transaction
+        local txCommitted = MySQL.transaction.await(statements)
+        if txCommitted ~= true then
+            return false, 'transaction_failed'
+        end
+
+        -- 4. Update in-memory cache ONLY after successful DB commit
+        local prog = ProgressionByFamily[familyId] or {}
+        prog.level = newLevel
+        prog.currentXp = newXp
+        prog.lifetimeReputation = newLifetime
+        prog.seasonReputation = newSeason
+        ProgressionByFamily[familyId] = prog
+
+        -- Audit log
+        LogFamily(familyId, nil, 'reputation_awarded', {
+            amount = amount,
+            source = source,
+            uniqueId = uniqueId,
+            newLevel = newLevel,
+            leveledUp = leveledUp,
+        })
+
+        if leveledUp then
+            LogFamily(familyId, nil, 'family_level_up', {
+                oldLevel = oldLevel,
+                newLevel = newLevel,
+                unlocked = Config.GetLevelUnlocks and Config.GetLevelUnlocks(newLevel) or nil,
+            }, { severity = 'warning' })
+
+            for cid, membership in pairs(MemberByCid) do
+                if tonumber(membership.family_id) == familyId then
+                    local playerSrc = B.GetSrcByCid(cid)
+                    if playerSrc then
+                        B.Notify(playerSrc, ('Family reached Level %d! Check your progression unlocks.'):format(newLevel), 'success')
+                    end
                 end
             end
+            SyncFamilyState(familyId)
         end
-        SyncFamilyState(familyId)
-    end
 
-    return true, {
-        level = level,
-        currentXp = currentXp,
-        nextLevelXp = getNextLevelXp(level),
-        lifetimeReputation = lifetime,
-        leveledUp = leveledUp,
-    }
+        return true, {
+            level = newLevel,
+            currentXp = newXp,
+            nextLevelXp = getNextLevelXp(newLevel),
+            lifetimeReputation = newLifetime,
+            leveledUp = leveledUp,
+        }
+    end)
+
+    releaseProgressionLock(familyId)
+
+    if not execOk then
+        return false, tostring(resultSuccess)
+    end
+    return resultSuccess, resultPayload
 end
 exports('AddFamilyReputation', AddFamilyReputation)
 
+-- Semantics:
+-- 1. lifetime_reputation NEVER decreases (total positive reputation ever earned).
+-- 2. Family level NEVER goes backwards (unlocks stay earned).
+-- 3. Penalty reduces current_xp (minimum 0) and season_reputation (minimum 0).
 function RemoveFamilyReputation(familyId, amount, reason)
     familyId = tonumber(familyId)
     amount = math.floor(tonumber(amount) or 0)
@@ -219,57 +278,188 @@ function RemoveFamilyReputation(familyId, amount, reason)
         return false, 'invalid_arguments'
     end
 
-    local prog = ProgressionByFamily[familyId] or LoadFamilyProgression(familyId)
-    if not prog then return false, 'progression_unavailable' end
+    acquireProgressionLock(familyId)
 
-    local currentXp = math.max(0, prog.currentXp - amount)
-    local lifetime = math.max(0, prog.lifetimeReputation - amount)
-
-    pcall(function()
-        MySQL.update.await([[
-            UPDATE cm_family_progression
-            SET current_xp = ?, lifetime_reputation = ?
+    local execOk, resSuccess, resPayload = pcall(function()
+        local row = MySQL.single.await([[
+            SELECT level, current_xp, lifetime_reputation, season_reputation
+            FROM cm_family_progression
             WHERE family_id = ?
-        ]], { currentXp, lifetime, familyId })
+            LIMIT 1
+        ]], { familyId })
+
+        if not row then
+            return false, 'progression_unavailable'
+        end
+
+        local curLevel = math.max(1, tonumber(row.level) or 1)
+        local curXp = math.max(0, (tonumber(row.current_xp) or 0) - amount)
+        local curSeason = math.max(0, (tonumber(row.season_reputation) or 0) - amount)
+        local lifetime = math.max(0, tonumber(row.lifetime_reputation) or 0)
+
+        local updated = MySQL.update.await([[
+            UPDATE cm_family_progression
+            SET current_xp = ?, season_reputation = ?
+            WHERE family_id = ?
+        ]], { curXp, curSeason, familyId })
+
+        if not updated or updated <= 0 then
+            return false, 'database_update_failed'
+        end
+
+        local prog = ProgressionByFamily[familyId] or {}
+        prog.level = curLevel
+        prog.currentXp = curXp
+        prog.seasonReputation = curSeason
+        prog.lifetimeReputation = lifetime
+        ProgressionByFamily[familyId] = prog
+
+        LogFamily(familyId, nil, 'reputation_removed', {
+            amount = amount,
+            reason = reason,
+            remainingCurrentXp = curXp,
+        })
+
+        return true, { level = curLevel, currentXp = curXp }
     end)
 
-    prog.currentXp = currentXp
-    prog.lifetimeReputation = lifetime
+    releaseProgressionLock(familyId)
 
-    LogFamily(familyId, nil, 'reputation_removed', {
-        amount = amount,
-        reason = reason,
-    })
-
-    return true, { level = prog.level, currentXp = currentXp }
+    if not execOk then return false, tostring(resSuccess) end
+    return resSuccess, resPayload
 end
 exports('RemoveFamilyReputation', RemoveFamilyReputation)
 
--- Unified Event / Activity Reward API
--- Future resources and existing systems call this single seam
+-- Unified Root Idempotent Event / Activity Reward API.
+-- Protects the ENTIRE activity reward under payload.uniqueId.
+-- If payload.uniqueId was already claimed, pays NOTHING (0 XP, $0 treasury, 0 contribution).
 function AwardFamilyActivityReward(payload)
     payload = type(payload) == 'table' and payload or {}
     local familyId = tonumber(payload.familyId)
     if not familyId then return false, 'invalid_family_id' end
 
-    local uniqueId = payload.uniqueId and tostring(payload.uniqueId)
-    if uniqueId and uniqueId ~= '' and not CanAwardFamilyReputation(familyId, uniqueId) then
-        return false, 'duplicate_reward_unique_id'
+    local uniqueId = payload.uniqueId and tostring(payload.uniqueId) or nil
+    if uniqueId and uniqueId ~= '' then
+        if not CanAwardFamilyReputation(familyId, uniqueId) then
+            return false, 'duplicate_reward_unique_id'
+        end
     end
 
     local eventType = tostring(payload.eventType or 'activity')
     local actorCid = payload.actorCid and tostring(payload.actorCid) or nil
-    local repReward = math.floor(tonumber(payload.reputation) or 0)
-    local contribReward = math.floor(tonumber(payload.memberContribution) or 0)
-    local treasuryReward = math.floor(tonumber(payload.treasuryAmount) or 0)
+    local repReward = math.max(0, math.floor(tonumber(payload.reputation) or 0))
+    local contribReward = math.max(0, math.floor(tonumber(payload.memberContribution) or 0))
+    local treasuryReward = math.max(0, math.floor(tonumber(payload.treasuryAmount) or 0))
     local participants = type(payload.participants) == 'table' and payload.participants or {}
 
-    -- 1. Family Reputation
-    if repReward > 0 then
-        AddFamilyReputation(familyId, repReward, eventType, uniqueId, payload.metadata)
+    acquireProgressionLock(familyId)
+
+    local execOk, resSuccess, resPayload = pcall(function()
+        local statements = {}
+
+        -- 1. Reserve root operation in cm_family_reward_history.
+        -- This guarantees that even if repReward == 0 (treasury-only or contribution-only),
+        -- calling twice will fail on unique key constraint.
+        if uniqueId and uniqueId ~= '' then
+            statements[#statements + 1] = {
+                query = [[
+                    INSERT INTO cm_family_reward_history (unique_id, family_id, reward_type, amount, source, metadata)
+                    VALUES (?, ?, 'activity_root', ?, ?, ?)
+                ]],
+                values = { uniqueId, familyId, repReward, eventType, payload.metadata and json.encode(payload.metadata) or nil }
+            }
+        end
+
+        -- 2. Progression update
+        local newLevel, newXp, newLifetime, newSeason, leveledUp, oldLevel
+        if repReward > 0 then
+            local row = MySQL.single.await([[
+                SELECT level, current_xp, lifetime_reputation, season_reputation
+                FROM cm_family_progression
+                WHERE family_id = ?
+                LIMIT 1
+            ]], { familyId })
+
+            local curLevel = math.max(1, tonumber(row and row.level) or 1)
+            local curXp = math.max(0, tonumber(row and row.current_xp) or 0)
+            local curLifetime = math.max(0, tonumber(row and row.lifetime_reputation) or 0)
+            local curSeason = math.max(0, tonumber(row and row.season_reputation) or 0)
+
+            newLevel, newXp, newLifetime, newSeason, leveledUp, oldLevel =
+                calculateNewProgression(curLevel, curXp, curLifetime, curSeason, repReward)
+
+            statements[#statements + 1] = {
+                query = [[
+                    UPDATE cm_family_progression
+                    SET level = ?, current_xp = ?, lifetime_reputation = ?, season_reputation = ?
+                    WHERE family_id = ?
+                ]],
+                values = { newLevel, newXp, newLifetime, newSeason, familyId }
+            }
+        end
+
+        -- 3. Treasury payout
+        if treasuryReward > 0 then
+            local maxBal = tonumber(Config.Bank and Config.Bank.maxBalance) or 2000000000
+            statements[#statements + 1] = {
+                query = [[
+                    UPDATE cm_families
+                    SET bank_balance = LEAST(bank_balance + ?, ?)
+                    WHERE id = ?
+                ]],
+                values = { treasuryReward, maxBal, familyId }
+            }
+
+            statements[#statements + 1] = {
+                query = [[
+                    INSERT INTO cm_family_bank_log (family_id, character_id, direction, category, amount, balance_after, reason)
+                    VALUES (?, ?, 'deposit', 'event_reward', ?, (SELECT bank_balance FROM cm_families WHERE id = ?), ?)
+                ]],
+                values = { familyId, actorCid, treasuryReward, familyId, ('event_reward:%s'):format(eventType) }
+            }
+        end
+
+        -- Execute core family-level transaction
+        local txCommitted = MySQL.transaction.await(statements)
+        if txCommitted ~= true then
+            return false, 'transaction_failed'
+        end
+
+        -- Update progression in memory
+        if repReward > 0 and newLevel then
+            local prog = ProgressionByFamily[familyId] or {}
+            prog.level = newLevel
+            prog.currentXp = newXp
+            prog.lifetimeReputation = newLifetime
+            prog.seasonReputation = newSeason
+            ProgressionByFamily[familyId] = prog
+
+            if leveledUp then
+                LogFamily(familyId, nil, 'family_level_up', {
+                    oldLevel = oldLevel,
+                    newLevel = newLevel,
+                }, { severity = 'warning' })
+                SyncFamilyState(familyId)
+            end
+        end
+
+        -- Update treasury in memory
+        if treasuryReward > 0 then
+            local fam = GetFamilyById(familyId)
+            local newBal = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { familyId })) or 0
+            if fam then fam.bank_balance = newBal end
+        end
+
+        return true, 'committed'
+    end)
+
+    releaseProgressionLock(familyId)
+
+    if not execOk or resSuccess ~= true then
+        return false, tostring(resPayload or 'root_reward_failed')
     end
 
-    -- 2. Member Contribution to participants
+    -- 4. Participant contributions with deterministic child IDs
     if contribReward > 0 then
         local targetCids = {}
         if #participants > 0 then
@@ -282,34 +472,14 @@ function AwardFamilyActivityReward(payload)
         end
 
         for _, cid in ipairs(targetCids) do
+            local childUniqueId = uniqueId and ('%s:participant:%s'):format(uniqueId, cid) or nil
             if type(AddFamilyMemberContribution) == 'function' then
-                AddFamilyMemberContribution(cid, familyId, contribReward, eventType, eventType, uniqueId and (uniqueId .. ':' .. cid))
+                AddFamilyMemberContribution(cid, familyId, contribReward, 'event', eventType, childUniqueId)
             end
         end
     end
 
-    -- 3. Treasury payout
-    if treasuryReward > 0 then
-        local maxBal = tonumber(Config.Bank and Config.Bank.maxBalance) or 2000000000
-        pcall(function()
-            MySQL.update.await([[
-                UPDATE cm_families
-                SET bank_balance = LEAST(bank_balance + ?, ?)
-                WHERE id = ?
-            ]], { treasuryReward, maxBal, familyId })
-
-            local fam = GetFamilyById(familyId)
-            local newBal = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { familyId })) or 0
-            if fam then fam.bank_balance = newBal end
-
-            MySQL.insert.await([[
-                INSERT INTO cm_family_bank_log (family_id, character_id, direction, category, amount, balance_after, reason)
-                VALUES (?, ?, 'deposit', 'event_reward', ?, ?, ?)
-            ]], { familyId, actorCid, treasuryReward, newBal, ('event_reward:%s'):format(eventType) })
-        end)
-    end
-
-    -- 4. Advance weekly objectives
+    -- 5. Advance weekly objectives
     if type(AdvanceFamilyObjective) == 'function' then
         AdvanceFamilyObjective(familyId, 'family_actions', 1, actorCid)
         if treasuryReward > 0 then
@@ -326,7 +496,12 @@ function AwardFamilyActivityReward(payload)
         participantCount = #participants,
     })
 
-    return true
+    return true, {
+        familyId = familyId,
+        uniqueId = uniqueId,
+        reputation = repReward,
+        treasury = treasuryReward,
+        memberContribution = contribReward,
+    }
 end
 exports('AwardFamilyActivityReward', AwardFamilyActivityReward)
-

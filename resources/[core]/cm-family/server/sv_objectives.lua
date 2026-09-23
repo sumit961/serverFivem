@@ -134,75 +134,78 @@ function CompleteObjective(familyId, obj, weekKey, finalValue)
     familyId = tonumber(familyId)
     weekKey = weekKey or getCurrentWeekKey()
 
-    -- Atomic check-and-claim to prevent race conditions or duplicate awards
-    local claimed = false
+    -- 1. Atomically reserve completion and transition reward_state to 'processing'
+    -- Only transitions from 'unclaimed' or 'failed' to prevent duplicate execution
+    local reserved = false
     pcall(function()
         local affected = MySQL.update.await([[
             UPDATE cm_family_objective_progress
-            SET current_value = ?, completed = 1, completed_at = COALESCE(completed_at, NOW()), reward_claimed = 1
-            WHERE family_id = ? AND objective_key = ? AND week_key = ? AND reward_claimed = 0
+            SET current_value = ?, completed = 1, completed_at = COALESCE(completed_at, NOW()), reward_state = 'processing'
+            WHERE family_id = ? AND objective_key = ? AND week_key = ? AND (reward_state = 'unclaimed' OR reward_state = 'failed')
         ]], { finalValue or obj.targetValue, familyId, obj.key, weekKey })
 
         if affected and affected > 0 then
-            claimed = true
+            reserved = true
         else
-            -- Try inserting if row does not exist yet (with reward_claimed = 1)
+            -- If row does not exist yet, attempt insert with reward_state = 'processing'
             local ins = MySQL.insert.await([[
                 INSERT INTO cm_family_objective_progress
-                  (family_id, objective_key, week_key, current_value, completed, completed_at, reward_claimed)
-                VALUES (?, ?, ?, ?, 1, NOW(), 1)
+                  (family_id, objective_key, week_key, current_value, completed, completed_at, reward_claimed, reward_state)
+                VALUES (?, ?, ?, ?, 1, NOW(), 0, 'processing')
                 ON DUPLICATE KEY UPDATE
                   completed = 1,
                   completed_at = COALESCE(completed_at, NOW())
             ]], { familyId, obj.key, weekKey, finalValue or obj.targetValue })
             if ins and ins > 0 then
-                claimed = true
+                reserved = true
             end
         end
     end)
 
-    if not claimed then
-        return false, 'already_completed'
+    if not reserved then
+        return false, 'already_completed_or_processing'
     end
 
-    -- Award family rewards
+    -- 2. Execute root idempotent activity reward operation
     local uniqueRewardId = ('obj:%s:%s:%s'):format(familyId, weekKey, obj.key)
-
-    if (obj.rewardReputation or 0) > 0 and type(AddFamilyReputation) == 'function' then
-        AddFamilyReputation(familyId, obj.rewardReputation, 'objective', uniqueRewardId, {
+    local okReward, rewardErr = AwardFamilyActivityReward({
+        familyId = familyId,
+        uniqueId = uniqueRewardId,
+        eventType = 'weekly_objective',
+        reputation = obj.rewardReputation or 0,
+        treasuryAmount = obj.rewardTreasury or 0,
+        metadata = {
             objectiveKey = obj.key,
             title = obj.title,
-        })
-    end
+            weekKey = weekKey,
+        }
+    })
 
-    if (obj.rewardTreasury or 0) > 0 then
-        local maxBal = tonumber(Config.Bank and Config.Bank.maxBalance) or 2000000000
-        pcall(function()
-            MySQL.update.await([[
-                UPDATE cm_families
-                SET bank_balance = LEAST(bank_balance + ?, ?)
-                WHERE id = ?
-            ]], { obj.rewardTreasury, maxBal, familyId })
+    -- 3. Confirm delivery state
+    if okReward then
+        MySQL.update.await([[
+            UPDATE cm_family_objective_progress
+            SET reward_state = 'delivered', reward_claimed = 1
+            WHERE family_id = ? AND objective_key = ? AND week_key = ?
+        ]], { familyId, obj.key, weekKey })
 
-            local fam = GetFamilyById(familyId)
-            local newBal = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { familyId })) or 0
-            if fam then fam.bank_balance = newBal end
-
-            MySQL.insert.await([[
-                INSERT INTO cm_family_bank_log (family_id, direction, category, amount, balance_after, reason)
-                VALUES (?, 'deposit', 'event_reward', ?, ?, ?)
-            ]], { familyId, obj.rewardTreasury, newBal, ('objective_reward:%s'):format(obj.key) })
-        end)
-    end
-
-    -- Notify online members
-    for cid, mem in pairs(MemberByCid) do
-        if tonumber(mem.family_id) == familyId then
-            local src = B.GetSrcByCid(cid)
-            if src then
-                B.Notify(src, ('Objective completed: %s!'):format(obj.title), 'success')
+        -- Notify online members
+        for cid, mem in pairs(MemberByCid) do
+            if tonumber(mem.family_id) == familyId then
+                local src = B.GetSrcByCid(cid)
+                if src then
+                    B.Notify(src, ('Objective completed: %s! Rewards delivered to family.'):format(obj.title), 'success')
+                end
             end
         end
+    else
+        -- Mark failed so the system or retry can safely re-attempt
+        MySQL.update.await([[
+            UPDATE cm_family_objective_progress
+            SET reward_state = 'failed'
+            WHERE family_id = ? AND objective_key = ? AND week_key = ? AND reward_claimed = 0
+        ]], { familyId, obj.key, weekKey })
+        return false, tostring(rewardErr or 'reward_delivery_failed')
     end
 
     LogFamily(familyId, nil, 'family_objective_completed', {
@@ -212,6 +215,8 @@ function CompleteObjective(familyId, obj, weekKey, finalValue)
         reputation = obj.rewardReputation,
         treasury = obj.rewardTreasury,
     }, { severity = 'info' })
+
+    return true
 end
 
 function AdvanceFamilyObjective(familyId, objectiveType, count, characterId)

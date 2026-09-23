@@ -172,38 +172,63 @@ function PurchaseHQUpgrade(actorCid, upgradeKey)
     end
 
     local cost = math.floor(tonumber(tierCfg.cost) or 0)
+
+    -- 2. Build atomic transaction statements
+    local statements = {}
+
     if cost > 0 then
-        -- Atomic deduction from family bank
-        local affected = MySQL.update.await([[
-            UPDATE cm_families
-            SET bank_balance = bank_balance - ?
-            WHERE id = ? AND bank_balance >= ?
-        ]], { cost, fam.id, cost })
+        -- Statement 1: Deduct from family bank balance (fails if insufficient funds)
+        statements[#statements + 1] = {
+            query = [[
+                UPDATE cm_families
+                SET bank_balance = bank_balance - ?
+                WHERE id = ? AND bank_balance >= ?
+            ]],
+            values = { cost, fam.id, cost }
+        }
 
-        if not affected or affected == 0 then
-            return releaseLock(false, 'Insufficient family bank balance.')
-        end
-
-        local newBalance = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { fam.id })) or 0
-        fam.bank_balance = newBalance
-
-        MySQL.insert.await([[
-            INSERT INTO cm_family_bank_log (family_id, character_id, direction, category, amount, balance_after, reason)
-            VALUES (?, ?, 'withdraw', 'hq_upgrade', ?, ?, ?)
-        ]], { fam.id, actorCid, cost, newBalance, ('hq_upgrade:%s:t%d'):format(canonicalKey, targetTier) })
+        -- Statement 2: Bank transaction audit ledger
+        statements[#statements + 1] = {
+            query = [[
+                INSERT INTO cm_family_bank_log (family_id, character_id, direction, category, amount, balance_after, reason)
+                VALUES (?, ?, 'withdraw', 'hq_upgrade', ?, (SELECT bank_balance FROM cm_families WHERE id = ?), ?)
+            ]],
+            values = { fam.id, actorCid, cost, fam.id, ('hq_upgrade:%s:t%d'):format(canonicalKey, targetTier) }
+        }
     end
 
-    -- Persist upgrade
-    pcall(function()
-        MySQL.query.await([[
-            INSERT INTO cm_family_hq_upgrades (family_id, upgrade_key, tier, purchased_by, purchased_at)
-            VALUES (?, ?, ?, ?, NOW())
-            ON DUPLICATE KEY UPDATE
-              tier = VALUES(tier),
-              purchased_by = VALUES(purchased_by),
-              purchased_at = NOW()
-        ]], { fam.id, canonicalKey, targetTier, actorCid })
+    -- Statement 3: Upgrade tier persistence
+    -- Optimistic concurrency check: if currentTier == 0, insert tier 1 (fails on duplicate if already exists).
+    -- If currentTier > 0, update tier to targetTier where tier == targetTier - 1.
+    if currentTier == 0 then
+        statements[#statements + 1] = {
+            query = [[
+                INSERT INTO cm_family_hq_upgrades (family_id, upgrade_key, tier, purchased_by, purchased_at)
+                VALUES (?, ?, 1, ?, NOW())
+            ]],
+            values = { fam.id, canonicalKey, actorCid }
+        }
+    else
+        statements[#statements + 1] = {
+            query = [[
+                UPDATE cm_family_hq_upgrades
+                SET tier = ?, purchased_by = ?, purchased_at = NOW()
+                WHERE family_id = ? AND upgrade_key = ? AND tier = ?
+            ]],
+            values = { targetTier, actorCid, fam.id, canonicalKey, currentTier }
+        }
+    end
+
+    local txOk, committed = pcall(function()
+        return MySQL.transaction.await(statements)
     end)
+
+    if not txOk or committed ~= true then
+        return releaseLock(false, 'Upgrade transaction failed: insufficient treasury funds or upgrade conflict.')
+    end
+
+    local newBalance = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { fam.id })) or 0
+    fam.bank_balance = newBalance
 
     LogFamily(fam.id, actorCid, 'hq_upgrade_purchased', {
         upgradeKey = canonicalKey,

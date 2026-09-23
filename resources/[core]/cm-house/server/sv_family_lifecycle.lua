@@ -102,6 +102,10 @@ function FL.AppendDeleteStatements(statements, familyId, houseId)
         values = { familyId },
     }
     statements[#statements + 1] = {
+        query = 'DELETE FROM cm_family_contribution_daily WHERE family_id = ?',
+        values = { familyId },
+    }
+    statements[#statements + 1] = {
         query = 'DELETE FROM cm_family_member_contributions WHERE family_id = ?',
         values = { familyId },
     }

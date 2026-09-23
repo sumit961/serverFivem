@@ -1,7 +1,7 @@
 -- ============================================================
--- cm-family | sv_contributions.lua | v1.8.0
+-- cm-family | sv_contributions.lua | v1.8.1
 -- Authoritative family member contribution score and leaderboards.
--- Separates merit-based contribution points from raw money deposited.
+-- Hardened with persistent daily financial cap and atomic transactions.
 -- ============================================================
 
 local B = CMFamilyBridge
@@ -47,6 +47,7 @@ function GetMemberContribution(characterId, familyId)
 end
 exports('GetMemberContribution', GetMemberContribution)
 
+-- Transactional and idempotent member contribution award
 function AddFamilyMemberContribution(characterId, familyId, amount, category, source, uniqueId)
     characterId = tostring(characterId)
     familyId = tonumber(familyId)
@@ -58,6 +59,7 @@ function AddFamilyMemberContribution(characterId, familyId, amount, category, so
         return false, 'invalid_arguments'
     end
 
+    -- Pre-check unique ID
     if uniqueId and uniqueId ~= '' then
         uniqueId = tostring(uniqueId)
         local existing = MySQL.scalar.await([[
@@ -79,8 +81,22 @@ function AddFamilyMemberContribution(characterId, familyId, amount, category, so
     local eventAdd = isEvent and amount or 0
     local finAdd = isFinancial and amount or 0
 
-    local ok = pcall(function()
-        MySQL.query.await([[
+    local statements = {}
+
+    -- 1. Reward history reservation (fails closed if duplicate key)
+    if uniqueId and uniqueId ~= '' then
+        statements[#statements + 1] = {
+            query = [[
+                INSERT INTO cm_family_reward_history (unique_id, family_id, reward_type, amount, source)
+                VALUES (?, ?, 'contribution', ?, ?)
+            ]],
+            values = { uniqueId, familyId, amount, source }
+        }
+    end
+
+    -- 2. Contribution update
+    statements[#statements + 1] = {
+        query = [[
             INSERT INTO cm_family_member_contributions
               (family_id, character_id, total_points, weekly_points, activity_points, financial_points, event_points, last_contribution_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
@@ -91,27 +107,28 @@ function AddFamilyMemberContribution(characterId, familyId, amount, category, so
               financial_points = financial_points + VALUES(financial_points),
               event_points = event_points + VALUES(event_points),
               last_contribution_at = NOW()
-        ]], { familyId, characterId, amount, amount, actAdd, finAdd, eventAdd })
+        ]],
+        values = { familyId, characterId, amount, amount, actAdd, finAdd, eventAdd }
+    }
 
-        if uniqueId and uniqueId ~= '' then
-            MySQL.insert.await([[
-                INSERT INTO cm_family_reward_history (unique_id, family_id, reward_type, amount, source)
-                VALUES (?, ?, 'contribution', ?, ?)
-            ]], { uniqueId, familyId, amount, source })
-        end
+    local txOk, committed = pcall(function()
+        return MySQL.transaction.await(statements)
     end)
 
-    if not ok then
-        return false, 'database_error'
+    if not txOk or committed ~= true then
+        return false, 'duplicate_reward_unique_id'
     end
 
     return true, amount
 end
 exports('AddFamilyMemberContribution', AddFamilyMemberContribution)
 
--- Safe financial contribution recorder: tracks cash deposited, but strictly
--- limits points so wealthy players do not completely distort contribution scores
-function RecordFinancialContribution(characterId, familyId, moneyAmount)
+-- Safe financial contribution recorder:
+-- Uses persistent daily tracking in cm_family_contribution_daily.
+-- Enforces a strict daily cap of maxDailyFinancialPoints (default 100 points)
+-- across ALL deposits in a single day.
+-- Full cash value is always recorded in money_contributed.
+function RecordFinancialContribution(characterId, familyId, moneyAmount, uniqueId)
     characterId = tostring(characterId)
     familyId = tonumber(familyId)
     moneyAmount = math.floor(tonumber(moneyAmount) or 0)
@@ -124,10 +141,49 @@ function RecordFinancialContribution(characterId, familyId, moneyAmount)
     local moneyPerPoint = tonumber(cfg.moneyPerPoint) or 1000
     local rawPoints = math.floor(moneyAmount / moneyPerPoint)
     local maxDaily = tonumber(cfg.maxDailyFinancialPoints) or 100
-    local pointsToAward = math.min(rawPoints, maxDaily)
+    local dayKey = os.date('!%Y-%m-%d') -- UTC day key
 
-    pcall(function()
-        MySQL.query.await([[
+    -- 1. Authoritative check: how many financial points were already earned today?
+    local dailyRow = MySQL.single.await([[
+        SELECT financial_points, money_contributed
+        FROM cm_family_contribution_daily
+        WHERE family_id = ? AND character_id = ? AND day_key = ?
+        LIMIT 1
+    ]], { familyId, characterId, dayKey })
+
+    local currentDailyPoints = dailyRow and tonumber(dailyRow.financial_points) or 0
+    local remainingAllowed = math.max(0, maxDaily - currentDailyPoints)
+    local pointsToAward = math.min(rawPoints, remainingAllowed)
+
+    -- 2. Build atomic transaction
+    local statements = {}
+
+    if uniqueId and uniqueId ~= '' then
+        statements[#statements + 1] = {
+            query = [[
+                INSERT INTO cm_family_reward_history (unique_id, family_id, reward_type, amount, source)
+                VALUES (?, ?, 'financial_contribution', ?, 'bank_deposit')
+            ]],
+            values = { tostring(uniqueId), familyId, pointsToAward }
+        }
+    end
+
+    -- Persistent daily tracking record
+    statements[#statements + 1] = {
+        query = [[
+            INSERT INTO cm_family_contribution_daily
+              (family_id, character_id, day_key, financial_points, money_contributed)
+            VALUES (?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+              financial_points = financial_points + VALUES(financial_points),
+              money_contributed = money_contributed + VALUES(money_contributed)
+        ]],
+        values = { familyId, characterId, dayKey, pointsToAward, moneyAmount }
+    }
+
+    -- Overall member contribution record (points capped, full money recorded)
+    statements[#statements + 1] = {
+        query = [[
             INSERT INTO cm_family_member_contributions
               (family_id, character_id, total_points, weekly_points, financial_points, money_contributed, last_contribution_at)
             VALUES (?, ?, ?, ?, ?, ?, NOW())
@@ -137,8 +193,17 @@ function RecordFinancialContribution(characterId, familyId, moneyAmount)
               financial_points = financial_points + VALUES(financial_points),
               money_contributed = money_contributed + VALUES(money_contributed),
               last_contribution_at = NOW()
-        ]], { familyId, characterId, pointsToAward, pointsToAward, pointsToAward, moneyAmount })
+        ]],
+        values = { familyId, characterId, pointsToAward, pointsToAward, pointsToAward, moneyAmount }
+    }
+
+    local txOk, committed = pcall(function()
+        return MySQL.transaction.await(statements)
     end)
+
+    if not txOk or committed ~= true then
+        return false, 'transaction_failed'
+    end
 
     return true, pointsToAward
 end
@@ -188,4 +253,3 @@ function GetFamilyContributionLeaderboard(familyId, scope)
     return leaderboard
 end
 exports('GetFamilyContributionLeaderboard', GetFamilyContributionLeaderboard)
-

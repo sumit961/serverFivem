@@ -285,6 +285,20 @@ local CREATE_CHILD_TABLES = {
           KEY `idx_reward_fam` (`family_id`, `created_at`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ]],
+    [[
+        CREATE TABLE IF NOT EXISTS `cm_family_contribution_daily` (
+          `id`                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          `family_id`          BIGINT UNSIGNED NOT NULL,
+          `character_id`       VARCHAR(64) NOT NULL,
+          `day_key`            VARCHAR(16) NOT NULL,
+          `financial_points`   INT UNSIGNED NOT NULL DEFAULT 0,
+          `money_contributed`  BIGINT UNSIGNED NOT NULL DEFAULT 0,
+          `updated_at`         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (`id`),
+          UNIQUE KEY `uniq_fam_char_day` (`family_id`, `character_id`, `day_key`),
+          KEY `idx_fcd_fam_day` (`family_id`, `day_key`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ]],
 }
 
 -- Additive repairs are ordered so AFTER references always exist. Nullable or
@@ -374,6 +388,9 @@ local ADDITIVE_COLUMNS = {
         { name = 'amount',          ddl = "`amount` BIGINT NULL AFTER `vehicle_id`" },
         { name = 'detail',          ddl = "`detail` JSON NULL AFTER `amount`" },
         { name = 'created_at',      ddl = "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP" },
+    },
+    cm_family_objective_progress = {
+        { name = 'reward_state', ddl = "`reward_state` VARCHAR(16) NOT NULL DEFAULT 'unclaimed' AFTER `completed`" },
     },
 }
 
@@ -897,6 +914,7 @@ function CMFamilyDeleteFamilyRows(familyId)
         { query = 'DELETE FROM cm_family_reward_history WHERE family_id = ?', values = { familyId } },
         { query = 'DELETE FROM cm_family_hq_upgrades WHERE family_id = ?', values = { familyId } },
         { query = 'DELETE FROM cm_family_objective_progress WHERE family_id = ?', values = { familyId } },
+        { query = 'DELETE FROM cm_family_contribution_daily WHERE family_id = ?', values = { familyId } },
         { query = 'DELETE FROM cm_family_member_contributions WHERE family_id = ?', values = { familyId } },
         { query = 'DELETE FROM cm_family_progression WHERE family_id = ?', values = { familyId } },
         { query = 'DELETE FROM cm_family_activity_log WHERE family_id = ?', values = { familyId } },
