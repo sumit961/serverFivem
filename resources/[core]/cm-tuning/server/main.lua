@@ -4,6 +4,18 @@ local Sessions = {}
 local VehicleLocks = {}
 local Cooldowns = {}
 
+local function visualDefinitions(shop)
+    if shop ~= 'livery' and shop ~= 'workshop' then return Config.Visual or {} end
+    local defs = {}
+    for _, def in ipairs(Config.Visual or {}) do
+        if (shop == 'livery' and def.key == 'livery')
+            or (shop == 'workshop' and def.key ~= 'livery') then
+            defs[#defs + 1] = def
+        end
+    end
+    return defs
+end
+
 math.randomseed(os.time() + GetGameTimer())
 
 local function dprint(...)
@@ -50,22 +62,21 @@ end
 local function getBalances(src)
     return {
         cash = getMoney(src, 'cash') or 0,
-        bank = getMoney(src, 'bank') or 0,
     }
 end
 
 local function resolveAccount(account)
-    account = tostring(account or '')
-    if account == 'cash' and Config.allowCash ~= false then return 'cash' end
-    if account == 'bank' and Config.allowBank ~= false then return 'bank' end
-    local fallback = tostring(Config.defaultAccount or 'cash')
-    if fallback == 'bank' and Config.allowBank ~= false then return 'bank' end
-    return 'cash'
+    if account == nil or account == '' then
+        return Config.allowCash ~= false and 'cash' or nil
+    end
+    if tostring(account) == 'cash' and Config.allowCash ~= false then return 'cash' end
+    return nil
 end
 
 local function charge(src, amount, account, reason)
     amount = math.max(0, math.floor(tonumber(amount) or 0))
     account = resolveAccount(account)
+    if not account then return false, 'Only cash payments are available.' end
     if amount == 0 then return true, account end
 
     local pd = playerdata()
@@ -86,10 +97,12 @@ end
 local function refund(src, amount, account, reason)
     amount = math.max(0, math.floor(tonumber(amount) or 0))
     if amount == 0 then return true end
+    account = resolveAccount(account)
+    if not account then return false end
     local pd = playerdata()
     if not pd then return false end
     local ok, result = pcall(function()
-        return pd:AddMoney(src, resolveAccount(account), amount, reason or 'cm_tuning_refund')
+        return pd:AddMoney(src, account, amount, reason or 'cm_tuning_refund')
     end)
     return ok and result == true
 end
@@ -253,7 +266,7 @@ end
 local function cleanCaps(caps, shop)
     caps = type(caps) == 'table' and caps or {}
     local allowed = {}
-    local defs = shop == 'chip' and (Config.Performance or {}) or (Config.Visual or {})
+    local defs = shop == 'chip' and (Config.Performance or {}) or visualDefinitions(shop)
     for _, def in ipairs(defs) do
         local hardMax
         if shop == 'chip' then hardMax = math.max(-1, (tonumber(def.maxLevel) or 4) - 1)
@@ -262,6 +275,7 @@ local function cleanCaps(caps, shop)
         local supplied = raw == nil and -1 or math.floor(tonumber(raw) or -1)
         allowed[def.key] = math.max(-1, math.min(hardMax, supplied))
     end
+    if shop == 'livery' then allowed.liveryNative = caps.liveryNative == true end
     return allowed
 end
 
@@ -331,6 +345,21 @@ end
 
 local function calculatePurchase(session, changes)
     if type(changes) ~= 'table' then return nil, nil, 'Invalid modification request.' end
+    if session.shop == 'livery' then
+        for field in pairs(changes) do
+            if field ~= 'slots' and field ~= 'toggles' then
+                return nil, nil, 'Only vehicle liveries are available at this shop.'
+            end
+        end
+        if type(changes.slots) == 'table' then
+            for key in pairs(changes.slots) do
+                if key ~= 'livery' then return nil, nil, 'Only vehicle liveries are available at this shop.' end
+            end
+        end
+        if type(changes.toggles) == 'table' and next(changes.toggles) ~= nil then
+            return nil, nil, 'Only vehicle liveries are available at this shop.'
+        end
+    end
     local maxChanges = tonumber(Config.Security and Config.Security.maxChangesPerPurchase) or 32
     if countChanges(changes) > maxChanges then return nil, nil, 'Too many modifications were submitted at once.' end
 
@@ -338,7 +367,7 @@ local function calculatePurchase(session, changes)
     local total = 0
     local changed = false
     local slotDefs = {}
-    local definitions = session.shop == 'chip' and (Config.Performance or {}) or (Config.Visual or {})
+    local definitions = session.shop == 'chip' and (Config.Performance or {}) or visualDefinitions(session.shop)
     for _, def in ipairs(definitions) do slotDefs[def.key] = def end
 
     if type(changes.slots) == 'table' then
@@ -352,10 +381,17 @@ local function calculatePurchase(session, changes)
             end
 
             local modKey = tostring(math.floor(tonumber(def.modType) or -1))
-            local current = integer(approved.mods[modKey]) or -1
+            local current
+            if session.shop == 'livery' and session.liveryNative then
+                current = integer(approved.livery) or -1
+            else
+                current = integer(approved.mods[modKey]) or -1
+            end
             if selected ~= current then
                 changed = true
-                approved.mods[modKey] = selected
+                if session.shop ~= 'livery' or not session.liveryNative then
+                    approved.mods[modKey] = selected
+                end
                 if selected >= 0 then
                     total = total + math.max(0, math.floor((tonumber(def.pricePerLevel) or 0) * (selected + 1)))
                 end
@@ -391,6 +427,9 @@ local function calculatePurchase(session, changes)
                 end
             end
         end
+    elseif session.shop == 'livery' then
+        -- Livery slot changes were validated above; this service has no
+        -- visual toggles, paint, tint, neon, or plate modifications.
     else
         if type(changes.toggles) == 'table' then
             for key, value in pairs(changes.toggles) do
@@ -527,6 +566,7 @@ RegisterNetEvent('cm-tuning:server:requestOpen', function(data)
     local token = createToken(src, data.netId)
     local savedMods = defaultMods(row.mods)
     local timeout = tonumber(Config.Security and Config.Security.sessionTimeoutMs) or 120000
+    local caps = cleanCaps(data.caps, shop)
 
     Sessions[src] = {
         token = token,
@@ -536,7 +576,8 @@ RegisterNetEvent('cm-tuning:server:requestOpen', function(data)
         model = tostring(row.model or ''),
         shop = shop,
         locationIndex = locationIndex,
-        caps = cleanCaps(data.caps, shop),
+        caps = caps,
+        liveryNative = shop == 'livery' and caps.liveryNative == true,
         baseMods = savedMods,
         expiresAt = GetGameTimer() + timeout,
         busy = false,

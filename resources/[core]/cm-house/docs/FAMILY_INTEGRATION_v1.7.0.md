@@ -1,6 +1,8 @@
 # cm-family integration — cm-house v1.7.0
 
-`cm-family` should provide the rank decision only. `cm-house` remains the property authority.
+`cm-house` remains the property authority. `cm-family` verifies active membership
+and the linked family house. Every active member receives `door.enter` and
+`garage.access` automatically; other permissions remain rank-controlled.
 
 Expected import:
 
@@ -25,3 +27,7 @@ Relevant permission keys:
 - `helipad.use`
 
 Garage appearance customization was removed. No family rank should receive or call `garage.customize`.
+
+Basic house and garage entry does not grant vehicle use. Taking family vehicles
+still requires `garage.take` and the vehicle's family access-level check;
+storing a personal vehicle still requires `garage.store`.

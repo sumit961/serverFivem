@@ -47,6 +47,18 @@ local function addCash(src, amount, reason)
     return ok and result == true
 end
 
+-- Repair earnings bank into cm-payday's hourly payout when it's running
+-- (salary paid at the top of every hour instead of per repair); falls back
+-- to the old instant pay if cm-payday isn't started. Panel/plate counters
+-- and level-ups stay instant since they gate job unlocks, not pay.
+local function payJobCash(src, amount, reason)
+    if GetResourceState('cm-payday') == 'started' then
+        local ok, result = pcall(function() return exports['cm-payday']:AddPendingCash(src, 'electrician', amount, reason) end)
+        if ok and result == true then return true end
+    end
+    return addCash(src, amount, reason)
+end
+
 local function getStatus(src)
     return {
         level = math.max(1, math.floor(tonumber(getMeta(src, 'cmElectricianLevel', 1)) or 1)),
@@ -275,7 +287,7 @@ RegisterNetEvent('cm-electrician:server:fixPanel', function(index)
         leveledUp = true
     end
 
-    addCash(src, Config.Earnings.perPanel, 'electrician_panel_repair')
+    payJobCash(src, Config.Earnings.perPanel, 'electrician_panel_repair')
     notify(src, ('Panel repaired. Earned $%d.'):format(Config.Earnings.perPanel), 'success')
     if leveledUp then
         notify(src, 'Level up! You can now rent a service truck and repair deposit plates.', 'success')
@@ -316,7 +328,7 @@ RegisterNetEvent('cm-electrician:server:fixPlate', function(index)
         leveledUp = true
     end
 
-    addCash(src, Config.Earnings.perPlate, 'electrician_plate_repair')
+    payJobCash(src, Config.Earnings.perPlate, 'electrician_plate_repair')
     notify(src, ('Deposit plate repaired. Earned $%d.'):format(Config.Earnings.perPlate), 'success')
     if leveledUp then
         notify(src, 'Level up! You will now be dispatched to city power outages.', 'success')
@@ -410,7 +422,7 @@ RegisterNetEvent('cm-electrician:server:fixOutage', function()
     end
 
     broadcastOutage(false)
-    addCash(src, Config.Earnings.perOutageFix, 'electrician_outage_repair')
+    payJobCash(src, Config.Earnings.perOutageFix, 'electrician_outage_repair')
     TriggerClientEvent('cm-electrician:client:notify', -1,
         'Electricians responded to the city power outage and restored power.', 'success')
     scheduleOutage()

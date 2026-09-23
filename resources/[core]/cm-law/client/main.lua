@@ -1,13 +1,29 @@
 local open = false
+-- Whether the dispatch notification carousel (html/app.js's
+-- #dispatchNotifyStack) currently has a card up. It needs mouse-only NUI
+-- focus (SetNuiFocus(true, false) + SetNuiFocusKeepInput) to be clickable
+-- while F6 is closed, WITHOUT taking over full keyboard/movement focus the
+-- way the F6 menu itself does -- closeMenu() below has to hand focus back to
+-- that partial state instead of fully releasing it if a card is still up.
+local notifyFocusActive = false
 
 function CmLawMenuOpen()
     return open
 end
 
+local function applyNotifyFocus()
+    if notifyFocusActive then
+        SetNuiFocus(true, false)
+        SetNuiFocusKeepInput(true)
+    else
+        SetNuiFocus(false, false)
+    end
+end
+
 local function closeMenu()
     open = false
-    SetNuiFocus(false, false)
     SendNUIMessage({ cmInterface = "law", action = 'close' })
+    applyNotifyFocus()
 end
 
 CreateThread(function()
@@ -56,8 +72,11 @@ local function openMenu(initialTab)
     end
     open = true
     SetNuiFocus(true, true)
+    -- MDT opens inside the normal tabbed shell (sidebar + record rail visible,
+    -- other tabs still reachable) rather than fullscreen standalone mode --
+    -- only Dispatch keeps the fullscreen CAD-board treatment.
     SendNUIMessage({ cmInterface = "law", action = 'open', data = data, initialTab = initialTab,
-        standaloneMode = initialTab == 'dispatch' or initialTab == 'mdt',
+        standaloneMode = initialTab == 'dispatch',
         facilityOnly = initialTab == 'fleet' })
 end
 
@@ -208,6 +227,27 @@ end)
 RegisterNUICallback('lawMdtCreateReport', function(data, cb)
     cb(lib.callback.await('cm-law:server:mdtCreateReport', false, data) or { ok = false })
 end)
+RegisterNUICallback('lawMdtSetReportStatus', function(data, cb)
+    cb(lib.callback.await('cm-law:server:mdtSetReportStatus', false, data and data.reportId, data and data.status) or { ok = false })
+end)
+RegisterNUICallback('lawMdtAddReportEvidence', function(data, cb)
+    cb(lib.callback.await('cm-law:server:mdtAddReportEvidence', false, data and data.reportId, data and data.label, data and data.note) or { ok = false })
+end)
+RegisterNUICallback('lawMdtLinkReportOfficer', function(data, cb)
+    cb(lib.callback.await('cm-law:server:mdtLinkReportOfficer', false, data and data.reportId, data and data.officerCid) or { ok = false })
+end)
+RegisterNUICallback('lawMdtCaptureReportPhoto', function(data, cb)
+    cb(lib.callback.await('cm-law:server:mdtCaptureReportPhoto', false, data and data.reportId) or { ok = false })
+end)
+RegisterNUICallback('lawMdtCapturePhoto', function(data, cb)
+    cb(lib.callback.await('cm-law:server:mdtCapturePhoto', false, data and data.characterId) or { ok = false })
+end)
+RegisterNUICallback('lawMdtSetLicenseStatus', function(data, cb)
+    cb(lib.callback.await('cm-law:server:mdtSetLicenseStatus', false, data and data.characterId, data and data.licenseType, data and data.status, data and data.reason) or { ok = false })
+end)
+RegisterNUICallback('setMemberPhoto', function(_, cb)
+    cb(lib.callback.await('cm-law:server:setMemberPhoto', false) or { ok = false })
+end)
 RegisterNUICallback('lawMdtSetWanted', function(data, cb)
     cb(lib.callback.await('cm-law:server:mdtSetWanted', false, data and data.characterId, data and data.stars, data and data.reason) or { ok = false })
 end)
@@ -216,6 +256,35 @@ RegisterNUICallback('lawMdtCreateWarrant', function(data, cb)
 end)
 RegisterNUICallback('lawMdtCloseWarrant', function(data, cb)
     cb(lib.callback.await('cm-law:server:mdtCloseWarrant', false, data and data.warrantId) or { ok = false })
+end)
+RegisterNUICallback('lawMdtDashboard', function(_, cb)
+    cb(lib.callback.await('cm-law:server:mdtDashboard', false) or { ok = false })
+end)
+RegisterNUICallback('lawMdtIssueBolo', function(data, cb)
+    cb(lib.callback.await('cm-law:server:mdtIssueBolo', false, data and data.plate, data and data.description) or { ok = false })
+end)
+RegisterNUICallback('lawMdtClearBolo', function(data, cb)
+    cb(lib.callback.await('cm-law:server:mdtClearBolo', false, data and data.boloId) or { ok = false })
+end)
+RegisterNUICallback('lawMdtActiveBolos', function(_, cb)
+    cb({ list = lib.callback.await('cm-law:server:mdtActiveBolos', false) or {} })
+end)
+RegisterNUICallback('lawMdtBoloHistory', function(_, cb)
+    cb({ list = lib.callback.await('cm-law:server:mdtBoloHistory', false) or {} })
+end)
+
+-- Criminal Code page (html/app.js).
+RegisterNUICallback('lawListCharges', function(_, cb)
+    cb(lib.callback.await('cm-law:server:listCharges', false) or { ok = false })
+end)
+RegisterNUICallback('lawCreateCharge', function(data, cb)
+    cb(lib.callback.await('cm-law:server:createCharge', false, data) or { ok = false })
+end)
+RegisterNUICallback('lawUpdateCharge', function(data, cb)
+    cb(lib.callback.await('cm-law:server:updateCharge', false, data) or { ok = false })
+end)
+RegisterNUICallback('lawDeleteCharge', function(data, cb)
+    cb(lib.callback.await('cm-law:server:deleteCharge', false, data and data.id) or { ok = false })
 end)
 
 -- Fleet tab (html/app.js) NUI relays live in client/vehicles.lua now
@@ -288,6 +357,19 @@ end)
 RegisterNUICallback('dispatchOnScene', function(data, cb)
     local ok, message = lib.callback.await('cm-law:server:setDispatchResponseStatus', false, data and data.callId, 'on_scene')
     cb({ ok = ok == true, message = ok and message or nil, error = not ok and message or nil })
+end)
+
+-- Notification carousel (html/app.js's #dispatchNotifyStack). Quick GPS
+-- reuses the same bare global the F7 Dispatch tab's own Accept button uses
+-- (client/dispatch.lua). Focus toggling only touches the F6 menu's own
+-- SetNuiFocus state when F6 isn't already open (see applyNotifyFocus above).
+RegisterNUICallback('dispatchQuickRoute', function(data, cb)
+    cb({ ok = type(LawSetDispatchRoute) == 'function' and LawSetDispatchRoute(tonumber(data and data.callId)) == true })
+end)
+RegisterNUICallback('dispatchNotifyFocus', function(data, cb)
+    notifyFocusActive = data and data.active == true
+    if not open then applyNotifyFocus() end
+    cb({ ok = true })
 end)
 
 RegisterNetEvent('cm-law:client:membershipChanged', function()

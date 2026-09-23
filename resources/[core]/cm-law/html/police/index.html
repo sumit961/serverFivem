@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
   <link rel="stylesheet" href="nui://cm-ui/web/cm-dashboard.css">
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-components.css">
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-icons.css">
   <link rel="stylesheet" href="app.css?v=6">
   <link rel="stylesheet" href="ranks.css?v=1">
   <link rel="stylesheet" href="fleet.css?v=1">
@@ -14,12 +16,13 @@
   <link rel="stylesheet" href="../live-operations-v2.1.css">
   <link rel="stylesheet" href="wardrobe.css?v=1">
   <link rel="stylesheet" href="ui.css?v=3">
-  <link rel="stylesheet" href="mdt-terminal.css?v=2">
   <link rel="stylesheet" href="theme.css?v=1">
   <link rel="stylesheet" href="nui://cm-ui/web/cm-armory.css?v=7">
+  <link rel="stylesheet" href="police-command-dashboard.css?v=3">
   <title>CM Law · LSPD Command Center</title>
   <link rel="stylesheet" href="../operations-v2.5.css?v=1">
   <link rel="stylesheet" href="../command-ui-v2.6.css?v=1">
+  <link rel="stylesheet" href="cm-law-dashboard.css?v=1">
 </head>
 <body>
   <aside class="npc-interaction" id="npcInteraction" hidden>
@@ -209,270 +212,9 @@
     </div>
   </div>
   <div id="policeQuickMenu" class="police-quick-menu-overlay" hidden>
-    <div class="police-quick-menu-card">
+    <div class="police-quick-menu-card cm-scrollbar">
       <h3 class="police-quick-menu-title" id="policeQuickMenuTitle">Menu</h3>
       <div id="policeQuickMenuItems"></div>
-    </div>
-  </div>
-  <div id="mdtTerminal" class="mdt-terminal" hidden>
-    <div class="mdt-term-shell">
-      <aside class="mdt-term-navrail">
-        <div class="mdt-term-brand">
-          <div class="mdt-term-shield">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l7 3v6c0 5-3.5 8-7 9-3.5-1-7-4-7-9V5z"/><path d="M9 12l2 2 4-4"/></svg>
-          </div>
-          <div>
-            <h1>POLICE MDT</h1>
-            <div class="mdt-term-brand-sub">Secure Terminal</div>
-          </div>
-        </div>
-        <nav class="mdt-term-tabs">
-          <button class="mdt-term-tab active" data-mdt-term-tab="directory">
-            <span class="mdt-term-tab-label">Citizen Directory</span>
-            <span class="mdt-term-tab-fkey">F1</span>
-          </button>
-          <button class="mdt-term-tab" data-mdt-term-tab="vehicles">
-            <span class="mdt-term-tab-label">Vehicle Registry</span>
-            <span class="mdt-term-tab-fkey">F2</span>
-          </button>
-          <button class="mdt-term-tab" data-mdt-term-tab="cases">
-            <span class="mdt-term-tab-label">Case Files</span>
-            <span class="mdt-term-tab-fkey">F3</span>
-          </button>
-          <button class="mdt-term-tab" data-mdt-term-tab="dispatch">
-            <span class="mdt-term-tab-label">Dispatch &amp; Units</span>
-            <span class="mdt-term-tab-fkey">F4</span>
-          </button>
-          <button class="mdt-term-tab" data-mdt-term-tab="penal">
-            <span class="mdt-term-tab-label">Penal Code</span>
-            <span class="mdt-term-tab-fkey">F5</span>
-          </button>
-          <button class="mdt-term-tab" data-mdt-term-tab="bolo">
-            <span class="mdt-term-tab-label">BOLO Alerts</span>
-            <span class="mdt-term-tab-fkey">F6</span>
-          </button>
-          <button class="mdt-term-tab" data-mdt-term-tab="uof">
-            <span class="mdt-term-tab-label">Use of Force</span>
-            <span class="mdt-term-tab-fkey">F7</span>
-          </button>
-        </nav>
-        <div class="mdt-term-navspacer"></div>
-        <div class="mdt-term-officer">
-          <div class="mdt-term-officer-av" id="mdtTermOfficerAvatar">--</div>
-          <div class="mdt-term-officer-info">
-            <div class="mdt-term-officer-name" id="mdtTermOfficerName">--</div>
-            <div class="mdt-term-officer-badge" id="mdtTermOfficerBadge">--</div>
-          </div>
-          <span class="mdt-term-dot"></span>
-        </div>
-        <button class="mdt-term-close" id="mdtTermClose">Close Terminal</button>
-      </aside>
-      <div class="mdt-term-content">
-        <header class="mdt-term-topbar">
-          <div class="mdt-term-sysmeta">
-            <span class="mdt-term-pill"><span class="mdt-term-dot"></span>DB&nbsp;<b>ONLINE</b></span>
-            <span class="mdt-term-pill">SYS_VER&nbsp;<b>4.02.1</b></span>
-            <span class="mdt-term-pill" id="mdtTermClock">--:--:--</span>
-          </div>
-        </header>
-        <div class="mdt-term-body">
-          <section class="mdt-term-panel-view active" data-mdt-term-view="directory">
-            <div class="mdt-term-grid-3col">
-              <aside class="mdt-term-sidebar">
-                <div class="mdt-term-panel">
-                  <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">Search Citizen</span></div>
-                  <div class="mdt-term-panel-body">
-                    <div class="mdt-term-row">
-                      <input id="mdtTermQuery" placeholder="NAME OR CID">
-                      <button id="mdtTermSearchButton">RUN</button>
-                    </div>
-                    <div class="mdt-term-list" id="mdtTermResults"></div>
-                  </div>
-                </div>
-                <div class="mdt-term-panel">
-                  <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">Wanted Persons</span><div class="mdt-term-head-right"><button class="mdt-term-mini" id="mdtTermRefreshWanted">REFRESH</button></div></div>
-                  <div class="mdt-term-panel-body">
-                    <div class="mdt-term-list" id="mdtTermWantedList"></div>
-                  </div>
-                </div>
-              </aside>
-              <section class="mdt-term-profile" id="mdtTermProfileCard" hidden>
-                <div class="mdt-term-warrant-banner" id="mdtTermWarrantBanner" hidden>*** WARNING: ACTIVE WANTED SUBJECT -- APPROACH WITH CAUTION ***</div>
-                <div class="mdt-term-profile-head">
-                  <div class="mdt-term-mugshot" id="mdtTermMugshot"></div>
-                  <div class="mdt-term-profile-id">
-                    <h2 id="mdtTermProfileName"></h2>
-                    <small id="mdtTermProfileDna"></small>
-                    <dl class="mdt-term-kv"><dt>Bank</dt><dd id="mdtTermProfileBank">$0</dd></dl>
-                    <div class="mdt-term-row">
-                      <input id="mdtTermPhotoUrl" placeholder="PHOTO URL">
-                      <button id="mdtTermSetPhotoButton">SET</button>
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <h3>Registered Vehicles</h3>
-                  <div class="mdt-term-list" id="mdtTermVehicles"></div>
-                </div>
-                <div>
-                  <h3>Licenses</h3>
-                  <div class="mdt-term-list" id="mdtTermLicenses"></div>
-                </div>
-                <div class="mdt-term-notes">
-                  <h3>Officer Notes &amp; Evidence</h3>
-                  <div class="mdt-term-list mdt-term-list-scroll" id="mdtTermNotes"></div>
-                  <div class="mdt-term-row"><input id="mdtTermNoteInput" maxlength="500" placeholder="ADD A NOTE"><button id="mdtTermAddNoteButton">ADD</button></div>
-                  <div class="mdt-term-list mdt-term-list-scroll" id="mdtTermEvidence"></div>
-                  <div class="mdt-term-row"><input id="mdtTermEvidenceUrl" placeholder="EVIDENCE URL"><input id="mdtTermEvidenceCaption" placeholder="CAPTION" maxlength="200"><button id="mdtTermAddEvidenceButton">ADD</button></div>
-                </div>
-              </section>
-              <aside class="mdt-term-right" id="mdtTermRight" hidden>
-                <div class="mdt-term-panel">
-                  <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">Status</span></div>
-                  <div class="mdt-term-panel-body">
-                    <button id="mdtTermWantedToggle">MARK WANTED</button>
-                    <div class="mdt-term-stars" id="mdtTermStars"></div>
-                  </div>
-                </div>
-                <div class="mdt-term-panel">
-                  <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">Issue Charges</span></div>
-                  <div class="mdt-term-panel-body">
-                    <div class="mdt-term-list" id="mdtTermChargeList"></div>
-                  </div>
-                  <div class="mdt-term-charge-total"><span>TOTAL</span><span>$<span id="mdtTermChargeTotal">0</span></span></div>
-                  <div class="mdt-term-charge-jail" id="mdtTermChargeJailTotal"></div>
-                  <button id="mdtTermIssueFinesButton">ISSUE FINES</button>
-                </div>
-                <div class="mdt-term-panel">
-                  <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">Citations</span></div>
-                  <div class="mdt-term-panel-body">
-                    <div class="mdt-term-list mdt-term-list-scroll" id="mdtTermCitations"></div>
-                  </div>
-                </div>
-                <div class="mdt-term-panel">
-                  <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">Bookings</span></div>
-                  <div class="mdt-term-panel-body">
-                    <div class="mdt-term-list mdt-term-list-scroll" id="mdtTermBookings"></div>
-                  </div>
-                </div>
-                <div class="mdt-term-panel">
-                  <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">Warrants</span></div>
-                  <div class="mdt-term-panel-body">
-                    <div class="mdt-term-list mdt-term-list-scroll" id="mdtTermWarrants"></div>
-                  </div>
-                </div>
-                <div class="mdt-term-panel">
-                  <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">Impound History</span></div>
-                  <div class="mdt-term-panel-body">
-                    <div class="mdt-term-list mdt-term-list-scroll" id="mdtTermImpounds"></div>
-                  </div>
-                </div>
-              </aside>
-            </div>
-          </section>
-          <section class="mdt-term-panel-view" data-mdt-term-view="vehicles">
-            <div class="mdt-term-panel">
-              <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">Vehicle Lookup</span></div>
-              <div class="mdt-term-panel-body">
-                <div class="mdt-term-row">
-                  <input id="mdtTermPlateQuery" placeholder="PLATE">
-                  <button id="mdtTermPlateSearchButton">RUN</button>
-                </div>
-                <div id="mdtTermVehicleResult"></div>
-                <div class="mdt-term-panel" id="mdtTermImpoundEvidence">
-                  <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">Pre-Tow Impound Evidence</span></div>
-                  <div class="mdt-term-panel-body">
-                    <p id="mdtTermImpoundStatus">No registration search is required. Stand near the vehicle you want to document.</p>
-                    <button id="mdtTermStartImpoundButton">IMPOUND VEHICLE</button>
-                    <div id="mdtTermImpoundForm" hidden>
-                      <p>Stand beside the vehicle, describe why it is being impounded, then capture it before attaching it to the tow truck.</p>
-                      <div class="mdt-term-row">
-                      <input id="mdtTermImpoundMessage" maxlength="500" placeholder="IMPOUND REASON / CONDITION / INCIDENT DETAILS">
-                      <button id="mdtTermCaptureImpoundButton">CAPTURE IMAGE</button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-          <section class="mdt-term-panel-view" data-mdt-term-view="cases">
-            <div class="mdt-term-panel">
-              <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">Case Files / Incident History</span><div class="mdt-term-head-right"><button class="mdt-term-mini" id="mdtTermRefreshCases">REFRESH</button></div></div>
-              <div class="mdt-term-panel-body">
-                <div class="mdt-term-list mdt-term-list-scroll" id="mdtTermCases"></div>
-              </div>
-            </div>
-          </section>
-          <section class="mdt-term-panel-view" data-mdt-term-view="dispatch">
-            <div class="mdt-term-panel">
-              <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">Active Calls</span><div class="mdt-term-head-right"><button class="mdt-term-mini" id="mdtTermRefreshDispatch">REFRESH</button></div></div>
-              <div class="mdt-term-panel-body">
-                <div class="mdt-term-list mdt-term-list-scroll" id="mdtTermDispatchActive"></div>
-              </div>
-            </div>
-            <div class="mdt-term-panel">
-              <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">On-Duty Units</span></div>
-              <div class="mdt-term-panel-body">
-                <div class="mdt-term-list mdt-term-list-scroll" id="mdtTermUnits"></div>
-              </div>
-            </div>
-          </section>
-          <section class="mdt-term-panel-view" data-mdt-term-view="penal">
-            <div class="mdt-term-panel">
-              <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">Penal Code Reference</span></div>
-              <div class="mdt-term-panel-body">
-                <div class="mdt-term-list mdt-term-list-scroll" id="mdtTermPenalList"></div>
-              </div>
-            </div>
-          </section>
-          <section class="mdt-term-panel-view" data-mdt-term-view="bolo">
-            <div class="mdt-term-panel">
-              <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">Issue BOLO</span></div>
-              <div class="mdt-term-panel-body">
-                <div class="mdt-term-row">
-                  <input id="mdtTermBoloDescription" placeholder="SUSPECT / VEHICLE DESCRIPTION" maxlength="200">
-                  <input id="mdtTermBoloPlate" placeholder="PLATE (OPTIONAL)" maxlength="16">
-                  <button id="mdtTermIssueBoloButton">ISSUE BOLO</button>
-                </div>
-              </div>
-            </div>
-            <div class="mdt-term-panel">
-              <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">Active BOLOs</span><div class="mdt-term-head-right"><button class="mdt-term-mini" id="mdtTermRefreshBolos">REFRESH</button></div></div>
-              <div class="mdt-term-panel-body">
-                <div class="mdt-term-list mdt-term-list-scroll" id="mdtTermBoloActive"></div>
-              </div>
-            </div>
-            <div class="mdt-term-panel">
-              <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">BOLO History</span></div>
-              <div class="mdt-term-panel-body">
-                <div class="mdt-term-list mdt-term-list-scroll" id="mdtTermBoloHistory"></div>
-              </div>
-            </div>
-          </section>
-          <section class="mdt-term-panel-view" data-mdt-term-view="uof">
-            <div class="mdt-term-panel">
-              <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">File Use-of-Force Report</span></div>
-              <div class="mdt-term-panel-body">
-                <div class="mdt-term-row">
-                  <input id="mdtTermUofSubject" placeholder="SUBJECT (NAME / CID / DESCRIPTION)" maxlength="120">
-                  <select id="mdtTermUofType"></select>
-                </div>
-                <div class="mdt-term-row">
-                  <textarea id="mdtTermUofNarrative" placeholder="NARRATIVE" maxlength="800"></textarea>
-                  <button id="mdtTermFileUofButton">FILE REPORT</button>
-                </div>
-              </div>
-            </div>
-            <div class="mdt-term-panel">
-              <div class="mdt-term-panel-head"><span class="mdt-term-accentbar"></span><span class="mdt-term-label">Use-of-Force History</span><div class="mdt-term-head-right"><button class="mdt-term-mini" id="mdtTermRefreshUof">REFRESH</button></div></div>
-              <div class="mdt-term-panel-body">
-                <div class="mdt-term-list mdt-term-list-scroll" id="mdtTermUofHistory"></div>
-              </div>
-            </div>
-          </section>
-        </div>
-      </div>
     </div>
   </div>
   <section id="impoundRelease" class="impound-release" hidden>
@@ -513,6 +255,7 @@
     </div>
   </div>
   <script src="../request-feedback.js?v=1"></script>
+  <script src="nui://cm-ui/web/cm-ui.js"></script>
   <script src="app.js?v=15"></script>
   <script src="../live-operations-v2.1.js?v=2"></script>
   <script src="dashboard-filters.js?v=1"></script>

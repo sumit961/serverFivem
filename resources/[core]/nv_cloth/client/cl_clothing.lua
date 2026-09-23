@@ -280,6 +280,12 @@ local function applyItem(ped, category, drawable, texture)
       return GetPedPropIndex(ped, cat.index) == drawable
     else
       ClearPedProp(ped, cat.index)
+      if cat.index == 0 and saveClothes and saveClothes.__hair and saveClothes.__hair.drawable then
+        SetPedComponentVariation(ped, 2, saveClothes.__hair.drawable, saveClothes.__hair.texture or 0, 0)
+        if saveClothes.__hair.color and saveClothes.__hair.color >= 0 then
+          SetPedHairColor(ped, saveClothes.__hair.color, saveClothes.__hair.highlight or saveClothes.__hair.color)
+        end
+      end
       return true
     end
   end
@@ -379,7 +385,7 @@ local function WaitForFreemodeModel()
   while true do
     local ped = PlayerPedId()
     local model = GetEntityModel(ped)
-    if model == `mp_m_freemode_01` or model == `mp_f_freemode_01` then
+    if model == GetHashKey('mp_m_freemode_01') or model == GetHashKey('mp_f_freemode_01') then
       break
     end
     tries = tries + 1
@@ -416,6 +422,58 @@ end)
 -- NUI: ACTIONS SUR ARTICLES
 --========================================================
 
+cartPreviewMap = {}
+lastPreviewCategory = nil
+
+function ResetCartPreviewState()
+  cartPreviewMap = {}
+  lastPreviewCategory = nil
+end
+
+local function applyCartAndPreview(cart, selected)
+  local ped = PlayerPedId()
+  if not (saveClothes and type(saveClothes) == 'table') then return end
+
+  -- Rebuild cartPreviewMap from incoming cart array
+  cartPreviewMap = {}
+  if type(cart) == 'table' then
+    for _, it in ipairs(cart) do
+      local cat = tostring(it.category or it.type or '')
+      if categories[cat] then
+        cartPreviewMap[cat] = {
+          drawable = tonumber(it.drawable or it.drawableId or it.component or it.componentId) or 0,
+          texture  = tonumber(it.texture or it.textureId or 0) or 0
+        }
+      end
+    end
+  end
+
+  -- Restore categories that are NOT in cart back to saveClothes
+  for catName, saved in pairs(saveClothes) do
+    if not cartPreviewMap[catName] and categories[catName] and saved.drawable ~= nil and saved.texture ~= nil then
+      applyItem(ped, catName, saved.drawable, saved.texture)
+    end
+  end
+
+  -- Apply all items currently in cart
+  for catName, it in pairs(cartPreviewMap) do
+    applyItem(ped, catName, it.drawable, it.texture)
+  end
+
+  -- Overlay selected item if provided
+  if type(selected) == 'table' then
+    local selCat = tostring(selected.category or selected.type or '')
+    local selD = tonumber(selected.drawable or selected.drawableId or selected.component or selected.componentId)
+    local selT = tonumber(selected.texture or selected.textureId or 0) or 0
+    if categories[selCat] and selD ~= nil then
+      applyItem(ped, selCat, selD, selT)
+      lastPreviewCategory = selCat
+    end
+  end
+
+  scheduleTryBeforeBuyRevert()
+end
+
 -- Applique l’article choisi et renvoie le nombre de textures possibles
 RegisterNUICallback("sendSelectedArticle", function(data, cb)
   local ped = PlayerPedId()
@@ -450,6 +508,17 @@ RegisterNUICallback("sendSelectedArticle", function(data, cb)
         applyItem(ped, 'torso', torsoDrawable, torsoTexture)
       end
     end
+  else
+    -- Multi-slot shopper preview: if shopper switched away from previous preview category,
+    -- restore that category to its cart item (if in cart) or back to saveClothes.
+    if lastPreviewCategory and lastPreviewCategory ~= category then
+      if cartPreviewMap and cartPreviewMap[lastPreviewCategory] then
+        applyItem(ped, lastPreviewCategory, cartPreviewMap[lastPreviewCategory].drawable, cartPreviewMap[lastPreviewCategory].texture)
+      elseif saveClothes and saveClothes[lastPreviewCategory] then
+        applyItem(ped, lastPreviewCategory, saveClothes[lastPreviewCategory].drawable, saveClothes[lastPreviewCategory].texture)
+      end
+    end
+    lastPreviewCategory = category
   end
 
   -- Apply immediately for preview.
@@ -533,7 +602,7 @@ RegisterNUICallback("setOutfit", function(data, cb)
 end)
 
 --========================================================
--- NUI: RESET / CLEAR (restaurent simplement la tenue sauvegardée)
+-- NUI: RESET / CLEAR / CART PREVIEW
 --========================================================
 
 local function nuiReply(cb, payload)
@@ -545,6 +614,7 @@ end
 -- NUI callbacks always pass (data, cb).
 -- Keep the unused first arg or cb becomes nil/table and Axios reports Network Error.
 local function resetToSaved(_, cb)
+  ResetCartPreviewState()
   setOutfit(saveClothes)
   nuiReply(cb, { success = true })
 end
@@ -554,23 +624,33 @@ RegisterNUICallback("resetCart",        resetToSaved)
 RegisterNUICallback("clearCart",        resetToSaved)
 
 RegisterNUICallback("reset", function(_, cb)
+  ResetCartPreviewState()
   setOutfit(saveClothes)
   nuiReply(cb, "ok")
 end)
 
 RegisterNUICallback("clear", function(_, cb)
+  ResetCartPreviewState()
   setOutfit(saveClothes)
   nuiReply(cb, "ok")
 end)
 
 RegisterNUICallback("resetCartItems", function(_, cb)
+  ResetCartPreviewState()
   setOutfit(saveClothes)
   nuiReply(cb, "ok")
 end)
 
 RegisterNUICallback("clearCartItems", function(_, cb)
+  ResetCartPreviewState()
   setOutfit(saveClothes)
   nuiReply(cb, "ok")
+end)
+
+RegisterNUICallback("syncCartPreview", function(data, cb)
+  data = type(data) == 'table' and data or {}
+  applyCartAndPreview(data.cart, data.selected)
+  nuiReply(cb, { success = true })
 end)
 
 --========================================================
@@ -626,6 +706,26 @@ local function buildBuyMetadata(item)
     unique = true,
     stack = false
   }
+
+  local catDef = type(categories) == 'table' and categories[category] or nil
+  local compType = (catDef and catDef.type) or ((category == 'hat' or category == 'glasses' or category == 'earrings' or category == 'watches' or category == 'bracelets') and 'prop' or 'component')
+  local compIndex = catDef and catDef.index or 0
+
+  local collName = item.collection or item.collectionName or item.collection_name
+  local collLocal = tonumber(item.collectionLocalId or item.collection_local_id)
+  if (not collName or not collLocal) and GetResourceState('nv_cloth') == 'started' and exports['nv_cloth'].ReadClothingCollection then
+    pcall(function()
+      local c, l = exports['nv_cloth']:ReadClothingCollection(compType, compIndex, drawable, ped)
+      if c and l then
+        collName = c
+        collLocal = l
+      end
+    end)
+  end
+  metadata.collection = collName
+  metadata.collectionLocalId = collLocal
+  metadata.collection_name = collName
+  metadata.collection_local_id = collLocal
 
   -- Torso items must remember matching arms and undershirt to prevent clipping.
   if category == 'torso' then
@@ -950,3 +1050,226 @@ RegisterCommand('cmfit', function(_, args)
     gender, torso, arms, armsTexture, tshirt, tshirtTexture, torsoTexture
   ))
 end, false)
+
+--========================================================
+-- PLAYER CLOTHING QUICK TOGGLES (/sleeve, /jacket, /undershirt, /hat, /glasses, /mask)
+--========================================================
+
+local savedToggles = {
+  jacket = nil,
+  undershirt = nil,
+  hat = nil,
+  glasses = nil,
+  mask = nil,
+  arms = nil,
+}
+
+local function canToggleClothes(ped)
+  if not ped or ped == 0 then return false end
+  if IsEntityDead(ped) or GetEntityHealth(ped) <= 100 then return false end
+  local state = LocalPlayer and LocalPlayer.state
+  if state and (state.isDead or state.cmCuffed or state.cuffed or state.isCuffed or state.handcuffed) then
+    return false
+  end
+  return true
+end
+
+local function playToggleAnim(dict, anim, duration)
+  local ped = PlayerPedId()
+  if IsPedInAnyVehicle(ped, false) then return end
+  dict = dict or 'clothingshirt'
+  anim = anim or 'try_shirt_positive_d'
+  duration = duration or 900
+  RequestAnimDict(dict)
+  local timeout = GetGameTimer() + 1000
+  while not HasAnimDictLoaded(dict) and GetGameTimer() < timeout do
+    Wait(10)
+  end
+  if HasAnimDictLoaded(dict) then
+    TaskPlayAnim(ped, dict, anim, 8.0, -8.0, duration, 49, 0.0, false, false, false)
+    Wait(duration)
+    StopAnimTask(ped, dict, anim, 1.0)
+    RemoveAnimDict(dict)
+  end
+end
+
+local function toggleSleeves()
+  local ped = PlayerPedId()
+  if not canToggleClothes(ped) then
+    showNotification('You cannot adjust clothing right now.', 'error')
+    return
+  end
+
+  local curArms = GetPedDrawableVariation(ped, 3)
+  local curTexture = GetPedTextureVariation(ped, 3)
+
+  playToggleAnim('clothingshirt', 'try_shirt_positive_d', 850)
+
+  if curArms == 6 then
+    SetPedComponentVariation(ped, 3, 5, curTexture, 0)
+    showNotification('Sleeves rolled up.', 'success')
+  elseif curArms == 5 then
+    SetPedComponentVariation(ped, 3, 6, curTexture, 0)
+    showNotification('Sleeves rolled down.', 'success')
+  elseif curArms == 15 then
+    local restore = savedToggles.arms or 6
+    SetPedComponentVariation(ped, 3, restore, curTexture, 0)
+    showNotification('Sleeves rolled down.', 'success')
+  else
+    savedToggles.arms = curArms
+    SetPedComponentVariation(ped, 3, 5, 0, 0)
+    showNotification('Sleeves rolled up.', 'success')
+  end
+end
+
+local function toggleJacket()
+  local ped = PlayerPedId()
+  if not canToggleClothes(ped) then
+    showNotification('You cannot adjust clothing right now.', 'error')
+    return
+  end
+
+  local curTorso = GetPedDrawableVariation(ped, 11)
+  local curTorsoTex = GetPedTextureVariation(ped, 11)
+
+  playToggleAnim('clothingshirt', 'try_shirt_positive_d', 900)
+
+  if curTorso == 15 then
+    if savedToggles.jacket then
+      SetPedComponentVariation(ped, 11, savedToggles.jacket.d, savedToggles.jacket.t, 0)
+      if savedToggles.jacket.arms then
+        SetPedComponentVariation(ped, 3, savedToggles.jacket.arms, savedToggles.jacket.armsT or 0, 0)
+      end
+      savedToggles.jacket = nil
+      showNotification('Jacket put on.', 'success')
+    else
+      showNotification('No saved jacket to put on.', 'info')
+    end
+  else
+    savedToggles.jacket = {
+      d = curTorso,
+      t = curTorsoTex,
+      arms = GetPedDrawableVariation(ped, 3),
+      armsT = GetPedTextureVariation(ped, 3),
+    }
+    SetPedComponentVariation(ped, 11, 15, 0, 0)
+    showNotification('Jacket taken off.', 'info')
+  end
+end
+
+local function toggleUndershirt()
+  local ped = PlayerPedId()
+  if not canToggleClothes(ped) then
+    showNotification('You cannot adjust clothing right now.', 'error')
+    return
+  end
+
+  local cur = GetPedDrawableVariation(ped, 8)
+  local curTex = GetPedTextureVariation(ped, 8)
+
+  playToggleAnim('clothingshirt', 'try_shirt_positive_d', 850)
+
+  if cur == 15 or cur == -1 then
+    if savedToggles.undershirt then
+      SetPedComponentVariation(ped, 8, savedToggles.undershirt.d, savedToggles.undershirt.t, 0)
+      savedToggles.undershirt = nil
+      showNotification('Undershirt put on.', 'success')
+    else
+      showNotification('No saved undershirt to put on.', 'info')
+    end
+  else
+    savedToggles.undershirt = { d = cur, t = curTex }
+    SetPedComponentVariation(ped, 8, 15, 0, 0)
+    showNotification('Undershirt removed.', 'info')
+  end
+end
+
+local function toggleHat()
+  local ped = PlayerPedId()
+  if not canToggleClothes(ped) then
+    showNotification('You cannot adjust clothing right now.', 'error')
+    return
+  end
+
+  local cur = GetPedPropIndex(ped, 0)
+  local curTex = GetPedPropTextureIndex(ped, 0)
+
+  playToggleAnim('mp_masks@on_foot', 'put_on_mask', 600)
+
+  if cur == -1 then
+    if savedToggles.hat then
+      SetPedPropIndex(ped, 0, savedToggles.hat.d, savedToggles.hat.t, true)
+      savedToggles.hat = nil
+      showNotification('Hat put on.', 'success')
+    else
+      showNotification('No saved hat to put on.', 'info')
+    end
+  else
+    savedToggles.hat = { d = cur, t = curTex }
+    ClearPedProp(ped, 0)
+    showNotification('Hat taken off.', 'info')
+  end
+end
+
+local function toggleGlasses()
+  local ped = PlayerPedId()
+  if not canToggleClothes(ped) then
+    showNotification('You cannot adjust clothing right now.', 'error')
+    return
+  end
+
+  local cur = GetPedPropIndex(ped, 1)
+  local curTex = GetPedPropTextureIndex(ped, 1)
+
+  playToggleAnim('clothingspecs', 'take_off', 600)
+
+  if cur == -1 then
+    if savedToggles.glasses then
+      SetPedPropIndex(ped, 1, savedToggles.glasses.d, savedToggles.glasses.t, true)
+      savedToggles.glasses = nil
+      showNotification('Glasses put on.', 'success')
+    else
+      showNotification('No saved glasses to put on.', 'info')
+    end
+  else
+    savedToggles.glasses = { d = cur, t = curTex }
+    ClearPedProp(ped, 1)
+    showNotification('Glasses taken off.', 'info')
+  end
+end
+
+local function toggleMask()
+  local ped = PlayerPedId()
+  if not canToggleClothes(ped) then
+    showNotification('You cannot adjust clothing right now.', 'error')
+    return
+  end
+
+  local cur = GetPedDrawableVariation(ped, 1)
+  local curTex = GetPedTextureVariation(ped, 1)
+
+  playToggleAnim('mp_masks@on_foot', 'put_on_mask', 700)
+
+  if cur == 0 or cur == -1 then
+    if savedToggles.mask then
+      SetPedComponentVariation(ped, 1, savedToggles.mask.d, savedToggles.mask.t, 0)
+      savedToggles.mask = nil
+      showNotification('Mask put on.', 'success')
+    else
+      showNotification('No saved mask to put on.', 'info')
+    end
+  else
+    savedToggles.mask = { d = cur, t = curTex }
+    SetPedComponentVariation(ped, 1, 0, 0, 0)
+    showNotification('Mask removed.', 'info')
+  end
+end
+
+-- Chat commands removed per server design: clothing is strictly item-based via cm-inventory.
+
+exports('ToggleSleeves', toggleSleeves)
+exports('ToggleJacket', toggleJacket)
+exports('ToggleUndershirt', toggleUndershirt)
+exports('ToggleHat', toggleHat)
+exports('ToggleGlasses', toggleGlasses)
+exports('ToggleMask', toggleMask)

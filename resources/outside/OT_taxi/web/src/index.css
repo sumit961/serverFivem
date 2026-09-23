@@ -1,0 +1,19 @@
+body {
+  background: none !important;
+  overflow: hidden !important;
+  user-select: none;
+  margin: 0;
+}
+
+:root {
+  color-scheme: normal !important;
+}
+
+#root {
+  height: 100%
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}

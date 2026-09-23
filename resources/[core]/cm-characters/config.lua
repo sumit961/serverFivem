@@ -86,3 +86,34 @@ Config.CharacterScreenWorld = Config.CharacterScreenWorld or {
     resumeRetries = 4,
     resumeRetryDelayMs = 900
 }
+
+-- Barber Shop grooming service configuration
+Config.BarberCost = 100
+Config.BarberShops = {
+    { id = "davis", name = "Davis Barber", coords = vector3(136.83, -1708.38, 29.29), blip = 71 },
+    { id = "hawick", name = "Hawick Barber", coords = vector3(-32.88, -152.31, 57.08), blip = 71 },
+    { id = "rockford", name = "Rockford Hills Barber", coords = vector3(-814.31, -183.82, 37.57), blip = 71 },
+    { id = "vespucci", name = "Vespucci Beach Barber", coords = vector3(-1282.6, -1116.76, 6.99), blip = 71 },
+    { id = "sandy", name = "Sandy Shores Barber", coords = vector3(1931.54, 3729.67, 32.84), blip = 71 },
+    { id = "paleto", name = "Paleto Bay Barber", coords = vector3(-278.06, 6228.46, 31.69), blip = 71 },
+    { id = "mirror_park", name = "Mirror Park Barber", coords = vector3(1212.84, -472.92, 66.21), blip = 71 },
+}
+
+-- Barber Shop / Hair Salon Commercial Ownership & Management
+Config.BarberOwnership = {
+    enabled = true,
+    purchasePrice = 200000,     -- $200,000 to acquire a hair salon commercial property (bank payment)
+    taxAmount = 12000,         -- $12,000 property tax due every 7 days
+    taxPeriodDays = 7,         -- 7-day tax cycle
+    ownerRevenuePercent = 80,  -- 80% of customer styling fees go to salon business account
+    defaultStock = 1000,       -- Initial grooming supplies units upon salon creation/forfeiture
+    maxStock = 5000,           -- Maximum grooming supplies capacity
+    restockUnitPrice = 8,      -- $8 per grooming supply unit
+    restockBatch = 250,        -- Batch order of 250 units ($2,000 bank payment)
+    baseCost = 100,            -- Base service cost ($100)
+    priceTiers = {             -- Dynamic pricing tiers for salon customers
+        low = 0.80,            -- $80 (-20% discount to attract customers)
+        normal = 1.00,         -- $100 (standard salon fee)
+        high = 1.50,           -- $150 (+50% luxury salon fee)
+    },
+}

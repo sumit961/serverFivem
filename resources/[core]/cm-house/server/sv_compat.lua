@@ -343,6 +343,10 @@ function OpenPropertyStash(src, houseId, index, def)
         and tostring(house.label or ('Family House #' .. tostring(houseId)))
         or ('Property #%d'):format(houseId)
 
+    local cid = GetCid(src)
+    local canWithdraw = CanAccessProperty(cid, houseId, ACTIONS.STORAGE_WITHDRAW) == true
+    local canDeposit = CanAccessProperty(cid, houseId, ACTIONS.STORAGE_DEPOSIT) == true
+
     local ok, res, err = pcall(function()
         return exports[INV]:OpenExternalInventory(src, {
             ownerType    = 'house_storage',
@@ -354,8 +358,8 @@ function OpenPropertyStash(src, houseId, index, def)
             label        = storageLabel,
             subtitle     = storageSubtitle,
             noWeightLimit = true,
-            canDeposit   = true,
-            canWithdraw  = true,
+            canDeposit   = canDeposit,
+            canWithdraw  = canWithdraw,
             data         = {
                 houseId = houseId,
                 familyId = house and house.family_id or nil,
@@ -454,7 +458,7 @@ function GarageVehicles(houseId)
     ReseatHomelessVehicles(houseId)
 
     return MySQL.query.await([[
-        SELECT v.id, v.plate, v.model, v.label, catalog.image, v.owner_character_id,
+        SELECT v.id, v.plate, v.license_number, v.model, v.label, catalog.image, v.owner_character_id,
                v.fuel, v.engine_health, v.body_health, v.tank_health, v.dirt_level,
                v.condition_state, v.is_locked, v.is_stored, v.garage,
                v.location_state, v.location_ref, v.location_slot,

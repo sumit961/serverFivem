@@ -42,5 +42,7 @@ dependencies {
     'cm-tuning',       -- EMS appearance editor: GetVisualCatalog (paint/livery/wheel/tyre/neon options)
     'cm-playerdata',   -- money: GetMoney / RemoveMoney / AddMoney / GetAccounts
     'cm-core',         -- character resolution only
+    'cm-house',        -- assign purchased vehicles to an owned garage slot
+    'cm-ui',           -- shared "Press E" interact prompt + cinematic NPC dialogue
     'screenshot-basic',
 }

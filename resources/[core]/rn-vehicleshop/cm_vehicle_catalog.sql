@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS cm_vehicle_catalog (
     retired TINYINT(1) NOT NULL DEFAULT 0,
     replacement_model VARCHAR(64) NULL,
     has_carplay TINYINT(1) NOT NULL DEFAULT 0,
+    vehicle_type VARCHAR(8) NOT NULL DEFAULT 'land',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_category (category),
@@ -25,7 +26,8 @@ CREATE TABLE IF NOT EXISTS cm_vehicle_catalog (
     INDEX idx_available_server (available_server),
     INDEX idx_available_ems (available_ems),
     INDEX idx_available_police (available_police),
-    INDEX idx_has_carplay (has_carplay)
+    INDEX idx_has_carplay (has_carplay),
+    INDEX idx_vehicle_type (vehicle_type)
 );
 
 CREATE TABLE IF NOT EXISTS cm_vehicle_replacements (

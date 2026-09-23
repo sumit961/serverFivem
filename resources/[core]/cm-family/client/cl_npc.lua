@@ -1,9 +1,9 @@
 -- ============================================================
 --  cm-family | cl_npc.lua
 --  Spawns the family registrar NPC and shows an E prompt near it. Pressing E
---  opens the create/join flow (or the menu, if already in a family). Reuses
---  cm-house's interaction prompt export when available so the on-screen style
---  matches; otherwise falls back to a native help text.
+--  opens the create/join flow (or the menu, if already in a family). The
+--  prompt is routed through cm-house's compatibility export and rendered by
+--  the shared cm-ui interaction component.
 -- ============================================================
 
 local npcPed = nil
@@ -19,17 +19,13 @@ end
 -- The cm-house interaction prompt auto-expires (ttl), so it must be re-asserted
 -- every frame while the player is in range rather than requested once.
 local function assertPrompt(label)
-    if houseInteractionAvailable() then
-        pcall(function()
-            exports[Config.HouseResource]:RequestInteraction('cm-family-npc', label, '', 20, { key = 'E', ttl = 250 })
-        end)
-        promptShown = true
-    else
-        BeginTextCommandDisplayHelp('STRING')
-        AddTextComponentSubstringPlayerName('Press ~INPUT_CONTEXT~ to ' .. label)
-        EndTextCommandDisplayHelp(0, false, true, -1)
-        promptShown = true
-    end
+    if not houseInteractionAvailable() then promptShown = false; return end
+    local ok = pcall(function()
+        exports[Config.HouseResource]:RequestInteraction('cm-family-npc', label, '', 20, {
+            key = 'E', ttl = 250, name = 'FAMILY', role = 'MANAGEMENT',
+        })
+    end)
+    promptShown = ok
 end
 
 local function clearPrompt()

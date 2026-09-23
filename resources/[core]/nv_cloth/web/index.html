@@ -12,6 +12,8 @@
 </head>
 <body>
   <main id="app" class="hidden">
+    <!-- Transparent stage capturing mouse drag/wheel controls for ClothCam -->
+    <div id="preview-stage" class="preview-stage"></div>
 
     <!-- Floating outfit/cost summary (store mode only) -->
     <div id="outfitSummary" class="outfit-summary hidden">
@@ -66,10 +68,22 @@
         <div class="brand-note hidden" id="brandNote">CREATE ITEMS · CAPTURE IMAGES · SAVE TEXTURES</div>
       </div>
 
-      <!-- Store filters (admin only) -->
-      <div id="filterPanel" class="filter-panel hidden">
-        <input id="searchInput" class="filter-input" type="text" placeholder="Search name / drawable / price…" autocomplete="off" />
-        <div class="filter-grid">
+      <!-- Nav Tabs: Catalog vs Favorites vs Owner Console vs Store Info -->
+      <div class="store-nav-tabs" id="storeNavTabs">
+        <button id="tabCatalogBtn" class="nav-tab-btn active" type="button"><i class="fas fa-store"></i> CATALOG</button>
+        <button id="tabFavoritesBtn" class="nav-tab-btn" type="button"><i class="fas fa-star" style="color:#ffd700;"></i> FAVORITES (<span id="favCountBadge">0</span>)</button>
+        <button id="tabOwnerBtn" class="nav-tab-btn nav-tab-btn--owner hidden" type="button"><i class="fas fa-briefcase" style="color:var(--accent-cyan, #22f5ff);"></i> OWNER</button>
+        <button id="tabInfoBtn" class="nav-tab-btn" type="button"><i class="fas fa-info-circle"></i> INFO</button>
+      </div>
+
+      <!-- Store Search & Filters (Available for both normal shoppers and admin) -->
+      <div id="filterPanel" class="filter-panel">
+        <div class="search-input-wrap">
+          <i class="fas fa-search search-icon"></i>
+          <input id="searchInput" class="filter-input search-input-field" type="text" placeholder="Search by name or drawable #…" autocomplete="off" />
+          <button id="clearSearchBtn" class="clear-search-btn hidden" type="button" title="Clear search"><i class="fas fa-times"></i></button>
+        </div>
+        <div id="adminFilterGrid" class="filter-grid hidden">
           <select id="genderFilter" class="filter-select">
             <option value="all">All genders</option>
             <option value="male">Male</option>
@@ -79,7 +93,7 @@
           <input id="minPriceFilter" class="filter-input" type="number" placeholder="Min $" min="0" step="1" />
           <input id="maxPriceFilter" class="filter-input" type="number" placeholder="Max $" min="0" step="1" />
         </div>
-        <button id="clearFiltersBtn" class="filter-clear" type="button">CLEAR FILTERS</button>
+        <button id="clearFiltersBtn" class="filter-clear hidden" type="button">CLEAR FILTERS</button>
       </div>
 
       <!-- Categories section -->
@@ -587,7 +601,105 @@
       </div>
     </div>
 
+    <!-- ═══ STORE OWNER CONSOLE ═══ -->
+    <div id="ownerPanel" class="owner-panel hidden">
+      <div class="owner-card">
+        <div class="owner-head">
+          <div class="owner-title">
+            <span class="brand-name" id="ownerStoreTitle">CLOTHING STORE</span>
+            <span class="brand-name brand-name--cyan">OWNER CONSOLE</span>
+            <div class="brand-sub" id="ownerStoreSub">COMMERCIAL PROPERTY MANAGEMENT</div>
+          </div>
+          <button id="ownerCloseBtn" type="button" class="btn btn--close"><i class="fas fa-times"></i> BACK TO CATALOG</button>
+        </div>
+
+        <!-- Metric cards -->
+        <div class="owner-metrics-grid">
+          <div class="metric-card">
+            <span class="metric-label">BUSINESS BALANCE</span>
+            <strong class="metric-value accent-cyan" id="ownerBalance">$0</strong>
+            <small class="metric-hint">STORE REVENUE SHARE (80%)</small>
+            <button id="ownerWithdrawBtn" type="button" class="metric-action-btn"><i class="fas fa-money-bill-wave"></i> WITHDRAW FUNDS</button>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">PROPERTY TAX</span>
+            <strong class="metric-value" id="ownerTaxCoverage">7 DAYS</strong>
+            <small class="metric-hint" id="ownerTaxDueHint">$15,000 / 7 DAYS</small>
+            <button id="ownerPayTaxBtn" type="button" class="metric-action-btn"><i class="fas fa-shield-alt"></i> PAY 7-DAY TAX ($15K)</button>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">CLOTHING STOCK</span>
+            <strong class="metric-value" id="ownerStock">2,500</strong>
+            <small class="metric-hint" id="ownerStockCap">CAPACITY: 15,000 UNITS</small>
+            <button id="ownerRestockBtn" type="button" class="metric-action-btn metric-action-btn--primary"><i class="fas fa-boxes"></i> ORDER STOCK (+500 / $5K)</button>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">TODAY'S REVENUE</span>
+            <strong class="metric-value" id="ownerDailyIncome">$0</strong>
+            <small class="metric-hint">DAILY OWNER SHARE</small>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">WEEKLY REVENUE</span>
+            <strong class="metric-value" id="ownerWeeklyIncome">$0</strong>
+            <small class="metric-hint">WEEKLY OWNER SHARE</small>
+          </div>
+        </div>
+
+        <!-- Pricing tier control -->
+        <div class="owner-section-box">
+          <div class="owner-box-header">
+            <div>
+              <h3>CATALOG PRICING MODE</h3>
+              <p>Adjust the store markup or discount. Discounts attract more customers; luxury markups yield higher profit margins.</p>
+            </div>
+            <span class="active-tier-pill" id="ownerActiveTierPill">NORMAL (1.00x)</span>
+          </div>
+          <div class="price-tier-selector">
+            <button type="button" class="tier-btn" data-tier="low">
+              <span class="tier-name">DISCOUNT TIER</span>
+              <strong class="tier-mult">0.85x (-15%)</strong>
+              <small class="tier-desc">Lowest prices. Attracts the highest customer volume.</small>
+            </button>
+            <button type="button" class="tier-btn selected" data-tier="normal">
+              <span class="tier-name">STANDARD TIER</span>
+              <strong class="tier-mult">1.00x (Normal)</strong>
+              <small class="tier-desc">Standard catalog prices. Balanced profit and volume.</small>
+            </button>
+            <button type="button" class="tier-btn" data-tier="high">
+              <span class="tier-name">LUXURY TIER</span>
+              <strong class="tier-mult">1.25x (+25%)</strong>
+              <small class="tier-desc">Premium boutique prices. Maximum profit per item.</small>
+            </button>
+          </div>
+          <div class="owner-tier-actions">
+            <button id="ownerSaveSettingsBtn" type="button" class="btn btn--primary"><i class="fas fa-check"></i> SAVE PRICING SETTINGS</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ STORE INFO & COMMERCIAL PURCHASE MODAL ═══ -->
+    <div id="storeInfoModal" class="modal-overlay hidden">
+      <div class="confirm-card store-info-card">
+        <div class="confirm-kicker">COMMERCIAL PROPERTY PROFILE</div>
+        <h3 id="publicStoreName">Clothing Store</h3>
+        <p id="publicStoreDesc">Authorised clothing retailer within the Los Santos commercial network.</p>
+        <div class="store-info-grid">
+          <div class="info-row"><span>OPERATOR:</span><strong id="publicOwnerName">City Commercial Property</strong></div>
+          <div class="info-row"><span>PRICING TIER:</span><strong id="publicStoreTier">STANDARD (1.00x)</strong></div>
+          <div class="info-row"><span>AVAILABLE STOCK:</span><strong id="publicStoreStock">2,500 UNITS</strong></div>
+          <div class="info-row"><span>COMMERCIAL STATUS:</span><strong id="publicStoreStatus" class="accent-cyan">AVAILABLE FOR PURCHASE</strong></div>
+        </div>
+        <div class="public-tax-note">Store owners receive 80% of all customer purchases and must maintain a $15,000 weekly property tax.</div>
+        <div class="confirm-actions">
+          <button id="publicBuyStoreBtn" class="btn btn--primary hidden" type="button"><i class="fas fa-store"></i> BUY THIS STORE ($250,000 - BANK)</button>
+          <button id="publicCloseInfoBtn" class="btn btn--close" type="button">CLOSE</button>
+        </div>
+      </div>
+    </div>
+
   </main>
   <script src="app.js?v=2.31.1-retake-replaces"></script>
+  <script src="camera-controls.js"></script>
 </body>
 </html>

@@ -11,6 +11,8 @@ let pendingSave = null; // set when a save is blocked waiting on an image captur
 let cropPreviewState = null;
 let cropDragState = null;
 let cropHadAdminPanel = false;
+let batchCaptureState = null;
+let batchCaptureTimer = null;
 let testTimerInterval = null;
 let buyProcessing = false;
 let testDriveProcessing = false;
@@ -503,6 +505,7 @@ addEventListener('message', (e) => {
     hideAllElements();
     onBuyPage = false;
   } else if(msg.action === 'adminOpen'){
+    stopBatchCapture();
     clearPendingAdminCaptureActions();
     adminSourceVehicles = msg.sourceVehicles || [];
     adminCatalog = msg.catalog || [];
@@ -552,7 +555,23 @@ addEventListener('message', (e) => {
     }
   } else if(msg.action === 'processVehicleImage'){
     removeBackgroundAndCrop(msg.image, msg.payload || {})
-      .then(result => openCropModal({ ...result, payload: msg.payload || {} }))
+      .then(result => {
+        const payload = msg.payload || {};
+        if(payload.batch === true){
+          // Batch capture uses the automatic crop so the queue can continue
+          // without opening a review modal for every vehicle.
+          post('vehicleImageProcessed', {
+            dataUrl: result.dataUrl,
+            imageBase64: result.imageBase64,
+            mime: 'image/png',
+            ext: 'png',
+            payload,
+            meta: result.meta
+          }).fail(() => advanceBatchCapture(false));
+          return;
+        }
+        openCropModal({ ...result, payload });
+      })
       .catch(err => {
         clearPendingAdminCaptureActions();
         $('#admin-capture').prop('disabled', false).text('Recapture Image');
@@ -593,7 +612,11 @@ addEventListener('message', (e) => {
       clearPendingAdminCaptureActions();
       showToast('Image capture failed: ' + (msg.error || 'unknown'));
     }
-    $('#admin-capture').prop('disabled', false).text('Recapture Image');
+    if(batchCaptureState){
+      advanceBatchCapture(msg.success === true);
+    } else {
+      $('#admin-capture').prop('disabled', false).text('Recapture Image');
+    }
   } else if(msg.action === 'adminNeedsImage'){
     // Server blocked enabling this car until it has an image. Capture now, then
     // the vehicleImageResult handler re-submits the pending save.
@@ -901,6 +924,93 @@ function clearPendingAdminCaptureActions(){
   pendingSave = null;
   pendingRestore = null;
   releaseAdminAction('save');
+}
+
+function batchCaptureCandidates(){
+  const byCatalog = catalogByModel();
+  const seen = new Set();
+  return (adminSourceVehicles || []).filter(source => {
+    const model = modelKey(source && source.model);
+    if(!model || seen.has(model) || source.clientValid === false) return false;
+    seen.add(model);
+    const row = byCatalog[model];
+    return !(row && String(row.image || '').trim());
+  }).map(source => {
+    const model = modelKey(source.model);
+    const row = byCatalog[model] || {};
+    return {
+      model,
+      label: row.label || source.label || source.name || model,
+      category: row.category || source.category || 'Custom'
+    };
+  });
+}
+
+function updateBatchCaptureButton(){
+  const btn = $('#admin-capture-all');
+  if(!batchCaptureState){
+    btn.prop('disabled', false).removeClass('is-running').text('Capture missing');
+    return;
+  }
+  const total = batchCaptureState.items.length;
+  const done = batchCaptureState.index;
+  btn.prop('disabled', true).addClass('is-running').text(`Capturing ${Math.min(done, total)}/${total}`);
+}
+
+function finishBatchCapture(){
+  if(batchCaptureTimer){ clearTimeout(batchCaptureTimer); batchCaptureTimer = null; }
+  const state = batchCaptureState;
+  batchCaptureState = null;
+  updateBatchCaptureButton();
+  if(!state) return;
+  showToast(`Image capture finished: ${state.saved} saved, ${state.skipped} skipped.`);
+  renderAdmin();
+}
+
+function stopBatchCapture(message){
+  if(batchCaptureTimer){ clearTimeout(batchCaptureTimer); batchCaptureTimer = null; }
+  if(!batchCaptureState) return;
+  post('cancelVehicleImage');
+  batchCaptureState = null;
+  updateBatchCaptureButton();
+  if(message) showToast(message);
+}
+
+function advanceBatchCapture(saved){
+  const state = batchCaptureState;
+  if(!state) return;
+  if(saved) state.saved += 1;
+  else state.skipped += 1;
+  state.index += 1;
+  updateBatchCaptureButton();
+  if(state.index >= state.items.length){
+    finishBatchCapture();
+    return;
+  }
+  // The image endpoint has a server-side cooldown. Keep a small buffer so
+  // the next capture is not rejected as a duplicate/rate-limited save.
+  batchCaptureTimer = setTimeout(() => {
+    batchCaptureTimer = null;
+    startNextBatchCapture();
+  }, 5200);
+}
+
+function startNextBatchCapture(){
+  const state = batchCaptureState;
+  if(!state || state.index >= state.items.length) return finishBatchCapture();
+  const item = state.items[state.index];
+  state.activeModel = item.model;
+  updateBatchCaptureButton();
+  post('adminPreviewVehicle', { model: item.model });
+  setTimeout(() => {
+    if(!batchCaptureState || batchCaptureState.activeModel !== item.model) return;
+    post('captureVehicleImage', {
+      model: item.model,
+      label: item.label,
+      category: item.category,
+      batch: true
+    }).fail(() => advanceBatchCapture(false));
+  }, 450);
 }
 
 
@@ -1427,7 +1537,7 @@ $('#buy-btn').click(function(){
   $('#detail-name').text(details.buyer);
   $('#detail-price').text(details.price);
   $('#detail-vehicle').text(details.vehicle);
-  $('#detail-color').text(details.color);
+  $('#detail-color').text('Stock / Default');
   $('#pointer').css('pointer-events','none');
   $('#main').show();
 });
@@ -1500,7 +1610,7 @@ document.onkeydown = (e) => {
     closeCropModal();
     return;
   }
-  if($('#admin-panel').is(':visible')){ clearPendingAdminCaptureActions(); post('adminClose'); return; }
+  if($('#admin-panel').is(':visible')){ stopBatchCapture(); clearPendingAdminCaptureActions(); post('adminClose'); return; }
   if(onBuyPage){
     onBuyPage = false;
     $('#buy-vehicle, #test-drive-container').css('top', '-600px').hide();
@@ -1617,6 +1727,7 @@ function stopAllAnimations(){
 }
 
 function forceCloseUi(){
+  stopBatchCapture();
   clearPendingAdminCaptureActions();
   resetActionProcessing();
   stopAllAnimations();
@@ -1659,7 +1770,7 @@ function openAdminPanel(){
   $('#admin-panel').stop(true,true).show();
   renderAdmin();
 }
-function closeAdminPanel(send){ clearPendingAdminCaptureActions(); $('body').removeClass('admin-active admin-capture-mode'); $('#admin-panel').hide(); adminPreviewedModel = ''; if(send) post('adminClose'); }
+function closeAdminPanel(send){ stopBatchCapture(); clearPendingAdminCaptureActions(); $('body').removeClass('admin-active admin-capture-mode'); $('#admin-panel').hide(); adminPreviewedModel = ''; if(send) post('adminClose'); }
 
 function renderAdmin(){
   const byCatalog = catalogByModel();
@@ -2011,6 +2122,16 @@ $(document).on('click', '#admin-capture', function(){
     label: $('#admin-label').val(),
     category: $('#admin-category').val()
   }), 250);
+});
+$(document).on('click', '#admin-capture-all', function(){
+  if(batchCaptureState) return;
+  const items = batchCaptureCandidates();
+  if(!items.length){ showToast('All valid discovered vehicles already have images.'); return; }
+  if(!confirm(`Capture images for ${items.length} vehicles without catalog images?`)) return;
+  batchCaptureState = { items, index: 0, saved: 0, skipped: 0, activeModel: '' };
+  updateBatchCaptureButton();
+  showToast(`Starting image capture for ${items.length} vehicles.`);
+  startNextBatchCapture();
 });
 $(document).on('click', '#admin-rescan', function(){
   const btn = $(this); btn.prop('disabled', true).addClass('is-scanning');

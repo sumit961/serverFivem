@@ -63,7 +63,7 @@ lib.callback.register('cm-law:server:mdtCitizenProfile', function(src, character
     local licenses = safeRows('SELECT license_type,status,reason,license_number FROM cm_police_licenses WHERE character_id=?', { characterId })
     local bookings = safeRows([[SELECT id,reason,wanted_stars,sentence_minutes,handoff_status,booked_at,release_at,released_at
         FROM cm_police_bookings WHERE character_id=? ORDER BY id DESC LIMIT 25]], { characterId })
-    local legalBookings = safeRows([[SELECT id,organization_id,officer_cid,reason,charges,sentence_minutes,
+    local legalBookings = safeRows([[SELECT id,organization_id,officer_cid,reason,charges,sentence_minutes,fine_amount,
         handoff_status,failure_reason,booked_at,confirmed_at,release_at,released_at
         FROM cm_legal_bookings WHERE character_id=? ORDER BY id DESC LIMIT 50]], { characterId })
     for _, row in ipairs(legalBookings) do
@@ -84,10 +84,18 @@ lib.callback.register('cm-law:server:mdtCitizenProfile', function(src, character
         CONCAT(COALESCE(c.first_name,''),' ',COALESCE(c.last_name,'')) author_name
         FROM cm_legal_mdt_notes n LEFT JOIN characters c ON c.id=n.author_cid
         WHERE n.target_cid=? ORDER BY n.id DESC LIMIT 100]], { characterId }) or {}
-    local reports = MySQL.query.await([[SELECT r.id,r.organization_id,r.author_cid,r.title,r.narrative,r.status,r.created_at,
+    local reports = MySQL.query.await([[SELECT r.id,r.organization_id,r.author_cid,r.title,r.narrative,r.summary,
+        r.status,r.evidence,r.linked_officers,r.photo_url,r.created_at,
         CONCAT(COALESCE(c.first_name,''),' ',COALESCE(c.last_name,'')) author_name
         FROM cm_legal_mdt_reports r LEFT JOIN characters c ON c.id=r.author_cid
         WHERE r.target_cid=? ORDER BY r.id DESC LIMIT 50]], { characterId }) or {}
+    for _, row in ipairs(reports) do
+        local evidenceOk, evidence = pcall(json.decode, row.evidence or '[]')
+        row.evidence = evidenceOk and type(evidence) == 'table' and evidence or {}
+        local officersOk, officers = pcall(json.decode, row.linked_officers or '[]')
+        row.linkedOfficers = officersOk and type(officers) == 'table' and officers or {}
+        row.linked_officers = nil
+    end
     local warrants = MySQL.query.await([[SELECT w.id,w.organization_id,w.author_cid,w.reason,w.stars,w.status,w.created_at,w.closed_at,
         CONCAT(COALESCE(c.first_name,''),' ',COALESCE(c.last_name,'')) author_name
         FROM cm_legal_mdt_warrants w LEFT JOIN characters c ON c.id=w.author_cid
@@ -104,7 +112,8 @@ lib.callback.register('cm-law:server:mdtCitizenProfile', function(src, character
         characterId = characterId, name = clean(('%s %s'):format(citizen.first_name or '', citizen.last_name or ''), 100),
         wanted = criminal and tonumber(criminal.wanted) == 1 or false, stars = criminal and tonumber(criminal.stars) or 0,
         wantedReason = criminal and criminal.wanted_reason or nil, photoUrl = criminal and criminal.photo_url or nil,
-        licenses = licenses, bookings = bookings, legalBookings = legalBookings, citations = citations, notes = notes, reports = reports,
+        licenses = licenses, licenseTypes = (PoliceConfig.Mdt or {}).LicenseTypes or {},
+        bookings = bookings, legalBookings = legalBookings, citations = citations, notes = notes, reports = reports,
         warrants = warrants, vehicles = vehicleList,
     }, actor = { organizationId = member.organizationId, isLeader = member.isLeader } }
 end)
@@ -121,12 +130,60 @@ lib.callback.register('cm-law:server:mdtVehicleSearch', function(src, plate)
     local ownerCid = row.owner_character_id and tostring(row.owner_character_id) or nil
     local impound = safeRows([[SELECT fee,reason,impounded_at FROM cm_police_impounds
         WHERE vehicle_id=? AND released_at IS NULL ORDER BY id DESC LIMIT 1]], { row.id })[1]
+    local bolo = type(LawActiveBoloForPlate) == 'function' and LawActiveBoloForPlate(row.plate or plate) or nil
     return { ok = true, vehicle = { vehicleId = tonumber(row.id), plate = tostring(row.plate or plate),
         model = tostring(row.model or ''), label = tostring(row.label or row.model or ''),
         ownerCid = ownerCid, ownerName = ownerCid and nameFor(ownerCid) or 'Unknown',
         licenseNumber = row.license_number and tostring(row.license_number) or nil,
         impound = impound and { fee = tonumber(impound.fee) or 0, reason = tostring(impound.reason or ''),
-            impoundedAt = tostring(impound.impounded_at or '') } or nil } }
+            impoundedAt = tostring(impound.impounded_at or '') } or nil,
+        bolo = bolo } }
+end)
+
+-- License status was previously police-only write access (cm_police_licenses,
+-- embedded/police/server/mdt.lua's mdtSetLicenseStatus) even though the
+-- shared MDT already reads it for every citizen profile. Writing directly to
+-- that same table is consistent with how the read already works (embedded
+-- police is part of this same resource, not a separate one -- see
+-- server/records.lua's comment on why a genuinely separate resource gets an
+-- export instead). Purely a record flag: per the original callback's own
+-- comment, nothing in this codebase enforces driving/carrying without a
+-- license, so this can't break existing gameplay.
+lib.callback.register('cm-law:server:mdtSetLicenseStatus', function(src, characterId, licenseType, status, reason)
+    local member, actorCid, reasonError = authorized(src)
+    if not member then return { ok = false, error = reasonError } end
+    if not rateLimit(src, 'law_mdt_license', 800) then return { ok = false, error = 'Please wait.' } end
+    characterId = tostring(characterId or '')
+    local validType = false
+    for _, t in ipairs((PoliceConfig.Mdt or {}).LicenseTypes or {}) do if t == licenseType then validType = true break end end
+    if not citizenExists(characterId) or not validType then return { ok = false, error = 'Invalid citizen or license type.' } end
+    if status ~= 'active' and status ~= 'revoked' then return { ok = false, error = 'Invalid license status.' } end
+    local cleanReason = clean(reason, 160)
+    MySQL.insert.await(
+        'INSERT INTO cm_police_licenses (character_id, license_type, status, set_by, reason) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status), set_by = VALUES(set_by), reason = VALUES(reason)',
+        { characterId, licenseType, status, actorCid, cleanReason ~= '' and cleanReason or nil }
+    )
+    logActivity(member.organizationId, actorCid, 'mdt_license_set', { targetCid = characterId, licenseType = licenseType, status = status })
+    return { ok = true, message = ('%s license %s.'):format(licenseType, status) }
+end)
+
+lib.callback.register('cm-law:server:mdtCapturePhoto', function(src, characterId)
+    local member, actorCid, reason = authorized(src)
+    if not member then return { ok = false, error = reason } end
+    if not rateLimit(src, 'law_mdt_photo', 4000) then return { ok = false, error = 'Please wait before capturing another photo.' } end
+    characterId = tostring(characterId or '')
+    if not citizenExists(characterId) then return { ok = false, error = 'Citizen not found.' } end
+    local targetSrc = sourceFor(characterId)
+    if not targetSrc then return { ok = false, error = 'That citizen is not currently online.' } end
+    local officerPed, targetPed = GetPlayerPed(src), GetPlayerPed(targetSrc)
+    if officerPed == 0 or targetPed == 0 then return { ok = false, error = 'Citizen is unavailable.' } end
+    if #(GetEntityCoords(officerPed) - GetEntityCoords(targetPed)) > 5.0 then return { ok = false, error = 'Move closer to the citizen to take a photo.' } end
+    local photoUrl = LawCapturePhoto(targetSrc, 'citizens', characterId)
+    if not photoUrl then return { ok = false, error = 'Photo capture failed. Is screenshot-basic running?' } end
+    MySQL.insert.await([[INSERT INTO cm_police_criminal_status (character_id, photo_url, set_by)
+        VALUES (?, ?, NULL) ON DUPLICATE KEY UPDATE photo_url = VALUES(photo_url)]], { characterId, photoUrl })
+    logActivity(member.organizationId, actorCid, 'mdt_citizen_photo_captured', { targetCid = characterId })
+    return { ok = true, message = 'Citizen photo captured.', photoUrl = photoUrl }
 end)
 
 lib.callback.register('cm-law:server:mdtAddNote', function(src, characterId, note)
@@ -141,18 +198,107 @@ lib.callback.register('cm-law:server:mdtAddNote', function(src, characterId, not
     return { ok = true, message = 'Shared MDT note added.' }
 end)
 
+-- Case-file access for the actions below: the original author, any leader,
+-- or anyone already linked to the case as an involved officer -- matches how
+-- warrants let "the issuing agency or a leader" act on a shared record.
+local function reportCaseAccess(reportId, member, actorCid)
+    local row = MySQL.single.await('SELECT id,author_cid,linked_officers FROM cm_legal_mdt_reports WHERE id=? LIMIT 1', { reportId })
+    if not row then return nil, 'That report no longer exists.' end
+    if member.isLeader or tostring(row.author_cid) == tostring(actorCid) then return row end
+    local ok, linked = pcall(json.decode, row.linked_officers or '[]')
+    if ok and type(linked) == 'table' then
+        for _, officer in ipairs(linked) do
+            if tostring(officer.characterId or '') == tostring(actorCid) then return row end
+        end
+    end
+    return nil, 'Only the report author, a linked officer, or a leader can update this case.'
+end
+
 lib.callback.register('cm-law:server:mdtCreateReport', function(src, data)
     local member, actorCid, reason = authorized(src)
     if not member then return { ok = false, error = reason } end
     if not rateLimit(src, 'law_mdt_report', 900) then return { ok = false, error = 'Please wait.' } end
     data = type(data) == 'table' and data or {}
     local targetCid, title, narrative = tostring(data.characterId or ''), clean(data.title, 120), clean(data.narrative, 6000)
+    local summary = clean(data.summary, 300)
     if not citizenExists(targetCid) or #title < 3 or #narrative < 10 then return { ok = false, error = 'Citizen, title, and detailed narrative are required.' } end
     local id = MySQL.insert.await([[INSERT INTO cm_legal_mdt_reports
-        (target_cid,organization_id,author_cid,title,narrative,status) VALUES (?,?,?,?,?,'open')]],
-        { targetCid, member.organizationId, actorCid, title, narrative })
+        (target_cid,organization_id,author_cid,title,narrative,summary,status,evidence,linked_officers)
+        VALUES (?,?,?,?,?,?,'open','[]','[]')]],
+        { targetCid, member.organizationId, actorCid, title, narrative, summary ~= '' and summary or nil })
     logActivity(member.organizationId, actorCid, 'mdt_report_created', { targetCid = targetCid, reportId = id })
     return { ok = true, message = ('Shared report #%s created.'):format(id) }
+end)
+
+lib.callback.register('cm-law:server:mdtSetReportStatus', function(src, reportId, status)
+    local member, actorCid, reason = authorized(src)
+    if not member then return { ok = false, error = reason } end
+    reportId = tonumber(reportId)
+    status = tostring(status or '')
+    if status ~= 'open' and status ~= 'under_review' and status ~= 'closed' then return { ok = false, error = 'Invalid case status.' } end
+    local row, accessError = reportId and reportCaseAccess(reportId, member, actorCid)
+    if not row then return { ok = false, error = accessError } end
+    MySQL.update.await('UPDATE cm_legal_mdt_reports SET status=? WHERE id=?', { status, reportId })
+    logActivity(member.organizationId, actorCid, 'mdt_report_status_changed', { reportId = reportId, status = status })
+    return { ok = true, message = ('Case marked %s.'):format(status:gsub('_', ' ')) }
+end)
+
+lib.callback.register('cm-law:server:mdtAddReportEvidence', function(src, reportId, label, note)
+    local member, actorCid, reason = authorized(src)
+    if not member then return { ok = false, error = reason } end
+    if not rateLimit(src, 'law_mdt_report_evidence', 700) then return { ok = false, error = 'Please wait.' } end
+    reportId = tonumber(reportId)
+    label, note = clean(label, 80), clean(note, 400)
+    if label == '' then return { ok = false, error = 'Enter an evidence label.' } end
+    local row, accessError = reportId and reportCaseAccess(reportId, member, actorCid)
+    if not row then return { ok = false, error = accessError } end
+    local current = MySQL.scalar.await('SELECT evidence FROM cm_legal_mdt_reports WHERE id=?', { reportId })
+    local ok, list = pcall(json.decode, current or '[]')
+    list = ok and type(list) == 'table' and list or {}
+    if #list >= 30 then return { ok = false, error = 'This case already has the maximum amount of evidence logged.' } end
+    list[#list + 1] = { label = label, note = note, loggedBy = nameFor(actorCid), loggedAt = os.date('%Y-%m-%d %H:%M:%S') }
+    MySQL.update.await('UPDATE cm_legal_mdt_reports SET evidence=? WHERE id=?', { json.encode(list), reportId })
+    logActivity(member.organizationId, actorCid, 'mdt_report_evidence_added', { reportId = reportId, label = label })
+    return { ok = true, message = 'Evidence logged.' }
+end)
+
+lib.callback.register('cm-law:server:mdtLinkReportOfficer', function(src, reportId, officerCid)
+    local member, actorCid, reason = authorized(src)
+    if not member then return { ok = false, error = reason } end
+    if not rateLimit(src, 'law_mdt_report_link', 700) then return { ok = false, error = 'Please wait.' } end
+    reportId = tonumber(reportId)
+    officerCid = clean(officerCid, 64)
+    if officerCid == '' then return { ok = false, error = 'Enter an officer character ID.' } end
+    if not MySQL.scalar.await('SELECT character_id FROM cm_legal_members WHERE character_id=? LIMIT 1', { officerCid }) then
+        return { ok = false, error = 'That character is not a member of a legal organization.' }
+    end
+    local row, accessError = reportId and reportCaseAccess(reportId, member, actorCid)
+    if not row then return { ok = false, error = accessError } end
+    local current = MySQL.scalar.await('SELECT linked_officers FROM cm_legal_mdt_reports WHERE id=?', { reportId })
+    local ok, list = pcall(json.decode, current or '[]')
+    list = ok and type(list) == 'table' and list or {}
+    for _, officer in ipairs(list) do
+        if tostring(officer.characterId or '') == officerCid then return { ok = false, error = 'That officer is already linked to this case.' } end
+    end
+    if #list >= 15 then return { ok = false, error = 'This case already has the maximum number of linked officers.' } end
+    list[#list + 1] = { characterId = officerCid, name = nameFor(officerCid) }
+    MySQL.update.await('UPDATE cm_legal_mdt_reports SET linked_officers=? WHERE id=?', { json.encode(list), reportId })
+    logActivity(member.organizationId, actorCid, 'mdt_report_officer_linked', { reportId = reportId, officerCid = officerCid })
+    return { ok = true, message = 'Officer linked to case.' }
+end)
+
+lib.callback.register('cm-law:server:mdtCaptureReportPhoto', function(src, reportId)
+    local member, actorCid, reason = authorized(src)
+    if not member then return { ok = false, error = reason } end
+    if not rateLimit(src, 'law_mdt_report_photo', 4000) then return { ok = false, error = 'Please wait before capturing another photo.' } end
+    reportId = tonumber(reportId)
+    local row, accessError = reportId and reportCaseAccess(reportId, member, actorCid)
+    if not row then return { ok = false, error = accessError } end
+    local photoUrl = LawCapturePhoto(src, 'reports', ('report_%d'):format(reportId))
+    if not photoUrl then return { ok = false, error = 'Photo capture failed. Is screenshot-basic running?' } end
+    MySQL.update.await('UPDATE cm_legal_mdt_reports SET photo_url=? WHERE id=?', { photoUrl, reportId })
+    logActivity(member.organizationId, actorCid, 'mdt_report_photo_captured', { reportId = reportId })
+    return { ok = true, message = 'Scene photo attached to case.', photoUrl = photoUrl }
 end)
 
 local function setLiveWanted(characterId, stars)
@@ -209,6 +355,41 @@ lib.callback.register('cm-law:server:mdtCloseWarrant', function(src, warrantId)
     return { ok = true, message = 'Warrant closed. Review the wanted level separately.' }
 end)
 
+-- Single "front page" summary for the MDT idle view: active warrants, active
+-- BOLOs, recent incidents and simple custody/dispatch stats. Each section is
+-- pcall-wrapped so one bad query (e.g. a table not yet created on a fresh
+-- install) blanks only that section instead of the whole dashboard.
+local function dashboardSection(fn)
+    local ok, result = pcall(fn)
+    return ok and result or {}
+end
+
+lib.callback.register('cm-law:server:mdtDashboard', function(src)
+    local member, _, reason = authorized(src)
+    if not member then return { ok = false, error = reason } end
+    local warrants = dashboardSection(function()
+        return MySQL.query.await([[SELECT w.id,w.organization_id,w.target_cid,w.reason,w.stars,w.created_at,
+            CONCAT(COALESCE(c.first_name,''),' ',COALESCE(c.last_name,'')) target_name
+            FROM cm_legal_mdt_warrants w LEFT JOIN characters c ON c.id=w.target_cid
+            WHERE w.status='active' ORDER BY w.id DESC LIMIT 15]]) or {}
+    end)
+    local bolos = dashboardSection(function()
+        return MySQL.query.await("SELECT id,plate,description,organization_id,created_at FROM cm_legal_bolos WHERE status='active' ORDER BY id DESC LIMIT 15") or {}
+    end)
+    local incidents = dashboardSection(function()
+        return MySQL.query.await([[SELECT id,caller_name,details,location,status,created_at
+            FROM cm_legal_incidents ORDER BY id DESC LIMIT 10]]) or {}
+    end)
+    local stats = dashboardSection(function()
+        return {
+            activeWarrants = tonumber(MySQL.scalar.await("SELECT COUNT(*) FROM cm_legal_mdt_warrants WHERE status='active'")) or 0,
+            activeBolos = tonumber(MySQL.scalar.await("SELECT COUNT(*) FROM cm_legal_bolos WHERE status='active'")) or 0,
+            activeCalls = type(LawActiveCallCount) == 'function' and LawActiveCallCount() or 0,
+        }
+    end)
+    return { ok = true, warrants = warrants, bolos = bolos, incidents = incidents, stats = stats }
+end)
+
 CreateThread(function()
     MySQL.query.await([[CREATE TABLE IF NOT EXISTS cm_legal_mdt_notes (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,target_cid VARCHAR(64) NOT NULL,organization_id VARCHAR(32) NOT NULL,
@@ -218,10 +399,26 @@ CreateThread(function()
     MySQL.query.await([[CREATE TABLE IF NOT EXISTS cm_legal_mdt_reports (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,target_cid VARCHAR(64) NOT NULL,organization_id VARCHAR(32) NOT NULL,
         author_cid VARCHAR(64) NOT NULL,title VARCHAR(120) NOT NULL,narrative TEXT NOT NULL,
-        status ENUM('open','closed') NOT NULL DEFAULT 'open',created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        status ENUM('open','under_review','closed') NOT NULL DEFAULT 'open',created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY(id),KEY idx_cm_legal_mdt_reports_target(target_cid,created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]])
+    -- Case-file fields added after the original notes/reports/warrants design
+    -- (Pluto-style detailed case files: summary, evidence log, linked
+    -- officers, scene photo, and a third "under review" status between
+    -- open/closed). ALTER + pcall matches the ADD COLUMN convention used
+    -- throughout this resource; MODIFY COLUMN is safe to rerun unconditionally.
+    pcall(function() MySQL.query.await("ALTER TABLE cm_legal_mdt_reports MODIFY COLUMN status ENUM('open','under_review','closed') NOT NULL DEFAULT 'open'") end)
+    pcall(function() MySQL.query.await('ALTER TABLE cm_legal_mdt_reports ADD COLUMN summary VARCHAR(300) NULL') end)
+    -- Nullable rather than a LONGTEXT column default (MySQL only supports
+    -- expression defaults on TEXT/BLOB types from 8.0.13+, not guaranteed) --
+    -- every read already treats a NULL/missing value as '[]' (see
+    -- mdtCitizenProfile's decode loop and reportCaseAccess/evidence/link
+    -- callbacks below), so an unmigrated NULL row behaves identically to an
+    -- explicit empty array.
+    pcall(function() MySQL.query.await('ALTER TABLE cm_legal_mdt_reports ADD COLUMN evidence LONGTEXT NULL') end)
+    pcall(function() MySQL.query.await('ALTER TABLE cm_legal_mdt_reports ADD COLUMN linked_officers LONGTEXT NULL') end)
+    pcall(function() MySQL.query.await('ALTER TABLE cm_legal_mdt_reports ADD COLUMN photo_url VARCHAR(300) NULL') end)
     MySQL.query.await([[CREATE TABLE IF NOT EXISTS cm_legal_mdt_warrants (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,target_cid VARCHAR(64) NOT NULL,organization_id VARCHAR(32) NOT NULL,
         author_cid VARCHAR(64) NOT NULL,reason TEXT NOT NULL,stars TINYINT UNSIGNED NOT NULL DEFAULT 1,

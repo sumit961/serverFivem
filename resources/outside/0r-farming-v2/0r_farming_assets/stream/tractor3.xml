@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TextureDictionary>
+ <Item>
+  <Name>zub</Name>
+  <Unk32 value="0" />
+  <Usage>UNKNOWN</Usage>
+  <UsageFlags>0</UsageFlags>
+  <ExtraFlags value="0" />
+  <Width value="64" />
+  <Height value="64" />
+  <MipLevels value="7" />
+  <Format>D3DFMT_A8R8G8B8</Format>
+  <FileName>zub.dds</FileName>
+ </Item>
+ <Item>
+  <Name>traz</Name>
+  <Unk32 value="0" />
+  <Usage>UNKNOWN</Usage>
+  <UsageFlags>0</UsageFlags>
+  <ExtraFlags value="0" />
+  <Width value="512" />
+  <Height value="512" />
+  <MipLevels value="10" />
+  <Format>D3DFMT_A8R8G8B8</Format>
+  <FileName>traz.dds</FileName>
+ </Item>
+ <Item>
+  <Name>logos</Name>
+  <Unk32 value="0" />
+  <Usage>UNKNOWN</Usage>
+  <UsageFlags>0</UsageFlags>
+  <ExtraFlags value="0" />
+  <Width value="512" />
+  <Height value="128" />
+  <MipLevels value="10" />
+  <Format>D3DFMT_A8R8G8B8</Format>
+  <FileName>logos.dds</FileName>
+ </Item>
+ <Item>
+  <Name>vehicle_generic_smallspecmap3</Name>
+  <Unk32 value="128" />
+  <Usage>SPECULAR</Usage>
+  <UsageFlags>HD_SPLIT, X4, UNK24</UsageFlags>
+  <ExtraFlags value="0" />
+  <Width value="4" />
+  <Height value="4" />
+  <MipLevels value="1" />
+  <Format>D3DFMT_A8</Format>
+  <FileName>vehicle_generic_smallspecmap3.dds</FileName>
+ </Item>
+ <Item>
+  <Name>wheel</Name>
+  <Unk32 value="0" />
+  <Usage>UNKNOWN</Usage>
+  <UsageFlags>0</UsageFlags>
+  <ExtraFlags value="0" />
+  <Width value="1024" />
+  <Height value="1024" />
+  <MipLevels value="11" />
+  <Format>D3DFMT_A8R8G8B8</Format>
+  <FileName>wheel.dds</FileName>
+ </Item>
+ <Item>
+  <Name>body</Name>
+  <Unk32 value="0" />
+  <Usage>UNKNOWN</Usage>
+  <UsageFlags>0</UsageFlags>
+  <ExtraFlags value="0" />
+  <Width value="512" />
+  <Height value="512" />
+  <MipLevels value="10" />
+  <Format>D3DFMT_A8R8G8B8</Format>
+  <FileName>body.dds</FileName>
+ </Item>
+ <Item>
+  <Name>lateral</Name>
+  <Unk32 value="0" />
+  <Usage>UNKNOWN</Usage>
+  <UsageFlags>0</UsageFlags>
+  <ExtraFlags value="0" />
+  <Width value="512" />
+  <Height value="64" />
+  <MipLevels value="10" />
+  <Format>D3DFMT_A8R8G8B8</Format>
+  <FileName>lateral.dds</FileName>
+ </Item>
+ <Item>
+  <Name>vehiclel</Name>
+  <Unk32 value="0" />
+  <Usage>UNKNOWN</Usage>
+  <UsageFlags>0</UsageFlags>
+  <ExtraFlags value="0" />
+  <Width value="32" />
+  <Height value="32" />
+  <MipLevels value="1" />
+  <Format>D3DFMT_A8R8G8B8</Format>
+  <FileName>vehiclel.dds</FileName>
+ </Item>
+ <Item>
+  <Name>vehicle_generic_glassdirt_spec</Name>
+  <Unk32 value="128" />
+  <Usage>SPECULAR</Usage>
+  <UsageFlags>HD_SPLIT, X32, X64, X128, UNK24</UsageFlags>
+  <ExtraFlags value="0" />
+  <Width value="256" />
+  <Height value="256" />
+  <MipLevels value="7" />
+  <Format>D3DFMT_DXT1</Format>
+  <FileName>vehicle_generic_glassdirt_spec.dds</FileName>
+ </Item>
+ <Item>
+  <Name>refmap</Name>
+  <Unk32 value="0" />
+  <Usage>UNKNOWN</Usage>
+  <UsageFlags>0</UsageFlags>
+  <ExtraFlags value="0" />
+  <Width value="256" />
+  <Height value="256" />
+  <MipLevels value="9" />
+  <Format>D3DFMT_A8R8G8B8</Format>
+  <FileName>refmap.dds</FileName>
+ </Item>
+ <Item>
+  <Name>roda</Name>
+  <Unk32 value="0" />
+  <Usage>UNKNOWN</Usage>
+  <UsageFlags>0</UsageFlags>
+  <ExtraFlags value="0" />
+  <Width value="256" />
+  <Height value="256" />
+  <MipLevels value="9" />
+  <Format>D3DFMT_A8R8G8B8</Format>
+  <FileName>roda.dds</FileName>
+ </Item>
+</TextureDictionary>

@@ -48,6 +48,13 @@ local CATEGORY_COMPONENTS = {
 -- Lua closes over these references instead of looking for nil globals.
 local findExistingManagedRow
 local preserveManagedState
+local decodeMetadataTable
+
+local function debugPrint(...)
+  if Config and Config.Debug then
+    print(...)
+  end
+end
 
 -- Version 5 keeps OP Clothing's per-slot framing and additionally persists live
 -- camera orbit plus off-centre target offsets from the capture position editor.
@@ -148,6 +155,19 @@ local function ensureNvClothSchema()
     fav_key VARCHAR(160) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uniq_fav (character_id, fav_key)
+  )]], {})
+  -- Persistent outfit presets / wardrobe
+  dbUpdate([[CREATE TABLE IF NOT EXISTS cm_clothing_outfits (
+    id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    character_id VARCHAR(64) NOT NULL,
+    outfit_name VARCHAR(64) NOT NULL,
+    gender VARCHAR(16) NOT NULL DEFAULT 'male',
+    components_json LONGTEXT NOT NULL,
+    props_json LONGTEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_char_outfit (character_id, outfit_name),
+    INDEX idx_char_id (character_id)
   )]], {})
   -- Admin capture-camera overrides tuned live in the clothing admin panel.
   -- One row per clothing category; overrides Config.IconCapture.captureCameras.
@@ -350,11 +370,29 @@ local function restrictionAllowed(src, row)
   return true
 end
 
-local function copyRestrictions(entry, data, incoming)
-  incoming = type(incoming) == 'table' and incoming or {}
-  local rJob = data.requiredJob or data.required_job or incoming.requiredJob or incoming.required_job or ''
-  local rGang = data.requiredGang or data.required_gang or incoming.requiredGang or incoming.required_gang or ''
-  local rFamily = data.requiredFamily or data.required_family or incoming.requiredFamily or incoming.required_family or ''
+local function copyRestrictions(entry, data, incoming, catalogRow)
+  local row = type(catalogRow) == 'table' and catalogRow or nil
+  local rowMeta = row and decodeMetadataTable(row.metadata) or nil
+
+  -- Authoritative restrictions from catalog row must win whenever present
+  local rJob = (row and (row.requiredJob or row.required_job)) or (rowMeta and (rowMeta.requiredJob or rowMeta.required_job))
+  if rJob == nil then
+    incoming = type(incoming) == 'table' and incoming or {}
+    rJob = (data and (data.requiredJob or data.required_job)) or incoming.requiredJob or incoming.required_job or ''
+  end
+
+  local rGang = (row and (row.requiredGang or row.required_gang)) or (rowMeta and (rowMeta.requiredGang or rowMeta.required_gang))
+  if rGang == nil then
+    incoming = type(incoming) == 'table' and incoming or {}
+    rGang = (data and (data.requiredGang or data.required_gang)) or incoming.requiredGang or incoming.required_gang or ''
+  end
+
+  local rFamily = (row and (row.requiredFamily or row.required_family)) or (rowMeta and (rowMeta.requiredFamily or rowMeta.required_family))
+  if rFamily == nil then
+    incoming = type(incoming) == 'table' and incoming or {}
+    rFamily = (data and (data.requiredFamily or data.required_family)) or incoming.requiredFamily or incoming.required_family or ''
+  end
+
   entry.requiredJob = rJob
   entry.required_job = rJob
   entry.requiredGang = rGang
@@ -375,7 +413,22 @@ end
 
 RegisterNetEvent('nvCloth:server:enterDressingRoom', function()
   local src = source
-  playersInDressingRoom[src] = true
+  local ped = GetPlayerPed(src)
+  local coords = ped and GetEntityCoords(ped)
+  playersInDressingRoom[src] = {
+    enteredAt = os.time(),
+    entryCoords = coords and { x = coords.x, y = coords.y, z = coords.z } or nil,
+    charId = getStateCharacterId(src),
+    bucket = src
+  }
+  local p = Player(src)
+  if p and p.state then
+    p.state:set('inClothingStore', true, true)
+    p.state:set('cmClothingPreview', true, true)
+    p.state:set('skipPositionSave', true, true)
+    p.state:set('cmSkipPositionSave', true, true)
+    p.state:set('ignorePositionSave', true, true)
+  end
   -- Bucket per player prevents overlap/clipping when multiple players shop at the same time.
   SetPlayerRoutingBucket(src, src)
 end)
@@ -383,13 +436,172 @@ end)
 RegisterNetEvent('nvCloth:server:leaveDressingRoom', function()
   local src = source
   playersInDressingRoom[src] = nil
+  local p = Player(src)
+  if p and p.state then
+    p.state:set('inClothingStore', false, true)
+    p.state:set('cmClothingPreview', false, true)
+    p.state:set('skipPositionSave', false, true)
+    p.state:set('cmSkipPositionSave', false, true)
+    p.state:set('ignorePositionSave', false, true)
+  end
   SetPlayerRoutingBucket(src, 0)
 end)
 
+local eventCooldowns = {}
+local activeCheckoutLocks = {}
+
+local function checkRateLimit(src, action, cooldownMs)
+  local now = GetGameTimer()
+  local playerLimits = eventCooldowns[src]
+  if not playerLimits then
+    playerLimits = {}
+    eventCooldowns[src] = playerLimits
+  end
+  local last = playerLimits[action] or 0
+  if (now - last) < cooldownMs then
+    return false
+  end
+  playerLimits[action] = now
+  return true
+end
+
 AddEventHandler('playerDropped', function()
   local src = source
+  local session = playersInDressingRoom[src]
+  if session and session.charId and session.entryCoords then
+    local c = session.entryCoords
+    -- Revert character's last_position in characters table so on reconnect they spawn
+    -- at the clothing store door rather than trapped inside the dressing room scene.
+    pcall(function()
+      MySQL.update.await('UPDATE characters SET last_position = ? WHERE id = ?', {
+        json.encode({ x = c.x, y = c.y, z = c.z, heading = 0.0 }),
+        session.charId
+      })
+    end)
+  end
+  pcall(function() SetPlayerRoutingBucket(src, 0) end)
   playersInDressingRoom[src] = nil
+  eventCooldowns[src] = nil
+  activeCheckoutLocks[src] = nil
 end)
+
+-- Dressing room preview idle watchdog: auto-eject players lingering in preview bucket > 15m
+CreateThread(function()
+  while true do
+    Wait(60000)
+    local now = os.time()
+    for src, session in pairs(playersInDressingRoom) do
+      if type(session) == 'table' and session.enteredAt and (now - session.enteredAt) > 900 then
+        playersInDressingRoom[src] = nil
+        SetPlayerRoutingBucket(src, 0)
+        local p = Player(src)
+        if p and p.state then
+          p.state:set('inClothingStore', false, true)
+          p.state:set('cmClothingPreview', false, true)
+          p.state:set('skipPositionSave', false, true)
+          p.state:set('cmSkipPositionSave', false, true)
+          p.state:set('ignorePositionSave', false, true)
+        end
+        TriggerClientEvent('nvCloth:closeMenu', src)
+      end
+    end
+  end
+end)
+
+local function isNearAnyClothingStore(ped)
+  local coords = GetEntityCoords(ped)
+  if not coords then return false end
+
+  -- Default dressing room
+  if Config.DefaultDressingRoom then
+    local d = Config.DefaultDressingRoom
+    if #(coords - vec3(d.x, d.y, d.z)) <= 25.0 then
+      return true
+    end
+  end
+
+  -- Admin studio
+  if Config.AdminStudio and Config.AdminStudio.StudioCoords then
+    local s = Config.AdminStudio.StudioCoords
+    if #(coords - vec3(s.x, s.y, s.z)) <= 35.0 then
+      return true
+    end
+  end
+
+  -- Config.Shops locations
+  if type(Config.Shops) == 'table' then
+    for _, shop in pairs(Config.Shops) do
+      if shop.dressingRoom and #(coords - vec3(shop.dressingRoom.x, shop.dressingRoom.y, shop.dressingRoom.z)) <= 25.0 then
+        return true
+      end
+      if type(shop.locations) == 'table' then
+        for _, loc in ipairs(shop.locations) do
+          if loc.pos and #(coords - loc.pos) <= 25.0 then
+            return true
+          end
+          if loc.npc and #(coords - vec3(loc.npc.x, loc.npc.y, loc.npc.z)) <= 25.0 then
+            return true
+          end
+        end
+      end
+      if type(shop.coords) == 'table' then
+        for _, c in ipairs(shop.coords) do
+          if #(coords - c) <= 25.0 then
+            return true
+          end
+        end
+      end
+    end
+  end
+
+  return false
+end
+
+local function validateShopperState(src)
+  local ped = GetPlayerPed(src)
+  if not ped or ped == 0 then
+    return false, 'Player ped not found.'
+  end
+
+  -- Check dead or unconscious (ped health <= 100 on GTA V peds indicates unconscious/dead)
+  if GetEntityHealth(ped) <= 100 then
+    return false, 'You cannot shop while unconscious.'
+  end
+
+  -- Check vehicle
+  if GetVehiclePedIsIn(ped, false) ~= 0 then
+    return false, 'You cannot shop from inside a vehicle.'
+  end
+
+  -- Check state bags (cm-playerdata / cm-law / cm-core)
+  local state = Player(src) and Player(src).state
+  if state then
+    if state.isDead == true then
+      return false, 'You cannot shop while dead.'
+    end
+    if state.cmCuffed == true or state.cuffed == true or state.isCuffed == true or state.handcuffed == true then
+      return false, 'You cannot shop while restrained.'
+    end
+  end
+
+  -- Verify player is in a store session or physically near a store
+  if (type(IsPlayerShopping) == 'function' and IsPlayerShopping(src)) then
+    return true
+  end
+  if exports[GetCurrentResourceName()] and exports[GetCurrentResourceName()].IsPlayerShopping and exports[GetCurrentResourceName()]:IsPlayerShopping(src) then
+    return true
+  end
+
+  if playersInDressingRoom[src] then
+    return true
+  end
+
+  if isNearAnyClothingStore(ped) then
+    return true
+  end
+
+  return false, 'You are not near a clothing store.'
+end
 
 RegisterNetEvent('nvCloth:server:setPositionSaveBlocked', function(block)
   local src = source
@@ -397,6 +609,7 @@ RegisterNetEvent('nvCloth:server:setPositionSaveBlocked', function(block)
   if Player(src) and Player(src).state then
     Player(src).state:set('inClothingStore', value, true)
     Player(src).state:set('cmClothingPreview', value, true)
+    Player(src).state:set('skipPositionSave', value, true)
     Player(src).state:set('cmSkipPositionSave', value, true)
     Player(src).state:set('ignorePositionSave', value, true)
   end
@@ -578,7 +791,7 @@ local function cmItemsCall(method, ...)
 end
 
 
-local function decodeMetadataTable(value)
+decodeMetadataTable = function(value)
   if type(value) == 'table' then return value end
   if type(value) ~= 'string' or value == '' then return {} end
   local ok, decoded = pcall(function() return json.decode(value) end)
@@ -871,6 +1084,17 @@ local function normalizeMetadataAliases(meta, category, def, drawable, texture, 
   return meta
 end
 
+local function resolveAuthoritativePrice(catalogRow, category, effCategory)
+  if type(catalogRow) == 'table' and tonumber(catalogRow.price) ~= nil then
+    return math.max(0, tonumber(catalogRow.price))
+  end
+  local defaultPrice = tonumber(Config and Config.Prices and (Config.Prices[category] or (effCategory and Config.Prices[effCategory])))
+  if defaultPrice ~= nil then
+    return math.max(0, defaultPrice)
+  end
+  return nil
+end
+
 local function normaliseItem(raw)
   if type(raw) ~= 'table' then return nil end
 
@@ -942,8 +1166,8 @@ local function normaliseItem(raw)
   local label = raw.label or catalogRow and catalogRow.label or incoming.label or raw.name or ('%s %s/%s'):format(effDef.label, drawable, texture)
   local bagLevel = nil
   if effCategory == 'bags' and not bagSkin then
-    bagLevel = tonumber(incoming.bagLevel or incoming.bag_level or incoming.level or raw.bagLevel or raw.bag_level or raw.level
-      or (catalogRow and (catalogRow.bagLevel or catalogRow.bag_level)))
+    local catLevel = type(catalogRow) == 'table' and tonumber(catalogRow.bagLevel or catalogRow.bag_level)
+    bagLevel = catLevel or tonumber(incoming.bagLevel or incoming.bag_level or incoming.level or raw.bagLevel or raw.bag_level or raw.level)
     if bagLevel ~= nil then
       bagLevel = math.max(1, math.min(4, math.floor(bagLevel)))
       raw.bagLevel = bagLevel
@@ -979,7 +1203,12 @@ local function normaliseItem(raw)
     built.description = built.description or ('%s clothing item'):format(def.label)
     built.itemType = built.itemType or 'clothing'
     built.rarity = built.rarity or 'normal'
-    built.price = tonumber(built.price or raw.price or incoming.price or (catalogRow and catalogRow.price)) or built.price
+    local serverPrice = resolveAuthoritativePrice(catalogRow, category, effCategory)
+    if serverPrice == nil then
+      return nil, 'This item has no price configured.'
+    end
+    built.price = serverPrice
+    built.clientPrice = tonumber(raw.price or incoming.price) or nil
     built.catalogId = built.catalogId or built.catalog_id or raw.catalogId or raw.catalog_id or (catalogRow and (catalogRow.id or catalogRow.catalogId or catalogRow.catalog_id))
     -- Permanent link back to the catalog row. cm-inventory refreshes the item's
     -- label/image/price/garment from this row on every read, so editing the row
@@ -989,6 +1218,13 @@ local function normaliseItem(raw)
     built.assetId = built.assetId or built.asset_id or raw.assetId or raw.asset_id
       or (catalogRow and (catalogRow.assetId or catalogRow.asset_id))
     built.asset_id = built.assetId
+    built.collection = (catalogRow and (catalogRow.collection or catalogRow.collection_name))
+      or incoming.collection or incoming.collectionName or incoming.collection_name or raw.collection or raw.collectionName or raw.collection_name
+    built.collectionLocalId = tonumber(
+      (catalogRow and (catalogRow.collectionLocalId or catalogRow.collection_local_id))
+      or incoming.collectionLocalId or incoming.collection_local_id or raw.collectionLocalId or raw.collection_local_id)
+    built.collection_name = built.collection
+    built.collection_local_id = built.collectionLocalId
     built.catalogKey = built.catalogKey or catalogKey(gender, category, drawable, texture)
     built.purchasedAt = built.purchasedAt or os.date('!%Y-%m-%dT%H:%M:%SZ')
     if category == 'bags' then
@@ -1004,7 +1240,8 @@ local function normaliseItem(raw)
         built.nameKey = 'clothing_bags_skin'
         built.name = 'clothing_bags_skin'
       else
-        local finalLevel = tonumber(raw.bagLevel or raw.bag_level or raw.level or incoming.bagLevel or incoming.bag_level or incoming.level or built.bagLevel or built.bag_level or built.level)
+        local catLevel = type(catalogRow) == 'table' and tonumber(catalogRow.bagLevel or catalogRow.bag_level)
+        local finalLevel = catLevel or tonumber(built.bagLevel or built.bag_level or built.level or raw.bagLevel or raw.bag_level or raw.level or incoming.bagLevel or incoming.bag_level or incoming.level)
         if not finalLevel then
           return nil, 'Bag item is missing bagLevel. Select Level 1-4 in clothing admin.'
         end
@@ -1054,10 +1291,15 @@ local function normaliseItem(raw)
     built.name = built.itemName
     built.label = built.label or label
     built.description = built.description or ('%s clothing item'):format(def.label)
-    copyRestrictions(built, raw, incoming)
-    print(('[nv_cloth] Build metadata item=%s category=%s drawable=%s texture=%s image=%s bagLevel=%s'):format(
+    copyRestrictions(built, raw, incoming, catalogRow)
+    debugPrint(('[nv_cloth] Build metadata item=%s category=%s drawable=%s texture=%s image=%s bagLevel=%s'):format(
       tostring(built.itemName), tostring(built.categoryType), tostring(built.drawableId), tostring(built.textureId), tostring(built.image), tostring(built.bagLevel)))
     return built
+  end
+
+  local serverPrice = resolveAuthoritativePrice(catalogRow, category, effCategory)
+  if serverPrice == nil then
+    return nil, 'This item has no price configured.'
   end
 
   -- componentType/componentIndex are ALWAYS the physical `def` (what was
@@ -1077,21 +1319,27 @@ local function normaliseItem(raw)
     -- an apparel pack changes. Taken from the catalog row, the only place that
     -- recorded it at capture time.
     collection = (catalogRow and (catalogRow.collection or catalogRow.collection_name))
-      or incoming.collection,
+      or incoming.collection or incoming.collectionName or incoming.collection_name or raw.collection or raw.collectionName or raw.collection_name,
     collectionLocalId = tonumber(
       (catalogRow and (catalogRow.collectionLocalId or catalogRow.collection_local_id))
-      or incoming.collectionLocalId or incoming.collection_local_id),
+      or incoming.collectionLocalId or incoming.collection_local_id or raw.collectionLocalId or raw.collection_local_id),
+    collection_name = (catalogRow and (catalogRow.collection or catalogRow.collection_name))
+      or incoming.collection or incoming.collectionName or incoming.collection_name or raw.collection or raw.collectionName or raw.collection_name,
+    collection_local_id = tonumber(
+      (catalogRow and (catalogRow.collectionLocalId or catalogRow.collection_local_id))
+      or incoming.collectionLocalId or incoming.collection_local_id or raw.collectionLocalId or raw.collection_local_id),
     gender = tostring(gender):lower() == 'female' and 'female' or 'male',
-    arms = tonumber(incoming.arms),
-    armsTexture = tonumber(incoming.armsTexture) or 0,
-    undershirt = tonumber(incoming.undershirt),
-    undershirtTexture = tonumber(incoming.undershirtTexture) or 0,
+    arms = (catalogRow and tonumber(catalogRow.arms)) or tonumber(incoming.arms) or tonumber(raw.arms) or (effCategory == 'torso' and 15 or nil),
+    armsTexture = (catalogRow and tonumber(catalogRow.armsTexture or catalogRow.arms_texture)) or tonumber(incoming.armsTexture) or tonumber(raw.armsTexture) or 0,
+    undershirt = (catalogRow and tonumber(catalogRow.undershirt)) or tonumber(incoming.undershirt) or tonumber(raw.undershirt),
+    undershirtTexture = (catalogRow and tonumber(catalogRow.undershirtTexture or catalogRow.undershirt_texture)) or tonumber(incoming.undershirtTexture) or tonumber(raw.undershirtTexture) or 0,
     bagLevel = bagLevel,
     bag_level = bagLevel,
     level = bagLevel,
     label = incoming.label or label,
     description = incoming.description or raw.description or (catalogRow and catalogRow.description) or ('%s clothing item'):format(effDef.label),
-    price = tonumber(incoming.price or raw.price or (catalogRow and catalogRow.price)) or nil,
+    price = serverPrice,
+    clientPrice = tonumber(incoming.price or raw.price) or nil,
     catalogId = incoming.catalogId or incoming.catalog_id or raw.catalogId or raw.catalog_id or (catalogRow and (catalogRow.id or catalogRow.catalogId or catalogRow.catalog_id)),
     -- See the matching block above: permanent link to the catalog row, so later
     -- edits to that row reach this copy of the item.
@@ -1162,7 +1410,7 @@ local function normaliseItem(raw)
   meta.item_name = meta.itemName
   meta.nameKey = meta.itemName
   meta.name = meta.itemName
-  copyRestrictions(meta, raw, incoming)
+  copyRestrictions(meta, raw, incoming, catalogRow)
   return meta
 end
 
@@ -1310,9 +1558,43 @@ local function canCarryClothingItem(src, itemName, amount)
     return false, 'Inventory is not available.'
   end
 
-  -- Do not trust old CanCarry/CanAdd pre-checks here. Some builds only check backpack slots
-  -- and reject purchases even when pocket slots are free. AddItem below is the source of truth.
+  if exports['cm-inventory'] and exports['cm-inventory'].CanCarryItem then
+    local ok, canCarry, err = pcall(function()
+      return exports['cm-inventory']:CanCarryItem(src, itemName, amount or 1)
+    end)
+    if ok and canCarry == false then
+      return false, err or 'Your inventory is too heavy to carry this item.'
+    end
+  end
+
   return true
+end
+
+local function getAvailableInventorySlots(src)
+  if GetResourceState('cm-inventory') ~= 'started' then return 0 end
+  local ok, payload = pcall(function()
+    return exports['cm-inventory']:GetInventory(src)
+  end)
+  if not ok or type(payload) ~= 'table' then return 0 end
+
+  local occupied = {}
+  if type(payload.items) == 'table' then
+    for _, item in ipairs(payload.items) do
+      if item and item.slot then occupied[item.slot] = true end
+    end
+  end
+
+  local freeSlots = 0
+  for i = 1, 6 do
+    if not occupied['pocket-' .. i] then freeSlots = freeSlots + 1 end
+  end
+
+  local bagSlots = tonumber(payload.bag and payload.bag.backpackSlots) or 0
+  for i = 1, bagSlots do
+    if not occupied['backpack-' .. i] then freeSlots = freeSlots + 1 end
+  end
+
+  return freeSlots
 end
 
 local function addClothingInventoryItem(src, itemName, amount, metadata)
@@ -1353,7 +1635,7 @@ local function addClothingInventoryItem(src, itemName, amount, metadata)
   for _, slot in ipairs(normalInventorySlots()) do
     local ok, resultOrErr = addItemViaCmInventory(src, itemName, amount, cloneTable(metadata), 'nv_cloth_purchase_inventory_only', slot)
     if ok then
-      print(('[nv_cloth] Purchase added to inventory src=%s item=%s slot=%s image=%s bagLevel=%s'):format(src, itemName, tostring(resultOrErr or slot), tostring(metadata.image), tostring(metadata.bagLevel)))
+      debugPrint(('[nv_cloth] Purchase added to inventory src=%s item=%s slot=%s image=%s bagLevel=%s'):format(src, itemName, tostring(resultOrErr or slot), tostring(metadata.image), tostring(metadata.bagLevel)))
       return true, resultOrErr or slot
     end
     lastErr = resultOrErr or lastErr
@@ -1364,7 +1646,7 @@ local function addClothingInventoryItem(src, itemName, amount, metadata)
   -- CM inventory's findEmptySlot resolves pockets first, then unlocked backpack slots.
   local ok, resultOrErr = addItemViaCmInventory(src, itemName, amount, cloneTable(metadata), 'nv_cloth_purchase_inventory_only', nil)
   if ok then
-    print(('[nv_cloth] Purchase added to inventory src=%s item=%s slot=%s image=%s bagLevel=%s'):format(src, itemName, tostring(resultOrErr), tostring(metadata.image), tostring(metadata.bagLevel)))
+    debugPrint(('[nv_cloth] Purchase added to inventory src=%s item=%s slot=%s image=%s bagLevel=%s'):format(src, itemName, tostring(resultOrErr), tostring(metadata.image), tostring(metadata.bagLevel)))
     return true, resultOrErr
   end
 
@@ -1373,15 +1655,58 @@ local function addClothingInventoryItem(src, itemName, amount, metadata)
   return false, tostring(lastErr or 'No empty pocket/backpack slot. Equip a better bag or clear inventory space.')
 end
 
-RegisterNetEvent('nvCloth:buyClothes')
-AddEventHandler('nvCloth:buyClothes', function(method, outfit)
-  local src = source
+local function processBuyClothes(src, method, outfit)
+  if not checkRateLimit(src, 'buyClothes', 1000) then return end
+
+  local validState, stateErr = validateShopperState(src)
+  if not validState then
+    notify(src, stateErr or 'You cannot purchase clothing right now.', 'error')
+    TriggerClientEvent('nvCloth:client:purchaseFailed', src, stateErr or 'You cannot purchase clothing right now.')
+    return
+  end
+
   method = method == 'cash' and 'cash' or 'bank'
 
   local rawItems = outfit and outfit.items or {}
   if type(rawItems) ~= 'table' or #rawItems == 0 then
     notify(src, 'No clothing selected.', 'error')
     TriggerClientEvent('nvCloth:client:purchaseFailed', src, 'No clothing selected.')
+    return
+  end
+
+  local MAX_CART_ITEMS = 20
+  if #rawItems > MAX_CART_ITEMS then
+    notify(src, ('Cart exceeds maximum limit of %d items.'):format(MAX_CART_ITEMS), 'error')
+    TriggerClientEvent('nvCloth:client:purchaseFailed', src, 'Cart exceeds maximum limit.')
+    return
+  end
+
+  -- Resolve active clothing store (if in a specific store session)
+  local activeShopId = nil
+  if type(IsPlayerShopping) == 'function' then
+    local okShopping, shopId = IsPlayerShopping(src)
+    if okShopping and shopId then activeShopId = shopId end
+  end
+  if not activeShopId and exports[GetCurrentResourceName()] and exports[GetCurrentResourceName()].IsPlayerShopping then
+    local okShopping, shopId = exports[GetCurrentResourceName()]:IsPlayerShopping(src)
+    if okShopping and shopId then activeShopId = shopId end
+  end
+
+  local storeRow = activeShopId and type(GetClothingStoreRow) == 'function' and GetClothingStoreRow(activeShopId)
+  local priceMult = 1.0
+  if storeRow then
+    local tier = tostring(storeRow.price_tier or 'normal'):lower()
+    local tiers = (Config.Ownership or {}).priceTiers or {}
+    priceMult = tonumber(tiers[tier]) or tonumber(tiers.normal) or 1.0
+  end
+
+  -- Validate store stock
+  if storeRow and tonumber(storeRow.stock or 0) < #rawItems then
+    local stockLeft = math.max(0, tonumber(storeRow.stock or 0))
+    local msg = ('This clothing store is out of stock (%d unit%s remaining). The store owner needs to order stock!'):format(
+      stockLeft, stockLeft == 1 and '' or 's')
+    notify(src, msg, 'error')
+    TriggerClientEvent('nvCloth:client:purchaseFailed', src, msg)
     return
   end
 
@@ -1410,7 +1735,8 @@ AddEventHandler('nvCloth:buyClothes', function(method, outfit)
       return
     end
 
-    local price = priceFor(meta.categoryType, meta)
+    local basePrice = priceFor(meta.categoryType, meta)
+    local price = math.max(1, math.floor(basePrice * priceMult))
     total = total + price
     metadataItems[#metadataItems + 1] = meta
     receiptItems[#receiptItems + 1] = {
@@ -1425,7 +1751,17 @@ AddEventHandler('nvCloth:buyClothes', function(method, outfit)
     }
   end
 
-  -- Check inventory availability before taking money. AddItem below is still the final source of truth.
+  -- Check inventory free space before taking money
+  local freeSlots = getAvailableInventorySlots(src)
+  if freeSlots < #metadataItems then
+    local msg = ('Not enough inventory space (%d item%s, %d free slot%s). Clear your pockets or equip a bag.'):format(
+      #metadataItems, #metadataItems == 1 and '' or 's', freeSlots, freeSlots == 1 and '' or 's')
+    notify(src, msg, 'error')
+    TriggerClientEvent('nvCloth:client:purchaseFailed', src, msg)
+    return
+  end
+
+  -- Check inventory weight availability before taking money
   for _, meta in ipairs(metadataItems) do
     local canCarry, carryErr = canCarryClothingItem(src, meta.itemName, 1)
     if canCarry ~= true then
@@ -1485,6 +1821,23 @@ AddEventHandler('nvCloth:buyClothes', function(method, outfit)
 
   savePurchaseReceipt(src, receiptId, paymentInfo, total, receiptItems, 'paid', nil)
   auditLog(src, 'purchase_paid', { receiptId = receiptId, method = method, total = total, slots = addedSlots, items = receiptItems }, receiptId)
+
+  -- Deduct store stock and distribute owner revenue share (80% owner / 20% city)
+  if activeShopId and storeRow then
+    local itemCount = #metadataItems
+    if storeRow.owner_character_id and total > 0 then
+      local revPercent = tonumber(Config.Ownership and Config.Ownership.ownerRevenuePercent) or 80
+      local ownerShare = math.floor(total * (revPercent / 100))
+      MySQL.update.await([[UPDATE cm_clothing_stores
+        SET business_balance = business_balance + ?, daily_income = daily_income + ?, weekly_income = weekly_income + ?, stock = GREATEST(stock - ?, 0)
+        WHERE shop_id = ? AND owner_character_id IS NOT NULL]],
+        { ownerShare, ownerShare, ownerShare, itemCount, activeShopId })
+    else
+      MySQL.update.await('UPDATE cm_clothing_stores SET stock = GREATEST(stock - ?, 0) WHERE shop_id = ?',
+        { itemCount, activeShopId })
+    end
+  end
+
   notify(src, ('Clothing purchased. Receipt %s. Item added to your bag.'):format(receiptId), 'success')
   TriggerClientEvent('nvCloth:client:purchaseComplete', src, {
     receiptId = receiptId,
@@ -1493,6 +1846,27 @@ AddEventHandler('nvCloth:buyClothes', function(method, outfit)
     count = #metadataItems,
     slots = addedSlots,
   })
+end
+
+RegisterNetEvent('nvCloth:buyClothes')
+AddEventHandler('nvCloth:buyClothes', function(method, outfit)
+  local src = source
+  if activeCheckoutLocks[src] then
+    notify(src, 'A purchase transaction is already in progress.', 'error')
+    TriggerClientEvent('nvCloth:client:purchaseFailed', src, 'A purchase transaction is already in progress.')
+    return
+  end
+  activeCheckoutLocks[src] = true
+
+  local ok, err = pcall(function()
+    processBuyClothes(src, method, outfit)
+  end)
+  activeCheckoutLocks[src] = nil
+  if not ok then
+    print(('[nv_cloth] Error during buyClothes src=%s: %s'):format(src, tostring(err)))
+    notify(src, 'An unexpected error occurred during purchase.', 'error')
+    TriggerClientEvent('nvCloth:client:purchaseFailed', src, 'An unexpected error occurred during purchase.')
+  end
 end)
 
 RegisterNetEvent('nvCloth:addClothToInventory')
@@ -1507,6 +1881,7 @@ end)
 --========================================================
 RegisterNetEvent('nvCloth:server:getCachedShopCatalog', function(requestId, shopName, gender, includeDisabled)
   local src = source
+  if not checkRateLimit(src, 'getCachedShopCatalog', 500) then return end
   local rows = {}
   shopName = shopName or 'clothes'
   gender = gender or 'male'
@@ -1596,6 +1971,153 @@ RegisterNetEvent('nvCloth:server:toggleFavourite', function(favKey, on)
   end
   -- Echo the authoritative list back so the UI stays in sync across shops.
   sendFavouritesToClient(src)
+end)
+
+
+--========================================================
+-- Character Outfit Presets (Authoritative Wardrobe)
+--========================================================
+local function sendOutfitsToClient(src)
+  local charId = getStateCharacterId(src)
+  if not charId then return end
+  local rows = MySQL.query.await([[
+    SELECT id, outfit_name, gender, components_json, props_json, DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i') as updated_at
+    FROM cm_clothing_outfits
+    WHERE character_id = ?
+    ORDER BY outfit_name ASC
+  ]], { charId }) or {}
+
+  local list = {}
+  for _, r in ipairs(rows) do
+    local ok, comps = pcall(json.decode, r.components_json)
+    local okProps, props = pcall(json.decode, r.props_json or '{}')
+    list[#list + 1] = {
+      id = tonumber(r.id),
+      name = tostring(r.outfit_name),
+      gender = tostring(r.gender or 'male'),
+      components = ok and comps or {},
+      props = okProps and props or {},
+      updatedAt = tostring(r.updated_at or '')
+    }
+  end
+  TriggerClientEvent('nvCloth:client:outfitsList', src, list)
+end
+
+RegisterNetEvent('nvCloth:server:getOutfits', function()
+  local src = source
+  if not checkRateLimit(src, 'getOutfits', 500) then return end
+  sendOutfitsToClient(src)
+end)
+
+RegisterNetEvent('nvCloth:server:saveOutfit', function(name, components, gender)
+  local src = source
+  if not checkRateLimit(src, 'saveOutfit', 1000) then return end
+  local charId = getStateCharacterId(src)
+  if not charId then
+    notify(src, 'No active character found.', 'error')
+    return
+  end
+
+  name = tostring(name or ''):gsub('^%s+', ''):gsub('%s+$', '')
+  if #name < 1 or #name > 32 then
+    notify(src, 'Outfit name must be between 1 and 32 characters.', 'error')
+    return
+  end
+  if not name:match('^[%w%s%-_]+$') then
+    notify(src, 'Outfit name contains invalid characters.', 'error')
+    return
+  end
+
+  if type(components) ~= 'table' then
+    notify(src, 'Invalid outfit data.', 'error')
+    return
+  end
+
+  -- Max 25 outfits per character
+  local countRow = MySQL.single.await('SELECT COUNT(*) as cnt FROM cm_clothing_outfits WHERE character_id = ?', { charId })
+  local totalOutfits = countRow and tonumber(countRow.cnt) or 0
+  if totalOutfits >= 25 then
+    -- Check if outfit name already exists (updating is allowed)
+    local exists = MySQL.single.await('SELECT id FROM cm_clothing_outfits WHERE character_id = ? AND outfit_name = ? LIMIT 1', { charId, name })
+    if not exists then
+      notify(src, 'Wardrobe limit reached (max 25 outfits). Please delete one first.', 'error')
+      return
+    end
+  end
+
+  gender = (tostring(gender):lower() == 'female') and 'female' or 'male'
+  local compsJson = json.encode(components)
+
+  MySQL.insert.await([[
+    INSERT INTO cm_clothing_outfits (character_id, outfit_name, gender, components_json)
+    VALUES (?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE components_json = VALUES(components_json), gender = VALUES(gender), updated_at = CURRENT_TIMESTAMP
+  ]], { charId, name, gender, compsJson })
+
+  notify(src, ('Outfit "%s" saved to wardrobe.'):format(name), 'success')
+  sendOutfitsToClient(src)
+end)
+
+RegisterNetEvent('nvCloth:server:equipOutfit', function(outfitId)
+  local src = source
+  if not checkRateLimit(src, 'equipOutfit', 500) then return end
+  local charId = getStateCharacterId(src)
+  if not charId then return end
+
+  outfitId = tonumber(outfitId)
+  if not outfitId then return end
+
+  local ped = GetPlayerPed(src)
+  if ped and ped ~= 0 then
+    if GetEntityHealth(ped) <= 100 then
+      notify(src, 'You cannot change outfits while unconscious.', 'error')
+      return
+    end
+  end
+
+  local row = MySQL.single.await([[
+    SELECT id, outfit_name, components_json
+    FROM cm_clothing_outfits
+    WHERE id = ? AND character_id = ?
+    LIMIT 1
+  ]], { outfitId, charId })
+
+  if not row then
+    notify(src, 'Outfit preset not found.', 'error')
+    return
+  end
+
+  local ok, comps = pcall(json.decode, row.components_json)
+  if not ok or type(comps) ~= 'table' then
+    notify(src, 'Outfit data corrupted.', 'error')
+    return
+  end
+
+  TriggerClientEvent('nvCloth:client:applyOutfitPreset', src, comps)
+
+  if GetResourceState('cm-characters') == 'started' then
+    pcall(function() exports['cm-characters']:SaveAppearance(src) end)
+  end
+
+  notify(src, ('Equipped "%s".'):format(row.outfit_name), 'success')
+end)
+
+RegisterNetEvent('nvCloth:server:deleteOutfit', function(outfitId)
+  local src = source
+  if not checkRateLimit(src, 'deleteOutfit', 500) then return end
+  local charId = getStateCharacterId(src)
+  if not charId then return end
+
+  outfitId = tonumber(outfitId)
+  if not outfitId then return end
+
+  local affected = MySQL.update.await('DELETE FROM cm_clothing_outfits WHERE id = ? AND character_id = ?', { outfitId, charId })
+  if affected and affected > 0 then
+    notify(src, 'Outfit deleted from wardrobe.', 'info')
+    sendOutfitsToClient(src)
+  else
+    notify(src, 'Outfit not found.', 'error')
+  end
 end)
 
 
@@ -1851,7 +2373,7 @@ RegisterNetEvent('nvCloth:server:adminToggleItem', function(data)
     entry.itemName = 'clothing_bags'
     entry.item_name = 'clothing_bags'
     entry.description = ('Level %s bag. Unlocks backpack slots.'):format(level)
-    print(('[nv_cloth] Admin save bag drawable=%s level=%s image=%s destination=%s'):format(tostring(drawable), tostring(level), tostring(entry.image), tostring(destination)))
+    debugPrint(('[nv_cloth] Admin save bag drawable=%s level=%s image=%s destination=%s'):format(tostring(drawable), tostring(level), tostring(entry.image), tostring(destination)))
   end
 
   stampClothingIdentity(entry)
@@ -2437,7 +2959,7 @@ local function saveCatalogEntryFromIcon(src, data, imageBytes)
       pcall(function() return exports['cm-inventory']:RefreshClothingDisplays() end)
     end
 
-    print(('[nv_cloth] REPLACED "%s" (asset=%s) -> %s drawable=%s texture=%s by player %s'):format(
+    debugPrint(('[nv_cloth] REPLACED "%s" (asset=%s) -> %s drawable=%s texture=%s by player %s'):format(
       tostring(armed.label), armed.assetId, category, drawable, texture, src))
 
     local entry = type(resultOrErr) == 'table' and resultOrErr or { assetId = armed.assetId }
@@ -2518,7 +3040,7 @@ local function saveCatalogEntryFromIcon(src, data, imageBytes)
     entry.bagLevel = level
     entry.bag_level = level
     entry.description = ('Level %s bag. Unlocks backpack slots.'):format(level)
-    print(('[nv_cloth] Icon catalog bag drawable=%s texture=%s level=%s image=%s shared=%s'):format(tostring(drawable), tostring(texture), tostring(level), 'pending', tostring(data.sharedGender)))
+    debugPrint(('[nv_cloth] Icon catalog bag drawable=%s texture=%s level=%s image=%s shared=%s'):format(tostring(drawable), tostring(texture), tostring(level), 'pending', tostring(data.sharedGender)))
   end
 
   -- A component-9 capture is a real vest (gun-store only) unless /clothingstore
@@ -2674,7 +3196,7 @@ end
 
 RegisterNetEvent('nvCloth:server:saveInventoryIcon', function(data)
   local src = source
-  print(('[nv_cloth] saveInventoryIcon received from %s'):format(src))
+  debugPrint(('[nv_cloth] saveInventoryIcon received from %s'):format(src))
   if not isClothingAdmin(src) then
     TriggerClientEvent('nvCloth:client:inventoryIconSaveFailed', src, 'no_permission')
     notify(src, 'You do not have permission to save clothing icons.', 'error')
@@ -2691,7 +3213,7 @@ RegisterNetEvent('nvCloth:server:saveInventoryIcon', function(data)
 
   data = type(data) == 'table' and data or {}
   local fileName = safeFilePart(data.fileName or '')
-  print(('[nv_cloth] icon filename=%s category=%s drawable=%s'):format(tostring(fileName), tostring(data.category), tostring(data.drawableId or data.drawable)))
+  debugPrint(('[nv_cloth] icon filename=%s category=%s drawable=%s'):format(tostring(fileName), tostring(data.category), tostring(data.drawableId or data.drawable)))
   if fileName == '' or not fileName:find('%.png$') then
     TriggerClientEvent('nvCloth:client:inventoryIconSaveFailed', src, 'invalid_filename')
     return
@@ -2704,7 +3226,7 @@ RegisterNetEvent('nvCloth:server:saveInventoryIcon', function(data)
   end
 
   local bytes = base64Decode(raw)
-  print(('[nv_cloth] decoded icon bytes=%s'):format(bytes and #bytes or 0))
+  debugPrint(('[nv_cloth] decoded icon bytes=%s'):format(bytes and #bytes or 0))
   local pngSignature = string.char(137) .. 'PNG' .. string.char(13, 10, 26, 10)
   if not bytes or #bytes < 100 or bytes:sub(1, 8) ~= pngSignature then
     TriggerClientEvent('nvCloth:client:inventoryIconSaveFailed', src, 'decode_failed')
@@ -2727,7 +3249,7 @@ RegisterNetEvent('nvCloth:server:saveInventoryIcon', function(data)
   -- nv_cloth/generated_images working copy (png + optional webp) kept on disk.
   if captureCfg.keepLocalCopy == true then
     local savePath = ('%s/%s'):format(folder, fileName)
-    print(('[nv_cloth] saving local PNG into %s:%s'):format(targetResource, savePath))
+    debugPrint(('[nv_cloth] saving local PNG into %s:%s'):format(targetResource, savePath))
     local okSave = SaveResourceFile(targetResource, savePath, bytes, #bytes)
     if not okSave then
       TriggerClientEvent('nvCloth:client:inventoryIconSaveFailed', src, 'save_file_failed')
@@ -2745,7 +3267,7 @@ RegisterNetEvent('nvCloth:server:saveInventoryIcon', function(data)
         and webpBytes:sub(1, 4) == 'RIFF' and webpBytes:sub(9, 12) == 'WEBP'
       if validWebp and SaveResourceFile(targetResource, webpPath, webpBytes, #webpBytes) then
         localFiles.webp = webpPath
-        print(('[nv_cloth] saved local WebP into %s:%s'):format(targetResource, webpPath))
+        debugPrint(('[nv_cloth] saved local WebP into %s:%s'):format(targetResource, webpPath))
       else
         print(('[nv_cloth] ERROR: WebP companion could not be written for %s'):format(fileName))
         TriggerClientEvent('nvCloth:client:inventoryIconSaveFailed', src, 'webp_save_failed')
@@ -2773,7 +3295,7 @@ RegisterNetEvent('nvCloth:server:saveInventoryIcon', function(data)
     prefix = tostring(prefix):gsub('^/', ''):gsub('/$', '')
     local catalogImage = ('%s/%s'):format(prefix, fileName)
     localFiles.catalogPng = catalogFilePath
-    print(('[nv_cloth] saved local icon and cm-items catalog image=%s'):format(catalogImage))
+    debugPrint(('[nv_cloth] saved local icon and cm-items catalog image=%s'):format(catalogImage))
 
     -- No external inventory/catalog API is called. Return enough metadata for
     -- progress tracking and the failed-image/retry queue.
@@ -2936,7 +3458,7 @@ CreateThread(function()
     end
   end
   if backfilled > 0 then
-    print(('[nv_cloth] Backfilled %s missing bag master row(s) across genders.'):format(backfilled))
+    debugPrint(('[nv_cloth] Backfilled %s missing bag master row(s) across genders.'):format(backfilled))
   end
 end)
 
@@ -2960,7 +3482,7 @@ RegisterCommand(Config.ManageCommand or 'clothingstore', function(src)
     return
   end
   local allowed = isClothingAdmin(src)
-  print(('[nv_cloth] /%s requested by source=%s ACE=%s'):format(
+  debugPrint(('[nv_cloth] /%s requested by source=%s ACE=%s'):format(
     tostring(Config.ManageCommand or 'clothingstore'), tostring(src), allowed and 'allowed' or 'denied'))
   if not allowed then
     notify(src, 'You do not have permission to manage the clothing store.', 'error')

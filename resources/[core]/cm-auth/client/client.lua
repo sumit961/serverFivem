@@ -84,6 +84,24 @@ local function openLogin(mode, profile)
     })
 end
 
+-- NUI focus is global across FiveM resources. Reassert it every tick while
+-- auth owns the visible login surface, because other resources (e.g.
+-- cm-hud's clearHudNuiFocus, fired on its own resource start and on
+-- cm-playerdata:client:unloaded) unconditionally call SetNuiFocus(false,
+-- false) with no awareness that the login page is currently showing. A
+-- slower poll here just loses that race and leaves the page visible but
+-- dead to mouse input for a second or more at a time.
+CreateThread(function()
+    while true do
+        if display and not isLoggedIn() then
+            SetNuiFocus(true, true)
+            Wait(0)
+        else
+            Wait(1200)
+        end
+    end
+end)
+
 local function startAuthFlow(force)
     if isLoggedIn() then return end
     if initialAuthStarted and not force then return end

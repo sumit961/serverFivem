@@ -192,8 +192,6 @@ lib.callback.register('cm-hub:server:getPlayerData', function(source)
         cash = cash,
         bank = bank,
         family = familyName,
-        familyRank = familyRank,
-        organization = orgName
         familyRank = familyRank or 'Member',
         organization = orgName,
         fines = fines,

@@ -184,7 +184,7 @@ Config.VehicleDefaults = {
 Config.AdminTestDrive = {
     enabled = true,
     free = true,
-    defaultDuration = 60
+    defaultDuration = 300
 }
 
 Config.Admin = {
@@ -214,6 +214,8 @@ Config.ReturnToOriginalPosition = true
 Config.ExitLocation = vector4(-2264.3823, 392.3130, 174.6739, 263.2466)
 Config.BoughtVehicleSpawnLocation = { coords = vector3(-2268.13, 383.24, 174.82), heading = 69.53 }
 Config.TestVehicleSpawnLocation = { coords = vector3(-1047.42, -3023.59, 13.95), heading = 60.00 } -- airport test-drive spawn
+Config.BoatTestVehicleSpawnLocation = { coords = vector3(-1604.82, -1154.38, 0.20), heading = 140.00 } -- water test-drive spawn
+Config.AirTestVehicleSpawnLocation = { coords = vector3(-1035.71, -3018.18, 13.95), heading = 60.00 } -- runway test-drive spawn
 
 Config.Dealer = {
     ped = 'a_m_m_business_01',
@@ -221,6 +223,29 @@ Config.Dealer = {
     npcName = 'Michael',
     greeting = 'Welcome to the vehicle showroom.',
     openText = '[E] Talk to dealer',
+    distance = 2.6,
+    drawDistance = 18.0
+}
+
+-- Boat dealer. Same shape as Config.Dealer; the client spawns it and routes the
+-- player to a boats-only catalog. Adjust coords to your custom map's dock/pier.
+Config.BoatDealer = {
+    ped = 'a_m_m_business_01',
+    coords = vector4(-1614.0, -1008.0, 0.6, 240.0),
+    npcName = 'Marina',
+    greeting = 'Welcome to the marina.',
+    openText = '[E] Talk to boat dealer',
+    distance = 2.6,
+    drawDistance = 18.0
+}
+
+-- Air transport dealer (helicopters + planes).
+Config.AirDealer = {
+    ped = 'a_m_m_business_01',
+    coords = vector4(-1132.0, -2840.0, 13.9, 200.0),
+    npcName = 'Pilot',
+    greeting = 'Welcome to the airfield.',
+    openText = '[E] Talk to air dealer',
     distance = 2.6,
     drawDistance = 18.0
 }
@@ -305,11 +330,46 @@ Config.Showroom = {
     cameraFov = 50.0
 }
 
+-- Outdoor boat preview spot. The player is placed on the pier and the boat spawns
+-- in the water just off it; the camera frames the water line.
+Config.BoatShowroom = {
+    player = vector4(-1614.0, -1008.0, 0.6, 240.0),
+    vehicle = vector4(-1604.0, -1014.0, -0.5, 240.0),
+    camera = vector3(-1597.0, -1022.0, 2.2),
+    cameraLookAt = vector3(-1604.0, -1014.0, 0.0),
+    cameraFov = 55.0
+}
+
+-- Outdoor air preview spot on the LSIA apron.
+Config.AirShowroom = {
+    player = vector4(-1140.0, -2840.0, 13.9, 200.0),
+    vehicle = vector4(-1140.0, -2840.0, 13.9, 200.0),
+    camera = vector3(-1129.0, -2852.0, 16.0),
+    cameraLookAt = vector3(-1140.0, -2840.0, 15.0),
+    cameraFov = 55.0
+}
+
 Config.Blip = {
     id = 326,
     color = 3,
     scale = 0.8,
     label = 'Car Dealer',
+    showBlip = true
+}
+
+Config.BoatBlip = {
+    id = 427,
+    color = 3,
+    scale = 0.8,
+    label = 'Boat Dealer',
+    showBlip = true
+}
+
+Config.AirBlip = {
+    id = 307,
+    color = 3,
+    scale = 0.8,
+    label = 'Air Dealer',
     showBlip = true
 }
 

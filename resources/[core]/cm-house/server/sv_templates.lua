@@ -45,6 +45,105 @@ function LoadTemplates()
         InteriorTemplates[t.id] = t
     end
 
+    local g10TplId = MySQL.scalar.await(
+        'SELECT id FROM cm_house_garage_templates WHERE key_name = ? LIMIT 1',
+        { 'g10_10_space' })
+    if g10TplId then
+        local fixedExits = {
+            { x = 225.00, y = -1006.40, z = -99.00, h = 180.0 },
+            { x = 232.00, y = -1006.40, z = -99.00, h = 180.0 },
+        }
+        MySQL.update.await(
+            'UPDATE cm_house_garage_templates SET vehicle_exit = ?, vehicle_exits = ? WHERE id = ?',
+            { json.encode(fixedExits[1]), json.encode(fixedExits), g10TplId })
+    end
+
+    local ALIGNED_G10_SLOTS = {
+        [1]  = { x = 233.40, y = -1000.40, z = -99.605, h = 90.0 },
+        [2]  = { x = 233.40, y =  -996.50, z = -99.605, h = 90.0 },
+        [3]  = { x = 233.40, y =  -992.60, z = -99.605, h = 90.0 },
+        [4]  = { x = 233.40, y =  -988.70, z = -99.605, h = 90.0 },
+        [5]  = { x = 233.40, y =  -984.80, z = -99.605, h = 90.0 },
+        [6]  = { x = 223.60, y =  -996.50, z = -99.605, h = 270.0 },
+        [7]  = { x = 223.60, y =  -992.60, z = -99.605, h = 270.0 },
+        [8]  = { x = 223.60, y =  -988.70, z = -99.605, h = 270.0 },
+        [9]  = { x = 223.60, y =  -984.80, z = -99.605, h = 270.0 },
+        [10] = { x = 223.60, y =  -980.90, z = -99.605, h = 270.0 },
+    }
+
+    if g10TplId then
+        for slotIdx, coords in ipairs(ALIGNED_G10_SLOTS) do
+            MySQL.update.await(
+                'UPDATE cm_house_garage_slots SET coords = ? WHERE template_id = ? AND slot_index = ?',
+                { json.encode(coords), g10TplId, slotIdx })
+        end
+    end
+
+    local grandTplId = MySQL.scalar.await(
+        'SELECT id FROM cm_house_garage_templates WHERE key_name = ? LIMIT 1',
+        { 'grand_garage' })
+    -- Clean up temporary 10-space grand_garage if present
+    MySQL.query.await('DELETE FROM cm_house_garage_templates WHERE key_name = ?', { 'grand_garage' })
+
+    local g24TplId = MySQL.scalar.await(
+        'SELECT id FROM cm_house_garage_templates WHERE key_name = ? LIMIT 1',
+        { 'g24_24_space' })
+    if g24TplId then
+        MySQL.update.await(
+            'UPDATE cm_house_garage_templates SET capacity = 24, enabled = 1 WHERE id = ?',
+            { g24TplId }
+        )
+
+        local ALIGNED_G24_SLOTS = {
+            -- Row 2 (facing 90.0°)
+            [1]  = { x = -458.70, y = -822.50, z = 8.693, h =  90.0 },
+            [2]  = { x = -458.70, y = -826.70, z = 8.693, h =  90.0 },
+            [3]  = { x = -458.70, y = -830.90, z = 8.693, h =  90.0 },
+            [4]  = { x = -458.70, y = -835.10, z = 8.693, h =  90.0 },
+            [5]  = { x = -458.70, y = -839.30, z = 8.693, h =  90.0 },
+            [12] = { x = -458.70, y = -843.50, z = 8.693, h =  90.0 },
+            -- Row 3 (facing 270.0°)
+            [6]  = { x = -446.50, y = -822.50, z = 8.693, h = 270.0 },
+            [7]  = { x = -446.50, y = -826.70, z = 8.693, h = 270.0 },
+            [8]  = { x = -446.50, y = -830.90, z = 8.693, h = 270.0 },
+            [9]  = { x = -446.50, y = -835.10, z = 8.693, h = 270.0 },
+            [10] = { x = -446.50, y = -839.30, z = 8.693, h = 270.0 },
+            [11] = { x = -446.50, y = -843.50, z = 8.693, h = 270.0 },
+            -- Row 1 (facing 270.0°)
+            [13] = { x = -471.40, y = -822.50, z = 8.693, h = 270.0 },
+            [14] = { x = -471.40, y = -826.70, z = 8.693, h = 270.0 },
+            [15] = { x = -471.40, y = -830.90, z = 8.693, h = 270.0 },
+            [16] = { x = -471.40, y = -835.10, z = 8.693, h = 270.0 },
+            [17] = { x = -471.40, y = -839.30, z = 8.693, h = 270.0 },
+            [18] = { x = -471.40, y = -843.50, z = 8.693, h = 270.0 },
+            -- Row 4 (facing 90.0°)
+            [24] = { x = -434.70, y = -822.50, z = 8.693, h =  90.0 },
+            [23] = { x = -434.70, y = -826.70, z = 8.693, h =  90.0 },
+            [22] = { x = -434.70, y = -830.90, z = 8.693, h =  90.0 },
+            [21] = { x = -434.70, y = -835.10, z = 8.693, h =  90.0 },
+            [20] = { x = -434.70, y = -839.30, z = 8.693, h =  90.0 },
+            [19] = { x = -434.70, y = -843.50, z = 8.693, h =  90.0 },
+        }
+
+        for slotIdx, coords in pairs(ALIGNED_G24_SLOTS) do
+            local exists = MySQL.scalar.await(
+                'SELECT id FROM cm_house_garage_slots WHERE template_id = ? AND slot_index = ? LIMIT 1',
+                { g24TplId, slotIdx }
+            )
+            if exists then
+                MySQL.update.await(
+                    'UPDATE cm_house_garage_slots SET coords = ? WHERE template_id = ? AND slot_index = ?',
+                    { json.encode(coords), g24TplId, slotIdx }
+                )
+            else
+                MySQL.insert.await(
+                    'INSERT INTO cm_house_garage_slots (template_id, slot_index, coords) VALUES (?, ?, ?)',
+                    { g24TplId, slotIdx, json.encode(coords) }
+                )
+            end
+        end
+    end
+
     local grows = MySQL.query.await('SELECT * FROM cm_house_garage_templates WHERE enabled = 1') or {}
     for _, t in ipairs(grows) do
         t.id           = tonumber(t.id) or t.id

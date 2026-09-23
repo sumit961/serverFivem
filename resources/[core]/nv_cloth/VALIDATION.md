@@ -136,3 +136,19 @@ Requires an in-game smoke test (the container cannot run FiveM):
 5. Select an Outerwear card, change body/arms and undershirt, save torso fit,
    reopen the manager and confirm the same gender/drawable fit returns for all
    textures without changing its deterministic clothing ID.
+
+## Build 2.22.0-server-authority-and-hardening
+
+- Fixed price-trust vulnerability in `server/sv_cloth.lua`:
+  - Resolved `price` in `normaliseItem()` (both standard `built` metadata and fallback `meta`) now enforces authoritative `catalogRow.price` first whenever present.
+  - Client-supplied values (`raw.price` and `incoming.price` from the NUI payload) are never used to determine the item charge or `price` field; they are preserved only in `clientPrice` for non-financial/display purposes, which `priceFor()` does not read.
+  - If neither a `catalogRow.price` nor a `Config.Prices[category]` default exists, `normaliseItem()` fails closed (`return nil, "This item has no price configured."`) rather than defaulting to 0 or trusting the client.
+  - Confirmed `priceFor()` now only ever reads a server-derived price (`metadata.price` or `Config.Prices[category]`).
+- Debug logging gated behind `Config.Debug = false` in `shared/config.lua` via `debugPrint()`, silencing high-frequency routine logs (purchase confirmations, metadata build logs, icon save logs) while preserving genuine errors/warnings unconditionally.
+- Lightweight in-memory rate limiting added on client-triggered events `nvCloth:buyClothes` (1000ms cooldown) and `nvCloth:server:getCachedShopCatalog` (500ms cooldown) per player source, with state cleaned up on `playerDropped`.
+- Added server-side shopper state and location verification in `nvCloth:buyClothes`:
+  - Enforces `validateShopperState(src)` rejecting purchases if player is dead/unconscious (health <= 100 or dying native or `state.isDead`), cuffed/restrained (`state.cmCuffed`), or inside a vehicle.
+  - Verifies player presence: player must either have active dressing room state (`playersInDressingRoom[src] == true`) or be within 25m of a configured clothing store/clerk/dressing room position (`isNearAnyClothingStore`).
+- Added cart payload size DoS protection in `nvCloth:buyClothes`, clamping cart to a maximum of 20 items (`#rawItems <= 20`) to prevent server thread starvation.
+- Enforced server-authoritative `bagLevel` in `normaliseItem()`: `catalogRow.bagLevel` is evaluated first in all resolution branches, preventing tampered client NUI payloads from upgrading bag capacity.
+- Enforced server-authoritative job/gang/family restrictions in `copyRestrictions()`: restrictions defined on `catalogRow` cannot be stripped or overridden by client-supplied payload parameters.

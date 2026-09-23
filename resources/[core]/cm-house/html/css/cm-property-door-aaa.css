@@ -1,0 +1,724 @@
+/* ============================================================
+   cm-house | Cinematic AAA HUD - Property Access Door UI
+   Clean tactical aesthetic matching cm-family & AAA standards.
+   CEF safe: Zero CSS backdrop-filter to prevent FiveM stutter.
+   ============================================================ */
+
+:root {
+    --cm-bg: #0B171E;
+    --cm-bg-deep: #10222B;
+    --cm-panel: rgba(18, 36, 47, 0.94);
+    --cm-panel-solid: #142733;
+    --cm-border: #213B4A;
+
+    --cm-cyan: #00E5FF;
+    --cm-yellow: #FFC700;
+    --cm-green: #2ECC71;
+    --cm-orange: #FF8C00;
+    --cm-red: #E74C3C;
+
+    --cm-text: #FFFFFF;
+    --cm-text-secondary: #C2D2DC;
+    --cm-text-muted: #829DAE;
+
+    --door-bg-ambient: rgba(11, 23, 30, 0.88);
+    --door-glass-bg: #10222B;
+    --door-glass-border: #213B4A;
+
+    --door-text-primary: #FFFFFF;
+    --door-text-secondary: #C2D2DC;
+    --door-text-tertiary: #829DAE;
+
+    --door-accent-cyan: #00E5FF;
+    --door-accent-gold: #FFC700;
+    --door-accent-green: #2ECC71;
+    --door-accent-red: #E74C3C;
+    --door-accent-orange: #FF8C00;
+
+    --door-font: 'Montserrat', sans-serif;
+}
+
+/* Screen Shell */
+#door.property-card-screen {
+    position: fixed !important;
+    inset: 0 !important;
+    display: none;
+    place-items: center !important;
+    justify-content: center !important;
+    align-items: center !important;
+    z-index: 1000 !important;
+    background: var(--door-bg-ambient) !important;
+    font-family: var(--door-font) !important;
+    user-select: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+#door.property-card-screen.on {
+    display: grid !important;
+}
+
+/* --- CINEMATIC MODAL --- */
+#door.property-card-screen .property-modal {
+    width: 1100px !important;
+    height: 650px !important;
+    max-width: 95vw !important;
+    max-height: 92vh !important;
+    background: var(--door-glass-bg) !important;
+    border: 1px solid var(--door-glass-border) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 40px 100px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+    display: flex !important;
+    flex-direction: row !important;
+    position: relative !important;
+    z-index: 10 !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+    font-family: var(--door-font) !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+#door.property-card-screen .property-modal * {
+    box-sizing: border-box;
+    font-family: var(--door-font);
+    text-transform: uppercase;
+}
+
+/* --- LEFT SIDE: EDGE-TO-EDGE IMAGE --- */
+#door.property-card-screen .modal-hero,
+#door.property-card-screen #d-shot {
+    flex: 0 0 45% !important;
+    width: 45% !important;
+    height: 100% !important;
+    min-height: 100% !important;
+    max-height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    position: relative !important;
+    overflow: hidden !important;
+    background-color: #070B12 !important;
+    background-image: url('https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?q=80&w=1000&auto=format&fit=crop') !important;
+    background-size: cover !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+}
+
+#door.property-card-screen .modal-hero__img,
+#door.property-card-screen #d-img {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    z-index: 1 !important;
+    display: none;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+}
+
+#door.property-card-screen #d-shot[data-has-image="1"] .modal-hero__img,
+#door.property-card-screen #d-shot[data-has-image="1"] #d-img {
+    display: block !important;
+}
+
+#door.property-card-screen #d-shot[data-has-image="0"] .modal-hero__img,
+#door.property-card-screen #d-shot[data-has-image="0"] #d-img {
+    display: none !important;
+}
+
+/* Gradient mask to blend image into the right panel seamlessly */
+#door.property-card-screen .modal-hero::after,
+#door.property-card-screen #d-shot::after {
+    content: '' !important;
+    position: absolute !important;
+    inset: 0 !important;
+    background: linear-gradient(to right, rgba(16, 34, 43, 0) 0%, rgba(16, 34, 43, 0.25) 60%, rgba(16, 34, 43, 1) 100%),
+                linear-gradient(to top, rgba(16, 34, 43, 0.95) 0%, transparent 45%) !important;
+    z-index: 2 !important;
+    pointer-events: none !important;
+    border: none !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+}
+
+#door.property-card-screen .hero-content {
+    position: absolute !important;
+    inset: 0 !important;
+    padding: 40px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    z-index: 3 !important;
+    pointer-events: none !important;
+}
+
+#door.property-card-screen .property-badge {
+    width: 52px !important;
+    height: 52px !important;
+    background: rgba(255, 199, 0, 0.15) !important;
+    border: 1px solid var(--door-accent-gold) !important;
+    color: var(--door-accent-gold) !important;
+    border-radius: 8px !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    font-size: 20px !important;
+    font-weight: 800 !important;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4) !important;
+    pointer-events: auto !important;
+}
+
+#door.property-card-screen .hero-titles .context {
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    color: var(--door-accent-cyan) !important;
+    letter-spacing: 3px !important;
+    margin-bottom: 6px !important;
+}
+
+#door.property-card-screen .hero-titles .title {
+    font-size: 42px !important;
+    font-weight: 900 !important;
+    color: var(--door-text-primary) !important;
+    letter-spacing: 1px !important;
+    line-height: 1.1 !important;
+    text-shadow: 0 4px 16px rgba(0, 0, 0, 0.8) !important;
+}
+
+#door.property-card-screen .hero-family {
+    font-size: 11px !important;
+    font-weight: 800 !important;
+    color: var(--door-accent-cyan) !important;
+    letter-spacing: 2.5px !important;
+    margin-top: 8px !important;
+    text-shadow: 0 2px 12px rgba(0, 229, 255, 0.5) !important;
+    display: none;
+}
+
+/* --- RIGHT SIDE: CLEAN DATA & ACTIONS --- */
+#door.property-card-screen .modal-details {
+    flex: 1 1 55% !important;
+    width: 55% !important;
+    height: 100% !important;
+    padding: 50px 50px 50px 30px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    background: transparent !important;
+}
+
+/* Header Row (Tags, Status, Close) */
+#door.property-card-screen .details-header {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+}
+
+#door.property-card-screen .tags {
+    display: flex !important;
+    gap: 10px !important;
+    align-items: center !important;
+}
+
+#door.property-card-screen .tag {
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    color: var(--door-text-secondary) !important;
+    padding: 6px 14px !important;
+    border-radius: 8px !important;
+    border: 1px solid var(--door-glass-border) !important;
+    background: rgba(255, 255, 255, 0.03) !important;
+    letter-spacing: 1px !important;
+}
+
+#door.property-card-screen .tag.tag--family {
+    color: var(--door-accent-cyan) !important;
+    border-color: rgba(0, 229, 255, 0.3) !important;
+    background: rgba(0, 229, 255, 0.08) !important;
+}
+
+#door.property-card-screen .tag:empty {
+    display: none !important;
+}
+
+#door.property-card-screen .header-actions {
+    display: flex !important;
+    align-items: center !important;
+    gap: 20px !important;
+}
+
+#door.property-card-screen .status-pill {
+    font-size: 10px !important;
+    font-weight: 800 !important;
+    color: var(--door-accent-red) !important;
+    background: rgba(231, 76, 60, 0.12) !important;
+    border: 1px solid rgba(231, 76, 60, 0.3) !important;
+    padding: 6px 14px !important;
+    border-radius: 8px !important;
+    letter-spacing: 1.5px !important;
+}
+
+#door.property-card-screen .status-pill[data-state="paid"] {
+    color: var(--door-accent-green) !important;
+    background: rgba(46, 204, 113, 0.12) !important;
+    border-color: rgba(46, 204, 113, 0.3) !important;
+}
+
+#door.property-card-screen .status-pill[data-state="vacant"] {
+    color: var(--door-accent-cyan) !important;
+    background: rgba(0, 229, 255, 0.12) !important;
+    border-color: rgba(0, 229, 255, 0.3) !important;
+}
+
+#door.property-card-screen .btn-close {
+    color: var(--door-text-secondary) !important;
+    font-size: 26px !important;
+    cursor: pointer !important;
+    transition: color 0.2s, transform 0.2s !important;
+    line-height: 1 !important;
+    background: none !important;
+    border: none !important;
+    padding: 0 !important;
+}
+
+#door.property-card-screen .btn-close:hover {
+    color: var(--door-text-primary) !important;
+    transform: scale(1.1) !important;
+}
+
+/* Core Information Block */
+#door.property-card-screen .info-section {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 24px !important;
+}
+
+#door.property-card-screen .owner-row {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: flex-start !important;
+    padding-bottom: 18px !important;
+    border-bottom: 1px solid var(--door-glass-border) !important;
+}
+
+#door.property-card-screen .owner-block,
+#door.property-card-screen .family-block {
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+#door.property-card-screen .family-block {
+    text-align: right !important;
+    align-items: flex-end !important;
+}
+
+#door.property-card-screen .data-label {
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    color: var(--door-text-tertiary) !important;
+    letter-spacing: 2px !important;
+    margin-bottom: 6px !important;
+    display: block !important;
+}
+
+#door.property-card-screen .data-value {
+    font-size: 16px !important;
+    font-weight: 700 !important;
+    color: var(--door-text-primary) !important;
+    letter-spacing: 0.5px !important;
+}
+
+#door.property-card-screen .family-cyan {
+    color: var(--door-accent-cyan) !important;
+    font-weight: 800 !important;
+    text-shadow: 0 0 10px rgba(0, 229, 255, 0.4) !important;
+}
+
+#door.property-card-screen .price-value {
+    font-size: 46px !important;
+    font-weight: 900 !important;
+    color: var(--door-text-primary) !important;
+    letter-spacing: -1px !important;
+    line-height: 1 !important;
+}
+
+/* Clean Data Grid */
+#door.property-card-screen .stats-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 18px 25px !important;
+}
+
+#door.property-card-screen .stat-block {
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+#door.property-card-screen .stat-block .data-value.highlight {
+    color: var(--door-accent-cyan) !important;
+}
+
+#door.property-card-screen .stat-block .data-value.dim {
+    color: var(--door-text-secondary) !important;
+    font-weight: 500 !important;
+}
+
+#door.property-card-screen .stat-block .data-value.bad {
+    color: var(--door-accent-red) !important;
+    font-weight: 700 !important;
+}
+
+#door.property-card-screen .stat-block .data-value.warn {
+    color: var(--door-accent-gold) !important;
+    font-weight: 700 !important;
+}
+
+/* Action Buttons */
+#door.property-card-screen .actions-wrapper {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 14px !important;
+    margin-top: 15px !important;
+}
+
+#door.property-card-screen .primary-actions {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr 1fr !important;
+    gap: 14px !important;
+}
+
+#door.property-card-screen .btn {
+    border: none !important;
+    padding: 16px 20px !important;
+    border-radius: 8px !important;
+    font-size: 11px !important;
+    font-weight: 800 !important;
+    letter-spacing: 1px !important;
+    cursor: pointer !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    gap: 10px !important;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    position: relative !important;
+    overflow: hidden !important;
+}
+
+#door.property-card-screen .btn:disabled {
+    opacity: 0.35 !important;
+    cursor: not-allowed !important;
+    pointer-events: none !important;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+#door.property-card-screen .btn[hidden] {
+    display: none !important;
+}
+
+/* Button Variations */
+#door.property-card-screen .btn-outline {
+    background: #142733 !important;
+    border: 1px solid var(--door-glass-border) !important;
+    color: var(--door-text-secondary) !important;
+}
+
+#door.property-card-screen .btn-outline:hover:not(:disabled) {
+    background: #1c3546 !important;
+    color: var(--door-text-primary) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3) !important;
+}
+
+#door.property-card-screen .btn-enter {
+    background: rgba(46, 204, 113, 0.15) !important;
+    color: var(--door-accent-green) !important;
+    border: 1px solid rgba(46, 204, 113, 0.3) !important;
+}
+
+#door.property-card-screen .btn-enter:hover:not(:disabled) {
+    background: var(--door-accent-green) !important;
+    color: #0B171E !important;
+    box-shadow: 0 10px 20px rgba(46, 204, 113, 0.3) !important;
+    transform: translateY(-2px) !important;
+}
+
+#door.property-card-screen .btn-garage {
+    background: rgba(0, 229, 255, 0.15) !important;
+    color: var(--door-accent-cyan) !important;
+    border: 1px solid rgba(0, 229, 255, 0.3) !important;
+}
+
+#door.property-card-screen .btn-garage:hover:not(:disabled) {
+    background: var(--door-accent-cyan) !important;
+    color: #0B171E !important;
+    box-shadow: 0 10px 20px rgba(0, 229, 255, 0.3) !important;
+    transform: translateY(-2px) !important;
+}
+
+#door.property-card-screen .secondary-actions {
+    display: flex !important;
+    gap: 14px !important;
+}
+
+#door.property-card-screen .secondary-actions .btn {
+    flex: 1 !important;
+}
+
+#door.property-card-screen .btn-opposing {
+    background: rgba(255, 140, 0, 0.12) !important;
+    color: var(--door-accent-orange) !important;
+    border: 1px dashed rgba(255, 140, 0, 0.35) !important;
+}
+
+#door.property-card-screen .btn-opposing:hover:not(:disabled) {
+    background: rgba(255, 140, 0, 0.22) !important;
+    border-style: solid !important;
+    transform: translateY(-2px) !important;
+}
+
+#door.property-card-screen .btn-buy {
+    background: var(--door-accent-gold) !important;
+    color: #0B171E !important;
+    border: 1px solid var(--door-accent-gold) !important;
+}
+
+#door.property-card-screen .btn-buy:hover:not(:disabled) {
+    background: #ffdb4d !important;
+    box-shadow: 0 10px 20px rgba(255, 199, 0, 0.3) !important;
+    transform: translateY(-2px) !important;
+}
+
+#door.property-card-screen .btn-sell {
+    background: transparent !important;
+    color: var(--door-accent-red) !important;
+    border: 1px solid rgba(231, 76, 60, 0.3) !important;
+}
+
+#door.property-card-screen .btn-sell:hover:not(:disabled) {
+    background: var(--door-accent-red) !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 10px 20px rgba(231, 76, 60, 0.3) !important;
+    border-color: transparent !important;
+    transform: translateY(-2px) !important;
+}
+
+#door.property-card-screen .btn-sell.btn-sell--confirming {
+    background: rgba(231, 76, 60, 0.25) !important;
+    color: #FFFFFF !important;
+    border: 1px solid var(--door-accent-red) !important;
+    box-shadow: 0 0 15px rgba(231, 76, 60, 0.5) !important;
+    animation: pulse-sell-confirm 1s infinite alternate ease-in-out;
+}
+
+@keyframes pulse-sell-confirm {
+    from {
+        box-shadow: 0 0 8px rgba(231, 76, 60, 0.4);
+    }
+    to {
+        box-shadow: 0 0 20px rgba(231, 76, 60, 0.85);
+    }
+}
+
+#door.property-card-screen .btn .icon {
+    font-size: 14px !important;
+    line-height: 1 !important;
+}
+
+/* --- IN-GAME CONFIRMATION MODAL OVERLAY --- */
+#door.property-card-screen .door-confirm-overlay {
+    position: absolute !important;
+    inset: 0 !important;
+    background: rgba(11, 23, 30, 0.92) !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    z-index: 100 !important;
+    border-radius: 8px !important;
+    padding: 24px !important;
+    animation: doorConfirmFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+#door.property-card-screen .door-confirm-overlay[hidden] {
+    display: none !important;
+}
+
+@keyframes doorConfirmFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+#door.property-card-screen .door-confirm-card,
+#door.property-card-screen .cm-confirm-modal {
+    width: 480px !important;
+    max-width: 100% !important;
+    background: #142733 !important;
+    border: 1px solid rgba(231, 76, 60, 0.4) !important;
+    border-radius: 8px !important;
+    padding: 28px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 18px !important;
+    box-shadow: 0 30px 70px rgba(0, 0, 0, 0.95), 0 0 40px rgba(231, 76, 60, 0.12) !important;
+    position: relative !important;
+}
+
+#door.property-card-screen .door-confirm-header {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 4px !important;
+}
+
+#door.property-card-screen .door-confirm-eyebrow {
+    font-size: 10px !important;
+    font-weight: 800 !important;
+    color: var(--door-accent-red) !important;
+    letter-spacing: 2px !important;
+    display: block !important;
+}
+
+#door.property-card-screen .door-confirm-title,
+#door.property-card-screen .cm-confirm-modal__title {
+    font-size: 24px !important;
+    font-weight: 900 !important;
+    color: var(--door-text-primary) !important;
+    letter-spacing: 0.5px !important;
+    margin: 0 !important;
+}
+
+#door.property-card-screen .door-confirm-desc,
+#door.property-card-screen .cm-confirm-modal__message {
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    color: var(--door-text-secondary) !important;
+    line-height: 1.6 !important;
+    margin: 0 !important;
+    text-transform: none !important;
+}
+
+#door.property-card-screen .door-confirm-payout,
+#door.property-card-screen .cm-confirm-modal__consequence {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    padding: 14px 18px !important;
+    background: #10222B !important;
+    border: 1px solid var(--door-glass-border) !important;
+    border-radius: 8px !important;
+}
+
+#door.property-card-screen .payout-label {
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    color: var(--door-text-tertiary) !important;
+    letter-spacing: 1.5px !important;
+}
+
+#door.property-card-screen .payout-amount {
+    font-size: 20px !important;
+    font-weight: 800 !important;
+    color: var(--door-accent-cyan) !important;
+    letter-spacing: -0.5px !important;
+}
+
+#door.property-card-screen .door-confirm-actions,
+#door.property-card-screen .cm-confirm-modal__actions {
+    display: grid !important;
+    grid-template-columns: 1fr 1.3fr !important;
+    gap: 12px !important;
+    margin-top: 6px !important;
+}
+
+#door.property-card-screen .door-confirm-actions .btn,
+#door.property-card-screen .cm-confirm-modal__actions .btn {
+    padding: 13px 18px !important;
+    border-radius: 8px !important;
+    font-size: 11px !important;
+    font-weight: 800 !important;
+    letter-spacing: 1px !important;
+    cursor: pointer !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    gap: 8px !important;
+    transition: all 0.2s !important;
+}
+
+#door.property-card-screen .btn-sell-final,
+#door.property-card-screen .cm-confirm-modal__confirm {
+    background: var(--door-accent-red) !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 8px 20px rgba(231, 76, 60, 0.35) !important;
+    border: none !important;
+    border-radius: 8px !important;
+}
+
+#door.property-card-screen .btn-sell-final:hover:not(:disabled),
+#door.property-card-screen .cm-confirm-modal__confirm:hover:not(:disabled) {
+    background: #c0392b !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 12px 28px rgba(231, 76, 60, 0.5) !important;
+}
+
+#door.property-card-screen .cm-confirm-modal__cancel {
+    background: #10222B !important;
+    border: 1px solid var(--door-glass-border) !important;
+    color: var(--door-text-secondary) !important;
+    border-radius: 8px !important;
+}
+
+#door.property-card-screen .cm-confirm-modal__cancel:hover:not(:disabled) {
+    background: #1a3342 !important;
+    color: #FFFFFF !important;
+}
+
+/* Responsive adjustment for lower resolutions */
+@media (max-width: 1024px) {
+    #door.property-card-screen .property-modal {
+        width: 94vw !important;
+        height: auto !important;
+        max-height: 94vh !important;
+    }
+    #door.property-card-screen .modal-hero,
+    #door.property-card-screen #d-shot {
+        flex: 0 0 40% !important;
+        width: 40% !important;
+    }
+    #door.property-card-screen .modal-details {
+        padding: 30px !important;
+    }
+    #door.property-card-screen .price-value {
+        font-size: 38px !important;
+    }
+}
+
+@media (max-width: 768px) {
+    #door.property-card-screen .property-modal {
+        flex-direction: column !important;
+        overflow-y: auto !important;
+    }
+    #door.property-card-screen .modal-hero,
+    #door.property-card-screen #d-shot {
+        height: 200px !important;
+        flex: none !important;
+        width: 100% !important;
+    }
+    #door.property-card-screen .primary-actions {
+        grid-template-columns: 1fr !important;
+    }
+    #door.property-card-screen .secondary-actions {
+        flex-direction: column !important;
+    }
+}

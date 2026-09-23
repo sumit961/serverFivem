@@ -102,6 +102,8 @@ Config.Permissions = {
     { key = 'weapon_storage.withdraw', label = 'Withdraw weapons',   group = 'house' },
     { key = 'weapon_storage.manage',   label = 'Manage weapon storage', group = 'house' },
     { key = 'storage.access',       label = 'General storage',       group = 'house' },
+    { key = 'storage.withdraw',     label = 'Take from storage',     group = 'house' },
+    { key = 'storage.deposit',      label = 'Deposit to storage',    group = 'house' },
     { key = 'helipad.use',          label = 'Use helipad',           group = 'house' },
     { key = 'house.view_logs',      label = 'View house activity',   group = 'house' },
 }
@@ -115,7 +117,8 @@ Config.HousePermissionKeys = {
     ['garage.manage_shared'] = true, ['garage.take_any'] = true,
     ['weapon_storage.access'] = true, ['weapon_storage.deposit'] = true,
     ['weapon_storage.withdraw'] = true, ['weapon_storage.manage'] = true,
-    ['storage.access'] = true, ['trunk.access'] = true, ['helipad.use'] = true,
+    ['storage.access'] = true, ['storage.withdraw'] = true, ['storage.deposit'] = true,
+    ['trunk.access'] = true, ['helipad.use'] = true,
     ['house.view_logs'] = true,
 }
 
@@ -130,11 +133,13 @@ Config.VehicleLevelActions = {
     ['helipad.use'] = true,
 }
 
--- Every active family member receives only basic entry at the linked house.
--- Storage, weapons, garage, trunk, helipad and logs remain rank-authoritative.
--- This is intentionally DB-membership based so legacy rank-id/grade schemas
--- cannot strand a valid member outside their own family property.
-Config.BasicMemberHousePermissions = {}
+-- Every active family member receives entry at the linked house and can open
+-- the armory and storage. Withdrawing weapons or storage items remains rank-authoritative.
+Config.BasicMemberHousePermissions = {
+    ['door.enter'] = true,
+    ['weapon_storage.access'] = true,
+    ['storage.access'] = true,
+}
 
 -- ============================================================
 --  Default ranks created for a new family.

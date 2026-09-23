@@ -74,7 +74,7 @@ Config.PlacementVehicles = {
 Config.GarageTemplate = {
     maxVehicleExits = 8,
     maxVehicleSlots = 24,
-    exitUseDistance = 1.35,
+    exitUseDistance = 3.85,
 }
 
 Config.DoorTargetRadius = 1.2

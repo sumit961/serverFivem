@@ -467,11 +467,6 @@ window.addEventListener('message', (event) => {
 /* --- Keyboard Shortcuts --- */
 window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
-    const modal = document.getElementById('statsModal');
-    if (modal && !modal.classList.contains('hidden')) {
-    const jobModal = document.getElementById('jobModal');
-    if (jobModal && !jobModal.classList.contains('hidden')) {
-      toggleJobModal(false);
     // 1. Close skills modal if open
     const skillsModal = document.getElementById('skillsModal');
     if (skillsModal && !skillsModal.classList.contains('hidden')) {
@@ -501,9 +496,6 @@ window.addEventListener('keydown', (event) => {
 });
 
 /* --- Button Click Listeners --- */
-document.getElementById('closeButton').addEventListener('click', () => {
-  post('close');
-});
 const closeButton = document.getElementById('closeButton');
 if (closeButton) {
   closeButton.addEventListener('click', () => {

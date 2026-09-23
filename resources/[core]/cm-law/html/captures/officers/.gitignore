@@ -1,0 +1,3 @@
+# Runtime captures written by screenshot-basic (server/photos.lua).
+*.jpg
+!.gitignore

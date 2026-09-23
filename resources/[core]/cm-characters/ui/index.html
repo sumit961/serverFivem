@@ -266,8 +266,8 @@
     </div>
 
     <div id="appearance-ui" style="display: none;">
-        <button class="appearance-music-toggle cm-btn cm-btn-secondary cm-btn-sm" id="appearance-music-toggle" type="button">Music: On</button>
         <div class="background">
+            <div id="appearance-preview-stage" class="preview-stage"></div>
             <div class="categories"></div>
             <div class="header">
                 <p id="headerName">CREATE YOUR CHARACTER</p>
@@ -278,31 +278,148 @@
             <div class="settings">
                 <div class="height">
                     <p class="height-title" id="height-text">CAMERA HEIGHT</p>
-                    <div class="height-radius">
-                        <input type="range" value="0.0" step="0.1" min="-1.0" max="1.0" id="height-input" class="input-option-radius" oninput="changeHeight()" />
+                    <div class="camera-stepper-bar">
+                        <button type="button" class="cam-step-btn" onclick="stepHeight(-0.1)">◀</button>
+                        <span class="cam-step-val" id="height-val">0.0</span>
+                        <button type="button" class="cam-step-btn" onclick="stepHeight(0.1)">▶</button>
+                        <input type="hidden" value="0.0" id="height-input" />
                     </div>
                 </div>
                 <div class="rotate">
                     <p class="rotate-title" id="rotate-text">CAMERA ROTATE</p>
-                    <div class="rotate-radius">
-                        <input type="range" min="0" max="360" id="rotate-input" class="input-option-radius" oninput="changeRotate()" />
+                    <div class="camera-stepper-bar">
+                        <button type="button" class="cam-step-btn" onclick="stepRotate(-15)">◀</button>
+                        <span class="cam-step-val" id="rotate-val">0°</span>
+                        <button type="button" class="cam-step-btn" onclick="stepRotate(15)">▶</button>
+                        <input type="hidden" value="0" id="rotate-input" />
                     </div>
                 </div>
                 <div class="distance">
                     <p class="distance-title" id="distance-text">CAMERA DISTANCE</p>
-                    <div class="distance-radius">
-                        <input type="range" min="30" max="100" id="distance-input" class="input-option-radius" oninput="changeDistance()" />
+                    <div class="camera-stepper-bar">
+                        <button type="button" class="cam-step-btn" onclick="stepDistance(-5)">◀</button>
+                        <span class="cam-step-val" id="distance-val">30</span>
+                        <button type="button" class="cam-step-btn" onclick="stepDistance(5)">▶</button>
+                        <input type="hidden" value="30" id="distance-input" />
                     </div>
+                </div>
+                <div class="camera-hint-bar">
+                    <span class="hint-icon">✥</span>
+                    <span>DRAG TO ROTATE • SCROLL TO ZOOM</span>
                 </div>
                 <div class="actions">
-                    <div class="accept-skin" onclick="saveAppearance()">
+                    <button type="button" class="cancel-skin" id="cancel-btn" style="display: none;" onclick="closeAppearance()">
+                        <span class="key-badge">ESC</span>
+                        <span id="cancel-text">LEAVE WITHOUT EDIT</span>
+                    </button>
+                    <button type="button" class="accept-skin" id="save-btn" onclick="saveAppearance()">
                         <span class="accept-icon">✓</span>
-                        <p id="save">SAVE & SPAWN</p>
-                    </div>
-                    <div class="hands-up" onclick="handsUp()">
-                        <span>Hands</span>
-                    </div>
+                        <span id="save">SAVE & SPAWN</span>
+                    </button>
+                    <button type="button" class="hands-up" onclick="handsUp()">
+                        <span>HANDS</span>
+                    </button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ BARBER SHOP / HAIR SALON OWNER CONSOLE ═══ -->
+    <div id="barber-owner-panel" class="barber-owner-panel hidden">
+        <div class="barber-owner-card cm-panel">
+            <div class="barber-owner-head">
+                <div class="barber-owner-title">
+                    <span class="barber-brand-name" id="barberStoreTitle">HAIR SALON</span>
+                    <span class="barber-brand-badge">OWNER CONSOLE</span>
+                    <div class="barber-brand-sub" id="barberStoreSub">COMMERCIAL SALON PROPERTY MANAGEMENT</div>
+                </div>
+                <button id="barberCloseBtn" type="button" class="cm-btn cm-btn-secondary cm-btn-sm">✕ CLOSE</button>
+            </div>
+
+            <!-- Metric cards -->
+            <div class="barber-metrics-grid">
+                <div class="barber-metric-card cm-card">
+                    <span class="metric-label">BUSINESS BALANCE</span>
+                    <strong class="metric-value accent-cyan" id="barberBalance">$0</strong>
+                    <small class="metric-hint">SALON REVENUE SHARE (80%)</small>
+                    <button id="barberWithdrawBtn" type="button" class="cm-btn cm-btn-primary cm-btn-sm metric-btn">WITHDRAW FUNDS</button>
+                </div>
+                <div class="barber-metric-card cm-card">
+                    <span class="metric-label">PROPERTY TAX</span>
+                    <strong class="metric-value" id="barberTaxCoverage">7 DAYS</strong>
+                    <small class="metric-hint" id="barberTaxDueHint">$12,000 / 7 DAYS</small>
+                    <button id="barberPayTaxBtn" type="button" class="cm-btn cm-btn-secondary cm-btn-sm metric-btn">PAY 7-DAY TAX ($12K)</button>
+                </div>
+                <div class="barber-metric-card cm-card">
+                    <span class="metric-label">GROOMING SUPPLIES</span>
+                    <strong class="metric-value" id="barberStock">1,000</strong>
+                    <small class="metric-hint" id="barberStockCap">CAPACITY: 5,000 UNITS</small>
+                    <button id="barberRestockBtn" type="button" class="cm-btn cm-btn-primary cm-btn-sm metric-btn">ORDER SUPPLIES (+250 / $2K)</button>
+                </div>
+                <div class="barber-metric-card cm-card">
+                    <span class="metric-label">TODAY'S REVENUE</span>
+                    <strong class="metric-value" id="barberDailyIncome">$0</strong>
+                    <small class="metric-hint">DAILY OWNER SHARE</small>
+                </div>
+                <div class="barber-metric-card cm-card">
+                    <span class="metric-label">WEEKLY REVENUE</span>
+                    <strong class="metric-value" id="barberWeeklyIncome">$0</strong>
+                    <small class="metric-hint">WEEKLY OWNER SHARE</small>
+                </div>
+            </div>
+
+            <!-- Pricing tier control -->
+            <div class="barber-section-box cm-card">
+                <div class="barber-box-header">
+                    <div>
+                        <h3>SALON PRICING MODE</h3>
+                        <p>Adjust the haircut & grooming service fee tier. Discounts attract more citizens; luxury markups yield higher profit margins.</p>
+                    </div>
+                    <span class="active-tier-pill" id="barberActiveTierPill">STANDARD ($100)</span>
+                </div>
+                <div class="barber-tier-selector">
+                    <button type="button" class="barber-tier-btn cm-card" data-tier="low">
+                        <span class="tier-name">DISCOUNT TIER</span>
+                        <strong class="tier-mult">0.80x ($80)</strong>
+                        <small class="tier-desc">Budget haircuts. Attracts the highest customer volume.</small>
+                    </button>
+                    <button type="button" class="barber-tier-btn cm-card selected" data-tier="normal">
+                        <span class="tier-name">STANDARD TIER</span>
+                        <strong class="tier-mult">1.00x ($100)</strong>
+                        <small class="tier-desc">Standard styling prices. Balanced profit and volume.</small>
+                    </button>
+                    <button type="button" class="barber-tier-btn cm-card" data-tier="high">
+                        <span class="tier-name">LUXURY TIER</span>
+                        <strong class="tier-mult">1.50x ($150)</strong>
+                        <small class="tier-desc">Premium salon styling. Maximum profit per customer.</small>
+                    </button>
+                </div>
+                <div class="barber-tier-actions">
+                    <button id="barberSaveSettingsBtn" type="button" class="cm-btn cm-btn-primary">SAVE PRICING SETTINGS</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ BARBER SHOP / HAIR SALON PUBLIC BUY PANEL ═══ -->
+    <div id="barber-buy-panel" class="barber-buy-panel hidden">
+        <div class="barber-buy-card">
+            <p class="barber-buy-kicker">COMMERCIAL PROPERTY PROFILE</p>
+            <h3 id="barberBuyName">Hair Salon</h3>
+            <p class="barber-buy-desc">Authorised hair salon operating within the Los Santos commercial network.</p>
+
+            <div class="barber-buy-grid">
+                <div class="barber-buy-row"><span>OPERATOR:</span><strong id="barberBuyOwnerName">City Commercial Property</strong></div>
+                <div class="barber-buy-row"><span>PRICING TIER:</span><strong id="barberBuyTier">STANDARD (1.00x)</strong></div>
+                <div class="barber-buy-row"><span>GROOMING SUPPLIES:</span><strong id="barberBuyStock">1,000 UNITS</strong></div>
+                <div class="barber-buy-row"><span>COMMERCIAL STATUS:</span><strong id="barberBuyStatus" class="accent-cyan">AVAILABLE FOR PURCHASE</strong></div>
+            </div>
+
+            <div class="barber-buy-note">Salon owners receive 80% of every customer styling fee and must maintain a 7-day rolling property tax.</div>
+
+            <div class="barber-buy-actions">
+                <button id="barberBuyConfirmBtn" type="button" class="barber-buy-btn barber-buy-btn--primary">BUY THIS SALON ($200,000 - BANK)</button>
+                <button id="barberBuyCloseBtn" type="button" class="barber-buy-btn barber-buy-btn--ghost">CLOSE</button>
             </div>
         </div>
     </div>

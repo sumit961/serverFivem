@@ -200,6 +200,8 @@ RegisterNetEvent('cm-vehicles:server:openSharedTrunkInventory', function(plate, 
         noWeightLimit = true,
         canDeposit = true,
         canWithdraw = true,
+        resource = 'cm-vehicles',
+        activityExport = 'RecordTrunkMovement',
         data = {
             plate = tostring(vehicle.plate or plate),
             vehicleId = tostring(vehicle.id),
@@ -245,6 +247,10 @@ local function occupantStillOnline(src)
     return src and src > 0 and GetPlayerName(src) ~= nil
 end
 
+-- Intentionally no HasAccess check here, unlike toggleTrunkDoor/
+-- openSharedTrunkInventory: an unlocked trunk is enterable by anyone (e.g.
+-- hiding in a getaway car's trunk), the same way an unlocked door lets
+-- anyone climb into the cabin. Locking the vehicle is the access control.
 RegisterNetEvent('cm-vehicles:server:requestEnterTrunk', function(plate, netId)
     local src = source
     plate = CMVehicles.Server.ResolvePlate(plate, netId)
@@ -339,4 +345,54 @@ AddEventHandler('playerDropped', function()
     for plate, occupant in pairs(CMVehicles.Server.TrunkOccupants) do
         if tonumber(occupant) == tonumber(src) then CMVehicles.Server.TrunkOccupants[plate] = nil end
     end
+end)
+
+exports('RecordTrunkMovement', function(src, ownerType, ownerId, movement, itemName, quantity)
+    local invoker = GetInvokingResource()
+    if invoker ~= 'cm-inventory' and invoker ~= GetCurrentResourceName() then return false end
+    if tostring(ownerType) ~= 'vehicle_trunk' then return false end
+    local vehicleId = tonumber(ownerId)
+    if not vehicleId then return false end
+
+    local charId = CMVehicles.Server.GetCharacterId(src)
+    if not charId then return false end
+
+    local row = CMVehicles.Server.GetVehicleById(vehicleId)
+    local plate = row and row.plate or ''
+
+    if GetResourceState('cm-family') == 'started' then
+        local familyId = nil
+        local m = exports['cm-family']:GetFamilyForCharacter(charId)
+        if m and m.id then
+            local decisionOk, allowed, _, context = pcall(function()
+                return exports['cm-family']:GetFamilyVehicleAccessDecision(tostring(charId), vehicleId, 'trunk')
+            end)
+            if decisionOk and allowed and context and context.familyId then
+                familyId = tonumber(context.familyId)
+            end
+        end
+
+        if not familyId and GetResourceState('cm-house') == 'started' then
+            pcall(function()
+                local assignment = exports['cm-house']:GetVehicleAssignment(vehicleId)
+                if assignment and assignment.family_id then
+                    familyId = tonumber(assignment.family_id)
+                end
+            end)
+        end
+
+        if familyId then
+            local action = movement == 'deposit' and 'trunk_deposit' or 'trunk_withdraw'
+            pcall(function()
+                exports['cm-family']:WriteFamilyActivity(familyId, charId, action, {
+                    vehicleId = vehicleId,
+                    plate = plate,
+                    item = tostring(itemName or ''),
+                    quantity = tonumber(quantity) or 1,
+                    direction = movement
+                })
+            end)
+        end
+    end
+    return true
 end)

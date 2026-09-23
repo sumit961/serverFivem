@@ -6,19 +6,30 @@ local busy = false
 local pendingOpen = false
 local currentVeh = 0
 local currentShop = nil
+local currentLiveryNative = false
 local original = nil
+local originalHeading = nil
 local sessionToken = nil
-local uiReady = false
 local uiRendered = false
 local interactionVisible = false
 local interactionSignature = nil
-local lastInteraction = nil
 local requestSerial = 0
 local cam = nil
 local camAngle = 0.0
-local camDist = 5.2
-local camHeight = 1.15
+local camDist = 5.5
+local camHeight = 2.0
+local camCollisionOffset = 0.0
+local camCollisionFreeDistance = nil
+local camCollisionSampleAt = nil
+local CAM_COLLISION_FLAGS = 511
+local CAM_COLLISION_PADDING = 0.22
+local CAM_COLLISION_SAMPLE_MS = 85
+local CAM_COLLISION_SWEEP = { 0.0, 30.0, -30.0, 60.0, -60.0, 90.0, -90.0, 135.0, -135.0, 180.0 }
+local isRotatingMouseDown = false
 local lockState = nil
+local pauseSuppressUntil = 0
+local chipUiHidden = false
+local CHIP_UI_REASON = 'cm-tuning:chip'
 
 local function notify(msg, kind)
     if GetResourceState('cm-hud') == 'started' then
@@ -210,10 +221,72 @@ local function buildSlot(vehicle, def)
     }
 end
 
+local function visualShopDefinitions(shop)
+    local defs = {}
+    for _, def in ipairs(Config.Visual or {}) do
+        if (shop ~= 'livery' or def.key == 'livery')
+            and (shop ~= 'workshop' or def.key ~= 'livery') then
+            defs[#defs + 1] = def
+        end
+    end
+    return defs
+end
+
+local function liveryOptions(vehicle)
+    SetVehicleModKit(vehicle, 0)
+    local modCount = tonumber(GetNumVehicleMods(vehicle, 48)) or 0
+    if modCount > 0 then return false, modCount end
+
+    local ok, nativeCount = pcall(GetVehicleLiveryCount, vehicle)
+    nativeCount = ok and tonumber(nativeCount) or 0
+    if nativeCount > 0 then return true, nativeCount end
+    return false, 0
+end
+
+local function buildLiverySlot(vehicle, native, count)
+    local def
+    for _, visualDef in ipairs(Config.Visual or {}) do
+        if visualDef.key == 'livery' then def = visualDef break end
+    end
+    if not def or count <= 0 then return nil end
+
+    local current = native and GetVehicleLivery(vehicle) or GetVehicleMod(vehicle, 48)
+    local options = { { index = -1, label = 'Stock', price = 0 } }
+    for index = 0, count - 1 do
+        local label
+        if not native then
+            local textLabel = GetModTextLabel(vehicle, 48, index)
+            label = textLabel and GetLabelText(textLabel) or nil
+            if label == '' or label == 'NULL' then label = nil end
+        end
+        options[#options + 1] = {
+            index = index,
+            label = label or ('Livery %d'):format(index + 1),
+            price = math.max(0, math.floor((tonumber(def.pricePerLevel) or 0) * (index + 1))),
+        }
+    end
+
+    return {
+        key = def.key,
+        label = def.label,
+        modType = def.modType,
+        nativeLivery = native == true,
+        current = current == nil and -1 or current,
+        options = options,
+        maxIndex = count - 1,
+    }
+end
+
 local function buildCaps(vehicle, shop)
     SetVehicleModKit(vehicle, 0)
     local caps = {}
-    local defs = shop == 'chip' and (Config.Performance or {}) or (Config.Visual or {})
+    if shop == 'livery' then
+        local native, count = liveryOptions(vehicle)
+        caps.livery = math.max(-1, count - 1)
+        caps.liveryNative = native == true
+        return caps
+    end
+    local defs = shop == 'chip' and (Config.Performance or {}) or visualShopDefinitions(shop)
     for _, def in ipairs(defs) do
         caps[def.key] = math.max(-1, (GetNumVehicleMods(vehicle, def.modType) or 0) - 1)
     end
@@ -237,6 +310,21 @@ local function buildCatalog(vehicle, shop)
         data.cameraPresets[#data.cameraPresets + 1] = { label = preset.label }
     end
 
+    local engineMod = tonumber(GetVehicleMod(vehicle, 11)) or -1
+    local brakesMod = tonumber(GetVehicleMod(vehicle, 12)) or -1
+    local engineMax = math.max(0, tonumber(GetNumVehicleMods(vehicle, 11)) or 0)
+    local brakesMax = math.max(0, tonumber(GetNumVehicleMods(vehicle, 12)) or 0)
+    data.performance = {
+        engineLevel = math.max(0, engineMod + 1), engineMax = engineMax,
+        brakesLevel = math.max(0, brakesMod + 1), brakesMax = brakesMax,
+    }
+    if GetResourceState('cm-vehicles') == 'started' then
+        data.speeds = {}
+        for level = 0, 4 do
+            local ok, speed = pcall(function() return exports['cm-vehicles']:EstimateTopSpeed(vehicle, level) end)
+            data.speeds[#data.speeds + 1] = ok and tonumber(speed) or 0
+        end
+    end
     if shop == 'chip' then
         for _, def in ipairs(Config.Performance or {}) do
             local slot = buildSlot(vehicle, def)
@@ -269,15 +357,6 @@ local function buildCatalog(vehicle, shop)
             end
             data.tyres = { label = tyres.label or 'Tyres', current = current, options = options }
         end
-
-        if GetResourceState('cm-vehicles') == 'started' then
-            data.speeds = {}
-            for level = 0, 4 do
-                local ok, speed = pcall(function() return exports['cm-vehicles']:EstimateTopSpeed(vehicle, level) end)
-                data.speeds[#data.speeds + 1] = ok and tonumber(speed) or 0
-            end
-        end
-
         if Config.Harness and Config.Harness.enabled ~= false then
             data.harness = {
                 label = Config.Harness.label or 'Racing Harness',
@@ -299,8 +378,12 @@ local function buildCatalog(vehicle, shop)
             end
             data.engine = { health = health, missing = missing, price = math.floor(price) }
         end
+    elseif shop == 'livery' then
+        local native, count = liveryOptions(vehicle)
+        local slot = buildLiverySlot(vehicle, native, count)
+        if slot then data.slots[#data.slots + 1] = slot end
     else
-        for _, def in ipairs(Config.Visual or {}) do
+        for _, def in ipairs(visualShopDefinitions(shop)) do
             local slot = buildSlot(vehicle, def)
             if slot then data.slots[#data.slots + 1] = slot end
         end
@@ -381,27 +464,95 @@ local function restoreOriginal()
     end
 end
 
+local function restoreVehicleHeading(vehicle)
+    vehicle = vehicle or currentVeh
+    if vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and originalHeading ~= nil then
+        SetEntityHeading(vehicle, originalHeading + 0.0)
+    end
+end
+
+local function camCandidate(coords, angle)
+    local radians = math.rad(GetEntityHeading(currentVeh) + angle)
+    return vector3(
+        coords.x + math.sin(radians) * camDist,
+        coords.y - math.cos(radians) * camDist,
+        coords.z + camHeight
+    )
+end
+
+local function camFreeDistance(focus, target)
+    local offset = target - focus
+    local wanted = #offset
+    if wanted <= 0.01 then return 0.01 end
+    local direction = offset * (1.0 / wanted)
+    local endpoint = focus + direction * (wanted + CAM_COLLISION_PADDING)
+    local handle = StartExpensiveSynchronousShapeTestLosProbe(
+        focus.x, focus.y, focus.z,
+        endpoint.x, endpoint.y, endpoint.z,
+        CAM_COLLISION_FLAGS, currentVeh, 7
+    )
+    local _, hit, hitPosition = GetShapeTestResult(handle)
+    if hit == 1 then
+        return math.max(0.08, #(hitPosition - focus) - CAM_COLLISION_PADDING)
+    end
+    return wanted
+end
+
 local function camPlace()
     if not cam or not DoesCamExist(cam) or currentVeh == 0 or not DoesEntityExist(currentVeh) then return end
     local coords = GetEntityCoords(currentVeh)
-    local heading = GetEntityHeading(currentVeh)
-    local radians = math.rad(heading + camAngle)
-    SetCamCoord(cam,
-        coords.x + math.sin(radians) * camDist,
-        coords.y - math.cos(radians) * camDist,
-        coords.z + camHeight)
-    PointCamAtCoord(cam, coords.x, coords.y, coords.z + 0.25)
-end
+    local focusZ = coords.z + 0.55
+    local dimensionsOk, minimum, maximum = pcall(GetModelDimensions, GetEntityModel(currentVeh))
+    if dimensionsOk and minimum and maximum then
+        focusZ = coords.z + math.max(0.45, (minimum.z + maximum.z) * 0.5)
+    end
+    local focus = vector3(coords.x, coords.y, focusZ)
+    local baseAngle = camAngle
+    local now = GetGameTimer()
 
+    if not camCollisionSampleAt or now - camCollisionSampleAt >= CAM_COLLISION_SAMPLE_MS then
+        camCollisionSampleAt = now
+        local direct = camFreeDistance(focus, camCandidate(coords, baseAngle))
+        local bestDistance, bestOffset = direct, 0.0
+        if direct < camDist * 0.94 then
+            for index = 2, #CAM_COLLISION_SWEEP do
+                local offset = CAM_COLLISION_SWEEP[index]
+                local distance = camFreeDistance(focus, camCandidate(coords, baseAngle + offset))
+                if distance > bestDistance + 0.04 then
+                    bestDistance, bestOffset = distance, offset
+                end
+                if distance >= camDist * 0.96 then
+                    bestDistance, bestOffset = distance, offset
+                    break
+                end
+            end
+        end
+        camCollisionOffset = bestOffset
+        camCollisionFreeDistance = bestDistance
+    end
+
+    local target = camCandidate(coords, baseAngle + camCollisionOffset)
+    local offset = target - focus
+    local wanted = #offset
+    local safeDistance = math.min(wanted, camCollisionFreeDistance or wanted)
+    local direction = wanted > 0.01 and offset * (1.0 / wanted) or vector3(0.0, -1.0, 0.0)
+    local position = focus + direction * safeDistance
+    SetCamCoord(cam, position.x, position.y, position.z)
+    PointCamAtCoord(cam, focus.x, focus.y, focus.z)
+end
 local function camStart()
     local cfg = Config.Camera or {}
     if cfg.enabled == false or currentVeh == 0 or not DoesEntityExist(currentVeh) then return end
-    camAngle = tonumber(cfg.startAngle) or 320.0
-    camDist = tonumber(cfg.distance) or 5.2
-    camHeight = tonumber(cfg.height) or 1.15
+    camAngle = tonumber(cfg.startAngle) or 220.0
+    camDist = tonumber(cfg.distance) or 5.5
+    camHeight = tonumber(cfg.height) or 2.0
+    camCollisionOffset = 0.0
+    camCollisionFreeDistance = nil
+    camCollisionSampleAt = nil
     cam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
     SetCamActive(cam, true)
     SetCamFov(cam, tonumber(cfg.fov) or 45.0)
+    SetCamNearClip(cam, 0.05)
     camPlace()
     RenderScriptCams(true, true, 450, true, true)
 end
@@ -410,39 +561,65 @@ local function camStop()
     RenderScriptCams(false, true, 350, true, true)
     if cam and DoesCamExist(cam) then DestroyCam(cam, true) end
     cam = nil
+    camCollisionOffset = 0.0
+    camCollisionFreeDistance = nil
+    camCollisionSampleAt = nil
 end
 
 local function hideInteraction()
-    if interactionVisible or lastInteraction then
-        interactionVisible = false
-        interactionSignature = nil
-        lastInteraction = nil
-        if uiReady then SendNUIMessage({ action = 'interaction', show = false }) end
+    if not interactionVisible then return end
+    interactionVisible = false
+    interactionSignature = nil
+    if GetResourceState('cm-ui') == 'started' then
+        pcall(function() exports['cm-ui']:HideInteract() end)
     end
 end
 
 local function showInteraction(shop)
     local def = Config.Shops and Config.Shops[shop]
-    if not def then return end
-    local data = {
-        action = 'interaction',
-        show = true,
-        key = 'E',
-        title = Config.Interaction and Config.Interaction.title or 'CM MOTORWORKS',
-        label = def.label or 'Tuning',
-        hint = Config.Interaction and Config.Interaction.hint or 'Vehicle is secured while customising',
-    }
-    local signature = tostring(shop) .. '|' .. tostring(data.label)
-    lastInteraction = data
-    if not interactionVisible or interactionSignature ~= signature then SendNUIMessage(data) end
+    if not def or GetResourceState('cm-ui') ~= 'started' then return end
+    local signature = tostring(shop) .. '|' .. tostring(def.label or 'Tuning')
+    if interactionVisible and interactionSignature == signature then return end
+    local ok = pcall(function()
+        exports['cm-ui']:ShowInteract({
+            key = 'E',
+            label = 'TUNE VEHICLE',
+            name = (Config.Interaction and Config.Interaction.title) or 'CM MOTORWORKS',
+            role = def.label or 'Tuning',
+            priority = 25,
+        })
+    end)
+    interactionVisible = ok
     interactionSignature = signature
-    interactionVisible = true
 end
 
+local function hideChipSupportUi()
+    if currentShop ~= 'chip' or chipUiHidden then return end
+    chipUiHidden = true
+    if GetResourceState('cm-hud') == 'started' then
+        TriggerEvent('cm-hud:client:hideForUi', CHIP_UI_REASON)
+    end
+    if GetResourceState('cm-chat') == 'started' then
+        TriggerEvent('cm-chat:client:hideForUi', CHIP_UI_REASON)
+    end
+end
+
+local function restoreChipSupportUi()
+    if not chipUiHidden then return end
+    chipUiHidden = false
+    if GetResourceState('cm-hud') == 'started' then
+        TriggerEvent('cm-hud:client:showAfterUi', CHIP_UI_REASON)
+    end
+    if GetResourceState('cm-chat') == 'started' then
+        TriggerEvent('cm-chat:client:showAfterUi', CHIP_UI_REASON)
+    end
+end
 local function clearState()
     currentVeh = 0
     currentShop = nil
+    currentLiveryNative = false
     original = nil
+    originalHeading = nil
     sessionToken = nil
     pendingOpen = false
     busy = false
@@ -452,12 +629,16 @@ end
 local function closeMenu(restore, release, tellServer)
     local vehicle = currentVeh
     local token = sessionToken
+    isRotatingMouseDown = false
     if restore then restoreOriginal() end
+    restoreVehicleHeading(vehicle)
+    if menuOpen then pauseSuppressUntil = GetGameTimer() + 350 end
     menuOpen = false
     pendingOpen = false
     camStop()
     SetNuiFocus(false, false)
     pcall(function() SetNuiFocusKeepInput(false) end)
+    restoreChipSupportUi()
     SendNUIMessage({ action = 'close' })
     if tellServer and token then TriggerServerEvent('cm-tuning:server:cancelSession', token) end
     if release ~= false then releaseVehicle(vehicle) end
@@ -474,8 +655,20 @@ local function openShop(shop)
         return
     end
 
+    if shop == 'livery' then
+        local native, count = liveryOptions(vehicle)
+        if count <= 0 then
+            notify('No livery is available for this vehicle.', 'error')
+            return
+        end
+        currentLiveryNative = native == true
+    else
+        currentLiveryNative = false
+    end
+
     currentVeh = vehicle
     currentShop = shop
+    originalHeading = GetEntityHeading(vehicle)
     pendingOpen = true
     hideInteraction()
     secureVehicle(vehicle)
@@ -495,12 +688,6 @@ local function openShop(shop)
         end
     end)
 end
-
-RegisterNUICallback('uiReady', function(_, cb)
-    uiReady = true
-    if lastInteraction then SendNUIMessage(lastInteraction) end
-    cb({ ok = true })
-end)
 
 RegisterNUICallback('uiRendered', function(_, cb)
     uiRendered = true
@@ -526,6 +713,15 @@ RegisterNUICallback('preview', function(data, cb)
             SetVehicleMod(vehicle, math.floor(modType), math.floor(index), false)
             if modType == 11 and GetResourceState('cm-vehicles') == 'started' then
                 pcall(function() exports['cm-vehicles']:ApplyPerformance(vehicle, {}) end)
+            end
+        end
+    elseif kind == 'livery' then
+        local index = tonumber(data.value)
+        if index then
+            if currentLiveryNative then
+                SetVehicleLivery(vehicle, math.floor(index))
+            else
+                SetVehicleMod(vehicle, 48, math.floor(index), false)
             end
         end
     elseif kind == 'toggle' then
@@ -623,10 +819,41 @@ RegisterNUICallback('camPreset', function(data, cb)
     local preset = presets[tonumber(data and data.index) or 1]
     if preset then
         camAngle = tonumber(preset.angle) or camAngle
-        camDist = tonumber(preset.distance) or tonumber(Config.Camera.distance) or 5.2
-        camHeight = tonumber(preset.height) or tonumber(Config.Camera.height) or 1.15
+        camDist = tonumber(preset.distance) or tonumber(Config.Camera.distance) or 5.5
+        camHeight = tonumber(preset.height) or tonumber(Config.Camera.height) or 2.0
+        camCollisionOffset = 0.0
+        camCollisionFreeDistance = nil
+        camCollisionSampleAt = nil
         camPlace()
     end
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('mousedown', function(_, cb)
+    if menuOpen and cam and DoesCamExist(cam) and not busy and currentVeh ~= 0 and DoesEntityExist(currentVeh) and not isRotatingMouseDown then
+        isRotatingMouseDown = true
+        local currentEntityHeading = GetEntityHeading(currentVeh)
+        local lastX = select(1, GetNuiCursorPosition())
+        CreateThread(function()
+            while isRotatingMouseDown and menuOpen and not busy and currentVeh ~= 0 and DoesEntityExist(currentVeh) do
+                local currentX = select(1, GetNuiCursorPosition())
+                local diff = (currentX - lastX) * (tonumber(Config.Camera and Config.Camera.dragSpeed) or 0.3)
+                if diff ~= 0.0 then
+                    currentEntityHeading = currentEntityHeading + diff
+                    camAngle = (camAngle - diff) % 360.0
+                    SetEntityHeading(currentVeh, currentEntityHeading + 0.0)
+                    camPlace()
+                    lastX = currentX
+                end
+                Wait(5)
+            end
+        end)
+    end
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('mouseup', function(_, cb)
+    isRotatingMouseDown = false
     cb({ ok = true })
 end)
 
@@ -647,11 +874,11 @@ RegisterNetEvent('cm-tuning:client:open', function(payload)
     uiRendered = false
 
     local catalog = buildCatalog(currentVeh, currentShop)
-    catalog.balances = type(payload.balances) == 'table' and payload.balances or { cash = 0, bank = 0 }
-    catalog.defaultAccount = Config.defaultAccount or 'cash'
-    catalog.allowCash = Config.allowCash ~= false
-    catalog.allowBank = Config.allowBank ~= false
+    catalog.balances = type(payload.balances) == 'table' and payload.balances or { cash = 0 }
+    catalog.defaultAccount = 'cash'
+    catalog.allowCash = true
 
+    if currentShop == 'chip' then hideChipSupportUi() end
     SetNuiFocus(true, true)
     pcall(function() SetNuiFocusKeepInput(true) end)
     camStart()
@@ -726,7 +953,9 @@ RegisterNetEvent('cm-tuning:client:engineApproved', function(payload)
         return
     end
 
+    isRotatingMouseDown = false
     restoreOriginal()
+    restoreVehicleHeading(vehicle)
     menuOpen = false
     camStop()
     SetNuiFocus(false, false)
@@ -769,6 +998,7 @@ RegisterNetEvent('cm-tuning:client:engineApproved', function(payload)
 
     releaseVehicle(vehicle)
     local price = math.floor(tonumber(payload.price) or 0)
+    restoreChipSupportUi()
     clearState()
     notify(('Engine rebuilt. Paid $%d.'):format(price), 'success')
 end)
@@ -803,8 +1033,14 @@ end)
 
 CreateThread(function()
     while true do
-        Wait(0)
-        if (menuOpen or pendingOpen or busy) and currentVeh ~= 0 and DoesEntityExist(currentVeh) and lockState then
+        local active = menuOpen or pendingOpen or busy
+        local suppressPause = active or GetGameTimer() < pauseSuppressUntil
+        if suppressPause then
+            DisableControlAction(0, 199, true)
+            DisableControlAction(0, 200, true)
+        end
+
+        if active and currentVeh ~= 0 and DoesEntityExist(currentVeh) and lockState then
             SetVehicleForwardSpeed(currentVeh, 0.0)
             SetEntityVelocity(currentVeh, 0.0, 0.0, 0.0)
             SetVehicleHandbrake(currentVeh, true)
@@ -816,12 +1052,11 @@ CreateThread(function()
             DisableControlAction(0, 63, true)
             DisableControlAction(0, 64, true)
             DisableControlAction(0, 75, Config.VehicleLock and Config.VehicleLock.disableExit ~= false)
-        else
-            Wait(200)
         end
+
+        if suppressPause then Wait(0) else Wait(200) end
     end
 end)
-
 CreateThread(function()
     while true do
         Wait(0)
@@ -835,7 +1070,7 @@ CreateThread(function()
                 camAngle = (camAngle + speed) % 360.0
                 moved = true
             end
-            if moved then camPlace() end
+            camPlace()
         else
             Wait(200)
         end
@@ -919,9 +1154,12 @@ end)
 AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end
     hideInteraction()
+    isRotatingMouseDown = false
     if menuOpen or pendingOpen then restoreOriginal() end
+    restoreVehicleHeading(currentVeh)
     camStop()
     SetNuiFocus(false, false)
     pcall(function() SetNuiFocusKeepInput(false) end)
+    restoreChipSupportUi()
     releaseVehicle(currentVeh)
 end)

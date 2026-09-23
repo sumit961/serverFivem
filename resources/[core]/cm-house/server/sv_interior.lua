@@ -250,7 +250,7 @@ end)
 --  cm-house owns authorization; cm-inventory remains the item authority.
 -- ------------------------------------------------------------
 RegisterNetEvent('cm-house:server:openWardrobe', function(houseId, index)
-    TriggerClientEvent('cm-house:client:openWeaponStorageRequested', source, tonumber(houseId), tonumber(index))
+    TriggerClientEvent('cm-house:client:openWardrobe', source, tonumber(houseId), tonumber(index))
 end)
 
 RegisterNetEvent('cm-house:server:openStash', function(houseId, index)

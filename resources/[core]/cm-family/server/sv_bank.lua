@@ -13,9 +13,23 @@ end
 
 -- Track per-character withdrawals for the current day.
 local function withdrawnToday(cid)
+    local curDay = today()
     local rec = WithdrawnToday[cid]
-    if not rec or rec.day ~= today() then
-        rec = { day = today(), amount = 0 }
+    if not rec or rec.day ~= curDay then
+        local sum = 0
+        local ok, res = pcall(function()
+            return MySQL.scalar.await([[
+                SELECT COALESCE(SUM(amount), 0)
+                FROM cm_family_bank_log
+                WHERE character_id = ?
+                  AND direction = 'withdraw'
+                  AND created_at >= CURDATE()
+            ]], { tostring(cid) })
+        end)
+        if ok and res ~= nil then
+            sum = math.max(0, math.floor(tonumber(res) or 0))
+        end
+        rec = { day = curDay, amount = sum }
         WithdrawnToday[cid] = rec
     end
     return rec

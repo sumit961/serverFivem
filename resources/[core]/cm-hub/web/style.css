@@ -105,11 +105,12 @@ body::before {
 .menu-wrapper {
   position: relative;
   z-index: 10;
-  width: 1200px;
-  max-width: 95vw;
+  width: 100vw;
+  height: 100vh;
+  padding: clamp(36px, 5vh, 72px) clamp(40px, 6vw, 96px) clamp(28px, 4vh, 56px);
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: clamp(20px, 2.6vh, 32px);
   animation: menuFadeIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }
 
@@ -119,12 +120,17 @@ body::before {
 }
 
 /* --- THE BENTO GRID (CENTER FOCUS) --- */
+/* Fills the available screen space edge to edge; card content (icons,
+   type, padding) scales up with clamp()/vw so bigger cards don't read
+   as empty. */
 .bento-grid {
   display: grid;
-  grid-template-columns: 120px repeat(4, 1fr);
-  grid-template-rows: repeat(3, 160px);
-  gap: 16px;
+  grid-template-columns: clamp(130px, 10vw, 190px) repeat(4, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: clamp(14px, 1.6vw, 22px);
   position: relative;
+  flex: 1;
+  min-height: 0;
 }
 
 /* Grid Area Mappings */
@@ -144,7 +150,7 @@ body::before {
   background: var(--bg-card);
   border-radius: var(--radius);
   border: 1px solid var(--border-dark);
-  padding: 20px;
+  padding: clamp(18px, 2vw, 28px);
   position: relative;
   overflow: hidden;
   cursor: pointer;
@@ -183,7 +189,7 @@ body::before {
 
 /* Card Content Typography */
 .card-title {
-  font-size: 14px;
+  font-size: clamp(15px, 1.15vw, 19px);
   font-weight: 900;
   color: var(--text-main);
   letter-spacing: 0.5px;
@@ -191,7 +197,7 @@ body::before {
 }
 
 .card-sub {
-  font-size: 10px;
+  font-size: clamp(10px, 0.78vw, 12px);
   font-weight: 700;
   color: var(--text-muted);
   letter-spacing: 1px;
@@ -200,7 +206,7 @@ body::before {
 }
 
 .card-val {
-  font-size: 18px;
+  font-size: clamp(18px, 1.5vw, 23px);
   font-weight: 900;
   color: var(--yellow);
   margin-top: auto;
@@ -240,19 +246,19 @@ body::before {
   justify-content: center;
   padding: 20px;
   text-align: center;
-  gap: 16px;
+  gap: 20px;
   box-shadow: 0 0 20px rgba(0, 229, 255, 0.2);
 }
 
 .ribbon-icon {
-  width: 32px;
-  height: 32px;
+  width: 42px;
+  height: 42px;
   fill: var(--cyan);
   filter: drop-shadow(0 0 10px var(--cyan));
 }
 
 .ribbon-title {
-  font-size: 16px;
+  font-size: 19px;
   font-weight: 900;
   color: var(--text-main);
   line-height: 1.2;
@@ -261,16 +267,16 @@ body::before {
 
 .ribbon-stars {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   color: var(--yellow);
-  font-size: 14px;
+  font-size: 17px;
 }
 
 /* Events Card */
 .b-events .bg-asset {
-  width: 100px;
-  height: 100px;
-  right: 20px;
+  width: 130px;
+  height: 130px;
+  right: 24px;
   top: 50%;
   transform: translateY(-50%);
   fill: var(--cyan);
@@ -281,8 +287,8 @@ body::before {
 
 /* Job Center (Tall) */
 .b-jobcenter .bg-asset {
-  width: 140px;
-  height: 140px;
+  width: 180px;
+  height: 180px;
   right: -20px;
   top: 50%;
   transform: translateY(-50%);
@@ -302,8 +308,8 @@ body::before {
 
 /* Sales Tag */
 .tag-asset {
-  width: 80px;
-  height: 80px;
+  width: 105px;
+  height: 105px;
   position: absolute;
   right: 10px;
   top: 10px;
@@ -318,15 +324,15 @@ body::before {
 
 /* Positioning for specific SVGs */
 .b-premium .bg-asset {
-  width: 100px;
-  height: 100px;
-  right: 10px;
+  width: 130px;
+  height: 130px;
+  right: 14px;
   fill: var(--yellow);
 }
 
 .b-org .bg-asset {
-  width: 100px;
-  height: 100px;
+  width: 130px;
+  height: 130px;
   right: -20px;
   top: -10px;
   fill: var(--text-main);
@@ -334,24 +340,24 @@ body::before {
 }
 
 .b-business .bg-asset {
-  width: 100px;
-  height: 100px;
+  width: 130px;
+  height: 130px;
   right: -20px;
   bottom: -20px;
   fill: var(--orange);
 }
 
 .b-achieve .bg-asset {
-  width: 70px;
-  height: 70px;
+  width: 95px;
+  height: 95px;
   left: -10px;
   bottom: 20px;
   fill: var(--yellow);
 }
 
 .b-family .bg-asset {
-  width: 110px;
-  height: 110px;
+  width: 145px;
+  height: 145px;
   right: -10px;
   top: -20px;
   fill: var(--text-main);
@@ -359,8 +365,8 @@ body::before {
 }
 
 .b-inventory .bg-asset {
-  width: 100px;
-  height: 100px;
+  width: 130px;
+  height: 130px;
   right: -20px;
   bottom: -10px;
   fill: rgba(255, 255, 255, 0.7);
@@ -369,44 +375,41 @@ body::before {
 /* --- STATISTICS OVERLAY MODAL --- */
 /* --- FULL TACTICAL CHARACTER STATISTICS DASHBOARD --- */
 .stats-modal {
-  position: absolute;
   position: fixed;
   inset: 0;
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 35;
-  background: rgba(11, 23, 30, 0.85);
-  border-radius: var(--radius);
-  animation: modalFadeIn 0.25s ease-out forwards;
   z-index: 50;
-  background: radial-gradient(circle at 50% 25%, rgba(28, 16, 44, 0.92) 0%, rgba(10, 18, 28, 0.98) 65%, rgba(5, 9, 15, 0.99) 100%);
+  background: radial-gradient(circle at 50% 0%, rgba(20, 39, 51, 1) 0%, var(--bg-main-start) 40%, var(--bg-main-end) 100%);
   animation: modalFadeIn 0.3s ease-out forwards;
 }
 
 @keyframes modalFadeIn {
   from { opacity: 0; transform: scale(0.97); }
   to { opacity: 1; transform: scale(1); }
+}
+
 .stats-dash-container {
   width: 1220px;
   max-width: 96vw;
-  height: 660px;
-  max-height: 94vh;
+  max-height: 92vh;
   display: flex;
   flex-direction: column;
   gap: 14px;
   position: relative;
+  overflow-y: auto;
   animation: menuFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.stats-modal-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-dark);
-  border-top: 3px solid var(--cyan);
-  border-radius: var(--radius);
-  padding: 32px 48px;
-  width: 580px;
-  max-width: 90%;
+.stats-dash-container::-webkit-scrollbar {
+  width: 4px;
+}
+.stats-dash-container::-webkit-scrollbar-thumb {
+  background: var(--border-dark);
+  border-radius: 2px;
+}
+
 /* Header */
 .stats-dash-header {
   display: flex;
@@ -419,12 +422,18 @@ body::before {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 24px;
-  box-shadow: 0 25px 50px rgba(0,0,0,0.8), inset 0 0 30px rgba(0, 229, 255, 0.05);
   gap: 3px;
 }
 
 .stats-modal-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  margin-bottom: 4px;
+}
+
 .stats-account-title-row {
   display: flex;
   flex-direction: column;
@@ -436,6 +445,14 @@ body::before {
   background: rgba(0, 229, 255, 0.15);
   border: 1px solid rgba(0, 229, 255, 0.3);
   color: var(--cyan);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  padding: 4px 14px;
+  border-radius: 20px;
+  text-transform: uppercase;
+}
+
 .stats-acc-lbl {
   font-size: 16px;
   font-weight: 900;
@@ -506,6 +523,12 @@ body::before {
 
 .stats-name {
   font-size: 26px;
+  font-weight: 900;
+  color: var(--text-main);
+  letter-spacing: 1px;
+  margin: 4px 0;
+}
+
 .stats-vip-tag {
   display: flex;
   align-items: center;
@@ -513,8 +536,6 @@ body::before {
   margin-left: 24px;
   font-size: 10px;
   font-weight: 800;
-  color: var(--text-main);
-  letter-spacing: 1.5px;
   color: #71899c;
   letter-spacing: 1px;
 }
@@ -523,6 +544,8 @@ body::before {
   font-size: 13px;
   color: var(--text-muted);
   font-weight: 600;
+}
+
 .vip-star-icon {
   width: 14px;
   height: 14px;
@@ -569,6 +592,11 @@ body::before {
 }
 
 .stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
 .stats-esc-close-btn:hover {
   color: #00E5FF;
 }
@@ -587,11 +615,9 @@ body::before {
 /* 4-Columns Grid */
 .stats-dash-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-  width: 100%;
   grid-template-columns: 210px 380px 250px 280px;
   gap: 18px;
+  width: 100%;
   flex: 1;
   min-height: 0;
 }
@@ -599,6 +625,13 @@ body::before {
 .stats-tile {
   background: rgba(11, 23, 30, 0.7);
   border: 1px solid var(--border-dark);
+  border-radius: 6px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 /* Column 1: Vitals & Legal Strip */
 .stats-col-vitals {
   display: flex;
@@ -674,7 +707,6 @@ body::before {
   background: rgba(18, 36, 47, 0.7);
   border: 1px solid #213B4A;
   border-radius: 6px;
-  padding: 14px 18px;
   padding: 10px 14px;
   display: flex;
   flex-direction: column;
@@ -690,6 +722,8 @@ body::before {
   color: var(--text-muted);
   font-family: 'Montserrat', sans-serif;
   text-transform: uppercase;
+}
+
 .mini-card-top {
   display: flex;
   justify-content: space-between;
@@ -698,12 +732,20 @@ body::before {
 
 .stats-val {
   font-size: 18px;
+  font-weight: 900;
+  font-family: 'Montserrat', sans-serif;
+  color: var(--text-main);
+}
+
+.stats-val.green { color: var(--green); }
+.stats-val.cyan { color: var(--cyan); }
+.stats-val.yellow { color: var(--yellow); }
+
 .mini-card-title {
   font-size: 8.5px;
   font-weight: 800;
-  color: var(--text-main);
-  font-family: 'Montserrat', sans-serif;
   color: #627d92;
+  font-family: 'Montserrat', sans-serif;
   letter-spacing: 1px;
 }
 
@@ -712,6 +754,17 @@ body::before {
   border: 1px solid var(--cyan);
   color: var(--cyan);
   font-family: 'Montserrat', sans-serif;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  padding: 12px 32px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: center;
+  margin-top: 16px;
+  transition: all 0.2s;
+}
+
 .mini-card-top svg {
   width: 14px;
   height: 14px;
@@ -720,7 +773,6 @@ body::before {
 
 .mini-card-status {
   font-size: 11px;
-  font-weight: 800;
   font-weight: 900;
   color: #cfdbe3;
   letter-spacing: 0.8px;
@@ -729,7 +781,7 @@ body::before {
 /* Skills Hero Card */
 .stats-skills-hero {
   flex: 1;
-  background: radial-gradient(circle at 75% 50%, rgba(20, 48, 56, 0.8) 0%, rgba(18, 30, 45, 0.95) 50%, rgba(35, 18, 36, 0.85) 100%);
+  background: radial-gradient(circle at 75% 50%, rgba(20, 48, 56, 0.8) 0%, rgba(18, 30, 45, 0.95) 50%, rgba(11, 23, 30, 0.9) 100%);
   border: 1px solid #213B4A;
   border-radius: 8px;
   padding: 24px 26px;
@@ -769,18 +821,20 @@ body::before {
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 1.5px;
-  padding: 12px 28px;
   padding: 6px 18px;
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s;
-  margin-top: 8px;
   margin-top: 16px;
   display: inline-block;
 }
 
 .stats-close-btn:hover {
   background: var(--cyan);
+  color: #0B171E;
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.6);
+}
+
 .skills-action-btn:hover {
   background: #00E5FF;
   color: #0B171E;
@@ -1154,11 +1208,11 @@ body::before {
   background: var(--bg-card);
   border: 1px solid var(--border-dark);
   border-radius: 4px;
-  padding: 16px;
+  padding: clamp(14px, 1.6vh, 20px);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -1172,14 +1226,14 @@ body::before {
 }
 
 .action-pill svg {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   fill: currentColor;
 }
 
 .action-pill span {
   font-family: 'Montserrat', sans-serif;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -1193,14 +1247,13 @@ body::before {
 
 /* --- JOB CENTER MODAL --- */
 .job-modal {
-  position: absolute;
+  position: fixed;
   inset: 0;
   display: flex;
   justify-content: center;
   align-items: center;
   z-index: 36;
-  background: rgba(11, 23, 30, 0.9);
-  border-radius: var(--radius);
+  background: radial-gradient(circle at 50% 0%, rgba(20, 39, 51, 1) 0%, var(--bg-main-start) 40%, var(--bg-main-end) 100%);
   animation: modalFadeIn 0.25s ease-out forwards;
 }
 

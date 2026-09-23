@@ -179,6 +179,7 @@ function isLocked() { return vehicle?.locked === true || vehicle?.locked === 1; 
 function inVehicle() { return ctx().inVehicle === true; }
 function isDriver() { return ctx().isDriver === true; }
 function plateText() { return vehicle?.plate || ctx().plate || 'NO PLATE'; }
+function licensePlateText() { return vehicle?.licenseNumber || 'NO PLATE'; }
 function vehicleNetId() { return vehicle?.netId || ctx().netId; }
 
 function actionVisible(action) {
@@ -442,11 +443,11 @@ function openMenu(data) {
     menuNotice.classList.toggle('permanent', vehicle.permanentlyRemoved === true);
   }
   setText('infoOwnerName', vehicle.ownerName || vehicle.owner_name || vehicle.ownerCharacterId || 'Unknown');
-  setText('infoPlate', plateText());
+  setText('infoPlate', licensePlateText());
 
   // Populate vehicle header card in G menu
   setText('mvhName', (vehicle.label || vehicle.model || 'Vehicle').toUpperCase());
-  setText('mvhPlate', plateText());
+  setText('mvhPlate', licensePlateText());
   const lockEl = $('mvhLock');
   if (lockEl) {
     const locked = isLocked();
@@ -477,7 +478,9 @@ function openMenu(data) {
   setText('infoFamilyName', vehicle.familyName
     ? `${vehicle.familyTag ? '[' + vehicle.familyTag + '] ' : ''}${vehicle.familyName}`
     : 'Not shared');
-  setText('infoInsuranceDays', `${insuranceDays} Day${insuranceDays === 1 ? '' : 's'}`);
+  // insuranceDays is set once at purchase and nothing ever decrements it --
+  // showing it as "N Days" implies a live countdown that doesn't exist.
+  setText('infoInsuranceDays', insuranceDays > 0 ? 'Insured' : 'Not Insured');
   setText('infoStateValue', formatMoney(stateValue));
   setText('infoSellValue', formatMoney(sellValue));
   const bodyPct = Math.max(0, Math.min(100, Math.round(body / 10)));

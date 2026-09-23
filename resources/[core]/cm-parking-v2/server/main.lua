@@ -1,4 +1,19 @@
 local locks={}
+local vehicleLocks={}
+local houseTransfers={}
+local transferSequence=0
+local function lockVehicle(vehicleId, token)
+ vehicleId=tonumber(vehicleId)
+ if not vehicleId or vehicleLocks[vehicleId] then return nil end
+ transferSequence=transferSequence+1
+ token=token or ('parking:%d:%d:%d'):format(vehicleId,GetGameTimer(),transferSequence)
+ vehicleLocks[vehicleId]=token
+ return token
+end
+local function unlockVehicle(vehicleId, token)
+ vehicleId=tonumber(vehicleId)
+ if vehicleId and token and vehicleLocks[vehicleId]==token then vehicleLocks[vehicleId]=nil end
+end
 local function withLock(src)
  if locks[src] then return false end
  locks[src]=GetGameTimer()+15000
@@ -8,9 +23,14 @@ local function unlock(src) locks[src]=nil end
 local function releaseExpired()
  local rows=MySQL.query.await('SELECT id,vehicle_id FROM cm_parking_spaces WHERE expires_at IS NOT NULL AND expires_at <= NOW()') or {}
  for _,row in ipairs(rows) do
-  if row.vehicle_id then pcall(exports['cm-vehicles'].DeleteSpawnedVehicle,tonumber(row.vehicle_id)) end
-  MySQL.update.await('DELETE FROM cm_parking_spaces WHERE id=? AND expires_at IS NOT NULL AND expires_at <= NOW()',{row.id})
-  if row.vehicle_id then pcall(exports['cm-vehicles'].TransitionVehicleLocation,tonumber(row.vehicle_id),'OUTSIDE',{reason='public_parking_expired'}) end
+  local vehicleId=tonumber(row.vehicle_id)
+  local token=vehicleId and lockVehicle(vehicleId) or nil
+  if not vehicleId or token then
+   if vehicleId then pcall(exports['cm-vehicles'].DeleteSpawnedVehicle,vehicleId) end
+   MySQL.update.await('DELETE FROM cm_parking_spaces WHERE id=? AND expires_at IS NOT NULL AND expires_at <= NOW()',{row.id})
+   if vehicleId then pcall(exports['cm-vehicles'].TransitionVehicleLocation,vehicleId,'OUTSIDE',{reason='public_parking_expired'}) end
+   if token then unlockVehicle(vehicleId,token) end
+  end
  end
 end
 local function cid(src) return exports['cm-playerdata']:GetCharacterId(src) end
@@ -277,9 +297,16 @@ local function cancelParking(s,pid,idx)
   unlock(s)
   return
  end
+ local vehicleId=tonumber(space.vehicle_id)
+ local vehicleLock=vehicleId and lockVehicle(vehicleId) or nil
+ if vehicleId and not vehicleLock then
+  notify(s,'This vehicle is being moved to a house garage. Try again shortly.')
+  unlock(s)
+  return
+ end
  if space.vehicle_id then
-  TriggerClientEvent('cm-parking-v2:removeVehicle',s,tonumber(space.vehicle_id),space.plate)
-  pcall(function() return exports['cm-vehicles']:DeleteSpawnedVehicle(tonumber(space.vehicle_id)) end)
+  TriggerClientEvent('cm-parking-v2:removeVehicle',s,vehicleId,space.plate)
+  pcall(function() return exports['cm-vehicles']:DeleteSpawnedVehicle(vehicleId) end)
   if space.plate then
    pcall(function() return exports['cm-vehicles']:DeleteSpawnedVehicle(space.plate) end)
   end
@@ -288,7 +315,7 @@ local function cancelParking(s,pid,idx)
  if n and tonumber(n)>0 then
   if space.vehicle_id then
    pcall(function()
-    return exports['cm-vehicles']:TransitionVehicleLocation(tonumber(space.vehicle_id),'OUTSIDE',{reason='public_parking_cancelled',actorCharacterId=c})
+    return exports['cm-vehicles']:TransitionVehicleLocation(vehicleId,'OUTSIDE',{reason='public_parking_cancelled',actorCharacterId=c})
    end)
   end
   local refund=tonumber(space.price_paid) or Config.Price
@@ -301,13 +328,63 @@ local function cancelParking(s,pid,idx)
  else
   notify(s,'Parking could not be cancelled due to a database error. Please try again.')
  end
+ if vehicleLock then unlockVehicle(vehicleId,vehicleLock) end
  unlock(s)
 end
 
 RegisterNetEvent('cm-parking-v2:cancel',function(pid,idx) cancelParking(source,pid,idx) end)
-RegisterNetEvent('cm-parking-v2:store',function(pid,idx,vehicleId,netId) local s=source; local c=cid(s); local g=garage(pid); idx=tonumber(idx); if not c or not g or not g.spots[idx] or not near(s,g.spots[idx],Config.VehicleDistance) then return end; local own=MySQL.single.await('SELECT id FROM cm_parking_spaces WHERE character_id=? AND parking_id=? AND spot_index=?',{tostring(c),g.id,idx}); if not own then notify(s,'You do not own this parking space.') return end; local ok,reason=exports['cm-vehicles']:StoreVehicle(s,tonumber(vehicleId),g.id,{netId=tonumber(netId),slot=idx,reason='public_parking'}); if ok then notify(s,'Vehicle parked.') else notify(s,tostring(reason or 'Vehicle could not be parked.')) end end)
-RegisterNetEvent('cm-parking-v2:call',function(pid,idx,vehicleId) local s=source; local c=cid(s); local g=garage(pid); idx=tonumber(idx); vehicleId=tonumber(vehicleId); if not c or not g or not g.spots[idx] then return end; if not nearParkingInteraction(s,g,idx) then notify(s,'Move closer to the parking attendant or selected parking space.'); return end; local own=MySQL.single.await('SELECT id,vehicle_id,parking_id,spot_index FROM cm_parking_spaces WHERE character_id=? AND parking_id=? AND spot_index=? LIMIT 1',{tostring(c),g.id,idx}); if not own then notify(s,'You do not own this parking space.'); return end; vehicleId=vehicleId or tonumber(own.vehicle_id); if tonumber(own.vehicle_id) ~= vehicleId then notify(s,'This parking space can only recall its assigned vehicle.') return end; local row=MySQL.single.await('SELECT model,plate,is_stored FROM cm_owned_vehicles WHERE id=? AND owner_character_id=? LIMIT 1',{vehicleId,tostring(c)}); if not row or not allowedModel(row.model) then notify(s,'Boats and aircraft cannot use public parking.') return end; if tonumber(row.is_stored) ~= 1 then local removed=exports['cm-vehicles']:DeleteSpawnedVehicle(row.plate); if removed==false then notify(s,'The existing vehicle could not be removed.') return end end; local spot=g.spots[idx]; local ok,reason=exports['cm-vehicles']:SpawnVehicleFromParking(s,vehicleId,g.id,{x=spot.x,y=spot.y,z=spot.z,w=spot.w},{warp=false,engineOn=false}); if not ok then notify(s,tostring(reason or 'Vehicle could not be called.')) else notify(s,'Vehicle called to your parking space.'); TriggerClientEvent('cm-parking-v2:trackVehicle',s,row.plate,{x=spot.x,y=spot.y,z=spot.z}) end end)
-AddEventHandler('playerDropped',function() local s=source; locks[s]=nil; local c=cid(s); if c then local row=MySQL.single.await('SELECT vehicle_id FROM cm_parking_spaces WHERE character_id=? LIMIT 1',{tostring(c)}); if row and row.vehicle_id then pcall(exports['cm-vehicles'].DeleteSpawnedVehicle,tonumber(row.vehicle_id)) end end end)
+RegisterNetEvent('cm-parking-v2:store',function(pid,idx,vehicleId,netId)
+ local s=source; local c=cid(s); local g=garage(pid); idx=tonumber(idx); vehicleId=tonumber(vehicleId)
+ if not c or not g or not g.spots[idx] or not vehicleId or not near(s,g.spots[idx],Config.VehicleDistance) then return end
+ local own=MySQL.single.await('SELECT id FROM cm_parking_spaces WHERE character_id=? AND parking_id=? AND spot_index=?',{tostring(c),g.id,idx})
+ if not own then notify(s,'You do not own this parking space.') return end
+ local token=lockVehicle(vehicleId)
+ if not token then notify(s,'This vehicle is being moved to a house garage. Try again shortly.') return end
+ local ok,reason=exports['cm-vehicles']:StoreVehicle(s,vehicleId,g.id,{netId=tonumber(netId),slot=idx,reason='public_parking'})
+ unlockVehicle(vehicleId,token)
+ if ok then notify(s,'Vehicle parked.') else notify(s,tostring(reason or 'Vehicle could not be parked.')) end
+end)
+
+RegisterNetEvent('cm-parking-v2:call',function(pid,idx,vehicleId)
+ local s=source; local c=cid(s); local g=garage(pid); idx=tonumber(idx); vehicleId=tonumber(vehicleId)
+ if not c or not g or not g.spots[idx] then return end
+ if not nearParkingInteraction(s,g,idx) then notify(s,'Move closer to the parking attendant or selected parking space.'); return end
+ local own=MySQL.single.await('SELECT id,vehicle_id,parking_id,spot_index FROM cm_parking_spaces WHERE character_id=? AND parking_id=? AND spot_index=? LIMIT 1',{tostring(c),g.id,idx})
+ if not own then notify(s,'You do not own this parking space.'); return end
+ vehicleId=vehicleId or tonumber(own.vehicle_id)
+ if tonumber(own.vehicle_id)~=vehicleId then notify(s,'This parking space can only recall its assigned vehicle.'); return end
+ local token=lockVehicle(vehicleId)
+ if not token then notify(s,'This vehicle is being moved to a house garage. Try again shortly.'); return end
+ local row=MySQL.single.await('SELECT model,plate,is_stored FROM cm_owned_vehicles WHERE id=? AND owner_character_id=? LIMIT 1',{vehicleId,tostring(c)})
+ if not row or not allowedModel(row.model) then
+  unlockVehicle(vehicleId,token); notify(s,'Boats and aircraft cannot use public parking.'); return
+ end
+ if tonumber(row.is_stored)~=1 then
+  local removed=exports['cm-vehicles']:DeleteSpawnedVehicle(row.plate)
+  if removed==false then unlockVehicle(vehicleId,token); notify(s,'The existing vehicle could not be removed.'); return end
+ end
+ local spot=g.spots[idx]
+ local ok,reason=exports['cm-vehicles']:SpawnVehicleFromParking(s,vehicleId,g.id,{x=spot.x,y=spot.y,z=spot.z,w=spot.w},{warp=false,engineOn=false})
+ unlockVehicle(vehicleId,token)
+ if not ok then
+  notify(s,tostring(reason or 'Vehicle could not be called.'))
+ else
+  notify(s,'Vehicle called to your parking space.')
+  TriggerClientEvent('cm-parking-v2:trackVehicle',s,row.plate,{x=spot.x,y=spot.y,z=spot.z})
+ end
+end)
+AddEventHandler('playerDropped',function()
+ local s=source; locks[s]=nil
+ local transferPending=false
+ for _,transfer in pairs(houseTransfers) do if transfer.source==s then transferPending=true break end end
+ local c=cid(s)
+ if c then
+  local row=MySQL.single.await('SELECT vehicle_id FROM cm_parking_spaces WHERE character_id=? LIMIT 1',{tostring(c)})
+  if row and row.vehicle_id and not transferPending and not vehicleLocks[tonumber(row.vehicle_id)] then
+   pcall(exports['cm-vehicles'].DeleteSpawnedVehicle,tonumber(row.vehicle_id))
+  end
+ end
+end)
 AddEventHandler('cm-playerdata:server:characterLoaded',function(src)
  src=tonumber(src); if not src then return end
  SetTimeout(3000,function()
@@ -345,7 +422,10 @@ RegisterCommand('parkingclear',function(src,args)
  if not c then feedback(src,'That player\'s character is not loaded.') return end
  local space=MySQL.single.await('SELECT id,vehicle_id,price_paid FROM cm_parking_spaces WHERE character_id=? ORDER BY id DESC LIMIT 1',{tostring(c)})
  if not space then feedback(src,('No parking record found for character %s.'):format(tostring(c))) return end
- if space.vehicle_id then pcall(exports['cm-vehicles'].DeleteSpawnedVehicle,tonumber(space.vehicle_id)) end
+ local vehicleId=tonumber(space.vehicle_id)
+ local vehicleLock=vehicleId and lockVehicle(vehicleId) or nil
+ if vehicleId and not vehicleLock then feedback(src,'That vehicle is being moved to a house garage. Try again shortly.') return end
+ if vehicleId then pcall(exports['cm-vehicles'].DeleteSpawnedVehicle,vehicleId) end
  local n=MySQL.update.await('DELETE FROM cm_parking_spaces WHERE character_id=?',{tostring(c)})
  if n and tonumber(n)>0 then
   exports['cm-playerdata']:AddBank(target,tonumber(space.price_paid) or Config.Price,'parking-space-admin-refund')
@@ -355,5 +435,147 @@ RegisterCommand('parkingclear',function(src,args)
  else
   feedback(src,'Could not clear that parking record.')
  end
+ if vehicleLock then unlockVehicle(vehicleId,vehicleLock) end
 end,false)
+
+-- Server-only integration used by cm-house when an owner moves a car out of
+-- public parking. Export contract (cm-house only):
+--   GetCharacterVehicleAssignments(characterId) -> assignment array
+--   BeginHouseGarageTransfer(vehicleId, characterId, source) -> ok, token, assignment
+--   CompleteHouseGarageTransfer(token, source, characterId) -> ok, refund details
+--   AbortHouseGarageTransfer(token, source, characterId) -> ok
+-- cm-parking-v2 remains the owner of its reservation and refund.
+local function houseIntegrationCaller()
+ return GetInvokingResource()=='cm-house'
+end
+
+exports('GetCharacterVehicleAssignments',function(characterId)
+ if not houseIntegrationCaller() then return nil end
+ characterId=tostring(characterId or '')
+ if characterId=='' or #characterId>100 then return nil end
+ local rows=MySQL.query.await([[
+  SELECT vehicle_id,parking_id,spot_index
+  FROM cm_parking_spaces
+  WHERE character_id=? AND vehicle_id IS NOT NULL
+    AND (expires_at IS NULL OR expires_at > NOW())
+ ]],{characterId}) or {}
+ local out={}
+ for _,row in ipairs(rows) do
+  local parking=garage(row.parking_id)
+  out[#out+1]={
+   vehicleId=tonumber(row.vehicle_id),
+   parkingId=tostring(row.parking_id or ''),
+   spotIndex=tonumber(row.spot_index),
+   parkingLabel=tostring(parking and parking.label or row.parking_id or 'Public parking'),
+  }
+ end
+ return out
+end)
+
+exports('BeginHouseGarageTransfer',function(vehicleId,characterId,src)
+ if not houseIntegrationCaller() then return false,'resource_not_authorized' end
+ vehicleId,src=tonumber(vehicleId),tonumber(src)
+ characterId=tostring(characterId or '')
+ if not vehicleId or not src or not GetPlayerName(src) or characterId=='' then
+  return false,'invalid_request'
+ end
+ local activeCharacter=cid(src)
+ if not activeCharacter or tostring(activeCharacter)~=characterId then
+  return false,'character_mismatch'
+ end
+ local row=MySQL.single.await([[
+  SELECT p.id,p.character_id,p.parking_id,p.spot_index,p.vehicle_id,p.price_paid
+  FROM cm_parking_spaces p
+  INNER JOIN cm_owned_vehicles v ON v.id=p.vehicle_id
+  WHERE p.vehicle_id=? AND p.character_id=? AND v.owner_character_id=?
+    AND (p.expires_at IS NULL OR p.expires_at > NOW())
+  LIMIT 1
+ ]],{vehicleId,characterId,characterId})
+ if not row then return false,'public_parking_not_assigned' end
+ local token=lockVehicle(vehicleId)
+ if not token then return false,'vehicle_operation_in_progress' end
+ houseTransfers[token]={
+  vehicleId=vehicleId,characterId=characterId,source=src,rowId=tonumber(row.id),
+  parkingId=tostring(row.parking_id or ''),spotIndex=tonumber(row.spot_index),
+ }
+ SetTimeout(120000,function()
+  local transfer=houseTransfers[token]
+  if transfer then
+   houseTransfers[token]=nil
+   unlockVehicle(transfer.vehicleId,token)
+   print(('[CM-PARKING-V2] Released timed-out house transfer lock for vehicle %s.'):format(tostring(transfer.vehicleId)))
+  end
+ end)
+ local parking=garage(row.parking_id)
+ return true,token,{
+  vehicleId=vehicleId,parkingId=tostring(row.parking_id or ''),spotIndex=tonumber(row.spot_index),
+  parkingLabel=tostring(parking and parking.label or row.parking_id or 'Public parking'),
+ }
+end)
+
+exports('CompleteHouseGarageTransfer',function(token,src,characterId)
+ if not houseIntegrationCaller() then return false,'resource_not_authorized' end
+ token=tostring(token or '')
+ src=tonumber(src)
+ characterId=tostring(characterId or '')
+ local transfer=houseTransfers[token]
+ if not transfer or transfer.source~=src or transfer.characterId~=characterId then
+  return false,'transfer_not_found'
+ end
+ local activeCharacter=src and cid(src)
+ if not activeCharacter or tostring(activeCharacter)~=characterId then
+  return false,'character_mismatch'
+ end
+ local row=MySQL.single.await([[
+  SELECT id,parking_id,spot_index,vehicle_id,price_paid
+  FROM cm_parking_spaces
+  WHERE id=? AND character_id=? AND vehicle_id=?
+  LIMIT 1
+ ]],{transfer.rowId,characterId,transfer.vehicleId})
+ if not row then return false,'public_parking_assignment_changed' end
+
+ local refund=tonumber(row.price_paid) or Config.Price or 0
+ if refund>0 then
+  local bankOk,credited=pcall(function()
+   return exports['cm-playerdata']:AddBank(src,refund,'parking-space-refund')
+  end)
+  if not bankOk or credited~=true then return false,'parking_refund_failed' end
+ end
+ local deleteOk,deleted=pcall(function()
+  return MySQL.update.await([[
+   DELETE FROM cm_parking_spaces
+   WHERE id=? AND character_id=? AND vehicle_id=?
+  ]],{transfer.rowId,characterId,transfer.vehicleId})
+ end)
+ if not deleteOk or not deleted or tonumber(deleted)<=0 then
+  if refund>0 then
+   local compensationOk,compensated=pcall(function()
+    return exports['cm-playerdata']:RemoveBank(src,refund,'parking-space-transfer-rollback')
+   end)
+   if not compensationOk or compensated~=true then
+    print(('[CM-PARKING-V2] Could not reverse parking refund after transfer delete failed for vehicle %s.'):format(tostring(transfer.vehicleId)))
+   end
+  end
+  return false,'public_parking_assignment_changed'
+ end
+
+ houseTransfers[token]=nil
+ unlockVehicle(transfer.vehicleId,token)
+ return true,{refunded=refund,parkingId=tostring(row.parking_id or ''),spotIndex=tonumber(row.spot_index)}
+end)
+
+exports('AbortHouseGarageTransfer',function(token,src,characterId)
+ if not houseIntegrationCaller() then return false,'resource_not_authorized' end
+ token=tostring(token or '')
+ src=tonumber(src)
+ characterId=tostring(characterId or '')
+ local transfer=houseTransfers[token]
+ if not transfer or transfer.source~=src or transfer.characterId~=characterId then
+  return false,'transfer_not_found'
+ end
+ houseTransfers[token]=nil
+ unlockVehicle(transfer.vehicleId,token)
+ return true
+end)
+
 CreateThread(function() while true do Wait(60000); releaseExpired() end end)

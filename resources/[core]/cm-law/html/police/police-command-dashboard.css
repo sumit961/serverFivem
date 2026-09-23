@@ -1,0 +1,685 @@
+/* CM Law shared command overview skin for the embedded Police entry point.
+ * The law.html overview and this legacy-compatible Police dashboard now share
+ * the same shell language while retaining separate NUI callbacks and data.
+ * The skin uses solid, CEF-safe surfaces.
+ */
+
+:root {
+  --police-ref-bg: #0B171E;
+  --police-ref-panel: #10222B;
+  --police-ref-line: #213B4A;
+  --police-ref-cyan: #00E5FF;
+  --police-ref-cyan-rgb: 0, 229, 255;
+  --police-ref-text: #FFFFFF;
+  --police-ref-muted: #829DAE;
+  --police-ref-gold: #FFC700;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) {
+  color: var(--police-ref-text) !important;
+  background: var(--police-ref-bg) !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app {
+  padding: 0 !important;
+  background: var(--police-ref-bg) !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .shell {
+  position: relative !important;
+  display: block !important;
+  width: calc(100vw - 8px) !important;
+  height: calc(100vh - 8px) !important;
+  max-width: none !important;
+  max-height: none !important;
+  overflow: hidden !important;
+  border: 1px solid var(--police-ref-line) !important;
+  border-radius: 10px !important;
+  background: var(--police-ref-bg) !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .side {
+  position: relative !important;
+  z-index: 5 !important;
+  display: grid !important;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr) !important;
+  align-items: center !important;
+  width: 100% !important;
+  height: 94px !important;
+  min-height: 94px !important;
+  padding: 0 44px !important;
+  border-right: 0 !important;
+  border-bottom: 1px solid var(--police-ref-line) !important;
+  background: var(--police-ref-bg) !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .brand {
+  display: flex !important;
+  align-items: center !important;
+  gap: 16px !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .brand-mark {
+  display: grid !important;
+  place-items: center !important;
+  width: 48px !important;
+  height: 48px !important;
+  border: 0 !important;
+  border-radius: 6px !important;
+  background: var(--police-ref-cyan) !important;
+  box-shadow: 0 0 22px rgba(var(--police-ref-cyan-rgb), .2) !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .brand-mark img {
+  width: 68% !important;
+  height: 68% !important;
+  filter: brightness(0) saturate(100%) !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .brand-copy small,
+body:not(.armory-standalone):not(.dispatch-standalone) #app .brand-copy h1 {
+  display: block !important;
+  margin: 0 !important;
+  line-height: 1 !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .brand-copy small {
+  color: var(--police-ref-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 17px !important;
+  font-weight: 800 !important;
+  letter-spacing: .015em !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .brand-copy h1 {
+  margin-top: 6px !important;
+  color: var(--police-ref-cyan) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+  letter-spacing: .08em !important;
+  text-transform: uppercase !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .brand-copy p,
+body:not(.armory-standalone):not(.dispatch-standalone) #app .side-summary,
+body:not(.armory-standalone):not(.dispatch-standalone) #app .side > footer {
+  display: none !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .side nav {
+  display: flex !important;
+  align-items: stretch !important;
+  justify-content: center !important;
+  gap: 30px !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 18px !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .side .nav {
+  position: relative !important;
+  display: grid !important;
+  place-items: center !important;
+  min-width: max-content !important;
+  min-height: 94px !important;
+  padding: 0 1px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  color: var(--police-ref-muted) !important;
+  background: transparent !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  letter-spacing: .04em !important;
+  text-transform: uppercase !important;
+  white-space: nowrap !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .side .nav b,
+body:not(.armory-standalone):not(.dispatch-standalone) #app .side .nav small {
+  display: none !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .side .nav span {
+  font-size: inherit !important;
+  font-weight: inherit !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .side .nav:hover,
+body:not(.armory-standalone):not(.dispatch-standalone) #app .side .nav.active {
+  color: var(--police-ref-text) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .side .nav.active::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 5px;
+  content: "";
+  border-radius: 5px 5px 0 0;
+  background: var(--police-ref-cyan);
+  box-shadow: 0 0 14px rgba(var(--police-ref-cyan-rgb), .35);
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .workspace {
+  display: block !important;
+  width: 100% !important;
+  height: calc(100% - 94px) !important;
+  min-height: 0 !important;
+  background: var(--police-ref-bg) !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .workspace > header {
+  position: absolute !important;
+  top: 0 !important;
+  right: 0 !important;
+  z-index: 8 !important;
+  display: block !important;
+  width: auto !important;
+  height: 94px !important;
+  pointer-events: none !important;
+  background: transparent !important;
+  border: 0 !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .workspace > header > div:first-child {
+  display: none !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .law-topbar__actions {
+  position: absolute !important;
+  top: 27px !important;
+  right: 44px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 18px !important;
+  pointer-events: auto !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .law-system-status {
+  display: none !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app #policeHeaderDuty,
+body:not(.armory-standalone):not(.dispatch-standalone) #app #close {
+  min-width: 126px !important;
+  height: 40px !important;
+  padding: 0 18px !important;
+  border: 1px solid var(--police-ref-line) !important;
+  border-radius: 5px !important;
+  color: var(--police-ref-text) !important;
+  background: rgba(255, 255, 255, .035) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  letter-spacing: .03em !important;
+  text-transform: uppercase !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app #close {
+  color: #ff5748 !important;
+  border-color: rgba(255, 87, 72, .35) !important;
+  font-size: 0 !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app #close::after {
+  content: "LOGOUT";
+  font-size: 12px;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .content {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  padding: 44px 98px 72px !important;
+  overflow: auto !important;
+  background:
+    linear-gradient(rgba(7, 15, 24, .9), rgba(8, 15, 24, .96)),
+    repeating-radial-gradient(ellipse at 50% 8%, rgba(37, 62, 84, .14) 0 1px, transparent 2px 54px) !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview.active {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  grid-template-areas:
+    "identity identity calls duty"
+    "readiness readiness capabilities capabilities"
+    "activity activity shift shift" !important;
+  grid-template-rows: repeat(3, minmax(184px, auto)) !important;
+  gap: 24px !important;
+  align-content: start !important;
+  max-width: 1840px !important;
+  margin: 0 auto !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview > .org-identity-card {
+  display: contents !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .org-identity-copy {
+  position: relative !important;
+  display: flex !important;
+  grid-area: identity !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  min-width: 0 !important;
+  padding: 30px 30px 30px 148px !important;
+  border: 1px solid var(--police-ref-line) !important;
+  border-radius: 6px !important;
+  background: var(--police-ref-panel) !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .org-identity-copy::before {
+  position: absolute;
+  top: 50%;
+  left: 30px;
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  content: "🧑‍✈️";
+  border: 2px solid #398eff;
+  border-radius: 7px;
+  background: rgba(34, 96, 160, .16);
+  font-size: 42px;
+  transform: translateY(-50%);
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .org-tier-ring,
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview #policeOverviewCid {
+  display: none !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .org-identity-copy::after {
+  position: absolute;
+  top: 30px;
+  left: 148px;
+  content: "COMMANDING OFFICER";
+  color: var(--police-ref-cyan);
+  font-family: var(--cm-font-display);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview #policeOverviewName {
+  margin: 16px 0 14px !important;
+  color: var(--police-ref-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 32px !important;
+  line-height: 1 !important;
+  letter-spacing: -.04em !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .org-identity-copy > div {
+  display: flex !important;
+  gap: 10px !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview #policeOverviewRank,
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .status-pill {
+  padding: 8px 12px !important;
+  border-radius: 4px !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  letter-spacing: .04em !important;
+  text-transform: uppercase !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview #policeOverviewRank {
+  color: var(--police-ref-text) !important;
+  background: #263548 !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .status-pill.is-off {
+  color: var(--police-ref-gold) !important;
+  border-color: rgba(255, 199, 0, .55) !important;
+  background: rgba(255, 199, 0, .08) !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .stats {
+  display: contents !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .stat {
+  position: relative !important;
+  display: block !important;
+  min-height: 214px !important;
+  padding: 34px 30px !important;
+  border: 1px solid var(--police-ref-line) !important;
+  border-radius: 6px !important;
+  background: var(--police-ref-panel) !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .stat--duty { grid-area: duty !important; }
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .stat--members { grid-area: calls !important; }
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .stat--command,
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .stat--fleet { display: none !important; }
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .stat--members::before { content: "🚨"; }
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .stat--duty::before { content: "🚓"; }
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .stat::before {
+  display: block;
+  height: 30px;
+  margin-bottom: 26px;
+  font-size: 24px;
+  line-height: 1;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .stat > div {
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .stat > div > span {
+  color: var(--police-ref-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 18px !important;
+  font-weight: 800 !important;
+  text-transform: uppercase !important;
+  order: 3;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .stat strong {
+  margin: 0 0 14px !important;
+  color: var(--police-ref-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 54px !important;
+  line-height: .9 !important;
+  letter-spacing: -.07em !important;
+  order: 2;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .stat small {
+  color: var(--police-ref-muted) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  order: 4;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview > .org-readiness-strip {
+  position: relative !important;
+  display: grid !important;
+  grid-area: readiness !important;
+  grid-template-columns: 1fr auto !important;
+  align-items: end !important;
+  min-height: 208px !important;
+  padding: 30px !important;
+  overflow: hidden !important;
+  border: 1px solid var(--police-ref-line) !important;
+  border-radius: 6px !important;
+  background:
+    repeating-linear-gradient(-28deg, transparent 0 28px, rgba(255, 255, 255, .13) 29px 30px),
+    linear-gradient(112deg, rgba(111, 57, 59, .78), var(--police-ref-panel) 72%) !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview > .org-readiness-strip > div:first-child strong {
+  display: block !important;
+  margin-bottom: 32px !important;
+  color: var(--police-ref-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 28px !important;
+  text-transform: uppercase !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview > .org-readiness-strip > div:first-child strong::before {
+  display: block;
+  margin-bottom: 22px;
+  content: "SHARED CUSTODY";
+  color: var(--police-ref-cyan);
+  font-size: 14px;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview > .org-readiness-strip > div:first-child i {
+  display: none !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview > .org-readiness-strip > div:last-child small {
+  color: var(--police-ref-muted) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+  text-transform: uppercase !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview > .org-readiness-strip > div:last-child strong {
+  display: block !important;
+  color: var(--police-ref-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 46px !important;
+  line-height: .9 !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .org-operations-grid {
+  display: contents !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .org-command-column {
+  display: contents !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .command-panel {
+  min-width: 0 !important;
+  margin: 0 !important;
+  border: 1px solid var(--police-ref-line) !important;
+  border-radius: 6px !important;
+  background: var(--police-ref-panel) !important;
+  box-shadow: none !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .command-panel--capabilities {
+  grid-area: capabilities !important;
+  min-height: 208px !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .command-panel--duty {
+  display: none !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .command-panel--tools {
+  grid-area: shift !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  min-height: 232px !important;
+  padding: 38px 30px !important;
+  border-color: var(--police-ref-cyan) !important;
+  background: rgba(7, 38, 51, .8) !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .command-panel--capabilities .overview-panel__head,
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .command-panel--tools > div:first-child {
+  padding: 30px 30px 0 !important;
+  border: 0 !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .command-panel--capabilities h3,
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .command-panel--tools h3 {
+  margin-top: 0 !important;
+  color: var(--police-ref-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 25px !important;
+  text-transform: uppercase !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .command-panel--capabilities .overview-panel__head small,
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .command-panel--tools > div:first-child small {
+  color: var(--police-ref-cyan) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  letter-spacing: .13em !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .panel-kicker {
+  color: var(--police-ref-cyan) !important;
+  background: transparent !important;
+  border: 0 !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 13px !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .capability-pills {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-content: center !important;
+  gap: 13px !important;
+  min-height: 125px !important;
+  padding: 0 30px 22px !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .capability-pill {
+  padding: 10px 14px !important;
+  border: 1px solid var(--police-ref-line) !important;
+  border-radius: 4px !important;
+  color: var(--police-ref-text) !important;
+  background: #182738 !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  text-transform: uppercase !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .command-panel--activity {
+  grid-area: activity !important;
+  min-height: 232px !important;
+  padding: 30px !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .command-panel--activity .overview-panel__head {
+  padding: 0 !important;
+  border: 0 !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .command-panel--activity h3 {
+  margin-top: 12px !important;
+  color: var(--police-ref-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 24px !important;
+  text-transform: uppercase !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .activity-preview {
+  min-height: 84px !important;
+  padding: 28px 0 0 !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .command-keybar {
+  display: none !important;
+}
+
+@media (max-width: 1250px) {
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .side { padding-inline: 24px !important; }
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .side nav { gap: 18px !important; padding-inline: 8px !important; }
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .law-topbar__actions { right: 24px !important; gap: 8px !important; }
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .content { padding-inline: 42px !important; }
+}
+
+@media (max-width: 900px) {
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .side { grid-template-columns: 1fr; height: auto !important; min-height: 94px !important; padding-block: 16px !important; }
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .side nav { grid-row: 2; justify-content: flex-start; min-height: 42px; }
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .side .nav { min-height: 42px !important; }
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .law-topbar__actions { top: 17px !important; right: 24px !important; }
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .workspace { height: calc(100% - 136px) !important; }
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview.active { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; grid-template-areas: "identity identity" "calls duty" "readiness readiness" "capabilities capabilities" "activity activity" "shift shift" !important; grid-template-rows: auto !important; }
+}
+
+@media (max-width: 620px) {
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .brand-copy small { font-size: 13px !important; }
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .brand-copy h1 { font-size: 10px !important; }
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .law-topbar__actions #policeHeaderDuty,
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .law-topbar__actions #close { min-width: 0 !important; padding-inline: 9px !important; font-size: 10px !important; }
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .content { padding: 24px 16px !important; }
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .org-identity-copy { padding: 22px 22px 22px 108px !important; }
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .org-identity-copy::before { left: 22px; width: 68px; height: 68px; font-size: 30px; }
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .org-identity-copy::after { top: 22px; left: 108px; font-size: 11px; }
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview #policeOverviewName { font-size: 24px !important; }
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .stat { min-height: 170px !important; padding: 24px 20px !important; }
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview .stat strong { font-size: 42px !important; }
+}
+
+@media (max-height: 900px) and (min-width: 901px) {
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .side,
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .side nav,
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .side .tab {
+    height: 94px !important;
+    min-height: 94px !important;
+  }
+
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .workspace {
+    height: calc(100% - 94px) !important;
+  }
+
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .workspace > header {
+    height: 94px !important;
+  }
+
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .content {
+    padding-top: clamp(28px, 3.1vh, 48px) !important;
+    padding-bottom: clamp(28px, 4vh, 64px) !important;
+  }
+
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .police-overview.active {
+    grid-template-rows: repeat(3, minmax(164px, auto)) !important;
+    gap: clamp(16px, 1.5vw, 24px) !important;
+  }
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .side {
+  z-index: 10 !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .side nav {
+  z-index: 11 !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .law-topbar__actions {
+  z-index: 12 !important;
+  pointer-events: auto !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .side > nav {
+  position: fixed !important;
+  top: 0 !important;
+  right: clamp(390px, 20.4vw, 520px) !important;
+  left: clamp(300px, 16.5vw, 420px) !important;
+  z-index: 20 !important;
+  display: flex !important;
+  align-items: stretch !important;
+  justify-content: center !important;
+  height: 94px !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .side > nav > .nav:not(.hidden) {
+  display: grid !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  color: var(--police-ref-muted) !important;
+}
+
+body:not(.armory-standalone):not(.dispatch-standalone) #app .side > nav > .nav:not(.hidden).active {
+  color: var(--police-ref-text) !important;
+}
+
+@media (max-width: 1250px) {
+  body:not(.armory-standalone):not(.dispatch-standalone) #app .side > nav {
+    right: clamp(360px, 20.4vw, 520px) !important;
+    left: clamp(280px, 24vw, 360px) !important;
+    gap: clamp(8px, 1.1vw, 16px) !important;
+  }
+}

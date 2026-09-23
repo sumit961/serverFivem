@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en" style="opacity:0;background:rgba(0,0,0,0);background-color:rgba(0,0,0,0)">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CM TAXI</title>
+<link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css" />
+<link rel="stylesheet" href="style.css?v=cm-taxi-ui-13" />
+</head>
+<body style="background:rgba(0,0,0,0);background-color:rgba(0,0,0,0)">
+<main class="game-hud" id="game-hud" style="display:none;visibility:hidden;background:rgba(0,0,0,0);background-color:rgba(0,0,0,0)">
+
+<!-- ============ Top-right system decorator strip ============ -->
+<div id="sysbar" class="sysbar">
+    <span class="sysbar-label">SYSTEM LINK</span>
+    <span class="sysbar-item">FPS <b id="sys-fps">--</b></span>
+    <span class="sysbar-sep"></span>
+    <span class="sysbar-item">GPU <b>N/A</b></span>
+    <span class="sysbar-sep"></span>
+    <span class="sysbar-item">CPU <b>N/A</b></span>
+    <span class="sysbar-sep"></span>
+    <span class="sysbar-item">LAT <b id="sys-ping">--</b></span>
+    <span class="sysbar-sep"></span>
+    <span class="sysbar-item">TIME <b id="sys-clock">--:--</b></span>
+</div>
+
+<!-- ============ Meter tablet (active job / fares) ============ -->
+<div id="meter" class="meter hidden">
+    <header class="meter-header">
+        <div class="brand-lockup">
+            <div class="brand-mark" aria-hidden="true">CM</div>
+            <div class="brand-copy">
+                <div class="eyebrow">CITY MOBILITY // SERVICE 04</div>
+                <h1>TAXI DISPATCH</h1>
+            </div>
+        </div>
+        <div class="link-status"><span class="status-pulse"></span>DISPATCH LINK ACTIVE</div>
+    </header>
+
+    <div class="meter-body">
+        <section class="meter-panel job-panel" data-panel="job">
+            <div class="job-grid">
+                <section class="speed-widget hud-card">
+                    <div class="card-kicker">VEHICLE TELEMETRY</div>
+                    <div class="speed-ring" id="speed-ring">
+                        <div class="speed-value">
+                            <span id="speed-num">0</span>
+                            <small>MPH // SPEED</small>
+                        </div>
+                    </div>
+                    <div class="telemetry-foot"><span class="status-pulse"></span>VEHICLE LINKED</div>
+                    <div class="telemetry-meta"><span>UNIT</span><strong>CM // 04</strong></div>
+                </section>
+
+                <div class="fare-widget">
+                    <div class="section-heading">
+                        <div>
+                            <div class="eyebrow">LIVE METER // SESSION</div>
+                            <h2>FARE STATUS</h2>
+                        </div>
+                        <div class="session-tag" id="stat-status">NO ACTIVE FARE</div>
+                    </div>
+                    <div class="fare-stats">
+                        <div class="stat">
+                            <div class="stat-label">CURRENT FARE</div>
+                            <div class="stat-value money" id="stat-current">$0.00</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-label">BASE FARE</div>
+                            <div class="stat-value" id="stat-base">$0.00</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-label">PER MINUTE</div>
+                            <div class="stat-value" id="stat-perminute">$0.00</div>
+                        </div>
+                    </div>
+
+                    <div class="route-preview">
+                        <div class="route-preview-head"><span>ACTIVE ROUTE</span><span class="route-live">LIVE TRACK</span></div>
+                        <div class="route-stop">
+                            <span class="route-node pickup-node">A</span>
+                            <span class="route-copy"><small>PICKUP POINT</small><strong id="stat-pickup">AWAITING DISPATCH</strong></span>
+                        </div>
+                        <div class="route-connector"><span></span></div>
+                        <div class="route-stop">
+                            <span class="route-node destination-node">B</span>
+                            <span class="route-copy"><small>DESTINATION</small><strong id="stat-destination">NO DESTINATION SET</strong></span>
+                        </div>
+                    </div>
+
+                    <div class="fare-row passenger-row">
+                        <div class="fare-row-label">PASSENGER</div>
+                        <div class="fare-row-value" id="stat-customer">NO ACTIVE PASSENGER</div>
+                    </div>
+
+                    <div class="shift-summary" aria-label="TAXI SHIFT SUMMARY">
+                        <div><span>RIDES</span><strong id="shift-rides">0</strong></div>
+                        <div><span>SHIFT EARNINGS</span><strong id="shift-earnings">$0</strong></div>
+                        <div><span>TIPS</span><strong id="shift-tips">$0</strong></div>
+                    </div>
+
+                    <button id="btn-cancel-job" class="btn btn-danger">CANCEL FARE <span class="button-arrow">&times;</span></button>
+                </div>
+            </div>
+        </section>
+
+        <section class="meter-panel fare-panel" data-panel="fares">
+            <div class="queue-heading">
+                <div>
+                    <div class="eyebrow">INCOMING REQUESTS</div>
+                    <h2>AVAILABLE FARES</h2>
+                </div>
+                <div class="queue-count"><span id="fares-count">0</span><small>OPEN</small></div>
+            </div>
+            <div class="queue-filter"><span class="queue-live-dot"></span>LIVE DISPATCH FEED<span class="queue-sort"><span class="sort-mark">&darr;</span> NEAREST FIRST</span></div>
+            <div id="fares-list" class="fares-list cm-scrollbar"></div>
+            <div class="queue-footer"><span>PLAYER CALLS PRIORITIZED</span><span>REQUESTS EXPIRE AUTOMATICALLY</span></div>
+        </section>
+    </div>
+
+    <div class="meter-footer">
+        <span class="key-chip" id="meter-keybind">J</span>
+        <span class="footer-label">TOGGLE DISPATCH MENU</span>
+        <span class="footer-hint">ESC TO CLOSE</span>
+    </div>
+</div>
+
+<!-- ============ Taxi office panel ============ -->
+<div id="office" class="office hidden">
+    <div class="office-panel">
+        <div class="office-header">
+            <div>
+                <div class="eyebrow">CITY MOBILITY // DRIVER SERVICES</div>
+                <h1 class="office-subtitle" id="office-name">LS TAXI</h1>
+                <div class="office-title">TAXI OFFICE TERMINAL</div>
+            </div>
+            <button id="office-close" class="btn-close" aria-label="CLOSE TAXI OFFICE">&times;</button>
+        </div>
+
+        <div class="office-body cm-scrollbar">
+            <button id="office-duty" class="btn btn-cta">GO ON DUTY <span class="button-arrow">&rarr;</span></button>
+
+            <div class="office-section">
+                <div class="section-heading compact">
+                    <div><div class="eyebrow">DRIVER RECORD</div><h2>PROGRESSION</h2></div>
+                    <div class="progress-level">LVL <span id="prog-level">1</span></div>
+                </div>
+                <div class="progress-row">
+                    <div class="progress-bar-track">
+                        <div class="progress-bar-fill" id="prog-fill" style="width:1%"></div>
+                    </div>
+                    <div class="progress-xp"><span>EXPERIENCE</span><span><b id="prog-xp">0</b> / <b id="prog-xp-needed">100</b> XP</span></div>
+                </div>
+            </div>
+
+            <div class="office-section" id="rental-return-section" style="display:none;">
+                <div class="section-heading compact">
+                    <div><div class="eyebrow">ASSIGNED VEHICLE</div><h2>ACTIVE RENTAL</h2></div>
+                    <div class="session-tag warning">RETURN FOR REFUND</div>
+                </div>
+                <div class="rental-return-card">
+                    <div>
+                        <div class="rental-hint">VEHICLE REGISTRATION</div>
+                        <div class="rental-plate" id="rental-plate">-</div>
+                    </div>
+                    <button id="office-return" class="btn btn-danger">RETURN VEHICLE <span class="button-arrow">&rarr;</span></button>
+                </div>
+            </div>
+
+            <div class="office-section">
+                <div class="section-heading compact">
+                    <div><div class="eyebrow">FLEET GARAGE</div><h2>RENT A TAXI</h2></div>
+                    <div class="currency-chip">SECURE RENTAL</div>
+                </div>
+                <div id="rental-list" class="rental-list"></div>
+            </div>
+        </div>
+        <footer class="office-footer"><span class="key-chip">ESC</span><span>EXIT TERMINAL</span><span class="footer-hint">CM MOBILITY NETWORK // SECURE SESSION</span></footer>
+    </div>
+</div>
+
+<div id="hud-help" class="hud-help hidden"><span class="key-chip">J</span><span>OPEN TAXI DISPATCH</span></div>
+<div id="rental-timer" class="rental-timer hidden" aria-live="polite">
+    <span class="key-chip">!</span>
+    <span class="rental-timer-copy"><b>TAXI LEFT BEHIND</b><span>RETURN WITHIN <strong id="rental-time-left">02:00</strong></span></span>
+</div>
+
+<div id="confirm-modal" class="confirm-modal hidden" aria-hidden="true">
+    <section class="cm-confirm-modal tone-warning" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message confirm-consequence">
+        <div class="confirm-modal__eyebrow">DRIVER ACTION // REVIEW REQUIRED</div>
+        <h2 id="confirm-title" class="cm-confirm-modal__title">CONFIRM ACTION</h2>
+        <p id="confirm-message" class="cm-confirm-modal__message"></p>
+        <p id="confirm-consequence" class="cm-confirm-modal__consequence"></p>
+        <p id="confirm-status" class="confirm-modal__status hidden" role="status" aria-live="polite" tabindex="-1"></p>
+        <div class="cm-confirm-modal__actions">
+            <button id="confirm-cancel" class="cm-confirm-modal__cancel" type="button">CANCEL <span>ESC</span></button>
+            <button id="confirm-accept" class="cm-confirm-modal__confirm tone-warning" type="button">CONFIRM</button>
+        </div>
+    </section>
+</div>
+</main>
+
+<script src="app.js?v=cm-taxi-ui-9"></script>
+</body>
+</html>

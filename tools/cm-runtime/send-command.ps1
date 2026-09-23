@@ -9,7 +9,7 @@ if ([string]$config.host -notin @('127.0.0.1', 'localhost', '::1')) { throw 'Saf
 $arsenalCommandAllowed = $Command -match '^cm_arsenal_(?:start|cancel|status)$' -or
     $Command -match '^cm_arsenal_check(?:\s+[A-Za-z0-9:_.-]{1,80})?$'
 if ($Command -notmatch '^(status|refresh)$' -and
-    $Command -notmatch '^(ensure|restart|start|stop)\s+(cm-[a-z0-9_-]+|rn-vehicleshop|nv_cloth)$' -and
+    $Command -notmatch '^(ensure|restart|start|stop)\s+(cm-[a-z0-9_-]+|rn-vehicleshop|nv_cloth|grand_garage)$' -and
     -not $arsenalCommandAllowed) { throw 'COMMAND_NOT_ALLOWLISTED' }
 
 $secretName = [string]$config.rconPasswordEnvironmentVariable

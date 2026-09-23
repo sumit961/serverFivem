@@ -719,41 +719,104 @@ local function trunkSleepAnimForPed(ped)
     return 'amb@world_human_sunbathe@female@back@base', 'base'
 end
 
+-- Preferred trunk pose: a lying/restrained-looking anim (requested to read as
+-- "cuffed, lying in the open trunk" rather than the plain sunbathe pose).
+-- fin_ext_p1-7/cs_devin_dual-7 is a confirmed-working restrained/lying
+-- cutscene anim (verified against a working reference trunk script); the
+-- other candidates are unconfirmed guesses kept as a second attempt before
+-- falling back to the tested sunbathe pose.
+local CUFFED_TRUNK_DICT = 'fin_ext_p1-7'
+local CUFFED_TRUNK_CLIPS = { 'cs_devin_dual-7' }
+local CUFFED_TRUNK_DICT_FALLBACK = 'anim@scripted@island@special_peds@pavel@hs4_pavel_ig3_sleep_p1'
+local CUFFED_TRUNK_CLIPS_FALLBACK = { 'hs4_pavel_ig3_sleep_p1', 'sleep_p1_base', 'base', 'idle', 'sleep_loop' }
+
+-- Tracks whichever dict/clip actually ended up playing, so
+-- KeepTrunkSleepAnimAlive checks the right one instead of assuming the
+-- fallback sunbathe anim and spam-restarting a different one every frame.
+local activeTrunkAnim = { dict = nil, clip = nil }
+
+local function tryTrunkAnimCandidates(ped, dict, clips)
+    if not loadAnimDict(dict, 1800) then return false end
+    for _, clip in ipairs(clips) do
+        TaskPlayAnim(ped, dict, clip, 8.0, -8.0, -1, 1, 0.0, false, false, false)
+        Wait(0)
+        if IsEntityPlayingAnim(ped, dict, clip, 3) == true then
+            activeTrunkAnim.dict, activeTrunkAnim.clip = dict, clip
+            return true
+        end
+    end
+    return false
+end
+
 function CMVehicles.Client.PlayTrunkSleepAnim()
     local ped = PlayerPedId()
+
+    if tryTrunkAnimCandidates(ped, CUFFED_TRUNK_DICT, CUFFED_TRUNK_CLIPS) then return true end
+    if tryTrunkAnimCandidates(ped, CUFFED_TRUNK_DICT_FALLBACK, CUFFED_TRUNK_CLIPS_FALLBACK) then return true end
+
     local dict, anim = trunkSleepAnimForPed(ped)
     if loadAnimDict(dict, 1800) then
         TaskPlayAnim(ped, dict, anim, 8.0, -8.0, -1, 1, 0.0, false, false, false)
+        activeTrunkAnim.dict, activeTrunkAnim.clip = dict, anim
         return true
     end
 
-    -- Fallback if an addon build does not stream the sunbathe anim quickly enough.
+    -- Last resort if an addon build does not stream the sunbathe anim quickly enough.
     dict, anim = 'missfbi5ig_0', 'lyinginpain_loop_steve'
     if loadAnimDict(dict, 1200) then
         TaskPlayAnim(ped, dict, anim, 8.0, -8.0, -1, 1, 0.0, false, false, false)
+        activeTrunkAnim.dict, activeTrunkAnim.clip = dict, anim
         return true
     end
+    activeTrunkAnim.dict, activeTrunkAnim.clip = nil, nil
     return false
 end
 
 function CMVehicles.Client.KeepTrunkSleepAnimAlive()
     if not CMVehicles.Client.InTrunk then return end
     local ped = PlayerPedId()
-    local dict, anim = trunkSleepAnimForPed(ped)
-    if HasAnimDictLoaded(dict) and IsEntityPlayingAnim(ped, dict, anim, 3) then return end
+    local dict, clip = activeTrunkAnim.dict, activeTrunkAnim.clip
+    if dict and clip and HasAnimDictLoaded(dict) and IsEntityPlayingAnim(ped, dict, clip, 3) then return end
     CMVehicles.Client.PlayTrunkSleepAnim()
+end
+
+-- Bone-based trunk attach point. The old approach used the vehicle's overall
+-- bounding-box lowest point (minDim.z) as its Z reference, which on many
+-- models sits near the underbody/exhaust rather than the actual trunk deck
+-- -- that put the player under the car instead of inside the trunk cavity.
+-- The real 'boot' bone's position (present on essentially every GTA vehicle,
+-- including addons that follow the standard skeleton) is a much better
+-- reference for where that model's actual trunk lid is. Read its position,
+-- but attach to bone 0 (the static chassis) using the equivalent local
+-- offset -- NOT to the boot bone itself, which is the moving door part.
+-- Attaching a rigid child directly to the door bone locks the door in place
+-- and stops SetVehicleDoorOpen from being able to swing it open at all.
+local function getTrunkAttachOffset(vehicle)
+    local okBone, bootBoneRaw = pcall(GetEntityBoneIndexByName, vehicle, 'boot')
+    local bootBone = okBone and tonumber(bootBoneRaw) or -1
+    if bootBone and bootBone >= 0 then
+        local okWorld, worldCoords = pcall(GetWorldPositionOfEntityBone, vehicle, bootBone)
+        if okWorld and worldCoords then
+            local okLocal, localCoords = pcall(GetOffsetFromEntityGivenWorldCoords, vehicle, worldCoords.x, worldCoords.y, worldCoords.z)
+            if okLocal and localCoords then
+                return localCoords.x, localCoords.y, localCoords.z + 0.15
+            end
+        end
+    end
+
+    -- No boot bone on this model (rare), or the bone/offset lookup failed --
+    -- fall back to the old bounding-box estimate.
+    local _, minDim, maxDim = getModelRadius(vehicle)
+    local vehicleLength = math.abs((tonumber(maxDim.y) or 2.0) - (tonumber(minDim.y) or -2.0))
+    local y = (tonumber(minDim.y) or -2.4) + math.min(math.max(vehicleLength * 0.24, 0.65), 1.20)
+    local z = math.max((tonumber(minDim.z) or 0.0) + 0.62, 0.36)
+    return 0.0, y, z
 end
 
 function CMVehicles.Client.EnterTrunk(vehicle, plate, skipServer)
     if not vehicle or vehicle == 0 then return end
     local ped = PlayerPedId()
-    local _, minDim, maxDim = getModelRadius(vehicle)
-    local vehicleLength = math.abs((tonumber(maxDim.y) or 2.0) - (tonumber(minDim.y) or -2.0))
-
-    -- Rear/bed placement. This keeps trucks inside the tray and sedans inside the trunk area,
-    -- instead of attaching the player standing behind the bumper.
-    local trunkY = (tonumber(minDim.y) or -2.4) + math.min(math.max(vehicleLength * 0.24, 0.65), 1.20)
-    local trunkZ = math.max((tonumber(minDim.z) or 0.0) + 0.62, 0.36)
+    local offsetX, offsetY, offsetZ = getTrunkAttachOffset(vehicle)
 
     CMVehicles.Client.InTrunk = true
     CMVehicles.Client.TrunkVehicle = vehicle
@@ -767,12 +830,14 @@ function CMVehicles.Client.EnterTrunk(vehicle, plate, skipServer)
     FreezeEntityPosition(ped, false)
     SetEntityHeading(ped, GetEntityHeading(vehicle))
 
-    local attachCoords = GetOffsetFromEntityInWorldCoords(vehicle, 0.0, trunkY, trunkZ)
+    local attachCoords = GetOffsetFromEntityInWorldCoords(vehicle, offsetX, offsetY, offsetZ)
     SetEntityCoordsNoOffset(ped, attachCoords.x, attachCoords.y, attachCoords.z, false, false, false)
 
-    -- Use vehicle rotation plus a lying animation. Do not pitch/roll the entity manually because
-    -- that can snap peds upright on some custom vehicle skeletons.
-    AttachEntityToEntity(ped, vehicle, 0, 0.0, trunkY, trunkZ, 0.0, 0.0, 0.0, false, false, false, false, 2, true)
+    -- Attached to bone 0 (chassis), so the trunk door (bone 5) stays free to
+    -- open independently. Use vehicle rotation plus a lying animation. Do not
+    -- pitch/roll the entity manually because that can snap peds upright on
+    -- some custom vehicle skeletons.
+    AttachEntityToEntity(ped, vehicle, 0, offsetX, offsetY, offsetZ, 0.0, 0.0, 0.0, false, false, false, false, 2, true)
     SetVehicleDoorOpen(vehicle, 5, false, false)
     CMVehicles.Client.PlayTrunkSleepAnim()
     notify('You got in the trunk. Press ESC or Backspace to get out. You can still move the camera.')

@@ -8,10 +8,8 @@
 
 local function authorizedOfficer(src)
     local characterId = cid(tonumber(src))
-    local member = characterId and PoliceLegacyMemberFor(characterId)
-    if not member or PoliceLegacyDbBoolean(member.is_suspended) or not PoliceLegacyDbBoolean(member.on_duty) or not has(member, 'police.clamp') then
-        return nil, characterId
-    end
+    local member = PoliceLegacyActiveMember(characterId, 'police.clamp')
+    if not member then return nil, characterId end
     return member, tostring(characterId)
 end
 

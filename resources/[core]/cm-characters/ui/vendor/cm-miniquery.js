@@ -51,6 +51,13 @@
         return node.dataset[name];
     };
 
+    MiniQuery.prototype.closest = function (selector) {
+        var node = this.nodes[0];
+        if (!node || !node.closest) return new MiniQuery([]);
+        var found = node.closest(selector);
+        return new MiniQuery(found ? [found] : []);
+    };
+
     MiniQuery.prototype.on = function (eventName, selector, handler) {
         if (typeof selector === 'function') {
             handler = selector;

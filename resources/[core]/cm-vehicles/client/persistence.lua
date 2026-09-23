@@ -17,11 +17,26 @@ local function hasWindowBone(vehicle, index)
     return false
 end
 
-local function condition(vehicle)
+-- Most recent RAW (unconfirmed) broken-window reading per vehicle, keyed by
+-- vehicleId. A window is only reported as broken once it reads broken on two
+-- separate condition() captures -- this filters a single-tick false reading
+-- (e.g. incidental contact while parked, or a physics glitch) without
+-- weakening real crash damage, which stays broken on every subsequent tick
+-- and so still gets confirmed and persisted within about one autosave cycle.
+-- MergeConditionWear on the server remains monotonic once confirmed -- this
+-- only changes what the client decides is "really" broken in the first place.
+local lastRawBrokenWindows = {}
+
+local function condition(vehicle, vehicleId)
     local out = { windowSchema = 2, brokenWindows = {}, doors = {}, tyres = {} }
+    local rawBroken = {}
+    local previouslySeen = (vehicleId and lastRawBrokenWindows[vehicleId]) or {}
     for i = 0, 7 do
         local key = tostring(i)
-        if hasWindowBone(vehicle, i) and not IsVehicleWindowIntact(vehicle, i) then out.brokenWindows[key] = true end
+        if hasWindowBone(vehicle, i) and not IsVehicleWindowIntact(vehicle, i) then
+            rawBroken[key] = true
+            if previouslySeen[key] then out.brokenWindows[key] = true end
+        end
         local damaged = IsVehicleDoorDamaged(vehicle, i) == true
         local angle = tonumber(GetVehicleDoorAngleRatio(vehicle, i)) or 0.0
         out.doors[key] = { damaged = damaged, broken = damaged, angle = angle }
@@ -29,6 +44,7 @@ local function condition(vehicle)
         local burst = onRim or IsVehicleTyreBurst(vehicle, i, false) == true
         out.tyres[key] = { burst = burst, onRim = onRim }
     end
+    if vehicleId then lastRawBrokenWindows[vehicleId] = rawBroken end
     out.engineRunning = GetIsVehicleEngineRunning(vehicle) == true
     out.undriveable = not IsVehicleDriveable(vehicle, false)
     return out
@@ -49,7 +65,7 @@ local function snapshot(vehicle, reason)
         bodyHealth = GetVehicleBodyHealth(vehicle),
         tankHealth = GetVehiclePetrolTankHealth(vehicle),
         dirtLevel = GetVehicleDirtLevel(vehicle),
-        conditionState = condition(vehicle),
+        conditionState = condition(vehicle, tonumber(vehicleId)),
         position = { x = coords.x, y = coords.y, z = coords.z, w = GetEntityHeading(vehicle) },
         reason = tostring(reason or 'dirty_state'),
     }
@@ -133,6 +149,8 @@ CreateThread(function()
         elseif lastVehicle ~= 0 then
             lastDrivingCoords = nil
             sendSnapshot(lastVehicle, 'driver_exit', true)
+            local exitedId = tonumber(CMVehicles.Client.VehicleId(lastVehicle))
+            if exitedId then lastRawBrokenWindows[exitedId] = nil end
             lastVehicle = 0
             lastSent = nil
             lastSentAt = 0

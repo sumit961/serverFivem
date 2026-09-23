@@ -33,19 +33,21 @@ RegisterNetEvent('cm-characters:client:applyAppearance')
 AddEventHandler('cm-characters:client:applyAppearance', function(appearanceData)
     if not appearanceData or type(appearanceData) ~= 'table' then return end
 
-    local sex = safeN(appearanceData.sex, 0)
-    local model = sex == 0 and GetHashKey('mp_m_freemode_01') or GetHashKey('mp_f_freemode_01')
+    local isFemale = (appearanceData.sex == 1 or appearanceData.sex == '1' or appearanceData.sex == 'female' or appearanceData.sex == 'f')
+    local model = isFemale and GetHashKey('mp_f_freemode_01') or GetHashKey('mp_m_freemode_01')
 
-    RequestModel(model)
-    local timeout = GetGameTimer() + 5000
-    while not HasModelLoaded(model) do
-        if GetGameTimer() > timeout then break end
+    if GetEntityModel(PlayerPedId()) ~= model then
         RequestModel(model)
-        Wait(0)
+        local timeout = GetGameTimer() + 5000
+        while not HasModelLoaded(model) do
+            if GetGameTimer() > timeout then break end
+            RequestModel(model)
+            Wait(0)
+        end
+        SetPlayerModel(PlayerId(), model)
+        SetModelAsNoLongerNeeded(model)
+        SetPedComponentVariation(PlayerPedId(), 0, 0, 0, 2)
     end
-    SetPlayerModel(PlayerId(), model)
-    SetModelAsNoLongerNeeded(model)
-    SetPedComponentVariation(PlayerPedId(), 0, 0, 0, 2)
 
     local ped = PlayerPedId()
     local skin = appearanceData
@@ -82,10 +84,15 @@ AddEventHandler('cm-characters:client:applyAppearance', function(appearanceData)
 
     -- Head overlays
     SetPedHeadOverlay(ped, 0,  n('blemishes_1'),  n('blemishes_2')  / 10.0)
-    SetPedHeadOverlay(ped, 1,  n('beard_1'),      n('beard_2')      / 10.0)
-    SetPedHeadOverlayColor(ped, 1, 1, n('beard_3'), n('beard_4'))
-    SetPedHeadOverlay(ped, 2,  n('eyebrows_1'),   n('eyebrows_2')   / 10.0)
-    SetPedHeadOverlayColor(ped, 2, 1, n('eyebrows_3'), n('eyebrows_4'))
+
+    local eb1 = n('eyebrows_1')
+    local eb2 = n('eyebrows_2', 10) / 10.0
+    if eb1 >= 0 and eb1 ~= 255 and eb2 <= 0.0 then eb2 = 1.0 end
+    local eb3 = n('eyebrows_3', n('hair_color_1'))
+    local eb4 = n('eyebrows_4', eb3)
+    SetPedHeadOverlay(ped, 2,  eb1,   eb2)
+    SetPedHeadOverlayColor(ped, 2, 1, eb3, eb4)
+
     SetPedHeadOverlay(ped, 3,  n('age_1'),        n('age_2')        / 10.0)
     SetPedHeadOverlay(ped, 4,  n('makeup_1'),     n('makeup_2')     / 10.0)
     SetPedHeadOverlayColor(ped, 4, 2, n('makeup_3'), n('makeup_4'))
@@ -96,14 +103,35 @@ AddEventHandler('cm-characters:client:applyAppearance', function(appearanceData)
     SetPedHeadOverlay(ped, 8,  n('lipstick_1'),   n('lipstick_2')   / 10.0)
     SetPedHeadOverlayColor(ped, 8, 1, n('lipstick_3'), n('lipstick_4'))
     SetPedHeadOverlay(ped, 9,  n('moles_1'),      n('moles_2')      / 10.0)
-    SetPedHeadOverlay(ped, 10, n('chest_1'),      n('chest_2')      / 10.0)
-    SetPedHeadOverlayColor(ped, 10, 1, n('chest_3'), n('chest_3'))
+
+    if isFemale then
+        SetPedHeadOverlay(ped, 1, 255, 0.0)
+        SetPedHeadOverlay(ped, 10, 255, 0.0)
+    else
+        local b1 = n('beard_1')
+        local b2 = n('beard_2', 10) / 10.0
+        if b1 <= 0 or b1 == 255 or b2 <= 0.0 then
+            SetPedHeadOverlay(ped, 1, 255, 0.0)
+        else
+            SetPedHeadOverlay(ped, 1, b1, b2)
+            SetPedHeadOverlayColor(ped, 1, 1, n('beard_3'), n('beard_4', n('beard_3')))
+        end
+
+        local ch1 = n('chest_1')
+        local ch2 = n('chest_2', 10) / 10.0
+        if ch1 <= 0 or ch1 == 255 or ch2 <= 0.0 then
+            SetPedHeadOverlay(ped, 10, 255, 0.0)
+        else
+            SetPedHeadOverlay(ped, 10, ch1, ch2)
+            SetPedHeadOverlayColor(ped, 10, 1, n('chest_3'), n('chest_3'))
+        end
+    end
 
     SetPedEyeColor(ped, n('eye_color'))
 
     -- Hair
     SetPedComponentVariation(ped, 2, n('hair_1'), n('hair_2'), 2)
-    SetPedHairColor(ped, n('hair_color_1'), n('hair_color_2'))
+    SetPedHairColor(ped, n('hair_color_1'), n('hair_color_2', n('hair_color_1')))
 
     -- Props (nil-safe: treat nil the same as -1)
     local ears      = tonumber(skin['ears_1'])
@@ -132,6 +160,54 @@ AddEventHandler('cm-characters:client:applyAppearance', function(appearanceData)
 
     TriggerEvent('cm-characters:client:updateAppearanceCache', appearanceData)
     TriggerEvent('cm-inventory:client:forceWearEquippedClothing')
+end)
+
+RegisterNetEvent('cm-characters:client:applyBarberAppearance', function(barberData)
+    if not barberData or type(barberData) ~= 'table' then return end
+    local ped = PlayerPedId()
+    local function n(key, fallback) return safeN(barberData[key], fallback or 0) end
+
+    -- Hair
+    SetPedComponentVariation(ped, 2, n('hair_1'), n('hair_2'), 2)
+    SetPedHairColor(ped, n('hair_color_1'), n('hair_color_2', n('hair_color_1')))
+
+    -- Eyebrows
+    local eb1 = n('eyebrows_1')
+    local eb2 = n('eyebrows_2', 10) / 10.0
+    if eb1 >= 0 and eb1 ~= 255 and eb2 <= 0.0 then eb2 = 1.0 end
+    local eb3 = n('eyebrows_3', n('hair_color_1'))
+    local eb4 = n('eyebrows_4', eb3)
+    SetPedHeadOverlay(ped, 2, eb1, eb2)
+    SetPedHeadOverlayColor(ped, 2, 1, eb3, eb4)
+    SetPedFaceFeature(ped, 6, n('eyebrows_5') / 10.0)
+    SetPedFaceFeature(ped, 7, n('eyebrows_6') / 10.0)
+
+    -- Beard & Chest
+    local isFemale = (GetEntityModel(ped) == GetHashKey('mp_f_freemode_01'))
+    if isFemale then
+        SetPedHeadOverlay(ped, 1, 255, 0.0)
+        SetPedHeadOverlay(ped, 10, 255, 0.0)
+    else
+        local b1 = n('beard_1')
+        local b2 = n('beard_2', 10) / 10.0
+        if b1 <= 0 or b1 == 255 or b2 <= 0.0 then
+            SetPedHeadOverlay(ped, 1, 255, 0.0)
+        else
+            SetPedHeadOverlay(ped, 1, b1, b2)
+            SetPedHeadOverlayColor(ped, 1, 1, n('beard_3'), n('beard_4', n('beard_3')))
+        end
+
+        local ch1 = n('chest_1')
+        local ch2 = n('chest_2', 10) / 10.0
+        if ch1 <= 0 or ch1 == 255 or ch2 <= 0.0 then
+            SetPedHeadOverlay(ped, 10, 255, 0.0)
+        else
+            SetPedHeadOverlay(ped, 10, ch1, ch2)
+            SetPedHeadOverlayColor(ped, 10, 1, n('chest_3'), n('chest_3'))
+        end
+    end
+
+    TriggerEvent('cm-characters:client:updateAppearanceCache', barberData)
 end)
 
 

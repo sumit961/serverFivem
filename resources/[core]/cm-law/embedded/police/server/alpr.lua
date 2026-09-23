@@ -20,15 +20,24 @@ function PoliceAlprRefreshBolos()
     local rows = MySQL.query.await("SELECT plate FROM cm_police_bolos WHERE status = 'active' AND plate IS NOT NULL AND plate <> ''") or {}
     local nextCache = {}
     for _, row in ipairs(rows) do nextCache[tostring(row.plate):gsub('%s+', ''):upper()] = true end
+    -- Fixed ALPR cameras already notify cm-law's own dispatch-eligible
+    -- members below (EnforcementRecipients), but were never actually
+    -- cross-referencing SAHP/Sheriff/FIB/Army's own shared BOLO board
+    -- (cm_legal_bolos) -- only the legacy Police one. Union both so a BOLO
+    -- issued by any organization can trigger these cameras.
+    local ok, lawRows = pcall(function()
+        return MySQL.query.await("SELECT plate FROM cm_legal_bolos WHERE status = 'active' AND plate IS NOT NULL AND plate <> ''") or {}
+    end)
+    if ok then
+        for _, row in ipairs(lawRows) do nextCache[tostring(row.plate):gsub('%s+', ''):upper()] = true end
+    end
     BoloPlateCache = nextCache
 end
 
 local function authorizedManager(src)
     local characterId = cid(src)
-    local member = characterId and PoliceLegacyMemberFor(characterId)
-    if not member or PoliceLegacyDbBoolean(member.is_suspended) or not PoliceLegacyDbBoolean(member.on_duty) or not has(member, 'police.manage_alpr') then
-        return nil, characterId
-    end
+    local member = PoliceLegacyActiveMember(characterId, 'police.manage_alpr')
+    if not member then return nil, characterId end
     return member, characterId
 end
 

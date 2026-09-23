@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
-  <link rel="stylesheet" href="css/family-v100.css?v=200">
+  <link rel="stylesheet" href="css/family-v100.css?v=201">
   <link rel="stylesheet" href="css/ui-bridge-v1.css?v=2">
 </head>
 <body>
@@ -23,27 +23,41 @@
   <!-- Root menu -->
   <div id="root" class="root" aria-hidden="true">
     <div class="panel family-shell">
-      <aside class="family-sidebar">
-        <div class="brand family-brand">
-          <span class="crest" id="crest"></span>
-          <div class="brand__text"><span class="brand__kicker">CM FAMILY</span><h1 id="family-name">Family</h1><span class="brand__sub" id="family-sub"></span></div>
+      <nav class="top-nav">
+        <div class="nav-brand">
+          <div class="brand-logo" id="crest">CM</div>
+          <div class="brand-name"><span id="family-name">CM FAMILY</span><br><span class="brand-sub" id="family-sub">COMMAND SYSTEM</span></div>
         </div>
-        <nav class="tabs" id="tabs" aria-label="Family sections">
-          <button class="tab active" data-tab="overview"><span class="tab__icon">01</span><span><strong>Family information</strong><small>Home and status</small></span></button>
-          <button class="tab" data-tab="manage"><span class="tab__icon">02</span><span><strong>Management</strong><small>Family controls</small></span></button>
-          <button class="tab" data-tab="members"><span class="tab__icon">03</span><span><strong>Members</strong><small>Roster and roles</small></span></button>
-          <button class="tab" data-tab="ranks"><span class="tab__icon">04</span><span><strong>Ranks &amp; access</strong><small>Permission levels</small></span></button>
-          <button class="tab" data-tab="vehicles"><span class="tab__icon">05</span><span><strong>Family vehicles</strong><small>Shared transport</small></span></button>
-          <button class="tab" data-tab="treasury"><span class="tab__icon">07</span><span><strong>Treasury</strong><small>Funds and expenses</small></span></button>
-          <button class="tab" data-tab="events"><span class="tab__icon">08</span><span><strong>Events</strong><small>Robberies &amp; raids</small></span></button>
-          <button class="tab" data-tab="logs"><span class="tab__icon">09</span><span><strong>Activity logs</strong><small>Family history</small></span></button>
-        </nav>
-        <div class="family-sidebar__footer"><span>ESC</span> Close menu</div>
-      </aside>
-      <section class="family-workspace">
-        <header class="workspace-header"><div><span class="workspace-eyebrow">FAMILY CONTROL</span><h2 id="workspace-title">Family information</h2></div><button class="icon-btn" id="btn-close" title="Close">&times;</button></header>
-        <main class="content" id="content"><!-- rendered by JS --></main>
-      </section>
+
+        <div class="nav-links" id="tabs">
+          <button type="button" class="nav-link active" data-tab="overview">INFORMATION</button>
+          <button type="button" class="nav-link" data-tab="manage">MANAGEMENT</button>
+          <button type="button" class="nav-link" data-tab="members">MEMBERS</button>
+          <button type="button" class="nav-link" data-tab="ranks">RANKS</button>
+          <button type="button" class="nav-link" data-tab="vehicles">VEHICLES</button>
+          <button type="button" class="nav-link" data-tab="treasury">TREASURY</button>
+          <button type="button" class="nav-link" data-tab="events">EVENTS</button>
+          <button type="button" class="nav-link" data-tab="logs">LOGS</button>
+        </div>
+
+        <div class="nav-controls">
+          <div class="time-badge" id="sys-clock">SYS: 12:00 PM</div>
+          <button type="button" class="action-btn" id="btn-duty">OFF DUTY</button>
+          <button type="button" class="action-btn" id="btn-refresh">REFRESH</button>
+          <button type="button" class="action-btn danger" id="btn-close">LOGOUT</button>
+        </div>
+      </nav>
+
+      <main class="main-container">
+        <header class="page-header">
+          <div>
+            <div class="page-subtitle" id="workspace-subtitle">// FAMILY CONTROL</div>
+            <h1 class="page-title" id="workspace-title">FAMILY INFORMATION</h1>
+          </div>
+          <div class="status-badge primary" id="family-level-badge">LEVEL 1 FAMILY</div>
+        </header>
+        <div class="content" id="content"><!-- rendered by JS --></div>
+      </main>
     </div>
   </div>
 
@@ -70,6 +84,6 @@
   </div>
 
   <script src="js/ui-bridge-v1.js?v=1"></script>
-  <script src="js/family-v100.js?v=174"></script>
+  <script src="js/family-v100.js?v=175"></script>
 </body>
 </html>

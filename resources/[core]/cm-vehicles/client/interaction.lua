@@ -3,8 +3,19 @@ local lastSpeed = 0.0
 local engineAllowed = {}
 local engineRestartReadyAt = {}
 local engineStartInProgress = {}
+-- [vehicle] = token of the engine-start request currently awaiting a server
+-- reply. Lets a stale/duplicate reply (the server has no request dedup) be
+-- told apart from the one this client is actually waiting on.
+local engineStartToken = {}
+local engineStartSeq = 0
 local lastHardImpactAt = 0
+local lastEjectAt = 0
 local lastDriverVeh = 0
+-- Shared between the hard-impact damage block and the ENGINE PROTECT loop
+-- below: lets the protect loop tell "we just deliberately dealt damage"
+-- apart from "GTA's native collision physics drained health", so it stops
+-- refunding our own intentional hits as if they were native drain.
+local engineProtectSync = { veh = 0, health = nil }
 
 local function vehicleSpeedKmh(vehicle)
     if not vehicle or vehicle == 0 then return 0.0 end
@@ -76,15 +87,29 @@ local function notifyCannotStopWhileMoving(vehicle)
     CMVehicles.Client.Notify(('You cannot turn the engine off above %d km/h.'):format(math.floor(manualStopMaxSpeed() + 0.5)))
 end
 
+local function randomEjectVariant()
+    local variants = (Config.Seatbelt and Config.Seatbelt.EjectVariants) or {}
+    if #variants > 0 then return variants[math.random(1, #variants)] end
+    return { velocityMultiplier = 1.4, ragdollMs = 3000, spin = false }
+end
+
 local function ejectPlayer(vehicle)
     local ped = PlayerPedId()
     local coords = GetEntityCoords(ped)
     local velocity = GetEntityVelocity(vehicle)
+    local variant = randomEjectVariant()
+    local mult = tonumber(variant.velocityMultiplier) or 1.4
+    local ragdollMs = tonumber(variant.ragdollMs) or 3000
+
     TaskLeaveVehicle(ped, vehicle, 4160)
     Wait(1)
     SetEntityCoords(ped, coords.x, coords.y, coords.z + 0.5, true, true, true, false)
-    SetPedToRagdoll(ped, 3000, 3000, 0, false, false, false)
-    SetEntityVelocity(ped, velocity.x * 1.4, velocity.y * 1.4, velocity.z * 1.4)
+    SetPedToRagdoll(ped, ragdollMs, ragdollMs, 0, false, false, false)
+    SetEntityVelocity(ped, velocity.x * mult, velocity.y * mult, velocity.z * mult)
+    if variant.spin == true then
+        local spin = 3.0
+        SetEntityAngularVelocity(ped, (math.random() - 0.5) * spin, (math.random() - 0.5) * spin, (math.random() - 0.5) * spin)
+    end
 end
 
 local function restoreExpectedCondition(vehicle)
@@ -140,7 +165,12 @@ local function setEngine(vehicle, enabled)
         ResetEntityAlpha(vehicle)
     end
 
-    SetVehicleEngineOn(vehicle, enabled, true, true)
+    -- "instantly" (3rd arg) skips the ignition/start sound. This used to be
+    -- hardcoded true, so the engine start sound never played regardless of
+    -- Config.Engine.playStartSound. Stopping stays instant either way -- only
+    -- starting should play a sound.
+    local startInstant = not (Config.Engine and Config.Engine.playStartSound == true)
+    SetVehicleEngineOn(vehicle, enabled, (not enabled) or startInstant, true)
     SetVehicleUndriveable(vehicle, not enabled)
     engineAllowed[vehicle] = enabled
 end
@@ -176,7 +206,10 @@ local function forceEngineOffUntilCtrl(vehicle)
 end
 
 local function requestServerEngineStart(vehicle, plate, netId)
-    TriggerServerEvent('cm-vehicles:server:requestEngineStart', plate, netId)
+    engineStartSeq = engineStartSeq + 1
+    local token = engineStartSeq
+    engineStartToken[vehicle] = token
+    TriggerServerEvent('cm-vehicles:server:requestEngineStart', plate, netId, token)
 end
 
 local function startEngineWithDelayIfNeeded(vehicle, plate, netId)
@@ -210,7 +243,20 @@ local function startEngineWithDelayIfNeeded(vehicle, plate, netId)
             CMVehicles.Client.Notify('Engine is too damaged to start. Repair it first.')
             return
         end
+        -- Claim the in-progress flag ourselves before the request leaves, so
+        -- pressing the start key again during the network round-trip can't
+        -- fire a second request. engineStartResult clears it once the reply
+        -- (approved or denied) for THIS request arrives; this timeout is only
+        -- a safety net in case a reply never comes back at all.
+        engineStartInProgress[vehicle] = true
         requestServerEngineStart(vehicle, plate, netId)
+        local pendingToken = engineStartToken[vehicle]
+        SetTimeout(8000, function()
+            if engineStartToken[vehicle] == pendingToken then
+                engineStartToken[vehicle] = nil
+                engineStartInProgress[vehicle] = nil
+            end
+        end)
     end
 
     if delay <= 0 then
@@ -280,24 +326,31 @@ RegisterCommand('cm_engine', function()
 end, false)
 RegisterKeyMapping('cm_engine', 'Start/stop vehicle engine', 'keyboard', Config.Controls.engineKey or 'LCONTROL')
 
-RegisterNetEvent('cm-vehicles:client:engineStartResult', function(netId, allowed, message)
+RegisterNetEvent('cm-vehicles:client:engineStartResult', function(netId, allowed, message, token)
     local veh = NetworkGetEntityFromNetworkId(tonumber(netId) or 0)
     if not veh or veh == 0 then veh = GetVehiclePedIsIn(PlayerPedId(), false) end
     if not veh or veh == 0 then return end
 
+    -- Ignore a stale/duplicate reply that isn't the one this client is
+    -- currently waiting on (the server has no request dedup of its own).
+    if engineStartToken[veh] ~= nil and token ~= nil and tostring(engineStartToken[veh]) ~= tostring(token) then
+        return
+    end
+    engineStartToken[veh] = nil
+
     if allowed == true then
         if not isConditionReady(veh) then
+            engineStartInProgress[veh] = nil
             setEngine(veh, false)
             CMVehicles.Client.Notify('Vehicle condition is still loading. Try again in a moment.')
             return
         end
         if CMVehicles.Client.GetVehicleFuel(veh) <= 0.1 then
+            engineStartInProgress[veh] = nil
             setEngine(veh, false)
             CMVehicles.Client.Notify('Vehicle has no fuel.')
             return
         end
-        if engineStartInProgress[veh] == true then return end
-        engineStartInProgress[veh] = true
         CMVehicles.Client.Notify('Starting engine...')
         playEngineStartAnimation(veh, function()
             engineStartInProgress[veh] = nil
@@ -312,66 +365,37 @@ RegisterNetEvent('cm-vehicles:client:engineStartResult', function(netId, allowed
             CMVehicles.Client.Notify(message or 'Engine started.')
         end)
     else
+        engineStartInProgress[veh] = nil
         setEngine(veh, false)
         CMVehicles.Client.Notify(message or 'You do not have keys for this vehicle.')
     end
 end)
 
--- Prevent GTA/FiveM default auto-start when a player enters the driver seat.
+-- Prevent GTA/FiveM default auto-start when a player enters the driver seat,
+-- and always stop the engine the moment the driver seat is no longer theirs
+-- -- tap exit, hold exit, crash ejection, death, being dragged out, however
+-- it happens. There is no "leave the engine running" mode: exiting stops it.
 CreateThread(function()
     while true do
         Wait(0)
         local ped = PlayerPedId()
         local veh = GetVehiclePedIsIn(ped, false)
-        if veh ~= 0 and GetPedInVehicleSeat(veh, -1) == ped then
+        local isDriver = veh ~= 0 and GetPedInVehicleSeat(veh, -1) == ped
+
+        if isDriver then
             if veh ~= lastDriverVeh then
                 lastDriverVeh = veh
                 engineAllowed[veh] = isAdminAutoEngine(veh) and isConditionReady(veh) or false
                 SetVehicleNeedsToBeHotwired(veh, false)
-                forceEngineOffUntilCtrl(veh)
-            else
-                forceEngineOffUntilCtrl(veh)
             end
+            forceEngineOffUntilCtrl(veh)
         else
+            if lastDriverVeh ~= 0 then
+                local wasRunning = engineAllowed[lastDriverVeh] == true
+                setEngine(lastDriverVeh, false)
+                if wasRunning then CMVehicles.Client.Notify('Engine stopped.') end
+            end
             lastDriverVeh = 0
-        end
-    end
-end)
-
--- F behaviour: tap exits leaving engine running; hold exits and turns engine off.
--- Non-blocking: track press/release state instead of trapping this thread in a while loop.
-local exitKeyStartedAt = nil
-local exitKeyVehicle = nil
-CreateThread(function()
-    while true do
-        Wait(0)
-        local ped = PlayerPedId()
-        local veh = GetVehiclePedIsIn(ped, false)
-        local driver = veh ~= 0 and GetPedInVehicleSeat(veh, -1) == ped
-
-        if not driver then
-            exitKeyStartedAt = nil
-            exitKeyVehicle = nil
-        else
-            if IsControlJustPressed(0, 75) then
-                exitKeyStartedAt = GetGameTimer()
-                exitKeyVehicle = veh
-            end
-
-            if exitKeyStartedAt and IsControlJustReleased(0, 75) then
-                local held = (GetGameTimer() - exitKeyStartedAt) > 450
-                local targetVeh = (exitKeyVehicle and exitKeyVehicle ~= 0 and DoesEntityExist(exitKeyVehicle)) and exitKeyVehicle or veh
-                if held then
-                    stopEngine(targetVeh, 'Engine stopped.', false)
-                elseif engineAllowed[targetVeh] == true then
-                    -- 4th arg = instantly (skip start sound/animation). Setting it
-                    -- to true removes the gear-up/engine-on beep cue.
-                    local instant = (Config.Engine and Config.Engine.playStartSound == false)
-                    SetVehicleEngineOn(targetVeh, true, instant, false)
-                end
-                exitKeyStartedAt = nil
-                exitKeyVehicle = nil
-            end
         end
     end
 end)
@@ -392,7 +416,13 @@ CreateThread(function()
         Wait(150)
         local ped = PlayerPedId()
         local veh = GetVehiclePedIsIn(ped, false)
-        if veh ~= 0 and GetPedInVehicleSeat(veh, -1) == ped then
+        -- Driver AND passengers each run this on their own client, since
+        -- ejection (TaskLeaveVehicle/ragdoll below) only ever acts on the
+        -- LOCAL ped -- a passenger's own client is the only one that can
+        -- eject them. Engine damage/stall must stay driver-only though, or
+        -- every occupant's client would independently deal the same hit.
+        if veh ~= 0 then
+            local isDriver = GetPedInVehicleSeat(veh, -1) == ped
             local now = GetGameTimer()
             local speed = vehicleSpeedKmh(veh)
             local delta = lastSpeed - speed
@@ -403,42 +433,53 @@ CreateThread(function()
             -- Seatbelt warning: visual only, no chime. Active when moving unbelted.
             CMVehicles.Client.SeatbeltWarn = (not hasHarness and not CMVehicles.Client.Seatbelt and speed > 20)
 
-            -- ── Hard impact handling ──────────────────────────────────
-            -- A qualifying "hard impact" is a sudden speed drop above the
-            -- configured thresholds. Every hard impact removes only ~1% of
-            -- max engine health. The engine only *sometimes* dies, and only
-            -- on a severe crash (higher speed + bigger drop) rolled at random.
-            local minImpactSpeed = tonumber(damage.hardImpactMinSpeedKmh) or 55.0
-            local impactDelta = tonumber(damage.hardImpactDeltaKmh) or 35.0
-            local impactCooldown = tonumber(damage.hardImpactCooldownMs) or 1500
-            local isHardImpact = lastSpeed > minImpactSpeed and delta > impactDelta
+            if isDriver then
+                -- ── Hard impact handling ──────────────────────────────────
+                -- A qualifying "hard impact" is a sudden speed drop above the
+                -- configured thresholds. Every hard impact removes only ~1% of
+                -- max engine health. The engine only *sometimes* dies, and only
+                -- on a severe crash (higher speed + bigger drop) rolled at random.
+                local minImpactSpeed = tonumber(damage.hardImpactMinSpeedKmh) or 55.0
+                local impactDelta = tonumber(damage.hardImpactDeltaKmh) or 35.0
+                local impactCooldown = tonumber(damage.hardImpactCooldownMs) or 1500
+                local isHardImpact = lastSpeed > minImpactSpeed and delta > impactDelta
 
-            if engineAllowed[veh] == true and isHardImpact and now - lastHardImpactAt >= impactCooldown then
-                lastHardImpactAt = now
+                if engineAllowed[veh] == true and isHardImpact and now - lastHardImpactAt >= impactCooldown then
+                    lastHardImpactAt = now
 
-                -- 1% of max (1000) per hit.
-                local pct = tonumber(damage.impactEngineDamagePercent) or 1.0
-                local dmg = (pct / 100.0) * 1000.0
-                if dmg > 0.0 then
-                    local currentHealth = GetVehicleEngineHealth(veh)
-                    SetVehicleEngineHealth(veh, math.max(0.0, currentHealth - dmg))
-                end
+                    -- 1% of max (1000) per hit.
+                    local pct = tonumber(damage.impactEngineDamagePercent) or 1.0
+                    local dmg = (pct / 100.0) * 1000.0
+                    if dmg > 0.0 then
+                        local currentHealth = GetVehicleEngineHealth(veh)
+                        local newHealth = math.max(0.0, currentHealth - dmg)
+                        SetVehicleEngineHealth(veh, newHealth)
+                        -- Tell the engine-protect loop this drop was deliberate so
+                        -- it accepts it as the new baseline instead of refunding it.
+                        engineProtectSync.veh = veh
+                        engineProtectSync.health = newHealth
+                    end
 
-                -- Hard + random stall: only severe crashes can stop the engine,
-                -- and only on a dice roll. Most crashes just chip the 1%.
-                local severeSpeed = tonumber(damage.stallOnCrashMinSpeedKmh) or 80.0
-                local severeDelta = tonumber(damage.stallOnCrashMinDeltaKmh) or 55.0
-                local stallChance = tonumber(damage.stallOnCrashChancePercent) or 22
-                local isSevere = lastSpeed >= severeSpeed and delta >= severeDelta
-                if isSevere and math.random(1, 100) <= stallChance then
-                    engineRestartReadyAt[veh] = now + impactRestartDelayMs()
-                    setEngine(veh, false)
-                    CMVehicles.Client.Notify(('Severe crash killed the engine. Restart takes %d seconds.'):format(math.ceil(impactRestartDelayMs() / 1000)))
+                    -- Hard + random stall: only severe crashes can stop the engine,
+                    -- and only on a dice roll. Most crashes just chip the 1%.
+                    local severeSpeed = tonumber(damage.stallOnCrashMinSpeedKmh) or 80.0
+                    local severeDelta = tonumber(damage.stallOnCrashMinDeltaKmh) or 55.0
+                    local stallChance = tonumber(damage.stallOnCrashChancePercent) or 22
+                    local isSevere = lastSpeed >= severeSpeed and delta >= severeDelta
+                    if isSevere and math.random(1, 100) <= stallChance then
+                        engineRestartReadyAt[veh] = now + impactRestartDelayMs()
+                        setEngine(veh, false)
+                        CMVehicles.Client.Notify(('Severe crash killed the engine. Restart takes %d seconds.'):format(math.ceil(impactRestartDelayMs() / 1000)))
+                    end
                 end
             end
 
-            -- Unbelted ejection is unchanged (severe crash, no harness, no belt).
-            if not hasHarness and not CMVehicles.Client.Seatbelt and lastSpeed > (tonumber(seatbeltCfg.ejectSpeedKmh) or 85.0) and delta > (tonumber(seatbeltCfg.crashDeltaKmh) or 45.0) then
+            -- Unbelted ejection now applies to driver and passengers alike --
+            -- previously only the driver could ever be ejected in a crash.
+            local ejectCooldown = tonumber(seatbeltCfg.ejectCooldownMs) or 3000
+            if not hasHarness and not CMVehicles.Client.Seatbelt and lastSpeed > (tonumber(seatbeltCfg.ejectSpeedKmh) or 85.0)
+                and delta > (tonumber(seatbeltCfg.crashDeltaKmh) or 45.0) and now - lastEjectAt >= ejectCooldown then
+                lastEjectAt = now
                 ejectPlayer(veh)
             end
             lastSpeed = speed
@@ -596,11 +637,16 @@ CreateThread(function()
 
             if veh ~= lastVeh then
                 lastVeh, lastHealth = veh, health
+            elseif engineProtectSync.veh == veh and engineProtectSync.health ~= nil then
+                -- The hard-impact block just deliberately reduced health.
+                -- Accept it as the new baseline instead of refunding it, then
+                -- clear the flag so genuine native drain afterward is still
+                -- damped normally.
+                lastHealth = health
+                engineProtectSync.veh, engineProtectSync.health = 0, nil
             elseif lastHealth and health < lastHealth then
                 -- GTA took some engine health. Give back most of it.
                 local lost = lastHealth - health
-                -- Ignore our own deliberate impact damage (it is applied in one
-                -- go and is small); this simply damps any drop by `keep`.
                 local restored = health + (lost * (1.0 - keep))
                 if restored > 1000.0 then restored = 1000.0 end
                 SetVehicleEngineHealth(veh, restored)

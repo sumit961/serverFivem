@@ -3,6 +3,43 @@ local Config = CMVehicles.Config
 local StateSaleRequests = {}
 
 -- ---------------------------------------------------------------------------
+-- Lock-toggle settle window. toggleLock is a full server round-trip (validate
+-- -> write DB -> broadcast lockVisuals back to this client) before the
+-- vehicle's NATIVE lock flag actually changes here. If the player presses
+-- Enter on the same vehicle in that window, GTA still sees it as locked and
+-- plays its forced-entry (smash the window) animation instead of a normal
+-- entry -- even though the unlock the player just pressed was legitimate.
+-- Swallowing the Enter control for this vehicle for a brief moment after a
+-- toggle removes the race without touching lock security at all.
+-- ---------------------------------------------------------------------------
+local LOCK_SETTLE_MS = 700
+local recentLockToggle = { veh = 0, at = 0 }
+
+local function noteLockToggled(veh)
+    recentLockToggle.veh = veh
+    recentLockToggle.at = GetGameTimer()
+end
+
+CreateThread(function()
+    while true do
+        Wait(0)
+        if recentLockToggle.veh ~= 0 and GetGameTimer() - recentLockToggle.at < LOCK_SETTLE_MS then
+            local veh = recentLockToggle.veh
+            if DoesEntityExist(veh) then
+                local ped = PlayerPedId()
+                local inThisVehicle = GetVehiclePedIsIn(ped, false) == veh
+                local near = inThisVehicle or #(GetEntityCoords(ped) - GetEntityCoords(veh)) <= 8.0
+                if near and not inThisVehicle then
+                    DisableControlAction(0, 23, true) -- INPUT_ENTER
+                end
+            end
+        else
+            recentLockToggle.veh = 0
+        end
+    end
+end)
+
+-- ---------------------------------------------------------------------------
 -- Single-prompt interaction arbiter (mirror of cm-playerdata).
 -- When a player AND a vehicle are both targeted, only one G should show.
 -- cm-playerdata publishes LocalPlayer.state.cmPlayerInteractDist; we publish
@@ -342,6 +379,7 @@ RegisterCommand('veh_lock', function()
     if not netId then return CMVehicles.Client.Notify('This vehicle is not a networked CM vehicle.') end
     TriggerServerEvent('cm-vehicles:server:registerNetVehicle', plate, netId)
     TriggerServerEvent('cm-vehicles:server:toggleLock', plate, netId)
+    noteLockToggled(veh)
 end, false)
 RegisterKeyMapping('veh_lock', 'Lock/unlock vehicle', 'keyboard', Config.Controls.lockKey or 'L')
 
@@ -377,6 +415,7 @@ RegisterNUICallback('vehicleAction', function(data, cb)
 
     if action == 'lock' then
         TriggerServerEvent('cm-vehicles:server:toggleLock', plate, netId)
+        if veh and veh ~= 0 then noteLockToggled(veh) end
     elseif action == 'engine' then
         ExecuteCommand('cm_engine')
     elseif action == 'trunk' then
@@ -407,7 +446,13 @@ RegisterNUICallback('vehicleAction', function(data, cb)
     elseif action == 'windows' then
         if veh and veh ~= 0 then for i = 0, 3 do if IsVehicleWindowIntact(veh, i) then RollDownWindow(veh, i) else RollUpWindow(veh, i) end end end
     elseif action == 'doors' then
-        if veh and veh ~= 0 then for i = 0, 5 do if GetVehicleDoorAngleRatio(veh, i) > 0.1 then SetVehicleDoorShut(veh, i, false) else SetVehicleDoorOpen(veh, i, false, false) end end end
+        -- Passenger doors only (0-3). Index 4 is the hood (its own action
+        -- below) and index 5 is the trunk, which has its own server-tracked
+        -- open state (toggleTrunkDoor) -- popping it via this raw native
+        -- would desync CMVehicles.Server.Spawned[plate].trunkOpen, leaving
+        -- the trunk visibly open but the server still refusing "open trunk
+        -- first" when accessing its storage.
+        if veh and veh ~= 0 then for i = 0, 3 do if GetVehicleDoorAngleRatio(veh, i) > 0.1 then SetVehicleDoorShut(veh, i, false) else SetVehicleDoorOpen(veh, i, false, false) end end end
     elseif action == 'hood' then
         if veh and veh ~= 0 then if GetVehicleDoorAngleRatio(veh, 4) > 0.1 then SetVehicleDoorShut(veh, 4, false) else SetVehicleDoorOpen(veh, 4, false, false) end end
     elseif action == 'neons' then

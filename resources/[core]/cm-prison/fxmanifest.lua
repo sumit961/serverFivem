@@ -21,6 +21,7 @@ server_scripts {
 client_scripts {
     'client/main.lua',
     'client/intake.lua',
+    'client/tasks.lua',
 }
 
 dependencies { 'ox_lib', 'oxmysql', 'cm-playerdata', 'cm-items', 'cm-weapons', 'cm-inventory', 'cm-admin' }

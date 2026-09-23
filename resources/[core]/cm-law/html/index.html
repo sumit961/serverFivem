@@ -11,15 +11,15 @@
   </style>
 </head>
 <body>
-  <iframe id="law" class="surface active" src="law.html" title="Legal organization dashboard"></iframe>
-  <iframe id="police" class="surface" src="police/index.html" title="Los Santos Police dashboard"></iframe>
+  <iframe id="law" class="surface active" src="law.html?v=6" title="Legal organization dashboard"></iframe>
+  <iframe id="police" class="surface" src="police/index.html?v=2" title="Los Santos Police dashboard"></iframe>
   <script>
     const surfaces = { law: document.getElementById('law'), police: document.getElementById('police') };
     const ready = { law: false, police: false };
     const queued = { law: [], police: [] };
     const panelIds = {
-      law: ['app', 'legalArmory', 'wardrobeRoom', 'facilityDialogue', 'lawConfirm'],
-      police: ['app', 'wardrobeRoom', 'mdtTerminal', 'impoundRelease', 'npcDialogue', 'policeQuickMenu', 'policeConfirm', 'cinematicAccessibility'],
+      law: ['app', 'legalArmory', 'legalFleet', 'wardrobeRoom', 'facilityDialogue', 'lawConfirm'],
+      police: ['app', 'wardrobeRoom', 'impoundRelease', 'npcDialogue', 'policeQuickMenu', 'policeConfirm', 'cinematicAccessibility'],
     };
     let active = 'law';
     const hasPanel = name => ready[name] && panelIds[name].some(id => {
@@ -31,8 +31,8 @@
       Object.entries(surfaces).forEach(([key, frame]) => frame.classList.toggle('active', key === name));
       if (focus && ready[name]) surfaces[name].contentWindow.focus();
     };
-    const interactiveOpen = payload => ['open', 'bookingOpen', 'legalArmoryOpen', 'legalWardrobeOpen', 'policeCloset:open',
-      'openMdtTerminal', 'quickMenuOpen', 'confirmOpen', 'cinematicAccessibility:open',
+    const interactiveOpen = payload => ['open', 'bookingOpen', 'legalArmoryOpen', 'legalFleetOpen', 'legalWardrobeOpen', 'policeCloset:open',
+      'quickMenuOpen', 'confirmOpen', 'cinematicAccessibility:open',
       'impoundRelease:open', 'npcDialogue:open'].includes(payload.action)
       || (payload.action === 'facilityDialogue' && payload.visible === true);
     const passiveOpen = payload => ['npcInteraction:show', 'showHint', 'policeCinematic:show', 'notify'].includes(payload.action)

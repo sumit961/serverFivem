@@ -126,7 +126,7 @@ end
 local function restoreDashboardFocus()
     local stillFocused = (type(IsPoliceMenuOpen) == 'function' and IsPoliceMenuOpen() == true)
         or (type(PoliceIsNpcDialogueOpen) == 'function' and PoliceIsNpcDialogueOpen() == true)
-    for _, name in ipairs({ 'CmLawMenuOpen', 'PoliceIsWardrobeOpen', 'PoliceIsMdtOpen', 'PoliceIsImpoundOpen' }) do
+    for _, name in ipairs({ 'CmLawMenuOpen', 'PoliceIsWardrobeOpen', 'PoliceIsImpoundOpen' }) do
         if type(_G[name]) == 'function' and _G[name]() == true then stillFocused = true end
     end
     SetNuiFocus(stillFocused, stillFocused)

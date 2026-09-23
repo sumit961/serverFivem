@@ -175,6 +175,24 @@ exports('HasOrganizationCapability', function(orgId, capability)
     return LawCapabilityEnabled(orgId, capability)
 end)
 
+-- Shared "does this member's rank/duty satisfy this fleet vehicle's access
+-- requirement" decision. Legal-org (server/vehicles.lua's
+-- GetVehicleAccessDecision) and police (embedded/police/server/vehicles.lua's
+-- PoliceLegacyVehicleAccessDecision) fleet vehicles use this identical
+-- shape -- some actions are always fleet-protected, otherwise on-duty + not
+-- suspended + (leader or tier requirement met) -- reused here so a fix to
+-- one path can't silently miss the other. Callers normalize their own
+-- member table to {suspended, onDuty, isLeader, tier} first (police's member
+-- rows are snake_case/db-boolean; this only takes the normalized shape).
+function FleetVehicleAccessDecision(member, requiredTier, action, reasons)
+    action = tostring(action or 'vehicle.drive')
+    if action == 'vehicle.sell' or action == 'vehicle.delete' or action == 'vehicle.keys.manage'
+        or action == 'vehicle.family.share' then return false, reasons.protected end
+    if member.suspended or member.onDuty ~= true then return false, reasons.notOnDuty end
+    if not member.isLeader and (tonumber(member.tier) or 0) < (tonumber(requiredTier) or 0) then return false, reasons.rankTooLow end
+    return true, reasons.ok
+end
+
 -- Shared enforcement gate used directly by cm-law modules and by the
 -- cm-police compatibility adapters. Returning a server-built context keeps
 -- organization identity, duty and rank authority out of client payloads.
@@ -360,7 +378,7 @@ local function dashboardFor(src)
     local roster = {}
     if canViewMembers then
         roster = MySQL.query.await([[
-            SELECT m.character_id, m.on_duty, m.suspended_until, r.id AS rank_id,
+            SELECT m.character_id, m.on_duty, m.suspended_until, m.photo_url, r.id AS rank_id,
                    r.name AS rank_name, r.tier, r.is_leader, c.first_name, c.last_name
             FROM cm_legal_members m
             JOIN cm_legal_ranks r ON r.id = m.rank_id AND r.organization_id = m.organization_id
@@ -465,7 +483,7 @@ local function dashboardFor(src)
     local payload = statePayload(member, activeUniform(member.characterId, member.organizationId) ~= nil)
 
     return { ok = true, organization = { id = member.organizationId, label = org.label, shortLabel = org.shortLabel,
-        color = org.color, jurisdiction = org.jurisdiction },
+        color = org.color, jurisdiction = org.jurisdiction, radioChannel = org.radioChannel, chatChannel = org.chatChannel },
         member = payload, canManage = canManage(member), characterId = member.characterId,
         canViewMembers = canViewMembers,
         canInspectRankPermissions = canInspectRankPermissions,
@@ -489,6 +507,12 @@ local function dashboardFor(src)
         canManageRanks = canManageRanks,
         prison = prison,
         canManagePermissions = canManagePermissions,
+        -- Criminal Code affects every organization's bookings equally (shared
+        -- catalog, not org-scoped), so it's gated the same way as the shared
+        -- jail settings (server/booking.lua's LawAdminSetSharedJail): any
+        -- organization's leader, or cm-admin permission, not a granular
+        -- per-rank permission.
+        canManageCharges = member.isLeader or adminAllowed(src),
         permissions = canInspectRankPermissions and Config.Permissions or {},
         summary = {
             memberCount = tonumber(counts.member_count) or 0,
@@ -531,6 +555,7 @@ local function ensureSchema()
         PRIMARY KEY (organization_id, character_id), KEY idx_cm_legal_member_character (character_id),
         KEY idx_cm_legal_member_rank (rank_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]])
+    pcall(function() MySQL.query.await('ALTER TABLE cm_legal_members ADD COLUMN photo_url VARCHAR(300) NULL') end)
     MySQL.query.await([[CREATE TABLE IF NOT EXISTS cm_legal_invites (
         organization_id VARCHAR(32) NOT NULL, character_id VARCHAR(64) NOT NULL,
         invited_by VARCHAR(64) NOT NULL, expires_at DATETIME NOT NULL,
@@ -915,6 +940,22 @@ lib.callback.register('cm-law:server:setDuty', function(src, requested)
     syncCharacter(characterId)
     return { ok = true, message = onDuty and 'You are now on duty in plain clothes.'
         or 'You are now off duty. Your personal clothes have been restored.' }
+end)
+
+-- Self-capture only (screenshot-basic captures the requesting client's own
+-- screen, see server/photos.lua) -- an officer sets their own duty photo,
+-- shown as their roster/duty-list avatar. No distance check needed since the
+-- target is always the caller.
+lib.callback.register('cm-law:server:setMemberPhoto', function(src)
+    local member, characterId = activeMemberForSource(src)
+    if not member then return { ok = false, error = 'No legal organization membership.' } end
+    if not rateLimit(src, 'law_member_photo', 4000) then return { ok = false, error = 'Please wait before capturing another photo.' } end
+    local photoUrl = LawCapturePhoto(src, 'officers', characterId)
+    if not photoUrl then return { ok = false, error = 'Photo capture failed. Is screenshot-basic running?' } end
+    MySQL.update.await('UPDATE cm_legal_members SET photo_url = ? WHERE organization_id = ? AND character_id = ?',
+        { photoUrl, member.organizationId, characterId })
+    logActivity(member.organizationId, characterId, 'member_photo_updated', {})
+    return { ok = true, message = 'Duty photo updated.', photoUrl = photoUrl }
 end)
 
 lib.callback.register('cm-law:server:staffAction', function(src, action, payload)

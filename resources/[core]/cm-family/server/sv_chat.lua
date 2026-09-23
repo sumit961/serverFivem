@@ -25,7 +25,9 @@ local function sendFamilyChat(src, args)
     local now = GetGameTimer()
     local cooldown = tonumber(Config.Chat.cooldownMs) or 1200
     if lastUse[src] and now - lastUse[src] < cooldown then
-        LogFamily(fam.id, cid, 'family_chat_blocked', { reason = 'cooldown' }, { status = 'denied' })
+        if Config.Debug then
+            LogFamily(fam.id, cid, 'family_chat_blocked', { reason = 'cooldown' }, { status = 'denied' })
+        end
         return false, 'family_chat_cooldown'
     end
     lastUse[src] = now
@@ -33,7 +35,9 @@ local function sendFamilyChat(src, args)
     local message = cleanMessage(type(args) == 'table' and table.concat(args, ' ') or args)
     if message == '' then
         B.Notify(src, 'Usage: /f message', 'inform')
-        LogFamily(fam.id, cid, 'family_chat_blocked', { reason = 'empty_message' }, { status = 'denied' })
+        if Config.Debug then
+            LogFamily(fam.id, cid, 'family_chat_blocked', { reason = 'empty_message' }, { status = 'denied' })
+        end
         return false, 'empty_message'
     end
 
@@ -70,7 +74,9 @@ local function sendFamilyChat(src, args)
     -- again and rebuilds recipients before displaying the message.
     TriggerEvent('cm-family:server:chatMessage', payload, recipients)
     TriggerEvent('cm-chat:server:familyMessage', payload, recipients)
-    LogFamily(fam.id, cid, 'family_chat_sent', { length = #message, recipientCount = #recipients })
+    if Config.Debug then
+        LogFamily(fam.id, cid, 'family_chat_sent', { length = #message, recipientCount = #recipients })
+    end
     return true
 end
 

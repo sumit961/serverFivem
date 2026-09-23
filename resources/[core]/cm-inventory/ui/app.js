@@ -718,6 +718,12 @@ function finishDrag(x, y) {
 
   const fromIndex = externalSlotIndex(fromSlot);
   const toIndex = externalSlotIndex(toSlot);
+
+  if (fromIndex !== null && toIndex === null && state.external?.canWithdraw === false) {
+    showToast('You cannot take items from this storage.', 'error');
+    return;
+  }
+
   const movePayload = {
     fromSlot,
     toSlot,
@@ -906,11 +912,16 @@ function showContext(item, x, y) {
         <div class="details-list">${details || '<div class="detail-row"><span>Info</span><b>Stored Item</b></div>'}</div>
       </div>
       <div class="context-actions compact">
-        <button data-action="take"><span class="icon">⇦</span>TAKE TO INVENTORY</button>
+        <button data-action="take"${state.external?.canWithdraw === false ? ' disabled style="opacity:0.5;cursor:not-allowed;"' : ''}><span class="icon">${state.external?.canWithdraw === false ? '🔒' : '⇦'}</span>${state.external?.canWithdraw === false ? 'WITHDRAW LOCKED' : 'TAKE TO INVENTORY'}</button>
       </div>
     `;
     const takeBtn = contextEl.querySelector('[data-action="take"]');
     if (takeBtn) takeBtn.onclick = () => {
+      if (state.external?.canWithdraw === false) {
+        showToast('You cannot take items from this storage.', 'error');
+        closeContext();
+        return;
+      }
       const slot = firstEmptyMainSlot();
       if (!slot) { showToast('No empty pocket/backpack slot.', 'error'); closeContext(); return; }
       post('moveItem', {

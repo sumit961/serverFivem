@@ -104,6 +104,7 @@ CMVehicles.Config = {
             ['cm-license'] = true,
             ['cm-electrician'] = true,
             ['cm-fishing'] = true,
+            ['cm-taxi'] = true,
         }
     },
 
@@ -128,8 +129,23 @@ CMVehicles.Config = {
     Seatbelt = {
         ejectSpeedKmh = 85.0,
         crashDeltaKmh = 45.0,
+        -- A multi-tick crash (rollover, grinding to a stop) can otherwise
+        -- re-trigger ejection every 150ms poll before the ped is confirmed
+        -- clear of the seat.
+        ejectCooldownMs = 3000,
         -- Seatbelt warning is now visual only (fed to cm-hud). No sound.
-        warningIntervalMs = 5000
+        warningIntervalMs = 5000,
+
+        -- Each ejection picks one of these at random, so not every crash
+        -- throws the player exactly the same way. velocityMultiplier scales
+        -- the vehicle's velocity for the launch, ragdollMs is how long the
+        -- ped stays ragdolled, and spin adds a tumbling angular velocity.
+        EjectVariants = {
+            { velocityMultiplier = 1.1, ragdollMs = 1500, spin = false }, -- light tumble
+            { velocityMultiplier = 1.4, ragdollMs = 3000, spin = false }, -- original behaviour
+            { velocityMultiplier = 1.7, ragdollMs = 4000, spin = true  }, -- hard throw
+            { velocityMultiplier = 1.3, ragdollMs = 2500, spin = true  }, -- spin out
+        },
     },
 
     Damage = {
@@ -149,7 +165,6 @@ CMVehicles.Config = {
         engineProtect = true,           -- damp GTA's own engine-health drain
         engineProtectKeepPercent = 0.12,-- keep only 12% of the native loss per tick
 
-        hardImpactUseSeatbeltCrashThreshold = true,
         hardImpactMinSpeedKmh = 65.0,   -- must be going fast for a hit to count
         hardImpactDeltaKmh = 45.0,      -- and lose a lot of speed in one tick
         hardImpactCooldownMs = 3000,    -- longer gap between counted impacts
@@ -171,8 +186,11 @@ CMVehicles.Config = {
 
         -- Manual engine stop is blocked above this speed. Hard impact can still shut the engine off.
         manualStopMaxSpeedKmh = 20.0,
-        -- Remove the engine start/gear-up beep cue when re-enabling on exit.
-        playStartSound = false
+        -- Play the native ignition/start sound when the engine actually
+        -- starts (main start flow and the tap-exit re-affirm path both
+        -- respect this). Was defaulted off, which is why no start sound was
+        -- ever heard.
+        playStartSound = true
     },
 
     Fuel = {
@@ -254,7 +272,9 @@ CMVehicles.Config = {
     --  power directly, scaled by the vehicle's CLASS, so tuning actually means
     --  something. Level 4 = the full gain below; levels 1-3 interpolate.
     --
-    --  e.g. a Super at Level 4: 275 km/h stock -> ~440 km/h tuned.
+    --  e.g. a Sports car at Level 4: gets the Sports class gain below.
+    --  Super is set to 0.00: Super-class cars always run at stock top speed,
+    --  regardless of engine tuning level.
     -- ══════════════════════════════════════════════════════════════════
     Tuning = {
         enabled = true,
@@ -263,7 +283,7 @@ CMVehicles.Config = {
         -- (0 Compact, 1 Sedan, 2 SUV, 3 Coupe, 4 Muscle, 5 SportsClassic,
         --  6 Sports, 7 Super, 8 Motorcycle, 9 OffRoad, 12 Van, ...)
         ClassGain = {
-            [7]  = 0.60,   -- Super
+            [7]  = 0.00,   -- Super: tuning boost disabled, runs at stock/default speed
             [6]  = 0.45,   -- Sports
             [5]  = 0.45,   -- Sports Classic
             [4]  = 0.35,   -- Muscle

@@ -238,13 +238,14 @@ local function GetCharId(src)
 
     local data = PlayerData[src]
     if data and data.charId then
-        return tonumber(data.charId)
+        return tostring(data.charId)
     end
 
     local ok, state = pcall(function() return Player(src).state end)
     if not ok or not state then return nil end
 
-    return tonumber(state.charId or state.characterId or state.rpId)
+    local charId = state.charId or state.characterId or state.rpId
+    return charId and tostring(charId) or nil
 end
 
 local function SetState(src, key, value, replicated)
@@ -492,8 +493,8 @@ local function ApplyState(src)
     local data = PlayerData[src]
     if not data then return end
 
-    local charId = tonumber(data.charId)
-    if charId then
+    local charId = tostring(data.charId or '')
+    if charId ~= '' then
         SetState(src, 'charId', charId)
         SetState(src, 'characterId', charId)
         SetState(src, 'rpId', charId)
@@ -552,7 +553,8 @@ local function LoadPlayerData(src)
 
     local defaults = Config.Defaults
 
-    if PlayerData[src] and PlayerData[src].loaded and tonumber(PlayerData[src].charId) ~= tonumber(charId) then
+    if PlayerData[src] and PlayerData[src].loaded
+        and tostring(PlayerData[src].charId or '') ~= tostring(charId) then
         -- Character switched while this resource stayed alive. The old record will
         -- be saved by the normal save loop/drop hook if needed; replace cache now.
         PlayerData[src] = nil
@@ -1003,8 +1005,8 @@ AddEventHandler('cm-core:characterLoaded', function(src, charId)
     src = tonumber(src)
     if not src then return end
 
-    charId = tonumber(charId) or GetCharId(src)
-    if charId then
+    charId = tostring(charId or GetCharId(src) or '')
+    if charId ~= '' then
         local ok, state = pcall(function() return Player(src).state end)
         if ok and state then
             state:set('charId', charId, true)
@@ -1027,8 +1029,8 @@ end)
 AddEventHandler('cm-playerdata:server:loadCharacter', function(src, charId)
     src = tonumber(src)
     if not src then return end
-    charId = tonumber(charId)
-    if charId then
+    charId = tostring(charId or '')
+    if charId ~= '' then
         pcall(function()
             local state = Player(src).state
             state:set('charId', charId, true)
@@ -1057,9 +1059,9 @@ AddEventHandler('cm-spawn:server:spawned', function(src, charId)
         if charId then
             pcall(function()
                 local state = Player(src).state
-                state:set('charId', tonumber(charId), true)
-                state:set('characterId', tonumber(charId), true)
-                state:set('rpId', tonumber(charId), true)
+                state:set('charId', tostring(charId), true)
+                state:set('characterId', tostring(charId), true)
+                state:set('rpId', tostring(charId), true)
             end)
         end
         LoadPlayerData(src)

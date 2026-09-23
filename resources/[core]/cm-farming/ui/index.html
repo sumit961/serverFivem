@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CM Farming</title>
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-components.css">
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-icons.css">
+  <script src="nui://cm-ui/web/cm-ui.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="hold-root" class="cm-hold hidden" aria-hidden="true">
+    <div class="cm-hold-track"><i id="holdFill"></i></div>
+    <span id="holdLabel">Working...</span>
+  </div>
+
+  <div id="choose-root" class="cm-app hidden">
+    <div class="cm-window cm-window-sm">
+      <div class="cm-window-header">
+        <div>
+          <div class="cm-window-title">Choose a seed</div>
+          <div class="cm-window-subtitle">Pick which crop to plant on this plot</div>
+        </div>
+        <button class="cm-btn cm-btn-secondary cm-btn-sm" id="chooseCancel">Cancel</button>
+      </div>
+      <div class="cm-window-body cm-scrollbar">
+        <div class="cm-grid cm-grid-3" id="chooseGrid"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="menu-root" class="cm-app hidden">
+    <div class="cm-window">
+      <div class="cm-window-header">
+        <div>
+          <div class="cm-window-title">CM Farmers Market</div>
+          <div class="cm-window-subtitle" id="menuSubtitle">Level 0 &middot; $0 cash</div>
+        </div>
+        <button class="cm-btn cm-btn-secondary cm-btn-sm" id="menuClose">Close</button>
+      </div>
+      <div class="cm-window-body cm-scrollbar">
+        <div class="cm-tabs" id="menuTabs">
+          <button class="cm-tab cm-active" data-tab="seeds">Buy Seeds</button>
+          <button class="cm-tab" data-tab="tools">Buy Supplies</button>
+          <button class="cm-tab" data-tab="sell">Sell Crops</button>
+        </div>
+
+        <div class="cm-progress cm-xp-progress">
+          <div class="cm-progress-bar" id="xpBar"></div>
+        </div>
+        <div class="cm-help" id="xpLabel">0 / 80 XP to next level</div>
+
+        <div class="cm-grid cm-grid-3 cm-tab-panel" id="panelSeeds"></div>
+        <div class="cm-grid cm-grid-3 cm-tab-panel hidden" id="panelTools"></div>
+        <div class="cm-grid cm-grid-3 cm-tab-panel hidden" id="panelSell"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

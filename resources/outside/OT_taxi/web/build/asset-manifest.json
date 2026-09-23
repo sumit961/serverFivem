@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/web/build/static/css/main.aba5124e.css",
+    "main.js": "/web/build/static/js/main.fc52438e.js",
+    "index.html": "/web/build/index.html",
+    "main.aba5124e.css.map": "/web/build/static/css/main.aba5124e.css.map",
+    "main.fc52438e.js.map": "/web/build/static/js/main.fc52438e.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.aba5124e.css",
+    "static/js/main.fc52438e.js"
+  ]
+}

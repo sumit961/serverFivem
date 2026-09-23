@@ -61,6 +61,7 @@ local function setClothingPositionSaveBlocked(block)
   if LocalPlayer and LocalPlayer.state and LocalPlayer.state.set then
     LocalPlayer.state:set('inClothingStore', block, true)
     LocalPlayer.state:set('cmClothingPreview', block, true)
+    LocalPlayer.state:set('skipPositionSave', block, true)
     LocalPlayer.state:set('cmSkipPositionSave', block, true)
     LocalPlayer.state:set('ignorePositionSave', block, true)
   end
@@ -292,6 +293,18 @@ local function snapshotCurrentClothes()
       }
     end
   end
+
+  -- Preserve natural hair and mask so hat/mask previews never leave the player bald
+  saveClothes.__hair = {
+    drawable = GetPedDrawableVariation(ped, 2),
+    texture  = GetPedTextureVariation(ped, 2),
+    color    = GetPedHairColor(ped),
+    highlight= GetPedHairHighlightColor(ped),
+  }
+  saveClothes.__mask = {
+    drawable = GetPedDrawableVariation(ped, 1),
+    texture  = GetPedTextureVariation(ped, 1),
+  }
 end
 
 --- Calcule les nombres de variations (drawable count) par catégorie pour l’UI
@@ -350,12 +363,10 @@ end
 local function restoreShopPreviewClothes()
   -- Store/admin preview must never permanently save to the player's character.
   -- We restore the exact snapshot taken before opening the UI on every close.
-  if type(setOutfit) == 'function' and type(saveClothes) == 'table' then
-    setOutfit(saveClothes)
-  else
-    local ped = PlayerPedId()
-    if type(saveClothes) == 'table' then
-      for category, item in pairs(saveClothes) do
+  local ped = PlayerPedId()
+  if type(saveClothes) == 'table' then
+    for category, item in pairs(saveClothes) do
+      if not category:find('^__') then
         local cat = categories and categories[category]
         if cat and item and item.drawable ~= nil then
           if cat.type == 'prop' then
@@ -369,6 +380,17 @@ local function restoreShopPreviewClothes()
           end
         end
       end
+    end
+
+    -- Explicitly restore natural hair and mask
+    if saveClothes.__hair and saveClothes.__hair.drawable ~= nil then
+      SetPedComponentVariation(ped, 2, saveClothes.__hair.drawable, saveClothes.__hair.texture or 0, 0)
+      if saveClothes.__hair.color and saveClothes.__hair.color >= 0 then
+        SetPedHairColor(ped, saveClothes.__hair.color, saveClothes.__hair.highlight or saveClothes.__hair.color)
+      end
+    end
+    if saveClothes.__mask and saveClothes.__mask.drawable ~= nil then
+      SetPedComponentVariation(ped, 1, saveClothes.__mask.drawable, saveClothes.__mask.texture or 0, 0)
     end
   end
 end
@@ -499,6 +521,14 @@ function closeShopRoutine()
   if type(NvClothManage_OnShopClosed) == 'function' then
     NvClothManage_OnShopClosed()
   end
+
+  if type(CloseStore) == 'function' and exports[GetCurrentResourceName()] and exports[GetCurrentResourceName()]:GetActiveShop() ~= nil then
+    CloseStore()
+  end
+
+  -- Revert all preview clothing variations and reassert the player's saved equipped inventory items.
+  TriggerEvent('cm-inventory:client:restoreEquippedClothing')
+  TriggerEvent('cm-inventory:client:forceWearEquippedClothing')
 end
 
 --- Ouvre/ferme la boutique de vêtements
@@ -524,33 +554,38 @@ function openClothShop(label, cats, shopKey, shopData, adminMode)
   adminOriginalAppearance = captureAdminOriginalAppearance()
   setClothingPositionSaveBlocked(true)
 
+  local inClothStoreSession = (ClothCam and ClothCam.IsActive())
+    or (exports[GetCurrentResourceName()] and exports[GetCurrentResourceName()]:GetActiveShop() ~= nil)
+
   -- Every shopper/admin gets their own private dressing room instance.
-  TriggerServerEvent('nvCloth:server:enterDressingRoom')
-  inPrivateBucket = true
-  Wait(100)
+  if not inClothStoreSession then
+    TriggerServerEvent('nvCloth:server:enterDressingRoom')
+    inPrivateBucket = true
+    Wait(100)
 
-  -- Always return to where the player pressed E.
-  -- This fixes being sent to another store's exit when closing accessories/clothes.
-  if Config.ReturnToOriginalPosition ~= false then
-    currentShopCoords = vector4(startCoords.x, startCoords.y, startCoords.z, startHeading)
-  elseif (not isAdminShop) and shopData and shopData.exitCoords then
-    currentShopCoords = shopData.exitCoords
-  else
-    currentShopCoords = vector4(startCoords.x, startCoords.y, startCoords.z, startHeading)
-  end
+    -- Always return to where the player pressed E.
+    -- This fixes being sent to another store's exit when closing accessories/clothes.
+    if Config.ReturnToOriginalPosition ~= false then
+      currentShopCoords = vector4(startCoords.x, startCoords.y, startCoords.z, startHeading)
+    elseif (not isAdminShop) and shopData and shopData.exitCoords then
+      currentShopCoords = shopData.exitCoords
+    else
+      currentShopCoords = vector4(startCoords.x, startCoords.y, startCoords.z, startHeading)
+    end
 
-  -- Teleport into a clean preview scene. Admin uses the LSIA airport green-prop studio.
-  local room
-  if isAdminShop and Config.AdminStudio and Config.AdminStudio.StudioCoords then
-    room = Config.AdminStudio.StudioCoords
-  else
-    room = (not isAdminShop) and shopData and shopData.dressingRoom or Config.DefaultDressingRoom
-  end
-  if room then
-    SetEntityCoordsNoOffset(ped, room.x, room.y, room.z, false, false, false)
-    if room.w then SetEntityHeading(ped, room.w) end
-    FreezeEntityPosition(ped, true)
-    Wait(250)
+    -- Teleport into a clean preview scene. Admin uses the LSIA airport green-prop studio.
+    local room
+    if isAdminShop and Config.AdminStudio and Config.AdminStudio.StudioCoords then
+      room = Config.AdminStudio.StudioCoords
+    else
+      room = (not isAdminShop) and shopData and shopData.dressingRoom or Config.DefaultDressingRoom
+    end
+    if room then
+      SetEntityCoordsNoOffset(ped, room.x, room.y, room.z, false, false, false)
+      if room.w then SetEntityHeading(ped, room.w) end
+      FreezeEntityPosition(ped, true)
+      Wait(250)
+    end
   end
 
   setInventoryClothingState(true)
@@ -574,18 +609,58 @@ function openClothShop(label, cats, shopKey, shopData, adminMode)
     TriggerServerEvent('nvCloth:server:requestCaptureVisibility')
   else
     TriggerServerEvent('nvCloth:server:getFavourites')
+    TriggerServerEvent('nvCloth:server:getOutfits')
   end
 
   setShopPlayerLocked(true)
-  if SetShopCameraFixedMode then SetShopCameraFixedMode(true) end
-  CreateSkinCam("body")
+  if not inClothStoreSession then
+    if SetShopCameraFixedMode then SetShopCameraFixedMode(true) end
+    CreateSkinCam("body")
+  end
 
   SendNUIMessage({
     type = "adminMode",
     value = isAdminShop,
     shopKey = currentShopKey,
   })
+
+  local activeShopId = (currentShopData and currentShopData.id)
+  if not activeShopId and exports[GetCurrentResourceName()] and exports[GetCurrentResourceName()].GetActiveShop then
+    activeShopId = exports[GetCurrentResourceName()]:GetActiveShop()
+  end
+  if activeShopId then
+    TriggerServerEvent('nv_cloth:server:getStoreDetails', activeShopId)
+  end
 end
+
+RegisterNetEvent('nv_cloth:client:openUI', function(shopId)
+  local shopData = nil
+  if type(Config.Shops) == 'table' then
+    for _, s in ipairs(Config.Shops) do
+      if s.id == shopId then shopData = s; break end
+    end
+  end
+  local label = shopData and shopData.label or 'Clothing Store'
+  local cats = shopData and shopData.categories or { "hat", "torso", "arms", "tshirt", "pants", "shoes", "glasses" }
+  openClothShop(label, cats, 'clothes', shopData, false)
+end)
+
+-- Dedicated wardrobe opener (e.g. from house interior, dressing room, or command)
+RegisterNetEvent('nvCloth:client:openWardrobe', function()
+  openClothShop("WARDROBE", { "torso", "tshirt", "pants", "shoes", "hat", "glasses", "chains", "bags", "watches", "bracelets", "earrings" }, "clothes", nil, false)
+  CreateThread(function()
+    Wait(200)
+    SendNUIMessage({ type = 'openWardrobeTab' })
+  end)
+end)
+
+RegisterCommand("wardrobe", function()
+  TriggerEvent('nvCloth:client:openWardrobe')
+end, false)
+
+RegisterCommand("outfits", function()
+  TriggerEvent('nvCloth:client:openWardrobe')
+end, false)
 
 --========================================================
 -- Commande de test
@@ -767,6 +842,76 @@ RegisterNetEvent('nvCloth:client:cachedShopCatalog', function(requestId, rows)
   })
 end)
 
+RegisterNetEvent('nv_cloth:client:storeDetailsResult', function(payload)
+  SendNUIMessage({
+    type = 'storeOwnership',
+    store = payload
+  })
+end)
+
+local function refreshActiveStoreDetails(shopId)
+  local activeShopId = shopId or (currentShopData and currentShopData.id)
+  if not activeShopId and exports[GetCurrentResourceName()] and exports[GetCurrentResourceName()].GetActiveShop then
+    activeShopId = exports[GetCurrentResourceName()]:GetActiveShop()
+  end
+  if activeShopId then
+    TriggerServerEvent('nv_cloth:server:getStoreDetails', activeShopId)
+  end
+end
+
+RegisterNetEvent('nv_cloth:client:storeUpdated', function(shopId)
+  refreshActiveStoreDetails(shopId)
+end)
+
+RegisterNetEvent('nv_cloth:client:storePurchased', function(shopId)
+  refreshActiveStoreDetails(shopId)
+end)
+
+RegisterNUICallback('buyStore', function(data, cb)
+  local shopId = (data and data.shopId) or (currentShopData and currentShopData.id)
+  if not shopId and exports[GetCurrentResourceName()] and exports[GetCurrentResourceName()].GetActiveShop then
+    shopId = exports[GetCurrentResourceName()]:GetActiveShop()
+  end
+  if shopId then
+    TriggerServerEvent('nv_cloth:server:buyStore', shopId)
+  end
+  cb({ ok = true })
+end)
+
+RegisterNUICallback('manageStore', function(data, cb)
+  data = type(data) == 'table' and data or {}
+  local shopId = data.shopId or (currentShopData and currentShopData.id)
+  if not shopId and exports[GetCurrentResourceName()] and exports[GetCurrentResourceName()].GetActiveShop then
+    shopId = exports[GetCurrentResourceName()]:GetActiveShop()
+  end
+  if shopId then
+    data.shopId = shopId
+    TriggerServerEvent('nv_cloth:server:manageStore', data)
+  end
+  cb({ ok = true })
+end)
+
+RegisterNUICallback('payStoreTax', function(data, cb)
+  local shopId = (data and data.shopId) or (currentShopData and currentShopData.id)
+  if not shopId and exports[GetCurrentResourceName()] and exports[GetCurrentResourceName()].GetActiveShop then
+    shopId = exports[GetCurrentResourceName()]:GetActiveShop()
+  end
+  if shopId then
+    TriggerServerEvent('nv_cloth:server:payStoreTax', shopId)
+  end
+  cb({ ok = true })
+end)
+
+RegisterNUICallback('withdrawStoreBalance', function(data, cb)
+  local shopId = (data and data.shopId) or (currentShopData and currentShopData.id)
+  if not shopId and exports[GetCurrentResourceName()] and exports[GetCurrentResourceName()].GetActiveShop then
+    shopId = exports[GetCurrentResourceName()]:GetActiveShop()
+  end
+  if shopId then
+    TriggerServerEvent('nv_cloth:server:withdrawStoreBalance', shopId)
+  end
+  cb({ ok = true })
+end)
 
 AddEventHandler('onResourceStop', function(resource)
   if resource ~= GetCurrentResourceName() then return end

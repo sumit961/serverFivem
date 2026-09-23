@@ -43,9 +43,16 @@ local CM_NAKED_BASE = {
     }
 }
 
-local function cmIsFemaleAppearance(appearance)
+local function cmIsFemaleAppearance(appearance, char)
+    if char and char.gender then
+        local g = tostring(char.gender):lower()
+        if g == 'female' or g == 'f' or g == '1' then return true end
+        if g == 'male' or g == 'm' or g == '0' then return false end
+    end
     local sex = appearance and appearance.sex
-    return sex == 'female' or sex == 'f' or sex == 1 or sex == '1'
+    if sex == 'female' or sex == 'f' or sex == 1 or sex == '1' then return true end
+    if sex == 'male' or sex == 'm' or sex == 0 or sex == '0' then return false end
+    return false
 end
 
 local function cmCopyTable(value)
@@ -126,14 +133,14 @@ local function cmBuildStarterClothingMeta(category, raw, opts)
     return meta
 end
 
-local function cmGiveStarterClothes(src, appearance)
+local function cmGiveStarterClothes(src, appearance, char)
     if GetResourceState('cm-inventory') ~= 'started' then
         print('[CM-CHARACTERS] cm-inventory not started; starter clothes were not given.')
         return nil
     end
 
     appearance = type(appearance) == 'table' and appearance or {}
-    local gender = cmIsFemaleAppearance(appearance) and 'female' or 'male'
+    local gender = cmIsFemaleAppearance(appearance, char) and 'female' or 'male'
     local naked = CM_NAKED_BASE[gender]
 
     -- Build starter clothing metadata through cm-items so image/metadata logic is shared
@@ -198,9 +205,11 @@ end
 
 CMCharacters.GiveStarterClothes = cmGiveStarterClothes
 
-local function cmMakeNakedAppearance(appearance)
+local function cmMakeNakedAppearance(appearance, char)
     appearance = type(appearance) == 'table' and appearance or {}
-    local gender = cmIsFemaleAppearance(appearance) and 'female' or 'male'
+    local isFemale = cmIsFemaleAppearance(appearance, char)
+    appearance.sex = isFemale and 1 or 0
+    local gender = isFemale and 'female' or 'male'
     for key, value in pairs(CM_NAKED_BASE[gender]) do
         appearance[key] = value
     end
@@ -234,7 +243,7 @@ RegisterNetEvent('cm-characters:server:saveAppearance', function(charId, appeara
 
     local serviceMode = tostring(requestedServiceMode or '')
     if serviceMode ~= '' then
-        if serviceMode ~= 'gender' and serviceMode ~= 'surgery' then
+        if serviceMode ~= 'gender' and serviceMode ~= 'surgery' and serviceMode ~= 'barber' then
             failAppearanceSave(src, 'Invalid appearance service.')
             return
         end
@@ -242,6 +251,61 @@ RegisterNetEvent('cm-characters:server:saveAppearance', function(charId, appeara
         if not activeCharId or tostring(activeCharId) ~= tostring(char.id) then
             failAppearanceSave(src, 'Appearance services require your active character.')
             return
+        end
+
+        if serviceMode == 'barber' then
+            local ped = GetPlayerPed(src)
+            local pCoords = GetEntityCoords(ped)
+            local closestShop = nil
+            local closestDist = 999.0
+            for _, shop in ipairs(Config.BarberShops or {}) do
+                if shop.coords then
+                    local dist = #(pCoords - shop.coords)
+                    if dist < closestDist then
+                        closestDist = dist
+                        closestShop = shop
+                    end
+                end
+            end
+            if not closestShop or closestDist > 25.0 then
+                failAppearanceSave(src, 'You are too far from a barber shop.')
+                return
+            end
+
+            local shopId = closestShop.id or tostring(closestShop.name)
+
+            if not (IsBarberSessionActive and IsBarberSessionActive(src, shopId)) then
+                failAppearanceSave(src, 'Talk to the barber NPC before styling.')
+                return
+            end
+            local row = GetBarberShopRow and GetBarberShopRow(shopId)
+            if row and tonumber(row.stock or 0) <= 0 then
+                failAppearanceSave(src, 'This barber shop is out of grooming supplies. Please ask the salon owner to restock.')
+                return
+            end
+
+            local cost = GetBarberServiceCost and GetBarberServiceCost(shopId) or tonumber(Config.BarberCost or 100) or 100
+            local paid = false
+            if exports['cm-core']:RemoveMoney(src, 'cash', cost, 'barber_service') == true then
+                paid = true
+            elseif exports['cm-core']:RemoveMoney(src, 'bank', cost, 'barber_service') == true then
+                paid = true
+            end
+
+            if not paid then
+                failAppearanceSave(src, ('You need $%s in cash or bank to pay the barber.'):format(cost))
+                return
+            end
+
+            if ProcessBarberServiceFee then
+                ProcessBarberServiceFee(shopId, src)
+            end
+
+            -- One styling session per NPC visit; the player must talk to the
+            -- barber again to start another.
+            if ClearBarberSession then
+                ClearBarberSession(src)
+            end
         end
     end
 
@@ -262,14 +326,59 @@ RegisterNetEvent('cm-characters:server:saveAppearance', function(charId, appeara
         return
     end
 
-    local creatorOutfit = cmCopyTable(appearanceData)
+    local finalAppearance = nil
     local starterEquipment = nil
-    if not alreadyHasAppearance then
-        starterEquipment = cmGiveStarterClothes(src, creatorOutfit)
+
+    if serviceMode == 'barber' then
+        local savedAppearance = {}
+        if char.appearance_json and char.appearance_json ~= '' and char.appearance_json ~= '{}' and char.appearance_json ~= 'null' then
+            local okDec, dec = pcall(json.decode, char.appearance_json)
+            if okDec and type(dec) == 'table' then
+                savedAppearance = dec
+            end
+        end
+
+        -- Authoritative gender is immutable at the barber.
+        local isFemale = cmIsFemaleAppearance(savedAppearance, char)
+        savedAppearance.sex = isFemale and 1 or 0
+
+        -- Merge only grooming and hair fields
+        local groomingKeys = {
+            'hair_1', 'hair_2', 'hair_color_1', 'hair_color_2',
+            'eyebrows_1', 'eyebrows_2', 'eyebrows_3', 'eyebrows_4', 'eyebrows_5', 'eyebrows_6',
+            'beard_1', 'beard_2', 'beard_3', 'beard_4',
+            'chest_1', 'chest_2', 'chest_3',
+        }
+        for _, k in ipairs(groomingKeys) do
+            if appearanceData[k] ~= nil then
+                savedAppearance[k] = tonumber(appearanceData[k]) or 0
+            end
+        end
+
+        -- Ensure eyebrow opacity is not 0 if an eyebrow style was selected
+        if (tonumber(savedAppearance.eyebrows_1) or 0) >= 0 and (tonumber(savedAppearance.eyebrows_2) or 0) <= 0 then
+            savedAppearance.eyebrows_2 = 10
+        end
+        if (tonumber(savedAppearance.eyebrows_3) or 0) > 0 and (savedAppearance.eyebrows_4 == nil or savedAppearance.eyebrows_4 == 0) then
+            savedAppearance.eyebrows_4 = savedAppearance.eyebrows_3
+        end
+        if (tonumber(savedAppearance.beard_1) or 0) > 0 and (tonumber(savedAppearance.beard_2) or 0) <= 0 then
+            savedAppearance.beard_2 = 10
+        end
+        if (tonumber(savedAppearance.beard_3) or 0) > 0 and (savedAppearance.beard_4 == nil or savedAppearance.beard_4 == 0) then
+            savedAppearance.beard_4 = savedAppearance.beard_3
+        end
+
+        finalAppearance = savedAppearance
+    else
+        local creatorOutfit = cmCopyTable(appearanceData)
+        if not alreadyHasAppearance then
+            starterEquipment = cmGiveStarterClothes(src, creatorOutfit, char)
+        end
+        finalAppearance = cmMakeNakedAppearance(cmCopyTable(appearanceData), char)
     end
 
-    local baseAppearance = cmMakeNakedAppearance(cmCopyTable(appearanceData))
-    local appearanceJson = json.encode(baseAppearance)
+    local appearanceJson = json.encode(finalAppearance)
 
     local ok, result = pcall(function()
         CMCharacters.Query(
@@ -284,18 +393,20 @@ RegisterNetEvent('cm-characters:server:saveAppearance', function(charId, appeara
         return
     end
 
-    print('[CM-CHARACTERS] Appearance saved for char ' .. tostring(char.id))
+    print('[CM-CHARACTERS] Appearance saved for char ' .. tostring(char.id) .. (serviceMode ~= '' and (' (service: ' .. serviceMode .. ')') or ''))
     exports['cm-core']:CacheInvalidate('char:' .. tostring(char.id))
 
     -- Refresh state with saved character details.
     CMCharacters.SetCharacterState(src, char)
     CMCharacters.SyncWithPlayerData(src, tostring(char.id), 'appearance_saved')
 
-    if alreadyHasAppearance then
-        TriggerClientEvent('cm-characters:client:applyAppearance', src, baseAppearance)
+    if serviceMode == 'barber' then
+        TriggerClientEvent('cm-characters:client:applyBarberAppearance', src, finalAppearance)
+    elseif alreadyHasAppearance then
+        TriggerClientEvent('cm-characters:client:applyAppearance', src, finalAppearance)
     end
 
-    -- Active-character hospital services are edits, not character selection.
+    -- Active-character hospital/barber services are edits, not character selection.
     -- Emitting characterLoaded here would reopen cm-spawn's selector.
     if serviceMode == '' then
         TriggerEvent('cm-core:characterLoaded', src, tostring(char.id))
@@ -305,9 +416,11 @@ RegisterNetEvent('cm-characters:server:saveAppearance', function(charId, appeara
         TriggerClientEvent('cm-characters:client:equipStarterClothingSlots', src, starterEquipment)
     end
 
-    TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src)
-    SetTimeout(1000, function() TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src) end)
-    SetTimeout(3000, function() TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src) end)
+    if serviceMode ~= 'barber' then
+        TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src)
+        SetTimeout(1000, function() TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src) end)
+        SetTimeout(3000, function() TriggerClientEvent('cm-inventory:client:requestEquipmentRefresh', src) end)
+    end
 
     -- Acknowledgement used by the client to close the creator only after the DB/inventory work finished.
     TriggerClientEvent('cm-characters:client:appearanceSaved', src, true, {
@@ -342,7 +455,7 @@ RegisterNetEvent('cm-characters:server:saveCurrentAppearance', function(appearan
     end
 
     for key, value in pairs(appearanceData) do merged[key] = value end
-    merged = cmMakeNakedAppearance(merged)
+    merged = cmMakeNakedAppearance(merged, char)
 
     CMCharacters.Query(
         'UPDATE characters SET appearance_json = ?, last_seen = CURRENT_TIMESTAMP WHERE id = ? AND account_id = ?',
@@ -385,4 +498,41 @@ RegisterNetEvent('cm-characters:server:debugGiveStarterClothes', function(appear
     cmGiveStarterClothes(src, appearanceData)
     CMCharacters.LogAdmin(src, 'debug_give_starter_clothes', { char_id = tostring(charId) })
     CMCharacters.Notify(src, 'Starter clothing items added.', 'success')
+end)
+
+RegisterNetEvent('cm-characters:server:requestAppearanceData', function(requestId)
+    local src = source
+    local charId = Player(src).state.charId or Player(src).state.characterId
+    if not charId then
+        TriggerClientEvent('cm-characters:client:receiveAppearanceData', src, requestId, nil)
+        return
+    end
+    local char = CMCharacters.GetCharacterById(charId)
+    if not char or not char.appearance_json then
+        TriggerClientEvent('cm-characters:client:receiveAppearanceData', src, requestId, nil)
+        return
+    end
+    local okDec, dec = pcall(json.decode, char.appearance_json)
+    if okDec and type(dec) == 'table' then
+        local isFemale = cmIsFemaleAppearance(dec, char)
+        dec.sex = isFemale and 1 or 0
+        TriggerClientEvent('cm-characters:client:receiveAppearanceData', src, requestId, dec)
+    else
+        TriggerClientEvent('cm-characters:client:receiveAppearanceData', src, requestId, nil)
+    end
+end)
+
+RegisterNetEvent('cm-characters:server:requestAppearance', function()
+    local src = source
+    local charId = Player(src).state.charId or Player(src).state.characterId
+    if not charId then return end
+    local char = CMCharacters.GetCharacterById(charId)
+    if not char or not char.appearance_json then return end
+    local okDec, dec = pcall(json.decode, char.appearance_json)
+    if okDec and type(dec) == 'table' then
+        local isFemale = cmIsFemaleAppearance(dec, char)
+        dec.sex = isFemale and 1 or 0
+        TriggerClientEvent('cm-characters:client:updateAppearanceCache', src, dec)
+        TriggerClientEvent('cm-characters:client:applyAppearance', src, dec)
+    end
 end)

@@ -18,6 +18,12 @@ local canRespawn = false
 local hudMouseOpen = false
 local hudAdminOpen = false
 local hudVisible = false
+local hudPreviewOpen = false
+local hudPreviewRestoreVisibility = false
+local hudPreviewForcedVisible = false
+local setHudPreview
+local SetHudTimer
+local ClearHudTimer
 local characterId = nil
 local characterName = 'Unknown'
 local characterHints = {}
@@ -284,6 +290,11 @@ RegisterKeyMapping('togglehud', 'Toggle all HUD', 'keyboard', 'F7')
 RegisterCommand('hud', function(_, args)
     local sub = args and tostring(args[1] or ''):lower() or ''
 
+    if sub == 'preview' or sub == 'showall' then
+        if setHudPreview then setHudPreview(not hudPreviewOpen) end
+        return
+    end
+
     if sub == 'admin' or sub == 'settings' or sub == '' then
         openHudAdmin()
         return
@@ -304,7 +315,11 @@ RegisterCommand('hud', function(_, args)
         return
     end
 
-    TriggerEvent('cm-hud:client:notify', 'Use /hud admin, /hud speedo 1-30, or /hud reset', 'info')
+    TriggerEvent('cm-hud:client:notify', 'Use /hud admin, /hud preview, /hud speedo 1-30, or /hud reset', 'info')
+end, false)
+
+RegisterCommand('hudshowall', function()
+    if setHudPreview then setHudPreview(not hudPreviewOpen) end
 end, false)
 
 RegisterNetEvent('cm-hud:client:openAdminLauncher', function()
@@ -832,7 +847,9 @@ end)
 
 RegisterNetEvent('cm-hud:client:hideForUi', function(reason)
     -- Explicit bridge used by inventory/phone/store UI.
-    if isVehicleShopTestDriveState() or reason == 'test_drive' then return end
+    -- Chip tuning opens a focused work UI where the HUD is hidden even if a
+    -- vehicle-shop test-drive state is still present on the player.
+    if (isVehicleShopTestDriveState() and reason ~= 'cm-tuning:chip') or reason == 'test_drive' then return end
     uiHiddenByExternal = true
     setHudVisible(false)
 end)
@@ -1380,6 +1397,98 @@ end)
 local function eventText(value, fallback, maxLength)
     local text = tostring(value or fallback or ''):gsub('[\r\n\t]', ' ')
     return text:sub(1, maxLength)
+end
+
+-- Reusable display-only countdowns. Timer expiry never performs gameplay
+-- actions; the resource that owns the timer remains authoritative.
+SetHudTimer = function(payload)
+    if type(payload) ~= 'table' or not isPlayerLoggedIn() then return false end
+    local id = eventText(payload.id, '', 48)
+    local requestedDuration = tonumber(payload.durationMs)
+    if id == '' or not requestedDuration or requestedDuration <= 0 then return false end
+
+    SendNUIMessage({
+        action = 'setHudTimer',
+        timer = {
+            id = id,
+            title = eventText(payload.title, 'TIMER', 42),
+            label = eventText(payload.label, '', 84),
+            durationMs = math.floor(clampNumber(requestedDuration, 1000, 86400000, 0)),
+            tone = ({ info = true, success = true, warning = true, danger = true })[tostring(payload.tone or 'info')] and tostring(payload.tone or 'info') or 'info'
+        }
+    })
+    return true
+end
+
+ClearHudTimer = function(timerId)
+    if type(timerId) == 'table' then timerId = timerId.id end
+    local id = eventText(timerId, '', 48)
+    if id == '' then return false end
+    SendNUIMessage({ action = 'clearHudTimer', id = id })
+    return true
+end
+
+exports('SetHudTimer', SetHudTimer)
+exports('ClearHudTimer', ClearHudTimer)
+AddEventHandler('cm-hud:client:setTimer', SetHudTimer)
+AddEventHandler('cm-hud:client:clearTimer', ClearHudTimer)
+
+-- cm-taxi owns this server-issued idle grace window. cm-hud only displays it.
+RegisterNetEvent('cm-taxi:client:rentalIdleTimer')
+AddEventHandler('cm-taxi:client:rentalIdleTimer', function(remainingMs)
+    local durationMs = tonumber(remainingMs)
+    if not durationMs or durationMs <= 0 then
+        ClearHudTimer('rental')
+        return
+    end
+
+    SetHudTimer({
+        id = 'rental',
+        title = 'RENTAL IDLE LIMIT',
+        label = 'Drive the rental again before it expires',
+        durationMs = durationMs,
+        tone = 'warning'
+    })
+end)
+
+RegisterNetEvent('cm-taxi:client:rentalState')
+AddEventHandler('cm-taxi:client:rentalState', function(rental)
+    if type(rental) ~= 'table' then ClearHudTimer('rental') end
+end)
+
+RegisterNetEvent('cm-taxi:client:rentalExpired')
+AddEventHandler('cm-taxi:client:rentalExpired', function()
+    ClearHudTimer('rental')
+end)
+
+setHudPreview = function(enabled)
+    enabled = enabled == true
+    if hudPreviewOpen == enabled then return end
+
+    if enabled and not isPlayerLoggedIn() then
+        TriggerEvent('cm-hud:client:notify', 'HUD preview is available after character load.', 'info')
+        return
+    end
+
+    if enabled then
+        hudPreviewRestoreVisibility = not hudVisible
+        hudPreviewForcedVisible = false
+        if not hudVisible and not isHudHiddenByExternalState() then
+            setHudVisible(true)
+            hudPreviewForcedVisible = true
+        end
+    end
+
+    hudPreviewOpen = enabled
+    SendNUIMessage({ action = 'setAllHudPreview', enabled = enabled })
+
+    if not enabled and hudPreviewForcedVisible and hudPreviewRestoreVisibility and not isHudHiddenByExternalState() then
+        setHudVisible(false)
+    end
+    if not enabled then
+        hudPreviewForcedVisible = false
+        hudPreviewRestoreVisibility = false
+    end
 end
 
 local function ShowEventNotification(payload)

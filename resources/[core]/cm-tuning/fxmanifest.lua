@@ -23,5 +23,6 @@ files {
 dependencies {
     'oxmysql',
     'cm-playerdata',
-    'cm-vehicles'
+    'cm-vehicles',
+    'cm-ui'
 }

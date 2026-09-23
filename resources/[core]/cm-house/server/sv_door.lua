@@ -10,7 +10,7 @@ function PushOwnership(cid)
 
     local owned = {}
     for id in pairs(Houses) do
-        local allowed = CanAccessProperty(cid, id, ACTIONS.HOUSE_ENTER, false)
+        local allowed = CanAccessProperty(cid, id, ACTIONS.HOUSE_LOCK, false)
         if allowed then owned[id] = true end
     end
     TriggerClientEvent('cm-house:client:syncOwnership', src, owned)
@@ -477,6 +477,10 @@ lib.callback.register('cm-house:server:sellHouse', function(src, houseId)
                 values = { 'house_wardrobe', ('%d:%%'):format(houseId) },
             },
             {
+                query = 'DELETE FROM inventory_items WHERE owner_type = ? AND owner_id LIKE ?',
+                values = { 'house_weapon_storage', ('%d:%%'):format(houseId) },
+            },
+            {
                 query = 'DELETE FROM cm_house_access WHERE house_id = ?',
                 values = { houseId },
             },
@@ -538,6 +542,10 @@ lib.callback.register('cm-house:server:sellHouse', function(src, houseId)
         local oldFamily = familyContext and familyContext.id or nil
         house.owner_cid, house.family_id = nil, nil
         house.for_sale, house.paid_until, house.locked = true, nil, true
+
+        for i = 1, 10 do
+            DeleteResourceKvp(('weapon-storage-settings:%d:%d'):format(houseId, i))
+        end
 
         if OwnerHouses[cid] then
             for i = #OwnerHouses[cid], 1, -1 do

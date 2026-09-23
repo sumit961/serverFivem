@@ -1,0 +1,65 @@
+CMTaxi = CMTaxi or {}
+
+CMTaxi.Locales = {
+    ['notification_title'] = 'LS Taxi',
+    ['fare_completed'] = 'Fare complete: $%s earned (+$%s tip), %s XP. Shift: %s rides / $%s.',
+    ['fare_new'] = 'New fare available.',
+    ['fare_cancelled'] = 'Fare cancelled.',
+    ['fare_timeout'] = 'The fare timed out and was returned to dispatch.',
+    ['fare_finishing'] = 'Fare payment is processing. Please wait a moment before going off duty.',
+    ['customer_no_seat'] = 'No passenger seat is free. The fare was returned to dispatch.',
+    ['customer_exit_failed'] = 'The passenger could not exit safely. The fare was returned to dispatch.',
+    ['fare_board_validation_failed'] = 'The server could not confirm the passenger boarded. The fare was returned to dispatch.',
+    ['taxi_requester_left'] = 'The taxi requester left the server. The fare was returned to dispatch.',
+    ['fare_active'] = 'You already have an active fare.',
+    ['fare_none'] = 'No active fare.',
+    ['fare_started'] = "GPS set to %s's location.",
+    ['fare_taken'] = 'Someone already took that fare.',
+    ['fare_goto'] = 'Take me to %s',
+    ['fare_nearby'] = 'Your client is nearby.',
+    ['fare_dropoff'] = 'Customer dropped off successfully.',
+    ['taxi_request_accepted'] = 'A taxi accepted your request. ETA: about %s min. Wait near pickup and press E to board.',
+    ['taxi_request_queued'] = 'Your taxi request is in dispatch. Stay near your pickup point.',
+    ['taxi_request_searching'] = 'Your taxi request is back in dispatch. Searching for another driver.',
+    ['taxi_request_expired'] = 'No driver accepted your taxi request before it expired.',
+    ['taxi_request_cancelled'] = 'Your taxi request was cancelled.',
+    ['taxi_request_none'] = 'You have no pending taxi request to cancel.',
+    ['taxi_request_assigned'] = 'A driver already accepted. You cannot cancel this request now.',
+    ['taxi_request_pending'] = 'Your taxi request is already waiting for a driver.',
+    ['taxi_request_on_way'] = 'A driver is already on the way to your request.',
+    ['taxi_request_active'] = 'You already have an active taxi request.',
+    ['taxi_request_self_accept'] = 'You cannot accept your own taxi request.',
+    ['taxi_request_completed'] = 'Your taxi trip is complete. Thanks for riding.',
+    ['taxi_request_cancelled_by_passenger'] = 'The passenger cancelled before boarding.',
+    ['player_fare_cannot_cancel'] = 'This taxi trip is underway and cannot be cancelled right now.',
+    ['player_fare_passenger_left'] = 'The passenger left before reaching the destination. The fare was cancelled.',
+    ['player_fare_driver_left'] = 'Your taxi driver disconnected. Your request was cancelled.',
+    ['player_fare_data_missing'] = 'The player taxi request could not be loaded. The fare was returned to dispatch.',
+    ['player_fare_pickup'] = 'Drive to the pickup point and wait for the passenger to board.',
+    ['player_fare_waiting'] = 'The passenger is near your taxi. Wait while they board.',
+    ['player_fare_board_hint'] = 'Press ~INPUT_CONTEXT~ to board your taxi.',
+    ['player_fare_no_seat'] = 'There is no passenger seat available in this taxi.',
+    ['player_fare_board_failed'] = 'The server could not verify that you boarded the assigned taxi.',
+    ['player_fare_goto'] = 'Passenger aboard. Drive to %s.',
+    ['player_fare_ride_started'] = 'You are in the taxi. Your destination is %s.',
+    ['player_fare_exit_hint'] = 'You have arrived. Press ~INPUT_VEH_EXIT~ to leave the taxi.',
+    ['player_fare_taxi_blip'] = 'Your taxi',
+    ['offduty'] = 'You are not on duty.',
+    ['signout'] = 'You are now off duty.',
+    ['signin'] = 'You are now on duty.',
+    ['rent_pay_fail'] = 'You do not have enough money to rent this taxi.',
+    ['levelup'] = 'Level up! You were rewarded: %s',
+    ['no_spawns'] = 'No rental spawn points are free right now.',
+    ['no_rental'] = 'You have no rented vehicle to return.',
+    ['has_rental'] = 'You already have a rented vehicle.',
+    ['customer_blip_name'] = 'Customer: %s',
+    ['destination_blip_name'] = 'Destination',
+}
+
+function CMTaxi.Locale(key, ...)
+    local str = CMTaxi.Locales[key] or key
+    if select('#', ...) > 0 then
+        return string.format(str, ...)
+    end
+    return str
+end

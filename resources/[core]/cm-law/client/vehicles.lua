@@ -18,6 +18,45 @@ end
 
 local fleetPlacementActive = false
 
+-- Standalone Motor Pool panel (opened only from the Fleet facility NPC, see
+-- client/facilities.lua) -- mirrors client/armory.lua's openArmory/closeArmory
+-- pattern so Fleet is never reachable through the F6 Command & Operations
+-- dashboard, only through the NPC.
+local fleetPanelOpen = false
+local HUD_REASON = 'cm-law:fleet-panel'
+
+local function closeFleetPanel()
+    if not fleetPanelOpen then return end
+    fleetPanelOpen = false
+    SetNuiFocus(false, false)
+    SendNUIMessage({ cmInterface = "law", action = 'legalFleetClose' })
+    TriggerEvent('cm-hud:client:showAfterUi', HUD_REASON)
+end
+
+RegisterNetEvent('cm-law:client:openFleetPanel', function(orgId, label)
+    if fleetPanelOpen or IsPauseMenuActive() or IsPedInAnyVehicle(PlayerPedId(), false) then return end
+    local result = lib.callback.await('cm-law:server:fleetCatalog', false)
+    if result == nil then
+        notify('Fleet is unavailable.', 'error')
+        return
+    end
+    fleetPanelOpen = true
+    TriggerEvent('cm-hud:client:hideForUi', HUD_REASON)
+    SetNuiFocus(true, true)
+    SendNUIMessage({ cmInterface = "law", action = 'legalFleetOpen', label = label,
+        vehicles = result.vehicles or {}, canManage = result.canManage == true })
+end)
+
+RegisterNUICallback('legalFleetClose', function(_, cb) closeFleetPanel(); cb({ ok = true }) end)
+
+RegisterNetEvent('cm-law:client:membershipChanged', function(state)
+    if fleetPanelOpen and (type(state) ~= 'table' or state.onDuty ~= true) then closeFleetPanel() end
+end)
+
+AddEventHandler('onResourceStop', function(resource)
+    if resource == GetCurrentResourceName() then closeFleetPanel() end
+end)
+
 local function waitForVehicle(netId, timeoutMs)
     local deadline = GetGameTimer() + (timeoutMs or 8000)
     while not NetworkDoesNetworkIdExist(netId) and GetGameTimer() < deadline do Wait(0) end
@@ -31,14 +70,21 @@ local function waitForVehicle(netId, timeoutMs)
 end
 
 RegisterNUICallback('fleetCatalog', function(_, cb)
-    local rows = lib.callback.await('cm-law:server:fleetCatalog', false)
-    cb({ ok = rows ~= nil, vehicles = rows or {} })
+    local result = lib.callback.await('cm-law:server:fleetCatalog', false)
+    cb({ ok = result ~= nil, vehicles = result and result.vehicles or {}, canManage = result and result.canManage == true })
 end)
 
 RegisterNUICallback('setFleetVehicleMinTier', function(data, cb)
     data = type(data) == 'table' and data or {}
     local ok, message = lib.callback.await('cm-law:server:setFleetVehicleMinTier', false, data.model, data.minTier)
     if not ok then notify(message or 'Could not update that vehicle.', 'error') end
+    cb({ ok = ok == true, error = message })
+end)
+
+RegisterNUICallback('spawnFleetVehicle', function(data, cb)
+    data = type(data) == 'table' and data or {}
+    local ok, message = lib.callback.await('cm-law:server:spawnFleetVehicle', false, data.model)
+    notify(message, ok and 'success' or 'error')
     cb({ ok = ok == true, error = message })
 end)
 

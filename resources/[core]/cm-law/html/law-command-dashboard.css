@@ -1,0 +1,1029 @@
+/* CM Law Command Dashboard v1
+ * Reference layout: wide tactical command overview with a compact top rail.
+ * The page keeps the existing law.html data and callbacks; this is presentation
+ * only and consumes the shared cm-ui tokens loaded immediately before it.
+ */
+
+:root {
+  --law-ref-bg: #0B171E;
+  --law-ref-panel: #10222B;
+  --law-ref-panel-raised: #142733;
+  --law-ref-line: #213B4A;
+  --law-ref-line-strong: rgba(33, 59, 74, .9);
+  --law-ref-cyan: #00E5FF;
+  --law-ref-cyan-rgb: 0, 229, 255;
+  --law-ref-text: #FFFFFF;
+  --law-ref-muted: #829DAE;
+  --law-ref-gold: #FFC700;
+  --law-ref-green: #2ECC71;
+}
+
+html,
+body {
+  font-family: var(--cm-font) !important;
+  color: var(--law-ref-text) !important;
+}
+
+#app:not(.standalone-interface) {
+  padding: 0 !important;
+  background:
+    radial-gradient(circle at 50% 0, rgba(var(--law-ref-cyan-rgb), .06), transparent 36%),
+    var(--law-ref-bg) !important;
+}
+
+#app:not(.standalone-interface) .shell {
+  position: relative !important;
+  display: block !important;
+  width: calc(100vw - 8px) !important;
+  height: calc(100vh - 8px) !important;
+  max-width: none !important;
+  max-height: none !important;
+  overflow: hidden !important;
+  border: 1px solid var(--law-ref-line) !important;
+  border-radius: 10px !important;
+  background: var(--law-ref-bg) !important;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, .5) !important;
+}
+
+#app .side {
+  position: relative !important;
+  z-index: 5 !important;
+  display: grid !important;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  width: 100% !important;
+  height: 120px !important;
+  min-height: 120px !important;
+  padding: 0 44px !important;
+  border-right: 0 !important;
+  border-bottom: 1px solid var(--law-ref-line) !important;
+  background: var(--law-ref-bg) !important;
+}
+
+#app .brand {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 16px !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
+
+#app .brand-mark {
+  display: grid !important;
+  place-items: center !important;
+  width: 60px !important;
+  height: 60px !important;
+  border: 0 !important;
+  border-radius: 6px !important;
+  background: var(--law-ref-cyan) !important;
+  box-shadow: 0 0 22px rgba(var(--law-ref-cyan-rgb), .2) !important;
+}
+
+#app .brand-mark img {
+  width: 68% !important;
+  height: 68% !important;
+  filter: brightness(0) saturate(100%) !important;
+}
+
+#app .brand-copy small,
+#app .brand-copy h1,
+#app .brand-copy p {
+  display: block !important;
+  margin: 0 !important;
+  line-height: 1 !important;
+}
+
+#app .brand-copy small {
+  color: var(--law-ref-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 0 !important;
+  font-weight: 800 !important;
+  letter-spacing: .015em !important;
+}
+
+#app .brand-copy small::after {
+  content: "SAN ANDREAS";
+  font-size: 17px;
+}
+
+#app .brand-copy h1 {
+  margin-top: 6px !important;
+  color: var(--law-ref-cyan) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 0 !important;
+  font-weight: 800 !important;
+  letter-spacing: .08em !important;
+  text-transform: uppercase !important;
+}
+
+#app .brand-copy h1::after {
+  content: "TACTICAL COMMAND";
+  font-size: 13px;
+}
+
+#app .brand-copy p,
+#app .side-summary,
+#app .side-foot {
+  display: none !important;
+}
+
+#app .side nav {
+  position: absolute !important;
+  top: 0 !important;
+  right: 520px !important;
+  left: 420px !important;
+  height: 120px !important;
+  display: flex !important;
+  align-items: stretch !important;
+  justify-content: center !important;
+  gap: 34px !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 24px !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+}
+
+#app .side .tab {
+  position: relative !important;
+  display: grid !important;
+  place-items: center !important;
+  min-width: max-content !important;
+  min-height: 120px !important;
+  padding: 0 1px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  color: var(--law-ref-muted) !important;
+  background: transparent !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  letter-spacing: .04em !important;
+  text-transform: uppercase !important;
+  white-space: nowrap !important;
+}
+
+#app .side .tab b,
+#app .side .tab small {
+  display: none !important;
+}
+
+#app .side .tab span {
+  font-size: inherit !important;
+  font-weight: inherit !important;
+}
+
+#app .side .tab:hover,
+#app .side .tab.active {
+  color: var(--law-ref-text) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+#app .side .tab.active::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 5px;
+  content: "";
+  border-radius: 5px 5px 0 0;
+  background: var(--law-ref-cyan);
+  box-shadow: 0 0 14px rgba(var(--law-ref-cyan-rgb), .35);
+}
+
+#app .workspace {
+  display: block !important;
+  width: 100% !important;
+  height: calc(100% - 120px) !important;
+  min-height: 0 !important;
+  background: var(--law-ref-bg) !important;
+}
+
+#app .workspace > header {
+  position: absolute !important;
+  top: 0 !important;
+  right: 0 !important;
+  z-index: 8 !important;
+  display: block !important;
+  width: 100% !important;
+  height: 120px !important;
+  pointer-events: none !important;
+  background: transparent !important;
+  border: 0 !important;
+}
+
+#app .workspace > header > div:first-child {
+  display: none !important;
+}
+
+#app .law-record-rail {
+  display: none !important;
+}
+
+#app #overviewToolsPanel[hidden] {
+  display: none !important;
+}
+
+#app .content {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  padding: 48px 124px 72px !important;
+  overflow: auto !important;
+  background:
+    linear-gradient(rgba(7, 15, 24, .9), rgba(8, 15, 24, .96)),
+    repeating-radial-gradient(ellipse at 50% 8%, rgba(37, 62, 84, .14) 0 1px, transparent 2px 54px) !important;
+}
+
+#app #overviewView:not(.hidden) {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  grid-template-areas:
+    "heading heading heading heading"
+    "identity identity calls duty"
+    "prison prison capabilities capabilities"
+    "activity activity shift shift" !important;
+  grid-template-rows: minmax(96px, auto) repeat(3, minmax(184px, auto)) !important;
+  gap: 30px !important;
+  align-content: start !important;
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 auto !important;
+}
+
+/* Keep the shared law navigation above the overlaid header actions and let
+ * dashboard cards size to their content instead of clipping at fixed heights. */
+#app:not(.standalone-interface) .side {
+  z-index: 10 !important;
+}
+
+#app:not(.standalone-interface) .side nav {
+  z-index: 11 !important;
+}
+
+#app:not(.standalone-interface) .law-topbar__actions {
+  z-index: 12 !important;
+  pointer-events: auto !important;
+}
+
+#app:not(.standalone-interface) .workspace > header {
+  z-index: 15 !important;
+}
+
+#app:not(.standalone-interface) .law-header-nav {
+  position: absolute !important;
+  top: 0 !important;
+  right: clamp(390px, 20.4vw, 520px) !important;
+  left: clamp(300px, 16.5vw, 420px) !important;
+  z-index: 20 !important;
+  display: flex !important;
+  align-items: stretch !important;
+  justify-content: center !important;
+  gap: clamp(16px, 1.7vw, 34px) !important;
+  height: 120px !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  pointer-events: auto !important;
+  visibility: visible !important;
+}
+
+#app:not(.standalone-interface) .law-header-nav > .tab:not(.hidden) {
+  position: relative !important;
+  display: grid !important;
+  place-items: center !important;
+  flex: 0 0 auto !important;
+  min-width: max-content !important;
+  min-height: 0 !important;
+  padding: 0 1px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  color: var(--law-ref-muted) !important;
+  background: transparent !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  letter-spacing: .04em !important;
+  text-transform: uppercase !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+#app:not(.standalone-interface) .law-header-nav > .tab:not(.hidden).active,
+#app:not(.standalone-interface) .law-header-nav > .tab:not(.hidden):hover {
+  color: var(--law-ref-text) !important;
+}
+
+#app:not(.standalone-interface) .law-header-nav > .tab > b {
+  display: none !important;
+}
+
+#app:not(.standalone-interface) .law-header-nav > .tab > span {
+  font: inherit !important;
+  color: inherit !important;
+}
+
+#app:not(.standalone-interface) .law-header-nav > .tab > span small {
+  display: none !important;
+}
+
+#app:not(.standalone-interface) .law-header-nav > .tab.active::after {
+  position: absolute !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  height: 5px !important;
+  content: "" !important;
+  border-radius: 5px 5px 0 0 !important;
+  background: var(--law-ref-cyan) !important;
+}
+
+/* Pin the organization tabs into the top rail above the overlaid workspace
+ * header; CEF otherwise paints the header across the original sidebar nav. */
+#app:not(.standalone-interface) .side > nav {
+  position: fixed !important;
+  top: 0 !important;
+  right: clamp(390px, 20.4vw, 520px) !important;
+  left: clamp(300px, 16.5vw, 420px) !important;
+  z-index: 20 !important;
+  display: flex !important;
+  align-items: stretch !important;
+  justify-content: center !important;
+  height: 120px !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+#app:not(.standalone-interface) .side > nav > .tab:not(.hidden) {
+  display: grid !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  color: var(--law-ref-muted) !important;
+}
+
+#app:not(.standalone-interface) .side > nav > .tab:not(.hidden).active {
+  color: var(--law-ref-text) !important;
+}
+
+@media (max-width: 1250px) {
+  #app:not(.standalone-interface) .side > nav {
+    right: clamp(360px, 20.4vw, 520px) !important;
+    left: clamp(280px, 24vw, 360px) !important;
+    gap: clamp(8px, 1.1vw, 16px) !important;
+  }
+  #app:not(.standalone-interface) .law-header-nav {
+    right: clamp(360px, 20.4vw, 520px) !important;
+    left: clamp(280px, 24vw, 360px) !important;
+    gap: clamp(8px, 1.1vw, 16px) !important;
+  }
+}
+
+@media (max-height: 900px) and (min-width: 901px) {
+  #app:not(.standalone-interface) .side > nav { height: 94px !important; }
+  #app:not(.standalone-interface) .law-header-nav { height: 94px !important; }
+}
+
+#app:not(.standalone-interface) .content {
+  padding-top: clamp(28px, 3.1vh, 48px) !important;
+  padding-bottom: clamp(28px, 4vh, 64px) !important;
+}
+
+#app:not(.standalone-interface) #overviewView:not(.hidden) {
+  grid-auto-rows: minmax(184px, auto) !important;
+}
+
+#app #overviewView > .overview-heading {
+  grid-area: heading !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: flex-start !important;
+  padding-top: 12px !important;
+}
+
+#app .overview-heading small {
+  color: var(--law-ref-cyan) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 17px !important;
+  font-weight: 800 !important;
+  letter-spacing: .16em !important;
+  text-transform: uppercase !important;
+}
+
+#app .overview-heading h1 {
+  margin: 13px 0 0 !important;
+  color: var(--law-ref-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 60px !important;
+  font-weight: 900 !important;
+  line-height: .95 !important;
+  letter-spacing: -.04em !important;
+  text-transform: uppercase !important;
+}
+
+#app #overviewView > .org-identity-card,
+#app #overviewView > #overviewStats .stat,
+#app #overviewView > .prison-status-card,
+#app #overviewView .command-panel {
+  min-width: 0 !important;
+  margin: 0 !important;
+  border: 1px solid var(--law-ref-line) !important;
+  border-radius: 6px !important;
+  background: var(--law-ref-panel) !important;
+  box-shadow: none !important;
+}
+
+#app #overviewView > .org-identity-card {
+  position: relative !important;
+  grid-area: identity !important;
+  grid-column: 1 / span 2 !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 24px !important;
+  padding: 30px !important;
+}
+
+#app .overview-authorized {
+  position: absolute !important;
+  top: 48px !important;
+  right: 30px !important;
+  padding: 9px 17px !important;
+  border: 1px solid rgba(36, 213, 123, .55) !important;
+  border-radius: 4px !important;
+  color: var(--law-ref-green) !important;
+  background: rgba(36, 213, 123, .08) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  letter-spacing: .04em !important;
+}
+
+#app .org-identity-photo {
+  position: relative !important;
+  display: grid !important;
+  place-items: center !important;
+  flex: 0 0 92px !important;
+  width: 92px !important;
+  height: 92px !important;
+  margin: 0 !important;
+  border: 2px solid #398eff !important;
+  border-radius: 7px !important;
+  background: rgba(34, 96, 160, .16) !important;
+  overflow: hidden !important;
+  order: 1 !important;
+}
+
+#app .org-identity-photo::before {
+  content: "🧑‍✈️";
+  font-size: 42px;
+}
+
+#app .org-identity-photo img {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  object-fit: cover !important;
+}
+
+#app .org-identity-photo button,
+#app .org-tier-ring {
+  display: none !important;
+}
+
+#app .org-identity-copy {
+  min-width: 0 !important;
+  order: 2 !important;
+}
+
+#app .org-identity-copy::before {
+  display: block;
+  margin-bottom: 9px;
+  content: "COMMANDING OFFICER";
+  color: var(--law-ref-cyan);
+  font-family: var(--cm-font-display);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+#app .org-identity-copy h2 {
+  margin: 0 0 14px !important;
+  color: var(--law-ref-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 36px !important;
+  line-height: 1 !important;
+  letter-spacing: -.04em !important;
+}
+
+#app .org-identity-copy > div {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 10px !important;
+}
+
+#app .org-identity-copy > div > span:not(.status-pill) {
+  padding: 8px 12px !important;
+  border-radius: 4px !important;
+  color: var(--law-ref-text) !important;
+  background: #263548 !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  letter-spacing: .04em !important;
+  text-transform: uppercase !important;
+}
+
+#app .org-identity-copy > div > span#overviewCharacterId {
+  display: none !important;
+}
+
+#app .status-pill {
+  padding: 8px 12px !important;
+  border-radius: 4px !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  letter-spacing: .04em !important;
+}
+
+#app .status-pill.is-off {
+  color: var(--law-ref-gold) !important;
+  border-color: rgba(255, 199, 0, .55) !important;
+  background: rgba(255, 199, 0, .08) !important;
+}
+
+#app .status-pill.is-on {
+  color: var(--law-ref-green) !important;
+  border-color: rgba(36, 213, 123, .55) !important;
+  background: rgba(36, 213, 123, .08) !important;
+}
+
+#app #overviewStats {
+  display: contents !important;
+}
+
+#app #overviewStats .stat {
+  position: relative !important;
+  display: block !important;
+  min-height: 214px !important;
+  padding: 34px 30px !important;
+  overflow: hidden !important;
+}
+
+#app #overviewStats .stat--calls { grid-area: calls !important; }
+#app #overviewStats .stat--duty { grid-area: duty !important; }
+#app #overviewStats .stat--fleet,
+#app #overviewStats .stat--command { display: none !important; }
+
+#app #overviewStats .stat::before {
+  display: block;
+  height: 30px;
+  margin-bottom: 26px;
+  font-size: 24px;
+  line-height: 1;
+}
+
+#app #overviewStats .stat--calls::before { content: "🚨"; }
+#app #overviewStats .stat--duty::before { content: "🚓"; }
+
+#app #overviewStats .stat::after {
+  display: none !important;
+}
+
+#app #overviewStats .stat small {
+  display: block !important;
+  color: var(--law-ref-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 18px !important;
+  font-weight: 800 !important;
+  letter-spacing: .015em !important;
+  text-transform: uppercase !important;
+}
+
+#app #overviewStats .stat strong {
+  display: block !important;
+  margin: 0 0 14px !important;
+  color: var(--law-ref-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 64px !important;
+  line-height: .9 !important;
+  letter-spacing: -.07em !important;
+  order: -1 !important;
+}
+
+#app #overviewStats .stat > div {
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+#app #overviewStats .stat > div > span {
+  color: var(--law-ref-muted) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+}
+
+#app #overviewView > .org-readiness-strip,
+#app #overviewView > .command-keybar,
+#app #overviewView > .law-priority-alert {
+  display: none !important;
+}
+
+#app #overviewView > .prison-status-card {
+  grid-area: prison !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: end !important;
+  min-height: 208px !important;
+  padding: 30px !important;
+  overflow: hidden !important;
+  background:
+    repeating-linear-gradient(-28deg, transparent 0 28px, rgba(255, 255, 255, .13) 29px 30px),
+    linear-gradient(112deg, rgba(111, 57, 59, .78), var(--law-ref-panel) 72%) !important;
+}
+
+#app .prison-status-card__icon {
+  display: none !important;
+}
+
+#app .prison-status-card__copy {
+  align-self: center !important;
+}
+
+#app .prison-status-card__copy small {
+  color: var(--law-ref-cyan) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  letter-spacing: .04em !important;
+}
+
+#app .prison-status-card__copy h3 {
+  margin: 34px 0 0 !important;
+  color: var(--law-ref-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 28px !important;
+  text-transform: uppercase !important;
+}
+
+#app .prison-status-card__copy p,
+#app .prison-status-card__stats span:nth-child(2) {
+  display: none !important;
+}
+
+#app .prison-status-card__stats {
+  display: block !important;
+  text-align: right !important;
+}
+
+#app .prison-status-card__stats span:first-child b {
+  display: block !important;
+  color: var(--law-ref-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 46px !important;
+  line-height: .9 !important;
+}
+
+#app .prison-status-card__stats span:first-child small {
+  color: var(--law-ref-muted) !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+  text-transform: uppercase !important;
+}
+
+#app .prison-status-card__state {
+  position: absolute !important;
+  top: 40px !important;
+  right: 30px !important;
+  padding: 11px 32px !important;
+  border: 1px solid rgba(255, 199, 0, .55) !important;
+  border-radius: 4px !important;
+  color: var(--law-ref-gold) !important;
+  background: rgba(255, 199, 0, .08) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  text-transform: uppercase !important;
+}
+
+#app #overviewView > .org-operations-grid {
+  display: contents !important;
+}
+
+#app #overviewView .command-panel--capabilities {
+  grid-area: capabilities !important;
+  min-height: 208px !important;
+}
+
+#app #overviewView .org-command-column {
+  display: contents !important;
+}
+
+#app #overviewView .command-panel--duty {
+  display: none !important;
+}
+
+#app #overviewView .command-panel--tools {
+  grid-area: shift !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  min-height: 232px !important;
+  padding: 38px 30px !important;
+  border-color: var(--law-ref-cyan) !important;
+  background: rgba(7, 38, 51, .8) !important;
+}
+
+#app #overviewView .command-panel--tools > div:first-child {
+  padding: 0 !important;
+  border: 0 !important;
+}
+
+#app #overviewView .command-panel--tools > div:first-child small {
+  color: var(--law-ref-cyan) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  letter-spacing: .13em !important;
+}
+
+#app #overviewView .command-panel--tools > div:first-child h3 {
+  margin: 13px 0 25px !important;
+  color: var(--law-ref-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 28px !important;
+  text-transform: uppercase !important;
+}
+
+#app #overviewView .overview-shift-actions {
+  display: flex !important;
+  gap: 18px !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+
+#app #overviewView .overview-shift-actions button {
+  min-width: 166px !important;
+  min-height: 46px !important;
+  padding: 0 22px !important;
+  border-radius: 4px !important;
+  font-family: var(--cm-font-display) !important;
+  font-weight: 800 !important;
+  letter-spacing: .06em !important;
+  text-transform: uppercase !important;
+}
+
+#app #overviewView .overview-shift-actions button.primary {
+  border-color: var(--law-ref-cyan) !important;
+  color: #041820 !important;
+  background: var(--law-ref-cyan) !important;
+}
+
+#app #overviewView .overview-shift-actions button:not(.primary) {
+  color: var(--law-ref-text) !important;
+  background: #182738 !important;
+}
+
+#app #overviewView .overview-shift-actions button:disabled {
+  cursor: not-allowed !important;
+  opacity: .42 !important;
+}
+
+#app #overviewView .command-panel--capabilities > .panel-title {
+  padding: 36px 30px 0 !important;
+  border: 0 !important;
+}
+
+#app #overviewView .command-panel--capabilities .panel-title h3 {
+  margin-top: 0 !important;
+  color: var(--law-ref-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 25px !important;
+  text-transform: uppercase !important;
+}
+
+#app #overviewView .command-panel--capabilities .panel-kicker {
+  color: var(--law-ref-cyan) !important;
+  background: transparent !important;
+  border: 0 !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 13px !important;
+}
+
+#app #overviewView .command-panel--capabilities .capability-pills {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-content: center !important;
+  gap: 13px !important;
+  min-height: 125px !important;
+  padding: 0 30px 22px !important;
+  overflow: visible !important;
+  max-height: 126px !important;
+  overflow: auto !important;
+  align-content: flex-start !important;
+}
+
+#app #overviewView .capability-pill {
+  padding: 10px 14px !important;
+  border: 1px solid var(--law-ref-line) !important;
+  border-radius: 4px !important;
+  color: var(--law-ref-text) !important;
+  background: #182738 !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  text-transform: uppercase !important;
+}
+
+#app #overviewView .capability-pill i {
+  width: 7px !important;
+  height: 7px !important;
+  border-radius: 50% !important;
+  background: #a6b7c9 !important;
+  box-shadow: none !important;
+}
+
+#app #overviewActivityPanel {
+  grid-area: activity !important;
+  min-height: 232px !important;
+  padding: 30px !important;
+  overflow: hidden !important;
+}
+
+#app #overviewView > .desk-entry {
+  display: none !important;
+}
+
+#app #overviewActivityPanel > .panel-title {
+  padding: 0 !important;
+  border: 0 !important;
+}
+
+#app #overviewActivityPanel .panel-title h3 {
+  margin-top: 12px !important;
+  color: var(--law-ref-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 24px !important;
+  text-transform: uppercase !important;
+}
+
+#app #overviewActivityPanel .activity-preview {
+  min-height: 84px !important;
+  padding: 28px 0 0 !important;
+  max-height: 128px !important;
+  overflow: auto !important;
+}
+
+#app #overviewActivityPanel .activity-preview.is-empty::after {
+  content: "NO UNITS ARE CURRENTLY ON DUTY.";
+  color: var(--law-ref-muted);
+  font-family: var(--cm-font-display);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+#app #overviewActivityPanel .activity-preview.is-empty > * {
+  display: none !important;
+}
+
+#app .law-system-status {
+  display: none !important;
+}
+
+#app #dashboardClock::before {
+  content: "SYS: ";
+}
+
+#app #dashboardClock {
+  color: var(--law-ref-muted) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+}
+
+#app .law-topbar__actions {
+  position: absolute !important;
+  top: 30px !important;
+  right: 44px !important;
+  z-index: 8 !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 18px !important;
+}
+
+#app .law-duty-button,
+#app #dashboardRefresh,
+#app .law-topbar__actions .icon {
+  min-width: 158px !important;
+  height: 40px !important;
+  padding: 0 18px !important;
+  border: 1px solid var(--law-ref-line) !important;
+  border-radius: 5px !important;
+  color: var(--law-ref-text) !important;
+  background: rgba(255, 255, 255, .035) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  letter-spacing: .03em !important;
+  text-transform: uppercase !important;
+}
+
+#app .law-topbar__actions .icon {
+  min-width: 126px !important;
+  width: auto !important;
+  color: #E74C3C !important;
+  border-color: rgba(231, 76, 60, .35) !important;
+  background: rgba(231, 76, 60, .04) !important;
+  font-size: 12px !important;
+}
+
+#app .law-duty-button:hover,
+#app #dashboardRefresh:hover {
+  border-color: var(--law-ref-cyan) !important;
+  background: rgba(var(--law-ref-cyan-rgb), .1) !important;
+}
+
+#app .law-topbar__actions .icon:hover {
+  border-color: #E74C3C !important;
+  background: rgba(231, 76, 60, .1) !important;
+}
+
+@media (max-width: 1250px) {
+  #app .side { padding-inline: 24px !important; grid-template-columns: 280px minmax(0, 1fr) auto !important; }
+  #app .side nav {
+    left: clamp(300px, 16.5vw, 420px) !important;
+    right: clamp(360px, 20.4vw, 520px) !important;
+    gap: clamp(10px, 1.3vw, 20px) !important;
+    padding-inline: 10px !important;
+  }
+  #app .side .tab { font-size: clamp(11px, .59vw, 15px) !important; }
+  #app .law-topbar__actions { right: 24px !important; gap: 8px !important; }
+  #app #overviewView:not(.hidden) { padding-inline: 0 !important; }
+  #app .content { padding-inline: 42px !important; }
+}
+
+@media (max-width: 900px) {
+  #app .side { grid-template-columns: 1fr; height: auto !important; min-height: 94px !important; padding-block: 16px !important; }
+  #app .side nav { grid-row: 2; justify-content: flex-start; min-height: 42px; }
+  #app .side .tab { min-height: 42px !important; }
+  #app .law-topbar__actions { top: 17px !important; right: 24px !important; }
+  #app .law-topbar__actions > #dashboardClock { display: none !important; }
+  #app .workspace { height: calc(100% - 136px) !important; }
+  #app #overviewView:not(.hidden) { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; grid-template-areas: "heading heading" "identity identity" "calls duty" "prison prison" "capabilities capabilities" "activity activity" "shift shift" !important; grid-template-rows: auto !important; }
+}
+
+@media (max-height: 900px) and (min-width: 901px) {
+  #app:not(.standalone-interface) .side,
+  #app:not(.standalone-interface) .side nav,
+  #app:not(.standalone-interface) .side .tab {
+    height: 94px !important;
+    min-height: 94px !important;
+  }
+
+  #app:not(.standalone-interface) .workspace {
+    height: calc(100% - 94px) !important;
+  }
+
+  #app:not(.standalone-interface) .workspace > header {
+    height: 94px !important;
+  }
+
+  #app:not(.standalone-interface) .law-topbar__actions {
+    top: 24px !important;
+  }
+
+  #app:not(.standalone-interface) #overviewView:not(.hidden) {
+    grid-template-rows: minmax(84px, auto) repeat(3, minmax(164px, auto)) !important;
+    gap: clamp(16px, 1.5vw, 24px) !important;
+  }
+
+  #app:not(.standalone-interface) .overview-heading h1 {
+    font-size: clamp(36px, 3vw, 50px) !important;
+  }
+}
+
+@media (max-width: 620px) {
+  #app .brand-copy small { font-size: 13px !important; }
+  #app .brand-copy h1 { font-size: 10px !important; }
+  #app .law-topbar__actions .law-duty-button,
+  #app .law-topbar__actions #dashboardRefresh,
+  #app .law-topbar__actions .icon { min-width: 0 !important; padding-inline: 9px !important; font-size: 10px !important; }
+  #app .content { padding: 24px 16px !important; }
+  #app .overview-heading h1 { font-size: 34px !important; }
+  #app #overviewView > .org-identity-card { padding: 22px !important; gap: 14px !important; }
+  #app .org-identity-photo { flex-basis: 68px !important; width: 68px !important; height: 68px !important; }
+  #app .org-identity-copy h2 { font-size: 24px !important; }
+  #app #overviewStats .stat { min-height: 170px !important; padding: 24px 20px !important; }
+  #app #overviewStats .stat strong { font-size: 42px !important; }
+  #app #overviewView .command-panel--tools,
+  #app #overviewActivityPanel { padding: 22px !important; }
+}

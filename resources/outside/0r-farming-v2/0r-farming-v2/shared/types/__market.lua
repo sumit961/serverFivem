@@ -1,0 +1,8 @@
+---@class MarketItem
+---@field label string -- The label of the market item
+---@field itemName string -- The name of the item
+---@field image? string -- The image URL of the item
+---@field price number -- The price of the item
+---@field shortDesc string -- A short description of the item
+---@field level number -- The level requirement to purchase the item
+---@field sellPrice? number -- The price at which the item can be sold back

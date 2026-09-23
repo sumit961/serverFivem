@@ -27,6 +27,8 @@ function I.Request(id, label, sublabel, priority, options)
         label = clean(label ~= '' and label or 'Interact'),
         sublabel = clean(sublabel or ''),
         key = tostring(options.key or Config.Prompt.keyLabel or 'E'),
+        name = clean(options.name or 'CM HOUSE'),
+        role = clean(options.role or 'PROPERTY'),
         status = tostring(options.status or ''),
         priority = tonumber(priority) or 10,
         expires = GetGameTimer() + math.max(100, tonumber(options.ttl) or 220),
@@ -97,18 +99,35 @@ CreateThread(function()
         Wait(50)
         local req = not shouldSuppress() and bestRequest() or nil
         local key = req and table.concat({
-            req.id, req.label, req.key, tostring(req.disabled)
+            req.id, req.label, req.key, req.name, req.role,
+            tostring(req.priority), tostring(req.disabled)
         }, '|') or nil
 
         if key ~= shownKey then
             shownKey = key
             if req then
-                SendNUIMessage({ action = 'interaction:show', data = req })
+                pcall(function()
+                    exports['cm-ui']:ShowInteract({
+                        key = req.key,
+                        label = req.label:upper(),
+                        name = req.name,
+                        role = req.role,
+                        priority = req.priority,
+                    })
+                end)
             else
-                SendNUIMessage({ action = 'interaction:hide' })
+                pcall(function() exports['cm-ui']:HideInteract() end)
             end
         end
     end
+end)
+
+AddEventHandler('onClientResourceStart', function(resource)
+    if resource == 'cm-ui' then shownKey = nil end
+end)
+
+AddEventHandler('onClientResourceStop', function(resource)
+    if resource == 'cm-ui' then shownKey = nil end
 end)
 
 RegisterNetEvent('cm-house:client:setInteractionBusy', function(context, value)

@@ -109,13 +109,34 @@ local function isSharedFamilyVehicle(familyId, vehicleId)
     local ok, row = pcall(function()
         return MySQL.single.await([[
             SELECT 1 AS shared
-            FROM cm_house_shared_vehicles sh
-            JOIN cm_houses house ON house.id = sh.house_id
-            WHERE sh.vehicle_id = ? AND house.family_id = ?
+            FROM cm_house_vehicle_slots s
+            JOIN cm_houses house ON house.id = s.house_id
+            WHERE s.vehicle_id = ? AND house.family_id = ?
             LIMIT 1
         ]], { vehicleId, familyId })
     end)
-    return ok and row ~= nil
+    if ok and row ~= nil then return true end
+
+    local okAcc, accRow = pcall(function()
+        return MySQL.single.await([[
+            SELECT 1 AS shared
+            FROM cm_family_vehicle_access
+            WHERE vehicle_id = ? AND family_id = ?
+            LIMIT 1
+        ]], { vehicleId, familyId })
+    end)
+    if okAcc and accRow ~= nil then return true end
+
+    local okMem, memRow = pcall(function()
+        return MySQL.single.await([[
+            SELECT 1 AS shared
+            FROM cm_owned_vehicles v
+            JOIN cm_family_members m ON m.character_id = v.owner_character_id
+            WHERE v.id = ? AND m.family_id = ?
+            LIMIT 1
+        ]], { vehicleId, familyId })
+    end)
+    return okMem and memRow ~= nil
 end
 
 local function catalogImage(model)

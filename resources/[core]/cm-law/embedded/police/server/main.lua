@@ -208,6 +208,17 @@ function has(member, permission)
     return member and (PoliceLegacyDbBoolean(member.is_leader) or permissionMap(member)[permission] == true)
 end
 
+-- Shared "on-duty, not suspended, holds this permission" gate -- the same
+-- condition impound.lua's towAuthority, clamp.lua's authorizedOfficer and
+-- alpr.lua's authorizedManager each independently re-derived, now written
+-- once so a fix to it can't silently miss one of the three.
+function PoliceLegacyActiveMember(characterId, permission)
+    local member = characterId and PoliceLegacyMemberFor(characterId)
+    if not member or PoliceLegacyDbBoolean(member.is_suspended) or not PoliceLegacyDbBoolean(member.on_duty) then return nil end
+    if permission and not has(member, permission) then return nil end
+    return member
+end
+
 -- FTO/cadet mode: a brand-new Cadet (PoliceConfig.Fto.RestrictedTier) is blocked
 -- from the higher-stakes tools (fines/booking/impound) until a Captain+
 -- signs them off. Every caller of this already has a `member` row from

@@ -8,6 +8,7 @@ let disabledValues = {};
 let handsUpKey = null;
 let direction = "";
 let charId = null;
+let canCancel = false;
 
 // Listen for NUI messages
 window.addEventListener('message', function(event) {
@@ -21,15 +22,42 @@ window.addEventListener('message', function(event) {
         $('.categories').empty();
         $('.panel').empty();
 
-        document.getElementById("rotate-input").value = (item.currentRotate || 0).toString();
-        document.getElementById("distance-input").value = (item.currentDistance || 30).toString();
+        const initRotate = item.currentRotate || 0;
+        const initDistance = item.currentDistance || 30;
+        document.getElementById("rotate-input").value = initRotate.toString();
+        document.getElementById("distance-input").value = initDistance.toString();
+        document.getElementById("height-input").value = "0.0";
+        if (document.getElementById("rotate-val")) document.getElementById("rotate-val").textContent = initRotate + "°";
+        if (document.getElementById("distance-val")) document.getElementById("distance-val").textContent = initDistance.toString();
+        if (document.getElementById("height-val")) document.getElementById("height-val").textContent = "0.0";
 
-        $('#headerName').text(translate.create_character);
-        $('#headerCategory').text(translate.select_category);
+        if (item.serviceMode === 'barber') {
+            $('#headerName').text('BARBER STUDIO');
+            $('#headerCategory').text('HAIR & GROOMING');
+            const cost = Number(item.serviceCost) || 100;
+            $('#save').text('STYLE & PAY ($' + cost + ')');
+            if ($('#cancel-text').length) $('#cancel-text').text('LEAVE WITHOUT EDIT');
+            $('#cancel-btn').show();
+            canCancel = true;
+            $('.categories').hide();
+        } else {
+            $('.categories').show();
+            $('#headerName').text(translate.create_character || 'CREATE CHARACTER');
+            $('#headerCategory').text(translate.select_category);
+            $('#save').text(translate.save || 'SAVE & SPAWN');
+            if ($('#cancel-text').length) $('#cancel-text').text(translate.cancel || 'CANCEL');
+            if (item.enableCancelButtonUI) {
+                $('#cancel-btn').show();
+                canCancel = true;
+            } else {
+                $('#cancel-btn').hide();
+                canCancel = false;
+            }
+        }
+
         $('#height-text').text(translate.height);
         $('#rotate-text').text(translate.rotate);
         $('#distance-text').text(translate.distance);
-        $('#save').text(translate.save);
 
         if (item.clotheSets) clotheSets = item.clotheSets;
         if (item.items) items = item.items;
@@ -64,6 +92,12 @@ window.addEventListener('message', function(event) {
             }
         }
 
+        if (item.serviceMode === 'barber' || $('.categories .categoryBtn').length <= 1) {
+            $('.categories').hide();
+        } else {
+            $('.categories').show();
+        }
+
         setTimeout(() => {
             const firstCategory = document.querySelector('.categoryBtn');
             if (firstCategory) firstCategory.click();
@@ -95,6 +129,10 @@ window.addEventListener('message', function(event) {
     }
 
     if (item.action === 'updateSecondValue') {
+        if (currentValue[item.secondItem]) {
+            currentValue[item.secondItem].max = item.secondValue;
+            currentValue[item.secondItem].value = 0;
+        }
         const range = document.getElementById(`${item.secondItem}-range`);
         if (range) {
             range.max = item.secondValue;
@@ -104,11 +142,28 @@ window.addEventListener('message', function(event) {
         if (valEl) valEl.innerHTML = 0;
         const maxEl = document.getElementById(`${item.secondItem}-max`);
         if (maxEl) maxEl.innerHTML = item.secondValue;
+        const stepEl = document.getElementById(`${item.secondItem}-stepper-label`);
+        if (stepEl) stepEl.innerHTML = `0 <span class="stepper-max">/ ${item.secondValue}</span>`;
     }
 
     if (item.action === 'updateInputs') {
+        const dist = Math.floor(item.fov || 30);
         const distInput = document.getElementById("distance-input");
-        if (distInput) distInput.value = (item.fov || 30).toString();
+        if (distInput) distInput.value = dist.toString();
+        const distVal = document.getElementById("distance-val");
+        if (distVal) distVal.textContent = dist.toString();
+    }
+
+    if (item.action === 'setValue') {
+        if (currentValue[item.item]) {
+            currentValue[item.item].value = item.value;
+            const range = document.getElementById(`${item.item}-range`);
+            if (range) range.value = item.value;
+            const valEl = document.getElementById(`${item.item}-value`);
+            if (valEl) valEl.innerHTML = item.value;
+            const stepEl = document.getElementById(`${item.item}-stepper-label`);
+            if (stepEl) stepEl.innerHTML = `${item.value} <span class="stepper-max">/ ${currentValue[item.item].max}</span>`;
+        }
     }
 });
 
@@ -145,7 +200,19 @@ $(document).on('click', '.categoryBtn', function(e) {
     }
 
     $('.panel').html(values);
+    refreshSelectedSwatches();
 });
+
+// Marks the currently-selected color swatch in every rendered color grid
+// (yellow ring + center dot), based on currentValue[field].value.
+function refreshSelectedSwatches() {
+    document.querySelectorAll('.item-sub-color-selector[data-field]').forEach(el => {
+        const field = el.dataset.field;
+        const cv = currentValue[field];
+        const isSelected = cv && String(el.dataset.colorId) === String(cv.value);
+        el.classList.toggle('selected', !!isSelected);
+    });
+}
 
 // Build Parents Panel
 function buildParentsPanel() {
@@ -269,18 +336,7 @@ function buildFacePanel() {
                 <div class="item-bar">
                     <p class="item-subname">${translate.sub_eye_color}</p>
                     <div class="color-selector-bar">
-                        <div class="item-sub-color-selector" style="background: #d2d6d3;" onclick="changeColor('eye_color', 0)">✓</div>
-                        <div class="item-sub-color-selector" style="background: #5c6e36;" onclick="changeColor('eye_color', 45)">✓</div>
-                        <div class="item-sub-color-selector" style="background: #1f400f;" onclick="changeColor('eye_color', 2)">✓</div>
-                        <div class="item-sub-color-selector" style="background: #8fcbeb;" onclick="changeColor('eye_color', 3)">✓</div>
-                        <div class="item-sub-color-selector" style="background: #2e6b94;" onclick="changeColor('eye_color', 4)">✓</div>
-                        <div class="item-sub-color-selector" style="background: #27c07d;" onclick="changeColor('eye_color', 6)">✓</div>
-                        <div class="item-sub-color-selector" style="background: #947647;" onclick="changeColor('eye_color', 31)">✓</div>
-                        <div class="item-sub-color-selector" style="background: #593b0a;" onclick="changeColor('eye_color', 30)">✓</div>
-                        <div class="item-sub-color-selector" style="background: #2e2316;" onclick="changeColor('eye_color', 24)">✓</div>
-                        <div class="item-sub-color-selector" style="background: #9b9b9b;" onclick="changeColor('eye_color', 9)">✓</div>
-                        <div class="item-sub-color-selector" style="background: #5f5f5f;" onclick="changeColor('eye_color', 10)">✓</div>
-                        <div class="item-sub-color-selector" style="background: #0e0e0e;" onclick="changeColor('eye_color', 12)">✓</div>
+                        ${buildEyeColors()}
                     </div>
                 </div>
             </div>`;
@@ -501,7 +557,7 @@ function buildMakeupPanel() {
     return values;
 }
 
-// Helper: Create range input HTML
+// Helper: Create button stepper input HTML (replaces range sliders)
 function createRangeInput(subname, item) {
     const cv = currentValue[item];
     if (!cv) return '';
@@ -511,10 +567,32 @@ function createRangeInput(subname, item) {
                 <p class="item-subname">${subname}</p>
                 <p class="item-value" id="${item}-value">${cv.value}</p>
             </div>
-            <div class="item-suboptions">
-                <input type="range" min="${cv.min}" max="${cv.max}" value="${cv.value}" data-excluded="${cv.excluded ? cv.excluded.join(',') : ''}" class="input-value-radius" id="${item}-range" oninput="changeRange('${item}')">
+            <div class="item-suboptions stepper-controls">
+                <button type="button" class="stepper-btn" onclick="stepItem('${item}', -1)">◀</button>
+                <span class="stepper-label" id="${item}-stepper-label">${cv.value} <span class="stepper-max">/ ${cv.max}</span></span>
+                <button type="button" class="stepper-btn" onclick="stepItem('${item}', 1)">▶</button>
+                <input type="hidden" id="${item}-range" value="${cv.value}">
             </div>
         </div>`;
+}
+
+function stepItem(item, dir) {
+    if (!currentValue[item]) return;
+    let val = Number(currentValue[item].value);
+    if (isNaN(val)) val = 0;
+    const min = Number(currentValue[item].min) || 0;
+    const max = Number(currentValue[item].max) || 0;
+
+    val += dir;
+    if (val < min) val = max;
+    else if (val > max) val = min;
+
+    currentValue[item].value = val;
+    postChange(item, val);
+
+    $(`#${item}-value`).html(val);
+    $(`#${item}-stepper-label`).html(`${val} <span class="stepper-max">/ ${max}</span>`);
+    $(`#${item}-range`).val(val);
 }
 
 // Helper: Create single range block
@@ -544,6 +622,21 @@ function createDoubleRangeBlock(title, sub1, item1, sub2, item2) {
         </div>`;
 }
 
+// Helper: render a swatch grid. Each swatch carries data-field/data-color-id
+// so refreshSelectedSwatches() can mark whichever one matches currentValue.
+function buildColorSwatches(item, colors) {
+    return colors.map(c => `<div class="item-sub-color-selector" data-field="${item}" data-color-id="${c[0]}" style="background: ${c[1]};" onclick="changeColor('${item}', ${c[0]})"></div>`).join('');
+}
+
+// Helper: Build eye colors
+function buildEyeColors() {
+    const colors = [
+        [0, '#d2d6d3'], [45, '#5c6e36'], [2, '#1f400f'], [3, '#8fcbeb'], [4, '#2e6b94'], [6, '#27c07d'],
+        [31, '#947647'], [30, '#593b0a'], [24, '#2e2316'], [9, '#9b9b9b'], [10, '#5f5f5f'], [12, '#0e0e0e']
+    ];
+    return buildColorSwatches('eye_color', colors);
+}
+
 // Helper: Build hair color selectors
 function buildHairColors(item) {
     const colors = [
@@ -551,7 +644,7 @@ function buildHairColors(item) {
         [8, '#8b6444'], [10, '#c4ab75'], [21, '#c21111'], [27, '#696969'], [28, '#a8a8a8'], [34, '#ff0178'],
         [35, '#fc9aff'], [37, '#185579'], [38, '#11288f'], [39, '#269b60'], [43, '#32ad13'], [46, '#eec614']
     ];
-    return colors.map(c => `<div class="item-sub-color-selector" style="background: ${c[1]};" onclick="changeColor('${item}', ${c[0]})">✓</div>`).join('');
+    return buildColorSwatches(item, colors);
 }
 
 // Helper: Build makeup colors
@@ -560,7 +653,7 @@ function buildMakeupColors(item) {
         [17, '#e775a4'], [18, '#de3e81'], [24, '#cf0813'], [0, '#992532'], [20, '#712739'], [56, '#180e0e'],
         [45, '#ffdd26'], [47, '#f78a27'], [37, '#25c2d2'], [34, '#1d4ea7'], [40, '#1b9c32'], [32, '#6d1a9d']
     ];
-    return colors.map(c => `<div class="item-sub-color-selector" style="background: ${c[1]};" onclick="changeColor('${item}', ${c[0]})">✓</div>`).join('');
+    return buildColorSwatches(item, colors);
 }
 
 // Helper: Build blush colors
@@ -568,7 +661,7 @@ function buildBlushColors(item) {
     const colors = [
         [18, '#de3e81'], [20, '#712739'], [21, '#4f1f2a'], [7, '#a4645d'], [13, '#a84c33'], [24, '#cf0813']
     ];
-    return colors.map(c => `<div class="item-sub-color-selector" style="background: ${c[1]};" onclick="changeColor('${item}', ${c[0]})">✓</div>`).join('');
+    return buildColorSwatches(item, colors);
 }
 
 // Helper: Build lipstick colors
@@ -576,7 +669,7 @@ function buildLipstickColors(item) {
     const colors = [
         [54, '#880302'], [53, '#ff0505'], [51, '#d1593c'], [34, '#eb4b93'], [38, '#023974'], [39, '#3fa16a']
     ];
-    return colors.map(c => `<div class="item-sub-color-selector" style="background: ${c[1]};" onclick="changeColor('${item}', ${c[0]})">✓</div>`).join('');
+    return buildColorSwatches(item, colors);
 }
 
 // Navigation functions
@@ -635,6 +728,7 @@ function nextClotheSets() {
 function changeColor(item, dataId) {
     postChange(item, dataId);
     currentValue[item].value = dataId;
+    refreshSelectedSwatches();
 }
 
 function changeRange(item) {
@@ -671,7 +765,7 @@ function postChange(type, newValue) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type, new: newValue })
-    });
+    }).catch(() => {});
 }
 
 function changeCamera(type) {
@@ -679,7 +773,37 @@ function changeCamera(type) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type })
-    });
+    }).catch(() => {});
+}
+
+function stepHeight(step) {
+    let el = document.getElementById('height-input');
+    let val = parseFloat(el.value || 0) + step;
+    val = Math.max(-1.0, Math.min(1.0, Math.round(val * 10) / 10));
+    el.value = val.toFixed(1);
+    const disp = document.getElementById('height-val');
+    if (disp) disp.textContent = val.toFixed(1);
+    changeHeight();
+}
+
+function stepRotate(step) {
+    let el = document.getElementById('rotate-input');
+    let val = (parseInt(el.value || 0, 10) + step) % 360;
+    if (val < 0) val += 360;
+    el.value = val;
+    const disp = document.getElementById('rotate-val');
+    if (disp) disp.textContent = val + '°';
+    changeRotate();
+}
+
+function stepDistance(step) {
+    let el = document.getElementById('distance-input');
+    let val = parseInt(el.value || 30, 10) + step;
+    val = Math.max(30, Math.min(100, val));
+    el.value = val;
+    const disp = document.getElementById('distance-val');
+    if (disp) disp.textContent = val;
+    changeDistance();
 }
 
 function changeHeight() {
@@ -688,7 +812,7 @@ function changeHeight() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ height })
-    });
+    }).catch(() => {});
 }
 
 function changeRotate() {
@@ -697,7 +821,7 @@ function changeRotate() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rotate })
-    });
+    }).catch(() => {});
 }
 
 function changeDistance() {
@@ -706,7 +830,7 @@ function changeDistance() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ distance })
-    });
+    }).catch(() => {});
 }
 
 function handsUp() {
@@ -714,7 +838,7 @@ function handsUp() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
-    });
+    }).catch(() => {});
 }
 
 function saveAppearance() {
@@ -722,14 +846,117 @@ function saveAppearance() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ charId })
-    });
+    }).catch(() => {});
     document.getElementById('appearance-ui').style.display = 'none';
 }
 
-// Keyboard handling
+function closeAppearance() {
+    fetch(`https://${GetParentResourceName()}/appearanceClose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+    }).catch(() => {});
+    document.getElementById('appearance-ui').style.display = 'none';
+}
+
+// Keyboard handling - ESC to leave without edit when cancel is available
 $(document).on("keydown", function(event) {
+    if (event.key === 'Escape' || event.keyCode === 27) {
+        const appUi = document.getElementById('appearance-ui');
+        if (appUi && appUi.style.display !== 'none' && canCancel) {
+            event.preventDefault();
+            event.stopPropagation();
+            closeAppearance();
+            return false;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        return false;
+    }
     if (event.keyCode === 37) direction = "left";
     else if (event.keyCode === 39) direction = "right";
     else if (event.key === handsUpKey) handsUp();
 });
 
+// Screen drag rotation and zoom (like nv_cloth clothing store)
+let isScreenDragging = false;
+let screenLastX = 0;
+let screenLastY = 0;
+let accDragX = 0;
+let accDragY = 0;
+let dragFlushQueued = false;
+
+function flushDragUpdates() {
+    dragFlushQueued = false;
+    if (Math.abs(accDragX) > 0.001 || Math.abs(accDragY) > 0.001) {
+        fetch(`https://${GetParentResourceName()}/appearanceDrag`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                deltaX: accDragX,
+                deltaY: accDragY
+            })
+        }).catch(() => {});
+    }
+    accDragX = 0;
+    accDragY = 0;
+}
+
+function isInteractiveUiElement(target) {
+    if (!target || !target.closest) return false;
+    return target.closest('.panel, .actions, .settings, .categories, .categoryBtn, button, input, select, textarea, .item-block, .color-circle, .item-sub-color-selector') !== null;
+}
+
+document.addEventListener('mousedown', function(e) {
+    if (isInteractiveUiElement(e.target)) return;
+    if (e.button === 0) {
+        isScreenDragging = true;
+        screenLastX = e.clientX;
+        screenLastY = e.clientY;
+        accDragX = 0;
+        accDragY = 0;
+        document.body.classList.add('is-dragging');
+    }
+});
+
+window.addEventListener('mousemove', function(e) {
+    if (!isScreenDragging) return;
+    const dx = e.clientX - screenLastX;
+    const dy = e.clientY - screenLastY;
+    screenLastX = e.clientX;
+    screenLastY = e.clientY;
+
+    accDragX += -dx * 0.50;
+    accDragY += -dy * 0.003;
+
+    if (!dragFlushQueued) {
+        dragFlushQueued = true;
+        requestAnimationFrame(flushDragUpdates);
+    }
+});
+
+window.addEventListener('mouseup', function() {
+    if (isScreenDragging) {
+        isScreenDragging = false;
+        document.body.classList.remove('is-dragging');
+    }
+});
+
+document.addEventListener('wheel', function(e) {
+    if (e.target && e.target.closest && e.target.closest('.panel')) return;
+    const delta = (e.deltaY > 0) ? 1.5 : -1.5;
+    fetch(`https://${GetParentResourceName()}/appearanceZoom`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delta: delta })
+    }).catch(() => {});
+}, { passive: true });
+
+document.addEventListener('dblclick', function(e) {
+    if (isInteractiveUiElement(e.target)) return;
+    fetch(`https://${GetParentResourceName()}/appearanceResetCam`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+    }).catch(() => {});
+});

@@ -193,7 +193,7 @@ RegisterNUICallback('facilityDialogueContinue', function(_, cb)
         elseif result.action == 'armory' then
             TriggerEvent('cm-law:client:openArmory', result.organizationId, result.label)
         elseif result.action == 'fleet' then
-            OpenLawMenu('fleet')
+            TriggerEvent('cm-law:client:openFleetPanel', result.organizationId, result.label)
         elseif result.action == 'impound' then
             TriggerEvent('cm-law:client:openImpoundRelease')
         elseif result.message then notify(result.message, 'success') end

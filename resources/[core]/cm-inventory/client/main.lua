@@ -499,6 +499,21 @@ local function resolvePedClothingDrawable(ped, metadata)
 
     local drawable = tonumber(metadata.drawableId or metadata.drawable)
     local texture = tonumber(metadata.textureId or metadata.texture or 0) or 0
+
+    local collection = metadata.collection or metadata.collectionName or metadata.collection_name
+    local localId = tonumber(metadata.collectionLocalId or metadata.collection_local_id)
+    if collection ~= nil and localId ~= nil and GetResourceState('nv_cloth') == 'started' then
+        local component = tonumber(metadata.componentIndex or metadata.component_index)
+        local isProp = tostring(metadata.componentType or metadata.component_type):lower() == 'prop'
+        local ok, resolved = pcall(function()
+            return exports['nv_cloth']:ResolveClothingDrawable(
+                isProp and 'prop' or 'component', component or 0, collection, localId, drawable, ped)
+        end)
+        if ok and tonumber(resolved) then
+            drawable = tonumber(resolved)
+        end
+    end
+
     return drawable, texture
 end
 
@@ -523,6 +538,12 @@ local function resolveTorsoFitForItem(ped, metadata, drawable, texture)
     end
 
     return fallback
+end
+
+local function notifyLocal(message)
+    BeginTextCommandThefeedPost('STRING')
+    AddTextComponentSubstringPlayerName(message or '')
+    EndTextCommandThefeedPostTicker(false, false)
 end
 
 local function clearClothingSlot(slot)
@@ -555,7 +576,10 @@ local function equipClothingFromInventorySlot(slot, item)
     if not def then return false end
 
     local metadata = item.metadata or {}
-    if not itemFitsCurrentGender(metadata) then return false end
+    if not itemFitsCurrentGender(metadata) then
+        notifyLocal(('This %s does not fit your character\'s gender.'):format(item.label or item.item_name or 'item'))
+        return false
+    end
 
     local ped = PlayerPedId()
     local drawable, texture = resolvePedClothingDrawable(ped, metadata)
@@ -586,12 +610,6 @@ local function equipClothingFromInventorySlot(slot, item)
     local category = metadata.categoryType or metadata.category or ClothingCategoryBySlot[slot]
     TriggerEvent('nvCloth:client:equipClothingItem', category, drawable, texture)
     return true
-end
-
-local function notifyLocal(message)
-    BeginTextCommandThefeedPost('STRING')
-    AddTextComponentSubstringPlayerName(message or '')
-    EndTextCommandThefeedPostTicker(false, false)
 end
 
 local function requestAnimDictSafe(dict, timeoutMs)

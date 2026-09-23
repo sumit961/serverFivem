@@ -5,8 +5,44 @@
 -- ============================================================
 
 local B = CMFamilyBridge
-local ActiveRaid = nil
+local ActiveRaids = {}          -- [raidId] = raid
+local ActiveRaidsByHouse = {}   -- [houseId] = raid
+local ActiveRaidsByFamily = {}  -- [familyId] = raid
+local PlayerRaid = {}           -- [playerSource] = raidId
 local raidSequence = 0
+
+local function GetRaidById(raidId)
+    if not raidId then return nil end
+    return ActiveRaids[tostring(raidId)]
+end
+
+local function GetRaidForHouse(houseId)
+    local hid = tonumber(houseId)
+    return hid and ActiveRaidsByHouse[hid] or nil
+end
+
+local function GetRaidForFamily(familyId)
+    local fid = tonumber(familyId)
+    return fid and ActiveRaidsByFamily[fid] or nil
+end
+
+local function GetRaidForPlayer(src)
+    local sourceId = tonumber(src)
+    if not sourceId then return nil end
+    local raidId = PlayerRaid[sourceId]
+    if raidId then
+        local raid = ActiveRaids[tostring(raidId)]
+        if raid then return raid end
+        PlayerRaid[sourceId] = nil
+    end
+    for _, raid in pairs(ActiveRaids) do
+        if raid.players and raid.players[sourceId] then
+            PlayerRaid[sourceId] = raid.id
+            return raid
+        end
+    end
+    return nil
+end
 
 local function raidConfig(key, fallback)
     local value = Config.Raid and Config.Raid[key]
@@ -144,7 +180,9 @@ local function awardFamily(familyId, raidId)
 end
 
 local function restorePlayer(src, raid, result)
-    if not src or not GetPlayerName(src) then return end
+    if not src then return end
+    PlayerRaid[tonumber(src)] = nil
+    if not GetPlayerName(src) then return end
     SetPlayerRoutingBucket(src, 0)
     TriggerClientEvent('cm-family:client:raidFinished', src, result)
 end
@@ -166,7 +204,10 @@ local function finishRaid(raid, winnerFamilyId, reason)
     }
     TriggerClientEvent('cm-family:client:raidEnded', -1, result)
     for src in pairs(raid.players) do restorePlayer(src, raid, result) end
-    ActiveRaid = nil
+    ActiveRaids[tostring(raid.id)] = nil
+    if raid.houseId then ActiveRaidsByHouse[tonumber(raid.houseId)] = nil end
+    if raid.attackerFamilyId then ActiveRaidsByFamily[tonumber(raid.attackerFamilyId)] = nil end
+    if raid.targetFamilyId then ActiveRaidsByFamily[tonumber(raid.targetFamilyId)] = nil end
 end
 
 local function evaluateRaid(raid)
@@ -203,16 +244,19 @@ local function evaluateRaid(raid)
 end
 
 local function eliminate(src, reason)
-    if not ActiveRaid then return end
-    local player = ActiveRaid.players[tonumber(src)]
+    local sourceId = tonumber(src)
+    local raid = GetRaidForPlayer(sourceId)
+    if not raid then return end
+    local player = raid.players[sourceId]
     if not player or player.alive ~= true then return end
     player.alive = false
     player.eliminatedAt = os.time()
     player.eliminationReason = reason or 'eliminated'
-    SetPlayerRoutingBucket(tonumber(src), 0)
-    TriggerClientEvent('cm-family:client:raidEliminated', tonumber(src), { reason = player.eliminationReason })
-    broadcastRaid(ActiveRaid)
-    evaluateRaid(ActiveRaid)
+    PlayerRaid[sourceId] = nil
+    SetPlayerRoutingBucket(sourceId, 0)
+    TriggerClientEvent('cm-family:client:raidEliminated', sourceId, { reason = player.eliminationReason })
+    broadcastRaid(raid)
+    evaluateRaid(raid)
 end
 
 local function joinRaid(src, raid, skipProximity)
@@ -254,6 +298,7 @@ local function joinRaid(src, raid, skipProximity)
         src = tonumber(src), cid = context.cid, familyId = familyId, alive = true,
         outsideSince = nil,
     }
+    PlayerRaid[tonumber(src)] = raid.id
     SetPlayerRoutingBucket(tonumber(src), tonumber(raid.bucket))
     TriggerClientEvent('cm-family:client:raidJoined', tonumber(src), raidPayload(raid))
     notify(src, raid.phase == 'countdown' and 'Raid locked. Prepare for the countdown.' or 'You joined the family raid.', 'success')
@@ -268,23 +313,27 @@ function GetFamilyRaidDoorState(characterId, familyId, houseId)
     local ownLinkedHouse = family and houseId and family.house_id
         and tonumber(family.house_id) == tonumber(houseId)
     local isMember = sameFamily or ownLinkedHouse
-    local raidFamilyMember = ActiveRaid and family and ActiveRaid.families[tonumber(family.id)] ~= nil
-    local raidAllowedFamily = ActiveRaid and family and (
-        tonumber(family.id) == tonumber(ActiveRaid.attackerFamilyId)
-        or tonumber(family.id) == tonumber(ActiveRaid.targetFamilyId))
+
+    local activeRaidForHouse = houseId and GetRaidForHouse(tonumber(houseId))
+    local activeRaidForCallerFamily = family and GetRaidForFamily(tonumber(family.id))
+    local targetRaid = activeRaidForHouse or activeRaidForCallerFamily
+
+    local raidFamilyMember = targetRaid and family and targetRaid.families[tonumber(family.id)] ~= nil
+    local raidAllowedFamily = targetRaid and family and (
+        tonumber(family.id) == tonumber(targetRaid.attackerFamilyId)
+        or tonumber(family.id) == tonumber(targetRaid.targetFamilyId))
     local canInitiate = family ~= nil and not isMember and canStart({ rank = rank })
     local state = {
         enabled = true,
-        active = ActiveRaid ~= nil,
+        active = activeRaidForHouse ~= nil,
         inFamily = family ~= nil,
         isMember = isMember == true,
         -- A raid is launched by an eligible member of the attacking family
-        -- at the opposing family house.  The target family must not be the
-        -- initiating family, but its members can still join to defend.
-        canStart = (not ActiveRaid) and canInitiate or false,
-        canJoin = ActiveRaid ~= nil and raidAllowedFamily == true
-            and (ActiveRaid.phase == 'forming' or raidFamilyMember),
-        raidId = ActiveRaid and ActiveRaid.id or nil,
+        -- at the opposing family house.
+        canStart = (not activeRaidForHouse) and (not activeRaidForCallerFamily) and canInitiate or false,
+        canJoin = activeRaidForHouse ~= nil and raidAllowedFamily == true
+            and (activeRaidForHouse.phase == 'forming' or raidFamilyMember),
+        raidId = activeRaidForHouse and activeRaidForHouse.id or nil,
     }
     return state
 end
@@ -299,15 +348,23 @@ function StartFamilyRaid(src, houseId, center, houseFamilyId)
     local context, why = memberContext(src)
     if not context then return false, why end
     local familyId = tonumber(context.family.id)
-    if ActiveRaid then
-        local dx = (tonumber(center and center.x) or 0.0) - (tonumber(ActiveRaid.center.x) or 0.0)
-        local dy = (tonumber(center and center.y) or 0.0) - (tonumber(ActiveRaid.center.y) or 0.0)
-        local dz = (tonumber(center and center.z) or 0.0) - (tonumber(ActiveRaid.center.z) or 0.0)
-        if (dx * dx + dy * dy + dz * dz) > ((ActiveRaid.radius + 8.0) ^ 2) then
+
+    local houseRaid = houseId and GetRaidForHouse(tonumber(houseId))
+    if houseRaid then
+        local dx = (tonumber(center and center.x) or 0.0) - (tonumber(houseRaid.center.x) or 0.0)
+        local dy = (tonumber(center and center.y) or 0.0) - (tonumber(houseRaid.center.y) or 0.0)
+        local dz = (tonumber(center and center.z) or 0.0) - (tonumber(houseRaid.center.z) or 0.0)
+        if (dx * dx + dy * dy + dz * dz) > ((houseRaid.radius + 8.0) ^ 2) then
             return false, 'Stand inside the active raid circle to join.'
         end
-        return joinRaid(src, ActiveRaid)
+        return joinRaid(src, houseRaid)
     end
+
+    local callerFamilyRaid = GetRaidForFamily(familyId)
+    if callerFamilyRaid then
+        return false, 'Your family is already participating in an active raid.'
+    end
+
     if tonumber(context.family.id) == tonumber(houseFamilyId)
         or (context.family.house_id and tonumber(context.family.house_id) == tonumber(houseId)) then
         return false, 'You cannot raid your own family house.'
@@ -316,11 +373,18 @@ function StartFamilyRaid(src, houseId, center, houseFamilyId)
     if not targetFamilyId then
         return false, 'This house is not assigned to a family.'
     end
+
+    local targetFamilyRaid = GetRaidForFamily(targetFamilyId)
+    if targetFamilyRaid then
+        return false, 'That family is currently involved in another raid.'
+    end
+
     if not canStart(context) then return false, 'Your rank cannot start a family raid.' end
     raidSequence = raidSequence + 1
     local now = os.time()
-    ActiveRaid = {
-        id = ('raid-%s-%s'):format(now, raidSequence),
+    local raidId = ('raid-%s-%s'):format(now, raidSequence)
+    local newRaid = {
+        id = raidId,
         houseId = tonumber(houseId),
         center = { x = tonumber(center and center.x) or 0.0, y = tonumber(center and center.y) or 0.0, z = tonumber(center and center.z) or 0.0 },
         radius = tonumber(raidConfig('arenaRadius', raidConfig('joinRadius', 4.0))) or 4.0,
@@ -336,25 +400,38 @@ function StartFamilyRaid(src, houseId, center, houseFamilyId)
         overtime = false,
         nearbyNoticeAt = {},
     }
-    broadcastRaid(ActiveRaid)
+    ActiveRaids[raidId] = newRaid
+    ActiveRaidsByHouse[tonumber(houseId)] = newRaid
+    ActiveRaidsByFamily[familyId] = newRaid
+    ActiveRaidsByFamily[targetFamilyId] = newRaid
+
+    broadcastRaid(newRaid)
     notify(src, 'Family raid circle created. Your opponent must enter the circle.', 'success')
-    return joinRaid(src, ActiveRaid, true)
+    return joinRaid(src, newRaid, true)
 end
 exports('StartFamilyRaid', StartFamilyRaid)
 
 lib.callback.register('cm-family:server:joinRaid', function(src, raidId)
-    if not ActiveRaid or tostring(ActiveRaid.id) ~= tostring(raidId) then return false, 'That raid is no longer active.' end
-    return joinRaid(src, ActiveRaid)
+    local raid = raidId and GetRaidById(raidId) or GetRaidForPlayer(src)
+    if not raid or raid.finished then return false, 'That raid is no longer active.' end
+    return joinRaid(src, raid)
 end)
 
 -- Client fallback for event loss/resource reloads. This is read-only and
 -- returns the same sanitized payload broadcast by raidCircle/raidUpdate.
 lib.callback.register('cm-family:server:getActiveRaid', function(src)
-    return ActiveRaid and isRaidEligibleViewer(src, ActiveRaid) and raidPayload(ActiveRaid) or false
+    local raid = GetRaidForPlayer(src)
+    if not raid then
+        local context = memberContext(src)
+        local familyId = context and context.family and tonumber(context.family.id)
+        if familyId then raid = GetRaidForFamily(familyId) end
+    end
+    return raid and isRaidEligibleViewer(src, raid) and raidPayload(raid) or false
 end)
 
 lib.callback.register('cm-family:server:leaveRaid', function(src)
-    if not ActiveRaid or not ActiveRaid.players[tonumber(src)] then return false, 'You are not in a raid.' end
+    local raid = GetRaidForPlayer(src)
+    if not raid or not raid.players[tonumber(src)] then return false, 'You are not in a raid.' end
     eliminate(src, 'left_raid')
     return true
 end)
@@ -362,75 +439,90 @@ end)
 CreateThread(function()
     while true do
         Wait(500)
-        local raid = ActiveRaid
-        if raid and not raid.finished then
-            local now = os.time()
-            if raid.phase == 'countdown' and raid.startsAt and now >= raid.startsAt then
-                raid.phase = 'active'
-                raid.startedAt = now
-                raid.endsAt = now + (tonumber(raidConfig('durationSeconds', 900)) or 900)
-                broadcastRaid(raid)
-                for src in pairs(raid.players) do notify(src, 'Raid started. Last family standing wins.', 'inform') end
-            end
-            for src, player in pairs(raid.players) do
-                if player.alive == true then
-                    local ped = GetPlayerPed(src)
-                    if not GetPlayerName(src) or GetPlayerRoutingBucket(src) ~= raid.bucket then
-                        eliminate(src, 'left_raid')
-                    elseif playerInVehicle(src) then
-                        eliminate(src, 'vehicle_in_raid')
-                    elseif raid.phase ~= 'finished' and not isNearRaidCircle(src, raid) then
-                        local grace = math.max(1, tonumber(raidConfig('boundaryGraceSeconds', 5)) or 5)
-                        if not player.outsideSince then
-                            player.outsideSince = now
-                            TriggerClientEvent('cm-family:client:raidBoundaryWarning', src, {
-                                seconds = grace,
-                                deadline = now + grace,
-                            })
-                        elseif now - player.outsideSince >= grace then
-                            eliminate(src, 'left_circle')
+        local activeList = {}
+        for _, raid in pairs(ActiveRaids) do activeList[#activeList + 1] = raid end
+        for _, raid in ipairs(activeList) do
+            if raid and not raid.finished then
+                local now = os.time()
+                if raid.phase == 'countdown' and raid.startsAt and now >= raid.startsAt then
+                    raid.phase = 'active'
+                    raid.startedAt = now
+                    raid.endsAt = now + (tonumber(raidConfig('durationSeconds', 900)) or 900)
+                    broadcastRaid(raid)
+                    for src in pairs(raid.players) do notify(src, 'Raid started. Last family standing wins.', 'inform') end
+                end
+                for src, player in pairs(raid.players) do
+                    if player.alive == true then
+                        local ped = GetPlayerPed(src)
+                        if not GetPlayerName(src) or GetPlayerRoutingBucket(src) ~= raid.bucket then
+                            eliminate(src, 'left_raid')
+                        elseif playerInVehicle(src) then
+                            eliminate(src, 'vehicle_in_raid')
+                        elseif raid.phase ~= 'finished' and not isNearRaidCircle(src, raid) then
+                            local grace = math.max(1, tonumber(raidConfig('boundaryGraceSeconds', 5)) or 5)
+                            if not player.outsideSince then
+                                player.outsideSince = now
+                                TriggerClientEvent('cm-family:client:raidBoundaryWarning', src, {
+                                    seconds = grace,
+                                    deadline = now + grace,
+                                })
+                            elseif now - player.outsideSince >= grace then
+                                eliminate(src, 'left_circle')
+                            end
+                        else
+                            if player.outsideSince then
+                                player.outsideSince = nil
+                                TriggerClientEvent('cm-family:client:raidBoundaryReturned', src)
+                            end
+                            if ped and ped ~= 0 and GetEntityHealth(ped) <= 0 then eliminate(src, 'eliminated') end
                         end
-                    else
-                        if player.outsideSince then
-                            player.outsideSince = nil
-                            TriggerClientEvent('cm-family:client:raidBoundaryReturned', src)
-                        end
-                        if ped and ped ~= 0 and GetEntityHealth(ped) <= 0 then eliminate(src, 'eliminated') end
                     end
                 end
-            end
-            -- Players outside the two participating families cannot see the
-            -- circle, but should receive a nearby warning when they enter its
-            -- public-world range. Rate-limit it so it is not spammed.
-            raid.nearbyNoticeAt = raid.nearbyNoticeAt or {}
-            for _, viewerSource in ipairs(GetPlayers()) do
-                local viewer = tonumber(viewerSource)
-                if viewer and GetPlayerRoutingBucket(viewer) == 0
-                   and not isRaidEligibleViewer(viewer, raid)
-                   and isNearRaidCircle(viewer, raid) then
-                    local lastNotice = tonumber(raid.nearbyNoticeAt[viewer]) or 0
-                    if now - lastNotice >= 15 then
-                        raid.nearbyNoticeAt[viewer] = now
-                        notify(viewer, 'A family raid is taking place nearby.', 'warning')
+                -- Players outside the two participating families cannot see the
+                -- circle, but should receive a nearby warning when they enter its
+                -- public-world range. Rate-limit it so it is not spammed.
+                raid.nearbyNoticeAt = raid.nearbyNoticeAt or {}
+                for _, viewerSource in ipairs(GetPlayers()) do
+                    local viewer = tonumber(viewerSource)
+                    if viewer and GetPlayerRoutingBucket(viewer) == 0
+                       and not isRaidEligibleViewer(viewer, raid)
+                       and isNearRaidCircle(viewer, raid) then
+                        local lastNotice = tonumber(raid.nearbyNoticeAt[viewer]) or 0
+                        if now - lastNotice >= 15 then
+                            raid.nearbyNoticeAt[viewer] = now
+                            notify(viewer, 'A family raid is taking place nearby.', 'warning')
+                        end
                     end
                 end
+                evaluateRaid(raid)
             end
-            evaluateRaid(raid)
         end
     end
 end)
 
 AddEventHandler('playerDropped', function()
-    if ActiveRaid and ActiveRaid.players[tonumber(source)] then eliminate(source, 'disconnected') end
+    local src = source
+    local raid = GetRaidForPlayer(src)
+    if raid and raid.players[tonumber(src)] then eliminate(src, 'disconnected') end
 end)
 
 AddEventHandler('playerJoining', function()
-    if ActiveRaid and isRaidEligibleViewer(source, ActiveRaid) then
-        TriggerClientEvent('cm-family:client:raidCircle', source, raidPayload(ActiveRaid))
+    local src = source
+    local context = memberContext(src)
+    local familyId = context and context.family and tonumber(context.family.id)
+    if familyId then
+        local raid = GetRaidForFamily(familyId)
+        if raid and isRaidEligibleViewer(src, raid) then
+            TriggerClientEvent('cm-family:client:raidCircle', src, raidPayload(raid))
+        end
     end
 end)
 
 AddEventHandler('onResourceStop', function(resource)
-    if resource ~= GetCurrentResourceName() or not ActiveRaid then return end
-    for src in pairs(ActiveRaid.players) do if GetPlayerName(src) then SetPlayerRoutingBucket(src, 0) end end
+    if resource ~= GetCurrentResourceName() then return end
+    for _, raid in pairs(ActiveRaids) do
+        for src in pairs(raid.players) do
+            if GetPlayerName(src) then SetPlayerRoutingBucket(src, 0) end
+        end
+    end
 end)

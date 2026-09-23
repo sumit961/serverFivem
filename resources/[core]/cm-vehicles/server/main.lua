@@ -3,6 +3,29 @@ local U = CMVehicles.Utils
 CMVehicles.Server = CMVehicles.Server or {}
 CMVehicles.Server.Spawned = CMVehicles.Server.Spawned or {}
 CMVehicles.Server.TrunkOccupants = CMVehicles.Server.TrunkOccupants or {}
+CMVehicles.Server.MetadataLocks = CMVehicles.Server.MetadataLocks or {}
+
+-- Serializes read-modify-write access to a single vehicle's shared `metadata`
+-- JSON column. Key lending/revoking and the driving autosave all read the
+-- whole blob, mutate their own slice (lentKeys, mileage, neons, ...), and
+-- write the whole blob back with no version check. Without this lock, two of
+-- these racing on the same vehicle can both start from the same "before"
+-- snapshot; whichever writes last silently discards the other's change.
+function CMVehicles.Server.WithVehicleLock(vehicleId, fn)
+    vehicleId = tonumber(vehicleId)
+    if not vehicleId then return fn() end
+    local locks = CMVehicles.Server.MetadataLocks
+    local waitFor = locks[vehicleId]
+    local myTurn = promise.new()
+    locks[vehicleId] = myTurn
+    if waitFor then Citizen.Await(waitFor) end
+    local results = { pcall(fn) }
+    if locks[vehicleId] == myTurn then locks[vehicleId] = nil end
+    myTurn:resolve(true)
+    local ok = table.remove(results, 1)
+    if not ok then error(results[1], 0) end
+    return table.unpack(results)
+end
 
 local function ensureColumn(tableName, columnName, definition)
     local ok, exists = pcall(function()
@@ -181,6 +204,19 @@ end
 function CMVehicles.Server.GetCharacterId(src)
     src = tonumber(src)
     if not src or src <= 0 then return nil end
+
+    -- cm-playerdata owns the authoritative loaded-character cache. Use it
+    -- before compatibility state/core fallbacks so vehicle creation and access
+    -- checks do not fail while a legacy state bag mirror is still catching up.
+    if GetResourceState('cm-playerdata') == 'started' then
+        local playerDataOk, playerDataId = pcall(function()
+            return exports['cm-playerdata']:GetCharacterId(src)
+        end)
+        if playerDataOk and playerDataId then
+            return tostring(playerDataId)
+        end
+    end
+
     local ok, stateId = pcall(function()
         local st = Player(src).state
         return st.charId or st.characterId or st.character_id or st.citizenid
@@ -728,6 +764,7 @@ function CMVehicles.Server.VehicleInfoFor(src, plate)
         temporaryReplacement = temporaryReplacement,
         label = row.label,
         plate = row.plate,
+        licenseNumber = row.license_number,
         ownerCharacterId = tostring(row.owner_type or 'character') == 'character' and tostring(row.owner_character_id) or nil,
         ownerType = tostring(row.owner_type or 'character'),
         ownerId = row.owner_id and tostring(row.owner_id) or tostring(row.owner_character_id),
@@ -821,16 +858,36 @@ local function trustedOrgInfo(organization, invokingResource)
 end
 
 function CMVehicles.Server.CreateOwnedVehicle(src, model, label, trunkLevel, metadata)
+    metadata = type(metadata) == 'table' and metadata or {}
+    local invokingResource = GetInvokingResource()
     local charId = CMVehicles.Server.GetCharacterId(src)
+
+    -- rn-vehicleshop has already resolved the active character on the server
+    -- before charging the player. If a legacy state mirror is unavailable in
+    -- this resource, accept only that trusted server-to-server handoff and
+    -- verify the character still exists before creating ownership.
+    local isVehicleShopHandoff = invokingResource == 'rn-vehicleshop'
+        or tostring(metadata.source or '') == 'rn-vehicleshop'
+        or tostring(metadata.boughtFrom or '') == 'rn-vehicleshop'
+    if not charId and isVehicleShopHandoff then
+        local handoffId = tostring(metadata.charId or metadata.characterId or ''):match('^%s*(.-)%s*$')
+        if handoffId ~= '' and #handoffId <= 50 then
+            local existsOk, exists = pcall(function()
+                return MySQL.scalar.await('SELECT id FROM characters WHERE id = ? LIMIT 1', { handoffId })
+            end)
+            if existsOk and exists then
+                charId = tostring(handoffId)
+            end
+        end
+    end
+
     model = tostring(model or ''):lower()
     if model == '' then return false, 'Invalid model.' end
     label = tostring(label or model)
     trunkLevel = tonumber(trunkLevel) or Config.DefaultTrunkLevel or 1
-    if trunkLevel < 0 then trunkLevel = 0 end
-    metadata = type(metadata) == 'table' and metadata or {}
+    trunkLevel = math.max(0, math.min(6, math.floor(trunkLevel)))
     local ownerType, ownerId, ownerCharacterId
     local organization = tostring(metadata.organization or ''):lower()
-    local invokingResource = GetInvokingResource()
     local orgInfo = trustedOrgInfo(organization, invokingResource)
     if orgInfo then
         ownerType, ownerId, ownerCharacterId = 'organization', organization, ('organization:%s'):format(organization)
@@ -854,12 +911,18 @@ function CMVehicles.Server.CreateOwnedVehicle(src, model, label, trunkLevel, met
     metadata.ownerName = metadata.ownerName or ownerName
     metadata.insuranceDays = metadata.insuranceDays or insuranceDays
 
+    local mods = type(metadata.mods) == 'table' and metadata.mods or nil
+
     local id = MySQL.insert.await([[INSERT INTO cm_owned_vehicles
-        (owner_character_id, owner_type, owner_id, owner_name, model, label, plate, trunk_level, insurance_days, state_value, metadata)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]], { ownerCharacterId, ownerType, ownerId, tostring(ownerName or ''), model, label, plate, trunkLevel, insuranceDays, stateValue, U.Encode(metadata or {}) })
+        (owner_character_id, owner_type, owner_id, owner_name, model, label, plate, trunk_level, insurance_days, state_value, metadata, mods)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]], { ownerCharacterId, ownerType, ownerId, tostring(ownerName or ''), model, label, plate, trunkLevel, insuranceDays, stateValue, U.Encode(metadata or {}), mods and U.Encode(mods) or nil })
+
+    -- The database id is the authoritative persistent vehicle identity. Never
+    -- report success if the insert did not return a unique auto-increment id.
+    if not id then return false, 'Vehicle record could not be created.' end
 
     CMVehicles.Server.Audit(charId, plate, 'vehicle_created', { model = model, label = label, trunkLevel = trunkLevel, stateValue = stateValue })
-    return true, { id = id, owner_character_id = ownerCharacterId, owner_type = ownerType, owner_id = ownerId, owner_name = tostring(ownerName or ''), model = model, label = label, plate = plate, trunk_level = trunkLevel, insurance_days = insuranceDays, state_value = stateValue, is_locked = true, fuel = 100, metadata = metadata or {} }
+    return true, { id = id, owner_character_id = ownerCharacterId, owner_type = ownerType, owner_id = ownerId, owner_name = tostring(ownerName or ''), model = model, label = label, plate = plate, trunk_level = trunkLevel, insurance_days = insuranceDays, state_value = stateValue, is_locked = true, fuel = 100, metadata = metadata or {}, mods = mods or {} }
 end
 
 function CMVehicles.Server.CreateOrganizationVehicle(request)
@@ -1381,7 +1444,6 @@ RegisterNetEvent('cm-vehicles:server:saveState', function(vehicleId, state)
     if now - (CMVehicles.Server.LastStateSave[rateKey] or 0) < minInterval then return end
     CMVehicles.Server.LastStateSave[rateKey] = now
 
-    local metadata = type(row.metadata) == 'table' and row.metadata or {}
     local coords = GetEntityCoords(veh)
     local heading = GetEntityHeading(veh)
     local session = CMVehicles.Server.SaveSessions[rateKey]
@@ -1394,10 +1456,8 @@ RegisterNetEvent('cm-vehicles:server:saveState', function(vehicleId, state)
         addedMileage = math.max(0.0, math.min(actualKm, maxKm))
     end
     CMVehicles.Server.SaveSessions[rateKey] = { coords = coords, at = now }
-    metadata.mileage = math.max(0.0, (tonumber(metadata.mileage) or 0.0) + addedMileage)
 
     local neons = sanitizedNeons(state.neons)
-    if neons then metadata.neons = neons end
 
     local entityState = Entity(veh).state
     -- A house garage entity is still a stored vehicle. Never persist its
@@ -1408,81 +1468,94 @@ RegisterNetEvent('cm-vehicles:server:saveState', function(vehicleId, state)
     -- zero health back into an otherwise healthy database vehicle.
     if entityState.cmConditionReady ~= true then return end
 
-    local dbFuel = tonumber(row.fuel) or 100.0
-    local dbEngine = U.NormalizeHealth(row.engine_health, 1000.0)
-    local dbBody = U.NormalizeHealth(row.body_health, 1000.0)
-    local dbTank = U.NormalizeHealth(row.tank_health, 1000.0)
-    local dbDirt = tonumber(row.dirt_level) or 0.0
+    -- The metadata JSON blob (mileage, lentKeys, neons, racingHarness, ...) is
+    -- shared with key lending/revoking, so this whole read-modify-write must
+    -- be serialized per vehicle and must read the current row from inside the
+    -- lock -- otherwise this autosave and a lendKey/revokeKey racing on the
+    -- same vehicle can each start from the same "before" snapshot, and the
+    -- loser's change is silently dropped when the whole column is overwritten.
+    CMVehicles.Server.WithVehicleLock(row.id, function()
+        local freshRow = CMVehicles.Server.GetVehicleById(row.id) or row
+        local metadata = type(freshRow.metadata) == 'table' and freshRow.metadata or U.Decode(freshRow.metadata) or {}
+        metadata.mileage = math.max(0.0, (tonumber(metadata.mileage) or 0.0) + addedMileage)
+        if neons then metadata.neons = neons end
 
-    -- Normal driving may only make condition worse. The validated driver client
-    -- owns the live GTA vehicle skeleton; server health natives are not reliable
-    -- during OneSync ownership migration and were persisting false low damage.
-    -- Submitted values are constrained below by the current DB state, so this
-    -- path can record wear but can never perform a free repair.
-    local liveFuel = math.max(0.0, math.min(100.0, tonumber(entityState.cmFuel) or dbFuel))
-    local function submittedWear(value, dbValue)
-        local n = tonumber(value)
-        if n == nil or n ~= n then return dbValue end
-        -- Client values here come directly from FiveM health natives. Preserve a
-        -- real zero; legacy 0..1 percentage conversion applies only to DB data.
-        return math.max(0.0, math.min(1000.0, n))
-    end
-    local liveEngine = submittedWear(state.engineHealth, dbEngine)
-    local liveBody = submittedWear(state.bodyHealth, dbBody)
-    local liveTank = submittedWear(state.tankHealth, dbTank)
-    local liveDirt = math.max(0.0, math.min(15.0, tonumber(state.dirtLevel) or dbDirt))
+        local dbFuel = tonumber(freshRow.fuel) or 100.0
+        local dbEngine = U.NormalizeHealth(freshRow.engine_health, 1000.0)
+        local dbBody = U.NormalizeHealth(freshRow.body_health, 1000.0)
+        local dbTank = U.NormalizeHealth(freshRow.tank_health, 1000.0)
+        local dbDirt = tonumber(freshRow.dirt_level) or 0.0
 
-    local fuel = math.min(liveFuel, dbFuel)
-    local engine = math.min(liveEngine, dbEngine)
-    local body = math.min(liveBody, dbBody)
-    local tank = math.min(liveTank, dbTank)
-    local dirt = math.max(liveDirt, dbDirt)
+        -- Normal driving may only make condition worse. The validated driver client
+        -- owns the live GTA vehicle skeleton; server health natives are not reliable
+        -- during OneSync ownership migration and were persisting false low damage.
+        -- Submitted values are constrained below by the current DB state, so this
+        -- path can record wear but can never perform a free repair.
+        local liveFuel = math.max(0.0, math.min(100.0, tonumber(entityState.cmFuel) or dbFuel))
+        local function submittedWear(value, dbValue)
+            local n = tonumber(value)
+            if n == nil or n ~= n then return dbValue end
+            -- Client values here come directly from FiveM health natives. Preserve a
+            -- real zero; legacy 0..1 percentage conversion applies only to DB data.
+            return math.max(0.0, math.min(1000.0, n))
+        end
+        local liveEngine = submittedWear(state.engineHealth, dbEngine)
+        local liveBody = submittedWear(state.bodyHealth, dbBody)
+        local liveTank = submittedWear(state.tankHealth, dbTank)
+        local liveDirt = math.max(0.0, math.min(15.0, tonumber(state.dirtLevel) or dbDirt))
 
-    if liveFuel > dbFuel + 0.75 then entityState:set('cmFuel', dbFuel, true) end
-    if liveEngine > dbEngine + 0.5 then pcall(function() SetVehicleEngineHealth(veh, dbEngine) end) end
-    if liveBody > dbBody + 0.5 then pcall(function() SetVehicleBodyHealth(veh, dbBody) end) end
-    if liveTank > dbTank + 0.5 then pcall(function() SetVehiclePetrolTankHealth(veh, dbTank) end) end
-    if liveDirt + 0.05 < dbDirt then pcall(function() SetVehicleDirtLevel(veh, dbDirt) end) end
+        local fuel = math.min(liveFuel, dbFuel)
+        local engine = math.min(liveEngine, dbEngine)
+        local body = math.min(liveBody, dbBody)
+        local tank = math.min(liveTank, dbTank)
+        local dirt = math.max(liveDirt, dbDirt)
 
-    local conditionState = type(state.conditionState) == 'table'
-        and U.MergeConditionWear(U.Decode(row.condition_state), state.conditionState)
-        or U.SanitizeConditionState(U.Decode(row.condition_state))
+        if liveFuel > dbFuel + 0.75 then entityState:set('cmFuel', dbFuel, true) end
+        if liveEngine > dbEngine + 0.5 then pcall(function() SetVehicleEngineHealth(veh, dbEngine) end) end
+        if liveBody > dbBody + 0.5 then pcall(function() SetVehicleBodyHealth(veh, dbBody) end) end
+        if liveTank > dbTank + 0.5 then pcall(function() SetVehiclePetrolTankHealth(veh, dbTank) end) end
+        if liveDirt + 0.05 < dbDirt then pcall(function() SetVehicleDirtLevel(veh, dbDirt) end) end
 
-    local persistOk, persistResult
-    if CMVehicles.Persistence and CMVehicles.Persistence.WriteState then
-        persistOk, persistResult = CMVehicles.Persistence.WriteState(row, {
-            fuel = fuel,
-            engineHealth = engine,
-            bodyHealth = body,
-            tankHealth = tank,
-            dirtLevel = dirt,
-            conditionState = conditionState,
-            position = { x = coords.x, y = coords.y, z = coords.z, w = heading },
-            metadata = metadata,
-            reason = reason,
-        })
-    else
-        local affected = MySQL.update.await([[UPDATE cm_owned_vehicles SET
-            fuel = ?, engine_health = ?, body_health = ?, tank_health = ?, dirt_level = ?, condition_state = ?, last_position = ?, metadata = ?
-            WHERE id = ?]], {
-            math.floor(fuel + 0.5), engine, body, tank, dirt,
-            U.Encode(conditionState),
-            U.Encode({ x = coords.x, y = coords.y, z = coords.z, w = heading }),
-            U.Encode(metadata), row.id
-        })
-        persistOk, persistResult = affected ~= nil, { changed = true }
-    end
-    if persistOk ~= true then return end
+        local conditionState = type(state.conditionState) == 'table'
+            and U.MergeConditionWear(U.Decode(freshRow.condition_state), state.conditionState)
+            or U.SanitizeConditionState(U.Decode(freshRow.condition_state))
 
-    entityState:set('cmFuel', fuel, true)
-    entityState:set('cmEngineHealth', engine, true)
-    entityState:set('cmBodyHealth', body, true)
-    entityState:set('cmTankHealth', tank, true)
-    entityState:set('cmDirtLevel', dirt, true)
-    entityState:set('cmConditionState', conditionState, true)
-    entityState:set('cmEngineDestroyed', engine <= (tonumber(Config.Damage and Config.Damage.destroyedEngineHealth) or 150.0), true)
-    entityState:set('cmMileage', tonumber(metadata.mileage) or 0.0, true)
-    entityState:set('cmRacingHarness', metadata.racingHarness == true or metadata.racing_harness == true, true)
+        local persistOk
+        if CMVehicles.Persistence and CMVehicles.Persistence.WriteState then
+            persistOk = CMVehicles.Persistence.WriteState(freshRow, {
+                fuel = fuel,
+                engineHealth = engine,
+                bodyHealth = body,
+                tankHealth = tank,
+                dirtLevel = dirt,
+                conditionState = conditionState,
+                position = { x = coords.x, y = coords.y, z = coords.z, w = heading },
+                metadata = metadata,
+                reason = reason,
+            })
+        else
+            local affected = MySQL.update.await([[UPDATE cm_owned_vehicles SET
+                fuel = ?, engine_health = ?, body_health = ?, tank_health = ?, dirt_level = ?, condition_state = ?, last_position = ?, metadata = ?
+                WHERE id = ?]], {
+                math.floor(fuel + 0.5), engine, body, tank, dirt,
+                U.Encode(conditionState),
+                U.Encode({ x = coords.x, y = coords.y, z = coords.z, w = heading }),
+                U.Encode(metadata), freshRow.id
+            })
+            persistOk = affected ~= nil
+        end
+        if persistOk ~= true then return end
+
+        entityState:set('cmFuel', fuel, true)
+        entityState:set('cmEngineHealth', engine, true)
+        entityState:set('cmBodyHealth', body, true)
+        entityState:set('cmTankHealth', tank, true)
+        entityState:set('cmDirtLevel', dirt, true)
+        entityState:set('cmConditionState', conditionState, true)
+        entityState:set('cmEngineDestroyed', engine <= (tonumber(Config.Damage and Config.Damage.destroyedEngineHealth) or 150.0), true)
+        entityState:set('cmMileage', tonumber(metadata.mileage) or 0.0, true)
+        entityState:set('cmRacingHarness', metadata.racingHarness == true or metadata.racing_harness == true, true)
+    end)
 end)
 
 -- Client persistence may record natural wear only. It may never improve fuel,
@@ -1551,13 +1624,20 @@ RegisterNetEvent('cm-vehicles:server:persistService', function(plate, patch, net
     MySQL.update.await(('UPDATE cm_owned_vehicles SET %s WHERE plate = ?'):format(table.concat(sets, ', ')), params)
 end)
 
+local function sanitizeRgbMod(raw)
+    if type(raw) ~= 'table' then return nil end
+    local function channel(value) return math.floor(math.max(0, math.min(255, tonumber(value) or 0))) end
+    return { r = channel(raw.r), g = channel(raw.g), b = channel(raw.b) }
+end
+
 local function sanitizeMods(mods)
     if type(mods) ~= 'table' then return nil end
     local out = {}
     local numericFields = {
         primaryColor = {0, 255}, secondaryColor = {0, 255}, pearlColor = {0, 255},
         wheelColor = {0, 255}, wheelType = {0, 20}, windowTint = {-1, 10},
-        plateIndex = {0, 10}, livery = {-1, 200}, tyreLevel = {0, 4}
+        plateIndex = {0, 10}, livery = {-1, 200}, tyreLevel = {0, 4},
+        headlightColor = {-1, 20},
     }
     for key, range in pairs(numericFields) do
         if mods[key] ~= nil then
@@ -1567,6 +1647,20 @@ local function sanitizeMods(mods)
     out.turbo = mods.turbo == true
     out.xenon = mods.xenon == true
     out.bulletproofTyres = mods.bulletproofTyres == true
+    out.customWheels = mods.customWheels == true
+
+    local customPrimary = sanitizeRgbMod(mods.customPrimary)
+    if customPrimary then out.customPrimary = customPrimary end
+    local customSecondary = sanitizeRgbMod(mods.customSecondary)
+    if customSecondary then out.customSecondary = customSecondary end
+    local neonColor = sanitizeRgbMod(mods.neonColor)
+    if neonColor then out.neonColor = neonColor end
+    if type(mods.neons) == 'table' then
+        local neons = {}
+        for i = 1, 4 do neons[i] = mods.neons[i] == true end
+        out.neons = neons
+    end
+
     out.mods, out.extras = {}, {}
     if type(mods.mods) == 'table' then
         for key, value in pairs(mods.mods) do
@@ -1613,19 +1707,28 @@ RegisterNetEvent('cm-vehicles:server:lendKey', function(plate, targetSrc)
     if not CMVehicles.Server.IsOwner(src, plate) then return U.Notify(src, 'Only the owner can lend keys.', 'error') end
     if not targetSrc or not GetPlayerName(targetSrc) then return U.Notify(src, 'Target player is not online.', 'error') end
 
-    local row = CMVehicles.Server.GetVehicleByPlate(plate)
-    local metadata = type(row.metadata) == 'table' and row.metadata or U.Decode(row.metadata)
-    metadata.lentKeys = type(metadata.lentKeys) == 'table' and metadata.lentKeys or {}
-    local maxKeys = tonumber(Config.Keys and Config.Keys.maxLentKeysPerVehicle) or 8
-    if #metadata.lentKeys >= maxKeys then return U.Notify(src, 'Key limit reached for this vehicle.', 'error') end
-
-    local ok, result = U.CallExport('cm-vehiclekeys', 'GiveTempKey', src, targetSrc, plate)
-    if not ok or result ~= true then return U.Notify(src, tostring(result or 'Could not lend key.'), 'error') end
+    local initialRow = CMVehicles.Server.GetVehicleByPlate(plate)
+    if not initialRow then return U.Notify(src, 'Vehicle not found.', 'error') end
 
     local targetChar = CMVehicles.Server.GetCharacterId(targetSrc)
-    metadata.lentKeys[#metadata.lentKeys + 1] = { charId = tostring(targetChar), name = GetPlayerName(targetSrc), at = os.time() }
-    if skipSave(plate) then return end
-    MySQL.update.await('UPDATE cm_owned_vehicles SET metadata = ? WHERE plate = ?', { U.Encode(metadata), plate })
+    local granted, grantError = CMVehicles.Server.WithVehicleLock(initialRow.id, function()
+        local row = CMVehicles.Server.GetVehicleByPlate(plate)
+        local metadata = type(row.metadata) == 'table' and row.metadata or U.Decode(row.metadata)
+        metadata.lentKeys = type(metadata.lentKeys) == 'table' and metadata.lentKeys or {}
+        local maxKeys = tonumber(Config.Keys and Config.Keys.maxLentKeysPerVehicle) or 8
+        if #metadata.lentKeys >= maxKeys then return false, 'Key limit reached for this vehicle.' end
+
+        local exportOk, exportResult = U.CallExport('cm-vehiclekeys', 'GiveTempKey', src, targetSrc, plate)
+        if not exportOk or exportResult ~= true then return false, tostring(exportResult or 'Could not lend key.') end
+
+        metadata.lentKeys[#metadata.lentKeys + 1] = { charId = tostring(targetChar), name = GetPlayerName(targetSrc), at = os.time() }
+        if not skipSave(plate) then
+            MySQL.update.await('UPDATE cm_owned_vehicles SET metadata = ? WHERE plate = ?', { U.Encode(metadata), plate })
+        end
+        return true
+    end)
+
+    if not granted then return U.Notify(src, grantError or 'Could not lend key.', 'error') end
     U.Notify(src, ('Key lent to %s.'):format(GetPlayerName(targetSrc)), 'success')
     U.Notify(targetSrc, 'You received a temporary key.', 'success')
 end)
@@ -1635,17 +1738,23 @@ RegisterNetEvent('cm-vehicles:server:revokeKey', function(plate, targetCharId)
     plate = CMVehicles.Server.ResolvePlate(plate)
     if not CMVehicles.Server.IsOwner(src, plate) then return U.Notify(src, 'Only the owner can revoke keys.', 'error') end
 
-    local row = CMVehicles.Server.GetVehicleByPlate(plate)
-    local metadata = type(row.metadata) == 'table' and row.metadata or U.Decode(row.metadata)
-    metadata.lentKeys = type(metadata.lentKeys) == 'table' and metadata.lentKeys or {}
+    local initialRow = CMVehicles.Server.GetVehicleByPlate(plate)
+    if not initialRow then return U.Notify(src, 'Vehicle not found.', 'error') end
 
-    local kept = {}
-    for _, entry in ipairs(metadata.lentKeys) do
-        if tostring(entry.charId) ~= tostring(targetCharId) then kept[#kept+1] = entry end
-    end
-    metadata.lentKeys = kept
-    if skipSave(plate) then return end
-    MySQL.update.await('UPDATE cm_owned_vehicles SET metadata = ? WHERE plate = ?', { U.Encode(metadata), plate })
+    CMVehicles.Server.WithVehicleLock(initialRow.id, function()
+        local row = CMVehicles.Server.GetVehicleByPlate(plate)
+        local metadata = type(row.metadata) == 'table' and row.metadata or U.Decode(row.metadata)
+        metadata.lentKeys = type(metadata.lentKeys) == 'table' and metadata.lentKeys or {}
+
+        local kept = {}
+        for _, entry in ipairs(metadata.lentKeys) do
+            if tostring(entry.charId) ~= tostring(targetCharId) then kept[#kept+1] = entry end
+        end
+        metadata.lentKeys = kept
+        if not skipSave(plate) then
+            MySQL.update.await('UPDATE cm_owned_vehicles SET metadata = ? WHERE plate = ?', { U.Encode(metadata), plate })
+        end
+    end)
 
     -- Tell cm-vehiclekeys to drop the temp key if that char is online.
     U.CallExport('cm-vehiclekeys', 'RevokeTempKeyByChar', plate, tostring(targetCharId))

@@ -20,6 +20,35 @@ const $ = id => document.getElementById(id);
 const app               = $('app');
 const categoriesEl      = $('categories');
 const emptyNotice       = $('emptyNotice');
+const tabCatalogBtn     = $('tabCatalogBtn');
+const tabFavoritesBtn   = $('tabFavoritesBtn');
+const tabOwnerBtn       = $('tabOwnerBtn');
+const tabInfoBtn        = $('tabInfoBtn');
+const favCountBadge     = $('favCountBadge');
+const ownerPanel        = $('ownerPanel');
+const ownerCloseBtn     = $('ownerCloseBtn');
+const ownerStoreTitle   = $('ownerStoreTitle');
+const ownerBalance      = $('ownerBalance');
+const ownerWithdrawBtn  = $('ownerWithdrawBtn');
+const ownerTaxCoverage  = $('ownerTaxCoverage');
+const ownerTaxDueHint   = $('ownerTaxDueHint');
+const ownerPayTaxBtn    = $('ownerPayTaxBtn');
+const ownerStock        = $('ownerStock');
+const ownerStockCap     = $('ownerStockCap');
+const ownerRestockBtn   = $('ownerRestockBtn');
+const ownerDailyIncome  = $('ownerDailyIncome');
+const ownerWeeklyIncome = $('ownerWeeklyIncome');
+const ownerActiveTierPill = $('ownerActiveTierPill');
+const ownerSaveSettingsBtn = $('ownerSaveSettingsBtn');
+const storeInfoModal    = $('storeInfoModal');
+const publicStoreName   = $('publicStoreName');
+const publicOwnerName   = $('publicOwnerName');
+const publicStoreTier   = $('publicStoreTier');
+const publicStoreStock  = $('publicStoreStock');
+const publicStoreStatus = $('publicStoreStatus');
+const publicBuyStoreBtn = $('publicBuyStoreBtn');
+const publicCloseInfoBtn = $('publicCloseInfoBtn');
+const clearSearchBtn    = $('clearSearchBtn');
 const buyBtn            = $('buyBtn');
 const adjustCaptureBtn  = $('adjustCaptureBtn');
 const captureStatus     = $('captureStatus');
@@ -297,6 +326,9 @@ let S = {
   // inside /clothingadmin -- never touches S.filtered/S.selected so it can't
   // corrupt normal capture browsing state.
   bagPairing: null,
+  storeOwnership: null,   // last 'storeOwnership' payload for the active shop
+  ownerSelectedTier: 'normal',
+  shopLabel: '',
 };
 
 /* ══════════════════════════════════════════════════════════
@@ -909,6 +941,14 @@ function refreshCaptureBackdropPreview() {
 
 function setCategory(cat) {
   S.activeCategory = cat;
+  if (cat !== '__fav') {
+    S.lastCatalogCategory = cat;
+  }
+  if (tabCatalogBtn && tabFavoritesBtn) {
+    const isFav = cat === '__fav';
+    tabFavoritesBtn.classList.toggle('active', isFav);
+    tabCatalogBtn.classList.toggle('active', !isFav);
+  }
   const captureCategory = cat === 'arms' ? 'torso' : cat;
   window.__currentCaptureCategory = captureCategory;
   S.filtered       = getRowsForCategory(cat);
@@ -1017,6 +1057,7 @@ function toggleCurrentFavourite() {
   if (!key) return;
   const on = !S.favourites.has(key);
   if (on) S.favourites.add(key); else S.favourites.delete(key);
+  if (favCountBadge) favCountBadge.textContent = S.favourites.size;
   updateFavButton();
   renderCategories();               // refresh the ★ count
   if (S.activeCategory === '__fav') setCategory('__fav'); // keep the fav list live
@@ -1246,6 +1287,19 @@ function openShop(data) {
   if (data.economy) S.economy = data.economy;
   if (data.iconCapture) S.captureSettings = { ...S.captureSettings, ...data.iconCapture };
 
+  if (favCountBadge) favCountBadge.textContent = S.favourites ? S.favourites.size : 0;
+  if (searchInput) searchInput.value = '';
+  if (clearSearchBtn) clearSearchBtn.classList.add('hidden');
+  S.filters = { q: '', gender: 'all', drawable: '', minPrice: '', maxPrice: '' };
+
+  if (typeof switchToCatalogTab === 'function') {
+    switchToCatalogTab();
+  }
+  if (ownerPanel) ownerPanel.classList.add('hidden');
+  if (storeInfoModal) storeInfoModal.classList.add('hidden');
+  if (tabOwnerBtn) { tabOwnerBtn.classList.add('hidden'); tabOwnerBtn.classList.remove('active'); }
+  S.storeOwnership = null;
+
   app.classList.remove('hidden');
 
   if (data.bank !== undefined) {
@@ -1256,6 +1310,7 @@ function openShop(data) {
     $('storeTopCash').textContent = `$${Number(data.cash).toLocaleString()}`;
   }
   if (data.label) {
+    S.shopLabel = String(data.label);
     if ($('brandSublabel')) $('brandSublabel').textContent = String(data.label).toUpperCase();
     if ($('storeBrandSub')) $('storeBrandSub').textContent = String(data.label).toUpperCase();
   }
@@ -3347,6 +3402,8 @@ const delay = ms => new Promise(r => setTimeout(r, ms));
 window.addEventListener('message', ({ data = {} }) => {
   switch (data.type) {
     case 'openClothShop':     openShop(data);                                  break;
+    case 'openFavoritesTab':  switchToFavoritesTab();                           break;
+    case 'storeOwnership':    applyStoreOwnership(data.store);                  break;
     case 'clothingCounts':    S.counts = data.counts || {}; renderCategories(); break;
     case 'clothingCatalog':
       S.catalog = Array.isArray(data.catalog) ? data.catalog : [];
@@ -3400,6 +3457,7 @@ window.addEventListener('message', ({ data = {} }) => {
 
     case 'favourites':
       S.favourites = new Set((data.keys || []).map(k => String(k).toLowerCase()));
+      if (favCountBadge) favCountBadge.textContent = S.favourites.size;
       updateFavButton();
       renderCategories();
       if (S.activeCategory === '__fav') setCategory('__fav');
@@ -3540,8 +3598,10 @@ payTabs.forEach(btn => btn.onclick = () => {
 
 // Filters
 function readFilters() {
+  const query = searchInput ? searchInput.value.trim() : '';
+  if (clearSearchBtn) clearSearchBtn.classList.toggle('hidden', query.length === 0);
   S.filters = {
-    q: searchInput ? searchInput.value : '',
+    q: query,
     gender: genderFilter ? genderFilter.value : 'all',
     drawable: drawableFilter ? drawableFilter.value : '',
     minPrice: minPriceFilter ? minPriceFilter.value : '',
@@ -3552,6 +3612,14 @@ function readFilters() {
 [searchInput, genderFilter, drawableFilter, minPriceFilter, maxPriceFilter].forEach(el => {
   if (el) el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', readFilters);
 });
+
+if (clearSearchBtn) {
+  clearSearchBtn.onclick = () => {
+    if (searchInput) searchInput.value = '';
+    readFilters();
+    if (searchInput) searchInput.focus();
+  };
+}
 
 // Favourites star
 if ($('favBtn')) $('favBtn').addEventListener('click', toggleCurrentFavourite);
@@ -3589,8 +3657,14 @@ if (cartList) cartList.onclick = e => {
   if (act === 'dec') item.qty = Math.max(1, Number(item.qty || 1)) - 1;
   if (act === 'remove' || Number(item.qty || 1) <= 0) S.cart.splice(idx, 1);
   updateCartUI();
+  post('syncCartPreview', { cart: S.cart, selected: S.selected });
 };
-if (clearCartBtn) clearCartBtn.onclick = () => { S.cart = []; updateCartUI(); hidePurchaseStatus(); };
+if (clearCartBtn) clearCartBtn.onclick = () => {
+  S.cart = [];
+  updateCartUI();
+  hidePurchaseStatus();
+  post('syncCartPreview', { cart: S.cart, selected: S.selected });
+};
 if (confirmCancelBtn) confirmCancelBtn.onclick = () => checkoutModal && checkoutModal.classList.add('hidden');
 if (confirmCashBtn) confirmCashBtn.onclick = () => processCheckout('cash');
 if (confirmBankBtn) confirmBankBtn.onclick = () => processCheckout('bank');
@@ -3742,9 +3816,8 @@ buyBtn.onclick = async () => {
   hidePurchaseStatus();
   $('itemName').textContent = `${item.label} added to cart`;
 
-  // Buying is inventory-first. After adding to cart, remove the preview clothing from the ped
-  // so the player does not look like they already own/wear it.
-  await post('resetCartItems');
+  // Multi-slot preview: keep all items in cart rendered on the ped simultaneously
+  await post('syncCartPreview', { cart: S.cart, selected: S.selected });
 };
 
 // Checkout
@@ -3873,3 +3946,162 @@ if ($('poseFovWide'))       $('poseFovWide').addEventListener('click',       () 
 if ($('poseFovTight'))      $('poseFovTight').addEventListener('click',      () => poseCamera('fov',     2.0));
 if ($('poseConfirm'))     $('poseConfirm').addEventListener('click', poseConfirm);
 if ($('poseCancel'))      $('poseCancel').addEventListener('click', poseCancel);
+
+/* ══════════════════════════════════════════════════════════
+   STORE NAVIGATION TABS (CATALOG vs FAVORITES)
+   ══════════════════════════════════════════════════════════ */
+function switchToCatalogTab() {
+  S.activeNavTab = 'catalog';
+  if (tabCatalogBtn) tabCatalogBtn.classList.add('active');
+  if (tabFavoritesBtn) tabFavoritesBtn.classList.remove('active');
+  if (S.activeCategory === '__fav') {
+    setCategory(S.lastCatalogCategory || 'torso');
+  }
+}
+
+function switchToFavoritesTab() {
+  S.activeNavTab = 'favorites';
+  if (tabFavoritesBtn) tabFavoritesBtn.classList.add('active');
+  if (tabCatalogBtn) tabCatalogBtn.classList.remove('active');
+  setCategory('__fav');
+}
+
+if (tabCatalogBtn) tabCatalogBtn.addEventListener('click', switchToCatalogTab);
+if (tabFavoritesBtn) tabFavoritesBtn.addEventListener('click', switchToFavoritesTab);
+
+/* ══════════════════════════════════════════════════════════
+   STORE OWNERSHIP: OWNER CONSOLE + PUBLIC INFO/PURCHASE MODAL
+   ══════════════════════════════════════════════════════════ */
+const TIER_LABELS = { low: 'DISCOUNT', normal: 'STANDARD', high: 'LUXURY' };
+
+function activeStoreShopId() {
+  return (S.storeOwnership && S.storeOwnership.shopId) || null;
+}
+
+function money(n) { return `$${Number(n || 0).toLocaleString()}`; }
+
+function renderOwnerPanel(store) {
+  if (ownerStoreTitle) ownerStoreTitle.textContent = (S.shopLabel || 'CLOTHING STORE').toUpperCase();
+  if (ownerBalance) ownerBalance.textContent = money(store.businessBalance);
+  if (ownerDailyIncome) ownerDailyIncome.textContent = money(store.dailyIncome);
+  if (ownerWeeklyIncome) ownerWeeklyIncome.textContent = money(store.weeklyIncome);
+
+  if (ownerTaxCoverage) ownerTaxCoverage.textContent = `${store.taxDueDays || 0} DAYS`;
+  if (ownerTaxDueHint) ownerTaxDueHint.textContent = `${money(store.taxAmount)} / 7 DAYS`;
+  if (ownerPayTaxBtn) {
+    ownerPayTaxBtn.innerHTML = `<i class="fas fa-shield-alt"></i> PAY 7-DAY TAX (${money(store.taxAmount)})`;
+    ownerPayTaxBtn.disabled = !store.canPayTax;
+    ownerPayTaxBtn.classList.toggle('disabled', !store.canPayTax);
+  }
+
+  if (ownerStock) ownerStock.textContent = Number(store.stock || 0).toLocaleString();
+  if (ownerStockCap) ownerStockCap.textContent = `CAPACITY: ${Number(store.maxStock || 0).toLocaleString()} UNITS`;
+  if (ownerRestockBtn) {
+    ownerRestockBtn.innerHTML = `<i class="fas fa-boxes"></i> ORDER STOCK (+${Number(store.restockBatch || 0).toLocaleString()} / ${money(store.restockCost)})`;
+    const atCapacity = Number(store.stock || 0) >= Number(store.maxStock || 0);
+    ownerRestockBtn.disabled = atCapacity;
+    ownerRestockBtn.classList.toggle('disabled', atCapacity);
+  }
+
+  S.ownerSelectedTier = store.priceTier || 'normal';
+  const mult = Number(store.priceMultiplier || 1).toFixed(2);
+  if (ownerActiveTierPill) ownerActiveTierPill.textContent = `${TIER_LABELS[S.ownerSelectedTier] || 'STANDARD'} (${mult}x)`;
+  document.querySelectorAll('.price-tier-selector .tier-btn').forEach(btn => {
+    btn.classList.toggle('selected', btn.dataset.tier === S.ownerSelectedTier);
+  });
+}
+
+function renderStoreInfoModal(store) {
+  if (publicStoreName) publicStoreName.textContent = S.shopLabel || 'Clothing Store';
+  if (publicOwnerName) publicOwnerName.textContent = store.ownerName || 'City Commercial Property';
+  const mult = Number(store.priceMultiplier || 1).toFixed(2);
+  if (publicStoreTier) publicStoreTier.textContent = `${TIER_LABELS[store.priceTier] || 'STANDARD'} (${mult}x)`;
+  if (publicStoreStock) publicStoreStock.textContent = `${Number(store.stock || 0).toLocaleString()} UNITS`;
+  if (publicStoreStatus) {
+    publicStoreStatus.textContent = store.isOwned ? 'PRIVATELY OWNED' : 'AVAILABLE FOR PURCHASE';
+  }
+  if (publicBuyStoreBtn) {
+    publicBuyStoreBtn.classList.toggle('hidden', store.isOwned === true);
+    publicBuyStoreBtn.innerHTML = `<i class="fas fa-store"></i> BUY THIS STORE (${money(store.purchasePrice)} - BANK)`;
+  }
+}
+
+function applyStoreOwnership(store) {
+  if (!store) return;
+  S.storeOwnership = store;
+
+  if (tabOwnerBtn) tabOwnerBtn.classList.toggle('hidden', !store.isOwner);
+  renderOwnerPanel(store);
+  renderStoreInfoModal(store);
+}
+
+function openOwnerPanel() {
+  if (!S.storeOwnership) return;
+  if (ownerPanel) ownerPanel.classList.remove('hidden');
+}
+
+function closeOwnerPanel() {
+  if (ownerPanel) ownerPanel.classList.add('hidden');
+  switchToCatalogTab();
+}
+
+function openStoreInfoModal() {
+  if (!S.storeOwnership) return;
+  if (storeInfoModal) storeInfoModal.classList.remove('hidden');
+}
+
+function closeStoreInfoModal() {
+  if (storeInfoModal) storeInfoModal.classList.add('hidden');
+}
+
+if (tabOwnerBtn) tabOwnerBtn.addEventListener('click', () => {
+  S.activeNavTab = 'owner';
+  tabOwnerBtn.classList.add('active');
+  if (tabCatalogBtn) tabCatalogBtn.classList.remove('active');
+  if (tabFavoritesBtn) tabFavoritesBtn.classList.remove('active');
+  openOwnerPanel();
+});
+
+if (tabInfoBtn) tabInfoBtn.addEventListener('click', openStoreInfoModal);
+if (ownerCloseBtn) ownerCloseBtn.addEventListener('click', closeOwnerPanel);
+if (publicCloseInfoBtn) publicCloseInfoBtn.addEventListener('click', closeStoreInfoModal);
+if (storeInfoModal) storeInfoModal.addEventListener('click', e => { if (e.target === storeInfoModal) closeStoreInfoModal(); });
+
+document.querySelectorAll('.price-tier-selector .tier-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    S.ownerSelectedTier = btn.dataset.tier;
+    document.querySelectorAll('.price-tier-selector .tier-btn').forEach(b => {
+      b.classList.toggle('selected', b === btn);
+    });
+  });
+});
+
+if (ownerSaveSettingsBtn) ownerSaveSettingsBtn.addEventListener('click', () => {
+  const shopId = activeStoreShopId();
+  if (!shopId) return;
+  post('manageStore', { shopId, priceTier: S.ownerSelectedTier });
+});
+
+if (ownerRestockBtn) ownerRestockBtn.addEventListener('click', () => {
+  const shopId = activeStoreShopId();
+  if (!shopId) return;
+  post('manageStore', { shopId, restock: true, priceTier: S.ownerSelectedTier });
+});
+
+if (ownerPayTaxBtn) ownerPayTaxBtn.addEventListener('click', () => {
+  const shopId = activeStoreShopId();
+  if (!shopId) return;
+  post('payStoreTax', { shopId });
+});
+
+if (ownerWithdrawBtn) ownerWithdrawBtn.addEventListener('click', () => {
+  const shopId = activeStoreShopId();
+  if (!shopId) return;
+  post('withdrawStoreBalance', { shopId });
+});
+
+if (publicBuyStoreBtn) publicBuyStoreBtn.addEventListener('click', () => {
+  const shopId = activeStoreShopId();
+  if (!shopId) return;
+  post('buyStore', { shopId });
+});

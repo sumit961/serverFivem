@@ -64,12 +64,31 @@ local function getPoliceCatalog()
     return (ok and type(rows) == 'table') and rows or {}
 end
 
+-- Tag-agnostic fallback: a vehicle granted straight to Police via
+-- rn-vehicleshop's "Give to organization" is never toggled through the
+-- "Police fleet vehicle" catalog status (that would silently pull it out of
+-- the public Store/Server catalog, which a grant must never do), so it will
+-- never appear in getPoliceCatalog() above. This looks up plain appearance
+-- (label/category/image/mods) for any catalog vehicle regardless of status,
+-- used only when the model isn't tag-matched.
+local function getVehicleCatalogInfo(model)
+    local ok, row = pcall(function() return exports[SHOP_RESOURCE]:GetVehicleCatalogInfo(model) end)
+    return (ok and type(row) == 'table') and row or nil
+end
+
 local function findCatalogRow(catalog, model)
     model = tostring(model or ''):lower()
     for _, row in ipairs(catalog) do
         if tostring(row.model):lower() == model then return row end
     end
     return nil
+end
+
+-- Prefer the Police-tagged catalog row (keeps the existing appearance
+-- customization workflow for anyone still using /vehicleadmin's tag), fall
+-- back to the plain lookup for a grant-linked vehicle that was never tagged.
+local function resolveCatalogRow(model)
+    return findCatalogRow(getPoliceCatalog(), model) or getVehicleCatalogInfo(model)
 end
 
 local function fleetSettingsByModel()
@@ -87,13 +106,17 @@ function PoliceLegacyVehicleAccessDecision(characterId, vehicleId, action)
     if not settings then return false, 'not_police_fleet_vehicle' end
     local member = characterId and PoliceLegacyMemberFor(tostring(characterId)) or nil
     if not member then return false, 'not_police_member' end
-    action = tostring(action or 'vehicle.drive')
-    if action == 'vehicle.sell' or action == 'vehicle.delete' or action == 'vehicle.keys.manage'
-        or action == 'vehicle.family.share' then return false, 'police_fleet_protected' end
-    if PoliceLegacyDbBoolean(member.is_suspended) or not PoliceLegacyDbBoolean(member.on_duty) then return false, 'police_not_on_duty' end
     local required = tonumber(settings.min_tier) or 0
-    if not PoliceLegacyDbBoolean(member.is_leader) and (tonumber(member.tier) or 0) < required then return false, 'police_rank_too_low' end
-    return true, 'police_fleet', { organization = 'police', vehicleId = vehicleId, requiredTier = required }
+    local normalized = {
+        suspended = PoliceLegacyDbBoolean(member.is_suspended), onDuty = PoliceLegacyDbBoolean(member.on_duty),
+        isLeader = PoliceLegacyDbBoolean(member.is_leader), tier = member.tier,
+    }
+    local ok, reason = FleetVehicleAccessDecision(normalized, required, action, {
+        protected = 'police_fleet_protected', notOnDuty = 'police_not_on_duty',
+        rankTooLow = 'police_rank_too_low', ok = 'police_fleet',
+    })
+    if not ok then return false, reason end
+    return true, reason, { organization = 'police', vehicleId = vehicleId, requiredTier = required }
 end
 exports('PoliceLegacyGetVehicleAccessDecision', PoliceLegacyVehicleAccessDecision)
 exports('GetPoliceVehicleAccessDecision', PoliceLegacyVehicleAccessDecision)
@@ -117,7 +140,8 @@ local function mergedRow(catalogRow, settingsRow)
         merged.status = vehicleHasOccupant and vehicleHasOccupant(entity) and 'occupied' or 'deployed'
         merged.engineHealth = math.floor(math.max(0, GetVehicleEngineHealth(entity)))
         merged.bodyHealth = math.floor(math.max(0, GetVehicleBodyHealth(entity)))
-        merged.fuel = math.floor(math.max(0, GetVehicleFuelLevel(entity)))
+        local fuelOk, fuelLevel = pcall(GetVehicleFuelLevel, entity) -- server-side native availability is build-dependent; never let a read crash the listing
+        merged.fuel = math.floor(math.max(0, fuelOk and fuelLevel or 0))
         local coords = GetEntityCoords(entity)
         merged.location = { x = math.floor(coords.x), y = math.floor(coords.y), z = math.floor(coords.z) }
     else
@@ -146,13 +170,27 @@ lib.callback.register('cm-police:server:fleetCatalog', function(src)
     local isLeader = PoliceLegacyDbBoolean(actor.is_leader)
 
     local out = {}
-    for _, catalogRow in ipairs(catalog) do
-        local settingsRow = settings[tostring(catalogRow.model):lower()]
+    local seen = {}
+    local function consider(catalogRow, settingsRow)
         local merged = mergedRow(catalogRow, settingsRow)
         if manage then
             out[#out + 1] = merged
         elseif merged.configured and merged.enabled and (isLeader or tier >= merged.minTier) then
             out[#out + 1] = merged
+        end
+    end
+    for _, catalogRow in ipairs(catalog) do
+        local modelKey = tostring(catalogRow.model):lower()
+        seen[modelKey] = true
+        consider(catalogRow, settings[modelKey])
+    end
+    -- Vehicles linked via a "Give to organization" grant are never tagged in
+    -- the shared catalog (see resolveCatalogRow above), so they never show up
+    -- in the loop above -- include them here from their own settings row.
+    for modelKey, settingsRow in pairs(settings) do
+        if not seen[modelKey] then
+            local info = getVehicleCatalogInfo(modelKey) or { model = modelKey, label = modelKey, category = 'Fleet' }
+            consider(info, settingsRow)
         end
     end
     table.sort(out, function(a, b) return a.label < b.label end)
@@ -182,8 +220,8 @@ local function beginFleetLocationEdit(src, model, adminStarted)
     if not admin and (not actor or not has(actor, 'police.manage_vehicles')) then return false, err or 'Your rank cannot manage Police vehicles.' end
     if not PoliceLegacyRateLimit(src, 'police_fleet_edit', 1500) then return false, 'Please wait.' end
     model = tostring(model or ''):lower()
-    local catalogRow = findCatalogRow(getPoliceCatalog(), model)
-    if not catalogRow then return false, 'That vehicle is not tagged as a Police vehicle.' end
+    local catalogRow = resolveCatalogRow(model)
+    if not catalogRow then return false, 'Unknown vehicle model.' end
     local previous = FleetPlacementBySource[src]
     if previous then pcall(function() exports[VEHICLES_RESOURCE]:DeleteAdminVehicle(previous.plate) end) end
     FleetPlacementBySource[src] = nil
@@ -229,8 +267,8 @@ lib.callback.register('cm-police:server:saveFleetVehicleLocation', function(src,
     if not PoliceLegacyRateLimit(src, 'police_fleet_save', 2000) then return false, 'Please wait.' end
 
     model = tostring(model or ''):lower()
-    local catalogRow = findCatalogRow(getPoliceCatalog(), model)
-    if not catalogRow then return false, 'That vehicle is not tagged as a Police vehicle in /vehicleadmin.' end
+    local catalogRow = resolveCatalogRow(model)
+    if not catalogRow then return false, 'Unknown vehicle model.' end
 
     local ped = GetPlayerPed(src)
     if not ped or ped == 0 then return false, 'Character is not loaded.' end
@@ -406,7 +444,7 @@ local function recallFleetVehicleCore(src, actorCid, model, settings, repair)
         end
         state:set('cmPoliceFleet', { model = model, vehicleId = vehicleId, minTier = tonumber(settings.min_tier) or 0, ready = true }, true)
     end
-    local catalogRow = findCatalogRow(getPoliceCatalog(), model)
+    local catalogRow = resolveCatalogRow(model)
     if type(info) == 'table' and catalogRow then TriggerClientEvent('cm-police:client:applyFleetMods', src, info.netId, decode(catalogRow.mods)) end
     return true, ('%s recalled (vehicle #%d).'):format(row.label or model, tonumber(settings.vehicle_id))
 end
@@ -493,8 +531,17 @@ end
 
 exports('PoliceLegacyAdminGetFleet', function(src)
     if not policeAdmin(tonumber(src)) then return { ok = false, error = 'Permission denied.' } end
-    local settings, vehicles = fleetSettingsByModel(), {}
-    for _, row in ipairs(getPoliceCatalog()) do vehicles[#vehicles + 1] = mergedRow(row, settings[tostring(row.model):lower()]) end
+    local settings, vehicles, seen = fleetSettingsByModel(), {}, {}
+    for _, row in ipairs(getPoliceCatalog()) do
+        seen[tostring(row.model):lower()] = true
+        vehicles[#vehicles + 1] = mergedRow(row, settings[tostring(row.model):lower()])
+    end
+    for modelKey, settingsRow in pairs(settings) do
+        if not seen[modelKey] then
+            local info = getVehicleCatalogInfo(modelKey) or { model = modelKey, label = modelKey, category = 'Fleet' }
+            vehicles[#vehicles + 1] = mergedRow(info, settingsRow)
+        end
+    end
     return { ok = true, vehicles = vehicles }
 end)
 
@@ -502,13 +549,67 @@ exports('PoliceLegacyAdminConfigureFleetVehicle', function(src, _, data)
     src, data = tonumber(src), type(data) == 'table' and data or {}
     if not policeAdmin(src) then return false, 'Permission denied.' end
     local model = tostring(data.model or ''):lower()
-    if not findCatalogRow(getPoliceCatalog(), model) then return false, 'That model is not in the Police catalog.' end
+    if not resolveCatalogRow(model) then return false, 'Unknown vehicle model.' end
     local row = MySQL.single.await('SELECT model,location_configured FROM cm_police_fleet_vehicles WHERE model = ? LIMIT 1', { model })
     if not row or not PoliceLegacyDbBoolean(row.location_configured) then return false, 'Set this vehicle location before enabling it.' end
     local tier = math.max(0, math.min(100, math.floor(tonumber(data.minTier) or 0)))
     MySQL.update.await('UPDATE cm_police_fleet_vehicles SET enabled = ?, min_tier = ?, updated_by = ? WHERE model = ?',
         { data.enabled == true and 1 or 0, tier, tostring(cid(src) or 'admin'), model })
     return true, 'Police fleet vehicle configuration saved.'
+end)
+
+-- Admin-only bridge for rn-vehicleshop's /managevehicle "Give to organization"
+-- button: lets an admin drop a freshly granted persistent vehicle straight
+-- into the Police Fleet (skipping the manual spawn+drive+H flow) at the
+-- admin's current position. Mirrors cm-gang:LinkGrantedOrganizationVehicle's
+-- contract, but there is no matching rollback here -- cm-vehicles'
+-- DeleteOrganizationVehicle is cm-gang-only -- so a failure just leaves the
+-- vehicle un-linked (still a normal Police-owned vehicle) rather than
+-- deleted; rn-vehicleshop reports that as a partial success, never a hard
+-- failure, since the grant itself already succeeded. Named distinctly from
+-- server/vehicles.lua's generic LinkGrantedFleetVehicle (Army/Sheriff/SAHP/
+-- FIB) -- both live in the cm-law resource's shared export table, so a
+-- shared name would have the later-loaded one silently overwrite the other.
+exports('LinkGrantedPoliceFleetVehicle', function(src, model, vehicleId, minTier)
+    if GetInvokingResource() ~= 'rn-vehicleshop' then return false, 'untrusted_caller' end
+    src, vehicleId = tonumber(src), tonumber(vehicleId)
+    model = tostring(model or ''):lower()
+    if not src or src <= 0 or not vehicleId or model == '' then return false, 'invalid_request' end
+    if not policeAdmin(src) then return false, 'permission_denied' end
+    if not resolveCatalogRow(model) then return false, 'model_unknown' end
+
+    if FleetLocationBusy[model] then return false, 'fleet_slot_busy' end
+    FleetLocationBusy[model] = true
+    local existing = MySQL.single.await('SELECT location_configured FROM cm_police_fleet_vehicles WHERE model = ? LIMIT 1', { model })
+    if existing and PoliceLegacyDbBoolean(existing.location_configured) then
+        FleetLocationBusy[model] = nil
+        return false, 'model_already_configured'
+    end
+
+    local ped = GetPlayerPed(src)
+    if not ped or ped == 0 then FleetLocationBusy[model] = nil; return false, 'admin_not_loaded' end
+    local coords, heading = GetEntityCoords(ped), GetEntityHeading(ped)
+    local okClass, classId = pcall(GetVehicleClassFromName, GetHashKey(model))
+    local kind = okClass and classId == 15 and 'helicopter' or 'car'
+    minTier = math.max(0, math.min(100, math.floor(tonumber(minTier) or 0)))
+
+    if exports[VEHICLES_RESOURCE]:EnsureOrganizationOwnership(vehicleId, 'police') ~= true then
+        FleetLocationBusy[model] = nil
+        return false, 'ownership_assign_failed'
+    end
+    MySQL.insert.await([[
+        INSERT INTO cm_police_fleet_vehicles (model, vehicle_id, kind, min_tier, enabled, location_configured, spawn_x, spawn_y, spawn_z, spawn_h, updated_by)
+        VALUES (?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+            vehicle_id = VALUES(vehicle_id), kind = VALUES(kind), min_tier = VALUES(min_tier), enabled = 1,
+            location_configured = 1, spawn_x = VALUES(spawn_x), spawn_y = VALUES(spawn_y),
+            spawn_z = VALUES(spawn_z), spawn_h = VALUES(spawn_h), updated_by = VALUES(updated_by)
+    ]], { model, vehicleId, kind, minTier, coords.x, coords.y, coords.z, heading, tostring(cid(src) or 'admin') })
+    FleetLocationBusy[model] = nil
+
+    exports[VEHICLES_RESOURCE]:TransitionVehicleLocation(vehicleId, 'JOB_GARAGE', { ref = 'police', reason = 'police_fleet_vehicle_granted', actorCharacterId = cid(src) })
+    log(cid(src), 'fleet_vehicle_granted_linked', { model = model, vehicleId = vehicleId, minTier = minTier })
+    return true, 'linked'
 end)
 
 exports('PoliceLegacyAdminBeginFleetPlacement', function(src, _, model)

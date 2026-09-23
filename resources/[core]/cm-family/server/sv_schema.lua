@@ -801,6 +801,7 @@ function CMFamilyDeleteFamilyRows(familyId)
     if not familyId then return false, 'invalid_family_id' end
 
     local statements = {
+        { query = 'DELETE FROM cm_family_activity_log WHERE family_id = ?', values = { familyId } },
         { query = 'DELETE FROM cm_family_log WHERE family_id = ?', values = { familyId } },
         { query = 'DELETE FROM cm_family_bank_log WHERE family_id = ?', values = { familyId } },
         { query = 'DELETE FROM cm_family_vehicle_access WHERE family_id = ?', values = { familyId } },

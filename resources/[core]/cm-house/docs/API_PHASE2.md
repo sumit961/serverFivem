@@ -176,7 +176,11 @@ exports['cm-house']:BlockInteractionsFor(1200)
 exports['cm-house']:SetInteractionBusy('inventory', true)
 ```
 
-The shared prompt is transparent cyan and centered on screen. It automatically hides for focused NUI, pause menu, inventory/wardrobe/storage state flags and explicit busy contexts.
+The prompt is rendered by `cm-ui` through its `ShowInteract` / `HideInteract`
+exports. Optional `options` fields `name` and `role` set the small context
+labels; `key` and `ttl` retain their existing meanings. The house arbiter
+automatically hides it for focused NUI, the pause menu, inventory/wardrobe/
+storage state flags and explicit busy contexts.
 
 ## Writable export scopes
 

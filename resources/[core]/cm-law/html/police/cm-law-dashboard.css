@@ -1,0 +1,665 @@
+/* CM Law dashboard skin v1
+ *
+ * This file is intentionally loaded last on the Police NUI. It keeps the
+ * existing page structure and NUI hooks intact while making the whole
+ * workspace consume the shared cm-ui palette, spacing, radii and controls.
+ * No blur/backdrop-filter is used because FiveM CEF can render it unreliably.
+ */
+
+:root {
+  --law-bg: var(--cm-bg-deep);
+  --law-panel: var(--cm-panel);
+  --law-panel-soft: var(--cm-panel-soft);
+  --law-hover: var(--cm-panel-hover);
+  --law-line: var(--cm-border-soft);
+  --law-line-strong: var(--cm-border);
+  --law-accent: var(--cm-primary);
+  --law-accent-rgb: var(--cm-primary-rgb);
+  --law-text: var(--cm-text);
+  --law-muted: var(--cm-muted);
+  --law-dim: var(--cm-muted-2);
+}
+
+html,
+body {
+  font-family: var(--cm-font) !important;
+  color: var(--law-text) !important;
+}
+
+#app:not(.armory-standalone):not(.dispatch-standalone) {
+  padding: 0 !important;
+  background:
+    radial-gradient(circle at 72% 8%, rgba(var(--law-accent-rgb), .08), transparent 30%),
+    linear-gradient(145deg, rgba(3, 8, 18, .98), rgba(7, 17, 31, .96)) !important;
+}
+
+#app:not(.armory-standalone):not(.dispatch-standalone) .shell {
+  width: min(1520px, 94vw) !important;
+  height: min(920px, 92vh) !important;
+  grid-template-columns: clamp(238px, 16vw, 286px) minmax(0, 1fr) !important;
+  border: 1px solid var(--law-line-strong) !important;
+  border-radius: var(--cm-radius-lg) !important;
+  background: var(--law-panel) !important;
+  box-shadow: var(--cm-shadow) !important;
+}
+
+#app .side {
+  padding: var(--cm-space-6) var(--cm-space-3) var(--cm-space-4) !important;
+  background: linear-gradient(180deg, rgba(12, 26, 46, .98), rgba(3, 8, 18, .98)) !important;
+  border-right: 1px solid var(--law-line) !important;
+}
+
+#app .brand {
+  min-height: 82px !important;
+  padding: 0 var(--cm-space-2) var(--cm-space-5) !important;
+  border-bottom: 1px solid var(--law-line) !important;
+}
+
+#app .brand-mark {
+  width: 48px !important;
+  height: 48px !important;
+  border: 1px solid var(--law-line-strong) !important;
+  border-radius: var(--cm-radius-sm) !important;
+  background: rgba(var(--law-accent-rgb), .08) !important;
+  box-shadow: var(--cm-glow) !important;
+}
+
+#app .brand-copy small,
+#app .side footer,
+#app .side .nav b {
+  font-family: var(--cm-mono) !important;
+}
+
+#app .brand-copy small {
+  color: var(--law-accent) !important;
+  letter-spacing: .16em !important;
+}
+
+#app .brand-copy h1 {
+  color: var(--law-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 18px !important;
+}
+
+#app .side nav {
+  gap: var(--cm-space-2) !important;
+  margin: var(--cm-space-5) 0 !important;
+  padding: 0 !important;
+}
+
+#app .side .nav {
+  min-height: 52px !important;
+  padding: var(--cm-space-3) !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--cm-radius-sm) !important;
+  color: var(--law-muted) !important;
+  background: transparent !important;
+}
+
+#app .side .nav b {
+  width: 28px !important;
+  height: 28px !important;
+  border: 1px solid var(--law-line) !important;
+  border-radius: var(--cm-radius-xs) !important;
+  color: var(--law-accent) !important;
+  background: rgba(var(--law-accent-rgb), .08) !important;
+}
+
+#app .side .nav:hover {
+  border-color: var(--law-line) !important;
+  background: rgba(var(--law-accent-rgb), .06) !important;
+}
+
+#app .side .nav.active {
+  border-color: var(--law-line-strong) !important;
+  background: rgba(var(--law-accent-rgb), .12) !important;
+  box-shadow: inset 3px 0 var(--law-accent) !important;
+  color: var(--law-text) !important;
+}
+
+#app .side .nav.active b {
+  color: var(--cm-bg-deep) !important;
+  background: var(--law-accent) !important;
+}
+
+#app .side-summary {
+  margin-top: auto !important;
+  padding: var(--cm-space-4) var(--cm-space-2) !important;
+  border-top: 1px solid var(--law-line) !important;
+}
+
+#app .side-summary__dot {
+  background: var(--law-dim) !important;
+  box-shadow: none !important;
+}
+
+#app .side-summary__dot.is-on {
+  background: var(--cm-success) !important;
+  box-shadow: 0 0 12px rgba(34, 197, 94, .35) !important;
+}
+
+#app .workspace {
+  background: var(--law-bg) !important;
+}
+
+#app .workspace > header {
+  min-height: 78px !important;
+  padding: var(--cm-space-4) var(--cm-space-6) !important;
+  border-bottom: 1px solid var(--law-line) !important;
+  background: rgba(8, 18, 34, .96) !important;
+}
+
+#app .workspace > header small,
+#app .overview-panel__head small,
+#app .section-head small {
+  color: var(--law-accent) !important;
+  font-family: var(--cm-mono) !important;
+  letter-spacing: .14em !important;
+}
+
+#app .workspace > header h2 {
+  margin-top: 3px !important;
+  color: var(--law-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 24px !important;
+}
+
+#app .law-system-status,
+#app .law-duty-button {
+  padding: 7px 10px !important;
+  border: 1px solid var(--law-line) !important;
+  border-radius: var(--cm-radius-xs) !important;
+  color: var(--law-muted) !important;
+  background: rgba(var(--law-accent-rgb), .05) !important;
+  font-family: var(--cm-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: .08em !important;
+}
+
+#app .law-system-status i {
+  background: var(--cm-success) !important;
+  box-shadow: 0 0 10px rgba(34, 197, 94, .42) !important;
+}
+
+#app #close {
+  width: 38px !important;
+  min-width: 38px !important;
+  height: 38px !important;
+  padding: 0 !important;
+  border-radius: var(--cm-radius-sm) !important;
+  color: var(--law-muted) !important;
+  background: rgba(239, 68, 68, .08) !important;
+  border-color: rgba(239, 68, 68, .3) !important;
+}
+
+#app #close:hover {
+  color: var(--cm-danger) !important;
+  background: var(--cm-danger-soft) !important;
+}
+
+#app .content {
+  padding: var(--cm-space-6) !important;
+  background:
+    radial-gradient(circle at 92% 0, rgba(var(--law-accent-rgb), .06), transparent 32%),
+    var(--law-bg) !important;
+}
+
+#app button,
+#app input,
+#app select,
+#app textarea {
+  font-family: var(--cm-font) !important;
+}
+
+#app button {
+  min-height: 38px !important;
+  border-radius: var(--cm-radius-sm) !important;
+  border-color: var(--law-line-strong) !important;
+  color: var(--law-text) !important;
+  background: var(--law-panel-soft) !important;
+}
+
+#app button:hover {
+  border-color: var(--law-accent) !important;
+  background: var(--law-hover) !important;
+}
+
+#app button.primary,
+#app .command-panel--tools button.primary {
+  border-color: var(--law-accent) !important;
+  color: var(--cm-bg-deep) !important;
+  background: linear-gradient(135deg, var(--cm-primary-dark), var(--cm-primary)) !important;
+  box-shadow: var(--cm-glow) !important;
+}
+
+#app button.danger,
+#app button.mini.danger {
+  color: var(--cm-danger) !important;
+  border-color: var(--cm-border-danger) !important;
+  background: var(--cm-danger-soft) !important;
+}
+
+#app input:not([type="checkbox"]),
+#app select,
+#app textarea {
+  min-height: 40px !important;
+  border: 1px solid var(--law-line) !important;
+  border-radius: var(--cm-radius-sm) !important;
+  color: var(--law-text) !important;
+  background: rgba(3, 8, 18, .66) !important;
+}
+
+#app input:focus,
+#app select:focus,
+#app textarea:focus {
+  border-color: var(--law-accent) !important;
+  box-shadow: 0 0 0 3px rgba(var(--law-accent-rgb), .1) !important;
+}
+
+/* Overview: a spacious command dashboard using the shared CM card language. */
+#app .command-center-overview {
+  gap: var(--cm-space-4) !important;
+}
+
+#app .org-identity-card {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: var(--cm-space-5) !important;
+  width: 100% !important;
+  min-height: 214px !important;
+  padding: var(--cm-space-6) !important;
+  border: 1px solid var(--law-line-strong) !important;
+  border-radius: var(--cm-radius-lg) !important;
+  background:
+    linear-gradient(120deg, rgba(var(--law-accent-rgb), .12), transparent 46%),
+    var(--law-panel-soft) !important;
+  box-shadow: var(--cm-shadow-soft) !important;
+}
+
+#app .org-tier-ring {
+  width: 86px !important;
+  height: 98px !important;
+  border: 1px solid var(--law-accent) !important;
+  border-radius: var(--cm-radius-md) !important;
+  background: rgba(var(--law-accent-rgb), .08) !important;
+  box-shadow: var(--cm-glow) !important;
+}
+
+#app .org-tier-ring strong {
+  color: var(--law-accent) !important;
+  font-family: var(--cm-mono) !important;
+}
+
+#app .org-tier-ring small {
+  color: var(--law-muted) !important;
+  font-family: var(--cm-mono) !important;
+}
+
+#app .org-identity-copy::before {
+  display: block;
+  margin-bottom: 9px;
+  content: "SECURE CONNECTION  ·  COMMAND AUTHORITY";
+  color: var(--law-accent);
+  font-family: var(--cm-mono);
+  font-size: 9px;
+  letter-spacing: .14em;
+}
+
+#app .org-identity-copy h2 {
+  margin-bottom: 13px !important;
+  color: var(--law-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: clamp(25px, 2.4vw, 40px) !important;
+  letter-spacing: -.03em !important;
+}
+
+#app .org-identity-copy > div:not(.stats) {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: var(--cm-space-2) !important;
+  align-items: center !important;
+  color: var(--law-muted) !important;
+  font-family: var(--cm-mono) !important;
+  font-size: 11px !important;
+}
+
+#app .org-identity-copy > div:not(.stats) > span:not(.status-pill) {
+  padding: 6px 9px !important;
+  border: 1px solid var(--law-line) !important;
+  border-radius: var(--cm-radius-xs) !important;
+  background: rgba(3, 8, 18, .4) !important;
+}
+
+#app .status-pill {
+  border-radius: var(--cm-radius-xs) !important;
+  font-family: var(--cm-mono) !important;
+}
+
+#app .stats.command-stats {
+  grid-column: 1 / -1 !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: var(--cm-space-3) !important;
+  margin: 0 !important;
+}
+
+#app .command-stats .stat {
+  min-height: 88px !important;
+  padding: var(--cm-space-4) !important;
+  border: 1px solid var(--law-line) !important;
+  border-radius: var(--cm-radius-md) !important;
+  background: rgba(3, 8, 18, .42) !important;
+}
+
+#app .command-stats .stat::after {
+  height: 2px !important;
+  width: 42% !important;
+  background: var(--law-accent) !important;
+}
+
+#app .command-stats .stat strong {
+  color: var(--law-text) !important;
+  font-family: var(--cm-mono) !important;
+}
+
+#app .command-stats .stat > div > span:first-child,
+#app .command-stats .stat > div > small:first-child {
+  color: var(--law-dim) !important;
+  font-family: var(--cm-mono) !important;
+}
+
+#app .command-stats .stat > div > small:last-child,
+#app .command-stats .stat > div > span:last-child {
+  color: var(--law-muted) !important;
+}
+
+#app .org-readiness-strip {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: var(--cm-space-6) !important;
+  min-height: 78px !important;
+  padding: var(--cm-space-4) var(--cm-space-5) !important;
+  border: 1px solid var(--law-line) !important;
+  border-radius: var(--cm-radius-md) !important;
+  background: var(--law-panel-soft) !important;
+}
+
+#app .org-readiness-strip strong,
+#app .org-readiness-strip small {
+  color: var(--law-text) !important;
+  font-family: var(--cm-mono) !important;
+  letter-spacing: .1em !important;
+}
+
+#app .org-readiness-strip > div:first-child > span {
+  margin-left: 9px !important;
+  color: var(--law-accent) !important;
+  font-family: var(--cm-mono) !important;
+}
+
+#app .org-readiness-strip i {
+  display: block !important;
+  height: 6px !important;
+  margin-top: 11px !important;
+  border-radius: 999px !important;
+  background: rgba(var(--law-accent-rgb), .1) !important;
+  overflow: hidden !important;
+}
+
+#app .org-readiness-strip i b {
+  display: block !important;
+  height: 100% !important;
+  border-radius: inherit !important;
+  background: linear-gradient(90deg, var(--cm-primary-dark), var(--cm-primary)) !important;
+  box-shadow: var(--cm-glow) !important;
+}
+
+#app .org-readiness-strip > div:last-child {
+  padding-left: var(--cm-space-5) !important;
+  border-left: 1px solid var(--law-line) !important;
+  text-align: right !important;
+}
+
+#app .org-readiness-strip > div:last-child strong {
+  display: block !important;
+  margin-top: 5px !important;
+  color: var(--law-accent) !important;
+  font-size: 18px !important;
+  letter-spacing: 0 !important;
+}
+
+#app .org-operations-grid {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1.2fr) minmax(260px, .8fr) !important;
+  gap: var(--cm-space-4) !important;
+}
+
+#app .org-command-column {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  gap: var(--cm-space-4) !important;
+}
+
+#app .command-panel {
+  min-width: 0 !important;
+  border: 1px solid var(--law-line) !important;
+  border-radius: var(--cm-radius-md) !important;
+  background: var(--law-panel-soft) !important;
+  box-shadow: var(--cm-shadow-soft) !important;
+}
+
+#app .command-panel > .overview-panel__head {
+  padding: var(--cm-space-4) var(--cm-space-5) !important;
+  border-bottom: 1px solid var(--law-line) !important;
+}
+
+#app .overview-panel__head h3 {
+  margin: 4px 0 0 !important;
+  color: var(--law-text) !important;
+  font-family: var(--cm-font-display) !important;
+  font-size: 16px !important;
+}
+
+#app .panel-kicker {
+  padding: 5px 7px !important;
+  border: 1px solid var(--law-line) !important;
+  border-radius: var(--cm-radius-xs) !important;
+  color: var(--law-accent) !important;
+  background: rgba(var(--law-accent-rgb), .07) !important;
+  font-family: var(--cm-mono) !important;
+}
+
+#app .capability-pills,
+#app .duty-preview,
+#app .activity-preview,
+#app .command-panel--tools .operation-actions {
+  padding: var(--cm-space-5) !important;
+}
+
+#app .capability-pill {
+  padding: 8px 10px !important;
+  border: 1px solid var(--law-line) !important;
+  border-radius: var(--cm-radius-sm) !important;
+  color: var(--law-text) !important;
+  background: rgba(var(--law-accent-rgb), .06) !important;
+  font-family: var(--cm-mono) !important;
+}
+
+#app .capability-pill i {
+  background: var(--law-accent) !important;
+  box-shadow: 0 0 8px rgba(var(--law-accent-rgb), .42) !important;
+}
+
+#app .duty-person {
+  padding: 9px !important;
+  border: 1px solid var(--law-line) !important;
+  border-radius: var(--cm-radius-sm) !important;
+  background: rgba(3, 8, 18, .42) !important;
+}
+
+#app .duty-avatar {
+  border-radius: var(--cm-radius-xs) !important;
+  color: var(--law-accent) !important;
+  background: rgba(var(--law-accent-rgb), .1) !important;
+  border-color: var(--law-line-strong) !important;
+}
+
+#app .duty-person strong,
+#app .activity-item strong {
+  color: var(--law-text) !important;
+}
+
+#app .duty-live {
+  color: var(--cm-success) !important;
+  font-family: var(--cm-mono) !important;
+}
+
+#app .activity-item {
+  border-bottom-color: var(--law-line) !important;
+}
+
+#app .activity-marker {
+  background: var(--law-accent) !important;
+  box-shadow: 0 0 8px rgba(var(--law-accent-rgb), .35) !important;
+}
+
+#app .activity-item p,
+#app .activity-item time,
+#app .overview-copy,
+#app .muted-inline {
+  color: var(--law-muted) !important;
+}
+
+#app .command-keybar {
+  gap: var(--cm-space-3) !important;
+}
+
+#app .command-keybar > div {
+  padding: var(--cm-space-3) var(--cm-space-4) !important;
+  border: 1px solid var(--law-line) !important;
+  border-radius: var(--cm-radius-sm) !important;
+  background: var(--law-panel-soft) !important;
+}
+
+#app .command-keybar kbd {
+  border-radius: var(--cm-radius-xs) !important;
+  color: var(--law-accent) !important;
+  background: rgba(var(--law-accent-rgb), .1) !important;
+  font-family: var(--cm-mono) !important;
+}
+
+#app .command-keybar b {
+  color: var(--law-text) !important;
+}
+
+/* Shared CM treatment for the remaining law pages and modal surfaces. */
+#app .card,
+#app .rank,
+#app .rank-card,
+#app .member,
+#app .list-row,
+#app .log-row,
+#app .police-toast,
+#app .police-confirm-card,
+#app .police-quick-menu-card {
+  border-color: var(--law-line) !important;
+  border-radius: var(--cm-radius-md) !important;
+  background: var(--law-panel-soft) !important;
+  box-shadow: var(--cm-shadow-soft) !important;
+}
+
+#app .section-head h3,
+#app .card h3,
+#app .rank h3,
+#app .rank-card h3 {
+  color: var(--law-text) !important;
+  font-family: var(--cm-font-display) !important;
+}
+
+.police-confirm-overlay,
+.police-quick-menu-overlay {
+  background: rgba(3, 8, 18, .78) !important;
+}
+
+.police-confirm-card,
+.police-quick-menu-card {
+  border: 1px solid var(--law-line-strong) !important;
+  background: var(--law-panel) !important;
+}
+
+.police-confirm-title,
+.police-quick-menu-title {
+  color: var(--law-text) !important;
+  font-family: var(--cm-font-display) !important;
+}
+
+.police-confirm-message,
+.police-quick-menu-item-desc {
+  color: var(--law-muted) !important;
+}
+
+@media (max-width: 1180px) {
+  #app:not(.armory-standalone):not(.dispatch-standalone) .shell {
+    grid-template-columns: 220px minmax(0, 1fr) !important;
+  }
+
+  #app .stats.command-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  #app .org-operations-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 760px) {
+  #app:not(.armory-standalone):not(.dispatch-standalone) .shell {
+    width: 100vw !important;
+    height: 100vh !important;
+    grid-template-columns: 1fr !important;
+    border-radius: 0 !important;
+  }
+
+  #app .side {
+    display: none !important;
+  }
+
+  #app .workspace > header {
+    padding: var(--cm-space-4) !important;
+  }
+
+  #app .content {
+    padding: var(--cm-space-4) !important;
+  }
+
+  #app .org-identity-card {
+    grid-template-columns: auto minmax(0, 1fr) !important;
+    padding: var(--cm-space-4) !important;
+  }
+
+  #app .org-tier-ring {
+    width: 64px !important;
+    height: 76px !important;
+  }
+
+  #app .org-identity-copy h2 {
+    font-size: 24px !important;
+  }
+
+  #app .org-readiness-strip {
+    grid-template-columns: 1fr !important;
+    gap: var(--cm-space-3) !important;
+  }
+
+  #app .org-readiness-strip > div:last-child {
+    padding: var(--cm-space-3) 0 0 !important;
+    border-top: 1px solid var(--law-line) !important;
+    border-left: 0 !important;
+    text-align: left !important;
+  }
+
+  #app .command-keybar {
+    grid-template-columns: 1fr !important;
+  }
+}

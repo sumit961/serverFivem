@@ -16,6 +16,7 @@
     <link rel="stylesheet" href="css/cm-armory-control.css?v=3">
     <link rel="stylesheet" href="css/weapon-storage-v150.css?v=200">
     <link rel="stylesheet" href="css/garage-selector-v3.css?v=241">
+    <link rel="stylesheet" href="css/cm-property-door-aaa.css?v=5">
 </head>
 <body>
 <!-- Unified world interaction prompt -->
@@ -35,100 +36,143 @@
 
 
 <!-- ============================================================
-     DOOR -- compact CM ice-blue property card
+     DOOR -- Cinematic AAA Property Access HUD
      ============================================================ -->
 <div id="door" class="screen property-card-screen" aria-hidden="true">
-  <section class="deed" role="dialog" aria-modal="true" aria-labelledby="d-label">
-    <header class="deed__head">
-      <div class="deed__plate"><span class="deed__hash">#</span><span id="d-number-plate">000</span></div>
-      <div class="deed__id">
-        <p class="deed__eyebrow">PROPERTY ACCESS</p>
-        <h1 id="d-label">House</h1>
-        <div class="deed__meta-line">
-          <span class="deed__type-chip" id="d-type-chip">House</span>
-          <span id="d-family" class="deed__fam"></span>
+  <div class="property-modal" role="dialog" aria-modal="true" aria-labelledby="d-photo-title">
+
+    <!-- Left Hero Image Section -->
+    <div class="modal-hero" id="d-shot" data-live="0" data-has-image="0">
+      <img id="d-img" class="modal-hero__img" alt="Property photo">
+      <div id="d-photo-empty" hidden></div>
+      <div class="hero-content">
+        <div class="property-badge">
+          <span class="property-badge__hash">#</span><span id="d-number-plate">000</span>
+        </div>
+        <div class="hero-titles">
+          <div class="context">LOS SANTOS PROPERTY</div>
+          <div class="title" id="d-photo-title">HOUSE</div>
         </div>
       </div>
-      <div class="deed__status-chip" id="d-status-chip">VACANT</div>
-      <button class="deed__x" data-act="close" aria-label="Close">&times;</button>
-    </header>
+    </div>
 
-    <figure class="shot property-photo" id="d-shot" data-live="0" data-has-image="0">
-      <img id="d-img" alt="Property photo">
-      <div class="property-photo__empty" id="d-photo-empty">
-        <span>HOUSE PHOTO</span>
-        <small>No saved photo</small>
+    <!-- Hidden compatibility elements for door-v105.js -->
+    <div id="d-seal" data-stars="0" hidden>
+      <div id="d-stars"></div>
+      <div id="d-status">VACANT</div>
+      <span id="d-number">000</span>
+      <span id="d-label">House</span>
+      <span id="d-type">House</span>
+      <span id="d-hero-family"></span>
+      <span id="d-family"></span>
+    </div>
+
+    <!-- Right Content Section -->
+    <div class="modal-details">
+
+      <!-- Header (Tags & Status) -->
+      <div class="details-header">
+        <div class="tags">
+          <span class="tag" id="d-type-chip">HOUSE</span>
+          <span class="tag tag--family" id="d-family-chip" hidden></span>
+        </div>
+        <div class="header-actions">
+          <div class="status-pill" id="d-status-chip">UNPAID</div>
+          <button type="button" class="btn-close" data-act="close" aria-label="Close">&times;</button>
+        </div>
       </div>
-      <figcaption class="property-photo__caption">
-        <span>LOS SANTOS PROPERTY</span>
-        <strong id="d-photo-title">House</strong>
-      </figcaption>
-    </figure>
 
-    <!-- Kept for the existing status controller without displaying the old
-         circular deed seal. -->
-    <div class="seal" id="d-seal" data-stars="0" hidden>
-      <svg class="seal__ring" viewBox="0 0 120 120" aria-hidden="true">
-        <circle class="seal__track" cx="60" cy="60" r="52"/>
-        <circle class="seal__fill" cx="60" cy="60" r="52"/>
-      </svg>
-      <div class="seal__core">
-        <div class="seal__stars" id="d-stars"></div>
-        <div class="seal__word" id="d-status">VACANT</div>
+      <!-- Core Data -->
+      <div class="info-section">
+        <div class="owner-row">
+          <div class="owner-block">
+            <span class="data-label">PROPERTY OWNER</span>
+            <span class="data-value" id="d-owner">FOR SALE</span>
+          </div>
+          <div class="family-block" id="d-family-section" hidden>
+            <span class="data-label">FAMILY</span>
+            <span class="data-value highlight" id="d-family-name">NONE</span>
+          </div>
+        </div>
+
+        <div>
+          <span class="data-label">MARKET VALUE</span>
+          <div class="price-value" id="d-price">&mdash;</div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-block">
+            <span class="data-label">INSURANCE</span>
+            <span class="data-value" id="d-insurance">&mdash;</span>
+          </div>
+          <div class="stat-block">
+            <span class="data-label">DAILY COST</span>
+            <span class="data-value" id="d-daily">&mdash;</span>
+          </div>
+          <div class="stat-block">
+            <span class="data-label">PAYMENT STATUS</span>
+            <span class="data-value dim" id="d-paid">&mdash;</span>
+          </div>
+          <div class="stat-block">
+            <span class="data-label">GOVERNMENT VALUE</span>
+            <span class="data-value highlight" id="d-gov">&mdash;</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Interaction Buttons -->
+      <div class="actions-wrapper">
+        <div class="primary-actions">
+          <button class="btn btn-outline" data-act="lock" id="d-lock">
+            <span class="icon" id="d-lock-icon">&#128275;</span> <span id="d-lock-label">UNLOCK</span>
+          </button>
+          <button class="btn btn-enter" data-act="home" id="d-home">
+            <span class="icon">&#127968;</span> ENTER HOME
+          </button>
+          <button class="btn btn-garage" data-act="garage" id="d-garage">
+            <span class="icon">&#128663;</span> GARAGE
+          </button>
+        </div>
+
+        <div class="secondary-actions">
+          <button class="btn btn-opposing" data-act="raid" id="d-raid" hidden>
+            <span class="icon">&#9878;</span> <span id="d-raid-label">OPPOSING FAMILY</span>
+          </button>
+          <button class="btn btn-buy" data-act="buy" id="d-buy" hidden>
+            <span class="icon">&#128176;</span> BUY PROPERTY
+          </button>
+          <button class="btn btn-sell" data-act="sell" id="d-sell" hidden>
+            <span class="icon">&#10006;</span> SELL PROPERTY
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- In-Game Property Sale Confirmation Modal -->
+    <div id="d-confirm-modal" class="door-confirm-overlay" hidden aria-hidden="true">
+      <div class="door-confirm-card" role="alertdialog" aria-modal="true" aria-labelledby="d-confirm-title" aria-describedby="d-confirm-desc">
+        <div class="door-confirm-header">
+          <span class="door-confirm-eyebrow">GOVERNMENT SALE CONFIRMATION</span>
+          <h3 class="door-confirm-title" id="d-confirm-title">SELL PROPERTY</h3>
+        </div>
+        <p class="door-confirm-desc" id="d-confirm-desc">
+          Are you sure you want to sell this property? It will be returned to the market and any stored contents will be cleared. This action cannot be undone.
+        </p>
+        <div class="door-confirm-payout">
+          <span class="payout-label">GOVERNMENT PAYOUT</span>
+          <span class="payout-amount" id="d-confirm-payout">$0</span>
+        </div>
+        <div class="door-confirm-actions">
+          <button type="button" class="btn btn-outline" id="d-confirm-cancel">CANCEL</button>
+          <button type="button" class="btn btn-sell-final" id="d-confirm-proceed">
+            <span class="icon">&#10006;</span> CONFIRM SELL
+          </button>
+        </div>
       </div>
     </div>
 
-    <dl class="ledger property-ledger">
-      <div class="ledger__row ledger__row--house-number">
-        <dt>House No</dt><dd><span class="ledger__hash">#</span><span id="d-number">000</span></dd>
-      </div>
-      <div class="ledger__row ledger__row--type">
-        <dt>Type</dt><dd id="d-type">House</dd>
-      </div>
-      <div class="ledger__row ledger__row--owner">
-        <dt>Owner</dt><dd id="d-owner">For sale</dd>
-      </div>
-      <div class="ledger__row ledger__row--price">
-        <dt>Price</dt><dd id="d-price">&mdash;</dd>
-      </div>
-      <div class="ledger__row">
-        <dt>Insurance</dt><dd id="d-insurance">&mdash;</dd>
-      </div>
-      <div class="ledger__row">
-        <dt>Daily cost</dt><dd id="d-daily">&mdash;</dd>
-      </div>
-      <div class="ledger__row">
-        <dt>Paid for</dt><dd id="d-paid">&mdash;</dd>
-      </div>
-      <div class="ledger__row ledger__row--gov">
-        <dt>Government value</dt><dd id="d-gov">&mdash;</dd>
-      </div>
-    </dl>
-
-    <div class="acts property-actions" aria-label="Property actions">
-      <button class="act act--lock" data-act="lock" id="d-lock">
-        <span class="act__icon" id="d-lock-icon">&#128274;</span>
-        <span class="act__label" id="d-lock-label">Unlock</span>
-      </button>
-      <button class="act act--home act--green" data-act="home" id="d-home">
-        <span class="act__icon">&#127968;</span>
-        <span class="act__label">Enter home</span>
-      </button>
-      <button class="act act--garage" data-act="garage" id="d-garage">
-        <span class="act__icon">&#128663;</span>
-        <span class="act__label">Open garage</span>
-      </button>
-      <button class="act act--raid" data-act="raid" id="d-raid" hidden>
-        <span class="act__icon">&#9876;</span>
-        <span class="act__label" id="d-raid-label">Start family raid</span>
-      </button>
-    </div>
-
-    <footer class="deed__foot">
-      <button class="ghost ghost--buy" data-act="buy" id="d-buy">Buy &rarr;</button>
-      <button class="ghost ghost--sell" data-act="sell" id="d-sell">Sell property</button>
-    </footer>
-  </section>
+  </div>
 </div>
 
 <!-- ============================================================
@@ -278,18 +322,27 @@
           <button data-ws-filter="ammo"><i></i>AMMO <b id="ws-count-ammo">0</b></button>
           <button data-ws-filter="armor"><i></i>ARMOR <b id="ws-count-armor">0</b></button>
           <button data-ws-filter="all"><i></i>ALL <b id="ws-storage-count">0</b></button>
+          <button data-ws-filter="logs" id="ws-tab-logs" hidden><i></i>LOGS</button>
           <button id="ws-order-stock" hidden>ORDER STOCK</button>
           <button id="ws-settings" class="gang-control__settings" hidden><span>⚙</span> SETTINGS</button>
           <button type="button" data-ws-refresh aria-label="Refresh">↻</button>
         </nav>
       </header>
       <div class="gang-control__meta"><small id="ws-subtitle">PROPERTY WEAPON STORAGE</small></div>
-      <div class="gang-control__toolbar">
+      <div class="gang-control__toolbar" id="ws-toolbar">
         <label class="gang-control__search" for="ws-search"><span aria-hidden="true"></span><input id="ws-search" type="search" autocomplete="off" placeholder="Search weapon, ammunition or item name"></label>
         <strong id="ws-result-count" class="gang-control__result-count">0 shown</strong>
       </div>
       <div id="ws-storage-list" class="gang-control__grid"></div>
       <p id="ws-storage-empty" class="gang-control__empty" hidden>This armory is empty.</p>
+      <div id="ws-logs-panel" class="gang-control__logs-panel" hidden>
+        <div class="gang-control__logs-head">
+          <span>TRANSACTION AUDIT LOG</span>
+          <button type="button" id="ws-logs-refresh" class="gang-control__logs-btn">↻ REFRESH LOGS</button>
+        </div>
+        <div id="ws-logs-list" class="gang-control__logs-list"></div>
+        <p id="ws-logs-empty" class="gang-control__empty" hidden>No transaction logs recorded.</p>
+      </div>
     </main>
   </section>
 </div>

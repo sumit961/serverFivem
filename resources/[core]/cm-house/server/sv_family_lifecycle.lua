@@ -94,6 +94,10 @@ function FL.AppendDeleteStatements(statements, familyId, houseId)
         values = { familyId },
     }
     statements[#statements + 1] = {
+        query = 'DELETE FROM cm_family_activity_log WHERE family_id = ?',
+        values = { familyId },
+    }
+    statements[#statements + 1] = {
         query = 'DELETE FROM cm_family_bank_log WHERE family_id = ?',
         values = { familyId },
     }
@@ -188,5 +192,45 @@ MySQL.ready(function()
         end
     end)
 end)
+
+function FL.TransferFamilyHouseOwnership(familyId, newOwnerCid)
+    familyId = normalizedFamilyId(familyId)
+    newOwnerCid = tostring(newOwnerCid or '')
+    if not familyId or newOwnerCid == '' then return false, 'invalid_arguments' end
+
+    local houseRow = MySQL.single.await([[
+        SELECT id, owner_cid, family_id
+        FROM cm_houses
+        WHERE family_id = ?
+        LIMIT 1
+    ]], { familyId })
+    if not houseRow then return false, 'no_linked_family_house' end
+
+    local houseId = tonumber(houseRow.id)
+    local previousOwner = houseRow.owner_cid
+
+    local updated = MySQL.update.await([[
+        UPDATE cm_houses
+        SET owner_cid = ?
+        WHERE id = ? AND family_id = ?
+    ]], { newOwnerCid, houseId, familyId })
+
+    if not updated or updated <= 0 then
+        return false, 'house_ownership_update_failed'
+    end
+
+    if Houses and Houses[houseId] then
+        Houses[houseId].owner_cid = tonumber(newOwnerCid) or newOwnerCid
+        TriggerClientEvent('cm-house:client:syncHouse', -1, BuildClientHouse(Houses[houseId]))
+    end
+
+    LogHouse(houseId, familyId, newOwnerCid, 'family_house_owner_transferred', {
+        previousOwner = previousOwner,
+        newOwner = newOwnerCid,
+    })
+
+    return true, houseId
+end
+exports('TransferFamilyHouseOwnership', FL.TransferFamilyHouseOwnership)
 
 return FL

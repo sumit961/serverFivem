@@ -66,6 +66,8 @@ local ACTION_META = {
     storage_open = { category = 'storage', severity = 'info' },
     storage_deposit = { category = 'storage', severity = 'info' },
     storage_withdraw = { category = 'storage', severity = 'warning' },
+    trunk_deposit = { category = 'storage', severity = 'info' },
+    trunk_withdraw = { category = 'storage', severity = 'warning' },
     weapon_storage_deposit = { category = 'weapons', severity = 'warning' },
     weapon_storage_withdraw = { category = 'weapons', severity = 'critical', highRisk = true },
     door_lock = { category = 'security', severity = 'warning' },

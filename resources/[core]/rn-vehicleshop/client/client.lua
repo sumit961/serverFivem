@@ -1,5 +1,4 @@
 local pedSpawned = false
-local GalleryPed = nil
 local inShop = false
 local newVehicle = nil
 local spawnVehicle = false
@@ -10,7 +9,6 @@ local lastPreviewDetails = nil
 local testDriveActive = false
 local testDriveVehicle = nil
 local returnCoords = nil
-local interactionVisible = false
 local hudHidden = false
 local hudStoreLock = false
 
@@ -26,11 +24,48 @@ local interactionSuppressUntil = 0
 local openRequestPending = false
 local lastShopPayload = nil
 local testDriveChargeToken = nil
+local testDriveSessionToken = nil
 local testDriveReturnMode = 'store'
+local testDriveProtection = nil
 local isRotatingMouseDown = false
 local appearanceCleanupToken = 0
 local vehicleAdminClimatePauseRequested = false
 local vehicleAdminClimatePauseReason = 'rn-vehicleshop:vehicleadmin'
+
+local function setTestDriveProtection(active)
+    local player = PlayerId()
+    local ped = PlayerPedId()
+    if active then
+        if testDriveProtection then return end
+        local playerWasInvincible = false
+        local entityWasInvincible = false
+        local okPlayer, playerValue = pcall(function() return GetPlayerInvincible(player) end)
+        local okEntity, entityValue = pcall(function() return GetEntityInvincible(ped) end)
+        if okPlayer then playerWasInvincible = playerValue == true end
+        if okEntity then entityWasInvincible = entityValue == true end
+        testDriveProtection = {
+            ped = ped,
+            playerWasInvincible = playerWasInvincible,
+            entityWasInvincible = entityWasInvincible,
+        }
+        SetPlayerInvincible(player, true)
+        SetEntityInvincible(ped, true)
+        return
+    end
+
+    local previous = testDriveProtection
+    testDriveProtection = nil
+    if not previous then return end
+    local restorePed = DoesEntityExist(previous.ped) and previous.ped or PlayerPedId()
+    SetPlayerInvincible(player, previous.playerWasInvincible == true)
+    SetEntityInvincible(restorePed, previous.entityWasInvincible == true)
+end
+
+local function reassertTestDriveProtection()
+    if not testDriveProtection then return end
+    SetPlayerInvincible(PlayerId(), true)
+    SetEntityInvincible(PlayerPedId(), true)
+end
 
 local function sendUiToast(message)
     if message and message ~= '' then
@@ -246,14 +281,22 @@ RegisterNetEvent('rn-vehicleshop:client:setHudVisible', function(visible, reason
     setHudVisible(visible == true, reason or 'external_request', true)
 end)
 
-local function setInteractionVisible(show, payload)
-    show = show == true
-    if interactionVisible == show then return end
-    interactionVisible = show
-    payload = payload or {}
-    payload.action = 'interaction'
-    payload.show = show
-    SendNUIMessage(payload)
+-- Shared "Press E" prompt + cinematic NPC dialogue come from cm-ui (same
+-- convention as cm-gunstore / nv_cloth / cm-store). Guarded at call time so the
+-- shop still opens if cm-ui is stopped -- the dealer then skips straight to the
+-- catalog instead of showing a conversation.
+local function uiAvailable()
+    return GetResourceState('cm-ui') == 'started'
+end
+
+local function uiShowInteract(payload)
+    if not uiAvailable() then return end
+    exports['cm-ui']:ShowInteract(payload)
+end
+
+local function uiHideInteract()
+    if not uiAvailable() then return end
+    exports['cm-ui']:HideInteract()
 end
 
 local function loadModel(model)
@@ -359,6 +402,12 @@ local function getPreviewStudio(mode)
     if mode == 'admin' and Config.VehicleAdminStudio and Config.VehicleAdminStudio.enabled ~= false then
         return Config.VehicleAdminStudio
     end
+    if mode == 'boat' and Config.BoatShowroom then
+        return Config.BoatShowroom
+    end
+    if mode == 'air' and Config.AirShowroom then
+        return Config.AirShowroom
+    end
     return Config.Showroom or {}
 end
 
@@ -445,61 +494,71 @@ local function drawText3D(x, y, z, text)
     DrawText(sx, sy)
 end
 
-local dealerSpeechText = nil
-local dealerSpeechUntil = 0
-local dealerNextGreetingAt = 0
-local dealerWasNear = false
 local dealerDialogOpen = false
+local activeDealerShop = nil
 
-local function spawnDealerPed()
-    if pedSpawned then return end
+-- One dealer NPC per storefront (cars / boats / air). Each entry keeps its own
+-- ped + speech state, mirroring cm-gunstore's per-shop `_ped` pattern.
+local dealerShops = {
+    { type = 'store', label = 'CAR DEALER',  dealerKey = 'Dealer',      showroomKey = 'Showroom',     blipKey = 'Blip' },
+    { type = 'boat',  label = 'BOAT DEALER', dealerKey = 'BoatDealer',  showroomKey = 'BoatShowroom', blipKey = 'BoatBlip' },
+    { type = 'air',   label = 'AIR DEALER',  dealerKey = 'AirDealer',   showroomKey = 'AirShowroom',  blipKey = 'AirBlip' },
+}
+
+local function shopDealer(shop)
+    return Config[shop.dealerKey] or {}
+end
+
+local function spawnShopPed(shop)
+    if shop._ped and DoesEntityExist(shop._ped) then return end
     if Config.Ped and Config.Ped.enabled == false then return end
-    local dealer = Config.Dealer or {}
+    local dealer = shopDealer(shop)
+    local c = dealer.coords
+    if not c then return end
     local hash = loadModel(dealer.ped or 'a_m_m_business_01')
     if not hash then return end
-    local c = dealer.coords or vector4(Config.Location.x, Config.Location.y, Config.Location.z, 0.0)
     local pedConfig = Config.Ped or {}
 
     -- Spawn at the exact configured Z. Inside an MLO, GetGroundZFor_3dCoord often
     -- returns the natural terrain UNDER the building, which would sink the ped, so we
     -- trust the Z you captured while standing on the MLO floor instead.
-    GalleryPed = CreatePed(4, hash, c.x, c.y, c.z, c.w or 0.0, false, true)
-    SetEntityHeading(GalleryPed, c.w or 0.0)
+    local ped = CreatePed(4, hash, c.x, c.y, c.z, c.w or 0.0, false, true)
+    SetEntityHeading(ped, c.w or 0.0)
 
     CreateThread(function()
         local deadline = GetGameTimer() + 4000
         RequestCollisionAtCoord(c.x, c.y, c.z)
-        while not HasCollisionLoadedAroundEntity(GalleryPed) and GetGameTimer() < deadline do
+        while not HasCollisionLoadedAroundEntity(ped) and GetGameTimer() < deadline do
             RequestCollisionAtCoord(c.x, c.y, c.z)
             Wait(0)
         end
         -- Re-assert the exact position once collision is present (prevents drift/sink).
-        SetEntityCoordsNoOffset(GalleryPed, c.x, c.y, c.z, false, false, false)
-        SetEntityHeading(GalleryPed, c.w or 0.0)
-        FreezeEntityPosition(GalleryPed, true)
+        SetEntityCoordsNoOffset(ped, c.x, c.y, c.z, false, false, false)
+        SetEntityHeading(ped, c.w or 0.0)
+        FreezeEntityPosition(ped, true)
         if pedConfig.scenario and pedConfig.scenario ~= '' then
-            TaskStartScenarioInPlace(GalleryPed, pedConfig.scenario, 0, true)
+            TaskStartScenarioInPlace(ped, pedConfig.scenario, 0, true)
         end
     end)
 
-    if pedConfig.invincible ~= false then SetEntityInvincible(GalleryPed, true) end
-    SetBlockingOfNonTemporaryEvents(GalleryPed, pedConfig.blockEvents ~= false)
-    SetPedCanRagdoll(GalleryPed, false)
-    SetPedDiesWhenInjured(GalleryPed, false)
+    if pedConfig.invincible ~= false then SetEntityInvincible(ped, true) end
+    SetBlockingOfNonTemporaryEvents(ped, pedConfig.blockEvents ~= false)
+    SetPedCanRagdoll(ped, false)
+    SetPedDiesWhenInjured(ped, false)
     SetModelAsNoLongerNeeded(hash)
-    pedSpawned = true
+    shop._ped = ped
+    shop._clerkName = dealer.npcName or shop.label
 end
 
-local function ensureDealerVisible()
-    if not GalleryPed or not DoesEntityExist(GalleryPed) then
-        pedSpawned = false
-        spawnDealerPed()
+local function ensureShopPedVisible(shop)
+    if not shop._ped or not DoesEntityExist(shop._ped) then
+        spawnShopPed(shop)
         return
     end
-    SetEntityVisible(GalleryPed, true, false)
-    SetEntityAlpha(GalleryPed, 255, false)
-    FreezeEntityPosition(GalleryPed, true)
-    SetBlockingOfNonTemporaryEvents(GalleryPed, true)
+    SetEntityVisible(shop._ped, true, false)
+    SetEntityAlpha(shop._ped, 255, false)
+    FreezeEntityPosition(shop._ped, true)
+    SetBlockingOfNonTemporaryEvents(shop._ped, true)
 end
 
 local function randomFrom(list, fallback)
@@ -507,66 +566,77 @@ local function randomFrom(list, fallback)
     return list[math.random(1, #list)] or fallback
 end
 
-local function playDealerVoice(kind)
+local function playShopVoice(shop, kind)
     local pedConfig = Config.Ped or {}
     if pedConfig.voiceEnabled == false then return end
-    if not GalleryPed or not DoesEntityExist(GalleryPed) then return end
+    if not shop._ped or not DoesEntityExist(shop._ped) then return end
     local voices = kind == 'farewell' and pedConfig.farewellVoices or pedConfig.greetingVoices
     local speech = randomFrom(voices, kind == 'farewell' and 'GENERIC_BYE' or 'GENERIC_HI')
     pcall(function()
-        StopCurrentPlayingAmbientSpeech(GalleryPed)
-        PlayPedAmbientSpeechNative(GalleryPed, speech, 'SPEECH_PARAMS_FORCE_NORMAL_CLEAR')
+        StopCurrentPlayingAmbientSpeech(shop._ped)
+        PlayPedAmbientSpeechNative(shop._ped, speech, 'SPEECH_PARAMS_FORCE_NORMAL_CLEAR')
     end)
 end
 
-local function setDealerSpeech(text, duration)
+local function setShopSpeech(shop, text, duration)
     local pedConfig = Config.Ped or {}
-    dealerSpeechText = text or ''
-    dealerSpeechUntil = GetGameTimer() + (tonumber(duration or pedConfig.speechDuration) or 5000)
+    shop._speechText = text or ''
+    shop._speechUntil = GetGameTimer() + (tonumber(duration or pedConfig.speechDuration) or 5000)
 end
 
-local function clearDealerSpeech()
-    dealerSpeechText = nil
-    dealerSpeechUntil = 0
+local function clearShopSpeech(shop)
+    shop._speechText = nil
+    shop._speechUntil = 0
 end
 
-local function playDealerGreetingIfNeeded()
+local function playShopGreetingIfNeeded(shop)
     local pedConfig = Config.Ped or {}
     local now = GetGameTimer()
-    if now < (dealerNextGreetingAt or 0) then return end
+    if now < (shop._nextGreetingAt or 0) then return end
     -- Voice greeting only by default. Text bubble is shown only if explicitly enabled.
     if pedConfig.showGreeting == true then
-        setDealerSpeech(randomFrom(pedConfig.greetings, 'Welcome to the showroom.'), pedConfig.speechDuration)
+        setShopSpeech(shop, randomFrom(pedConfig.greetings, 'Welcome to the showroom.'), pedConfig.speechDuration)
     else
-        clearDealerSpeech()
+        clearShopSpeech(shop)
     end
-    playDealerVoice('greeting')
-    dealerNextGreetingAt = now + (tonumber(pedConfig.speechCooldown) or 15000)
+    playShopVoice(shop, 'greeting')
+    shop._nextGreetingAt = now + (tonumber(pedConfig.speechCooldown) or 15000)
 end
 
-local function playDealerFarewell()
+local function playShopFarewell(shop)
+    if not shop then return end
     local pedConfig = Config.Ped or {}
     if pedConfig.showGreeting == true then
-        setDealerSpeech(randomFrom(pedConfig.farewells, 'See you around.'), pedConfig.speechDuration)
+        setShopSpeech(shop, randomFrom(pedConfig.farewells, 'See you around.'), pedConfig.speechDuration)
     else
-        clearDealerSpeech()
+        clearShopSpeech(shop)
     end
-    playDealerVoice('farewell')
+    playShopVoice(shop, 'farewell')
+end
+
+local function addShopBlip(blipCfg, coords)
+    if not blipCfg or blipCfg.showBlip == false then return end
+    local pos = coords or (Config.Location and vector3(Config.Location.x, Config.Location.y, Config.Location.z))
+    if not pos then return end
+    local blip = AddBlipForCoord(pos.x, pos.y, pos.z)
+    SetBlipSprite(blip, blipCfg.id)
+    SetBlipColour(blip, blipCfg.color)
+    SetBlipScale(blip, blipCfg.scale)
+    SetBlipDisplay(blip, 4)
+    SetBlipAsShortRange(blip, true)
+    BeginTextCommandSetBlipName('STRING')
+    AddTextComponentSubstringPlayerName(blipCfg.label)
+    EndTextCommandSetBlipName(blip)
 end
 
 local function whenStarted()
-    if Config.Blip and Config.Blip.showBlip then
-        local blip = AddBlipForCoord(Config.Location)
-        SetBlipSprite(blip, Config.Blip.id)
-        SetBlipColour(blip, Config.Blip.color)
-        SetBlipScale(blip, Config.Blip.scale)
-        SetBlipDisplay(blip, 4)
-        SetBlipAsShortRange(blip, true)
-        BeginTextCommandSetBlipName('STRING')
-        AddTextComponentSubstringPlayerName(Config.Blip.label)
-        EndTextCommandSetBlipName(blip)
+    local pedEnabled = not (Config.Ped and Config.Ped.enabled == false)
+    for _, shop in ipairs(dealerShops) do
+        local dealer = shopDealer(shop)
+        addShopBlip(Config[shop.blipKey], dealer.coords)
+        if pedEnabled then spawnShopPed(shop) end
     end
-    spawnDealerPed()
+    pedSpawned = pedEnabled
 end
 
 
@@ -742,15 +812,39 @@ local function deletePreviewVehicle()
     if SetCapturedPreviewVehicle then SetCapturedPreviewVehicle(nil) end
 end
 
+-- Base-game model used as a temporary stand-in when a requested preview model
+-- cannot be streamed (not in CD image, not a vehicle, or its files never load).
+local PREVIEW_FALLBACK_MODEL = 'komoda'
+local PREVIEW_FALLBACK_NOTICE = 'This vehicle model is temporarily unavailable. Showing a Komoda until it can be streamed.'
+
 -- Spawn (or respawn) the showroom preview vehicle for a model. Returns the hash
 -- on success so callers can push stats. Shared by the NUI spawn callback and the
 -- admin image-capture flow.
-local function spawnPreviewVehicle(model)
+--
+-- When `allowFallback` is true (default) and the requested model cannot be
+-- streamed, a base-game Komoda is spawned as a temporary stand-in and a notice
+-- is shown. Image capture passes false so the photo studio never photographs
+-- the stand-in instead of the real car.
+local function spawnPreviewVehicle(model, allowFallback)
     model = tostring(model or '')
     if model == '' then return nil end
     deletePreviewVehicle()
     local hash = loadVehicleModel(model)
-    if not hash then notify(('Invalid or unavailable vehicle model: %s'):format(model), 'error') return nil end
+    local spawnModel = model
+    local usingFallback = false
+    if not hash then
+        if allowFallback == false or tostring(model):lower():gsub('%s+', '') == PREVIEW_FALLBACK_MODEL then
+            notify(('Invalid or unavailable vehicle model: %s'):format(model), 'error')
+            return nil
+        end
+        hash = loadVehicleModel(PREVIEW_FALLBACK_MODEL)
+        if not hash then
+            notify(('Invalid or unavailable vehicle model: %s'):format(model), 'error')
+            return nil
+        end
+        spawnModel = PREVIEW_FALLBACK_MODEL
+        usingFallback = true
+    end
     local studio = getPreviewStudio(previewMode)
     local c = studio.vehicle or vector4(Config.Location.x + 5.0, Config.Location.y + 5.0, Config.Location.z, 0.0)
     newVehicle = CreateVehicle(hash, c.x, c.y, c.z + 0.75, c.w or 0.0, false, false)
@@ -761,11 +855,19 @@ local function spawnPreviewVehicle(model)
     SetEntityAlpha(newVehicle, 0, false)
     SetEntityVisible(newVehicle, false, false)
 
-    settleVehicleOnGround(newVehicle, c.x, c.y, c.z, c.w or 0.0, true, false)
-    forceStockAppearancePasses(newVehicle, false, true, model)
+    if previewMode == 'boat' then
+        -- Boats spawn on water: place at the configured water coords and skip
+        -- ground-settling (GetGroundZFor_3dCoord would pull it to the sea floor).
+        SetEntityCoordsNoOffset(newVehicle, c.x, c.y, c.z + 0.2, false, false, false)
+        SetEntityHeading(newVehicle, c.w or 0.0)
+    else
+        settleVehicleOnGround(newVehicle, c.x, c.y, c.z, c.w or 0.0, true, false)
+    end
+    forceStockAppearancePasses(newVehicle, false, true, spawnModel)
     SetModelAsNoLongerNeeded(hash)
     spawnVehicle = true
     if SetCapturedPreviewVehicle then SetCapturedPreviewVehicle(newVehicle) end
+    if usingFallback then notify(PREVIEW_FALLBACK_NOTICE, 'info') end
     return hash
 end
 
@@ -814,7 +916,7 @@ local function changeCam(mode)
         forceRestoreHud(hudReason .. '_hud_allowed', 1500)
     end
     setShopState(true, mode)
-    setInteractionVisible(false)
+    uiHideInteract()
     local shop = getPreviewStudio(mode)
     local p = shop.player or vector4(Config.Location.x, Config.Location.y, Config.Location.z, 0.0)
     local ped = PlayerPedId()
@@ -958,8 +1060,11 @@ local function returnFromTestDrive(reason)
     if not testDriveActive then return end
     testDriveActive = false
     testDriveHudTransition = false
+    setTestDriveProtection(false)
+    local startFailureReported = false
     if shouldRefundTestDriveCharge(reason) then
         reportTestDriveStartFailed(reason)
+        startFailureReported = true
     else
         testDriveChargeToken = nil
     end
@@ -985,13 +1090,16 @@ local function returnFromTestDrive(reason)
     SetEntityCollision(ped, false, false)
     FreezeEntityPosition(ped, true)
     local returnMode = testDriveReturnMode
-    TriggerServerEvent('rn-vehicleshop:server:testDriveEnded', reason or 'finished', returnMode)
+    if not startFailureReported then
+        TriggerServerEvent('rn-vehicleshop:server:testDriveEnded', reason or 'finished', returnMode, testDriveSessionToken)
+    end
+    testDriveSessionToken = nil
     if returnMode == 'admin' then
         changeCam('admin')
         if lastPreviewDetails and lastPreviewDetails.model then spawnPreviewVehicle(lastPreviewDetails.model) end
         SendNUIMessage({ action = 'adminReturned', details = lastPreviewDetails or {}, reason = reason or 'finished' })
     else
-        changeCam('store')
+        changeCam(returnMode)
         if lastPreviewDetails and lastPreviewDetails.model then
             spawnPreviewVehicle(lastPreviewDetails.model)
             SendNUIMessage({ action = 'testDriveReturned', details = lastPreviewDetails, reason = reason or 'finished' })
@@ -1006,15 +1114,16 @@ local function returnFromTestDrive(reason)
 end
 
 
-RegisterNetEvent('rn-vehicleshop:target', function()
+RegisterNetEvent('rn-vehicleshop:target', function(shopType)
     if inShop or openRequestPending then return end
+    shopType = shopType or (activeDealerShop and activeDealerShop.type) or 'store'
     openRequestPending = true
-    setInteractionVisible(false)
+    uiHideInteract()
     SendNUIMessage({ action = 'undraw' })
     SendNUIMessage({ action = 'dealerDialog', close = true })
     interactionSuppressUntil = GetGameTimer() + 2500
     -- Ask the server first while the player is still beside the dealer.
-    TriggerServerEvent('rn-vehicleshop:server:openUI')
+    TriggerServerEvent('rn-vehicleshop:server:openUI', shopType)
     CreateThread(function()
         Wait(5000)
         if openRequestPending and not inShop then
@@ -1039,14 +1148,15 @@ RegisterNetEvent('rn-vehicleshop:client:openFailed', function(message)
     if message and message ~= '' then notify(message, 'error') end
 end)
 
-RegisterNetEvent('vehicles:client:openUI', function(vehicles, daily, buyer)
+RegisterNetEvent('vehicles:client:openUI', function(vehicles, daily, buyer, shopType)
+    shopType = shopType or 'store'
     openRequestPending = false
     dealerDialogOpen = false
     lastShopPayload = { vehicles = vehicles or {}, daily = daily or {}, buyer = buyer or 'Customer' }
     if inShop then return end
-    setInteractionVisible(false)
+    uiHideInteract()
     SendNUIMessage({ action = 'dealerDialog', close = true })
-    changeCam('store')
+    changeCam(shopType)
     TriggerEvent('change:time', true)
     SetNuiFocus(true, true)
     beginHudStoreLock('vehicle_store')
@@ -1105,7 +1215,8 @@ end)
 -- Admin image capture: spawn the requested model in the showroom if the admin has
 -- not already previewed it, so capture.lua has a live car to photograph.
 RegisterNetEvent('rn-vehicleshop:client:spawnPreviewForCapture', function(model)
-    spawnPreviewVehicle(model)
+    -- Capture must photograph the real model, never the Komoda stand-in.
+    spawnPreviewVehicle(model, false)
 end)
 
 RegisterNUICallback('buyVehicle', function(data, cb)
@@ -1140,10 +1251,26 @@ RegisterNetEvent('rn-vehicleshop:client:testDriveResult', function(success, code
     SendNUIMessage({ action = 'testDriveResult', success = success == true, code = code, message = message, extra = extra or {} })
 end)
 
+local function getTestDriveSpawn(vehicleType)
+    vehicleType = tostring(vehicleType or ''):lower()
+    if vehicleType == 'boat' and Config.BoatTestVehicleSpawnLocation then
+        return Config.BoatTestVehicleSpawnLocation
+    end
+    if vehicleType == 'air' and Config.AirTestVehicleSpawnLocation then
+        return Config.AirTestVehicleSpawnLocation
+    end
+    return Config.TestVehicleSpawnLocation
+end
+
 RegisterNetEvent('rn-vehicleshop:client:startTestDrive', function(vehDetails, timer, chargeToken, returnMode)
     vehDetails = type(vehDetails) == 'table' and vehDetails or {}
-    testDriveReturnMode = returnMode == 'admin' and 'admin' or 'store'
+    if returnMode == 'admin' or returnMode == 'boat' or returnMode == 'air' then
+        testDriveReturnMode = returnMode
+    else
+        testDriveReturnMode = 'store'
+    end
     testDriveChargeToken = chargeToken
+    testDriveSessionToken = chargeToken
     local model = tostring(vehDetails.model or ''):lower():gsub('%s+', '')
     if model == '' then
         testDriveActive = true
@@ -1155,6 +1282,11 @@ RegisterNetEvent('rn-vehicleshop:client:startTestDrive', function(vehDetails, ti
     lastPreviewDetails = vehDetails
     local duration = math.floor(tonumber(timer) or (Config.TestDrive and Config.TestDrive.testDriveTimer) or 300)
     if duration < 10 then duration = 10 end
+
+    -- The server controls the duration, but the client also protects the
+    -- player during the transition so a test drive cannot begin in a lethal
+    -- state while the showroom camera/teleport is being cleared.
+    setTestDriveProtection(true)
 
     -- Test drive is a sub-mode of the shop. First switch HUD/session state to
     -- visible test-drive mode, then close NUI focus/camera. This order prevents
@@ -1184,7 +1316,8 @@ RegisterNetEvent('rn-vehicleshop:client:startTestDrive', function(vehDetails, ti
         return
     end
 
-    local spawn = Config.TestVehicleSpawnLocation
+    local vehicleType = tostring(vehDetails.vehicleType or ''):lower()
+    local spawn = getTestDriveSpawn(vehicleType)
     if not spawn or not spawn.coords then
         notify('Test-drive spawn is not configured.', 'error')
         SetModelAsNoLongerNeeded(modelHash)
@@ -1223,11 +1356,15 @@ RegisterNetEvent('rn-vehicleshop:client:startTestDrive', function(vehDetails, ti
     SetEntityVisible(testDriveVehicle, true, false)
     SetEntityCollision(testDriveVehicle, true, true)
     SetEntityHeading(testDriveVehicle, heading)
-    settleVehicleOnGround(testDriveVehicle, coords.x, coords.y, coords.z, heading, false, true)
+    if vehicleType ~= 'boat' then
+        settleVehicleOnGround(testDriveVehicle, coords.x, coords.y, coords.z, heading, false, true)
+    end
     resetVehicleToDefaultStock(testDriveVehicle, false, model)
 
     local testPlate = ('TEST%04d'):format(GetPlayerServerId(PlayerId()) % 10000)
-    SetVehicleNumberPlateText(testDriveVehicle, testPlate)
+    -- Keep the temporary identity private for key/cleanup compatibility; never
+    -- show a TEST/CM plate to the player.
+    SetVehicleNumberPlateText(testDriveVehicle, '        ')
     SetVehicleHasBeenOwnedByPlayer(testDriveVehicle, true)
     SetVehicleDoorsLocked(testDriveVehicle, 1)
     SetVehicleDoorsLockedForAllPlayers(testDriveVehicle, false)
@@ -1295,6 +1432,7 @@ RegisterNetEvent('rn-vehicleshop:client:startTestDrive', function(vehDetails, ti
         while testDriveActive do
             Wait(0)
             local now = GetGameTimer()
+            reassertTestDriveProtection()
             if now >= nextHudAssert then
                 nextHudAssert = now + 1000
                 -- Keep native HUD/radar visible while driving, but do not force cm-hud/NUI
@@ -1311,8 +1449,13 @@ RegisterNetEvent('rn-vehicleshop:client:startTestDrive', function(vehDetails, ti
 
             local playerPed = PlayerPedId()
             if IsEntityDead(playerPed) or IsPlayerDead(PlayerId()) then
-                returnFromTestDrive('player_dead')
-                break
+                -- Invincibility should prevent this, but recover locally if a
+                -- game/native edge case marks the ped dead during the trial.
+                local recovery = GetEntityCoords(playerPed)
+                NetworkResurrectLocalPlayer(recovery.x, recovery.y, recovery.z, GetEntityHeading(playerPed), true, false)
+                ClearPedTasksImmediately(playerPed)
+                SetEntityHealth(playerPed, 200)
+                reassertTestDriveProtection()
             end
 
             if testDriveVehicle and DoesEntityExist(testDriveVehicle) then
@@ -1527,6 +1670,7 @@ end
 RegisterNUICallback('adminSaveVehicle', function(data, cb)
     data = type(data) == 'table' and data or {}
     data.mods = currentAdminMods
+    data.vehicleType = GetVehicleShopVehicleType(newVehicle)
     TriggerServerEvent('rn-vehicleshop:server:saveAdminVehicle', data)
     cb({ accepted = true, pending = true, requestId = data.requestId })
 end)
@@ -1703,116 +1847,142 @@ CreateThread(function()
         if not inShop and not dealerDialogOpen and pedSpawned and GetGameTimer() > interactionSuppressUntil then
             local ped = PlayerPedId()
             local coords = GetEntityCoords(ped)
-            local dealer = Config.Dealer or {}
             local pedConfig = Config.Ped or {}
             local interact = Config.Interact or {}
-            local c4 = dealer.coords or vector4(Config.Location.x, Config.Location.y, Config.Location.z, 0.0)
-            local c = vector3(c4.x, c4.y, c4.z)
-            local dist = #(coords - c)
             local now = GetGameTimer()
+            local nearShop = nil
+            local nearDist = nil
 
-            if dist <= (interact.markerDistance or 18.0) then
-                sleep = 0
-                ensureDealerVisible()
+            for _, shop in ipairs(dealerShops) do
+                local dealer = shopDealer(shop)
+                local c4 = dealer.coords or vector4(Config.Location.x, Config.Location.y, Config.Location.z, 0.0)
+                local c = vector3(c4.x, c4.y, c4.z)
+                local dist = #(coords - c)
 
-                -- Voice greeting when the player first walks near the NPC.
-                -- Greeting text stays hidden unless Config.Ped.showGreeting is true.
-                local speechDistance = tonumber(pedConfig.speechDistance) or 6.0
-                if dist <= speechDistance then
-                    if not dealerWasNear then
-                        dealerWasNear = true
-                        dealerNextGreetingAt = 0
+                if dist <= (interact.markerDistance or 18.0) then
+                    sleep = 0
+                    ensureShopPedVisible(shop)
+
+                    -- Voice greeting when the player first walks near the NPC.
+                    local speechDistance = tonumber(pedConfig.speechDistance) or 6.0
+                    if dist <= speechDistance then
+                        if not shop._wasNear then
+                            shop._wasNear = true
+                            shop._nextGreetingAt = 0
+                        end
+                        playShopGreetingIfNeeded(shop)
+                    elseif shop._wasNear and dist > (speechDistance + 1.5) then
+                        shop._wasNear = false
+                        clearShopSpeech(shop)
                     end
-                    playDealerGreetingIfNeeded()
-                elseif dealerWasNear and dist > (speechDistance + 1.5) then
-                    dealerWasNear = false
-                    clearDealerSpeech()
-                end
 
-                -- Name above the dealer (the greeting text bubble is only drawn if enabled).
-                if pedConfig.showName ~= false and dist <= (pedConfig.nameDistance or 8.0) then
-                    drawText3D(c.x, c.y, c.z + (pedConfig.nameHeight or 1.30), dealer.npcName or 'Vehicle Dealer')
-                end
-                if pedConfig.showGreeting == true and dealerSpeechText and now < dealerSpeechUntil and dist <= (pedConfig.nameDistance or 8.0) then
-                    drawText3D(c.x, c.y, c.z + (pedConfig.nameHeight or 1.30) + 0.26, dealerSpeechText)
-                end
-
-                -- On-screen interaction prompt + open on E.
-                if dist <= (interact.distance or 2.6) then
-                    setInteractionVisible(true, {
-                        clerkName = dealer.npcName or 'Vehicle Dealer',
-                        title = interact.title or 'Talk to Dealer',
-                        subtitle = interact.subtitle or 'Browse and buy vehicles',
-                        key = interact.keyLabel or 'E'
-                    })
-                    if IsControlJustPressed(0, interact.key or 38) then
-                        setInteractionVisible(false)
-                        TriggerEvent('rn-vehicleshop:openDialog')
-                        Wait(300)
+                    -- Name above the dealer.
+                    if pedConfig.showName ~= false and dist <= (pedConfig.nameDistance or 8.0) then
+                        drawText3D(c.x, c.y, c.z + (pedConfig.nameHeight or 1.30), dealer.npcName or shop.label)
                     end
-                else
-                    setInteractionVisible(false)
+                    if pedConfig.showGreeting == true and shop._speechText and now < (shop._speechUntil or 0) and dist <= (pedConfig.nameDistance or 8.0) then
+                        drawText3D(c.x, c.y, c.z + (pedConfig.nameHeight or 1.30) + 0.26, shop._speechText)
+                    end
+
+                    -- Track the nearest shop within interact range for the E prompt.
+                    if dist <= (interact.distance or 2.6) and (not nearShop or dist < nearDist) then
+                        nearShop = shop
+                        nearDist = dist
+                    end
+                elseif shop._wasNear then
+                    shop._wasNear = false
+                    clearShopSpeech(shop)
+                end
+            end
+
+            -- On-screen interaction prompt + open on E (cm-ui shared prompt).
+            if nearShop then
+                local dealer = shopDealer(nearShop)
+                uiShowInteract({
+                    key = interact.keyLabel or 'E',
+                    label = 'TALK TO DEALER',
+                    name = dealer.npcName or nearShop.label,
+                    role = nearShop.label
+                })
+                if IsControlJustPressed(0, interact.key or 38) then
+                    uiHideInteract()
+                    activeDealerShop = nearShop
+                    TriggerEvent('rn-vehicleshop:openDialog')
+                    Wait(300)
                 end
             else
-                setInteractionVisible(false)
-                if dealerWasNear then dealerWasNear = false clearDealerSpeech() end
+                uiHideInteract()
             end
         end
         Wait(sleep)
     end
 end)
 
--- RP "talk" step: show a short dealer dialog, then open the catalog on confirm.
+-- RP "talk" step: cm-ui's cinematic NPC dialogue, then open the catalog on confirm.
 RegisterNetEvent('rn-vehicleshop:openDialog', function()
-    if inShop then return end
+    if inShop or dealerDialogOpen then return end
+    local shop = activeDealerShop
+    if not shop or not shop._ped or not DoesEntityExist(shop._ped) then return end
+    if not uiAvailable() then
+        -- cm-ui is stopped: skip the conversation and go straight to the catalog.
+        TriggerEvent('rn-vehicleshop:target', shop.type)
+        return
+    end
     dealerDialogOpen = true
-    setInteractionVisible(false)
-    SendNUIMessage({ action = 'dealerDialog', close = true })
+    uiHideInteract()
     local pedConfig = Config.Ped or {}
     local dialog = pedConfig.dialog or {}
-    -- Dealer speaks using native GTA voice. No text bubble unless enabled in config.
-    if pedConfig.showGreeting == true then
-        setDealerSpeech(dialog.line or 'Tell me what you are after.', pedConfig.speechDuration)
-    else
-        clearDealerSpeech()
-    end
-    playDealerVoice('greeting')
-    SetNuiFocus(true, true)
-    SendNUIMessage({
-        action = 'dealerDialog',
-        clerkName = dialog.clerkName or (Config.Dealer and Config.Dealer.npcName) or 'Dealer',
-        title = dialog.title or 'How can I help you today?',
-        line = dialog.line or '',
-        optionStore = dialog.optionStore or 'Show me the catalog',
-        optionClose = dialog.optionClose or 'Maybe later'
+    local dealer = shopDealer(shop)
+    exports['cm-ui']:OpenNpcDialogue(shop._ped, {
+        name = dialog.clerkName or dealer.npcName or shop.label,
+        role = shop.label,
+        quote = dialog.line or dialog.title or 'How can I help you today?',
+        choices = {
+            {
+                id = 'store',
+                label = dialog.optionStore or 'Show me the catalog',
+                description = 'Browse the showroom and buy a vehicle',
+                event = 'rn-vehicleshop:client:dialogueChoiceStore',
+            },
+            {
+                id = 'close',
+                label = dialog.optionClose or 'Just browsing, thanks',
+                description = 'Maybe another time',
+                event = 'rn-vehicleshop:client:dialogueChoiceClose',
+            },
+        },
+        closeEvent = 'rn-vehicleshop:client:dialogueDismissed',
     })
 end)
 
--- NUI chose "Show me the catalog" -> proceed to open the shop.
-RegisterNUICallback('dealerDialogStore', function(_, cb)
+-- cm-ui dialogue choice: "Show me the catalog" -> open the shop.
+AddEventHandler('rn-vehicleshop:client:dialogueChoiceStore', function()
+    local shop = activeDealerShop
     dealerDialogOpen = false
-    SendNUIMessage({ action = 'dealerDialog', close = true })
-    setInteractionVisible(false)
-    SetNuiFocus(false, false)
-    TriggerEvent('rn-vehicleshop:target')
-    cb('ok')
+    uiHideInteract()
+    TriggerEvent('rn-vehicleshop:target', shop and shop.type or 'store')
 end)
 
--- NUI chose "Maybe later" -> close dialog, farewell.
-RegisterNUICallback('dealerDialogClose', function(_, cb)
+-- cm-ui dialogue choice: "Just browsing" -> farewell and close.
+AddEventHandler('rn-vehicleshop:client:dialogueChoiceClose', function()
     dealerDialogOpen = false
-    SendNUIMessage({ action = 'dealerDialog', close = true })
-    SetNuiFocus(false, false)
-    playDealerFarewell()
-    cb('ok')
+    playShopFarewell(activeDealerShop)
+end)
+
+-- cm-ui dialogue dismissed (Esc / "I'm not interested right now") -> cleanup.
+AddEventHandler('rn-vehicleshop:client:dialogueDismissed', function()
+    dealerDialogOpen = false
+    playShopFarewell(activeDealerShop)
 end)
 
 AddEventHandler('onResourceStop', function(res)
     if res ~= GetCurrentResourceName() then return end
+    setTestDriveProtection(false)
     restoreWorldEnvironment()
     setVehicleAdminClimatePaused(false)
     deletePreviewVehicle()
     deleteTestDriveVehicle()
+    uiHideInteract()
     if inShop then
         FreezeEntityPosition(PlayerPedId(), false)
         SetEntityVisible(PlayerPedId(), true, false)
@@ -1829,7 +1999,9 @@ AddEventHandler('onResourceStop', function(res)
         endHudStoreLock()
         forceRestoreHud('resource_stop')
     end
-    if GalleryPed and DoesEntityExist(GalleryPed) then DeleteEntity(GalleryPed) end
+    for _, shop in ipairs(dealerShops) do
+        if shop._ped and DoesEntityExist(shop._ped) then DeleteEntity(shop._ped) end
+    end
     endHudStoreLock()
     forceRestoreHud('resource_stop')
 end)

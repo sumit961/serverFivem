@@ -623,6 +623,10 @@ function DestroySkinCam()
     createdCams[i] = nil
   end
 
+  if ClothCam and ClothCam.IsActive() then
+    ClothCam.Stop()
+  end
+
   if skinCam and DoesCamExist(skinCam) then
     SetCamActive(skinCam, false)
     DestroyCam(skinCam, false)
@@ -641,12 +645,227 @@ function DestroySkinCam()
 end
 
 --========================================================
+-- ClothCam: Raycast Wall-Avoidance Orbit Camera
+--========================================================
+
+ClothCam = {}
+
+local ccCam, ccPed
+local ccActive = false
+local ccPreset = 'full'
+local ccUser = { yaw = 0.0, pitch = 0.0, zoom = 0.0 }
+local ccCur = {}
+local ccTargetAutoYaw = 0.0
+local ccStats = nil
+
+local RAY_FLAGS    = 1 + 16        -- map + objects
+local PROBE_RADIUS = 0.12          -- "thickness" of the camera
+local PADDING      = 0.18          -- gap kept between camera and a hit surface
+local MIN_DIST     = 0.45
+local HARD_MIN     = 0.25          -- absolute closest the camera may get when cornered
+local SWEEP        = { 0, 20, -20, 40, -40, 60, -60, 90, -90, 120, -120 }
+
+local function ccClamp(v, a, b) return v < a and a or (v > b and b or v) end
+local function ccPresetData()
+    if Config.CameraPresets and Config.CameraPresets[ccPreset] then
+        return Config.CameraPresets[ccPreset]
+    end
+    if Config.CameraPresets and Config.CameraPresets.full then
+        return Config.CameraPresets.full
+    end
+    return { bone = 11816, z = 0.05, dist = 2.40, pitch = 4.0, fov = 45.0 }
+end
+
+local function ccRay(a, b)
+    local h = StartExpensiveSynchronousShapeTestLosProbe(a.x, a.y, a.z, b.x, b.y, b.z, RAY_FLAGS, ccPed, 7)
+    local _, hit, endPos = GetShapeTestResult(h)
+    if Config.CameraDebug then
+        DrawLine(a.x, a.y, a.z, b.x, b.y, b.z, hit == 1 and 255 or 0, hit == 1 and 0 or 255, 0, 255)
+    end
+    if hit == 1 then return #(endPos - a) end
+    return nil
+end
+
+-- direction from focus point toward camera (GTA heading convention)
+local function ccDirFrom(yawDeg, pitchDeg)
+    local y, p = math.rad(yawDeg), math.rad(pitchDeg)
+    return vector3(-math.sin(y) * math.cos(p), math.cos(y) * math.cos(p), math.sin(p))
+end
+
+-- how far camera can travel along dir before touching something
+local function ccFreeDistance(focus, dir, wanted)
+    local right = vector3(dir.y, -dir.x, 0.0)
+    local len = #right
+    right = len > 0.001 and right * (1.0 / len) or vector3(1.0, 0.0, 0.0)
+    local up = vector3(0.0, 0.0, 1.0)
+    local offsets = {
+        vector3(0.0, 0.0, 0.0),
+        right * PROBE_RADIUS, right * -PROBE_RADIUS,
+        up * PROBE_RADIUS,    up * -PROBE_RADIUS,
+    }
+    local best = wanted
+    for i = 1, #offsets do
+        local a = focus + offsets[i]
+        local d = ccRay(a, a + dir * (wanted + PADDING))
+        if d then best = math.min(best, d - PADDING) end
+    end
+    return best
+end
+
+local function ccFindClearYaw(focus, baseYaw, pitch, wanted)
+    local bestD, bestYaw = -1.0, 0.0
+    for _, s in ipairs(SWEEP) do
+        local d = ccFreeDistance(focus, ccDirFrom(baseYaw + s, pitch), wanted)
+        if d > bestD + 0.05 then bestD, bestYaw = d, s end
+        if d >= wanted * 0.95 then break end
+    end
+    return bestYaw
+end
+
+local function ccFocusPoint(p)
+    return GetPedBoneCoords(ccPed, p.bone, 0.0, 0.0, 0.0) + vector3(0.0, 0.0, p.z or 0.0)
+end
+
+-- Synchronous LOS probes are expensive; sampling collision distance at this
+-- rate (instead of every render frame) still catches the camera before it
+-- clips into geometry, without stalling the main thread every tick.
+local PROBE_INTERVAL_MS = 90
+local ccLastProbeTime = 0
+local ccCachedFree = nil
+
+local function ccUpdate(dt)
+    local p       = ccPresetData()
+    local focusT  = ccFocusPoint(p)
+    local wanted  = ccClamp(p.dist + ccUser.zoom, MIN_DIST, p.dist + 1.5)
+    local pitch   = ccClamp((p.pitch or 0.0) + ccUser.pitch, -35.0, 45.0)
+    local k       = 1.0 - math.exp(-dt * 10.0)
+
+    ccCur.userYaw = ccCur.userYaw + (ccUser.yaw - ccCur.userYaw) * k
+    local baseYaw = GetEntityHeading(ccPed) + (p.yaw or 0.0) + ccCur.userYaw
+
+    local now = GetGameTimer()
+    local runProbe = ccCachedFree == nil or (now - ccLastProbeTime) >= PROBE_INTERVAL_MS
+
+    if runProbe then
+        ccLastProbeTime = now
+
+        -- 1) pick orbit angle (only re-evaluated when blocked)
+        local freeHere = ccFreeDistance(focusT, ccDirFrom(baseYaw + ccTargetAutoYaw, pitch), wanted)
+        if freeHere < wanted * 0.6 then
+            ccTargetAutoYaw = ccFindClearYaw(focusT, baseYaw, pitch, wanted)
+        elseif ccTargetAutoYaw ~= 0.0
+            and ccFreeDistance(focusT, ccDirFrom(baseYaw, pitch), wanted) >= wanted * 0.95 then
+            ccTargetAutoYaw = 0.0
+        end
+    end
+
+    -- 2) smooth everything
+    ccCur.autoYaw = ccCur.autoYaw + (ccTargetAutoYaw - ccCur.autoYaw) * k
+    ccCur.focus   = ccCur.focus + (focusT - ccCur.focus) * k
+    ccCur.fov     = ccCur.fov + ((p.fov or 45.0) - ccCur.fov) * k
+
+    -- 3) distance on actual (smoothed) direction: snap in, ease out
+    local dir = ccDirFrom(baseYaw + ccCur.autoYaw, pitch)
+    if runProbe then
+        ccCachedFree = math.max(ccFreeDistance(ccCur.focus, dir, wanted), HARD_MIN)
+    end
+    local free = ccCachedFree
+    if free < ccCur.dist then ccCur.dist = free else ccCur.dist = ccCur.dist + (free - ccCur.dist) * k end
+
+    if ccStats then ccStats.minRatio = math.min(ccStats.minRatio, free / wanted) end
+
+    local pos = ccCur.focus + dir * ccCur.dist
+    SetCamCoord(ccCam, pos.x, pos.y, pos.z)
+    PointCamAtCoord(ccCam, ccCur.focus.x, ccCur.focus.y, ccCur.focus.z)
+    SetCamFov(ccCam, ccCur.fov)
+end
+
+function ClothCam.Start(targetPed, presetName)
+    if ccActive then ClothCam.Stop() end
+    ccPed, ccPreset = targetPed, presetName or 'full'
+    ccUser = { yaw = 0.0, pitch = 0.0, zoom = 0.0 }
+    ccTargetAutoYaw = 0.0
+    ccCachedFree = nil
+    ccLastProbeTime = 0
+
+    local p = ccPresetData()
+    ccCur = { focus = ccFocusPoint(p), autoYaw = 0.0, userYaw = 0.0, dist = p.dist, fov = p.fov or 45.0 }
+
+    ccCam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
+    SetCamNearClip(ccCam, 0.05)
+    ccActive = true
+    ccUpdate(1.0)
+    RenderScriptCams(true, false, 0, true, true)
+
+    CreateThread(function()
+        local last = GetGameTimer()
+        while ccActive do
+            local now = GetGameTimer()
+            local dt = (now - last) / 1000.0
+            last = now
+            HideHudAndRadarThisFrame()
+            ccUpdate(dt)
+            Wait(0)
+        end
+    end)
+end
+
+function ClothCam.Stop()
+    if not ccActive then return end
+    ccActive = false
+    RenderScriptCams(false, false, 0, true, true)
+    if ccCam and DoesCamExist(ccCam) then DestroyCam(ccCam, false) end
+    ccCam = nil
+end
+
+function ClothCam.IsActive() return ccActive end
+
+function ClothCam.SetPreset(name)
+    if not Config.CameraPresets or not Config.CameraPresets[name] then return end
+    ccPreset = name
+    ccUser.pitch, ccUser.zoom = 0.0, 0.0
+    ccTargetAutoYaw = 0.0
+end
+
+function ClothCam.SetCategory(category)
+    local presetName = (Config.CategoryCamera and Config.CategoryCamera[category]) or 'full'
+    ClothCam.SetPreset(presetName)
+end
+
+function ClothCam.Rotate(dx, dy)
+    ccUser.yaw   = ccUser.yaw + (dx or 0.0)
+    ccUser.pitch = ccClamp(ccUser.pitch + (dy or 0.0), -25.0, 25.0)
+end
+
+function ClothCam.Zoom(d)
+    ccUser.zoom = ccClamp(ccUser.zoom + (d or 0.0), -0.6, 1.2)
+end
+
+function ClothCam.Reset()
+    ccUser = { yaw = 0.0, pitch = 0.0, zoom = 0.0 }
+end
+
+function ClothCam.BeginStats() ccStats = { minRatio = 1.0 } end
+function ClothCam.EndStats() local s = ccStats; ccStats = nil; return s end
+
+--========================================================
 -- NUI Callbacks
 --========================================================
 
 RegisterNUICallback("changeCamera", function(data, cb)
-  -- Camera switches must be responsive; old 1s busy lock made category buttons feel like
-  -- they needed a double click when players changed categories quickly.
+  if ClothCam and ClothCam.IsActive() then
+    local category = tostring(data and data.category or ''):lower()
+    if category ~= '' then
+      ClothCam.SetCategory(category)
+    else
+      local preset = tostring(data and data.camera or "full")
+      ClothCam.SetPreset(preset)
+    end
+    cb({ success = true })
+    return
+  end
+
+  -- Legacy skinCam path (admin mode / studio)
   local preset = tostring(data.camera or "body")
   if preset ~= "face" and preset ~= "head" and preset ~= "body" and preset ~= "feet" then
     preset = "body"
@@ -661,6 +880,12 @@ RegisterNUICallback("changeCamera", function(data, cb)
 end)
 
 RegisterNUICallback("rotateCamera", function(_, cb)
+  if ClothCam and ClothCam.IsActive() then
+    ClothCam.Rotate(180.0, 0.0)
+    cb({ success = true })
+    return
+  end
+
   if isBusy then
     cb({ success = false })
     return
@@ -683,13 +908,19 @@ RegisterNUICallback("rotateCamera", function(_, cb)
   cb({ success = true })
 end)
 
---========================================================
--- OPTIONAL: expose destroy if UI or flow needs to exit camera mode
---========================================================
--- exports("destroySkinCam", DestroySkinCam)
-
--- Smooth mouse-drag rotation from the new live-preview shop UI, or 180° turn.
+-- Smooth mouse-drag rotation from shop UI
 RegisterNUICallback("rotatePed", function(data, cb)
+  if ClothCam and ClothCam.IsActive() then
+    if data and data.turn180 then
+      ClothCam.Rotate(180.0, 0.0)
+    else
+      local delta = tonumber(data and data.delta) or 0.0
+      ClothCam.Rotate(-delta * 1.5, 0.0)
+    end
+    cb({ success = true })
+    return
+  end
+
   local ped = PlayerPedId()
   if data and (data.turn180 or math.abs(tonumber(data.delta) or 0) >= 90) then
     local delta = tonumber(data and data.delta) or 180.0
@@ -702,4 +933,15 @@ RegisterNUICallback("rotatePed", function(data, cb)
   if delta < -25.0 then delta = -25.0 end
   SetEntityHeading(ped, (GetEntityHeading(ped) + delta) % 360.0)
   cb({ success = true })
+end)
+
+-- NUI -> camera (from camera-controls.js and app.js)
+RegisterNUICallback('camera', function(data, cb)
+    if not ClothCam then return cb('ok') end
+    if data.category then ClothCam.SetCategory(data.category) end
+    if data.preset then ClothCam.SetPreset(data.preset) end
+    if data.rotate or data.pitch then ClothCam.Rotate(tonumber(data.rotate) or 0.0, tonumber(data.pitch) or 0.0) end
+    if data.zoom then ClothCam.Zoom(tonumber(data.zoom) or 0.0) end
+    if data.reset then ClothCam.Reset() end
+    cb('ok')
 end)

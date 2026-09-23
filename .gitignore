@@ -44,3 +44,4 @@ graphify-out/
 cm-agent-out/
 __pycache__/
 *.pyc
+.codex-backups/

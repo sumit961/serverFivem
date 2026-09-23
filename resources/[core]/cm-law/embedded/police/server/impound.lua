@@ -179,8 +179,8 @@ end
 
 local function towAuthority(src)
     local actorCid = cid(src)
-    local actor = actorCid and PoliceLegacyMemberFor(actorCid)
-    if actor and not PoliceLegacyDbBoolean(actor.is_suspended) and PoliceLegacyDbBoolean(actor.on_duty) and has(actor, 'police.impound') then
+    local actor = PoliceLegacyActiveMember(actorCid, 'police.impound')
+    if actor then
         if type(PoliceCapabilityEnabled)=='function' and not PoliceCapabilityEnabled('impound') then return nil,nil,'Police impound is disabled.' end
         if isFtoRestricted(actor) then return nil, nil, 'Cadets must be signed off before towing vehicles.' end
         return actorCid, actor, nil, 'police'

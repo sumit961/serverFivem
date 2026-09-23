@@ -276,9 +276,19 @@ end
 
 local function callExport(resource, method, ...)
     if GetResourceState(resource) ~= 'started' then return false, nil end
-    local args = { ... }
+    local args = table.pack(...)
     local ok, result, extra = pcall(function()
-        return exports[resource][method](table.unpack(args))
+        -- FiveM Lua exports use method/colon calling semantics. Passing the
+        -- proxy explicitly is the dynamic equivalent of
+        -- exports['resource']:ExportName(...). The previous dot-style call
+        -- caused the first real argument (the player source) to be consumed as
+        -- the receiver, shifting every CreateOwnedVehicle argument left.
+        local resourceExports = exports[resource]
+        local exportMethod = resourceExports and resourceExports[method]
+        if not exportMethod then
+            error(('Missing export: %s.%s'):format(resource, method))
+        end
+        return exportMethod(resourceExports, table.unpack(args, 1, args.n))
     end)
     if ok then return true, result, extra end
     debugPrint(('Export failed: %s.%s | %s'):format(resource, method, tostring(result)))
@@ -291,13 +301,30 @@ local function getCharacterId(src)
 
     local now = nowMs()
     local cached = CharacterCache[src]
-    if cached and (tonumber(cached.expiresAt) or 0) > now then
+    local resolved = nil
+
+    -- cm-playerdata owns the authoritative loaded-character cache. Prefer its
+    -- export before compatibility state/core fallbacks so purchases cannot be
+    -- rejected merely because a legacy resource has not mirrored the state bag
+    -- yet.
+    if GetResourceState('cm-playerdata') == 'started' then
+        local ok, value = pcall(function()
+            return exports['cm-playerdata']:GetCharacterId(src)
+        end)
+        if ok and value then
+            resolved = tostring(value)
+        end
+    end
+
+    -- Only use the short compatibility cache when the authoritative owner is
+    -- unavailable. This prevents a character switch on the same server source
+    -- from purchasing for the previous character for up to the cache TTL.
+    if not resolved and cached and (tonumber(cached.expiresAt) or 0) > now then
         return cached.value
     end
 
-    local resolved = nil
     local ok, value = callExport('cm-vehicles', 'GetCharacterId', src)
-    if ok and value then
+    if not resolved and ok and value then
         resolved = tostring(value)
     end
 
@@ -431,113 +458,6 @@ local function getCharacterNameAsync(src, cb)
     if not ok then
         cb(fallback)
     end
-end
-
--- Direct fallback that mirrors cm-vehicles' CreateOwnedVehicle exactly (same table,
--- plate format, audit row). Used only if the cm-vehicles export reports the character
--- as "not loaded" even though we resolved a valid charId ourselves. This guarantees
--- the purchase succeeds and the row is identical to what cm-vehicles would have made.
-local function generatePlateLikeCmVehicles()
-    -- cm-vehicles uses Config.Plate {prefix, length}; default CM + 6 digits.
-    local prefix = 'CM'
-    local digits = 6
-    for _ = 1, 50 do
-        local n = math.random(0, (10 ^ digits) - 1)
-        local plate = (prefix .. string.format('%0' .. digits .. 'd', n)):upper()
-        local exists = MySQL.scalar.await('SELECT plate FROM cm_owned_vehicles WHERE plate = ? LIMIT 1', { plate })
-        if not exists then return plate end
-    end
-
-    -- Final fallback is still verified. This avoids two same-millisecond purchases
-    -- returning the same os.time-based plate.
-    for _ = 1, 25 do
-        local plate = (prefix .. string.format('%06d', math.random(0, 999999))):upper()
-        local exists = MySQL.scalar.await('SELECT plate FROM cm_owned_vehicles WHERE plate = ? LIMIT 1', { plate })
-        if not exists then return plate end
-    end
-
-    return (prefix .. tostring(os.time() % 1000000) .. tostring(math.random(10, 99))):sub(1, 8):upper()
-end
-
-local function createOwnedVehicleDirect(charId, model, label, trunkLevel, metadata)
-    charId = tostring(charId)
-    model = tostring(model or ''):lower()
-    if model == '' then return false, 'Invalid model.' end
-    label = tostring(label or model)
-    trunkLevel = clampTrunkLevel(trunkLevel)
-    local plate = generatePlateLikeCmVehicles()
-
-    local ok, id = pcall(function()
-        return MySQL.insert.await([[INSERT INTO cm_owned_vehicles
-            (owner_character_id, model, label, plate, trunk_level, metadata)
-            VALUES (?, ?, ?, ?, ?, ?)]],
-            { charId, model, label, plate, trunkLevel, encode(metadata or {}) })
-    end)
-    if not ok or not id then return false, 'DB insert failed.' end
-
-    -- Match cm-vehicles' audit trail so the row is indistinguishable from a normal create.
-    pcall(function()
-        MySQL.insert.await('INSERT INTO cm_vehicle_audit (character_id, plate, action, data) VALUES (?, ?, ?, ?)',
-            { charId, plate, 'vehicle_created', encode({ model = model, label = label, trunkLevel = trunkLevel, via = 'rn-vehicleshop_direct' }) })
-    end)
-
-    return true, { id = id, owner_character_id = charId, model = model, label = label, plate = plate, trunk_level = trunkLevel, is_locked = true, fuel = 100, metadata = metadata or {} }
-end
-
-local function generatePlateLikeCmVehiclesAsync(cb, attempt)
-    attempt = (attempt or 0) + 1
-    local prefix, digits = 'CM', 6
-    local n = math.random(0, (10 ^ digits) - 1)
-    local plate = (prefix .. string.format('%0' .. digits .. 'd', n)):upper()
-
-    local function verifiedFallback(fallbackAttempt)
-        fallbackAttempt = (fallbackAttempt or 0) + 1
-        local candidate = (prefix .. string.format('%06d', math.random(0, 999999))):upper()
-        if fallbackAttempt > 25 then
-            candidate = (prefix .. tostring(os.time() % 1000000) .. tostring(math.random(10, 99))):sub(1, 8):upper()
-        end
-        MySQL.scalar('SELECT plate FROM cm_owned_vehicles WHERE plate = ? LIMIT 1', { candidate }, function(exists)
-            if exists and fallbackAttempt <= 25 then return verifiedFallback(fallbackAttempt) end
-            cb(candidate)
-        end)
-    end
-
-    if attempt > 50 then
-        return verifiedFallback(0)
-    end
-
-    MySQL.scalar('SELECT plate FROM cm_owned_vehicles WHERE plate = ? LIMIT 1', { plate }, function(exists)
-        if exists then return generatePlateLikeCmVehiclesAsync(cb, attempt) end
-        cb(plate)
-    end)
-end
-
-local function createOwnedVehicleDirectAsync(charId, model, label, trunkLevel, metadata, cb)
-    charId = tostring(charId or '')
-    model = tostring(model or ''):lower()
-    if charId == '' then return cb(false, 'Character not found.') end
-    if model == '' then return cb(false, 'Invalid model.') end
-
-    label = tostring(label or model)
-    trunkLevel = clampTrunkLevel(trunkLevel)
-
-    generatePlateLikeCmVehiclesAsync(function(plate)
-        MySQL.insert([[INSERT INTO cm_owned_vehicles
-            (owner_character_id, model, label, plate, trunk_level, metadata)
-            VALUES (?, ?, ?, ?, ?, ?)]],
-            { charId, model, label, plate, trunkLevel, encode(metadata or {}) },
-            function(id)
-                if not id then return cb(false, 'DB insert failed.') end
-
-                MySQL.insert('INSERT INTO cm_vehicle_audit (character_id, plate, action, data) VALUES (?, ?, ?, ?)',
-                    { charId, plate, 'vehicle_created', encode({ model = model, label = label, trunkLevel = trunkLevel, via = 'rn-vehicleshop_direct_async' }) })
-
-                cb(true, {
-                    id = id, owner_character_id = charId, model = model, label = label, plate = plate,
-                    trunk_level = trunkLevel, is_locked = true, fuel = 100, metadata = metadata or {}
-                })
-            end)
-    end)
 end
 
 local function resolveAccount(account)
@@ -736,6 +656,7 @@ local function ensureTables()
             retired TINYINT(1) NOT NULL DEFAULT 0,
             replacement_model VARCHAR(64) NULL,
             has_carplay TINYINT(1) NOT NULL DEFAULT 0,
+            vehicle_type VARCHAR(8) NOT NULL DEFAULT 'land',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             INDEX idx_category (category),
@@ -743,7 +664,8 @@ local function ensureTables()
             INDEX idx_available_server (available_server),
             INDEX idx_available_ems (available_ems),
             INDEX idx_available_police (available_police),
-            INDEX idx_has_carplay (has_carplay)
+            INDEX idx_has_carplay (has_carplay),
+            INDEX idx_vehicle_type (vehicle_type)
         )
     ]])
 
@@ -758,6 +680,8 @@ local function ensureTables()
     ensureColumn('cm_vehicle_catalog', 'replacement_model', 'replacement_model VARCHAR(64) NULL')
     ensureColumn('cm_vehicle_catalog', 'has_carplay', 'has_carplay TINYINT(1) NOT NULL DEFAULT 0')
     pcall(function() MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD INDEX idx_has_carplay (has_carplay)') end)
+    ensureColumn('cm_vehicle_catalog', 'vehicle_type', "vehicle_type VARCHAR(8) NOT NULL DEFAULT 'land'")
+    pcall(function() MySQL.query.await('ALTER TABLE cm_vehicle_catalog ADD INDEX idx_vehicle_type (vehicle_type)') end)
 
     MySQL.query.await([[
         CREATE TABLE IF NOT EXISTS cm_vehicle_replacements (
@@ -831,6 +755,30 @@ end
 
 local function normalizeModel(model)
     return tostring(model or ''):lower():gsub('%s+', '')
+end
+
+-- Catalog vehicle type ('land'/'boat'/'air'). Auto-detected from the vehicle's
+-- GTA class on the client (14 = boat, 15/16 = aircraft) and stored at save time.
+local function normalizeVehicleType(value)
+    value = tostring(value or ''):lower()
+    if value == 'boat' then return 'boat' end
+    if value == 'air' then return 'air' end
+    return 'land'
+end
+
+-- Which storefront a request targets ('store' = cars, 'boat', 'air').
+local function normalizeShopType(value)
+    value = tostring(value or ''):lower()
+    if value == 'boat' then return 'boat' end
+    if value == 'air' then return 'air' end
+    return 'store'
+end
+
+-- Storefront session names are ('store'/'boat'/'air'), while catalog rows use
+-- ('land'/'boat'/'air'). Keep those contracts separate at the comparison edge.
+local function catalogTypeForShop(shopType)
+    shopType = normalizeShopType(shopType)
+    return shopType == 'store' and 'land' or shopType
 end
 
 
@@ -1195,6 +1143,7 @@ local function parseCatalogRow(row)
         retired = truthy(row.retired),
         replacementModel = (row.replacement_model and tostring(row.replacement_model) ~= '') and tostring(row.replacement_model) or nil,
         hasCarplay = truthy(row.has_carplay),
+        vehicleType = normalizeVehicleType(row.vehicle_type),
         image = (row.image and tostring(row.image) ~= '' ) and tostring(row.image) or nil,
         metadata = decode(row.metadata),
         mods = decode(row.mods)
@@ -1221,7 +1170,7 @@ local function loadCatalogCache(force)
     local rows = MySQL.query.await([[
         SELECT id, model, label, category, price, speed_kph, trunk_level,
                available_store, available_server, available_ems, available_police,
-               legal_org, gang_id, image, metadata, mods, retired, replacement_model, has_carplay
+               legal_org, gang_id, image, metadata, mods, retired, replacement_model, has_carplay, vehicle_type
         FROM cm_vehicle_catalog
         WHERE (image IS NOT NULL AND TRIM(image) <> '')
            OR available_store = 1
@@ -1316,12 +1265,17 @@ local function getCatalogVehicleAsync(model, requireVisible, cb)
     end)
 end
 
-local function buildShopVehicles()
+local function buildShopVehicles(shopType)
+    shopType = normalizeShopType(shopType)
+    local catalogType = catalogTypeForShop(shopType)
     loadCatalogCache(false)
-    if CatalogCache.shopVehicles then return CatalogCache.shopVehicles end
+    if CatalogCache.shopVehicles and CatalogCache.shopVehiclesType == shopType then
+        return CatalogCache.shopVehicles
+    end
 
     local groups = {}
     for _, vehicle in ipairs(CatalogCache.publicCatalog or {}) do
+        if vehicle.vehicleType ~= catalogType then goto continue end
         local category = vehicle.category ~= '' and vehicle.category or 'Custom'
         groups[category] = groups[category] or { title = category, buttons = {} }
         local buyable = vehicle.availableStore == true
@@ -1338,9 +1292,10 @@ local function buildShopVehicles()
             trunkLevel = vehicle.trunkLevel,
             image = vehicle.image,
             testDriveEnabled = testEnabled == true,
-            testDriveTimer = tonumber(td.duration) or (Config.TestDrive and tonumber(Config.TestDrive.testDriveTimer)) or 300,
+            testDriveTimer = (Config.TestDrive and tonumber(Config.TestDrive.testDriveTimer)) or 300,
             testDriveCost = tonumber(td.cost) or (Config.TestDrive and tonumber(Config.TestDrive.testDriveCost)) or 0
         }
+        ::continue::
     end
 
     local list = {}
@@ -1350,6 +1305,7 @@ local function buildShopVehicles()
     end
     table.sort(list, function(a, b) return a.title < b.title end)
     CatalogCache.shopVehicles = list
+    CatalogCache.shopVehiclesType = shopType
     return list
 end
 
@@ -1382,8 +1338,8 @@ local function playerOwnsModel(src, model)
     return ok and exists ~= nil
 end
 
-local function buildShopVehiclesForPlayer(src)
-    local base = buildShopVehicles()
+local function buildShopVehiclesForPlayer(src, shopType)
+    local base = buildShopVehicles(shopType)
     local owned = getOwnedVehicleModels(src)
     local out = {}
 
@@ -1403,20 +1359,33 @@ local function buildShopVehiclesForPlayer(src)
     return out
 end
 
-local function closeEnoughToShop(src)
+local function shopDealerLocation(shopType)
+    shopType = normalizeShopType(shopType)
+    local dealer = nil
+    if shopType == 'boat' then dealer = Config.BoatDealer
+    elseif shopType == 'air' then dealer = Config.AirDealer
+    else dealer = Config.Dealer end
+    local loc = dealer and dealer.coords
+    if loc and loc.x then return loc end
+    return Config.Location
+end
+
+local function closeEnoughToShop(src, shopType)
     local ped = GetPlayerPed(src)
     if not ped or ped == 0 then return false end
-    local loc = Config.Location
+    local loc = shopDealerLocation(shopType)
     if not loc then return false end
     local maxDist = tonumber(hardeningCfg().ShopDistance) or 35.0
     local ok, dist = pcall(function()
-        return #(GetEntityCoords(ped) - loc)
+        return #(GetEntityCoords(ped) - vector3(loc.x, loc.y, loc.z))
     end)
     return ok and dist and dist <= maxDist
 end
 
 local function requireShopDistance(src, action)
-    if closeEnoughToShop(src) then return true end
+    local session = ActiveShopPlayers[src]
+    local shopType = type(session) == 'table' and session.mode or nil
+    if closeEnoughToShop(src, shopType) then return true end
     local msg = action == 'purchase' and 'You are too far from the dealership to buy a vehicle.' or 'You are too far from the dealership.'
     notify(src, msg, 'error')
     return false
@@ -1430,6 +1399,55 @@ local function requireShopSession(src, action)
         TriggerClientEvent('rn-vehicleshop:client:purchaseResult', src, false, 'Open the dealership menu first.')
     end
     return false
+end
+
+-- cm-house owns garage assignments and cm-vehicles owns the persistent row.
+-- Use the house API rather than writing cm_house_vehicle_slots directly. Only
+-- houses owned by the purchasing character are eligible; family-access houses
+-- are intentionally excluded from automatic personal assignment.
+local function assignVehicleToFirstOwnedHouseGarage(vehicleData, charId)
+    local vehicleId = type(vehicleData) == 'table' and tonumber(vehicleData.id) or nil
+    charId = tonumber(charId) or charId
+    if not vehicleId or not charId then return false, 'invalid_assignment_context' end
+    if GetResourceState('cm-house') ~= 'started' then return false, 'house_unavailable' end
+
+    local housesOk, houses = pcall(function()
+        return exports['cm-house']:GetHousesForCharacter(charId)
+    end)
+    if not housesOk or type(houses) ~= 'table' then return false, 'house_lookup_failed' end
+
+    for _, house in ipairs(houses) do
+        local houseId = tonumber(house and house.id)
+        local ownerCid = tonumber(house and house.owner_cid)
+        if houseId and ownerCid and ownerCid == tonumber(charId) then
+            local stateOk, garage = pcall(function()
+                return exports['cm-house']:GetGarageState(houseId)
+            end)
+            local slots = stateOk and type(garage) == 'table' and garage.slots or nil
+            if type(slots) == 'table' then
+                for _, slot in ipairs(slots) do
+                    local slotIndex = tonumber(slot and slot.index)
+                    if slotIndex and slot.empty == true then
+                        local moveOk, assigned, result = pcall(function()
+                            return exports['cm-house']:MoveVehicleAssignment(
+                                vehicleId, houseId, slotIndex, charId, 'personal'
+                            )
+                        end)
+                        if moveOk and assigned == true then
+                            return true, {
+                                houseId = houseId,
+                                slotIndex = slotIndex,
+                                houseLabel = house.label or house.house_number,
+                                result = result,
+                            }
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return false, 'no_available_owned_house_slot'
 end
 
 -- Per-player routing bucket so previews never clash between players.
@@ -1475,6 +1493,26 @@ local function clearTestDriveCharge(src)
     TestDriveCharges[tonumber(src)] = nil
 end
 
+local function restoreTestDriveShopMode(src, lock)
+    src = tonumber(src)
+    if not src or type(lock) ~= 'table' then return end
+    local session = ActiveShopPlayers[src]
+    if type(session) == 'table' and lock.previousMode then
+        session.mode = lock.previousMode
+    end
+end
+
+local function clearTestDriveLock(src, expectedToken)
+    src = tonumber(src)
+    if not src then return nil end
+    local lock = TestDriveLocks[src]
+    if not lock then return nil end
+    if expectedToken ~= nil and lock.token ~= expectedToken then return nil end
+    TestDriveLocks[src] = nil
+    restoreTestDriveShopMode(src, lock)
+    return lock
+end
+
 local pushBalance
 
 local function createTestDriveCharge(src, debits, amount, model)
@@ -1497,7 +1535,7 @@ local function createTestDriveCharge(src, debits, amount, model)
         if charge and charge.token == token then
             refundCombinedMoney(src, charge.debits, 'vehicleshop_testdrive_timeout_refund')
             TestDriveCharges[src] = nil
-            TestDriveLocks[src] = nil
+            clearTestDriveLock(src, token)
             if pushBalance then pushBalance(src, 'testdrive_timeout_refunded') end
             TriggerClientEvent('rn-vehicleshop:client:testDriveResult', src, false, 'start_timeout', 'Test drive could not start. Payment refunded.', { model = charge.model, refunded = true })
             notify(src, 'Test drive could not start. Payment refunded.', 'error')
@@ -1506,6 +1544,19 @@ local function createTestDriveCharge(src, debits, amount, model)
     end)
 
     return token
+end
+
+local function scheduleTestDriveApprovalTimeout(src, token)
+    src = tonumber(src)
+    if not src or type(token) ~= 'string' or token == '' then return end
+    SetTimeout(TEST_DRIVE_CHARGE_TIMEOUT_MS, function()
+        local lock = TestDriveLocks[src]
+        if type(lock) ~= 'table' or lock.token ~= token or lock.phase ~= 'approved' then return end
+        clearTestDriveLock(src, token)
+        TriggerClientEvent('rn-vehicleshop:client:testDriveResult', src, false, 'start_timeout', 'Test drive could not start.', { refunded = false })
+        notify(src, 'Test drive could not start.', 'error')
+        structuredAdminLog('test_drive', 'start_timeout', src, { model = lock.model, refunded = false }, 'warning')
+    end)
 end
 
 -- Player balance for the Cash/Bank HUD + Insufficient-Funds gate.
@@ -1540,21 +1591,22 @@ local function rejectTestDrive(src, code, message, extra)
     structuredAdminLog('test_drive', 'rejected', src, { code = code, message = message, extra = extra }, 'warning')
 end
 
-RegisterNetEvent('rn-vehicleshop:server:openUI', function()
+RegisterNetEvent('rn-vehicleshop:server:openUI', function(shopType)
     local src = source
-    if not closeEnoughToShop(src) then
+    shopType = normalizeShopType(shopType)
+    if not closeEnoughToShop(src, shopType) then
         TriggerClientEvent('rn-vehicleshop:client:openFailed', src, 'You are too far from the dealership.')
         return notify(src, 'You are too far from the dealership.', 'error')
     end
-    enterShopBucket(src, 'store')
+    enterShopBucket(src, shopType)
 
     -- Character name lookup is async + cached. This avoids blocking the server
     -- thread with MySQL.single.await every time the shop UI opens.
-    local vehicles = buildShopVehiclesForPlayer(src)
+    local vehicles = buildShopVehiclesForPlayer(src, shopType)
     local daily = { balance = getPlayerBalance(src) }
     getCharacterNameAsync(src, function(buyerName)
         if not ActiveShopPlayers[src] then return end
-        TriggerClientEvent('vehicles:client:openUI', src, vehicles, daily, buyerName)
+        TriggerClientEvent('vehicles:client:openUI', src, vehicles, daily, buyerName, shopType)
     end)
 end)
 
@@ -1598,10 +1650,27 @@ RegisterNetEvent('rn-vehicleshop:server:buyVehicle', function(details)
     local model = normalizeModel(details.model)
 
     getCatalogVehicleAsync(model, true, function(catalog)
+        local session = ActiveShopPlayers[src]
+        local shopType = normalizeShopType(session and session.mode)
+        if not session then
+            TriggerClientEvent('rn-vehicleshop:client:purchaseResult', src, false, 'The dealership session expired. Please reopen the showroom.')
+            finish()
+            return
+        end
         if not catalog or catalog.availableStore ~= true then
             local msg = catalog and 'Event/task only vehicle.' or 'Vehicle is not available.'
             TriggerClientEvent('rn-vehicleshop:client:purchaseResult', src, false, msg)
             structuredAdminLog('purchase', 'rejected', src, { model = model, reason = msg }, 'warning')
+            finish()
+            return
+        end
+
+        if normalizeVehicleType(catalog.vehicleType) ~= catalogTypeForShop(shopType) then
+            local msg = 'This vehicle belongs to a different dealership.'
+            TriggerClientEvent('rn-vehicleshop:client:purchaseResult', src, false, msg)
+            structuredAdminLog('purchase', 'wrong_storefront', src, {
+                model = model, requestedShop = shopType, catalogType = catalog.vehicleType
+            }, 'warning')
             finish()
             return
         end
@@ -1623,6 +1692,23 @@ RegisterNetEvent('rn-vehicleshop:server:buyVehicle', function(details)
             return
         end
 
+        -- Resolve and validate the permanent database identity before taking
+        -- money. Server source/state aliases are never valid ownership keys.
+        local identityOk, storedCharId = pcall(function()
+            return MySQL.scalar.await('SELECT id FROM characters WHERE id = ? LIMIT 1', { tostring(charId) })
+        end)
+        if not identityOk or not storedCharId then
+            TriggerClientEvent('rn-vehicleshop:client:purchaseResult', src, false,
+                'Your character session is not ready. Relog and try again.')
+            structuredAdminLog('purchase', 'character_validation_failed', src, {
+                model = model,
+                reason = identityOk and 'character_row_missing' or 'character_lookup_failed'
+            }, 'error')
+            finish()
+            return
+        end
+        charId = tostring(storedCharId)
+
         local paid, debits, payErr, available = removeCombinedMoney(src, price, 'vehicleshop_purchase')
         if not paid then
             local msg = payErr == 'not_enough'
@@ -1637,52 +1723,49 @@ RegisterNetEvent('rn-vehicleshop:server:buyVehicle', function(details)
         end
         pushBalance(src, 'purchase_charged')
 
-        local function clampInt(value, minValue, maxValue, fallback)
-            value = math.floor(tonumber(value) or fallback)
-            if value < minValue then value = minValue end
-            if value > maxValue then value = maxValue end
-            return value
-        end
+        -- Purchases keep only the paint colour chosen in the showroom preview.
+        -- Catalog speed and any other client-provided upgrade values must
+        -- never become persistent appearance/performance state.
+        local chosenColor = details.r ~= nil and details.g ~= nil and details.b ~= nil
+            and sanitizeRgbMod({ r = details.r, g = details.g, b = details.b }) or nil
         local meta = {
-            boughtFrom = 'rn-vehicleshop', price = price, category = catalog.category,
-            catalogMaxSpeedKph = catalog.speedKph,
-            charId = charId, characterId = charId, owner = charId, stored = true,
+            boughtFrom = 'rn-vehicleshop', source = 'rn-vehicleshop', price = price, category = catalog.category,
+            charId = charId, characterId = charId, owner = charId,
             payment = { total = price, debits = debits },
-            paint = {
-                gtaColor = clampInt(details.gtaColor, 0, 160, 111),
-                r = clampInt(details.r, 0, 255, 255),
-                g = clampInt(details.g, 0, 255, 255),
-                b = clampInt(details.b, 0, 255, 255),
-                label = tostring(details.color or 'White'):gsub('%c', ''):sub(1, 64)
-            }
         }
+        if chosenColor then
+            meta.mods = { customPrimary = chosenColor, customSecondary = chosenColor }
+        end
 
         leaveShopBucket(src)
         local okExport, createOk, vehicleData = callExport('cm-vehicles', 'CreateOwnedVehicle', src, catalog.model, catalog.label, catalog.trunkLevel, meta)
         if okExport and createOk == true then
+            local assigned, assignment = assignVehicleToFirstOwnedHouseGarage(vehicleData, charId)
+            if type(vehicleData) == 'table' then
+                vehicleData.garageAssignment = assigned and assignment or nil
+            end
+            local purchaseMessage = assigned
+                and ('Purchased %s for $%s. It is parked in your house garage.'):format(catalog.label, price)
+                or ('Purchased %s for $%s. It is registered but has no available house garage slot yet.'):format(catalog.label, price)
             TriggerClientEvent('rn-vehicleshop:client:purchaseResult', src, true,
-                ('Purchased %s for $%s. It is stored in your garage.'):format(catalog.label, price), vehicleData)
-            structuredAdminLog('purchase', 'completed', src, { model = catalog.model, label = catalog.label, price = price, payment = debits, vehicle = vehicleData }, 'success')
+                purchaseMessage, vehicleData)
+            structuredAdminLog('purchase', 'completed', src, {
+                model = catalog.model, label = catalog.label, price = price, payment = debits,
+                vehicle = vehicleData, garageAssigned = assigned, garageAssignment = assignment
+            }, 'success')
             finish()
             return
         end
 
-        createOwnedVehicleDirectAsync(charId, catalog.model, catalog.label, catalog.trunkLevel, meta, function(dok, dres)
-            if not dok then
-                refundCombinedMoney(src, debits, 'vehicleshop_purchase_refund')
-                pushBalance(src, 'purchase_refunded')
-                enterShopBucket(src, 'store')
-                local msg = tostring(dres or vehicleData or 'Could not register vehicle. Payment refunded.')
-                TriggerClientEvent('rn-vehicleshop:client:purchaseResult', src, false, msg)
-                structuredAdminLog('purchase', 'refunded', src, { model = catalog.model, price = price, payment = debits, error = msg }, 'error')
-                finish()
-                return
-            end
-            TriggerClientEvent('rn-vehicleshop:client:purchaseResult', src, true,
-                ('Purchased %s for $%s. It is stored in your garage.'):format(catalog.label, price), dres)
-            structuredAdminLog('purchase', 'completed_fallback', src, { model = catalog.model, label = catalog.label, price = price, payment = debits, vehicle = dres }, 'success')
-            finish()
-        end)
+        refundCombinedMoney(src, debits, 'vehicleshop_purchase_refund')
+        pushBalance(src, 'purchase_refunded')
+        enterShopBucket(src, shopType)
+        local msg = tostring(vehicleData or createOk or 'Could not register vehicle. Payment refunded.')
+        TriggerClientEvent('rn-vehicleshop:client:purchaseResult', src, false, msg)
+        structuredAdminLog('purchase', 'refunded', src, {
+            model = catalog.model, price = price, payment = debits, error = msg
+        }, 'error')
+        finish()
     end)
 end)
 
@@ -1713,19 +1796,28 @@ RegisterNetEvent('rn-vehicleshop:server:testDriveRequest', function(details)
 
     details = type(details) == 'table' and details or {}
     local model = normalizeModel(details.model)
-    TestDriveLocks[src] = { model = model, requestedAt = nowMs(), mode = 'store' }
+    local session = ActiveShopPlayers[src]
+    local shopType = normalizeShopType(session and session.mode)
+    TestDriveLocks[src] = {
+        model = model, requestedAt = nowMs(), mode = shopType,
+        previousMode = shopType, phase = 'requested'
+    }
 
     getCatalogVehicleAsync(model, true, function(catalog)
-        if not catalog then TestDriveLocks[src] = nil return rejectTestDrive(src, 'not_available', 'This vehicle is not available.') end
-        if not (Config.TestDrive and Config.TestDrive.enabled) then TestDriveLocks[src] = nil return rejectTestDrive(src, 'disabled', 'Test drive is disabled.') end
+        if not catalog then clearTestDriveLock(src) return rejectTestDrive(src, 'not_available', 'This vehicle is not available.') end
+        if normalizeVehicleType(catalog.vehicleType) ~= catalogTypeForShop(shopType) then
+            clearTestDriveLock(src)
+            return rejectTestDrive(src, 'wrong_storefront', 'This vehicle belongs to a different dealership.')
+        end
+        if not (Config.TestDrive and Config.TestDrive.enabled) then clearTestDriveLock(src) return rejectTestDrive(src, 'disabled', 'Test drive is disabled.') end
         local td = type(catalog.metadata) == 'table' and type(catalog.metadata.testDrive) == 'table' and catalog.metadata.testDrive or {}
-        if td.enabled == false then TestDriveLocks[src] = nil return rejectTestDrive(src, 'vehicle_disabled', 'Test drive is disabled for this vehicle.') end
+        if td.enabled == false then clearTestDriveLock(src) return rejectTestDrive(src, 'vehicle_disabled', 'Test drive is disabled for this vehicle.') end
 
         local cost = math.max(0, math.floor(tonumber(td.cost) or tonumber(Config.TestDrive.testDriveCost) or 0))
-        local duration = math.max(10, math.min(600, math.floor(tonumber(td.duration) or tonumber(Config.TestDrive.testDriveTimer) or 300)))
+        local duration = math.max(10, math.min(600, math.floor(tonumber(Config.TestDrive and Config.TestDrive.testDriveTimer) or 300)))
         local paid, debits, payErr, available = removeCombinedMoney(src, cost, 'vehicleshop_testdrive')
         if not paid then
-            TestDriveLocks[src] = nil
+            clearTestDriveLock(src)
             pushBalance(src, 'testdrive_rejected')
             return rejectTestDrive(src, payErr == 'not_enough' and 'insufficient_funds' or 'payment_failed',
                 payErr == 'not_enough'
@@ -1734,11 +1826,23 @@ RegisterNetEvent('rn-vehicleshop:server:testDriveRequest', function(details)
                 { model = model, cost = cost, available = available })
         end
 
-        local chargeToken = createTestDriveCharge(src, debits, cost, model)
+        local chargeToken = createTestDriveCharge(src, debits, cost, model) or strongToken('td', src)
+        local lock = TestDriveLocks[src]
+        if not lock then
+            refundCombinedMoney(src, debits, 'vehicleshop_testdrive_lost_session_refund')
+            pushBalance(src, 'testdrive_refunded')
+            return rejectTestDrive(src, 'session_expired', 'The dealership session expired. Please try again.')
+        end
+        lock.token = chargeToken
+        lock.phase = 'approved'
+        if cost <= 0 then scheduleTestDriveApprovalTimeout(src, chargeToken) end
+        details.model = model
+        details.vehicleType = normalizeVehicleType(catalog.vehicleType)
+        details.vehicle = catalog.label
         pushBalance(src, 'testdrive_charged')
         enterShopBucket(src, 'test_drive')
         TriggerClientEvent('rn-vehicleshop:client:testDriveResult', src, true, 'approved', 'Test drive approved.', { model = model, cost = cost, duration = duration })
-        TriggerClientEvent('rn-vehicleshop:client:startTestDrive', src, details, duration, chargeToken, 'store')
+        TriggerClientEvent('rn-vehicleshop:client:startTestDrive', src, details, duration, chargeToken, shopType)
         structuredAdminLog('test_drive', 'approved', src, { model = model, cost = cost, duration = duration, payment = debits }, 'success')
     end)
 end)
@@ -1746,6 +1850,10 @@ end)
 RegisterNetEvent('rn-vehicleshop:server:adminTestDriveRequest', function(details)
     local src = source
     if not isAdmin(src) then return rejectTestDrive(src, 'no_permission', 'You do not have vehicle admin permission.') end
+    local session = ActiveShopPlayers[src]
+    if AdminModes[src] ~= 'manage' or type(session) ~= 'table' or session.mode ~= 'admin' then
+        return rejectTestDrive(src, 'admin_session_required', 'Open Manage Vehicles before starting an admin test drive.')
+    end
     if not (Config.AdminTestDrive and Config.AdminTestDrive.enabled ~= false) then return rejectTestDrive(src, 'admin_disabled', 'Admin test drive is disabled.') end
     if TestDriveLocks[src] then return rejectTestDrive(src, 'already_pending', 'A test drive is already active or starting.') end
     if not checkRateLimit(src, 'adminTestDriveRequest', tonumber(hardeningCfg().TestDriveRequestCooldownMs) or 1500) then
@@ -1757,41 +1865,66 @@ RegisterNetEvent('rn-vehicleshop:server:adminTestDriveRequest', function(details
     local modelOk, modelErr = isKnownOrAllowedModel(model, true)
     if not modelOk then return rejectTestDrive(src, 'invalid_model', modelErr or 'Invalid vehicle model.') end
 
-    local duration = math.max(10, math.min(600, math.floor(tonumber(details.testDriveTimer) or tonumber(Config.AdminTestDrive.defaultDuration) or 300)))
-    TestDriveLocks[src] = { model = model, requestedAt = nowMs(), mode = 'admin' }
+    local duration = math.max(10, math.min(600, math.floor(tonumber(Config.TestDrive and Config.TestDrive.testDriveTimer) or 300)))
+    local chargeToken = strongToken('td-admin', src)
+    TestDriveLocks[src] = {
+        model = model, requestedAt = nowMs(), mode = 'admin',
+        previousMode = 'admin', token = chargeToken, phase = 'approved'
+    }
+    scheduleTestDriveApprovalTimeout(src, chargeToken)
     enterShopBucket(src, 'admin_test_drive')
     details.model = model
     details.vehicle = tostring(details.vehicle or details.label or model)
     details.testDriveCost = 0
     TriggerClientEvent('rn-vehicleshop:client:testDriveResult', src, true, 'admin_approved', 'Admin test drive approved.', { model = model, cost = 0, duration = duration, admin = true })
-    TriggerClientEvent('rn-vehicleshop:client:startTestDrive', src, details, duration, nil, 'admin')
+    TriggerClientEvent('rn-vehicleshop:client:startTestDrive', src, details, duration, chargeToken, 'admin')
     structuredAdminLog('test_drive', 'admin_started', src, { model = model, duration = duration }, 'info')
 end)
 
 RegisterNetEvent('rn-vehicleshop:server:testDriveStarted', function(token)
     local src = source
+    local lock = TestDriveLocks[src]
+    if type(lock) ~= 'table' or lock.phase ~= 'approved' or type(token) ~= 'string' or token == '' or token ~= lock.token then
+        structuredAdminLog('test_drive', 'start_rejected', src, { reason = 'invalid_token' }, 'warning')
+        return
+    end
     local charge = TestDriveCharges[tonumber(src)]
-    if token and charge and charge.token == token then clearTestDriveCharge(src) end
-    TestDriveLocks[src] = { startedAt = nowMs(), mode = (TestDriveLocks[src] and TestDriveLocks[src].mode) or 'store' }
-    structuredAdminLog('test_drive', 'started', src, { token = token and true or false, mode = TestDriveLocks[src].mode }, 'info')
+    if charge and charge.token ~= token then
+        structuredAdminLog('test_drive', 'start_rejected', src, { reason = 'charge_token_mismatch' }, 'warning')
+        return
+    end
+    if charge then clearTestDriveCharge(src) end
+    lock.phase = 'active'
+    lock.startedAt = nowMs()
+    structuredAdminLog('test_drive', 'started', src, { token = true, mode = lock.mode }, 'info')
 end)
 
-RegisterNetEvent('rn-vehicleshop:server:testDriveEnded', function(reason, mode)
+RegisterNetEvent('rn-vehicleshop:server:testDriveEnded', function(reason, mode, token)
     local src = source
-    TestDriveLocks[src] = nil
+    local lock = TestDriveLocks[src]
+    if type(lock) ~= 'table' or lock.phase ~= 'active' or type(token) ~= 'string' or token ~= lock.token then
+        structuredAdminLog('test_drive', 'end_rejected', src, { reason = 'invalid_token' }, 'warning')
+        return
+    end
+    clearTestDriveLock(src, token)
     pushBalance(src, 'testdrive_ended')
-    structuredAdminLog('test_drive', 'ended', src, { reason = tostring(reason or 'finished'), mode = tostring(mode or 'store') }, 'info')
+    structuredAdminLog('test_drive', 'ended', src, { reason = tostring(reason or 'finished'), mode = lock.mode }, 'info')
 end)
 
 RegisterNetEvent('rn-vehicleshop:server:testDriveStartFailed', function(token, reason)
     local src = source
+    local lock = TestDriveLocks[src]
+    if type(lock) ~= 'table' or lock.phase ~= 'approved' or type(token) ~= 'string' or token ~= lock.token then
+        structuredAdminLog('test_drive', 'start_failed_rejected', src, { reason = 'invalid_token' }, 'warning')
+        return
+    end
     local charge = TestDriveCharges[tonumber(src)]
-    if charge and (not token or charge.token == token) then
+    if charge and charge.token == token then
         clearTestDriveCharge(src)
         refundCombinedMoney(src, charge.debits, 'vehicleshop_testdrive_refund')
         pushBalance(src, 'testdrive_refunded')
     end
-    TestDriveLocks[src] = nil
+    clearTestDriveLock(src, token)
     local refunded = charge ~= nil
     local msg = refunded
         and ('Test drive could not start (%s). Payment refunded.'):format(tostring(reason or 'failed'))
@@ -1892,6 +2025,7 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
     local trunkLevel = clampTrunkLevel(data.trunkLevel or data.trunk_level)
 
     local hasCarplay = truthy(data.hasCarplay or data.has_carplay)
+    local vehicleType = normalizeVehicleType(data.vehicleType or data.vehicle_type)
     local availableStore = truthy(data.availableStore or data.available_store)
     local availableServer = truthy(data.availableServer or data.available_server)
     local availableEms = truthy(data.availableEms or data.available_ems)
@@ -1943,7 +2077,7 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
     if testDriveEnabled == nil then testDriveEnabled = data.test_drive_enabled end
     if testDriveEnabled == nil then testDriveEnabled = true end
     testDriveEnabled = truthy(testDriveEnabled)
-    local testDriveTimer = math.floor(tonumber(data.testDriveTimer or data.test_drive_timer) or tonumber(testDriveCfg.testDriveTimer) or 300)
+    local testDriveTimer = math.floor(tonumber(testDriveCfg.testDriveTimer) or 300)
     if testDriveTimer < 10 then testDriveTimer = 10 end
     if testDriveTimer > 600 then testDriveTimer = 600 end
     local testDriveCost = math.floor(tonumber(data.testDriveCost or data.test_drive_cost) or tonumber(testDriveCfg.testDriveCost) or 0)
@@ -1974,8 +2108,8 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
     end
 
     local saveQuery = [[
-        INSERT INTO cm_vehicle_catalog (model, label, category, price, speed_kph, trunk_level, available_store, available_server, available_ems, available_police, legal_org, gang_id, image, metadata, mods, has_carplay, retired, replacement_model)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL)
+        INSERT INTO cm_vehicle_catalog (model, label, category, price, speed_kph, trunk_level, available_store, available_server, available_ems, available_police, legal_org, gang_id, image, metadata, mods, has_carplay, vehicle_type, retired, replacement_model)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL)
         ON DUPLICATE KEY UPDATE
             label = VALUES(label),
             category = VALUES(category),
@@ -1992,6 +2126,7 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
             metadata = VALUES(metadata),
             mods = VALUES(mods),
             has_carplay = VALUES(has_carplay),
+            vehicle_type = VALUES(vehicle_type),
             retired = 0,
             replacement_model = NULL
     ]]
@@ -2004,7 +2139,7 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
         duration = testDriveTimer,
         cost = testDriveCost
     }
-    local saveValues = { model, label, category, price, speedKph, trunkLevel, availableStore and 1 or 0, availableServer and 1 or 0, availableEms and 1 or 0, availablePolice and 1 or 0, legalOrg, gangId, image, encode(catalogMetadata), savedMods, hasCarplay and 1 or 0 }
+    local saveValues = { model, label, category, price, speedKph, trunkLevel, availableStore and 1 or 0, availableServer and 1 or 0, availableEms and 1 or 0, availablePolice and 1 or 0, legalOrg, gangId, image, encode(catalogMetadata), savedMods, hasCarplay and 1 or 0, vehicleType }
     local writeOk, committed = pcall(function()
         return MySQL.transaction.await({ { query = saveQuery, values = saveValues } })
     end)
@@ -2866,11 +3001,11 @@ RegisterNetEvent('rn-vehicleshop:server:saveVehicleImage', function(data)
     local dbOk, committed = pcall(function()
         return MySQL.transaction.await({ {
             query = [[
-            INSERT INTO cm_vehicle_catalog (model, label, category, price, trunk_level, available_store, available_server, image)
-            VALUES (?, ?, ?, 0, 1, 0, 0, ?)
-            ON DUPLICATE KEY UPDATE image = VALUES(image)
+            INSERT INTO cm_vehicle_catalog (model, label, category, price, trunk_level, available_store, available_server, image, vehicle_type)
+            VALUES (?, ?, ?, 0, 1, 0, 0, ?, ?)
+            ON DUPLICATE KEY UPDATE image = VALUES(image), vehicle_type = VALUES(vehicle_type)
             ]],
-            values = { model, safeUtf8Sub(data.label, 100, model), safeUtf8Sub(data.category, 64, 'Custom'), nuiPath }
+            values = { model, safeUtf8Sub(data.label, 100, model), safeUtf8Sub(data.category, 64, 'Custom'), nuiPath, normalizeVehicleType(data.vehicleType or data.vehicle_type) }
         } })
     end)
     if not dbOk or committed ~= true then
@@ -3203,16 +3338,25 @@ exports('GetOrgCatalog', function(organizationId)
     return out
 end)
 
+-- Read-only, tag-agnostic catalog lookup: appearance (label/category/image/
+-- mods) for ANY saved catalog vehicle, regardless of its current Store/
+-- Server/EMS/Police/legal-org/gang status. Fleet-tab consumers (cm-law's
+-- police and generic legal-org modules) use this as a fallback so a vehicle
+-- granted straight to an organization (never tag-toggled in /vehicleadmin)
+-- can still render in that org's Fleet/Motor Pool list -- a model's public
+-- Store/Server availability is intentionally untouched by an org grant, so
+-- the Fleet list can no longer assume every one of its vehicles is tagged.
+exports('GetVehicleCatalogInfo', function(model)
+    local row = getCatalogVehicle(model, false)
+    if not row then return nil end
+    return { model = row.model, label = row.label, category = row.category, image = row.image, mods = row.mods or {} }
+end)
+
 exports('GiveCatalogVehicle', function(src, model, metadata)
     local catalog = getCatalogVehicle(model, true)
     if not catalog then return false, 'Vehicle is not enabled in catalog.' end
     local okExport, createOk, vehicleData = callExport('cm-vehicles', 'CreateOwnedVehicle', src, catalog.model, catalog.label, catalog.trunkLevel, metadata or { source = 'catalog_export' })
     if not okExport or createOk ~= true then
-        local charId = getCharacterId(src)
-        if charId then
-            local dok, dres = createOwnedVehicleDirect(charId, catalog.model, catalog.label, catalog.trunkLevel, metadata or { source = 'catalog_export' })
-            if dok then return true, dres end
-        end
         return false, vehicleData or createOk or 'CreateOwnedVehicle failed.'
     end
     return true, vehicleData
@@ -3274,6 +3418,8 @@ RegisterNetEvent('rn-vehicleshop:server:grantOrganizationVehicle', function(mode
         return grantResult({ok=false,stage='persistent_preflight',reason='vehicle_owner_unavailable'}, 'Vehicle owner service is unavailable.', 'error')
     end
     local gangTargets={marabunta=true,bloods=true,ballas=true,families=true,vagos=true}
+    local legalOrgTargets={}
+    for _, org in ipairs(legalOrgOptions()) do legalOrgTargets[tostring(org.id)] = true end
     if gangTargets[organization] and GetResourceState('cm-gang') ~= 'started' then
         structuredAdminLog('organization_vehicle', 'grant_failed', src, {
             model=model,organization=organization,stage='fleet_preflight',error='fleet_owner_unavailable'
@@ -3334,6 +3480,42 @@ RegisterNetEvent('rn-vehicleshop:server:grantOrganizationVehicle', function(mode
         end
         fleetStatus=type(linkResult)=='table' and linkResult.status or 'needs_home_location'
         structuredAdminLog('organization_vehicle','fleet_linked',src,{model=model,organization=organization,vehicleId=vehicleId,status=fleetStatus},'success')
+    elseif organization=='police' then
+        -- No rollback path exists for Police (DeleteOrganizationVehicle is
+        -- cm-gang-only), so a link failure here is reported as a warning,
+        -- not an error: the grant already succeeded and the vehicle is a
+        -- normal Police-owned vehicle either way, just not in the Fleet tab.
+        local linkCalled,linked,linkResult=pcall(function()
+            return exports['cm-law']:LinkGrantedPoliceFleetVehicle(src,model,vehicleId,minimumTier)
+        end)
+        if not linkCalled or linked~=true then
+            fleetStatus=tostring(linkResult or linked or 'fleet_link_failed')
+            structuredAdminLog('organization_vehicle','fleet_link_failed',src,{
+                model=model,organization=organization,vehicleId=vehicleId,stage='fleet_link',error=fleetStatus
+            },'warning')
+            return grantResult({ok=true,partial=true,organization=organization,model=model,label=vehicle.label,
+                vehicleId=vehicleId,stage='fleet_link',reason=fleetStatus},
+                ('Gave %s to police (vehicle ID %d), but it could not be linked into the Fleet tab (%s). Configure it manually from the Fleet tab or /vehicleadmin.'):format(vehicle.label or model, vehicleId, fleetStatus), 'warning')
+        end
+        fleetStatus='linked'
+        structuredAdminLog('organization_vehicle','fleet_linked',src,{model=model,organization=organization,vehicleId=vehicleId},'success')
+    elseif legalOrgTargets[organization] then
+        -- Same no-rollback tradeoff as the Police branch above: the grant
+        -- already succeeded, so a link failure is a warning, not an error.
+        local linkCalled,linked,linkResult=pcall(function()
+            return exports['cm-law']:LinkGrantedFleetVehicle(src,organization,model,vehicleId,minimumTier)
+        end)
+        if not linkCalled or linked~=true then
+            fleetStatus=tostring(linkResult or linked or 'fleet_link_failed')
+            structuredAdminLog('organization_vehicle','fleet_link_failed',src,{
+                model=model,organization=organization,vehicleId=vehicleId,stage='fleet_link',error=fleetStatus
+            },'warning')
+            return grantResult({ok=true,partial=true,organization=organization,model=model,label=vehicle.label,
+                vehicleId=vehicleId,stage='fleet_link',reason=fleetStatus},
+                ('Gave %s to %s (vehicle ID %d), but it could not be linked into the Motor Pool (%s). Configure it manually from Fleet Vehicles or /vehicleadmin.'):format(vehicle.label or model, organization, vehicleId, fleetStatus), 'warning')
+        end
+        fleetStatus='linked'
+        structuredAdminLog('organization_vehicle','fleet_linked',src,{model=model,organization=organization,vehicleId=vehicleId},'success')
     end
     structuredAdminLog('organization_vehicle', 'granted', src, {model=model,organization=organization,vehicleId=vehicleId,plate=result.plate}, 'success')
     grantResult({ok=true,organization=organization,model=model,label=vehicle.label,vehicleId=vehicleId,status=fleetStatus},

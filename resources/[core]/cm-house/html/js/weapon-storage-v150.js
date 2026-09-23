@@ -9,9 +9,12 @@
 
   const chooseAmount = (item, direction) => new Promise((resolve) => {
     const available = Math.max(1, Number(item.quantity) || 1);
-    const policy = item.itemType === 'ammo'
-      ? Number(state.data?.settings?.ammoLimit || 1000)
-      : Number(state.data?.settings?.weaponLimit || 10);
+    const isFamily = Boolean(state.data?.isFamily);
+    const policy = !isFamily
+      ? available
+      : (item.itemType === 'ammo'
+          ? Number(state.data?.settings?.ammoLimit || 1000)
+          : Number(state.data?.settings?.weaponLimit || 10));
     const max = direction === 'withdraw' ? Math.min(available, policy) : available;
     const overlay = document.createElement('div');
     overlay.className = 'ws-checkout';
@@ -37,20 +40,90 @@
     overlay.onclick = (event) => { if (event.target === overlay) finish(0); };
   });
 
+  const formatRelativeTime = (dateStr) => {
+    if (!dateStr) return '';
+    try {
+      const date = new Date(dateStr);
+      const diff = Math.floor((Date.now() - date.getTime()) / 1000);
+      if (isNaN(diff)) return String(dateStr);
+      if (diff < 60) return 'Just now';
+      if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+      if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+      return `${Math.floor(diff / 86400)}d ago`;
+    } catch (_) {
+      return String(dateStr);
+    }
+  };
+
+  const loadLogs = async () => {
+    const listEl = el('ws-logs-list');
+    const emptyEl = el('ws-logs-empty');
+    if (!listEl) return;
+    listEl.innerHTML = '<div style="color:#72f4fb;padding:20px;text-align:center;">Loading audit logs...</div>';
+    if (emptyEl) emptyEl.hidden = true;
+    const res = await post('weaponStorage:getLogs', { limit: 50 });
+    listEl.innerHTML = '';
+    const logs = Array.isArray(res?.logs) ? res.logs : [];
+    if (!logs.length) {
+      if (emptyEl) emptyEl.hidden = false;
+      return;
+    }
+    if (emptyEl) emptyEl.hidden = true;
+    for (const log of logs) {
+      const row = document.createElement('div');
+      row.className = 'gang-control__log-row';
+      const isWithdraw = log.direction === 'withdraw';
+      const badge = document.createElement('span');
+      badge.className = `gang-control__log-badge gang-control__log-badge--${isWithdraw ? 'withdraw' : 'deposit'}`;
+      badge.textContent = isWithdraw ? 'WITHDREW' : 'DEPOSITED';
+
+      const actor = document.createElement('span');
+      actor.className = 'gang-control__log-actor';
+      actor.textContent = `[${log.characterName || 'Unknown'}]`;
+
+      const desc = document.createElement('span');
+      desc.className = 'gang-control__log-desc';
+      const itemName = log.itemName || 'Item';
+      const qty = Number(log.quantity) || 1;
+      const serialInfo = log.details?.serialRemoved ? ' (Serial: Free)' : (log.details?.serial ? ` (Serial: ${log.details.serial})` : '');
+      desc.innerHTML = `${isWithdraw ? 'withdrew' : 'deposited'} <strong>${qty}x ${itemName}</strong>${serialInfo}`;
+
+      const time = document.createElement('span');
+      time.className = 'gang-control__log-time';
+      time.textContent = formatRelativeTime(log.createdAt);
+
+      row.appendChild(badge);
+      row.appendChild(actor);
+      row.appendChild(desc);
+      row.appendChild(time);
+      listEl.appendChild(row);
+    }
+  };
+
   const openSettings = () => {
-    if (!state.data || state.data.canManage !== true) return;
+    if (!state.data || !state.data.isFamily || state.data.canManage !== true) return;
     const overlay = document.createElement('div');
     overlay.className = 'ws-checkout';
     const isOpen = state.data.settings?.open !== false;
-    overlay.innerHTML = `<section class="ws-checkout__card ws-settings" role="dialog" aria-modal="true">
+    const ammoLimits = state.data.settings?.ammoLimits || {};
+    overlay.innerHTML = `<section class="ws-checkout__card ws-settings" role="dialog" aria-modal="true" style="width:min(580px,94vw);">
       <small>ARMORY MANAGEMENT</small><h2>HOUSE ARMORY SETTINGS</h2>
       <p>Control whether members can take weapons and ammunition. Equipment can still be returned while closed.</p>
       <div class="ws-checkout__label"><span>ARMORY ACCESS</span><strong>${isOpen ? 'OPEN' : 'CLOSED'}</strong></div>
       <div class="ws-state-options"><button type="button" data-open="true" class="${isOpen ? 'is-active' : ''}"><i></i>OPEN</button><button type="button" data-open="false" class="${isOpen ? '' : 'is-active'}"><i></i>CLOSED</button></div>
       <div class="ws-settings-grid">
         <label>MAX GUNS / VESTS PER CHECKOUT<input id="ws-setting-weapons" type="number" min="1" max="10" value="${Number(state.data.settings?.weaponLimit || 10)}"></label>
-        <label>MAX AMMO PER CHECKOUT<input id="ws-setting-ammo" type="number" min="1" max="1000" value="${Number(state.data.settings?.ammoLimit || 1000)}"></label>
         <label>CHECKOUT COOLDOWN (MINUTES)<input id="ws-setting-cooldown" type="number" min="0" max="60" value="${Number(state.data.settings?.cooldownMinutes || 0)}"></label>
+      </div>
+      <div class="ws-settings-subtitle">AMMO CHECKOUT QUOTAS BY TYPE</div>
+      <div class="ws-settings-ammo-grid">
+        <label>5.56 RIFLE ROUNDS<input id="ws-ammo-556" type="number" min="1" max="500" value="${ammoLimits.ammo_556nato || 100}"></label>
+        <label>9x19 SMG ROUNDS<input id="ws-ammo-smg" type="number" min="1" max="500" value="${ammoLimits.ammo_9x19_smg || 60}"></label>
+        <label>9mm PISTOL ROUNDS<input id="ws-ammo-9mm" type="number" min="1" max="500" value="${ammoLimits.ammo_9mm || 50}"></label>
+        <label>12GA SHOTGUN SHELLS<input id="ws-ammo-shotgun" type="number" min="1" max="500" value="${ammoLimits.ammo_12gauge || 30}"></label>
+        <label>.44 REVOLVER ROUNDS<input id="ws-ammo-revolver" type="number" min="1" max="500" value="${ammoLimits.ammo_44magnum || 24}"></label>
+        <label>.308 SNIPER ROUNDS<input id="ws-ammo-sniper" type="number" min="1" max="500" value="${ammoLimits.ammo_308win || 20}"></label>
+        <label>7.62 MG BELT ROUNDS<input id="ws-ammo-mg" type="number" min="1" max="500" value="${ammoLimits.ammo_762nato || 100}"></label>
       </div>
       <div class="ws-checkout__actions"><button type="button" data-cancel>CANCEL</button><button type="button" data-confirm>SAVE SETTINGS</button></div>
     </section>`;
@@ -69,8 +142,16 @@
       const response = await post('weaponStorage:saveSettings', {
         open: nextOpen,
         weaponLimit: Number(overlay.querySelector('#ws-setting-weapons').value),
-        ammoLimit: Number(overlay.querySelector('#ws-setting-ammo').value),
         cooldownMinutes: Number(overlay.querySelector('#ws-setting-cooldown').value),
+        ammoLimits: {
+          ammo_556nato: Number(overlay.querySelector('#ws-ammo-556').value) || 100,
+          ammo_9x19_smg: Number(overlay.querySelector('#ws-ammo-smg').value) || 60,
+          ammo_9mm: Number(overlay.querySelector('#ws-ammo-9mm').value) || 50,
+          ammo_12gauge: Number(overlay.querySelector('#ws-ammo-shotgun').value) || 30,
+          ammo_44magnum: Number(overlay.querySelector('#ws-ammo-revolver').value) || 24,
+          ammo_308win: Number(overlay.querySelector('#ws-ammo-sniper').value) || 20,
+          ammo_762nato: Number(overlay.querySelector('#ws-ammo-mg').value) || 100,
+        }
       });
       if (response?.ok) close(); else button.disabled = false;
     };
@@ -220,7 +301,8 @@
       });
       action.append(button);
     };
-    const armoryOpen = state.data?.settings?.open !== false;
+    const isFamily = Boolean(state.data?.isFamily);
+    const armoryOpen = (!isFamily) || state.data?.settings?.open !== false;
     const withdrawText = armoryOpen
       ? (item.itemType === 'ammo' ? 'TAKE AMMO' : item.itemType === 'armor' ? 'TAKE VEST' : 'TAKE GUN')
       : 'ARMORY CLOSED';
@@ -280,11 +362,12 @@
 
   const render = () => {
     const data = state.data || {};
+    const isFamily = Boolean(data.isFamily);
     el('ws-subtitle').textContent = data.subtitle || 'Property';
     const models = modelRows();
     const armorModels = models.filter(item => item.itemType === 'armor');
     const playerCount = renderList('ws-player-list', 'ws-player-empty', armorModels, true);
-    const armoryOpen = data.settings?.open !== false;
+    const armoryOpen = (!isFamily) || data.settings?.open !== false;
     const mainModels = state.filter === 'armor' ? armorModels : models.filter(item => item.itemType !== 'armor');
     const storageCount = renderList('ws-storage-list', 'ws-storage-empty', mainModels);
     el('ws-result-count').textContent = `${storageCount} shown`;
@@ -296,10 +379,36 @@
     const used = Array.isArray(data.storage) ? data.storage.length : 0;
     el('ws-capacity').textContent = `${used} / ${Number(data.capacity) || 60} storage slots`;
     const status = el('armory-operating-state');
-    status.textContent = armoryOpen ? '● ARMORY OPEN' : '● ARMORY CLOSED';
-    status.className = armoryOpen ? 'is-open' : 'is-closed';
-    el('ws-settings').hidden = data.canManage !== true;
-    el('ws-order-stock').hidden = data.canManage !== true;
+    if (status) {
+      if (!isFamily) {
+        status.hidden = true;
+        status.style.display = 'none';
+      } else {
+        status.hidden = false;
+        status.style.display = '';
+        status.textContent = armoryOpen ? '● ARMORY OPEN' : '● ARMORY CLOSED';
+        status.className = armoryOpen ? 'is-open' : 'is-closed';
+      }
+    }
+    const isLogs = state.filter === 'logs';
+    const storageList = el('ws-storage-list');
+    const storageEmpty = el('ws-storage-empty');
+    const logsPanel = el('ws-logs-panel');
+    const toolbar = el('ws-toolbar');
+
+    if (logsPanel) logsPanel.hidden = !isLogs;
+    if (storageList) storageList.hidden = isLogs;
+    if (storageEmpty) storageEmpty.hidden = isLogs ? true : storageEmpty.hidden;
+    if (toolbar) toolbar.hidden = isLogs;
+
+    if (el('ws-tab-logs')) el('ws-tab-logs').hidden = (!isFamily) || data.canManage !== true;
+    if (el('ws-settings')) el('ws-settings').hidden = (!isFamily) || data.canManage !== true;
+    if (el('ws-order-stock')) el('ws-order-stock').hidden = (!isFamily) || data.canManage !== true;
+
+    if (isLogs) {
+      loadLogs();
+      return;
+    }
   };
 
   const open = (data) => {
@@ -344,6 +453,7 @@
     await post('weaponStorage:refresh');
     state.busy = false;
   });
+  if (el('ws-logs-refresh')) el('ws-logs-refresh').addEventListener('click', loadLogs);
   el('ws-settings').addEventListener('click', openSettings);
   el('ws-order-stock').addEventListener('click', () => post('weaponStorage:orderStock'));
 

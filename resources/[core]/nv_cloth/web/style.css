@@ -2007,6 +2007,8 @@ html, body {
   overflow: hidden;
 }
 .m-card-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.m-card-img img.lazy-thumb { opacity: 0; transition: opacity .22s ease-in-out; }
+.m-card-img img.lazy-thumb.loaded { opacity: 1; }
 .m-card-noimg { font-size: 10px; letter-spacing: .1em; color: var(--red); }
 .m-card-name {
   font-size: 12px;
@@ -3496,4 +3498,416 @@ body, button, input, select, textarea {
 
 #app.store-mode .hidden {
   display: none !important;
+}
+
+/* ══════════════════════════════════════════════
+   Catalog & Favorites Nav Tabs
+   ══════════════════════════════════════════════ */
+.store-nav-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.nav-tab-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 38px;
+  border: 1px solid rgba(71, 231, 255, 0.18);
+  border-radius: 10px;
+  background: rgba(10, 22, 35, 0.88);
+  color: rgba(214, 238, 255, 0.7);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+
+.nav-tab-btn:hover {
+  background: rgba(18, 36, 56, 0.96);
+  color: #eef9ff;
+  border-color: rgba(71, 231, 255, 0.4);
+}
+
+.nav-tab-btn.active {
+  background: linear-gradient(135deg, #22f5ff, #06b6d4);
+  border-color: transparent;
+  color: #04222b;
+  box-shadow: 0 4px 14px rgba(34, 245, 255, 0.32);
+}
+
+/* ── Shopper Search Bar ──────────────────────── */
+.search-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  color: rgba(71, 231, 255, 0.5);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.search-input-field {
+  width: 100% !important;
+  padding-left: 36px !important;
+  padding-right: 32px !important;
+  height: 38px !important;
+  background: rgba(8, 20, 32, 0.85) !important;
+  border: 1px solid rgba(71, 231, 255, 0.22) !important;
+  border-radius: 10px !important;
+  color: #eef9ff !important;
+  font-size: 12px !important;
+  outline: none !important;
+  transition: border-color .15s ease, box-shadow .15s ease !important;
+}
+
+.search-input-field:focus {
+  border-color: #47e7ff !important;
+  box-shadow: 0 0 12px rgba(71, 231, 255, 0.25) !important;
+}
+
+.clear-search-btn {
+  position: absolute;
+  right: 10px;
+  background: transparent;
+  border: none;
+  color: rgba(214, 238, 255, 0.5);
+  cursor: pointer;
+  padding: 4px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color .15s;
+}
+
+.clear-search-btn:hover {
+  color: #ff5d74;
+}
+
+#favCountBadge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PREVIEW STAGE (ClothCam Mouse Drag & Zoom Area)
+   ═══════════════════════════════════════════════════════════════ */
+.preview-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1;
+  cursor: grab;
+  user-select: none;
+}
+
+.preview-stage:active {
+  cursor: grabbing;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CLOTHING STORE OWNER CONSOLE & PUBLIC INFO
+   ═══════════════════════════════════════════════════════════════ */
+.nav-tab-btn--owner {
+  border-color: rgba(34, 245, 255, 0.4) !important;
+  color: #22f5ff !important;
+}
+
+.nav-tab-btn--owner:hover {
+  background: rgba(34, 245, 255, 0.15) !important;
+  box-shadow: 0 0 14px rgba(34, 245, 255, 0.3) !important;
+}
+
+.owner-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.85);
+}
+
+.owner-card {
+  width: min(840px, calc(100vw - 48px));
+  max-height: 90vh;
+  overflow-y: auto;
+  border-radius: 20px;
+  border: 1px solid rgba(34, 245, 255, 0.28);
+  background: #08141d;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.8), 0 0 35px rgba(34, 245, 255, 0.12);
+  padding: 24px 28px;
+  color: #dff5fb;
+  font-family: 'Montserrat', sans-serif;
+}
+
+.owner-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(34, 245, 255, 0.18);
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+}
+
+.owner-title .brand-name {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: #fff;
+  margin-right: 8px;
+}
+
+.brand-name--cyan {
+  color: #22f5ff !important;
+  text-shadow: 0 0 12px rgba(34, 245, 255, 0.4);
+}
+
+.owner-title .brand-sub {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: #7ba2b6;
+  margin-top: 4px;
+}
+
+.owner-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.metric-card {
+  background: rgba(14, 28, 38, 0.85);
+  border: 1px solid rgba(34, 245, 255, 0.15);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.2s;
+}
+
+.metric-card:hover {
+  border-color: rgba(34, 245, 255, 0.35);
+}
+
+.metric-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #7ba2b6;
+  text-transform: uppercase;
+}
+
+.metric-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 24px;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 6px 0 4px;
+}
+
+.accent-cyan {
+  color: #22f5ff !important;
+  text-shadow: 0 0 10px rgba(34, 245, 255, 0.35);
+}
+
+.metric-hint {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+  letter-spacing: 0.04em;
+  margin-bottom: 12px;
+}
+
+.metric-action-btn {
+  margin-top: auto;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  border: 1px solid rgba(34, 245, 255, 0.3);
+  background: rgba(34, 245, 255, 0.08);
+  color: #22f5ff;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.metric-action-btn:hover {
+  background: rgba(34, 245, 255, 0.2);
+  border-color: #22f5ff;
+  box-shadow: 0 0 12px rgba(34, 245, 255, 0.25);
+}
+
+.metric-action-btn--primary {
+  background: #22f5ff;
+  color: #041017;
+  border-color: #22f5ff;
+}
+
+.metric-action-btn--primary:hover {
+  background: #62f8ff;
+  color: #000;
+  box-shadow: 0 0 16px rgba(34, 245, 255, 0.45);
+}
+
+.owner-section-box {
+  background: rgba(14, 28, 38, 0.85);
+  border: 1px solid rgba(34, 245, 255, 0.15);
+  border-radius: 14px;
+  padding: 18px 20px;
+}
+
+.owner-box-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.owner-box-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #fff;
+}
+
+.owner-box-header p {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: #8daebb;
+  max-width: 500px;
+  line-height: 1.4;
+}
+
+.active-tier-pill {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(34, 245, 255, 0.15);
+  border: 1px solid rgba(34, 245, 255, 0.4);
+  color: #22f5ff;
+}
+
+.price-tier-selector {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.tier-btn {
+  background: rgba(8, 20, 29, 0.9);
+  border: 1px solid rgba(34, 245, 255, 0.15);
+  border-radius: 10px;
+  padding: 14px 12px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.15s ease;
+  color: #dff5fb;
+}
+
+.tier-btn:hover {
+  border-color: rgba(34, 245, 255, 0.35);
+  background: rgba(34, 245, 255, 0.05);
+}
+
+.tier-btn.selected {
+  border-color: #22f5ff;
+  background: rgba(34, 245, 255, 0.12);
+  box-shadow: 0 0 14px rgba(34, 245, 255, 0.2);
+}
+
+.tier-name {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #8daebb;
+}
+
+.tier-mult {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 16px;
+  font-weight: 800;
+  color: #fff;
+  margin: 4px 0 2px;
+}
+
+.tier-btn.selected .tier-mult {
+  color: #22f5ff;
+}
+
+.tier-desc {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.3;
+}
+
+.owner-tier-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.store-info-card {
+  width: min(520px, calc(100vw - 48px));
+}
+
+.store-info-grid {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0;
+  background: rgba(8, 20, 29, 0.6);
+  border: 1px solid rgba(34, 245, 255, 0.12);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+
+.info-row span {
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: #7ba2b6;
+}
+
+.info-row strong {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  color: #fff;
+}
+
+.public-tax-note {
+  font-size: 11px;
+  color: #8daebb;
+  line-height: 1.4;
+  margin-bottom: 18px;
 }

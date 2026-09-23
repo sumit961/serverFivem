@@ -738,7 +738,14 @@ local function finalizeSpawnPayload(data)
     end)
 
     CMVehicles.Client.ApplyLock(veh, garageDisplay and false or data.locked == true)
-    if data.metadata and type(data.metadata.neons) == 'table' then
+    -- mods.neons (set by the paid tuning shop via SaveVehicleModsAuthorized)
+    -- was already applied above. metadata.neons (set by the free G-menu
+    -- toggle through saveState) is only a fallback for vehicles that have
+    -- never been through mods.neons -- otherwise this would silently revert
+    -- a paid tuning-shop neon setting back to the last basic-menu toggle on
+    -- every respawn.
+    local hasModsNeons = type(data.mods) == 'table' and type(data.mods.neons) == 'table'
+    if not hasModsNeons and data.metadata and type(data.metadata.neons) == 'table' then
         for i = 0, 3 do SetVehicleNeonLightEnabled(veh, i, data.metadata.neons[i + 1] == true) end
     end
 

@@ -7,7 +7,7 @@ description 'CM Spawn - production-ready spawn selector, tutorial, and organizat
 version '1.2.0-cm-ui-performance-climate'
 
 shared_scripts {
-    '@cm-core/shared/config.lua',
+    '@cm-core/config/shared.lua',
     'config.lua',
 }
 

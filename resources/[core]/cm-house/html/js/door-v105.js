@@ -66,6 +66,11 @@
 
   function setOpen(open) {
     if (!root) return;
+    var confirmModal = el('d-confirm-modal');
+    if (confirmModal) {
+      confirmModal.hidden = true;
+      confirmModal.setAttribute('aria-hidden', 'true');
+    }
     if (open) {
       root.classList.add('on');
       root.style.display = 'grid';
@@ -166,7 +171,7 @@
       setText('d-raid-label', raidState.active && raidState.canJoin ? 'Join family raid' :
         (raidState.isMember && !raidState.canStart ? 'Choose opposing family house' :
           (!raidState.inFamily ? 'Family membership required' :
-            (!raidState.canStart ? 'Raid rank required' : 'Start family raid'))));
+            (!raidState.canStart ? 'Raid rank required' : 'Opposing family'))));
     }
     if (buy) {
       buy.hidden = !can.buy;
@@ -303,6 +308,28 @@
     setText('d-type', current.houseType, '');
     setText('d-type-chip', current.houseType, 'House');
     setText('d-family', current.familyName, '');
+
+    var famName = current.familyName && String(current.familyName).trim();
+    var famDisplay = el('d-family-name');
+    var famChip = el('d-family-chip');
+    if (famDisplay) {
+      if (famName) {
+        famDisplay.textContent = famName;
+        famDisplay.className = 'data-value family-cyan';
+      } else {
+        famDisplay.textContent = 'NONE';
+        famDisplay.className = 'data-value dim';
+      }
+    }
+    if (famChip) {
+      if (famName) {
+        famChip.textContent = famName;
+        famChip.hidden = false;
+      } else {
+        famChip.hidden = true;
+      }
+    }
+
     setText('d-owner', current.ownerName, 'For sale');
     setText('d-insurance', money(current.insurance));
     setText('d-price', money(current.price));
@@ -409,13 +436,62 @@
       }
 
       if (action === 'sell') {
-        button.disabled = true;
-        post('door:sell', { houseId: houseId }, function (response) {
-          if (response && response.ok) closeLocal(false);
-          else if (current) button.disabled = false;
-        });
+        var confirmModal = el('d-confirm-modal');
+        if (confirmModal) {
+          setText('d-confirm-payout', money(current ? current.govValue : 0));
+          confirmModal.hidden = false;
+          confirmModal.setAttribute('aria-hidden', 'false');
+        } else {
+          button.disabled = true;
+          post('door:sell', { houseId: houseId }, function (response) {
+            if (response && response.ok) closeLocal(false);
+            else if (current) button.disabled = false;
+          });
+        }
       }
     });
+
+    var confirmModal = el('d-confirm-modal');
+    var confirmCancel = el('d-confirm-cancel');
+    var confirmProceed = el('d-confirm-proceed');
+
+    if (confirmCancel) {
+      confirmCancel.addEventListener('click', function (event) {
+        event.stopPropagation();
+        if (confirmModal) {
+          confirmModal.hidden = true;
+          confirmModal.setAttribute('aria-hidden', 'true');
+        }
+      });
+    }
+
+    if (confirmModal) {
+      confirmModal.addEventListener('click', function (event) {
+        if (event.target === confirmModal) {
+          confirmModal.hidden = true;
+          confirmModal.setAttribute('aria-hidden', 'true');
+        }
+      });
+    }
+
+    if (confirmProceed) {
+      confirmProceed.addEventListener('click', function (event) {
+        event.stopPropagation();
+        if (!current) return;
+        var houseId = current.id;
+        confirmProceed.disabled = true;
+        post('door:sell', { houseId: houseId }, function (response) {
+          confirmProceed.disabled = false;
+          if (confirmModal) {
+            confirmModal.hidden = true;
+            confirmModal.setAttribute('aria-hidden', 'true');
+          }
+          if (response && response.ok) {
+            closeLocal(false);
+          }
+        });
+      });
+    }
   }
 
   window.addEventListener('message', function (event) {
@@ -452,6 +528,13 @@
 
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape' && root && root.classList.contains('on')) {
+      var confirmModal = el('d-confirm-modal');
+      if (confirmModal && !confirmModal.hidden) {
+        confirmModal.hidden = true;
+        confirmModal.setAttribute('aria-hidden', 'true');
+        event.stopPropagation();
+        return;
+      }
       closeLocal(true);
     }
   });

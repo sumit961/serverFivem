@@ -591,7 +591,29 @@ local function hasHousePermission(characterId, familyId, houseId, permissionKey,
         return true
     end
 
-    if not rank or not RankHasPermission(rank, permissionKey) then return false end
+    if not rank then return false end
+
+    -- Support storage.withdraw: if explicitly configured in rank, honor it;
+    -- otherwise fall back to storage.access.
+    if permissionKey == 'storage.withdraw' then
+        if rank.is_founder then return true end
+        if rank.permissions and rank.permissions['storage.withdraw'] ~= nil then
+            return rank.permissions['storage.withdraw'] == true
+        end
+        return RankHasPermission(rank, 'storage.access')
+    end
+
+    -- Support storage.deposit: if explicitly configured in rank, honor it;
+    -- otherwise default to true for family members.
+    if permissionKey == 'storage.deposit' then
+        if rank.is_founder then return true end
+        if rank.permissions and rank.permissions['storage.deposit'] ~= nil then
+            return rank.permissions['storage.deposit'] == true
+        end
+        return true
+    end
+
+    if not RankHasPermission(rank, permissionKey) then return false end
 
     return true
 end
@@ -616,6 +638,15 @@ exports('GetHousePermissionDecision', function(characterId, familyId, houseId, p
         end
         local rank = effectiveRankForMember(characterId, family, resolveMembershipRank(family, membership))
         if not rank then return false, 'rank_not_loaded' end
+        if key == 'storage.withdraw' then
+            if rank.permissions and rank.permissions['storage.withdraw'] ~= nil then
+                if not rank.permissions['storage.withdraw'] then
+                    return false, 'rank_missing_permission:storage.withdraw'
+                end
+            elseif not RankHasPermission(rank, 'storage.access') then
+                return false, 'rank_missing_permission:storage.withdraw'
+            end
+        end
         if not RankHasPermission(rank, key) then
             return false, ('rank_missing_permission:%s'):format(key)
         end

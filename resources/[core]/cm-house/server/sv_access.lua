@@ -28,6 +28,8 @@ ACTIONS = {
     -- Backward-compatible constant; old integrations resolve to the secure locker.
     WARDROBE_USE            = 'weapon_storage.use',
     STORAGE_USE         = 'storage.use',
+    STORAGE_DEPOSIT     = 'storage.deposit',
+    STORAGE_WITHDRAW    = 'storage.withdraw',
 
     GARAGE_ENTER        = 'garage.enter',
     GARAGE_VIEW         = 'garage.view',
@@ -103,6 +105,8 @@ local FAMILY_PERMISSION_MAP = {
     ['weapon_storage.manage'] = 'weapon_storage.manage',
     ['wardrobe.use'] = 'weapon_storage.access',
     ['storage.use'] = 'storage.access',
+    ['storage.deposit'] = 'storage.deposit',
+    ['storage.withdraw'] = 'storage.withdraw',
     ['garage.enter'] = 'garage.access',
     ['garage.view'] = 'garage.access',
     ['garage.spawn_personal'] = 'garage.store',
@@ -112,7 +116,12 @@ local FAMILY_PERMISSION_MAP = {
 }
 
 
-local BASIC_FAMILY_MEMBER_PERMISSIONS = {}
+local BASIC_FAMILY_MEMBER_PERMISSIONS = {
+    ['door.enter'] = true,
+    ['garage.access'] = true,
+    ['weapon_storage.access'] = true,
+    ['storage.access'] = true,
+}
 
 local function committedFamilyMembershipAllows(cid, house, permission)
     if not house or not house.id or not house.family_id then return false end
@@ -144,6 +153,33 @@ exports('GetFamilyPermissionForAction', GetFamilyPermissionForAction)
 
 local function familyResource()
     return tostring(Config.Family and Config.Family.resource or 'cm-family')
+end
+
+local function isCharacterInHouseFamily(cid, house)
+    if not house or not house.family_id then return false end
+    local famId = tonumber(house.family_id)
+    if not famId or famId <= 0 then return false end
+
+    local resource = familyResource()
+    if GetResourceState(resource) == 'started' then
+        local ok, fam = pcall(function()
+            return exports[resource]:GetFamilyForCharacter(cid)
+        end)
+        if ok and type(fam) == 'table' and tonumber(fam.id) == famId then
+            return true
+        end
+    end
+
+    local okDb, row = pcall(function()
+        return MySQL.single.await([[
+            SELECT 1 AS allowed
+            FROM cm_family_members member
+            WHERE member.character_id = ?
+              AND member.family_id = ?
+            LIMIT 1
+        ]], { tostring(cid), famId })
+    end)
+    return okDb and row ~= nil
 end
 
 local function familyAllows(cid, house, action)
@@ -246,6 +282,18 @@ function CanAccessProperty(cid, houseId, action, auditOverride)
 
     if isOwner then return true end
 
+    -- Unlocked house entry: when an owned property is unlocked, any player can enter the home.
+    if action == ACTIONS.HOUSE_ENTER and house.owner_cid ~= nil and not house.locked then
+        return true
+    end
+
+    -- Family house armory and storage opening: every active family member can OPEN both
+    -- weapon storage and general storage in their family house.
+    if (action == ACTIONS.WEAPON_STORAGE_USE or action == ACTIONS.STORAGE_USE)
+        and house.family_id ~= nil and isCharacterInHouseFamily(cid, house) then
+        return true
+    end
+
     -- Family access is the only non-owner gameplay path. It is imported from
     -- cm-family and fails closed when that resource is unavailable.
     local familyAllowed, familyReason = familyAllows(cid, house, action)
@@ -272,7 +320,8 @@ function CanAccessProperty(cid, houseId, action, auditOverride)
 
     return false, house.owner_cid == nil
         and 'This property must be purchased before it can be entered.'
-        or (familyReason or 'Only the owner or an authorized family member can use this property.')
+        or (house.locked and action == ACTIONS.HOUSE_ENTER and 'The door is locked.'
+            or (familyReason or 'Only the owner or an authorized family member can use this property.'))
 end
 exports('CanAccessProperty', function(cid, houseId, action)
     return CanAccessProperty(cid, houseId, action)

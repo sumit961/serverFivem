@@ -922,8 +922,10 @@ local function buildDynamicStage(scene)
 
     -- Move the real player to the preview area first. Even though the player is
     -- hidden, this keeps the game world, collision, and peds streamed correctly.
+    -- streamZ is already ground-corrected via getSafeGroundZ above when
+    -- !useExactCreatorZ; PLACE_ENTITY_ON_GROUND_PROPERLY is not a real
+    -- FiveM Lua native (see cm-ems/client/missions.lua).
     SetEntityCoordsNoOffset(ped, cfg.stream.x, cfg.stream.y, streamZ, false, false, false)
-    if not useExactCreatorZ then PlaceEntityOnGroundProperly(ped) end
     SetEntityHeading(ped, cfg.stream.w)
     hideRealPlayerForSelector()
     loadCollisionAt(cfg.walkFinish.x, cfg.walkFinish.y, finishZ, 60.0, useExactCreatorZ and 120 or 450)
@@ -1163,7 +1165,15 @@ local function spawnSimplePreviewCharacter(charId)
     SetEntityVisible(previewPed, false, false)
     SetEntityLodDist(previewPed, 999)
     SetEntityCoordsNoOffset(previewPed, pos.x, pos.y, pos.z, false, false, false)
-    if tostring(stage.sceneId or '') ~= 'creator-style-preview' and tostring(stage.sceneId or '') ~= 'fixed-night-preview' then PlaceEntityOnGroundProperly(previewPed) end
+    -- PLACE_ENTITY_ON_GROUND_PROPERLY is not a real FiveM Lua native (see
+    -- cm-ems/client/missions.lua); use a ground-Z lookup instead.
+    if tostring(stage.sceneId or '') ~= 'creator-style-preview' and tostring(stage.sceneId or '') ~= 'fixed-night-preview' then
+        RequestCollisionAtCoord(pos.x, pos.y, pos.z)
+        local found, groundZ = GetGroundZFor_3dCoord(pos.x, pos.y, pos.z + 3.0, false)
+        if found then
+            SetEntityCoordsNoOffset(previewPed, pos.x, pos.y, groundZ, false, false, false)
+        end
+    end
     SetEntityHeading(previewPed, pos.w or 0.0)
     FreezeEntityPosition(previewPed, true)
 

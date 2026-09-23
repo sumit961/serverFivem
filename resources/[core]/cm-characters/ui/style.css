@@ -993,3 +993,567 @@ input[type="range"].cm-range {
 .inline-toast.error {
     border-color: var(--cm-border-danger) !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   BARBER SHOP / HAIR SALON OWNER CONSOLE — Dynamic AAA Gaming HUD
+   Reuses the --hud-* design tokens declared in appearance/style.css:root
+   (same document, custom properties resolve regardless of link order).
+   ═══════════════════════════════════════════════════════════════════════ */
+.barber-owner-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle at 50% 40%, rgba(10, 22, 28, 0.7) 0%, rgba(5, 10, 14, 0.94) 100%);
+    padding: 24px;
+    font-family: var(--cm-font, 'Montserrat', 'Segoe UI', sans-serif);
+    text-transform: uppercase;
+}
+
+.barber-owner-panel.hidden {
+    display: none !important;
+}
+
+.barber-owner-card {
+    position: relative;
+    width: 100%;
+    max-width: 980px;
+    max-height: 90vh;
+    overflow-y: auto;
+    background: var(--hud-panel, rgba(16, 34, 43, 0.95));
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(0, 229, 255, 0.15);
+    border-left: 3px solid var(--hud-cyan, #00E5FF);
+    border-radius: 4px;
+    padding: 30px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7), 0 0 30px rgba(0, 229, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+/* Glowing tech corner accent, top-right */
+.barber-owner-card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 22px;
+    height: 22px;
+    border-top: 2px solid var(--hud-cyan, #00E5FF);
+    border-right: 2px solid var(--hud-cyan, #00E5FF);
+    box-shadow: 0 0 12px rgba(0, 229, 255, 0.5);
+    pointer-events: none;
+}
+
+.barber-owner-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 1px solid rgba(0, 229, 255, 0.15);
+    padding-bottom: 18px;
+}
+
+.barber-owner-title {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.barber-brand-name {
+    font-size: 26px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    color: var(--hud-text-white, #FFFFFF);
+    text-transform: uppercase;
+}
+
+.barber-brand-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.15em;
+    color: var(--hud-cyan, #00E5FF);
+    text-transform: uppercase;
+}
+
+.barber-brand-badge::before {
+    content: "";
+    display: inline-block;
+    width: 3px;
+    height: 10px;
+    background: var(--hud-cyan, #00E5FF);
+    box-shadow: 0 0 6px var(--hud-cyan, #00E5FF);
+}
+
+.barber-brand-sub {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--hud-text-muted, #829DAE);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-top: 2px;
+}
+
+.barber-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px;
+}
+
+.barber-metric-card {
+    background: var(--hud-card, rgba(12, 26, 34, 0.85));
+    border: 1px solid rgba(0, 229, 255, 0.15);
+    border-left: 3px solid var(--hud-cyan, #00E5FF);
+    border-radius: 4px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.barber-metric-card:hover {
+    border-color: rgba(0, 229, 255, 0.35);
+    box-shadow: 0 0 16px rgba(0, 229, 255, 0.12);
+}
+
+.barber-metric-card .metric-label {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    color: var(--hud-text-muted, #829DAE);
+    text-transform: uppercase;
+}
+
+.barber-metric-card .metric-value {
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--hud-text-white, #FFFFFF);
+    letter-spacing: 0.02em;
+}
+
+.barber-metric-card .accent-cyan {
+    color: var(--hud-cyan, #00E5FF);
+    text-shadow: 0 0 12px rgba(0, 229, 255, 0.4);
+}
+
+.barber-metric-card .metric-hint {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--hud-text-dim, rgba(130, 157, 174, 0.6));
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+}
+
+.barber-metric-card .metric-btn {
+    margin-top: auto;
+    width: 100%;
+    padding: 9px 10px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.16s ease;
+    background: rgba(0, 229, 255, 0.1);
+    border: 1px solid rgba(0, 229, 255, 0.4);
+    color: var(--hud-cyan, #00E5FF);
+}
+
+.barber-metric-card .metric-btn:hover {
+    background: var(--hud-cyan, #00E5FF);
+    color: #06131a;
+    box-shadow: 0 0 16px rgba(0, 229, 255, 0.5);
+}
+
+.barber-metric-card .metric-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--hud-text-muted, #829DAE);
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: none;
+}
+
+/* Semantic accents per action: green = money in, yellow = obligation/tax,
+   cyan = neutral purchase/primary. */
+#barberWithdrawBtn {
+    background: rgba(46, 204, 113, 0.1);
+    border-color: rgba(46, 204, 113, 0.45);
+    color: var(--hud-green, #2ECC71);
+}
+
+#barberWithdrawBtn:hover {
+    background: var(--hud-green, #2ECC71);
+    color: #06231a;
+    box-shadow: 0 0 16px rgba(46, 204, 113, 0.5);
+}
+
+#barberPayTaxBtn {
+    background: rgba(255, 199, 0, 0.1);
+    border-color: rgba(255, 199, 0, 0.45);
+    color: var(--hud-yellow, #FFC700);
+}
+
+#barberPayTaxBtn:hover {
+    background: var(--hud-yellow, #FFC700);
+    color: #241d00;
+    box-shadow: 0 0 16px rgba(255, 199, 0, 0.5);
+}
+
+#barberCloseBtn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: var(--hud-text-muted, #829DAE);
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 800;
+    transition: all 0.16s ease;
+}
+
+#barberCloseBtn:hover {
+    color: var(--hud-text-white, #FFFFFF);
+    background: rgba(231, 76, 60, 0.16);
+    border-color: rgba(231, 76, 60, 0.45);
+}
+
+.barber-section-box {
+    background: var(--hud-card, rgba(12, 26, 34, 0.85));
+    border: 1px solid rgba(0, 229, 255, 0.15);
+    border-left: 3px solid var(--hud-cyan, #00E5FF);
+    border-radius: 4px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.barber-box-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.barber-box-header h3 {
+    margin: 0 0 4px 0;
+    font-size: 14px;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    color: var(--hud-text-white, #FFFFFF);
+    text-transform: uppercase;
+}
+
+.barber-box-header p {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--hud-text-muted, #829DAE);
+    line-height: 1.4;
+    text-transform: none;
+}
+
+.active-tier-pill {
+    padding: 6px 14px;
+    background: rgba(255, 199, 0, 0.12);
+    border: 1px solid var(--hud-yellow, #FFC700);
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    color: var(--hud-yellow, #FFC700);
+    white-space: nowrap;
+    text-transform: uppercase;
+}
+
+.barber-tier-selector {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+
+.barber-tier-btn {
+    background: var(--hud-control, rgba(8, 18, 24, 0.75));
+    border: 1px solid rgba(0, 229, 255, 0.15);
+    border-radius: 4px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.16s ease;
+}
+
+.barber-tier-btn:hover {
+    border-color: rgba(0, 229, 255, 0.4);
+    background: linear-gradient(90deg, rgba(0, 229, 255, 0.1) 0%, transparent 100%);
+    transform: translateY(-2px);
+}
+
+.barber-tier-btn.selected {
+    border-color: var(--hud-cyan, #00E5FF);
+    border-left: 3px solid var(--hud-cyan, #00E5FF);
+    background: linear-gradient(90deg, rgba(0, 229, 255, 0.15) 0%, transparent 100%);
+    box-shadow: 0 0 16px rgba(0, 229, 255, 0.2);
+}
+
+.barber-tier-btn .tier-name {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: var(--hud-text-muted, #829DAE);
+    text-transform: uppercase;
+}
+
+.barber-tier-btn.selected .tier-name {
+    color: var(--hud-cyan, #00E5FF);
+}
+
+.barber-tier-btn .tier-mult {
+    font-size: 17px;
+    font-weight: 900;
+    color: var(--hud-text-white, #FFFFFF);
+}
+
+.barber-tier-btn .tier-desc {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--hud-text-dim, rgba(130, 157, 174, 0.6));
+    line-height: 1.3;
+    margin-top: 4px;
+    text-transform: none;
+}
+
+.barber-tier-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 4px;
+}
+
+#barberSaveSettingsBtn {
+    background: rgba(46, 204, 113, 0.12);
+    border: 1px solid rgba(46, 204, 113, 0.45);
+    color: var(--hud-green, #2ECC71);
+    border-radius: 4px;
+    padding: 12px 22px;
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.16s ease;
+}
+
+#barberSaveSettingsBtn:hover {
+    background: var(--hud-green, #2ECC71);
+    color: #06231a;
+    box-shadow: 0 0 20px rgba(46, 204, 113, 0.5);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   BARBER SHOP / HAIR SALON — PUBLIC BUY / INFO PANEL — Dynamic AAA Gaming HUD
+   ═══════════════════════════════════════════════════════════════════════ */
+.barber-buy-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle at 50% 40%, rgba(10, 22, 28, 0.7) 0%, rgba(5, 10, 14, 0.94) 100%);
+    padding: 24px;
+    font-family: var(--cm-font, 'Montserrat', 'Segoe UI', sans-serif);
+    text-transform: uppercase;
+}
+
+.barber-buy-panel.hidden {
+    display: none !important;
+}
+
+.barber-buy-card {
+    position: relative;
+    width: 100%;
+    max-width: 460px;
+    background: var(--hud-panel, rgba(16, 34, 43, 0.95));
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(0, 229, 255, 0.15);
+    border-left: 3px solid var(--hud-cyan, #00E5FF);
+    border-radius: 4px;
+    padding: 28px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7), 0 0 30px rgba(0, 229, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.barber-buy-card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 22px;
+    height: 22px;
+    border-top: 2px solid var(--hud-cyan, #00E5FF);
+    border-right: 2px solid var(--hud-cyan, #00E5FF);
+    box-shadow: 0 0 12px rgba(0, 229, 255, 0.5);
+    pointer-events: none;
+}
+
+.barber-buy-kicker {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    color: var(--hud-cyan, #00E5FF);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.barber-buy-kicker::before {
+    content: "";
+    width: 3px;
+    height: 10px;
+    background: var(--hud-cyan, #00E5FF);
+    box-shadow: 0 0 6px var(--hud-cyan, #00E5FF);
+    display: inline-block;
+}
+
+.barber-buy-card h3 {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+    color: var(--hud-text-white, #FFFFFF);
+}
+
+.barber-buy-desc {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--hud-text-muted, #829DAE);
+    line-height: 1.5;
+    text-transform: none;
+}
+
+.barber-buy-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: var(--hud-card, rgba(12, 26, 34, 0.85));
+    border: 1px solid rgba(0, 229, 255, 0.15);
+    border-radius: 4px;
+    padding: 4px 16px;
+}
+
+.barber-buy-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(0, 229, 255, 0.08);
+}
+
+.barber-buy-row:last-child {
+    border-bottom: none;
+}
+
+.barber-buy-row span {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    color: var(--hud-text-muted, #829DAE);
+}
+
+.barber-buy-row strong {
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--hud-text-white, #FFFFFF);
+    text-align: right;
+}
+
+.barber-buy-row strong.accent-cyan {
+    color: var(--hud-cyan, #00E5FF);
+    text-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+}
+
+.barber-buy-note {
+    margin: 0;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--hud-text-dim, rgba(130, 157, 174, 0.6));
+    line-height: 1.4;
+    text-transform: none;
+}
+
+.barber-buy-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 4px;
+}
+
+.barber-buy-btn {
+    min-height: 46px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 800;
+    font-size: 12px;
+    font-family: var(--cm-font, 'Montserrat', sans-serif);
+    transition: all 0.16s ease;
+    border: none;
+}
+
+.barber-buy-btn--primary {
+    color: #ffffff;
+    background: linear-gradient(135deg, #2ecc71, #27ae60);
+    border: 1px solid rgba(46, 204, 113, 0.5);
+    box-shadow: 0 0 20px rgba(46, 204, 113, 0.4);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.barber-buy-btn--primary:hover {
+    background: linear-gradient(135deg, #34d679, #2ecc71);
+    box-shadow: 0 0 32px rgba(46, 204, 113, 0.65);
+    transform: translateY(-1px);
+}
+
+.barber-buy-btn--primary:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: none;
+    color: var(--hud-text-muted, #829DAE);
+    text-shadow: none;
+}
+
+.barber-buy-btn--ghost {
+    color: var(--hud-text-muted, #829DAE);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.barber-buy-btn--ghost:hover {
+    color: var(--hud-text-white, #FFFFFF);
+    background: rgba(231, 76, 60, 0.15);
+    border-color: rgba(231, 76, 60, 0.4);
+}

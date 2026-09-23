@@ -64,7 +64,7 @@ local commandPermissions = {
     'law.armory', 'law.storage', 'law.spike', 'law.barricade', 'law.fleet',
     'law.cite', 'law.manage_citations', 'law.impound', 'law.manage_impound',
     'law.radar', 'law.clamp', 'law.k9', 'law.alpr', 'law.manage_alpr', 'law.manage_members',
-    'law.view_member_map', 'law.set_meeting', 'law.manage_dispatch',
+    'law.view_member_map', 'law.set_meeting', 'law.manage_dispatch', 'law.manage_dispatch_cameras',
     'law.manage_ranks', 'law.manage_permissions', 'law.manage_armory',
     'law.logistics.request', 'law.logistics.accept', 'law.logistics.prepare',
     'law.logistics.load', 'law.logistics.deliver', 'law.logistics.cancel', 'law.logistics.recover',
@@ -183,6 +183,12 @@ Config.Custody = {
     SurrenderMinutesPerStar = 15,
     MaxCharges = 10,
     MaxSentenceMinutes = 180,
+    -- One-time seed only. server/charges.lua copies this list into the
+    -- cm_legal_charges table the first time it's empty (fresh install or an
+    -- upgrade from before the editable Criminal Code page existed) and never
+    -- reads it again after that -- the database is authoritative from then
+    -- on, editable live from F6 -> Criminal Code (leaders/cm-admin only)
+    -- instead of requiring a config edit and restart.
     Charges = {
         { id = 'reckless_driving', label = 'Reckless Driving', jailMinutes = 10 },
         { id = 'failure_to_comply', label = 'Failure to Comply', jailMinutes = 10 },
@@ -212,6 +218,41 @@ Config.Dispatch = {
     BlipColour = 5,
     BackupBlipColour = 47,
     PanicBlipColour = 1,
+    -- Automatic "shots fired" dispatch (client/gunfire.lua). Same self-reporting
+    -- shot-window/threshold/cooldown shape as the embedded police module's own
+    -- gunfire.lua, generalized to the other three organizations' own members.
+    GunfireWindowMs = 10000,
+    GunfireShotThreshold = 8,
+    GunfireCooldownMs = 120000,
+}
+
+-- In-world dashboard MDT terminal (client/laptop_terminal.lua). A DUI texture
+-- rendered on the dashboard of whatever vehicle an on-duty member is driving
+-- shows a live glance at the shared MDT dashboard. FiveM's DUI natives only
+-- forward mouse input, not keyboard -- there is no way to type into a citizen
+-- search box or note field through a world-space texture -- so pressing E
+-- while near it opens the existing full MDT panel (openMenu('mdt') in
+-- client/main.lua) for full mouse + keyboard interaction, the same as F6.
+-- The dash panel is a convenience/immersion glance, not a second input path.
+Config.LaptopTerminal = {
+    Enabled = true,
+    -- Local offsets from the vehicle's own origin (GetOffsetFromEntityInWorldCoords).
+    OffsetX = 0.0, OffsetY = 0.35, OffsetZ = 0.62,
+    Width = 0.26, Height = 0.15,
+    RenderDistance = 8.0,
+    InteractDistance = 2.0,
+    RefreshMs = 5000,
+    -- Vanilla GTA5 laptop prop (ships with every player's game already) used
+    -- as the physical dashboard model the DUI glance renders onto -- picked
+    -- over the outside/mdt reference resource's own police_laptop.ydr/.ytyp
+    -- since that's a compiled binary asset (no way to verify its screen UV
+    -- mapping without 3D modding tools) of unclear redistribution rights.
+    -- Set PropModel = false to disable the physical prop and keep only the
+    -- floating DUI quad.
+    PropModel = 'prop_laptop_01a',
+    -- Prop sits slightly behind/below the DUI quad's own offset above, since
+    -- the model's closed hinge is at its base rather than centered on screen.
+    PropOffsetZ = -0.05,
 }
 
 Config.DefaultPermissions = {
@@ -335,6 +376,7 @@ Config.Permissions = {
     ['law.radio'] = 'Use organization radio channel',
     ['law.receive_dispatch'] = 'Receive 911 dispatch calls',
     ['law.manage_dispatch'] = 'Assign units and manage live operations',
+    ['law.manage_dispatch_cameras'] = 'Place, view, and remove dispatch CCTV cameras',
     ['law.mdt'] = 'Access the MDT',
     ['law.cuff'] = 'Cuff, escort, and book suspects',
     ['law.drag'] = 'Drag/escort restrained suspects',

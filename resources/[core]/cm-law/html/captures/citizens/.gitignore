@@ -1,0 +1,5 @@
+# Runtime captures written by screenshot-basic (server/photos.lua).
+# They are player data, not source: they bloat the repo, and every joining
+# player downloads whatever is committed here via the fxmanifest files{} glob.
+*.jpg
+!.gitignore

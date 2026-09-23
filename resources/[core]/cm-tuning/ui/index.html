@@ -4,96 +4,101 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CM Tuning</title>
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="interaction" class="interaction hidden" aria-hidden="true">
-    <div class="interaction-key" id="interactionKey">E</div>
-    <div class="interaction-copy">
-      <span class="interaction-title" id="interactionTitle">CM MOTORWORKS</span>
-      <strong id="interactionLabel">Open tuning shop</strong>
-      <small id="interactionHint">Vehicle is secured while customising</small>
-    </div>
-  </div>
-
   <div id="root" class="tuning-root hidden" aria-hidden="true">
-    <div class="screen-shade"></div>
-    <main class="tuning-panel" role="dialog" aria-modal="true" aria-labelledby="shopTitle">
-      <header class="panel-header">
-        <div class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><path d="m14.7 6.3 3-3 3 3-3 3m-8.4 8.4-3 3-3-3 3-3M8 16l8-8M4 8h5M15 16h5"/></svg>
+    <div class="screen-shade" aria-hidden="true"></div>
+    <div id="inspectViewport" class="inspect-viewport" aria-label="Vehicle preview" title="Click and drag to rotate the vehicle"></div>
+
+    <main class="tuning-layout" role="dialog" aria-modal="true" aria-labelledby="vehicleName">
+      <header class="vehicle-header">
+        <span class="eyebrow" id="shopTitle">Performance Tuning</span>
+        <h1 id="vehicleName">Vehicle</h1>
+        <div class="vehicle-badges">
+          <span class="shop-badge" id="shopSub">Vehicle customisation</span>
+          <span class="plate" id="vehiclePlate">NO PLATE</span>
         </div>
-        <div class="heading-copy">
-          <span class="eyebrow">CM MOTORWORKS</span>
-          <h1 id="shopTitle">Tuning</h1>
-          <p id="shopSub">Secure vehicle customisation</p>
-        </div>
-        <button class="icon-button" id="btnClose" type="button" aria-label="Close">
-          <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
-        </button>
       </header>
 
-      <section class="vehicle-strip">
-        <div>
-          <span class="section-label">SELECTED VEHICLE</span>
-          <div class="vehicle-line">
-            <h2 id="vehicleName">Vehicle</h2>
-            <span class="plate" id="vehiclePlate">NO PLATE</span>
+      <aside class="left-stack" aria-label="Vehicle information and upgrades">
+        <section class="side-panel upgrades-panel" aria-labelledby="upgradesTitle">
+          <div class="panel-heading">
+            <h2 id="upgradesTitle">Upgrades</h2>
+            <span class="panel-kicker">SELECT A CATEGORY</span>
           </div>
-        </div>
-        <span class="status-badge"><i></i> SECURED</span>
-      </section>
-
-      <section class="workspace">
-        <aside class="category-column">
-          <div class="category-heading">UPGRADES</div>
-          <div id="categoryList" class="category-list"></div>
+          <label class="category-search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.3"/><path d="m15.5 15.5 4.2 4.2"/></svg>
+            <input id="categorySearch" type="search" placeholder="Search upgrades..." autocomplete="off" aria-label="Search upgrade categories">
+          </label>
+          <nav id="categoryList" class="category-list" aria-label="Upgrade categories"></nav>
           <div class="camera-block">
-            <span class="category-heading">CAMERA</span>
+            <div class="camera-heading"><span class="panel-kicker">CAMERA VIEW</span><span>DRAG TO ROTATE</span></div>
             <div id="cameraList" class="camera-list"></div>
           </div>
-        </aside>
+        </section>
+      </aside>
 
-        <section class="content-column">
-          <header class="content-header">
-            <div>
-              <span class="section-label">CUSTOMISATION</span>
-              <h2 id="paneTitle">Engine</h2>
-              <p id="paneSub">Select an upgrade</p>
-            </div>
-          </header>
-          <div id="paneBody" class="pane-body"></div>
+      <section class="side-panel options-panel" aria-labelledby="paneTitle">
+        <header class="options-header">
+          <div>
+            <span class="panel-kicker">AVAILABLE OPTIONS</span>
+            <h2 id="paneTitle">Engine</h2>
+            <p id="paneSub">Select an upgrade</p>
+          </div>
+          <span id="paneIndex" class="option-index">—</span>
+        </header>
+        <div id="paneBody" class="pane-body"></div>
+        <section id="performancePanel" class="vehicle-performance" aria-label="Vehicle performance">
+          <span class="panel-kicker">VEHICLE PERFORMANCE</span>
+          <div class="performance-row"><span>TOP SPEED</span><div class="performance-track" role="meter" aria-label="Top speed" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="statSpeedBar"></i></div></div>
+          <div class="performance-row"><span>ENGINE</span><div class="performance-track" role="meter" aria-label="Engine upgrade level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="statEngineBar"></i></div></div>
+          <div class="performance-row"><span>BRAKES</span><div class="performance-track" role="meter" aria-label="Brake upgrade level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="statBrakesBar"></i></div></div>
         </section>
       </section>
 
-      <footer class="checkout">
+      <footer class="action-bar">
+        <button class="cancel-button" id="btnClose" type="button"><kbd>ESC</kbd><span>Cancel</span></button>
         <div class="payment-block">
-          <span class="section-label">PAYMENT</span>
+          <span class="action-label">CASH PAYMENT</span>
           <div id="paymentOptions" class="payment-options"></div>
         </div>
         <div class="checkout-total">
-          <span>ORDER TOTAL</span>
+          <span class="action-label">BASKET TOTAL</span>
           <strong id="totalValue">$0</strong>
           <small id="checkoutHint">Server-verified price</small>
         </div>
         <button id="btnBuy" class="primary-button" type="button" disabled>
-          <span id="buyText">Save changes</span>
-          <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>
+          <span id="buyText">Purchase mods</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
         </button>
       </footer>
 
-      <div id="toast" class="toast hidden" role="status">
-        <span class="toast-dot"></span>
+      <div id="toast" class="toast hidden" role="status" aria-live="polite">
+        <span class="toast-dot" aria-hidden="true"></span>
         <p id="toastMessage"></p>
       </div>
 
-      <div class="key-hint"><kbd>Q</kbd><kbd>E</kbd><span>Rotate camera</span><kbd>ESC</kbd><span>Cancel</span></div>
-
       <div id="processing" class="processing hidden" aria-hidden="true">
-        <div class="spinner"></div>
+        <div class="spinner" aria-hidden="true"></div>
         <strong id="processingText">Processing...</strong>
       </div>
     </main>
+
+    <div id="confirmModal" class="cm-confirm-modal hidden" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage">
+      <div class="cm-confirm-modal__backdrop" data-confirm-dismiss="true"></div>
+      <section class="cm-confirm-modal__dialog">
+        <span class="confirm-eyebrow">REVIEW BEFORE SUBMITTING</span>
+        <h2 id="confirmTitle" class="cm-confirm-modal__title">CONFIRM PURCHASE</h2>
+        <p id="confirmMessage" class="cm-confirm-modal__message"></p>
+        <div id="confirmConsequence" class="cm-confirm-modal__consequence"></div>
+        <div class="cm-confirm-modal__actions">
+          <button id="btnCancelPurchase" class="cm-confirm-modal__cancel" type="button">CANCEL</button>
+          <button id="btnConfirmPurchase" class="cm-confirm-modal__confirm" type="button">CONFIRM</button>
+        </div>
+      </section>
+    </div>
   </div>
 
   <script src="app.js"></script>

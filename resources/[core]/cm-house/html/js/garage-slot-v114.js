@@ -121,6 +121,13 @@
   }
 
   function vehicleState(vehicle) {
+    if (vehicle.rankAllowed === false) {
+      return {
+        key: 'blocked',
+        label: vehicle.statusLabel || ('TIER ' + (vehicle.requiredTier || '') + ' REQUIRED'),
+        tone: 'blocked'
+      };
+    }
     if (vehicle.canPark) return { key: 'available', label: 'AVAILABLE', tone: 'available', action: 'park', actionLabel: 'ASSIGN HERE' };
     if (vehicle.canCall) return { key: 'assigned', label: vehicle.inGarage ? 'PARKED' : 'ASSIGNED', tone: 'assigned', action: 'call', actionLabel: 'MOVE HERE' };
     var code = String(vehicle.statusCode || '').toUpperCase();
@@ -144,6 +151,23 @@
     item.setAttribute('data-filter-state', state.key);
     item.setAttribute('data-search', searchable([vehicle.label, vehicle.model, vehicle.plate].join(' ')));
 
+    // Card header: plate badge + status badge
+    var topRow = document.createElement('div');
+    topRow.className = 'garage-vehicle-row__top';
+
+    var plateBadge = document.createElement('span');
+    plateBadge.className = 'garage-vehicle-row__plate';
+    plateBadge.textContent = vehicle.licenseNumber || vehicle.plate || 'NO PLATE';
+
+    var statusBadge = document.createElement('span');
+    statusBadge.className = 'garage-vehicle-row__status garage-vehicle-row__status--' + state.tone;
+    statusBadge.textContent = state.label;
+
+    topRow.appendChild(plateBadge);
+    topRow.appendChild(statusBadge);
+    item.appendChild(topRow);
+
+    // Vehicle image
     var media = document.createElement('div');
     media.className = 'garage-vehicle-row__media';
     if (hasImage) {
@@ -161,31 +185,33 @@
     fallback.className = 'garage-vehicle-row__fallback';
     fallback.textContent = 'CM';
     media.appendChild(fallback);
+
+    if (!replacing && state.key === 'available') {
+      var suggested = document.createElement('span');
+      suggested.className = 'garage-vehicle-row__suggested';
+      suggested.textContent = 'SUGGESTED';
+      media.appendChild(suggested);
+    }
     item.appendChild(media);
 
-    var copy = document.createElement('span');
+    // Copy: name + location
+    var copy = document.createElement('div');
     copy.className = 'garage-vehicle-row__copy';
-    var top = document.createElement('span');
-    top.className = 'garage-vehicle-row__top';
-    var name = document.createElement('strong');
-    name.textContent = vehicle.label || vehicle.model || 'Vehicle';
-    name.title = name.textContent;
-    var badge = document.createElement('span');
-    badge.className = 'garage-vehicle-row__status garage-vehicle-row__status--' + state.tone;
-    badge.textContent = state.label;
-    top.appendChild(name); top.appendChild(badge);
-    var plate = document.createElement('small');
-    plate.className = 'garage-vehicle-row__plate';
-    plate.textContent = vehicle.plate || 'NO PLATE';
-    var model = document.createElement('small');
-    model.className = 'garage-vehicle-row__model';
-    model.textContent = String(vehicle.model || 'ROAD VEHICLE').toUpperCase();
-    var location = document.createElement('small');
-    location.className = 'garage-vehicle-row__location';
-    location.textContent = vehicleLocation(vehicle);
-    location.title = location.textContent;
-    copy.appendChild(top); copy.appendChild(plate); copy.appendChild(model); copy.appendChild(location);
 
+    var nameEl = document.createElement('strong');
+    nameEl.textContent = (vehicle.label || vehicle.model || 'Vehicle').toUpperCase();
+    nameEl.title = nameEl.textContent;
+
+    var locationEl = document.createElement('span');
+    locationEl.className = 'garage-vehicle-row__location';
+    locationEl.textContent = vehicleLocation(vehicle);
+    locationEl.title = locationEl.textContent;
+
+    copy.appendChild(nameEl);
+    copy.appendChild(locationEl);
+    item.appendChild(copy);
+
+    // Actions
     var actions = document.createElement('span');
     actions.className = 'garage-vehicle-row__actions';
     var rank = rankControl(vehicle, false);
@@ -197,11 +223,13 @@
       unavailable.className = 'garage-vehicle-row__unavailable';
       unavailable.textContent = replacing
         ? 'CURRENT SPACE IS OCCUPIED'
-        : 'ACTION UNAVAILABLE';
+        : (vehicle.rankAllowed === false
+          ? ('REQUIRES TIER ' + (vehicle.requiredTier || ''))
+          : 'ACTION UNAVAILABLE');
       actions.appendChild(unavailable);
     }
 
-    item.appendChild(copy); item.appendChild(actions);
+    item.appendChild(actions);
     return item;
   }
 
@@ -241,15 +269,15 @@
     var vehicle = current.current || null;
     var vehicles = Array.isArray(current.vehicles) ? current.vehicles : [];
 
-    text('gs-eyebrow', occupied ? 'OCCUPIED PARKING' : 'AVAILABLE PARKING');
-    text('gs-title', 'Parking space ' + String(current.slotIndex || '?'));
+    text('gs-eyebrow', 'ASSIGNMENT & GARAGE MANAGEMENT');
+    text('gs-title', ('PARKING SPACE ' + String(current.slotIndex || '?')).toUpperCase());
     text('gs-subtitle', occupied
       ? 'Recall the assigned vehicle, or cancel the car to clear this space.'
       : (current.isFamilyGarage
         ? 'Choose an eligible family vehicle. A car assigned elsewhere will move to this space.'
         : 'Choose any eligible owned vehicle. A car assigned elsewhere will move to this space.'));
     var symbol = el('gs-symbol');
-    if (symbol) { symbol.setAttribute('data-occupied', occupied ? '1' : '0'); symbol.textContent = occupied ? '!' : 'P'; }
+    if (symbol) { symbol.setAttribute('data-occupied', occupied ? '1' : '0'); symbol.textContent = occupied ? '!' : '\uf5e7'; }
 
     var currentBox = el('gs-current');
     var actions = el('gs-actions');
@@ -257,7 +285,7 @@
     if (actions) actions.hidden = !occupied;
     if (occupied && vehicle) {
       text('gs-current-name', vehicle.label || vehicle.model || 'Vehicle');
-      text('gs-current-plate', vehicle.plate || 'NO PLATE');
+      text('gs-current-plate', vehicle.licenseNumber || 'NO PLATE');
       var currentState = el('gs-current-state');
       text('gs-current-state', vehicle.statusLabel || (vehicle.inGarage ? 'PARKED HERE' : 'RESERVED · OUTSIDE'));
       if (currentState) currentState.setAttribute('data-status', vehicle.statusCode || '');
@@ -345,6 +373,10 @@
     var body = { action: action };
     var id = node.getAttribute('data-vehicle-id');
     if (id) body.vehicleId = Number(id);
+    var vLabel = node.getAttribute('data-vehicle-label');
+    if (vLabel) body.vehicleLabel = vLabel;
+    var pLabel = node.getAttribute('data-parking-label');
+    if (pLabel) body.parkingLabel = pLabel;
     if (action === 'recall' && current && current.current) {
       body.vehicleId = Number(current.current.id);
     }
@@ -419,5 +451,5 @@
       closeLocal(true);
     }
   });
-  post('garageSlot:ready', { version: '3.1.0', rootFound: !!root });
+  post('garageSlot:ready', { version: '3.2.0', rootFound: !!root });
 }());

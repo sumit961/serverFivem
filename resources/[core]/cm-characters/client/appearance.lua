@@ -28,6 +28,11 @@ end
 
 local appearanceCam = nil
 local appearanceOffset = nil
+local camTargetPos = nil
+local camBaseCoord = nil
+local camHeightOffset = 0.0
+local camCurrentFov = 34.0
+local currentCamCategory = 'hairs'
 local currentCharData = nil
 local isInAppearance = false
 local appearanceSavePending = false
@@ -135,6 +140,7 @@ local lastCoords = nil
 local gender = 'male'
 local playerHasSkin = false
 local handsup = false
+local CaptureCurrentAppearance = nil
 
 local function CopyTable(tbl)
     local copy = {}
@@ -164,15 +170,15 @@ local function InitSkinData()
         helmet_1 = -1, helmet_2 = 0, glasses_1 = 0, glasses_2 = 0,
         watches_1 = -1, watches_2 = 0, bracelets_1 = -1, bracelets_2 = 0,
         bags_1 = 0, bags_2 = 0, eye_color = 0, eye_squint = 0,
-        eyebrows_1 = 0, eyebrows_2 = 0, eyebrows_3 = 0, eyebrows_4 = 0, eyebrows_5 = 0, eyebrows_6 = 0,
+        eyebrows_1 = 0, eyebrows_2 = 10, eyebrows_3 = 0, eyebrows_4 = 0, eyebrows_5 = 0, eyebrows_6 = 0,
         makeup_1 = 0, makeup_2 = 0, makeup_3 = 0, makeup_4 = 0,
         lipstick_1 = 0, lipstick_2 = 0, lipstick_3 = 0, lipstick_4 = 0,
-        ears_1 = -1, ears_2 = 0, chest_1 = 0, chest_2 = 0, chest_3 = 0,
+        ears_1 = -1, ears_2 = 0, chest_1 = 0, chest_2 = 10, chest_3 = 0,
         bodyb_1 = -1, bodyb_2 = 0, bodyb_3 = -1, bodyb_4 = 0,
         age_1 = 0, age_2 = 0, blemishes_1 = 0, blemishes_2 = 0,
         blush_1 = 0, blush_2 = 0, blush_3 = 0, complexion_1 = 0, complexion_2 = 0,
         sun_1 = 0, sun_2 = 0, moles_1 = 0, moles_2 = 0,
-        beard_1 = 0, beard_2 = 0, beard_3 = 0, beard_4 = 0
+        beard_1 = 0, beard_2 = 10, beard_3 = 0, beard_4 = 0
     }
     tempSkinTable = {}
     for k,v in pairs(SkinData) do
@@ -192,7 +198,7 @@ local function GetMaxVals()
         beard_1 = GetPedHeadOverlayNum(1)-1, beard_2 = 10,
         beard_3 = GetNumHairColors()-1, beard_4 = GetNumHairColors()-1,
         hair_1 = GetNumberOfPedDrawableVariations(ped, 2) - 1,
-        hair_2 = GetNumberOfPedTextureVariations(ped, 2, tempSkinTable['hair_1']) - 1,
+        hair_2 = GetNumberOfPedTextureVariations(ped, 2, tonumber(tempSkinTable['hair_1']) or 0) - 1,
         hair_color_1 = GetNumHairColors()-1, hair_color_2 = GetNumHairColors()-1,
         eye_color = 31, eye_squint = 10,
         eyebrows_1 = GetPedHeadOverlayNum(2)-1, eyebrows_2 = 10,
@@ -211,13 +217,13 @@ local function GetMaxVals()
         bodyb_1 = GetPedHeadOverlayNum(11)-1, bodyb_2 = 10,
         bodyb_3 = GetPedHeadOverlayNum(12)-1, bodyb_4 = 10,
         ears_1 = GetNumberOfPedPropDrawableVariations(ped, 2) - 1,
-        ears_2 = GetNumberOfPedPropTextureVariations(ped, 2, tempSkinTable['ears_1']) - 1,
+        ears_2 = GetNumberOfPedPropTextureVariations(ped, 2, tonumber(tempSkinTable['ears_1']) or 0) - 1,
         tshirt_1 = 0,
         tshirt_2 = 0,
         torso_1 = 1,
         torso_2 = 0,
         decals_1 = GetNumberOfPedDrawableVariations(ped, 10) - 1,
-        decals_2 = GetNumberOfPedTextureVariations(ped, 10, tempSkinTable['decals_1']) - 1,
+        decals_2 = GetNumberOfPedTextureVariations(ped, 10, tonumber(tempSkinTable['decals_1']) or 0) - 1,
         arms = GetNumberOfPedDrawableVariations(ped, 3) - 1, arms_2 = 10,
         pants_1 = 1,
         pants_2 = 0,
@@ -245,79 +251,127 @@ end
 -- Apply skin to ped
 local function ApplySkin(skin)
     local ped = PlayerPedId()
+    if not ped or ped == 0 or not DoesEntityExist(ped) then return end
+    skin = type(skin) == 'table' and skin or {}
+
+    local function n(key, fallback)
+        local val = skin[key]
+        return tonumber(val) or tonumber(fallback) or 0
+    end
 
     -- Head blend
-    local face_weight = (skin['face_md_weight'] / 100) + 0.0
-    local skin_weight = (skin['skin_md_weight'] / 100) + 0.0
-    SetPedHeadBlendData(ped, skin['mom'], skin['dad'], 0, skin['mom'], skin['dad'], 0, face_weight, skin_weight, 0.0, false)
+    local face_weight = n('face_md_weight', 50) / 100.0
+    local skin_weight = n('skin_md_weight', 50) / 100.0
+    SetPedHeadBlendData(ped, n('mom', 21), n('dad', 0), 0, n('mom', 21), n('dad', 0), 0, face_weight, skin_weight, 0.0, false)
 
     -- Face features
-    SetPedFaceFeature(ped, 0, (skin['nose_1'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 1, (skin['nose_2'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 2, (skin['nose_3'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 3, (skin['nose_4'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 4, (skin['nose_5'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 5, (skin['nose_6'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 8, (skin['cheeks_1'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 9, (skin['cheeks_2'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 10, (skin['cheeks_3'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 12, (skin['lip_thickness'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 13, (skin['jaw_1'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 14, (skin['jaw_2'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 15, (skin['chin_1'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 16, (skin['chin_2'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 17, (skin['chin_3'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 18, (skin['chin_4'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 19, (skin['neck_thickness'] / 10) + 0.0)
+    SetPedFaceFeature(ped, 0, (n('nose_1', 0) / 10.0))
+    SetPedFaceFeature(ped, 1, (n('nose_2', 0) / 10.0))
+    SetPedFaceFeature(ped, 2, (n('nose_3', 0) / 10.0))
+    SetPedFaceFeature(ped, 3, (n('nose_4', 0) / 10.0))
+    SetPedFaceFeature(ped, 4, (n('nose_5', 0) / 10.0))
+    SetPedFaceFeature(ped, 5, (n('nose_6', 0) / 10.0))
+    SetPedFaceFeature(ped, 8, (n('cheeks_1', 0) / 10.0))
+    SetPedFaceFeature(ped, 9, (n('cheeks_2', 0) / 10.0))
+    SetPedFaceFeature(ped, 10, (n('cheeks_3', 0) / 10.0))
+    SetPedFaceFeature(ped, 12, (n('lip_thickness', 0) / 10.0))
+    SetPedFaceFeature(ped, 13, (n('jaw_1', 0) / 10.0))
+    SetPedFaceFeature(ped, 14, (n('jaw_2', 0) / 10.0))
+    SetPedFaceFeature(ped, 15, (n('chin_1', 0) / 10.0))
+    SetPedFaceFeature(ped, 16, (n('chin_2', 0) / 10.0))
+    SetPedFaceFeature(ped, 17, (n('chin_3', 0) / 10.0))
+    SetPedFaceFeature(ped, 18, (n('chin_4', 0) / 10.0))
+    SetPedFaceFeature(ped, 19, (n('neck_thickness', 0) / 10.0))
 
     -- Overlays
-    SetPedHeadOverlay(ped, 3, skin['age_1'], (skin['age_2'] / 10) + 0.0)
-    SetPedHeadOverlay(ped, 0, skin['blemishes_1'], (skin['blemishes_2'] / 10) + 0.0)
-    SetPedEyeColor(ped, skin['eye_color'])
-    SetPedHeadOverlay(ped, 2, skin['eyebrows_1'], (skin['eyebrows_2'] / 10) + 0.0)
-    SetPedHeadOverlayColor(ped, 2, 1, skin['eyebrows_3'], skin['eyebrows_4'])
-    SetPedFaceFeature(ped, 6, (skin['eyebrows_5'] / 10) + 0.0)
-    SetPedFaceFeature(ped, 7, (skin['eyebrows_6'] / 10) + 0.0)
-    SetPedHeadOverlay(ped, 4, skin['makeup_1'], (skin['makeup_2'] / 10) + 0.0)
-    SetPedHeadOverlayColor(ped, 4, 2, skin['makeup_3'], skin['makeup_4'])
-    SetPedHeadOverlay(ped, 8, skin['lipstick_1'], (skin['lipstick_2'] / 10) + 0.0)
-    SetPedHeadOverlayColor(ped, 8, 1, skin['lipstick_3'], skin['lipstick_4'])
-    SetPedComponentVariation(ped, 2, skin['hair_1'], skin['hair_2'], 2)
-    SetPedHairColor(ped, skin['hair_color_1'], skin['hair_color_2'])
-    SetPedHeadOverlay(ped, 1, skin['beard_1'], (skin['beard_2'] / 10) + 0.0)
-    SetPedHeadOverlayColor(ped, 1, 1, skin['beard_3'], skin['beard_4'])
-    SetPedHeadOverlay(ped, 5, skin['blush_1'], (skin['blush_2'] / 10) + 0.0)
-    SetPedHeadOverlayColor(ped, 5, 2, skin['blush_3'], skin['blush_3'])
-    SetPedHeadOverlay(ped, 6, skin['complexion_1'], (skin['complexion_2'] / 10) + 0.0)
-    SetPedHeadOverlay(ped, 7, skin['sun_1'], (skin['sun_2'] / 10) + 0.0)
-    SetPedHeadOverlay(ped, 9, skin['moles_1'], (skin['moles_2'] / 10) + 0.0)
-    SetPedHeadOverlay(ped, 10, skin['chest_1'], (skin['chest_2'] / 10) + 0.0)
-    SetPedHeadOverlayColor(ped, 10, 1, skin['chest_3'], skin['chest_3'])
+    SetPedHeadOverlay(ped, 3, n('age_1', 0), (n('age_2', 0) / 10.0))
+    SetPedHeadOverlay(ped, 0, n('blemishes_1', 0), (n('blemishes_2', 0) / 10.0))
+    SetPedEyeColor(ped, n('eye_color', 0))
 
-    -- Props (nil-safe)
-    local _ears      = tonumber(skin['ears_1'])
-    local _helmet    = tonumber(skin['helmet_1'])
-    local _glasses   = tonumber(skin['glasses_1'])
-    local _watches   = tonumber(skin['watches_1'])
-    local _bracelets = tonumber(skin['bracelets_1'])
+    -- Eyebrows
+    local eb1 = n('eyebrows_1', 0)
+    local eb2 = n('eyebrows_2', 10) / 10.0
+    if eb1 >= 0 and eb1 ~= 255 and eb2 <= 0.0 then eb2 = 1.0 end
+    local eb3 = n('eyebrows_3', n('hair_color_1', 0))
+    local eb4 = n('eyebrows_4', eb3)
+    SetPedHeadOverlay(ped, 2, eb1, eb2)
+    SetPedHeadOverlayColor(ped, 2, 1, eb3, eb4)
+    SetPedFaceFeature(ped, 6, (n('eyebrows_5', 0) / 10.0))
+    SetPedFaceFeature(ped, 7, (n('eyebrows_6', 0) / 10.0))
 
-    if _ears      == nil or _ears      < 0 then ClearPedProp(ped, 2) else SetPedPropIndex(ped, 2, _ears,      skin['ears_2']      or 0, true) end
-    if _helmet    == nil or _helmet    < 0 then ClearPedProp(ped, 0) else SetPedPropIndex(ped, 0, _helmet,    skin['helmet_2']    or 0, true) end
-    if _glasses   == nil or _glasses   < 0 then ClearPedProp(ped, 1) else SetPedPropIndex(ped, 1, _glasses,   skin['glasses_2']   or 0, true) end
-    if _watches   == nil or _watches   < 0 then ClearPedProp(ped, 6) else SetPedPropIndex(ped, 6, _watches,   skin['watches_2']   or 0, true) end
-    if _bracelets == nil or _bracelets < 0 then ClearPedProp(ped, 7) else SetPedPropIndex(ped, 7, _bracelets, skin['bracelets_2'] or 0, true) end
+    SetPedHeadOverlay(ped, 4, n('makeup_1', 0), (n('makeup_2', 0) / 10.0))
+    SetPedHeadOverlayColor(ped, 4, 2, n('makeup_3', 0), n('makeup_4', 0))
+    SetPedHeadOverlay(ped, 8, n('lipstick_1', 0), (n('lipstick_2', 0) / 10.0))
+    SetPedHeadOverlayColor(ped, 8, 1, n('lipstick_3', 0), n('lipstick_4', 0))
 
-    -- Components
-    SetPedComponentVariation(ped, 8,  skin['tshirt_1'] or 15, skin['tshirt_2'] or 0, 2)
-    SetPedComponentVariation(ped, 11, skin['torso_1']  or 15, skin['torso_2']  or 0, 2)
-    SetPedComponentVariation(ped, 3,  skin['arms']     or 15, skin['arms_2']   or 0, 2)
-    SetPedComponentVariation(ped, 10, skin['decals_1'] or 0,  skin['decals_2'] or 0, 2)
-    SetPedComponentVariation(ped, 4,  skin['pants_1']  or 14, skin['pants_2']  or 0, 2)
-    SetPedComponentVariation(ped, 6,  skin['shoes_1']  or 34, skin['shoes_2']  or 0, 2)
-    SetPedComponentVariation(ped, 1,  skin['mask_1']   or 0,  skin['mask_2']   or 0, 2)
-    SetPedComponentVariation(ped, 9,  skin['bproof_1'] or 0,  skin['bproof_2'] or 0, 2)
-    SetPedComponentVariation(ped, 7,  skin['chain_1']  or 0,  skin['chain_2']  or 0, 2)
-    SetPedComponentVariation(ped, 5,  skin['bags_1']   or 0,  skin['bags_2']   or 0, 2)
+    -- Hair
+    local h1 = n('hair_1', 0)
+    local h2 = n('hair_2', 0)
+    local hc1 = n('hair_color_1', 0)
+    local hc2 = n('hair_color_2', hc1)
+    SetPedComponentVariation(ped, 2, h1, h2, 2)
+    SetPedHairColor(ped, hc1, hc2)
+
+    -- Beard & Chest Hair: STRICT GENDER CHECK
+    local isFemale = (GetEntityModel(ped) == GetHashKey('mp_f_freemode_01')) or (skin['sex'] == 1 or skin['sex'] == '1' or skin['sex'] == 'female')
+    if isFemale then
+        SetPedHeadOverlay(ped, 1, 255, 0.0)
+        SetPedHeadOverlay(ped, 10, 255, 0.0)
+    else
+        local b1 = n('beard_1', 0)
+        local b2 = n('beard_2', 0) / 10.0
+        if b1 <= 0 or b1 == 255 or b2 <= 0.0 then
+            SetPedHeadOverlay(ped, 1, 255, 0.0)
+        else
+            local b3 = n('beard_3', hc1)
+            local b4 = n('beard_4', b3)
+            SetPedHeadOverlay(ped, 1, b1, b2)
+            SetPedHeadOverlayColor(ped, 1, 1, b3, b4)
+        end
+
+        local ch1 = n('chest_1', 0)
+        local ch2 = n('chest_2', 0) / 10.0
+        if ch1 <= 0 or ch1 == 255 or ch2 <= 0.0 then
+            SetPedHeadOverlay(ped, 10, 255, 0.0)
+        else
+            local ch3 = n('chest_3', 0)
+            SetPedHeadOverlay(ped, 10, ch1, ch2)
+            SetPedHeadOverlayColor(ped, 10, 1, ch3, ch3)
+        end
+    end
+
+    SetPedHeadOverlay(ped, 5, n('blush_1', 0), (n('blush_2', 0) / 10.0))
+    SetPedHeadOverlayColor(ped, 5, 2, n('blush_3', 0), n('blush_3', 0))
+    SetPedHeadOverlay(ped, 6, n('complexion_1', 0), (n('complexion_2', 0) / 10.0))
+    SetPedHeadOverlay(ped, 7, n('sun_1', 0), (n('sun_2', 0) / 10.0))
+    SetPedHeadOverlay(ped, 9, n('moles_1', 0), (n('moles_2', 0) / 10.0))
+
+    if appearanceServiceMode ~= 'barber' then
+        -- Props (nil-safe)
+        local _ears      = tonumber(skin['ears_1'])
+        local _helmet    = tonumber(skin['helmet_1'])
+        local _glasses   = tonumber(skin['glasses_1'])
+        local _watches   = tonumber(skin['watches_1'])
+        local _bracelets = tonumber(skin['bracelets_1'])
+
+        if _ears      == nil or _ears      < 0 then ClearPedProp(ped, 2) else SetPedPropIndex(ped, 2, _ears,      n('ears_2', 0), true) end
+        if _helmet    == nil or _helmet    < 0 then ClearPedProp(ped, 0) else SetPedPropIndex(ped, 0, _helmet,    n('helmet_2', 0), true) end
+        if _glasses   == nil or _glasses   < 0 then ClearPedProp(ped, 1) else SetPedPropIndex(ped, 1, _glasses,   n('glasses_2', 0), true) end
+        if _watches   == nil or _watches   < 0 then ClearPedProp(ped, 6) else SetPedPropIndex(ped, 6, _watches,   n('watches_2', 0), true) end
+        if _bracelets == nil or _bracelets < 0 then ClearPedProp(ped, 7) else SetPedPropIndex(ped, 7, _bracelets, n('bracelets_2', 0), true) end
+
+        -- Components
+        SetPedComponentVariation(ped, 8,  n('tshirt_1', 15), n('tshirt_2', 0), 2)
+        SetPedComponentVariation(ped, 11, n('torso_1', 15),  n('torso_2', 0), 2)
+        SetPedComponentVariation(ped, 3,  n('arms', 15),     n('arms_2', 0), 2)
+        SetPedComponentVariation(ped, 10, n('decals_1', 0),  n('decals_2', 0), 2)
+        SetPedComponentVariation(ped, 4,  n('pants_1', 14),  n('pants_2', 0), 2)
+        SetPedComponentVariation(ped, 6,  n('shoes_1', 34),  n('shoes_2', 0), 2)
+        SetPedComponentVariation(ped, 1,  n('mask_1', 0),    n('mask_2', 0), 2)
+        SetPedComponentVariation(ped, 9,  n('bproof_1', 0),  n('bproof_2', 0), 2)
+        SetPedComponentVariation(ped, 7,  n('chain_1', 0),   n('chain_2', 0), 2)
+        SetPedComponentVariation(ped, 5,  n('bags_1', 0),    n('bags_2', 0), 2)
+    end
 end
 
 -- Update single value
@@ -387,7 +441,7 @@ local function GetComponentData()
         {name = 'bags_2', value = 0, min = 0},
         {name = 'eye_color', value = 0, min = 0},
         {name = 'eyebrows_1', value = 0, min = 0},
-        {name = 'eyebrows_2', value = 0, min = 0},
+        {name = 'eyebrows_2', value = 10, min = 0},
         {name = 'eyebrows_3', value = 0, min = 0},
         {name = 'eyebrows_4', value = 0, min = 0},
         {name = 'eyebrows_5', value = 0, min = -10},
@@ -403,7 +457,7 @@ local function GetComponentData()
         {name = 'ears_1', value = -1, min = -1},
         {name = 'ears_2', value = 0, min = 0},
         {name = 'chest_1', value = 0, min = 0},
-        {name = 'chest_2', value = 0, min = 0},
+        {name = 'chest_2', value = 10, min = 0},
         {name = 'chest_3', value = 0, min = 0},
         {name = 'bodyb_1', value = -1, min = -1},
         {name = 'bodyb_2', value = 0, min = 0},
@@ -423,7 +477,7 @@ local function GetComponentData()
         {name = 'moles_1', value = 0, min = 0},
         {name = 'moles_2', value = 0, min = 0},
         {name = 'beard_1', value = 0, min = 0},
-        {name = 'beard_2', value = 0, min = 0},
+        {name = 'beard_2', value = 10, min = 0},
         {name = 'beard_3', value = 0, min = 0},
         {name = 'beard_4', value = 0, min = 0},
     }
@@ -440,24 +494,65 @@ local function GetComponentData()
     return data
 end
 
--- Create camera
-local function CreateAppearanceCam()
+local function UpdateCameraPosition(category)
+    if not DoesCamExist(appearanceCam) then return end
+    local ped = PlayerPedId()
+    if not ped or ped == 0 then return end
+    category = category or currentCamCategory or (appearanceServiceMode == 'barber' and 'hairs' or 'hairs')
+    currentCamCategory = category
+
+    local coords = GetEntityCoords(ped)
+    local forward = GetEntityForwardVector(ped)
+    local isHeadPreset = (category == 'hairs' or category == 'face' or category == 'parents' or appearanceServiceMode == 'barber')
+
+    local headBone = GetPedBoneIndex(ped, 31086)
+    local headPos
+    if headBone ~= -1 then
+        headPos = GetWorldPositionOfEntityBone(ped, headBone)
+    end
+    if not headPos or #(headPos - coords) > 2.5 then
+        headPos = vector3(coords.x, coords.y, coords.z + 0.72)
+    end
+
+    local targetZ, dist, fov
+    if isHeadPreset then
+        targetZ = headPos.z + 0.04
+        dist = 0.90
+        fov = 32.0
+    else
+        targetZ = coords.z + 0.10
+        dist = 2.40
+        fov = 48.0
+    end
+
+    camTargetPos = vector3(headPos.x, headPos.y, targetZ)
+    camBaseCoord = vector3(
+        headPos.x + forward.x * dist,
+        headPos.y + forward.y * dist,
+        targetZ + 0.04
+    )
+    camCurrentFov = fov
+
+    SetCamCoord(appearanceCam, camBaseCoord.x, camBaseCoord.y, camBaseCoord.z + camHeightOffset)
+    PointCamAtCoord(appearanceCam, camTargetPos.x, camTargetPos.y, camTargetPos.z + (camHeightOffset * 0.5))
+    SetCamFov(appearanceCam, camCurrentFov)
+end
+
+-- Create camera with head-level framing and crisp clear rendering
+local function CreateAppearanceCam(category)
     if not DoesCamExist(appearanceCam) then
         appearanceCam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
     end
     local ped = PlayerPedId()
-    local coords = GetEntityCoords(ped)
-    local heading = GetEntityHeading(ped)
-    appearanceOffset = GetOffsetFromEntityInWorldCoords(ped, 0.0, 0.0 + AppearanceConfig.defaultCamDistance, 0.0)
+    camHeightOffset = 0.0
+    category = category or (appearanceServiceMode == 'barber' and 'hairs' or 'hairs')
 
     SetCamActive(appearanceCam, true)
     RenderScriptCams(true, true, 500, true, true)
-    SetCamCoord(appearanceCam, appearanceOffset.x, appearanceOffset.y, appearanceOffset.z + 0.65)
-    PointCamAtCoord(appearanceCam, coords.x, coords.y, coords.z + 0.65)
-    SetCamFov(appearanceCam, 30.0)
+    UpdateCameraPosition(category)
 
-    SetTimecycleModifier('MP_corona_heist_DOF')
-    SetTimecycleModifierStrength(1.0)
+    -- Clear heavy blur DOF so haircut and face details are crystal clear
+    ClearTimecycleModifier()
 
     -- Play idle anim
     RequestAnimDict(AppearanceConfig.animDict)
@@ -472,6 +567,9 @@ local function DeleteAppearanceCam()
 
     SetCamActive(appearanceCam, false)
     appearanceCam = nil
+    camTargetPos = nil
+    camBaseCoord = nil
+    camHeightOffset = 0.0
     RenderScriptCams(false, true, 500, true, true)
     ClearTimecycleModifier()
 
@@ -628,6 +726,29 @@ AddEventHandler('cm-characters:client:openAppearance', function(charData)
     sendCreationLoading(false)
 end)
 
+local function FetchActiveCharacterAppearance()
+    local p = promise.new()
+    local resolved = false
+    local reqId = tostring(GetGameTimer()) .. '_' .. tostring(math.random(1000, 9999))
+    local handler = nil
+    handler = AddEventHandler('cm-characters:client:receiveAppearanceData', function(id, data)
+        if tostring(id) == reqId and not resolved then
+            resolved = true
+            p:resolve(data)
+        end
+    end)
+    TriggerServerEvent('cm-characters:server:requestAppearanceData', reqId)
+    SetTimeout(1500, function()
+        if not resolved then
+            resolved = true
+            p:resolve(nil)
+        end
+    end)
+    local res = Citizen.Await(p)
+    if handler then pcall(RemoveEventHandler, handler) end
+    return res
+end
+
 -- Opens the existing editor for an active character without entering the
 -- first-character creation/spawn flow. Callers may expose only the service
 -- categories they own; cm-characters still owns the save operation.
@@ -636,7 +757,7 @@ AddEventHandler('cm-characters:client:openAppearanceService', function(options)
     options = type(options) == 'table' and options or {}
 
     local service = tostring(options.service or '')
-    if service ~= 'gender' and service ~= 'surgery' then return end
+    if service ~= 'gender' and service ~= 'surgery' and service ~= 'barber' then return end
 
     local charId = LocalPlayer.state.charId or LocalPlayer.state.characterId
     if not charId then
@@ -644,29 +765,90 @@ AddEventHandler('cm-characters:client:openAppearanceService', function(options)
         TriggerEvent('cm-ems:client:appearanceServiceClosed')
         return
     end
-    if not next(tempSkinTable) then
-        TriggerEvent('cm-characters:client:error', 'Your saved appearance is still loading. Please try again.')
+    local ped = PlayerPedId()
+    local isFemalePed = (GetEntityModel(ped) == GetHashKey('mp_f_freemode_01'))
+
+    -- Initialize default skin baseline if not yet populated
+    if not SkinData or not next(SkinData) then
+        InitSkinData()
+    end
+
+    -- 1. Use cached authentic appearance, or query active character appearance from DB, or baseline
+    local charAppearance = nil
+    if type(lastSkin) == 'table' and next(lastSkin) and lastSkin['face_md_weight'] ~= nil then
+        charAppearance = CopyTable(lastSkin)
+    else
+        charAppearance = FetchActiveCharacterAppearance()
+    end
+
+    if type(charAppearance) == 'table' and next(charAppearance) then
+        tempSkinTable = CopyTable(charAppearance)
+    elseif not next(tempSkinTable) then
+        -- No cached appearance and the server didn't respond in time: refuse to open
+        -- the editor rather than silently saving generic baseline defaults over the
+        -- character's real face/body.
+        TriggerEvent('cm-characters:client:error', 'Could not load your character appearance. Please try again.')
         TriggerEvent('cm-ems:client:appearanceServiceClosed')
         return
+    end
+
+    -- Ensure every single baseline key is present so nothing is ever nil
+    for k, v in pairs(SkinData or {}) do
+        if tempSkinTable[k] == nil then
+            tempSkinTable[k] = v
+        end
     end
 
     appearanceServiceMode = service
     currentCharData = { charId = charId, serviceMode = service }
     isInAppearance = true
+
+    -- Strictly enforce genuine active ped gender and prevent cross-gender overlays
+    if isFemalePed then
+        tempSkinTable.sex = 1
+        tempSkinTable.beard_1 = 255
+        tempSkinTable.beard_2 = 0
+        tempSkinTable.chest_1 = 255
+        tempSkinTable.chest_2 = 0
+    else
+        tempSkinTable.sex = 0
+    end
+
+    if service == 'barber' then
+        local currentHair = GetPedDrawableVariation(ped, 2)
+        if (tonumber(tempSkinTable.hair_1) == nil or tonumber(tempSkinTable.hair_1) <= 0) and currentHair and currentHair > 0 then
+            tempSkinTable.hair_1 = currentHair
+            tempSkinTable.hair_2 = GetPedTextureVariation(ped, 2)
+        end
+        if (tonumber(tempSkinTable.eyebrows_2) or 0) <= 0 then
+            tempSkinTable.eyebrows_2 = 10
+        end
+        if tempSkinTable.eyebrows_3 == nil then
+            tempSkinTable.eyebrows_3 = tempSkinTable.hair_color_1 or 0
+        end
+        if tempSkinTable.eyebrows_4 == nil then
+            tempSkinTable.eyebrows_4 = tempSkinTable.eyebrows_3
+        end
+    else
+        for key, value in pairs(lastSkin or {}) do tempSkinTable[key] = value end
+    end
+
     lastSkin = CopyTable(tempSkinTable)
 
-    local ped = PlayerPedId()
     local coords = GetEntityCoords(ped)
     lastCoords = { x = coords.x, y = coords.y, z = coords.z, w = GetEntityHeading(ped) }
 
-    -- Hospital services edit the active character in place. They must never
-    -- enter the first-creation state, creator room, or spawn-selector flow.
-    FreezeEntityPosition(ped, true)
+    if service == 'barber' then
+        -- In barber shops, players face the counter/NPC. Turn ped 180 degrees away from counter
+        -- so ped faces out into the open salon floor with clear line-of-sight directly into the camera.
+        local openHeading = (GetEntityHeading(ped) + 180.0) % 360.0
+        SetEntityHeading(ped, openHeading)
+    end
 
-    InitSkinData()
-    for key, value in pairs(lastSkin or {}) do tempSkinTable[key] = value end
+    -- Active character services edit in place with Try-Before-Buy crash/cancel safety.
+    FreezeEntityPosition(ped, true)
     ApplySkin(tempSkinTable)
-    CreateAppearanceCam()
+    CreateAppearanceCam(service == 'barber' and 'hairs' or 'hairs')
 
     local categories
     local items
@@ -674,6 +856,16 @@ AddEventHandler('cm-characters:client:openAppearanceService', function(options)
         categories = { parents = true }
         items = {
             parents = { sex = true, parents = false, face_md_weight = false, skin_md_weight = false }
+        }
+    elseif service == 'barber' then
+        categories = { hairs = true }
+        items = {
+            hairs = {
+                hair = true,
+                eyebrow = true,
+                beard = not isFemalePed,
+                chesthair = not isFemalePed
+            }
         }
     else
         categories = { parents = true, face = true }
@@ -683,8 +875,11 @@ AddEventHandler('cm-characters:client:openAppearanceService', function(options)
         }
     end
 
+    local serviceCost = tonumber(options and options.cost) or (service == 'barber' and 100 or 0)
     SendNUIMessage({
         action = 'openAppearance',
+        serviceMode = service,
+        serviceCost = serviceCost,
         categories = categories,
         items = items,
         data = GetComponentData(),
@@ -699,109 +894,194 @@ AddEventHandler('cm-characters:client:openAppearanceService', function(options)
     })
 
     SetNuiFocus(true, true)
+
+    -- Guard against external dialogue or transition cameras asynchronously tearing down scripted cams
+    CreateThread(function()
+        Wait(400)
+        if isInAppearance and DoesCamExist(appearanceCam) then
+            SetCamActive(appearanceCam, true)
+            RenderScriptCams(true, false, 0, true, true)
+            SetNuiFocus(true, true)
+        end
+    end)
 end)
 
 -- NUI Callbacks for appearance
 RegisterNUICallback('appearanceChange', function(data, cb)
-    if data.type == 'clotheset' then
-        -- Outfit packs disabled. Clothing is selected individually below.
-    else
-        if data.type == 'sex' then
-            local sex = tonumber(data.new)
-            local model = sex == 0 and GetHashKey('mp_m_freemode_01') or GetHashKey('mp_f_freemode_01')
-            if not appearanceServiceMode then
-                sendCreationLoading(true, 'Changing character model...')
-            end
-            RequestModel(model)
-            while not HasModelLoaded(model) do
-                RequestModel(model)
-                Wait(0)
-            end
-            SetPlayerModel(PlayerId(), model)
-            SetPedComponentVariation(PlayerPedId(), 0, 0, 0, 2)
-            if appearanceServiceMode and lastCoords then
-                SetEntityCoordsNoOffset(PlayerPedId(), lastCoords.x, lastCoords.y, lastCoords.z, false, false, false)
-                SetEntityHeading(PlayerPedId(), lastCoords.w)
-                FreezeEntityPosition(PlayerPedId(), true)
-            end
-            if not appearanceServiceMode then
-                sendCreationLoading(false)
-            end
-            tempSkinTable['sex'] = sex
-            -- Reapply default clothes for new gender
-            local mySex = sex == 0 and 'm' or 'f'
-            for k, v in pairs(FirstCreationClothes[mySex]) do
-                tempSkinTable[k] = v
-            end
-        elseif data.type == 'torso_1' or data.type == 'pants_1' or data.type == 'shoes_1' then
-            local mySex = IsPedModel(PlayerPedId(), GetHashKey('mp_m_freemode_01')) and 'm' or 'f'
-            local category = data.type == 'torso_1' and 'torso' or (data.type == 'pants_1' and 'pants' or 'shoes')
-            local choice = tonumber(data.new) or 0
-            local selected = StarterClothingChoices[mySex] and StarterClothingChoices[mySex][category] and StarterClothingChoices[mySex][category][choice]
-            if selected then
-                for k, v in pairs(selected) do tempSkinTable[k] = v end
-            end
-        elseif data.type == 'torso_2' or data.type == 'pants_2' or data.type == 'shoes_2' or data.type == 'tshirt_1' or data.type == 'tshirt_2' then
-            -- Starter clothing textures are locked to 0 and tshirt is controlled by shirt choice.
-            tempSkinTable[data.type] = 0
+    local ok, err = pcall(function()
+        if not data or not data.type then return end
+
+        if data.type == 'clotheset' then
+            -- Outfit packs disabled. Clothing is selected individually below.
         else
-            tempSkinTable[data.type] = tonumber(data.new)
-        end
-        UpdateValue(tempSkinTable)
-
-        -- Update secondary value (texture) if needed
-        local secondItems = {
-            ['tshirt_1'] = 'tshirt_2', ['torso_1'] = 'torso_2', ['helmet_1'] = 'helmet_2',
-            ['pants_1'] = 'pants_2', ['shoes_1'] = 'shoes_2', ['mask_1'] = 'mask_2',
-            ['decals_1'] = 'decals_2', ['chain_1'] = 'chain_2', ['glasses_1'] = 'glasses_2',
-            ['watches_1'] = 'watches_2', ['bracelets_1'] = 'bracelets_2',
-            ['bags_1'] = 'bags_2', ['ears_1'] = 'ears_2', ['bproof_1'] = 'bproof_2',
-            ['hair_1'] = 'hair_2'
-        }
-        if secondItems[data.type] then
-            local maxVals = GetMaxVals()
-            SendNUIMessage({
-                action = 'updateSecondValue',
-                secondItem = secondItems[data.type],
-                secondValue = maxVals[secondItems[data.type]] or 0
-            })
-            tempSkinTable[secondItems[data.type]] = 0
+            if data.type == 'sex' then
+                local sex = tonumber(data.new)
+                local model = sex == 0 and GetHashKey('mp_m_freemode_01') or GetHashKey('mp_f_freemode_01')
+                if not appearanceServiceMode then
+                    sendCreationLoading(true, 'Changing character model...')
+                end
+                RequestModel(model)
+                while not HasModelLoaded(model) do
+                    RequestModel(model)
+                    Wait(0)
+                end
+                SetPlayerModel(PlayerId(), model)
+                SetPedComponentVariation(PlayerPedId(), 0, 0, 0, 2)
+                if appearanceServiceMode and lastCoords then
+                    SetEntityCoordsNoOffset(PlayerPedId(), lastCoords.x, lastCoords.y, lastCoords.z, false, false, false)
+                    SetEntityHeading(PlayerPedId(), lastCoords.w)
+                    FreezeEntityPosition(PlayerPedId(), true)
+                end
+                if not appearanceServiceMode then
+                    sendCreationLoading(false)
+                end
+                tempSkinTable['sex'] = sex
+                -- Reapply default clothes for new gender
+                local mySex = sex == 0 and 'm' or 'f'
+                for k, v in pairs(FirstCreationClothes[mySex]) do
+                    tempSkinTable[k] = v
+                end
+            elseif data.type == 'torso_1' or data.type == 'pants_1' or data.type == 'shoes_1' then
+                local mySex = IsPedModel(PlayerPedId(), GetHashKey('mp_m_freemode_01')) and 'm' or 'f'
+                local category = data.type == 'torso_1' and 'torso' or (data.type == 'pants_1' and 'pants' or 'shoes')
+                local choice = tonumber(data.new) or 0
+                local selected = StarterClothingChoices[mySex] and StarterClothingChoices[mySex][category] and StarterClothingChoices[mySex][category][choice]
+                if selected then
+                    for k, v in pairs(selected) do tempSkinTable[k] = v end
+                end
+            elseif data.type == 'torso_2' or data.type == 'pants_2' or data.type == 'shoes_2' or data.type == 'tshirt_1' or data.type == 'tshirt_2' then
+                -- Starter clothing textures are locked to 0 and tshirt is controlled by shirt choice.
+                tempSkinTable[data.type] = 0
+            else
+                tempSkinTable[data.type] = tonumber(data.new)
+                if data.type == 'eyebrows_1' then
+                    if (tonumber(tempSkinTable['eyebrows_2']) or 0) <= 0 then
+                        tempSkinTable['eyebrows_2'] = 10
+                        SendNUIMessage({ action = 'setValue', item = 'eyebrows_2', value = 10 })
+                    end
+                elseif data.type == 'eyebrows_3' then
+                    tempSkinTable['eyebrows_4'] = tonumber(data.new)
+                elseif data.type == 'hair_color_1' then
+                    if not tempSkinTable['hair_color_2'] or tempSkinTable['hair_color_2'] == 0 then
+                        tempSkinTable['hair_color_2'] = tonumber(data.new)
+                    end
+                elseif data.type == 'beard_1' then
+                    if (tonumber(tempSkinTable['beard_2']) or 0) <= 0 then
+                        tempSkinTable['beard_2'] = 10
+                        SendNUIMessage({ action = 'setValue', item = 'beard_2', value = 10 })
+                    end
+                elseif data.type == 'beard_3' then
+                    tempSkinTable['beard_4'] = tonumber(data.new)
+                elseif data.type == 'chest_1' then
+                    if (tonumber(tempSkinTable['chest_2']) or 0) <= 0 then
+                        tempSkinTable['chest_2'] = 10
+                        SendNUIMessage({ action = 'setValue', item = 'chest_2', value = 10 })
+                    end
+                end
+            end
             UpdateValue(tempSkinTable)
-        end
-    end
 
-    if AppearanceConfig.sounds then
-        PlaySoundFrontend(-1, "NAV_LEFT_RIGHT", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
+            -- Update secondary value (texture) if needed
+            local secondItems = {
+                ['tshirt_1'] = 'tshirt_2', ['torso_1'] = 'torso_2', ['helmet_1'] = 'helmet_2',
+                ['pants_1'] = 'pants_2', ['shoes_1'] = 'shoes_2', ['mask_1'] = 'mask_2',
+                ['decals_1'] = 'decals_2', ['chain_1'] = 'chain_2', ['glasses_1'] = 'glasses_2',
+                ['watches_1'] = 'watches_2', ['bracelets_1'] = 'bracelets_2',
+                ['bags_1'] = 'bags_2', ['ears_1'] = 'ears_2', ['bproof_1'] = 'bproof_2',
+                ['hair_1'] = 'hair_2'
+            }
+            if secondItems[data.type] then
+                local maxVals = GetMaxVals()
+                SendNUIMessage({
+                    action = 'updateSecondValue',
+                    secondItem = secondItems[data.type],
+                    secondValue = maxVals[secondItems[data.type]] or 0
+                })
+                tempSkinTable[secondItems[data.type]] = 0
+                UpdateValue(tempSkinTable)
+            end
+        end
+
+        if AppearanceConfig.sounds then
+            PlaySoundFrontend(-1, "NAV_LEFT_RIGHT", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
+        end
+    end)
+    if not ok then
+        print('[CM-CHARACTERS] ERROR in appearanceChange callback: ' .. tostring(err))
     end
-    cb('ok')
+    if cb then cb('ok') end
 end)
 
 RegisterNUICallback('appearanceCamera', function(data, cb)
     if appearanceCam and data.type then
-        local ped = PlayerPedId()
-        local coords = GetEntityCoords(ped)
-        local newPos = AppearanceConfig.cameraHeight[data.type]
-        SetCamCoord(appearanceCam, appearanceOffset.x, appearanceOffset.y, appearanceOffset.z + newPos.z)
-        PointCamAtCoord(appearanceCam, coords.x, coords.y, coords.z + newPos.z)
-        SetCamFov(appearanceCam, newPos.fov)
+        UpdateCameraPosition(data.type)
         SendNUIMessage({
             action = 'updateInputs',
-            fov = math.floor(newPos.fov)
+            fov = math.floor(camCurrentFov)
         })
     end
     cb('ok')
 end)
 
+-- Screen drag rotation and camera nudge (like nv_cloth clothing store)
+RegisterNUICallback('appearanceDrag', function(data, cb)
+    local ped = PlayerPedId()
+    if not ped or ped == 0 then return cb('ok') end
+
+    -- Horizontal drag: smoothly rotate the ped
+    if data.deltaX and math.abs(tonumber(data.deltaX) or 0) > 0.005 then
+        local delta = tonumber(data.deltaX) or 0.0
+        if delta > 30.0 then delta = 30.0 end
+        if delta < -30.0 then delta = -30.0 end
+        local newHeading = (GetEntityHeading(ped) + delta) % 360.0
+        SetEntityHeading(ped, newHeading)
+    end
+
+    -- Vertical drag: adjust camera height slightly up or down
+    if data.deltaY and math.abs(tonumber(data.deltaY) or 0) > 0.0005 and DoesCamExist(appearanceCam) then
+        local dy = tonumber(data.deltaY) or 0.0
+        camHeightOffset = math.max(-0.25, math.min(0.35, camHeightOffset + dy))
+        if camBaseCoord and camTargetPos then
+            SetCamCoord(appearanceCam, camBaseCoord.x, camBaseCoord.y, camBaseCoord.z + camHeightOffset)
+            PointCamAtCoord(appearanceCam, camTargetPos.x, camTargetPos.y, camTargetPos.z + (camHeightOffset * 0.5))
+        end
+    end
+
+    cb('ok')
+end)
+
+-- Mouse wheel zoom
+RegisterNUICallback('appearanceZoom', function(data, cb)
+    if DoesCamExist(appearanceCam) and data.delta then
+        local delta = tonumber(data.delta) or 0.0
+        camCurrentFov = math.max(18.0, math.min(55.0, camCurrentFov + delta))
+        SetCamFov(appearanceCam, camCurrentFov)
+    end
+    cb('ok')
+end)
+
+-- Camera reset
+RegisterNUICallback('appearanceResetCam', function(data, cb)
+    camHeightOffset = 0.0
+    UpdateCameraPosition(currentCamCategory)
+    cb('ok')
+end)
+
 RegisterNUICallback('appearanceHeight', function(data, cb)
     if appearanceCam and data.height then
-        SetCamCoord(appearanceCam, appearanceOffset.x, appearanceOffset.y, appearanceOffset.z + data.height)
+        camHeightOffset = math.max(-0.25, math.min(0.35, tonumber(data.height) or 0.0))
+        if camBaseCoord and camTargetPos then
+            SetCamCoord(appearanceCam, camBaseCoord.x, camBaseCoord.y, camBaseCoord.z + camHeightOffset)
+            PointCamAtCoord(appearanceCam, camTargetPos.x, camTargetPos.y, camTargetPos.z + (camHeightOffset * 0.5))
+        end
     end
     cb('ok')
 end)
 
 RegisterNUICallback('appearanceDistance', function(data, cb)
     if appearanceCam and data.distance then
-        SetCamFov(appearanceCam, tonumber(data.distance) + 0.0)
+        camCurrentFov = math.max(18.0, math.min(55.0, tonumber(data.distance) + 0.0))
+        SetCamFov(appearanceCam, camCurrentFov)
     end
     cb('ok')
 end)
@@ -1014,6 +1294,7 @@ RegisterNUICallback('appearanceClose', function(data, cb)
         if lastSkin then
             tempSkinTable = CopyTable(lastSkin)
             ApplySkin(tempSkinTable)
+            TriggerEvent('cm-inventory:client:forceWearEquippedClothing')
         end
         if lastCoords then
             SetEntityCoordsNoOffset(PlayerPedId(), lastCoords.x, lastCoords.y, lastCoords.z, false, false, false)
@@ -1025,8 +1306,8 @@ RegisterNUICallback('appearanceClose', function(data, cb)
     isInAppearance = false
     SetNuiFocus(false, false)
     SendNUIMessage({ action = 'hideAll' })
-    sendCreationLoading(false)
     if not wasService then
+        sendCreationLoading(false)
         TriggerEvent('cm-characters:client:setWorldLock', 'creator', false)
         setCreationState(false)
         setCreationHudVisible(true)
@@ -1037,11 +1318,13 @@ end)
 
 
 -- Capture current ped components after inventory clothing changes and save them.
-local function CaptureCurrentAppearance()
+CaptureCurrentAppearance = function()
     local ped = PlayerPedId()
 
     -- Copy first so we do not accidentally mutate and send stale/default face data.
     local data = CopyTable(tempSkinTable)
+    local isFemale = (GetEntityModel(ped) == GetHashKey('mp_f_freemode_01'))
+    data.sex = isFemale and 1 or 0
 
     data['tshirt_1'] = GetPedDrawableVariation(ped, 8)
     data['tshirt_2'] = GetPedTextureVariation(ped, 8)
@@ -1080,3 +1363,16 @@ RegisterNetEvent('cm-characters:client:requestCurrentAppearanceSave', function()
 end)
 
 exports('CaptureCurrentAppearance', CaptureCurrentAppearance)
+
+RegisterCommand('fixappearance', function()
+    local dbAppearance = FetchActiveCharacterAppearance()
+    if type(dbAppearance) == 'table' and next(dbAppearance) then
+        tempSkinTable = CopyTable(dbAppearance)
+        TriggerEvent('cm-characters:client:applyAppearance', dbAppearance)
+        TriggerEvent('cm-inventory:client:forceWearEquippedClothing')
+        TriggerEvent('cm-hud:client:notify', 'Appearance restored from character database.', 'success')
+    else
+        TriggerServerEvent('cm-characters:server:requestAppearance')
+        TriggerEvent('cm-hud:client:notify', 'Requested appearance sync from server.', 'info')
+    end
+end, false)

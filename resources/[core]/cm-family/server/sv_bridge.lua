@@ -145,6 +145,18 @@ function B.SetFamilyHouseLink(houseId, familyId, actorCid)
     return res == true, why
 end
 
+function B.TransferFamilyHouseOwnership(familyId, newOwnerCid)
+    if not started(HOUSE) then return false, 'house_not_running' end
+    local ok, res, why = pcall(function()
+        return exports[HOUSE]:TransferFamilyHouseOwnership(familyId, newOwnerCid)
+    end)
+    if not ok then
+        print(('[cm-family] cm-house TransferFamilyHouseOwnership export failed: %s'):format(tostring(res)))
+        return false, 'house_transfer_error'
+    end
+    return res == true, why
+end
+
 function B.GetFamilyVehicles(familyId)
     if not started(HOUSE) then return {} end
     local ok, v = pcall(function() return exports[HOUSE]:GetFamilyVehicles(familyId) end)

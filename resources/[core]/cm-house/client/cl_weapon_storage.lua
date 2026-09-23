@@ -112,6 +112,17 @@ RegisterNUICallback('weaponStorage:orderStock', function(_, cb)
     cb({ ok = false, message = 'Stock ordering is coming soon.' })
 end)
 
+RegisterNUICallback('weaponStorage:getLogs', function(data, cb)
+    if not open or not current then cb({ ok = false, message = 'Storage is closed.' }); return end
+    local ok, logsOrErr = lib.callback.await('cm-house:server:getWeaponStorageLogs', false,
+        current.houseId, tonumber(data and data.limit) or 50)
+    if ok then
+        cb({ ok = true, logs = logsOrErr })
+    else
+        cb({ ok = false, message = logsOrErr or 'Could not load armory logs.' })
+    end
+end)
+
 exports('OpenWeaponStorage', requestOpen)
 exports('CloseWeaponStorage', closeWeaponStorage)
 exports('IsWeaponStorageOpen', function() return open end)

@@ -103,10 +103,13 @@ let state = {
     // Reusable event HUD state. cm-family and other event resources can feed
     // this without owning their own NUI page.
     raid: null,
+    timers: {},
+    weaponAmmo: { armed: false, ammo: 0 },
 
 };
 
 let deathInterval = null;
+let previewHudState = null;
 
 
 // ========== HUD ADMIN SETTINGS ==========
@@ -584,10 +587,12 @@ function renderDeath() {
     if (!el) return;
 
     if (!state.isDead) {
+        el.classList.remove('hud-preview-state');
         el.classList.add('hidden');
         return;
     }
 
+    el.classList.toggle('hud-preview-state', state.previewMode === true);
     el.classList.remove('hidden');
     el.innerHTML = `
         <div class="death-content">
@@ -1332,7 +1337,13 @@ function formatMoney(amount) {
 function updateModule(name) {
     const mod = HUD_MODULES[name];
     if (mod && mod.render) {
-        mod.render();
+        const actualState = state;
+        if (previewHudState) state = previewHudState;
+        try {
+            mod.render();
+        } finally {
+            state = actualState;
+        }
     }
 }
 
@@ -1433,6 +1444,18 @@ window.addEventListener('message', function(event) {
         case 'clearRaidHud':
             state.raid = null;
             updateModule('raid');
+            break;
+
+        case 'setHudTimer':
+            setHudTimer(data.timer || {});
+            break;
+
+        case 'clearHudTimer':
+            clearHudTimer(data.id);
+            break;
+
+        case 'setAllHudPreview':
+            setAllHudPreview(data.enabled === true);
             break;
 
         case 'openHudAdmin':
@@ -1612,10 +1635,15 @@ function updateWeaponAmmo(data) {
     const ammoEl = document.getElementById('weapon-ammo');
     if (!module || !ammoEl) return;
 
-    const armed = data.armed !== false && data.weapon != null;
-    const ammo = Number.isFinite(Number(data.ammo)) ? Number(data.ammo) : 0;
+    state.weaponAmmo = {
+        armed: data.armed === true || (data.armed !== false && data.weapon != null),
+        ammo: Number.isFinite(Number(data.ammo)) ? Number(data.ammo) : 0
+    };
+    const weaponAmmo = previewHudState ? previewHudState.weaponAmmo : state.weaponAmmo;
+    const armed = weaponAmmo.armed === true;
+    const ammo = Number.isFinite(Number(weaponAmmo.ammo)) ? Number(weaponAmmo.ammo) : 0;
 
-    if (!armed || !state.hudVisible) {
+    if (!armed || !(previewHudState ? previewHudState.hudVisible : state.hudVisible)) {
         module.classList.add('hidden');
         return;
     }
@@ -1693,6 +1721,7 @@ function eventClock(timestamp) {
 function showEventNotification(data) {
     const host = document.getElementById('hud-event-notify');
     if (!host) return;
+    host.classList.remove('preview-event');
     if (!state.hudVisible || state.externalHidden) {
         pendingEventNotification = data;
         return;
@@ -1726,6 +1755,19 @@ function flushEventNotification() {
     const pending = pendingEventNotification;
     pendingEventNotification = null;
     showEventNotification(pending);
+}
+
+function hideEventNotification() {
+    const host = document.getElementById('hud-event-notify');
+    clearTimeout(eventNotificationTimer);
+    clearInterval(eventNotificationClock);
+    eventNotificationTimer = null;
+    eventNotificationClock = null;
+    pendingEventNotification = null;
+    if (host) {
+        host.classList.remove('visible');
+        host.innerHTML = '';
+    }
 }
 
 function addNotification(text, type = 'info') {
@@ -1771,11 +1813,169 @@ function addNotification(text, type = 'info') {
     }, 4200);
 }
 
+function formatHudCountdown(milliseconds) {
+    const seconds = Math.max(0, Math.ceil(milliseconds / 1000));
+    return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function renderHudTimers() {
+    const host = document.getElementById('hud-timers');
+    if (!host) return;
+
+    const timers = previewHudState ? previewHudState.timers : state.timers;
+    const now = performance.now();
+    for (const [id, timer] of Object.entries(timers || {})) {
+        if (!timer || timer.endsAt <= now) delete timers[id];
+    }
+    const cards = Object.values(timers || {});
+    host.innerHTML = cards.map(timer => {
+        const remaining = Math.max(0, timer.endsAt - now);
+        const progress = Math.max(0, Math.min(100, (remaining / timer.durationMs) * 100));
+        const tone = ['info', 'success', 'warning', 'danger'].includes(timer.tone) ? timer.tone : 'info';
+        const urgent = remaining <= 15000 ? ' urgent' : '';
+        const countdown = formatHudCountdown(remaining);
+        return `<article class="hud-timer-card ${tone}${urgent}" data-timer-id="${escapeHtml(timer.id)}">
+            <div class="hud-timer-copy"><span class="hud-timer-kicker">ACTIVE TIMER</span><strong>${escapeHtml(timer.title)}</strong><small>${escapeHtml(timer.label)}</small></div>
+            <time class="hud-timer-count" aria-label="${countdown} remaining">${countdown}</time>
+            <div class="hud-timer-progress"><i style="width:${progress.toFixed(2)}%"></i></div>
+        </article>`;
+    }).join('');
+    host.classList.toggle('hidden', cards.length === 0);
+}
+
+function setHudTimer(data) {
+    if (!data || typeof data !== 'object') return;
+    const id = String(data.id || '').trim().slice(0, 48);
+    const requestedDuration = Number(data.durationMs);
+    if (!id || !Number.isFinite(requestedDuration) || requestedDuration <= 0) return;
+    const durationMs = Math.max(1000, Math.min(86400000, requestedDuration));
+
+    state.timers = state.timers || {};
+    state.timers[id] = {
+        id,
+        title: String(data.title || 'TIMER').slice(0, 42),
+        label: String(data.label || '').slice(0, 84),
+        tone: String(data.tone || 'info'),
+        durationMs,
+        endsAt: performance.now() + durationMs
+    };
+    renderHudTimers();
+}
+
+function updateHudTimerClocks() {
+    const timers = previewHudState ? previewHudState.timers : state.timers;
+    const now = performance.now();
+    let removedTimer = false;
+    for (const [id, timer] of Object.entries(timers || {})) {
+        if (!timer || timer.endsAt <= now) {
+            delete timers[id];
+            removedTimer = true;
+            continue;
+        }
+
+        const card = document.querySelector(`#hud-timers [data-timer-id="${CSS.escape(id)}"]`);
+        if (!card) continue;
+        const remaining = timer.endsAt - now;
+        const progress = Math.max(0, Math.min(100, (remaining / timer.durationMs) * 100));
+        const countdown = formatHudCountdown(remaining);
+        const time = card.querySelector('.hud-timer-count');
+        if (time) {
+            time.textContent = countdown;
+            time.setAttribute('aria-label', `${countdown} remaining`);
+        }
+        card.querySelector('.hud-timer-progress i')?.style.setProperty('width', `${progress.toFixed(2)}%`);
+        card.classList.toggle('urgent', remaining <= 15000);
+    }
+    if (removedTimer) renderHudTimers();
+}
+
+function clearHudTimer(id) {
+    const key = String(id || '').trim().slice(0, 48);
+    if (!key || !state.timers) return;
+    delete state.timers[key];
+    renderHudTimers();
+}
+
+function setAllHudPreview(enabled) {
+    if (enabled) {
+        const now = performance.now();
+        previewHudState = {
+            ...state,
+            hudVisible: true,
+            externalHidden: false,
+            previewMode: true,
+            serverName: 'CM ROLEPLAY',
+            serverId: '28',
+            characterName: 'Jordan Reid',
+            level: 12,
+            onlinePlayers: 64,
+            cash: 42850,
+            bank: 985000,
+            wantedStars: 2,
+            health: 176,
+            armor: 65,
+            area: 'Del Perro',
+            street: 'Bay City Avenue',
+            dir: 'NW',
+            clock: '21:47',
+            date: '21.09.2026',
+            isDead: true,
+            deathTime: 18,
+            keys: { ...state.keys, N: true, O: true, U: false },
+            vehicle: { ...state.vehicle, visible: true, vehType: 'car', speed: 84, unit: 'KM/H', rpm: 73, gear: '4', fuel: 64, engine: 92, locked: true, seatbelt: true, cruise: true, lights: 1 },
+            raid: { phase: 'active', endsAt: Date.now() / 1000 + 342, families: [{ name: 'NORTHSIDE', alive: 4, total: 5 }, { name: 'VAGOS', alive: 3, total: 5 }] },
+            timers: {
+                'preview-rental': { id: 'preview-rental', title: 'RENTAL IDLE LIMIT', label: 'Drive the rental again before it expires', tone: 'warning', durationMs: 120000, endsAt: now + 102000 }
+            },
+            weaponAmmo: { armed: true, ammo: 24 }
+        };
+        document.body.classList.add('hud-preview-mode');
+        updateAll();
+        renderHudTimers();
+        updateWeaponAmmo(state.weaponAmmo);
+
+        const eventHost = document.getElementById('hud-event-notify');
+        if (eventHost && state.hudVisible && !state.externalHidden && !eventHost.classList.contains('visible')) {
+            showEventNotification({
+                id: 'hud-preview-event', notificationKey: `hud-preview-${Date.now()}`,
+                eyebrow: 'CITY-WIDE EVENT', title: 'MIDNIGHT MEETUP',
+                subtitle: 'Meet at the Del Perro pier. The event begins in 02:00.',
+                primaryKey: 'G', primaryText: 'SET GPS', secondaryKey: 'F', secondaryText: 'JOIN EVENT',
+                startsAt: Date.now() / 1000 + 120, duration: 9000, accent: '#00E5FF'
+            });
+            if (eventHost.classList.contains('visible')) eventHost.classList.add('preview-event');
+        }
+        if (!activeOfferId) {
+            showOffer({ id: 'cm-hud-preview-offer', eyebrow: 'FAMILY INVITATION', title: 'Join the Northside family?', sender: 'Jordan Reid', senderId: '28', distance: '12 m away', icon: 'invite', acceptKey: 'Y', acceptText: 'Accept', declineKey: 'N', declineText: 'Decline', duration: 9000, accent: '#00E5FF' });
+        }
+        addNotification('HUD component preview is active.', 'info');
+        return;
+    }
+
+    if (!previewHudState) return;
+    previewHudState = null;
+    document.body.classList.remove('hud-preview-mode');
+    const eventHost = document.getElementById('hud-event-notify');
+    if (eventHost && eventHost.classList.contains('preview-event')) {
+        eventHost.classList.remove('preview-event');
+        hideEventNotification();
+    }
+    hideOffer('cm-hud-preview-offer');
+    updateAll();
+    renderHudTimers();
+    updateWeaponAmmo(state.weaponAmmo);
+}
+
 // Raid countdown is rendered by cm-hud so every resource gets the same
 // presentation and the timer stays live without per-frame game drawing.
 setInterval(() => {
-    if (state.raid) renderRaid();
+    if (state.raid || (previewHudState && previewHudState.raid)) updateModule('raid');
 }, 500);
+
+setInterval(() => {
+    if (!previewHudState && Object.keys(state.timers || {}).length === 0) return;
+    updateHudTimerClocks();
+}, 250);
 
 // ========== CLOCK UPDATE ==========
 setInterval(() => {

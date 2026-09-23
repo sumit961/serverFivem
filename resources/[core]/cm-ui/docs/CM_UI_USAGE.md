@@ -15,6 +15,22 @@ It does not own gameplay logic, money, admin permissions, player data, inventory
 <script src="nui://cm-ui/web/cm-ui.js"></script>
 ```
 
+### CM Style language
+
+Resources that need the denser operations / parking presentation can opt in:
+
+```html
+<link rel="stylesheet" href="nui://cm-ui/web/cm-style.css">
+```
+
+The style language exposes reusable `.cm-style-*` primitives for slot grids,
+status badges, metric rows, progress bars, inputs, buttons, confirmation
+modals, toasts, and event cards. Load it after `cm-theme.css` and
+`cm-components.css`. It uses the exact CM cyan / deep-teal palette and does
+not use external fonts, icons, blur, or `backdrop-filter`. Component controls
+use fixed pixel sizing for consistent readability across resolutions; only the
+grid layout reflows on smaller screens.
+
 ## Basic layout
 
 ```html
@@ -144,8 +160,10 @@ exports['cm-ui']:IsNpcDialogueOpen()
 
 ## Previewing the UI
 
-In-game: run `/cmuipreview` — spawns a demo ped, shows the interact prompt,
-then opens the cinematic dialogue with two sample choices wired end-to-end.
+In-game: run `/cmuistyle` (or `/cmuipreview`) to open the reusable CM Style
+showcase with tabs for slot grids, components, modals, event cards, and the
+class contract. Press Escape or use `CLOSE PREVIEW` to exit. Run
+`/cmuidialoguepreview` for the original demo ped and cinematic dialogue flow.
 
 No FiveM needed: open `resources/[core]/cm-ui/web/preview.html` directly in a
 browser (double-click it, or `start` it from a terminal) — it loads the same

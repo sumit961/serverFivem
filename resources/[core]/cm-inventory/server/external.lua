@@ -351,6 +351,7 @@ local function moveFromPlayerToExternal(src, ctx, fromSlot, toSlot)
         return true
     end
 
+    if ctx.canWithdraw == false then return false, 'You cannot take items from this storage.' end
     local canReceive, receiveErr = canPlayerReceiveRow(src, ownerType, ownerId, fromSlot, dest, source)
     if not canReceive then return false, receiveErr end
 

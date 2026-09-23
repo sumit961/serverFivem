@@ -9,13 +9,15 @@ function renderBooking(data){
   bookingPanel.hidden=false; document.querySelector('#bookingTitle').textContent=`Book ${data.suspectName||'Suspect'}`;
   document.querySelector('#bookingSuspectMeta').textContent=`Suspect · CID ${data.characterId||'—'} · Shared prison intake`;
   const charges=document.querySelector('#bookingCharges'); const max=Number(data.maxCharges||10);
-  charges.innerHTML=(data.charges||[]).map(c=>`<label class="booking-charge"><input type="checkbox" value="${esc(c.id)}" data-booking-charge><span><strong>${esc(c.label)}</strong><small>${Number(c.jailMinutes||0)} minute${Number(c.jailMinutes||0)===1?'':'s'}</small></span></label>`).join('')||'<p class="hint">No charge catalogue is available.</p>';
+  charges.innerHTML=(data.charges||[]).map(c=>`<label class="booking-charge"><input type="checkbox" value="${esc(c.id)}" data-booking-charge><span><strong>${esc(c.label)}</strong><small>${Number(c.jailMinutes||0)} minute${Number(c.jailMinutes||0)===1?'':'s'}${Number(c.fine||0)>0?` · $${Number(c.fine).toLocaleString()} fine`:''}</small></span></label>`).join('')||'<p class="hint">No charge catalogue is available.</p>';
   document.querySelector('#bookingChargeCount').textContent=`0 / ${max}`;document.querySelector('#bookingMinutes').textContent='0 min';document.querySelector('#bookingSummaryText').textContent='Select at least one charge.';document.querySelector('#bookingReason').value='';document.querySelector('#bookingReasonCount').textContent='0';document.querySelector('#bookingStatus').textContent='';
 }
 function closeBooking(){if(!bookingPanel||bookingPanel.hidden)return;bookingPanel.hidden=true;bookingData=null;bookingBusy=false;bookingPanel.classList.remove('is-busy');post('bookingClose')}
 function updateBookingPreview(){
   const selected=[...document.querySelectorAll('[data-booking-charge]:checked')],max=Number(bookingData?.maxCharges||10),lookup=new Map((bookingData?.charges||[]).map(c=>[String(c.id),c]));
-  const minutes=selected.reduce((sum,n)=>sum+Number(lookup.get(n.value)?.jailMinutes||0),0);document.querySelector('#bookingChargeCount').textContent=`${selected.length} / ${max}`;document.querySelector('#bookingMinutes').textContent=`${minutes} min`;document.querySelector('#bookingSummaryText').textContent=selected.length?`${selected.length} charge${selected.length===1?'':'s'} selected · server will verify before custody transfer`:'Select at least one charge.';selected.forEach(n=>n.closest('.booking-charge')?.classList.toggle('is-selected',true));
+  const minutes=selected.reduce((sum,n)=>sum+Number(lookup.get(n.value)?.jailMinutes||0),0);
+  const fine=selected.reduce((sum,n)=>sum+Number(lookup.get(n.value)?.fine||0),0);
+  document.querySelector('#bookingChargeCount').textContent=`${selected.length} / ${max}`;document.querySelector('#bookingMinutes').textContent=fine>0?`${minutes} min · $${fine.toLocaleString()} fine`:`${minutes} min`;document.querySelector('#bookingSummaryText').textContent=selected.length?`${selected.length} charge${selected.length===1?'':'s'} selected · server will verify before custody transfer`:'Select at least one charge.';selected.forEach(n=>n.closest('.booking-charge')?.classList.toggle('is-selected',true));
 }
 document.querySelector('#bookingCharges')?.addEventListener('change',updateBookingPreview);document.querySelector('#bookingReason')?.addEventListener('input',e=>document.querySelector('#bookingReasonCount').textContent=e.target.value.length);document.querySelector('#bookingClose')?.addEventListener('click',closeBooking);document.querySelector('#bookingCancel')?.addEventListener('click',closeBooking);
 document.querySelector('#bookingSubmit')?.addEventListener('click',async()=>{if(!bookingData||bookingBusy)return;const chargeIds=[...document.querySelectorAll('[data-booking-charge]:checked')].map(n=>n.value),reason=document.querySelector('#bookingReason').value.trim();if(!chargeIds.length)return document.querySelector('#bookingStatus').textContent='Select at least one charge.';if(reason.length<5)return document.querySelector('#bookingStatus').textContent='Enter a clear arrest reason.';bookingBusy=true;bookingPanel.classList.add('is-busy');document.querySelector('#bookingStatus').textContent='Verifying custody and transferring to prison…';const result=await post('bookingSubmit',{targetServerId:bookingData.targetServerId,chargeIds,reason});if(result?.ok){document.querySelector('#bookingStatus').textContent='Booking confirmed.';setTimeout(closeBooking,650)}else{bookingBusy=false;bookingPanel.classList.remove('is-busy');document.querySelector('#bookingStatus').textContent=result?.error||'Booking failed; the suspect remains cuffed.'}});
@@ -73,15 +75,13 @@ function render(data){
   const mdtTab=document.querySelector('#mdtTab');if(mdtTab)mdtTab.classList.toggle('hidden',data.canMdt!==true);
   const dutyButton=document.querySelector('#dashboardDutyButton');
   if(dutyButton){dutyButton.textContent=m.onDuty?'End duty':'Off duty';dutyButton.disabled=m.onDuty!==true;dutyButton.classList.toggle('is-on',m.onDuty===true)}
-  const fleetAllowed = data.canFleetManage || data.canFleetSpawn || Number(data?.summary?.fleetConfigured||0)>0;
   const logsAllowed = data.canManage || data.canViewActivity === true;
-  const fleetTab=document.querySelector('#fleetTab'); if(fleetTab) fleetTab.classList.toggle('hidden',!fleetAllowed);
-  const fleetRecall=document.querySelector('#fleetRecallAll'); if(fleetRecall) fleetRecall.classList.toggle('hidden',!data.canFleetManage);
   const logsTab=document.querySelector('#logsTab'); if(logsTab) logsTab.classList.toggle('hidden',!logsAllowed);
   const custodyTab=document.querySelector('#custodyTab'); if(custodyTab) custodyTab.classList.toggle('hidden',data.canCustody!==true);
   const logisticsTab=document.querySelector('#logisticsTab'); if(logisticsTab) logisticsTab.classList.toggle('hidden',data.logisticsVisible!==true);
+  const chargesTab=document.querySelector('#chargesTab'); if(chargesTab) chargesTab.classList.toggle('hidden',data.canManageCharges!==true);
   const ranks=(data.ranks||[]).filter(r=>!r.is_leader&&Number(r.tier)<Number(m.tier||0));
-  roster.innerHTML=(data.roster||[]).map(x=>`<article class="member"><div><div class="member-name">${esc(x.name||x.character_id)}</div><div class="meta">CID ${esc(x.character_id)} · ${esc(x.rank_name)}</div></div><span class="badge ${x.suspended?'suspended':x.on_duty?'on':''}">${x.suspended?'Suspended':x.on_duty?'On duty':'Off duty'}</span>${data.canManage&&!x.is_leader&&Number(x.tier)<Number(m.tier||0)?`<div class="actions"><select data-rank="${esc(x.character_id)}">${ranks.map(r=>`<option value="${r.id}" ${Number(r.id)===Number(x.rank_id)?'selected':''}>${esc(r.name)}</option>`).join('')}</select><button data-action="rank" data-cid="${esc(x.character_id)}">Set rank</button><button data-action="${x.suspended?'reinstate':'suspend'}" data-cid="${esc(x.character_id)}">${x.suspended?'Reinstate':'Suspend'}</button><button data-action="fire" data-cid="${esc(x.character_id)}">Remove</button></div>`:'<div></div>'}</article>`).join('')||(data.canViewMembers?'<p>No members found.</p>':'<p>Your rank does not have roster visibility.</p>');
+  roster.innerHTML=(data.roster||[]).map(x=>`<article class="member"><div>${x.photo_url?`<img class="member-avatar" src="${esc(x.photo_url)}" alt="">`:''}<div class="member-name">${esc(x.name||x.character_id)}</div><div class="meta">CID ${esc(x.character_id)} · ${esc(x.rank_name)}</div></div><span class="badge ${x.suspended?'suspended':x.on_duty?'on':''}">${x.suspended?'Suspended':x.on_duty?'On duty':'Off duty'}</span>${data.canManage&&!x.is_leader&&Number(x.tier)<Number(m.tier||0)?`<div class="actions"><select data-rank="${esc(x.character_id)}">${ranks.map(r=>`<option value="${r.id}" ${Number(r.id)===Number(x.rank_id)?'selected':''}>${esc(r.name)}</option>`).join('')}</select><button data-action="rank" data-cid="${esc(x.character_id)}">Set rank</button><button data-action="${x.suspended?'reinstate':'suspend'}" data-cid="${esc(x.character_id)}">${x.suspended?'Reinstate':'Suspend'}</button><button data-action="fire" data-cid="${esc(x.character_id)}">Remove</button></div>`:'<div></div>'}</article>`).join('')||(data.canViewMembers?'<p>No members found.</p>':'<p>Your rank does not have roster visibility.</p>');
   const f=data.facilities||{},types=data.facilityTypes||{};document.querySelector('#facilities').innerHTML=Object.entries(types).map(([id,t])=>{const set=!!f[id];return `<article class="facility-card"><small>${esc(t.role)}</small><h3>${esc(t.label)}</h3><p>${set?'Configured and active':'Location not configured'}</p>${data.canManage?`<div class="actions"><button data-facility="${esc(id)}" data-reset="false">Set here</button>${set?`<button class="danger" data-facility="${esc(id)}" data-reset="true">Reset</button>`:''}</div>`:''}</article>`}).join('');
   renderOverview({...data,organization:o});renderRanksList();renderLawRecordRail(data,o,m)
 }
@@ -105,7 +105,6 @@ function renderLawRecordRail(data,o,m){
   const actions=[
     {label:'Ranks & access',tab:'ranks',show:true},
     {label:'Custody monitor',tab:'custody',show:data.canCustody===true},
-    {label:'Fleet vehicles',tab:'fleet',show:tabVisible('fleet')},
     {label:'Activity logs',tab:'logs',show:tabVisible('logs')},
     {label:'Logistics',tab:'logistics',show:tabVisible('logistics')},
   ].filter(a=>a.show);
@@ -156,6 +155,8 @@ function renderOverview(data){
   document.querySelector('#overviewRank').textContent=m.rankName||'—';
   document.querySelector('#overviewCharacterId').textContent=`CID ${esc(data.characterId||m.characterId||'—')}`;
   document.querySelector('#overviewMemberName').textContent=memberName;
+  const photoImg=document.querySelector('#overviewMemberPhoto');
+  if(photoImg){if(me&&me.photo_url){photoImg.src=me.photo_url;photoImg.style.visibility='visible'}else{photoImg.style.visibility='hidden'}}
   document.querySelector('#overviewTier').textContent=Number(m.tier||0);
   const dutyBadge=document.querySelector('#overviewDutyBadge');
   const dutyText=m.suspended?'SUSPENDED':m.onDuty?'ON DUTY':'OFF DUTY';
@@ -176,39 +177,52 @@ function renderOverview(data){
     document.querySelector('#overviewPrisonMeta').textContent=!online?'cm-prison is not ready. Start it before booking.':configured?'One intake location shared by every law organization.':'Configure intake, release, and cell spawns once in prison admin.';
     prisonCard.classList.toggle('is-warning',online&&!configured);
   }
+  const overviewCount=value=>String(Math.max(0,Number(value)||0)).padStart(2,'0');
   document.querySelector('#overviewStats').innerHTML=[
-    ['ON DUTY',onDutyCount.toLocaleString(),`${memberCount} total personnel`,'duty'],
-    ['ACTIVE CALLS',activeCalls.toLocaleString(),`${assignedCalls} assigned · ${Number(summary.priorityCalls||0)} priority`,'calls'],
+    ['ON DUTY',overviewCount(onDutyCount),`${memberCount} total personnel`,'duty'],
+    ['ACTIVE CALLS',overviewCount(activeCalls),`${assignedCalls} assigned · ${Number(summary.priorityCalls||0)} priority`,'calls'],
     ['FLEET AVAILABLE',Number(summary.fleetAvailable||0).toLocaleString(),`${Number(summary.fleetConfigured||0)} configured for agency`,'fleet'],
     ['COMMAND',leaderName,leaderCid?`CID ${leaderCid}`:'Leader not assigned','command'],
   ].map(([label,value,sub,kind])=>`<div class="stat stat--${kind}"><span class="stat-icon" aria-hidden="true"></span><div><small>${esc(label)}</small><strong>${esc(value)}</strong><span>${esc(sub)}</span></div></div>`).join('');
   const enabled=Object.entries(caps).filter(([,on])=>on===true);
-  document.querySelector('#overviewCapabilityCount').textContent=`${enabled.length} ACTIVE`;
-  document.querySelector('#overviewCapabilities').innerHTML=enabled.length?enabled.map(([id])=>`<span class="capability-pill"><i></i>${esc(capLabels[id]||id)}</span>`).join(''):'<span class="muted-inline">No operational capabilities enabled.</span>';
+  document.querySelector('#overviewCapabilityCount').textContent=`${enabled.length} SYSTEMS ONLINE`;
+  const capsBox=document.querySelector('#overviewCapabilities');
+  capsBox.classList.toggle('is-empty',!enabled.length);
+  capsBox.innerHTML=enabled.length?enabled.map(([id])=>`<span class="capability-pill"><i></i>${esc(capLabels[id]||id)}</span>`).join(''):cmEmptyState('tools','No operational capabilities enabled for this rank.');
   // Field coordination: hidden entirely unless the viewer holds at least one
   // of the two permissions, matching how cm-ems and cm-police gate the same
   // panel. The server checks again on every call -- this is presentation only.
   const canMap=data.canViewMemberMap===true,canMeet=data.canSetMeeting===true;
-  document.querySelector('#overviewToolsPanel').hidden=!(canMap||canMeet);
+  const canDeskMdt=data.canMdt===true, canDeskDispatch=data.canDispatch===true;
+  const launchMdt=document.querySelector('#overviewLaunchMdt'), openDispatch=document.querySelector('#overviewDispatch');
+  if(launchMdt){launchMdt.hidden=false;launchMdt.disabled=!canDeskMdt;launchMdt.title=canDeskMdt?'Open the shared MDT':'MDT requires on-duty access for this rank';}
+  if(openDispatch){openDispatch.hidden=false;openDispatch.disabled=!canDeskDispatch;openDispatch.title=canDeskDispatch?'Open shared dispatch':'Dispatch requires on-duty access for this rank';}
+  document.querySelector('#overviewToolsPanel').hidden=false;
   document.querySelector('#memberMap').hidden=!canMap;
   document.querySelector('#meetingPoint').hidden=!canMeet;
   document.querySelector('#clearMeeting').hidden=!canMeet;
   document.querySelector('#overviewDutyCount').textContent=`${onDutyCount} UNIT${onDutyCount===1?'':'S'}`;
-  document.querySelector('#overviewDutyRoster').innerHTML=data.canViewMembers
-    ? (dutyRoster.length?dutyRoster.slice(0,5).map(x=>{const name=x.name||`CID ${x.character_id}`;const initials=name.split(/\s+/).filter(Boolean).slice(0,2).map(n=>n[0]).join('').toUpperCase();return `<div class="duty-person"><span class="duty-avatar">${esc(initials||'U')}</span><div><strong>${esc(name)}</strong><small>${esc(x.rank_name||'Member')}</small></div><span class="duty-live">10-8</span></div>`}).join(''):'<p class="overview-copy">No organization members are currently on duty.</p>')
-    : '<p class="overview-copy">Roster visibility is restricted for your rank.</p>';
+  const dutyBox=document.querySelector('#overviewDutyRoster');
+  dutyBox.classList.toggle('is-empty',!(data.canViewMembers&&dutyRoster.length));
+  dutyBox.innerHTML=data.canViewMembers
+    ? (dutyRoster.length?dutyRoster.slice(0,5).map(x=>{const name=x.name||`CID ${x.character_id}`;const initials=name.split(/\s+/).filter(Boolean).slice(0,2).map(n=>n[0]).join('').toUpperCase();return `<div class="duty-person"><span class="duty-avatar">${esc(initials||'U')}</span><div><strong>${esc(name)}</strong><small>${esc(x.rank_name||'Member')}</small></div><span class="duty-live">10-8</span></div>`}).join(''):cmEmptyState('duty','No organization members are currently on duty.'))
+    : cmEmptyState('duty','Roster visibility is restricted for your rank.');
   document.querySelector('#overviewShiftKicker').textContent=m.suspended?'ACCESS LIMITED':m.onDuty?'ACTIVE SHIFT':'NOT ACTIVE';
   document.querySelector('#overviewShift').innerHTML=`
     <div class="shift-row"><span>Rank</span><strong>${esc(m.rankName||'—')}</strong></div>
     <div class="shift-row"><span>Tier</span><strong>${Number(m.tier||0)}</strong></div>
     <div class="shift-row"><span>Status</span><strong class="shift-state ${m.suspended?'danger':m.onDuty?'live':''}">${esc(dutyText)}</strong></div>
-    <div class="shift-row"><span>Uniform</span><strong>${m.uniformActive?'Duty uniform':'Not active'}</strong></div>`;
+    <div class="shift-row"><span>Uniform</span><strong>${m.uniformActive?'Duty uniform':'Not active'}</strong></div>
+    <div class="shift-row"><span>Radio</span><strong>/${esc(data.organization.radioChannel||'—')}</strong></div>
+    <div class="shift-row"><span>Non-RP chat</span><strong>/${esc(data.organization.chatChannel||'—')}</strong></div>`;
   const activityPanel=document.querySelector('#overviewActivityPanel');
   const activity=data.recentActivity||[];
+  const activityBox=document.querySelector('#overviewRecentActivity');
   activityPanel.classList.toggle('is-restricted',data.canViewActivity!==true);
-  document.querySelector('#overviewRecentActivity').innerHTML=data.canViewActivity===true
-    ? (activity.length?activity.map(row=>{const label=(typeof activityLabels!=='undefined'&&activityLabels[row.action])||String(row.action||'Activity').replaceAll('_',' ');const desc=typeof describeLog==='function'?describeLog(row.detail):'';return `<div class="activity-item"><span class="activity-marker"></span><div><strong>${esc(row.actorName||'System')}</strong><p>${esc(label)}${desc?` · ${desc}`:''}</p></div><time>${esc(formatTerminalTime(row.createdAt))}</time></div>`}).join(''):'<p class="overview-copy">No organization activity recorded yet.</p>')
-    : '<div class="activity-restricted"><span>Restricted</span><p>Recent organization activity is available to command staff.</p></div>';
+  activityBox.classList.toggle('is-empty',data.canViewActivity!==true||!activity.length);
+  activityBox.innerHTML=data.canViewActivity===true
+    ? (activity.length?activity.map(row=>{const label=(typeof activityLabels!=='undefined'&&activityLabels[row.action])||String(row.action||'Activity').replaceAll('_',' ');const desc=typeof describeLog==='function'?describeLog(row.detail):'';return `<div class="activity-item"><span class="activity-marker"></span><div><strong>${esc(row.actorName||'System')}</strong><p>${esc(label)}${desc?` · ${desc}`:''}</p></div><time>${esc(formatTerminalTime(row.createdAt))}</time></div>`}).join(''):cmEmptyState('feed','No organization activity recorded yet.'))
+    : cmEmptyState('feed','Recent organization activity is available to command staff.');
 }
 
 // ── Ranks & Access ─────────────────────────────────────────────────────────
@@ -345,23 +359,27 @@ setInterval(()=>document.querySelectorAll('[data-custody-release]').forEach(node
 // admin's org-tagged catalog -- there is no separate "add to fleet" step;
 // every tagged vehicle shows up here, unconfigured ones just need a
 // location set first (Set location, drive it, press H).
-let fleetVehicles = [];
+let fleetVehicles = [], fleetCanManage = false;
 function renderFleetList(){
-  const manage = state?.canFleetManage;
+  const manage = fleetCanManage;
   document.querySelector('#fleetRoster').innerHTML = fleetVehicles.map(v => {
+    const canSpawnThis = manage || (v.configured && v.enabled);
     return `<article class="fleet-row${v.configured && !v.enabled ? ' disabled' : ''}">
-    <div class="fleet-row__main"><strong>${esc(v.label)}</strong><small>${esc(v.category || 'Vehicle')} · Parking: ${v.configured ? `${v.location?.x ?? 'saved'}, ${v.location?.y ?? 'saved'}` : 'not configured'} · Minimum rank tier ${v.minTier}${v.enabled ? '' : ' · Disabled'} · ${esc(String(v.status || 'available').replaceAll('_', ' '))}${v.engineHealth != null ? ` · Engine ${Math.round(Number(v.engineHealth) / 10)}% · Body ${Math.round(Number(v.bodyHealth) / 10)}% · Fuel ${Math.round(Number(v.fuel || 0))}%` : ''}</small></div>
+    <div class="fleet-row__main"><strong>${esc(v.label)}</strong><small>${esc(v.category || 'Vehicle')} · Parking: ${v.configured ? `${v.location?.x ?? 'saved'}, ${v.location?.y ?? 'saved'}` : 'not configured'} · Minimum rank tier ${v.minTier}${v.enabled ? '' : ' · Disabled'} · ${esc(String(v.status || 'available').replaceAll('_', ' '))}${v.assignedOfficer ? ` · Assigned: ${esc(v.assignedOfficer)}` : ''}${v.engineHealth != null ? ` · Engine ${Math.round(Number(v.engineHealth) / 10)}% · Body ${Math.round(Number(v.bodyHealth) / 10)}% · Fuel ${Math.round(Number(v.fuel || 0))}%` : ''}</small></div>
     <div class="actions">
       ${manage ? `<input type="number" min="0" max="100" value="${v.minTier}" data-fleet-tier="${esc(v.model)}"${v.configured ? '' : ' disabled title="Set a location first"'}>` : ''}
       ${manage ? `<button data-fleet-location="${esc(v.model)}">Set location</button>` : ''}
+      ${canSpawnThis ? `<button data-fleet-spawn="${esc(v.model)}"${v.status === 'occupied' ? ' disabled' : ''}>${v.status === 'occupied' ? 'Occupied' : v.status === 'deployed' ? 'Return & call here' : 'Call vehicle'}</button>` : ''}
     </div>
   </article>`;
-  }).join('') || `<p>${manage ? 'No vehicles are tagged for this organization in the vehicle shop admin yet.' : 'No fleet vehicles are available to your rank yet.'}</p>`;
+  }).join('') || `<p>${manage ? 'No vehicles have been added to this organization\'s fleet yet.' : 'No fleet vehicles are available to your rank yet.'}</p>`;
 }
-async function loadFleet(){const r=await post('fleetCatalog');fleetVehicles=r?.vehicles||[];renderFleetList()}
+async function loadFleet(){const r=await post('fleetCatalog');fleetVehicles=r?.vehicles||[];fleetCanManage=r?.canManage===true;renderFleetList();const fleetRecall=document.querySelector('#fleetRecallAll');if(fleetRecall)fleetRecall.classList.toggle('hidden',!fleetCanManage)}
 document.querySelector('#fleetRoster').onclick=async e=>{
   const location=e.target.closest('[data-fleet-location]');
   if(location){const r=await post('setFleetVehicleLocation',{model:location.dataset.fleetLocation});notice(r.message||r.error,r.ok?'success':'error')}
+  const spawn=e.target.closest('[data-fleet-spawn]');
+  if(spawn){const r=await post('spawnFleetVehicle',{model:spawn.dataset.fleetSpawn});notice(r.message||r.error,r.ok?'success':'error');loadFleet()}
 };
 document.querySelector('#fleetRoster').addEventListener('change',async e=>{
   const tierInput=e.target.closest('[data-fleet-tier]');
@@ -374,6 +392,14 @@ document.querySelector('#fleetRecallAll').onclick=async()=>{
   const r=await post('recallAllFleetVehicles');
   notice(r.message||r.error,r.ok?'success':'error');
 };
+// Standalone Motor Pool panel (opened only from the Fleet facility NPC --
+// never through the F6 dashboard). Reuses the fleet list/actions above,
+// which already read from a dedicated fleetCanManage flag rather than the
+// full dashboard's `state`, since this panel can open without ever loading
+// the dashboard.
+const legalFleet=document.querySelector('#legalFleet');
+window.addEventListener('message',e=>{const d=e.data||{};if(d.action==='legalFleetOpen'){app.classList.add('hidden');facilityDialogue.classList.add('hidden');facilityPrompt.classList.add('hidden');const label=d.label||'LEGAL ORGANIZATION';document.querySelector('#fleetOrg').textContent=label;fleetVehicles=d.vehicles||[];fleetCanManage=d.canManage===true;renderFleetList();document.querySelector('#fleetRecallAll').classList.toggle('hidden',!fleetCanManage);legalFleet.classList.remove('hidden')}if(d.action==='legalFleetClose'){legalFleet.classList.add('hidden')}});
+document.querySelector('#fleetClose').onclick=()=>post('legalFleetClose');
 // ── Dispatch (911 calls) ──────────────────────────────────────────────────
 let dispatchActiveCalls = [], dispatchHistory = [];
 function timeAgo(epochSeconds){const seconds=Math.max(0,Math.floor(Date.now()/1000)-Number(epochSeconds||0));if(seconds<60)return `${seconds}s ago`;if(seconds<3600)return `${Math.floor(seconds/60)}m ago`;return `${Math.floor(seconds/3600)}h ago`}
@@ -412,24 +438,118 @@ document.querySelector('#dispatchBackup').onclick=async()=>{if(!(await showConfi
 document.querySelector('#dispatchPanic').onclick=async()=>{if(!(await showConfirmOverlay('Panic button','Activate the panic button and send an urgent officer-in-distress alert?','Activate','Cancel')))return;const r=await post('dispatchOfficerAlert',{alertType:'panic',confirmed:true});notice(r.message||r.error,r.ok?'success':'error')};
 document.querySelector('[data-overview-dispatch]').onclick=()=>document.querySelector('#dispatchTab')?.click();
 document.querySelector('[data-overview-respond]').onclick=async e=>{const callId=Number(e.currentTarget.dataset.callId||0);if(!callId)return;const r=await post('dispatchAccept',{callId,route:true});notice(r.message||r.error,r.ok?'success':'error');if(r.ok){document.querySelector('#dispatchTab')?.click();refresh()}};
+
+// ── Dispatch notification carousel ──────────────────────────────────────
+// Persistent overlay outside the F6 menu (lives at the body level, see
+// law.html's #dispatchNotifyStack), so a new call is actionable via quick
+// GPS/Accept without opening the full Dispatch tab. client/dispatch.lua
+// sends dispatchNotifyNew/Assigned/Resolved; client/main.lua's
+// dispatchNotifyFocus NUI callback grants mouse-only NUI focus
+// (SetNuiFocus(true,false)+SetNuiFocusKeepInput) while at least one card is
+// up, so clicking a button doesn't require opening F6 or blocking movement.
+const dispatchCodeLabels={panic:'10-99 · OFFICER NEEDS HELP',backup:'10-78 · BACKUP REQUESTED',gunfire:'10-71 · SHOTS FIRED',front_desk:'10-16 · FRONT DESK REQUEST',citizen:'911 · CITIZEN CALL'};
+const dispatchNotifyStack=document.querySelector('#dispatchNotifyStack');
+const dispatchNotifyTimers={};
+const NOTIFY_AUTO_DISMISS_MS=25000;
+const NOTIFY_MAX_CARDS=4;
+function syncDispatchNotifyFocus(){post('dispatchNotifyFocus',{active:dispatchNotifyStack.children.length>0})}
+function removeDispatchNotify(callId){
+  const card=dispatchNotifyStack.querySelector(`[data-notify-call="${callId}"]`);
+  if(card)card.remove();
+  if(dispatchNotifyTimers[callId]){clearTimeout(dispatchNotifyTimers[callId]);delete dispatchNotifyTimers[callId]}
+  syncDispatchNotifyFocus();
+}
+function addDispatchNotify(call,kind){
+  if(!call||!call.id)return;
+  removeDispatchNotify(call.id);
+  const priority=Number(call.priority||1)>=3||call.callType==='panic';
+  const card=document.createElement('article');
+  card.className=`dispatch-notify-card${priority?' is-priority':''}${kind==='assigned'?' is-assigned':''}`;
+  card.dataset.notifyCall=call.id;
+  card.innerHTML=`<div class="dispatch-notify-card__head"><span class="dispatch-notify-card__code">${esc(dispatchCodeLabels[call.callType]||dispatchCodeLabels.citizen)}${kind==='assigned'?' · ASSIGNED TO YOU':''}</span><button class="dispatch-notify-card__dismiss" data-notify-dismiss aria-label="Dismiss">×</button></div><div class="dispatch-notify-card__details">${esc(call.details||'Dispatch call')}</div><div class="dispatch-notify-card__meta">${esc(call.location||'Unknown location')}</div><div class="dispatch-notify-card__actions"><button data-notify-gps>Set GPS</button>${kind==='new'?'<button data-notify-accept>Accept</button>':''}</div>`;
+  dispatchNotifyStack.prepend(card);
+  while(dispatchNotifyStack.children.length>NOTIFY_MAX_CARDS)dispatchNotifyStack.lastElementChild.remove();
+  if(kind==='new')dispatchNotifyTimers[call.id]=setTimeout(()=>removeDispatchNotify(call.id),NOTIFY_AUTO_DISMISS_MS);
+  syncDispatchNotifyFocus();
+}
+dispatchNotifyStack.addEventListener('click',async e=>{
+  const card=e.target.closest('[data-notify-call]');if(!card)return;
+  const callId=Number(card.dataset.notifyCall);
+  if(e.target.closest('[data-notify-dismiss]'))return removeDispatchNotify(callId);
+  if(e.target.closest('[data-notify-gps]')){await post('dispatchQuickRoute',{callId});return}
+  if(e.target.closest('[data-notify-accept]')){
+    const r=await post('dispatchAccept',{callId,route:true});
+    notice(r.message||r.error,r.ok?'success':'error');
+    if(r.ok)removeDispatchNotify(callId);
+  }
+});
+window.addEventListener('message',e=>{
+  const d=e.data||{};
+  if(d.action==='dispatchNotifyNew')addDispatchNotify(d.call,'new');
+  if(d.action==='dispatchNotifyAssigned')addDispatchNotify(d.call,'assigned');
+  if(d.action==='dispatchNotifyResolved')removeDispatchNotify(Number(d.callId));
+});
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-window.addEventListener('message',e=>{const {action,data,kind,message,initialTab}=e.data||{};if(action==='bookingOpen'){renderBooking(data);return}if(action==='bookingResult'){bookingBusy=false;bookingPanel?.classList.remove('is-busy');if(!data?.ok&&bookingPanel)document.querySelector('#bookingStatus').textContent=data?.error||'Booking failed.';return}if(action==='open'){facilityOnly=e.data?.facilityOnly===true;const standalone=e.data?.standaloneMode===true;app.classList.toggle('standalone-interface',standalone);app.classList.toggle('standalone-dispatch',standalone&&initialTab==='dispatch');app.classList.toggle('standalone-mdt',standalone&&initialTab==='mdt');app.classList.remove('hidden');render(data);if(standalone&&initialTab){document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));document.querySelector(`#${initialTab}View`)?.classList.remove('hidden');document.querySelector('#pageTitle').textContent=pageTitles[initialTab]||initialTab;if(initialTab==='dispatch'){loadDispatchActiveCalls();loadDispatchHistory()}}else{const requested=initialTab&&document.querySelector(`[data-tab="${initialTab}"]`);const tab=requested&&!requested.classList.contains('hidden')?requested:document.querySelector('[data-tab="overview"]');if(tab)tab.click()}}if(action==='dashboard')render(data);if(action==='close'){closeBooking();app.classList.add('hidden');app.classList.remove('standalone-interface','standalone-dispatch','standalone-mdt');document.getElementById('lawConfirmNo').click()}if(action==='notice')notice(message,kind);if(action==='dispatchRefresh'&&!app.classList.contains('hidden')&&!document.querySelector('#dispatchView').classList.contains('hidden'))loadDispatchActiveCalls()});
-document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>post('close'));window.cmHandleEscape=()=>{if(bookingPanel&&!bookingPanel.hidden)closeBooking();else if(!document.getElementById('lawConfirm').hidden)document.getElementById('lawConfirmNo').click();else if(!document.querySelector('#legalArmory').classList.contains('hidden'))post('legalArmoryClose');else if(!document.querySelector('#wardrobeRoom').classList.contains('hidden'))post('legalWardrobeCancel');else if(!document.querySelector('#facilityDialogue').classList.contains('hidden'))post('facilityDialogueClose');else post('escape')};document.addEventListener('keydown',e=>{if(e.key==='Escape'||e.key==='Esc'||e.keyCode===27){e.preventDefault();if(!e.repeat)window.cmHandleEscape()}});
+// Centered icon+label placeholder for any overview list/grid that has nothing to show
+// (no items, or access restricted). Pairs with the .cm-empty-state rules in
+// command-ui-v3.0.css and the .is-empty modifier toggled on the list container.
+function cmEmptyState(icon,label){return `<div class="cm-empty-state"><i class="cm-empty-state__icon cm-empty-state__icon--${icon}"></i><span>${esc(label)}</span></div>`}
+window.addEventListener('message',e=>{const {action,data,kind,message,initialTab}=e.data||{};if(action==='bookingOpen'){renderBooking(data);return}if(action==='bookingResult'){bookingBusy=false;bookingPanel?.classList.remove('is-busy');if(!data?.ok&&bookingPanel)document.querySelector('#bookingStatus').textContent=data?.error||'Booking failed.';return}if(action==='open'){facilityOnly=e.data?.facilityOnly===true;const standalone=e.data?.standaloneMode===true;app.classList.toggle('standalone-interface',standalone);app.classList.toggle('standalone-dispatch',standalone&&initialTab==='dispatch');app.classList.toggle('standalone-mdt',standalone&&initialTab==='mdt');app.classList.remove('hidden');render(data);if(standalone&&initialTab){document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));document.querySelector(`#${initialTab}View`)?.classList.remove('hidden');document.querySelector('#pageTitle').textContent=pageTitles[initialTab]||initialTab;if(initialTab==='dispatch'){loadDispatchActiveCalls();loadDispatchHistory()}if(initialTab==='mdt')loadMdtDashboard()}else{const requested=initialTab&&document.querySelector(`[data-tab="${initialTab}"]`);const tab=requested&&!requested.classList.contains('hidden')?requested:document.querySelector('[data-tab="overview"]');if(tab)tab.click()}}if(action==='dashboard')render(data);if(action==='close'){closeBooking();app.classList.add('hidden');app.classList.remove('standalone-interface','standalone-dispatch','standalone-mdt');document.getElementById('lawConfirmNo').click()}if(action==='notice')notice(message,kind);if(action==='dispatchRefresh'&&!app.classList.contains('hidden')&&!document.querySelector('#dispatchView').classList.contains('hidden'))loadDispatchActiveCalls()});
+document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>post('close'));window.cmHandleEscape=()=>{if(bookingPanel&&!bookingPanel.hidden)closeBooking();else if(!document.getElementById('lawConfirm').hidden)document.getElementById('lawConfirmNo').click();else if(!document.querySelector('#legalArmory').classList.contains('hidden'))post('legalArmoryClose');else if(!document.querySelector('#legalFleet').classList.contains('hidden'))post('legalFleetClose');else if(!document.querySelector('#wardrobeRoom').classList.contains('hidden'))post('legalWardrobeCancel');else if(!document.querySelector('#facilityDialogue').classList.contains('hidden'))post('facilityDialogueClose');else post('escape')};document.addEventListener('keydown',e=>{if(e.key==='Escape'||e.key==='Esc'||e.keyCode===27){e.preventDefault();if(!e.repeat)window.cmHandleEscape()}});
 let logisticsData={items:[],orders:[]};
 function renderLogistics(){const info=state?.logistics||{},form=document.querySelector('#logisticsOrderForm');form.classList.toggle('hidden',info.canRequest!==true);document.querySelector('#logisticsHint').textContent=info.canRequest===true?'Submit from your on-duty organization armory. Army quartermasters accept, prepare, load, and deliver orders.':'View order progress here; your rank cannot submit routine supply requests.';document.querySelector('#logisticsItem').innerHTML=(logisticsData.items||[]).map(x=>`<option value="${esc(x.itemName)}">${esc(x.label)} · ${esc(x.itemName)}</option>`).join('');document.querySelector('#logisticsOrders').innerHTML=(logisticsData.orders||[]).map(o=>{const lines=(o.lines||[]).map(l=>`${esc(l.itemName)} × ${l.quantity}`).join(', ');const buttons=Object.keys(o.actions||{}).map(a=>`<button data-logistics-action="${esc(a)}" data-order-id="${o.id}">${esc(a.replaceAll('_',' '))}</button>`).join('');return `<article class="logistics-order"><div><strong>Order #${o.id} · ${esc(o.status.replaceAll('_',' '))}</strong><small>${esc(o.requesterLabel)} · ${lines}</small>${o.shipment?`<small>Shipment ${esc(o.shipment)}</small>`:''}</div><div class="actions">${buttons}</div></article>`}).join('')||'<p>No supply orders.</p>'}
 async function loadLogistics(){const r=await post('logistics');if(!r?.ok)return notice(r?.error||'Logistics unavailable.','error');logisticsData=r;renderLogistics()}
 async function loadArsenalHistory(){const r=await post('arsenalHistory'),box=document.querySelector('#arsenalHistory');if(!box)return;if(!r?.ok){box.innerHTML=`<p>${esc(r?.error||'Arsenal history unavailable.')}</p>`;return}box.innerHTML=(r.history||[]).map(row=>`<article class="logistics-order"><div><strong>ARSENAL RESUPPLY · ${esc(row.status)}</strong><small>${row.endedAt?new Date(Number(row.endedAt)*1000).toLocaleString():'In progress'} · Army ${Number(row.armyPercent||0)}% · Gangs ${Number(row.gangPercent||0)}% · Lost ${Number(row.lostPercent||0)}%</small><details><summary>VIEW DETAILS</summary><small>Reference ${esc(row.eventId)} · ${esc(row.reason||'No result reason')}</small><small>Incoming ${Number(row.totalValue||0).toLocaleString()} value · Army ${Number(row.armyValue||0).toLocaleString()} · Gangs ${Number(row.gangValue||0).toLocaleString()} · Lost ${Number(row.lostValue||0).toLocaleString()}</small><small>${(row.standings||[]).map(g=>`${esc(String(g.gang_id||g.gangId||'').toUpperCase())}: ${Number(g.percent||0)}%`).join(' · ')||'No gang extraction'}</small></details></div></article>`).join('')||'<p>No Arsenal history.</p>'}
 document.querySelector('#logisticsOrderForm').onsubmit=async e=>{e.preventDefault();const r=await post('logisticsCreate',{lines:[{itemName:document.querySelector('#logisticsItem').value,quantity:Number(document.querySelector('#logisticsQuantity').value||0)}]});notice(r.message||r.error,r.ok?'success':'error');if(r.ok)loadLogistics()};
 document.querySelector('#logisticsOrders').onclick=async e=>{const b=e.target.closest('[data-logistics-action]');if(!b)return;const r=await post('logisticsAction',{action:b.dataset.logisticsAction,orderId:Number(b.dataset.orderId)});notice(r.message||r.error,r.ok?'success':'error');if(r.ok)loadLogistics()};
-const pageTitles={overview:'Overview',roster:'Members',ranks:'Ranks & Access',facilities:'Facilities',fleet:'Fleet Vehicles',logs:'Activity Logs',custody:'Custody',dispatch:'Dispatch',mdt:'Shared MDT',logistics:'Logistics'};
-document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));document.querySelector(`#${b.dataset.tab}View`).classList.remove('hidden');document.querySelector('#pageTitle').textContent=pageTitles[b.dataset.tab]||b.dataset.tab;if(b.dataset.tab==='dispatch'){loadDispatchActiveCalls();loadDispatchHistory()}if(b.dataset.tab==='fleet')loadFleet();if(b.dataset.tab==='logs')loadActivityLog();if(b.dataset.tab==='custody')loadCustody();if(b.dataset.tab==='logistics'){loadLogistics();loadArsenalHistory()}});
+const pageTitles={overview:'Overview',roster:'Members',ranks:'Ranks & Access',facilities:'Facilities',fleet:'Fleet Vehicles',logs:'Activity Logs',custody:'Custody',dispatch:'Dispatch',mdt:'Shared MDT',logistics:'Logistics',charges:'Criminal Code'};
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));document.querySelector(`#${b.dataset.tab}View`).classList.remove('hidden');document.querySelector('#pageTitle').textContent=pageTitles[b.dataset.tab]||b.dataset.tab;if(b.dataset.tab==='dispatch'){loadDispatchActiveCalls();loadDispatchHistory()}if(b.dataset.tab==='fleet')loadFleet();if(b.dataset.tab==='logs')loadActivityLog();if(b.dataset.tab==='custody')loadCustody();if(b.dataset.tab==='logistics'){loadLogistics();loadArsenalHistory()}if(b.dataset.tab==='mdt')loadMdtDashboard();if(b.dataset.tab==='charges')loadCriminalCode()});
+
+// ── Criminal Code (F6 -> Criminal Code, leaders/cm-admin only) ─────────────
+let chargeRows=[];
+function renderCharges(){
+  document.querySelector('#chargesList').innerHTML=chargeRows.map(c=>`<article class="charge-row${c.enabled?'':' is-disabled'}" data-charge-id="${esc(c.id)}">
+    <input class="charge-row__label" data-field="label" value="${esc(c.label)}" maxlength="96">
+    <label>Jail<input data-field="jailMinutes" type="number" min="0" max="180" value="${Number(c.jailMinutes||0)}"></label>
+    <label>Fine<input data-field="fine" type="number" min="0" max="100000" value="${Number(c.fine||0)}"></label>
+    <label class="charge-row__enabled"><input data-field="enabled" type="checkbox" ${c.enabled?'checked':''}>Enabled</label>
+    <div class="actions"><button data-charge-save>Save</button><button class="danger" data-charge-delete>Delete</button></div>
+  </article>`).join('')||'<p class="hint">No charges in the Criminal Code yet.</p>';
+}
+async function loadCriminalCode(){const r=await post('lawListCharges');if(!r?.ok)return notice(r?.error||'Criminal Code unavailable.','error');chargeRows=r.charges||[];renderCharges()}
+document.querySelector('#chargeCreateForm').onsubmit=async e=>{
+  e.preventDefault();
+  const label=document.querySelector('#chargeNewLabel').value,jailMinutes=Number(document.querySelector('#chargeNewJail').value||0),fine=Number(document.querySelector('#chargeNewFine').value||0);
+  const r=await post('lawCreateCharge',{label,jailMinutes,fine});
+  notice(r.message||r.error,r.ok?'success':'error');
+  if(r.ok){document.querySelector('#chargeCreateForm').reset();loadCriminalCode()}
+};
+document.querySelector('#chargesList').onclick=async e=>{
+  const row=e.target.closest('[data-charge-id]');if(!row)return;
+  const id=row.dataset.chargeId;
+  if(e.target.closest('[data-charge-save]')){
+    const label=row.querySelector('[data-field="label"]').value,jailMinutes=Number(row.querySelector('[data-field="jailMinutes"]').value||0),fine=Number(row.querySelector('[data-field="fine"]').value||0),enabled=row.querySelector('[data-field="enabled"]').checked;
+    const r=await post('lawUpdateCharge',{id,label,jailMinutes,fine,enabled});
+    notice(r.message||r.error,r.ok?'success':'error');
+    if(r.ok)loadCriminalCode();
+  }
+  if(e.target.closest('[data-charge-delete]')){
+    if(!(await showConfirmOverlay('Delete charge','Remove this charge from the Criminal Code? Past bookings keep their own record of it regardless.','Delete','Cancel')))return;
+    const r=await post('lawDeleteCharge',{id});
+    notice(r.message||r.error,r.ok?'success':'error');
+    if(r.ok)loadCriminalCode();
+  }
+};
 document.querySelector('#arsenalHistoryRefresh')?.addEventListener('click',loadArsenalHistory);
 roster.onclick=async e=>{const b=e.target.closest('[data-action]');if(!b)return;const action=b.dataset.action,cid=b.dataset.cid;if(action==='fire'&&!(await showConfirmOverlay('Remove member','Remove this member from the organization?','Remove','Cancel')))return;const rank=roster.querySelector(`[data-rank="${CSS.escape(cid)}"]`);const r=await post('staffAction',{action,characterId:cid,rankId:rank?Number(rank.value):null});notice(r.message||r.error,r.ok?'success':'error')};
 
 async function refresh(){ const data = await post('refresh'); if (data && data.ok !== false) render(data); }
 document.querySelector('#dashboardRefresh').onclick=async e=>{const button=e.currentTarget;button.disabled=true;try{await refresh()}finally{button.disabled=false}};
+document.querySelector('#overviewLaunchMdt')?.addEventListener('click',()=>document.querySelector('#mdtTab')?.click());
+document.querySelector('#overviewDispatch')?.addEventListener('click',()=>document.querySelector('#dispatchTab')?.click());
 document.querySelector('#dashboardDutyButton').onclick=async e=>{const button=e.currentTarget;if(!state?.member?.onDuty)return;if(!(await showConfirmOverlay('End duty','End your current legal organization shift?','End duty','Cancel')))return;button.disabled=true;try{const r=await post('endDuty');notice(r.message||r.error,r.ok?'success':'error');if(r.ok)await refresh()}finally{button.disabled=false}};
-function updateDashboardClock(){const clock=document.querySelector('#dashboardClock');if(clock)clock.textContent=new Intl.DateTimeFormat(undefined,{weekday:'short',hour:'2-digit',minute:'2-digit'}).format(new Date())}
+document.querySelector('#overviewCapturePhoto').onclick=async e=>{const button=e.currentTarget;button.disabled=true;try{const r=await post('setMemberPhoto');notice(r.message||r.error,r.ok?'success':'error');if(r.ok)await refresh()}finally{button.disabled=false}};
+function updateDashboardClock(){const clock=document.querySelector('#dashboardClock');if(clock)clock.textContent=new Intl.DateTimeFormat(undefined,{hour:'2-digit',minute:'2-digit'}).format(new Date())}
 updateDashboardClock();setInterval(updateDashboardClock,30000);
 const facilityPrompt=document.querySelector('#facilityPrompt'),facilityDialogue=document.querySelector('#facilityDialogue');
 window.addEventListener('message',e=>{const d=e.data||{};if(d.action==='facilityPrompt'){facilityPrompt.classList.toggle('hidden',!d.visible);document.querySelector('#facilityPromptText').textContent=d.name?`${d.name} · ${d.role||''}`:''}if(d.action==='facilityDialogue'){facilityDialogue.className=`npc-dialogue${d.visible?'':' hidden'}`;if(d.visible){document.querySelector('#facilityName').textContent=d.name||'';document.querySelector('#facilityRole').textContent=d.role||'';document.querySelector('#facilityQuote').textContent=d.quote||'';document.querySelector('#facilitySignature').textContent=`— ${d.name||''}`;document.querySelector('#facilityContinue').textContent=d.continueLabel||'Continue'}}if(d.action==='facilityDialogueResponse'){facilityDialogue.className=`npc-dialogue response ${d.tone||'inform'}`;document.querySelector('#facilityQuote').textContent=d.message||''}});
@@ -490,26 +610,143 @@ document.querySelector('#armoryLoadStock').onclick=async()=>{const button=docume
 let lawMdtProfile=null;
 const mdtResults=document.querySelector('#lawMdtResults'),mdtWorkspace=document.querySelector('#lawMdtWorkspace');
 function mdtList(rows,renderer,empty){return (rows||[]).map(renderer).join('')||`<p class="hint">${esc(empty)}</p>`}
+const caseStatuses=['open','under_review','closed'];
+function renderCaseFile(x){
+  const evidence=x.evidence||[],officers=x.linkedOfficers||[];
+  return `<details class="mdt-record mdt-case" data-report-id="${x.id}">
+    <summary><strong>#${x.id} · ${esc(x.title)}</strong> <span>${esc(x.organization_id).toUpperCase()} · <select data-case-status>${caseStatuses.map(s=>`<option value="${s}" ${x.status===s?'selected':''}>${esc(s.replace('_',' '))}</option>`).join('')}</select></span></summary>
+    ${x.summary?`<p class="case-summary">${esc(x.summary)}</p>`:''}
+    <p>${esc(x.narrative)}</p>
+    <div class="case-photo-row">${x.photo_url?`<img class="case-photo" src="${esc(x.photo_url)}" alt="">`:'<span class="hint">No scene photo attached.</span>'}<button data-case-photo>Capture scene photo</button></div>
+    <div class="case-section"><small>EVIDENCE</small>${mdtList(evidence,e=>`<div class="mdt-record"><strong>${esc(e.label)}</strong><span>${esc(e.note||'')}</span><time>${esc(e.loggedBy||'')} · ${esc(e.loggedAt||'')}</time></div>`,'No evidence logged.')}
+      <div class="law-mdt-compose"><input class="case-evidence-label" maxlength="80" placeholder="Evidence label"><input class="case-evidence-note" maxlength="400" placeholder="Note"><button data-case-add-evidence>Log evidence</button></div>
+    </div>
+    <div class="case-section"><small>LINKED OFFICERS</small>${mdtList(officers,o=>`<div class="mdt-record"><strong>${esc(o.name||('CID '+o.characterId))}</strong><span>CID ${esc(o.characterId)}</span></div>`,'No officers linked.')}
+      <div class="law-mdt-compose"><input class="case-officer-cid" maxlength="64" placeholder="Officer character ID"><button data-case-link-officer>Link officer</button></div>
+    </div>
+    <time>${esc(x.created_at)}</time>
+  </details>`;
+}
 function renderLawMdtProfile(profile){
   lawMdtProfile=profile;const cid=esc(profile.characterId),wanted=profile.wanted;
-  mdtWorkspace.innerHTML=`<section class="law-mdt-profile"><header class="law-mdt-profile__head"><div><small>CITIZEN ${cid}</small><h2>${esc(profile.name)}</h2></div><span class="badge ${wanted?'suspended':'on'}">${wanted?`${profile.stars} STAR WANTED`:'NOT WANTED'}</span></header>
+  mdtWorkspace.innerHTML=`<section class="law-mdt-profile"><header class="law-mdt-profile__head"><img class="mdt-profile-photo" src="${esc(profile.photoUrl||'')}" alt="" onerror="this.style.visibility='hidden'" ${profile.photoUrl?'':'style="visibility:hidden"'}><div><small>CITIZEN ${cid}</small><h2>${esc(profile.name)}</h2></div><button data-mdt-capture-photo>Capture photo</button><span class="badge ${wanted?'suspended':'on'}">${wanted?`${profile.stars} STAR WANTED`:'NOT WANTED'}</span></header>
   <div class="law-mdt-actions"><label>Stars<input id="lawMdtStars" type="number" min="0" max="5" value="${Number(profile.stars||0)}"></label><label>Wanted reason<input id="lawMdtWantedReason" maxlength="160" value="${esc(profile.wantedReason||'')}"></label><button data-mdt-wanted>Update wanted</button></div>
-  <div class="law-mdt-columns"><article class="card"><small>LICENCES</small>${mdtList(profile.licenses,x=>`<div class="mdt-record"><strong>${esc(x.license_type)}</strong><span>${esc(x.status)}${x.license_number?` · ${esc(x.license_number)}`:''}</span></div>`,'No licence records')}</article><article class="card"><small>REGISTERED VEHICLES</small>${mdtList(profile.vehicles,x=>`<button class="mdt-record mdt-record--button" data-mdt-plate="${esc(x.plate)}"><strong>${esc(x.plate)}</strong><span>${esc(x.label||x.model)}${x.licenseNumber?` · ${esc(x.licenseNumber)}`:''}</span></button>`,'No vehicles')}</article></div>
+  <div class="law-mdt-columns"><article class="card"><small>LICENCES</small>${mdtList(profile.licenses,x=>`<div class="mdt-record"><strong>${esc(x.license_type)}</strong><span>${esc(x.status)}${x.license_number?` · ${esc(x.license_number)}`:''}${x.reason?` · ${esc(x.reason)}`:''}</span></div>`,'No licence records')}
+    <div class="law-mdt-compose law-mdt-license-compose"><select id="lawMdtLicenseType">${(profile.licenseTypes||[]).map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('')}</select><select id="lawMdtLicenseStatus"><option value="active">Active</option><option value="revoked">Revoked</option></select><input id="lawMdtLicenseReason" maxlength="160" placeholder="Reason (optional)"><button data-mdt-license>Apply</button></div>
+  </article><article class="card"><small>REGISTERED VEHICLES</small>${mdtList(profile.vehicles,x=>`<button class="mdt-record mdt-record--button" data-mdt-plate="${esc(x.plate)}"><strong>${esc(x.plate)}</strong><span>${esc(x.label||x.model)}${x.licenseNumber?` · ${esc(x.licenseNumber)}`:''}</span></button>`,'No vehicles')}</article></div>
   <div class="law-mdt-compose"><textarea id="lawMdtNote" maxlength="1000" placeholder="Shared agency note"></textarea><button data-mdt-note>Add note</button></div>
   <article class="card"><small>SHARED NOTES</small>${mdtList(profile.notes,x=>`<div class="mdt-record"><strong>${esc(x.organization_id).toUpperCase()} · ${esc(x.author_name||x.author_cid)}</strong><span>${esc(x.note)}</span><time>${esc(x.created_at)}</time></div>`,'No notes')}</article>
-  <div class="law-mdt-compose law-mdt-compose--report"><input id="lawMdtReportTitle" maxlength="120" placeholder="Report title"><textarea id="lawMdtReportNarrative" maxlength="6000" placeholder="Detailed incident narrative"></textarea><button data-mdt-report>Create report</button></div>
-  <article class="card"><small>SHARED REPORTS</small>${mdtList(profile.reports,x=>`<details class="mdt-record"><summary><strong>#${x.id} · ${esc(x.title)}</strong> <span>${esc(x.organization_id).toUpperCase()} · ${esc(x.status)}</span></summary><p>${esc(x.narrative)}</p><time>${esc(x.created_at)}</time></details>`,'No reports')}</article>
+  <div class="law-mdt-compose law-mdt-compose--report"><input id="lawMdtReportTitle" maxlength="120" placeholder="Report title"><input id="lawMdtReportSummary" maxlength="300" placeholder="Short case summary (optional)"><textarea id="lawMdtReportNarrative" maxlength="6000" placeholder="Detailed incident narrative"></textarea><button data-mdt-report>Create report</button></div>
+  <article class="card"><small>SHARED CASE FILES</small>${mdtList(profile.reports,renderCaseFile,'No reports')}</article>
   <div class="law-mdt-compose law-mdt-warrant-compose"><input id="lawMdtWarrantReason" maxlength="1000" placeholder="Warrant reason"><input id="lawMdtWarrantStars" type="number" min="1" max="5" value="1"><button data-mdt-warrant>Create warrant</button></div>
   <article class="card"><small>SHARED WARRANTS</small>${mdtList(profile.warrants,x=>`<div class="mdt-record"><strong>#${x.id} · ${esc(x.organization_id).toUpperCase()} · ${x.stars} star</strong><span>${esc(x.reason)}</span><time>${esc(x.created_at)}</time>${x.status==='active'?`<button data-mdt-close-warrant="${x.id}">Close warrant</button>`:`<em>${esc(x.status)}</em>`}</div>`,'No warrants')}</article>
-  <article class="card"><small>SHARED LEGAL BOOKING HISTORY</small>${mdtList(profile.legalBookings,x=>`<div class="mdt-record"><strong>${esc(x.organization_id)} booking #${x.id} · ${Number(x.sentence_minutes||0)} minutes</strong><span>${esc((x.charges||[]).map(c=>c.label).join(', ')||'No charges')} · ${esc(x.reason||'No reason')} · ${esc(x.handoff_status||'unknown')}</span><time>${esc(x.booked_at||'')}</time></div>`,'No shared legal bookings')}</article>
+  <article class="card"><small>SHARED LEGAL BOOKING HISTORY</small>${mdtList(profile.legalBookings,x=>`<div class="mdt-record"><strong>${esc(x.organization_id)} booking #${x.id} · ${Number(x.sentence_minutes||0)} minutes${Number(x.fine_amount||0)>0?` · $${Number(x.fine_amount).toLocaleString()} fine`:''}</strong><span>${esc((x.charges||[]).map(c=>c.label).join(', ')||'No charges')} · ${esc(x.reason||'No reason')} · ${esc(x.handoff_status||'unknown')}</span><time>${esc(x.booked_at||'')}</time></div>`,'No shared legal bookings')}</article>
   <div class="law-mdt-columns"><article class="card"><small>CITATION HISTORY</small>${mdtList(profile.citations,x=>`<div class="mdt-record"><strong>${esc(x.violation_label||'Citation')} · $${Number(x.fine||0).toLocaleString()}</strong><time>${esc(x.created_at||'')}</time></div>`,'No citations')}</article><article class="card"><small>POLICE BOOKING HISTORY</small>${mdtList(profile.bookings,x=>`<div class="mdt-record"><strong>Booking #${x.id} · ${Number(x.wanted_stars||0)} stars</strong><span>${esc(x.reason||'No reason')} · ${Number(x.sentence_minutes||0)} minutes · ${esc(x.handoff_status||'unknown')}</span><time>${esc(x.booked_at||'')}</time></div>`,'No police bookings')}</article></div></section>`;
 }
-async function loadLawMdtProfile(characterId){const r=await post('lawMdtCitizenProfile',{characterId});if(!r?.ok)return notice(r?.error||'Profile unavailable.','error');renderLawMdtProfile(r.profile)}
+async function loadLawMdtProfile(characterId){const r=await post('lawMdtCitizenProfile',{characterId});if(!r?.ok)return notice(r?.error||'Profile unavailable.','error');document.querySelector('#lawMdtIdle').hidden=true;document.querySelector('#lawMdtDashboard').hidden=true;renderLawMdtProfile(r.profile)}
+// ── MDT dashboard (idle-view landing page): active warrants, active BOLOs,
+// recent incidents and stats -- one aggregated call (cm-law:server:mdtDashboard),
+// each section rendered independently so a missing section just shows empty.
+function renderMdtDashboard(data){
+  document.querySelector('#lawMdtIdle').hidden=true;document.querySelector('#lawMdtDashboard').hidden=false;
+  const stats=data?.stats||{};
+  document.querySelector('#lawMdtDashboardStats').innerHTML=[
+    ['ACTIVE WARRANTS',Number(stats.activeWarrants||0)],
+    ['ACTIVE BOLOS',Number(stats.activeBolos||0)],
+    ['ACTIVE DISPATCH CALLS',Number(stats.activeCalls||0)],
+  ].map(([label,value])=>`<div class="stat"><small>${esc(label)}</small><strong>${value.toLocaleString()}</strong></div>`).join('');
+  document.querySelector('#lawMdtBoloList').innerHTML=mdtList(data?.bolos,x=>`<div class="mdt-record"><strong>${esc(x.plate)}</strong><span>${esc(x.description)} · ${esc(String(x.organization_id||'').toUpperCase())}</span><time>${esc(formatTerminalTime(x.created_at))}</time><button data-mdt-bolo-clear="${x.id}">Clear</button></div>`,'No active BOLOs.');
+  document.querySelector('#lawMdtDashboardWarrants').innerHTML=mdtList(data?.warrants,x=>`<button class="mdt-record mdt-record--button" data-mdt-cid="${esc(x.target_cid)}"><strong>${esc(x.target_name||('CID '+x.target_cid))} · ${x.stars} star</strong><span>${esc(x.reason)} · ${esc(String(x.organization_id||'').toUpperCase())}</span><time>${esc(formatTerminalTime(x.created_at))}</time></button>`,'No active warrants.');
+  document.querySelector('#lawMdtDashboardIncidents').innerHTML=mdtList(data?.incidents,x=>`<div class="mdt-record"><strong>${esc(x.details)}</strong><span>${esc(x.location||'Unknown location')} · ${esc(x.status)}</span><time>${esc(formatTerminalTime(x.created_at))}</time></div>`,'No recent incidents.');
+}
+async function loadMdtDashboard(){const r=await post('lawMdtDashboard');if(!r?.ok)return;renderMdtDashboard(r)}
+document.querySelector('#lawMdtDashboard').addEventListener('click',async e=>{
+  const issue=e.target.closest('[data-mdt-bolo-issue]'),clear=e.target.closest('[data-mdt-bolo-clear]');
+  if(issue){
+    const plate=document.querySelector('#lawMdtBoloPlate').value,description=document.querySelector('#lawMdtBoloDescription').value;
+    const r=await post('lawMdtIssueBolo',{plate,description});notice(r.message||r.error,r.ok?'success':'error');
+    if(r.ok){document.querySelector('#lawMdtBoloPlate').value='';document.querySelector('#lawMdtBoloDescription').value='';loadMdtDashboard()}
+  }
+  if(clear){
+    const r=await post('lawMdtClearBolo',{boloId:Number(clear.dataset.mdtBoloClear)});notice(r.message||r.error,r.ok?'success':'error');
+    if(r.ok)loadMdtDashboard();
+  }
+});
+document.querySelector('#lawMdtBoloHistoryToggle').onclick=async()=>{
+  const box=document.querySelector('#lawMdtBoloHistoryList'),list=document.querySelector('#lawMdtBoloList');
+  const showing=!box.hidden;
+  if(showing){box.hidden=true;list.hidden=false;return}
+  const r=await post('lawMdtBoloHistory');
+  box.innerHTML=mdtList(r?.list,x=>`<div class="mdt-record"><strong>${esc(x.plate)}</strong><span>${esc(x.description)} · ${esc(String(x.organization_id||'').toUpperCase())} · cleared by ${esc(x.clearedByName||'Unknown')}</span><time>${esc(formatTerminalTime(x.clearedAt))}</time></div>`,'No cleared BOLOs.');
+  box.hidden=false;list.hidden=true;
+};
 document.querySelector('#lawMdtCitizenSearch').onclick=async()=>{const r=await post('lawMdtSearchCitizens',{query:document.querySelector('#lawMdtCitizenQuery').value});if(!r?.ok)return notice(r?.error||'Search failed.','error');mdtResults.innerHTML=mdtList(r.citizens,x=>`<button class="law-mdt-result" data-mdt-cid="${esc(x.characterId)}"><strong>${esc(x.name)}</strong><span>CID ${esc(x.characterId)}${x.wanted?` · ${x.stars} STAR WANTED`:''}</span></button>`,'No citizens found')};
-document.querySelector('#lawMdtVehicleSearch').onclick=async()=>{const r=await post('lawMdtVehicleSearch',{plate:document.querySelector('#lawMdtPlateQuery').value});if(!r?.ok)return notice(r?.error||'Vehicle not found.','error');const v=r.vehicle;mdtWorkspace.innerHTML=`<article class="card law-mdt-vehicle"><small>VEHICLE RECORD</small><h2>${esc(v.plate)}</h2><p>${esc(v.label||v.model)}</p><div class="mdt-record"><strong>Owner</strong><span>${esc(v.ownerName)}${v.ownerCid?` · CID ${esc(v.ownerCid)}`:''}</span></div><div class="mdt-record"><strong>Registration</strong><span>${esc(v.licenseNumber||'UNLICENSED')}</span></div><div class="mdt-record"><strong>Impound</strong><span>${v.impound?`${esc(v.impound.reason)} · $${Number(v.impound.fee||0).toLocaleString()}`:'Not impounded'}</span></div>${v.ownerCid?`<button data-mdt-cid="${esc(v.ownerCid)}">Open owner profile</button>`:''}</article>`};
+document.querySelector('#lawMdtVehicleSearch').onclick=async()=>{const r=await post('lawMdtVehicleSearch',{plate:document.querySelector('#lawMdtPlateQuery').value});if(!r?.ok)return notice(r?.error||'Vehicle not found.','error');document.querySelector('#lawMdtIdle').hidden=true;document.querySelector('#lawMdtDashboard').hidden=true;const v=r.vehicle;mdtWorkspace.innerHTML=`<article class="card law-mdt-vehicle">${v.bolo?`<div class="mdt-record mdt-record--alert"><strong>ACTIVE BOLO</strong><span>${esc(v.bolo.description)} · ${esc(String(v.bolo.organizationId||'').toUpperCase())}</span></div>`:''}<small>VEHICLE RECORD</small><h2>${esc(v.plate)}</h2><p>${esc(v.label||v.model)}</p><div class="mdt-record"><strong>Owner</strong><span>${esc(v.ownerName)}${v.ownerCid?` · CID ${esc(v.ownerCid)}`:''}</span></div><div class="mdt-record"><strong>Registration</strong><span>${esc(v.licenseNumber||'UNLICENSED')}</span></div><div class="mdt-record"><strong>Impound</strong><span>${v.impound?`${esc(v.impound.reason)} · $${Number(v.impound.fee||0).toLocaleString()}`:'Not impounded'}</span></div>${v.ownerCid?`<button data-mdt-cid="${esc(v.ownerCid)}">Open owner profile</button>`:''}</article>`};
 mdtResults.onclick=e=>{const b=e.target.closest('[data-mdt-cid]');if(b)loadLawMdtProfile(b.dataset.mdtCid)};
-mdtWorkspace.onclick=async e=>{const cidButton=e.target.closest('[data-mdt-cid]'),plateButton=e.target.closest('[data-mdt-plate]');if(cidButton)return loadLawMdtProfile(cidButton.dataset.mdtCid);if(plateButton){document.querySelector('#lawMdtPlateQuery').value=plateButton.dataset.mdtPlate;return document.querySelector('#lawMdtVehicleSearch').click()}if(!lawMdtProfile)return;const cid=lawMdtProfile.characterId;let r;if(e.target.closest('[data-mdt-wanted]'))r=await post('lawMdtSetWanted',{characterId:cid,stars:Number(document.querySelector('#lawMdtStars').value),reason:document.querySelector('#lawMdtWantedReason').value});if(e.target.closest('[data-mdt-note]'))r=await post('lawMdtAddNote',{characterId:cid,note:document.querySelector('#lawMdtNote').value});if(e.target.closest('[data-mdt-report]'))r=await post('lawMdtCreateReport',{characterId:cid,title:document.querySelector('#lawMdtReportTitle').value,narrative:document.querySelector('#lawMdtReportNarrative').value});if(e.target.closest('[data-mdt-warrant]'))r=await post('lawMdtCreateWarrant',{characterId:cid,stars:Number(document.querySelector('#lawMdtWarrantStars').value),reason:document.querySelector('#lawMdtWarrantReason').value});const close=e.target.closest('[data-mdt-close-warrant]');if(close)r=await post('lawMdtCloseWarrant',{warrantId:Number(close.dataset.mdtCloseWarrant)});if(r){notice(r.message||r.error,r.ok?'success':'error');if(r.ok)loadLawMdtProfile(cid)}};
+mdtWorkspace.onclick=async e=>{
+  const cidButton=e.target.closest('[data-mdt-cid]'),plateButton=e.target.closest('[data-mdt-plate]');
+  if(cidButton)return loadLawMdtProfile(cidButton.dataset.mdtCid);
+  if(plateButton){document.querySelector('#lawMdtPlateQuery').value=plateButton.dataset.mdtPlate;return document.querySelector('#lawMdtVehicleSearch').click()}
+  if(!lawMdtProfile)return;
+  const cid=lawMdtProfile.characterId;let r;
+  if(e.target.closest('[data-mdt-wanted]'))r=await post('lawMdtSetWanted',{characterId:cid,stars:Number(document.querySelector('#lawMdtStars').value),reason:document.querySelector('#lawMdtWantedReason').value});
+  if(e.target.closest('[data-mdt-note]'))r=await post('lawMdtAddNote',{characterId:cid,note:document.querySelector('#lawMdtNote').value});
+  if(e.target.closest('[data-mdt-report]'))r=await post('lawMdtCreateReport',{characterId:cid,title:document.querySelector('#lawMdtReportTitle').value,summary:document.querySelector('#lawMdtReportSummary').value,narrative:document.querySelector('#lawMdtReportNarrative').value});
+  if(e.target.closest('[data-mdt-warrant]'))r=await post('lawMdtCreateWarrant',{characterId:cid,stars:Number(document.querySelector('#lawMdtWarrantStars').value),reason:document.querySelector('#lawMdtWarrantReason').value});
+  const close=e.target.closest('[data-mdt-close-warrant]');if(close)r=await post('lawMdtCloseWarrant',{warrantId:Number(close.dataset.mdtCloseWarrant)});
+  if(e.target.closest('[data-mdt-capture-photo]')){const cr=await post('lawMdtCapturePhoto',{characterId:cid});notice(cr.message||cr.error,cr.ok?'success':'error');if(cr.ok)loadLawMdtProfile(cid);return}
+  if(e.target.closest('[data-mdt-license]')){
+    const licenseType=document.querySelector('#lawMdtLicenseType').value,status=document.querySelector('#lawMdtLicenseStatus').value,licenseReason=document.querySelector('#lawMdtLicenseReason').value;
+    const lr=await post('lawMdtSetLicenseStatus',{characterId:cid,licenseType,status,reason:licenseReason});
+    notice(lr.message||lr.error,lr.ok?'success':'error');if(lr.ok)loadLawMdtProfile(cid);return;
+  }
+  const caseEl=e.target.closest('[data-report-id]');
+  if(caseEl){
+    const reportId=Number(caseEl.dataset.reportId);
+    if(e.target.closest('[data-case-photo]')){const cr=await post('lawMdtCaptureReportPhoto',{reportId});notice(cr.message||cr.error,cr.ok?'success':'error');if(cr.ok)loadLawMdtProfile(cid);return}
+    if(e.target.closest('[data-case-add-evidence]')){
+      const label=caseEl.querySelector('.case-evidence-label').value,note=caseEl.querySelector('.case-evidence-note').value;
+      const cr=await post('lawMdtAddReportEvidence',{reportId,label,note});notice(cr.message||cr.error,cr.ok?'success':'error');if(cr.ok)loadLawMdtProfile(cid);return;
+    }
+    if(e.target.closest('[data-case-link-officer]')){
+      const officerCid=caseEl.querySelector('.case-officer-cid').value;
+      const cr=await post('lawMdtLinkReportOfficer',{reportId,officerCid});notice(cr.message||cr.error,cr.ok?'success':'error');if(cr.ok)loadLawMdtProfile(cid);return;
+    }
+  }
+  if(r){notice(r.message||r.error,r.ok?'success':'error');if(r.ok)loadLawMdtProfile(cid)}
+};
+mdtWorkspace.addEventListener('change',async e=>{
+  const select=e.target.closest('[data-case-status]');if(!select||!lawMdtProfile)return;
+  const caseEl=select.closest('[data-report-id]');if(!caseEl)return;
+  const cid=lawMdtProfile.characterId,reportId=Number(caseEl.dataset.reportId);
+  const r=await post('lawMdtSetReportStatus',{reportId,status:select.value});
+  notice(r.message||r.error,r.ok?'success':'error');
+  if(r.ok)loadLawMdtProfile(cid);
+});
 
+// ── In-world dashboard laptop glance (client/laptop_terminal.lua) ──────────
+// A DUI created on a vehicle dashboard loads this same page with
+// ?embedded=laptop. DUIs never receive SendNUIMessage (mouse-only native
+// input, matching FiveM's platform limits noted in shared/config.lua), so
+// this bootstraps itself instead of waiting for the usual 'open' message,
+// and periodically refreshes to look live. It is read-only glance UI --
+// actual interaction happens through the normal fullscreen panel.
+(function(){
+  const params=new URLSearchParams(location.search);
+  if(params.get('embedded')!=='laptop')return;
+  app.classList.add('hidden','standalone-interface','standalone-mdt');
+  const boot=async()=>{
+    const data=await post('refresh');
+    if(!data||data.ok===false)return;
+    app.classList.remove('hidden');
+    render(data);
+    document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));
+    document.querySelector('#mdtView')?.classList.remove('hidden');
+    loadMdtDashboard();
+  };
+  boot();
+  setInterval(boot,5000);
+})();
 document.querySelector('#memberMap').onclick=async()=>{
   const button=document.querySelector('#memberMap');
   const r=await post('toggleMemberMap',{});

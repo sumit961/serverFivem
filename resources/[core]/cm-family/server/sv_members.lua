@@ -564,6 +564,9 @@ function SucceedFounder(founderCid)
     MySQL.update.await('UPDATE cm_families SET founder_cid = ? WHERE id = ?', { tostring(bestCid), fam.id })
     fam.founder_cid = tostring(bestCid)
     local m = GetMembership(bestCid) ; if m then m.rank_id = founderRankRow.id end
+    if fam.house_id then
+        B.TransferFamilyHouseOwnership(fam.id, tostring(bestCid))
+    end
     if CMFamilyRevokeVehicleKeysForCharacter then
         CMFamilyRevokeVehicleKeysForCharacter(bestCid, 'family-founder-changed')
         CMFamilyRevokeVehicleKeysForCharacter(founderCid, 'family-founder-changed')
@@ -634,6 +637,10 @@ function TransferLeadership(actorCid, targetCid, confirmed)
     local ma = GetMembership(actorCid)
     if ma then ma.rank_id = secondRank.id end
 
+    if fam.house_id then
+        B.TransferFamilyHouseOwnership(fam.id, targetCid)
+    end
+
     if CMFamilyRevokeVehicleKeysForCharacter then
         CMFamilyRevokeVehicleKeysForCharacter(targetCid, 'family-leadership-transferred')
         CMFamilyRevokeVehicleKeysForCharacter(actorCid, 'family-leadership-transferred')
@@ -693,6 +700,12 @@ function DisbandFamily(actorCid)
         return false, 'Family database cleanup is unavailable.'
     end
 
+    LogFamily(familyId, actorCid, 'family_deleted', {
+        houseId = fam.house_id,
+        reason = 'manual_disband',
+        familyName = fam.name,
+    }, { highRisk = true, houseId = fam.house_id })
+
     local deleted, deleteErr = CMFamilyDeleteFamilyRows(familyId)
     if not deleted then
         -- The DB transaction is atomic, so the family still exists. Restore the
@@ -706,12 +719,6 @@ function DisbandFamily(actorCid)
         end
         return false, ('Family disband failed safely: %s'):format(tostring(deleteErr))
     end
-
-    LogFamily(familyId, actorCid, 'family_deleted', {
-        houseId = fam.house_id,
-        reason = 'manual_disband',
-        familyName = fam.name,
-    }, { highRisk = true, houseId = fam.house_id })
 
     if CMFamilyRevokeVehicleKeysForFamily then
         CMFamilyRevokeVehicleKeysForFamily(familyId, 'family-disbanded')

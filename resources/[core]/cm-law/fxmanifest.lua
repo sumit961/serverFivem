@@ -26,7 +26,11 @@ client_scripts {
     'client/escort.lua',
     'client/gmenu.lua',
     'client/prison_intake.lua',
+    'client/laptop_terminal.lua',
     'client/dispatch.lua',
+    'client/dispatch_cameras.lua',
+    'client/vehicle_scanner.lua',
+    'client/photo_capture.lua',
     'client/tracking.lua',
     'embedded/police/client/ui.lua',
     'embedded/police/client/npc_dialogue.lua',
@@ -45,7 +49,6 @@ client_scripts {
     'embedded/police/client/clamp.lua',
     'embedded/police/client/quickmenu.lua',
     'embedded/police/client/wardrobe.lua',
-    'embedded/police/client/mdt_terminal.lua',
     'embedded/police/client/dispatch.lua',
     'embedded/police/client/gunfire.lua',
     'embedded/police/client/licenses.lua',
@@ -65,11 +68,15 @@ server_scripts {
     'server/arsenal.lua',
     'server/search.lua',
     'server/mdt.lua',
+    'server/bolo.lua',
     'server/vehicles.lua',
     'server/cuffs.lua',
+    'server/charges.lua', -- editable Criminal Code catalog, read by booking.lua's LawChargeCatalog()
     'server/booking.lua', -- all departments hand off to the central cm-prison intake and sentence authority
     'server/frontdesk.lua',
     'server/dispatch.lua',
+    'server/dispatch_cameras.lua',
+    'server/photos.lua',   -- shared local-file capture primitive (citizen/officer/report photos)
     'server/scene_equipment.lua',
     'server/enforcement.lua',
     'server/tracking.lua',  -- org-scoped member map + meeting points
@@ -123,6 +130,7 @@ files {
     'html/law.html',
     'html/dashboard-filters.js',   -- roster + activity log search (standalone, loads after app.js)
     'html/assets/fonts/*.woff2',   -- optional self-hosted Archivo / JetBrains Mono
+    'html/assets/mdt.png',         -- MDT tab icon (sourced from resources/outside/mdt reference resource's static image asset)
 
     'html/style.css',
     'html/law-armory-v4.css',
@@ -140,6 +148,7 @@ files {
     'html/operations-v2.5.css',
     'html/command-ui-v2.6.css',
     'html/command-ui-v3.0.css', -- full-screen command deck theme; loads last and overrides v2.6 chrome
+    'html/law-command-dashboard.css', -- CM command dashboard overview skin
     'html/command-ui-v2.6.js',
     'html/assets/org/*.svg',
     'html/assets/org/*.png',
@@ -151,4 +160,7 @@ files {
     'html/police/assets/org/*.png',
     'html/police/img/bodycam/*.jpg',
     'html/police/img/mugshots/*.jpg',
+    'html/captures/citizens/*.jpg',
+    'html/captures/officers/*.jpg',
+    'html/captures/reports/*.jpg',
 }

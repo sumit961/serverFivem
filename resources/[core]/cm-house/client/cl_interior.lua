@@ -50,7 +50,11 @@ end
 local function drawRoomMarker(point, kind)
     if not point then return end
     local r, g, b = 0, 209, 255
-    if kind == 'armory' then r, g, b = 255, 209, 102 end
+    if kind == 'armory' then
+        r, g, b = 255, 209, 102
+    elseif kind == 'wardrobe' then
+        r, g, b = 130, 220, 255
+    end
     DrawMarker(21, point.x, point.y, point.z + 0.18,
         0.0, 0.0, 0.0, 0.0, 180.0, 0.0,
         0.48, 0.48, 0.48, r, g, b, 185,
@@ -214,7 +218,7 @@ CreateThread(function()
                     end
                 end
 
-                for _, w in ipairs(In.weaponStorages or In.wardrobes or {}) do
+                for _, w in ipairs(In.weaponStorages or {}) do
                     if #(pc - vector3(w.coords.x, w.coords.y, w.coords.z)) <= 22.0 then
                         drawRoomMarker(w.coords, 'armory')
                     end
@@ -232,16 +236,29 @@ CreateThread(function()
                 end
 
                 for _, st in ipairs(In.stashes or {}) do
+                    local label = tostring(st.label or '')
+                    local labelLower = label:lower()
+                    local isWardrobe = labelLower:find('wardrobe', 1, true)
+                        or labelLower:find('closet', 1, true)
+                        or labelLower:find('outfit', 1, true)
+                        or labelLower:find('cloth', 1, true)
+                    local kind = isWardrobe and 'wardrobe' or 'storage'
+                    local displayLabel = isWardrobe and 'Wardrobe' or (label ~= '' and label or 'Storage')
+
                     if #(pc - vector3(st.coords.x, st.coords.y, st.coords.z)) <= 22.0 then
-                        drawRoomMarker(st.coords, 'wardrobe')
+                        drawRoomMarker(st.coords, kind)
                     end
                     if nearTo(pc, st.coords) then
-                        prompt(st.coords, st.label or 'Wardrobe / storage')
+                        prompt(st.coords, displayLabel)
                         if pressed then
                             busy = true
                             SetTimeout(600, function() busy = false end)
                             if CMHouseInteraction and CMHouseInteraction.BlockFor then CMHouseInteraction.BlockFor(1200) end
-                            TriggerServerEvent('cm-house:server:openStash', In.houseId, st.index)
+                            if isWardrobe then
+                                TriggerEvent('cm-house:client:openWardrobe', In.houseId, st.index)
+                            else
+                                TriggerServerEvent('cm-house:server:openStash', In.houseId, st.index)
+                            end
                         end
                     end
                 end
@@ -296,8 +313,7 @@ RegisterNetEvent('cm-house:client:enterHome', function(houseId)
         kind      = 'house',
         exitPoint = res.exitPoint,
         hasGarage = res.hasGarage,
-        weaponStorages = res.weaponStorages or res.wardrobes or {},
-        wardrobes = res.weaponStorages or res.wardrobes or {},
+        weaponStorages = res.weaponStorages or {},
         stashes   = res.stashes or {},
     }
 
@@ -378,8 +394,7 @@ RegisterNetEvent('cm-house:client:toHouse', function()
         kind      = 'house',
         exitPoint = res.exitPoint,
         hasGarage = res.hasGarage,
-        weaponStorages = res.weaponStorages or res.wardrobes or {},
-        wardrobes = res.weaponStorages or res.wardrobes or {},
+        weaponStorages = res.weaponStorages or {},
         stashes   = res.stashes or {},
     }
     busy = false
@@ -476,8 +491,7 @@ RegisterNetEvent('cm-house:client:restoreInterior', function(kind, res)
             kind      = 'house',
             exitPoint = res.exitPoint,
             hasGarage = res.hasGarage,
-            weaponStorages = res.weaponStorages or res.wardrobes or {},
-            wardrobes = res.weaponStorages or res.wardrobes or {},
+            weaponStorages = res.weaponStorages or {},
             stashes   = res.stashes or {},
         }
     end
@@ -506,10 +520,14 @@ RegisterNetEvent('cm-house:client:openGarage', function(houseId)
     TriggerEvent('cm-house:client:enterGarageState', houseId)
 end)
 
--- Backward-compatible wardrobe event. Old integrations now open the first
--- secure weapon-storage point instead of calling an unavailable clothing UI.
+-- Wardrobe event: opens nv_cloth outfit wardrobe presets if available,
+-- falling back to secure weapon-storage if nv_cloth is not running.
 RegisterNetEvent('cm-house:client:openWardrobe', function(houseId, index)
-    TriggerEvent('cm-house:client:openWeaponStorageRequested', tonumber(houseId), tonumber(index) or 1)
+    if GetResourceState('nv_cloth') == 'started' then
+        TriggerEvent('nvCloth:client:openWardrobe')
+    else
+        TriggerEvent('cm-house:client:openWeaponStorageRequested', tonumber(houseId), tonumber(index) or 1)
+    end
 end)
 
 -- ------------------------------------------------------------

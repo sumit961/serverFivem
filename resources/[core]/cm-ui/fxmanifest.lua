@@ -5,7 +5,7 @@ lua54 'yes'
 name 'cm-ui'
 author 'CM Framework / Grand RP'
 description 'Central CM Framework UI theme, components, and NUI helper utilities'
-version '1.3.0'
+version '1.4.0'
 
 shared_script 'shared/theme.lua'
 
@@ -26,7 +26,9 @@ files {
     'web/cm-armory.css',
     'web/cm-interact.css',
     'web/cm-dialogue.css',
+    'web/cm-style.css',
     'web/cm-ui.js',
+    'web/cm-style-preview.js',
     'web/cm-icons.css',
     'web/preview.html',
     'web/fonts/*.ttf',

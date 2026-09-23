@@ -343,6 +343,33 @@ exports('ReleasePrisoner', function(cid)
     return releaseCharacter(cid, 'administrative_release')
 end)
 
+-- Task-based sentence reduction (client/tasks.lua). Server-authoritative on
+-- every axis a modified client could lie about: the player must actually be
+-- an active prisoner right now, and a per-player cooldown is enforced here
+-- even though the client also debounces its own prompt.
+local TaskCooldowns = {}
+
+RegisterNetEvent('cm-prison:server:completeTask', function()
+    local src = tonumber(source)
+    if not src then return end
+    local state = Player(src).state.cmPrison
+    if type(state) ~= 'table' or state.active ~= true then return end
+    local cooldownMs = tonumber(PrisonConfig.Tasks and PrisonConfig.Tasks.CooldownMs) or 60000
+    local now = GetGameTimer()
+    if (TaskCooldowns[src] or 0) > now then return end
+    TaskCooldowns[src] = now + cooldownMs
+    local cid = characterId(src)
+    if not cid then return end
+    local minutes = math.max(1, math.floor(tonumber(PrisonConfig.Tasks and PrisonConfig.Tasks.ReductionMinutes) or 5))
+    local ok = exports['cm-prison']:ReduceSentence(cid, minutes)
+    if ok then
+        TriggerClientEvent('cm-playerdata:client:interactionNotify', src,
+            ('Sentence reduced by %d minute%s.'):format(minutes, minutes == 1 and '' or 's'), 'success')
+    end
+end)
+
+AddEventHandler('playerDropped', function() TaskCooldowns[tonumber(source)] = nil end)
+
 CreateThread(function()
     local schemaOk, schemaError = pcall(function()
         MySQL.query.await([[CREATE TABLE IF NOT EXISTS cm_prison_settings (

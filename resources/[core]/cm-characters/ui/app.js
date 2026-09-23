@@ -138,6 +138,15 @@ function setCreationLoading(show, message, targetPercent) {
         clearLoadingTimer();
         if (finishingTimer) { clearInterval(finishingTimer); finishingTimer = null; }
         if (finishingTimeout) { clearTimeout(finishingTimeout); finishingTimeout = null; }
+
+        if (creationLoading.classList.contains('hidden') || creationLoading.style.display === 'none' || !creationLoading.style.display) {
+            creationLoading.classList.add('hidden');
+            creationLoading.classList.remove('finishing');
+            creationLoading.style.display = 'none';
+            setPercent(0);
+            return;
+        }
+
         creationLoading.classList.remove('hidden');
         creationLoading.classList.add('finishing');
         creationLoading.style.display = 'flex';
@@ -901,8 +910,197 @@ document.querySelectorAll('.admin-action').forEach(button => {
     button.addEventListener('click', () => runAdminAction(button.dataset.adminAction));
 });
 
+// ═══ Barber Shop / Hair Salon Commercial Ownership Management ═══
+const barberOwnerPanel = document.getElementById('barber-owner-panel');
+const barberStoreTitle = document.getElementById('barberStoreTitle');
+const barberStoreSub = document.getElementById('barberStoreSub');
+const barberBalance = document.getElementById('barberBalance');
+const barberTaxCoverage = document.getElementById('barberTaxCoverage');
+const barberTaxDueHint = document.getElementById('barberTaxDueHint');
+const barberStock = document.getElementById('barberStock');
+const barberStockCap = document.getElementById('barberStockCap');
+const barberDailyIncome = document.getElementById('barberDailyIncome');
+const barberWeeklyIncome = document.getElementById('barberWeeklyIncome');
+const barberActiveTierPill = document.getElementById('barberActiveTierPill');
+const barberCloseBtn = document.getElementById('barberCloseBtn');
+const barberWithdrawBtn = document.getElementById('barberWithdrawBtn');
+const barberPayTaxBtn = document.getElementById('barberPayTaxBtn');
+const barberRestockBtn = document.getElementById('barberRestockBtn');
+const barberSaveSettingsBtn = document.getElementById('barberSaveSettingsBtn');
+
+const barberBuyPanel = document.getElementById('barber-buy-panel');
+const barberBuyName = document.getElementById('barberBuyName');
+const barberBuyOwnerName = document.getElementById('barberBuyOwnerName');
+const barberBuyTier = document.getElementById('barberBuyTier');
+const barberBuyStock = document.getElementById('barberBuyStock');
+const barberBuyStatus = document.getElementById('barberBuyStatus');
+const barberBuyConfirmBtn = document.getElementById('barberBuyConfirmBtn');
+const barberBuyCloseBtn = document.getElementById('barberBuyCloseBtn');
+
+let currentBarberData = null;
+let currentBarberTier = 'normal';
+let currentBarberBuyData = null;
+
+function formatCurrency(amount) {
+    return '$' + Math.floor(Number(amount) || 0).toLocaleString();
+}
+
+function renderBarberOwner(data) {
+    if (!data) return;
+    currentBarberData = data;
+    currentBarberTier = data.priceTier || 'normal';
+
+    if (barberStoreTitle) barberStoreTitle.textContent = (data.shopId ? data.shopId.toUpperCase().replace(/_/g, ' ') : 'HAIR SALON') + ' SALON';
+    if (barberStoreSub) barberStoreSub.textContent = `OPERATOR: ${data.ownerName || 'City Commercial Property'} | ID: ${data.shopId || 'N/A'}`;
+    if (barberBalance) barberBalance.textContent = formatCurrency(data.businessBalance);
+    if (barberTaxCoverage) barberTaxCoverage.textContent = `${data.taxDueDays || 0} DAYS`;
+    if (barberTaxDueHint) barberTaxDueHint.textContent = `${formatCurrency(data.taxAmount || 12000)} / 7 DAYS`;
+    if (barberStock) barberStock.textContent = (Number(data.stock) || 0).toLocaleString();
+    if (barberStockCap) barberStockCap.textContent = `CAPACITY: ${(Number(data.maxStock) || 5000).toLocaleString()} UNITS`;
+    if (barberDailyIncome) barberDailyIncome.textContent = formatCurrency(data.dailyIncome);
+    if (barberWeeklyIncome) barberWeeklyIncome.textContent = formatCurrency(data.weeklyIncome);
+
+    // Update tier buttons
+    const multText = currentBarberTier === 'low' ? '0.80x ($80)' : (currentBarberTier === 'high' ? '1.50x ($150)' : '1.00x ($100)');
+    if (barberActiveTierPill) barberActiveTierPill.textContent = `${currentBarberTier.toUpperCase()} (${multText})`;
+
+    if (barberPayTaxBtn) {
+        const isMaxPaid = data.canPayTax === false || Number(data.taxDueDays) >= 7;
+        barberPayTaxBtn.disabled = isMaxPaid;
+        barberPayTaxBtn.textContent = isMaxPaid
+            ? 'TAX PAID (MAX 7 DAYS)'
+            : `PAY 7-DAY TAX (${formatCurrency(data.taxAmount || 12000)})`;
+        barberPayTaxBtn.style.opacity = isMaxPaid ? '0.5' : '1';
+        barberPayTaxBtn.style.cursor = isMaxPaid ? 'not-allowed' : 'pointer';
+    }
+
+    document.querySelectorAll('.barber-tier-btn').forEach(btn => {
+        btn.classList.toggle('selected', btn.dataset.tier === currentBarberTier);
+    });
+}
+
+function openBarberOwner(data) {
+    renderBarberOwner(data);
+    if (barberOwnerPanel) barberOwnerPanel.classList.remove('hidden');
+}
+
+function closeBarberOwner() {
+    if (barberOwnerPanel) barberOwnerPanel.classList.add('hidden');
+    currentBarberData = null;
+    post('closeBarberOwner', {}).catch(() => {});
+}
+
+if (barberCloseBtn) barberCloseBtn.addEventListener('click', closeBarberOwner);
+
+document.querySelectorAll('.barber-tier-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.barber-tier-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        currentBarberTier = btn.dataset.tier || 'normal';
+        const multText = currentBarberTier === 'low' ? '0.80x ($80)' : (currentBarberTier === 'high' ? '1.50x ($150)' : '1.00x ($100)');
+        if (barberActiveTierPill) barberActiveTierPill.textContent = `${currentBarberTier.toUpperCase()} (${multText})`;
+    });
+});
+
+if (barberWithdrawBtn) {
+    barberWithdrawBtn.addEventListener('click', () => {
+        if (!currentBarberData || !currentBarberData.shopId) return;
+        post('withdrawBarberBalance', { shopId: currentBarberData.shopId }).catch(() => {});
+    });
+}
+
+if (barberPayTaxBtn) {
+    barberPayTaxBtn.addEventListener('click', () => {
+        if (barberPayTaxBtn.disabled) return;
+        if (!currentBarberData || !currentBarberData.shopId) return;
+        post('payBarberShopTax', { shopId: currentBarberData.shopId }).catch(() => {});
+    });
+}
+
+if (barberRestockBtn) {
+    barberRestockBtn.addEventListener('click', () => {
+        if (!currentBarberData || !currentBarberData.shopId) return;
+        post('manageBarberShop', { shopId: currentBarberData.shopId, restock: true, priceTier: currentBarberTier }).catch(() => {});
+    });
+}
+
+if (barberSaveSettingsBtn) {
+    barberSaveSettingsBtn.addEventListener('click', () => {
+        if (!currentBarberData || !currentBarberData.shopId) return;
+        post('manageBarberShop', { shopId: currentBarberData.shopId, priceTier: currentBarberTier }).catch(() => {});
+    });
+}
+
+// ═══ Barber Shop / Hair Salon Public Buy / Info Panel ═══
+const BARBER_TIER_LABELS = { low: 'DISCOUNT', normal: 'STANDARD', high: 'LUXURY' };
+
+function renderBarberBuyInfo(data) {
+    if (!data) return;
+    currentBarberBuyData = data;
+
+    if (barberBuyName) barberBuyName.textContent = data.shopName || 'Hair Salon';
+    if (barberBuyOwnerName) barberBuyOwnerName.textContent = data.ownerName || 'City Commercial Property';
+
+    const tier = data.priceTier || 'normal';
+    const mult = Number(data.priceMultiplier || 1).toFixed(2);
+    if (barberBuyTier) barberBuyTier.textContent = `${BARBER_TIER_LABELS[tier] || 'STANDARD'} (${mult}x)`;
+
+    if (barberBuyStock) barberBuyStock.textContent = `${(Number(data.stock) || 0).toLocaleString()} UNITS`;
+
+    if (barberBuyStatus) {
+        barberBuyStatus.textContent = data.isOwned ? 'PRIVATELY OWNED' : 'AVAILABLE FOR PURCHASE';
+    }
+
+    if (barberBuyConfirmBtn) {
+        barberBuyConfirmBtn.textContent = `BUY THIS SALON (${formatCurrency(data.purchasePrice || 200000)} - BANK)`;
+        barberBuyConfirmBtn.disabled = data.isOwned === true;
+    }
+}
+
+function openBarberBuyInfo(data) {
+    renderBarberBuyInfo(data);
+    if (barberBuyPanel) barberBuyPanel.classList.remove('hidden');
+}
+
+function closeBarberBuyInfo() {
+    if (barberBuyPanel) barberBuyPanel.classList.add('hidden');
+    currentBarberBuyData = null;
+    post('closeBarberBuyInfo', {}).catch(() => {});
+}
+
+if (barberBuyCloseBtn) barberBuyCloseBtn.addEventListener('click', closeBarberBuyInfo);
+
+if (barberBuyConfirmBtn) {
+    barberBuyConfirmBtn.addEventListener('click', () => {
+        if (barberBuyConfirmBtn.disabled) return;
+        if (!currentBarberBuyData || !currentBarberBuyData.shopId) return;
+        post('buyBarberShop', { shopId: currentBarberBuyData.shopId }).catch(() => {});
+        if (barberBuyPanel) barberBuyPanel.classList.add('hidden');
+        currentBarberBuyData = null;
+    });
+}
+
+window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+        if (barberOwnerPanel && !barberOwnerPanel.classList.contains('hidden')) {
+            closeBarberOwner();
+        }
+        if (barberBuyPanel && !barberBuyPanel.classList.contains('hidden')) {
+            closeBarberBuyInfo();
+        }
+    }
+});
+
 window.addEventListener('message', function(event) {
     const data = event.data || {};
+    if (data.type === 'openBarberOwner') openBarberOwner(data.data);
+    if (data.type === 'updateBarberOwner') renderBarberOwner(data.data);
+    if (data.type === 'closeBarberOwner') closeBarberOwner();
+    if (data.type === 'openBarberBuyInfo') openBarberBuyInfo(data.data);
+    if (data.type === 'closeBarberBuyInfo') {
+        if (barberBuyPanel) barberBuyPanel.classList.add('hidden');
+        currentBarberBuyData = null;
+    }
     if (data.action === 'openCharacterAdmin') openCharacterAdminPanel();
     if (data.action === 'characterAdminResults') renderAdminResults(data.results || []);
     if (data.action === 'characterAdminStatus') showAdminToast(data.message, data.ok === false ? 'error' : 'success');

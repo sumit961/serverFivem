@@ -91,19 +91,6 @@ exports('GetSharedJailConfiguration', function()
     return prisonConfiguration()
 end)
 
-local function chargeCatalog()
-    local list, byId = {}, {}
-    for _, configured in ipairs(Config.Custody.Charges or {}) do
-        local id, label = clean(configured.id, 48), clean(configured.label, 96)
-        local minutes = math.max(0, math.floor(tonumber(configured.jailMinutes) or 0))
-        if id ~= '' and label ~= '' and not byId[id] then
-            local charge = { id = id, label = label, jailMinutes = minutes }
-            byId[id], list[#list + 1] = charge, charge
-        end
-    end
-    return list, byId
-end
-
 local function bookingAuthority(src, targetSrc)
     src, targetSrc = tonumber(src), tonumber(targetSrc)
     if not src or not targetSrc or src == targetSrc then return nil, 'Invalid suspect.' end
@@ -151,7 +138,7 @@ end
 lib.callback.register('cm-law:server:bookingPreview', function(src, targetSrc)
     local booking, why = bookingAuthority(src, targetSrc)
     if not booking then return { ok = false, error = why } end
-    local charges = chargeCatalog()
+    local charges = LawChargeCatalog()
     return { ok = true, suspectName = nameFor(booking.targetCid), characterId = booking.targetCid, charges = charges,
         maxCharges = tonumber(Config.Custody.MaxCharges) or 10,
         maxSentenceMinutes = tonumber(Config.Custody.MaxSentenceMinutes) or 180 }
@@ -167,8 +154,8 @@ lib.callback.register('cm-law:server:bookSuspect', function(src, data)
     local reason = clean(data.reason, 500)
     if #reason < 5 then return { ok = false, error = 'Enter a clear arrest reason.' } end
     if type(data.chargeIds) ~= 'table' then return { ok = false, error = 'Select at least one charge.' } end
-    local _, byId = chargeCatalog()
-    local selected, seen, minutes = {}, {}, 0
+    local _, byId = LawChargeCatalog()
+    local selected, seen, minutes, fineTotal = {}, {}, 0, 0
     local maxCharges = math.max(1, tonumber(Config.Custody.MaxCharges) or 10)
     if #data.chargeIds < 1 or #data.chargeIds > maxCharges then
         return { ok = false, error = ('Select between 1 and %d charges.'):format(maxCharges) }
@@ -179,19 +166,34 @@ lib.callback.register('cm-law:server:bookSuspect', function(src, data)
         if not charge then return { ok = false, error = 'An invalid charge was selected.' } end
         if seen[id] then return { ok = false, error = 'Duplicate charges are not allowed.' } end
         seen[id] = true
-        selected[#selected + 1] = { id = charge.id, label = charge.label, jailMinutes = charge.jailMinutes }
+        selected[#selected + 1] = { id = charge.id, label = charge.label, jailMinutes = charge.jailMinutes, fine = charge.fine }
         minutes = minutes + charge.jailMinutes
+        fineTotal = fineTotal + charge.fine
     end
     minutes = math.min(minutes, math.max(1, tonumber(Config.Custody.MaxSentenceMinutes) or 180))
     if minutes < 1 then return { ok = false, error = 'The selected charges do not carry jail time.' } end
+
+    -- Fine is deducted from the suspect's bank before the booking is journaled,
+    -- matching server/enforcement.lua's citation flow: deduct first, refund if
+    -- the following write fails, never journal a fine that was never charged.
+    local fineCharged = false
+    if fineTotal > 0 then
+        local removed = false
+        local called = pcall(function()
+            removed = exports[Config.PlayerDataResource]:RemoveMoney(booking.targetSrc, 'bank', fineTotal,
+                'law_booking_fine', { organizationId = booking.actor.organizationId, bookingCharges = selected }) == true
+        end)
+        if not called or not removed then return { ok = false, error = 'Suspect does not have enough bank funds to cover the fine.' } end
+        fineCharged = true
+    end
 
     BookingBusy[booking.targetCid] = tonumber(src)
     local bookingId
     local journalOk, journalError = pcall(function()
         bookingId = MySQL.insert.await([[INSERT INTO cm_legal_bookings
-            (organization_id,character_id,officer_cid,reason,charges,sentence_minutes,handoff_status)
-            VALUES (?,?,?,?,?,?,'processing')]],
-            { booking.actor.organizationId, booking.targetCid, booking.actorCid, reason, json.encode(selected), minutes })
+            (organization_id,character_id,officer_cid,reason,charges,sentence_minutes,fine_amount,handoff_status)
+            VALUES (?,?,?,?,?,?,?,'processing')]],
+            { booking.actor.organizationId, booking.targetCid, booking.actorCid, reason, json.encode(selected), minutes, fineTotal })
         if not bookingId then error('booking insert failed') end
         local affected = MySQL.update.await([[UPDATE cm_legal_custody SET status='processing',officer_cid=?,booking_minutes=?,updated_at=NOW()
             WHERE character_id=? AND status='cuffed']], { booking.actorCid, minutes, booking.targetCid })
@@ -199,6 +201,10 @@ lib.callback.register('cm-law:server:bookSuspect', function(src, data)
     end)
     if not journalOk then
         BookingBusy[booking.targetCid] = nil
+        if fineCharged then
+            pcall(function() exports[Config.PlayerDataResource]:AddMoney(booking.targetSrc, 'bank', fineTotal,
+                'law_booking_fine_refund', { organizationId = booking.actor.organizationId }) end)
+        end
         if bookingId then MySQL.update.await("UPDATE cm_legal_bookings SET handoff_status='failed',failure_reason='journal_error' WHERE id=?", { bookingId }) end
         return { ok = false, error = 'Could not safely journal the booking.' }
     end
@@ -213,6 +219,10 @@ lib.callback.register('cm-law:server:bookSuspect', function(src, data)
     end)
     if not jailed then
         if not bridgeOk then print(('[cm-law] cm-prison handoff failed: %s'):format(tostring(bridgeError))) end
+        if fineCharged then
+            pcall(function() exports[Config.PlayerDataResource]:AddMoney(booking.targetSrc, 'bank', fineTotal,
+                'law_booking_fine_refund', { organizationId = booking.actor.organizationId }) end)
+        end
         MySQL.transaction.await({
             { query = "UPDATE cm_legal_custody SET status='cuffed',updated_at=NOW() WHERE character_id=? AND status='processing'", values = { booking.targetCid } },
             { query = "UPDATE cm_legal_bookings SET handoff_status='failed',failure_reason=? WHERE id=? AND handoff_status='processing'", values = { clean(jailFailure, 64), bookingId } },
@@ -230,10 +240,12 @@ lib.callback.register('cm-law:server:bookSuspect', function(src, data)
     BookingBusy[booking.targetCid] = nil
     clearAll(booking.targetSrc, true)
     logActivity(booking.actor.organizationId, booking.actorCid, 'suspect_booked', {
-        targetCid = booking.targetCid, minutes = minutes, bookingId = bookingId, charges = selected, reason = reason })
+        targetCid = booking.targetCid, minutes = minutes, bookingId = bookingId, charges = selected, reason = reason, fine = fineTotal })
     if type(LawDailyRecord) == 'function' then LawDailyRecord(src, 'bookings', 1) end
-    bookingNotify(src, ('Suspect booked on %d charge%s for %d minutes.'):format(#selected, #selected == 1 and '' or 's', minutes), 'success')
-    return { ok = true, message = 'Booking confirmed.', bookingId = bookingId, minutes = minutes }
+    bookingNotify(src, fineTotal > 0
+        and ('Suspect booked on %d charge%s for %d minutes and fined $%d.'):format(#selected, #selected == 1 and '' or 's', minutes, fineTotal)
+        or ('Suspect booked on %d charge%s for %d minutes.'):format(#selected, #selected == 1 and '' or 's', minutes), 'success')
+    return { ok = true, message = 'Booking confirmed.', bookingId = bookingId, minutes = minutes, fine = fineTotal }
 end)
 
 AddEventHandler('cm-prison:server:released', function(characterId)
@@ -266,6 +278,7 @@ CreateThread(function()
         PRIMARY KEY(id),KEY idx_cm_legal_bookings_character(character_id,booked_at),
         KEY idx_cm_legal_bookings_status(handoff_status)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]])
+    pcall(function() MySQL.query.await("ALTER TABLE cm_legal_bookings ADD COLUMN fine_amount INT UNSIGNED NOT NULL DEFAULT 0") end)
     -- Crash recovery: a restart must never leave a suspect permanently in a
     -- phantom processing state. Return the cuffed state and mark the journal
     -- attempt failed so the officer can safely retry once the prison is ready.

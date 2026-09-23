@@ -609,6 +609,36 @@ lib.callback.register('cm-law:server:resolveDispatchCall', function(src, callId,
     return true, 'Call marked resolved.'
 end)
 
+-- Automatic "shots fired" dispatch, shared across all four cm-law
+-- organizations. client/gunfire.lua (embedded/police's own copy, loaded
+-- resource-wide) already reports every player's self-detected gunfire on
+-- 'cm-police:server:reportGunfire' -- rather than run a second competing
+-- IsPedShooting poller just for SAHP/Sheriff/FIB/Army, this adds a second
+-- handler on that same event so the one detector reaches every legal
+-- organization's dispatch board, not only the legacy Police one. A citizen
+-- calling for help (or gunfire being heard) has no way to know which agency
+-- is on shift, matching the reasoning already used for /reportlaw.
+RegisterNetEvent('cm-police:server:reportGunfire', function(x, y, z)
+    local src = source
+    if not rateLimit(src, 'law_gunfire_report', Config.Dispatch.GunfireCooldownMs or 120000) then return end
+    x, y, z = tonumber(x), tonumber(y), tonumber(z)
+    if not x or not y or not z then return end
+    local ped = GetPlayerPed(src)
+    if not ped or ped == 0 then return end
+    local serverCoords = GetEntityCoords(ped)
+    if #(serverCoords - vector3(x, y, z)) > 12.0 then return end
+    createCall('Heavy gunfire reported in the area.', serverCoords, nil, 'Gunfire Detection System',
+        { routingBucket = GetPlayerRoutingBucket(src), callType = 'gunfire', priority = 2 })
+end)
+
+-- Simple count for server/mdt.lua's dashboard aggregation -- no auth needed,
+-- it's a bare number with no call detail attached.
+function LawActiveCallCount()
+    local count = 0
+    for _ in pairs(ActiveCalls) do count = count + 1 end
+    return count
+end
+
 lib.callback.register('cm-law:server:dispatchActiveCalls', function(src)
     local member = dispatchMemberForSource(src)
     if not member or member.suspended or not member.onDuty or not hasPerm(member, 'law.receive_dispatch') then return {} end

@@ -262,6 +262,17 @@ function SetCapturedPreviewVehicle(veh)
     currentPreviewVehicle = veh
 end
 
+-- Maps a spawned vehicle's GTA class to the catalog shop type used by the
+-- server: 14 = boat, 15 = helicopter, 16 = plane, anything else = land.
+-- Shared with client.lua's admin-save flow (same Lua state, global function).
+function GetVehicleShopVehicleType(vehicle)
+    if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then return 'land' end
+    local class = GetVehicleClass(vehicle)
+    if class == 14 then return 'boat' end
+    if class == 15 or class == 16 then return 'air' end
+    return 'land'
+end
+
 RegisterNUICallback('captureVehicleImage', function(data, cb)
     data = type(data) == 'table' and data or {}
     local model = tostring(data.model or ''):lower():gsub('%s+', '')
@@ -275,6 +286,7 @@ RegisterNUICallback('captureVehicleImage', function(data, cb)
 
     if not (Config.ImageCapture and Config.ImageCapture.enabled) then
         cb({ ok = false, error = 'capture_disabled' })
+        SendNUIMessage({ action = 'vehicleImageResult', success = false, error = 'vehicle image capture is disabled' })
         return
     end
 
@@ -307,6 +319,7 @@ RegisterNUICallback('captureVehicleImage', function(data, cb)
         model = model,
         label = data.label,
         category = data.category,
+        batch = data.batch == true,
         padding = Config.ImageCapture.padding or 12,
         background = Config.ImageCapture.background or 'green',
         crop = Config.ImageCapture.crop,
@@ -364,6 +377,7 @@ RegisterNUICallback('captureVehicleImage', function(data, cb)
         SendNUIMessage({ action = 'adminFocus', value = true })
         SetNuiFocus(true, true)
         setCaptureHudVisible(false)
+        SendNUIMessage({ action = 'vehicleImageResult', success = false, error = 'capture backdrop failed' })
         cb({ ok = false, error = 'backdrop_failed' })
         return
     end
@@ -444,6 +458,7 @@ RegisterNUICallback('vehicleImageProcessed', function(data, cb)
         dataUrl = data.dataUrl,
         mime = data.mime,
         ext = data.ext,
+        vehicleType = GetVehicleShopVehicleType(currentPreviewVehicle),
     })
     pendingCapture = nil
     cb('ok')

@@ -78,13 +78,14 @@ Agents must verify these ownership assumptions against actual exports, events an
 
 ## UI and interaction rules
 
+- For every UI change anywhere in this repository, also follow `ui/AGENTS.md`.
 - Use cm-ui for shared UI components and design tokens where integration exists.
 - Maintain the CM cyan/ice-blue visual identity.
 - Do not use purple as the main accent.
 - Do not use CSS `backdrop-filter`.
 - Prioritise readable typography, clean spacing and production-quality responsive layouts.
 - Avoid full-screen UI unless the feature genuinely requires it.
-- Shared E interactions should be simple, centred or appropriately positioned, readable and cyan.
+- Every E interaction prompt and NPC dialogue must use the shared cm-ui components; keep prompts simple, centred or appropriately positioned, readable and cyan.
 - Hide world interaction prompts while an associated NUI interface is open.
 - Avoid default FiveM menus when a CM UI interaction exists.
 - Do not create noisy normal-player debug notifications.

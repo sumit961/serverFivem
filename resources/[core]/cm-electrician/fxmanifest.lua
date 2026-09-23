@@ -27,4 +27,5 @@ files {
 -- ensure cm-hud
 -- ensure cm-ui            (switchboard NPC's interact prompt/cinematic dialogue)
 -- ensure cm-vehicles      (service truck rental; job still works without it, minus the truck)
+-- ensure cm-payday        (optional -- repair pay becomes hourly payday instead of instant when running)
 -- ensure cm-electrician

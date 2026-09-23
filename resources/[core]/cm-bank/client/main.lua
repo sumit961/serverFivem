@@ -414,8 +414,16 @@ local function spawnTeller(t)
         -- actual ground height at this XY before locking it in place —
         -- freezing immediately at the raw stored Z can leave it floating or
         -- embedded if that Z isn't exactly ground level.
+        -- PLACE_ENTITY_ON_GROUND_PROPERLY is not a FiveM Lua native (see
+        -- cm-ems/client/missions.lua); use a ground-Z lookup instead.
         Wait(50)
-        PlaceEntityOnGroundProperly(ped)
+        if GetInteriorFromEntity(ped) == 0 then
+            RequestCollisionAtCoord(t.x, t.y, t.z)
+            local found, groundZ = GetGroundZFor_3dCoord(t.x, t.y, t.z + 3.0, false)
+            if found then
+                SetEntityCoordsNoOffset(ped, t.x, t.y, groundZ, false, false, false)
+            end
+        end
         FreezeEntityPosition(ped, true)
         SetEntityInvincible(ped, true)
         SetBlockingOfNonTemporaryEvents(ped, true)

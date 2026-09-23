@@ -67,12 +67,31 @@ local function getOrgCatalog(orgId)
     return (ok and type(rows) == 'table') and rows or {}
 end
 
+-- Tag-agnostic fallback: a vehicle granted straight to an organization via
+-- rn-vehicleshop's "Give to organization" is never toggled through that
+-- org's catalog status (that would silently pull it out of the public
+-- Store/Server catalog, or hand it to a different org, which a grant must
+-- never do), so it will never appear in getOrgCatalog(orgId) above. This
+-- looks up plain appearance (label/category/image/mods) for any catalog
+-- vehicle regardless of status, used only when the model isn't tag-matched.
+local function getVehicleCatalogInfo(model)
+    local ok, row = pcall(function() return exports[SHOP_RESOURCE]:GetVehicleCatalogInfo(model) end)
+    return (ok and type(row) == 'table') and row or nil
+end
+
 local function findCatalogRow(catalog, model)
     model = tostring(model or ''):lower()
     for _, row in ipairs(catalog) do
         if tostring(row.model):lower() == model then return row end
     end
     return nil
+end
+
+-- Prefer the org-tagged catalog row (keeps the existing appearance
+-- customization workflow for anyone still using /vehicleadmin's tag), fall
+-- back to the plain lookup for a grant-linked vehicle that was never tagged.
+local function resolveCatalogRow(orgId, model)
+    return findCatalogRow(getOrgCatalog(orgId), model) or getVehicleCatalogInfo(model)
 end
 
 local function fleetSettingsByModel(orgId)
@@ -85,9 +104,8 @@ end
 local function adminFleetRows(orgId)
     orgId = validOrgId(orgId)
     if not orgId then return { ok = false, error = 'Unknown organization.' } end
-    local settings, out = fleetSettingsByModel(orgId), {}
-    for _, catalogRow in ipairs(getOrgCatalog(orgId)) do
-        local row = settings[tostring(catalogRow.model):lower()]
+    local settings, out, seen = fleetSettingsByModel(orgId), {}, {}
+    local function consider(catalogRow, row)
         local merged = mergedRow and mergedRow(catalogRow, row) or {
             model = catalogRow.model, label = catalogRow.label, category = catalogRow.category,
             enabled = row and dbBoolean(row.enabled) or false,
@@ -96,6 +114,20 @@ local function adminFleetRows(orgId)
         }
         merged.savedLocation = row and row.spawn_x and { x = row.spawn_x, y = row.spawn_y, z = row.spawn_z, heading = row.spawn_h } or nil
         out[#out + 1] = merged
+    end
+    for _, catalogRow in ipairs(getOrgCatalog(orgId)) do
+        local modelKey = tostring(catalogRow.model):lower()
+        seen[modelKey] = true
+        consider(catalogRow, settings[modelKey])
+    end
+    -- Vehicles linked via a "Give to organization" grant are never tagged in
+    -- the shared catalog (see resolveCatalogRow above), so they never show up
+    -- in the loop above -- include them here from their own settings row.
+    for modelKey, settingsRow in pairs(settings) do
+        if not seen[modelKey] then
+            local info = getVehicleCatalogInfo(modelKey) or { model = modelKey, label = modelKey, category = 'Fleet' }
+            consider(info, settingsRow)
+        end
     end
     return { ok = true, organizationId = orgId, vehicles = out }
 end
@@ -114,13 +146,13 @@ exports('GetVehicleAccessDecision', function(characterId, vehicleId, action)
     local orgId = validOrgId(settings.organization_id)
     local member = orgId and memberFor(tostring(characterId or ''), orgId) or nil
     if not member then return false, 'not_organization_member' end
-    action = tostring(action or 'vehicle.drive')
-    if action == 'vehicle.sell' or action == 'vehicle.delete' or action == 'vehicle.keys.manage'
-        or action == 'vehicle.family.share' then return false, 'legal_fleet_protected' end
-    if member.suspended or member.onDuty ~= true then return false, 'organization_not_on_duty' end
     local required = tonumber(settings.min_tier) or 0
-    if not member.isLeader and (tonumber(member.tier) or 0) < required then return false, 'organization_rank_too_low' end
-    return true, 'legal_fleet', { organization = orgId, vehicleId = vehicleId, requiredTier = required }
+    local ok, reason = FleetVehicleAccessDecision(member, required, action, {
+        protected = 'legal_fleet_protected', notOnDuty = 'organization_not_on_duty',
+        rankTooLow = 'organization_rank_too_low', ok = 'legal_fleet',
+    })
+    if not ok then return false, reason end
+    return true, reason, { organization = orgId, vehicleId = vehicleId, requiredTier = required }
 end)
 
 exports('CanUseOrganizationVehicle', function(src, vehicleId, action)
@@ -152,7 +184,8 @@ mergedRow = function(catalogRow, settingsRow)
         merged.status = vehicleHasOccupant and vehicleHasOccupant(entity) and 'occupied' or 'deployed'
         merged.engineHealth = math.floor(math.max(0, GetVehicleEngineHealth(entity)))
         merged.bodyHealth = math.floor(math.max(0, GetVehicleBodyHealth(entity)))
-        merged.fuel = math.floor(math.max(0, GetVehicleFuelLevel(entity)))
+        local fuelOk, fuelLevel = pcall(GetVehicleFuelLevel, entity) -- server-side native availability is build-dependent; never let a read crash the listing
+        merged.fuel = math.floor(math.max(0, fuelOk and fuelLevel or 0))
         local coords = GetEntityCoords(entity)
         merged.location = { x = math.floor(coords.x), y = math.floor(coords.y), z = math.floor(coords.z) }
     else
@@ -170,7 +203,7 @@ exports('AdminConfigureFleetVehicle', function(src, orgId, data)
     src, orgId, data = tonumber(src), validOrgId(orgId), type(data) == 'table' and data or {}
     if not adminAllowed(src) then return false, 'Permission denied.' end
     local model = tostring(data.model or ''):lower()
-    if not orgId or not findCatalogRow(getOrgCatalog(orgId), model) then return false, 'Unknown organization vehicle.' end
+    if not orgId or not resolveCatalogRow(orgId, model) then return false, 'Unknown organization vehicle.' end
     local tier = math.max(0, math.min(100, math.floor(tonumber(data.minTier) or 0)))
     local existing = MySQL.single.await('SELECT model,location_configured FROM cm_legal_fleet_vehicles WHERE organization_id=? AND model=?', { orgId, model })
     if not existing or not dbBoolean(existing.location_configured) then return false, 'Set the vehicle location before enabling it.' end
@@ -191,20 +224,77 @@ exports('AdminResetFleetLocation', function(src, orgId, model)
     return true, 'Fleet location reset; persistent vehicle identity was preserved.'
 end)
 
+-- Admin-only bridge for rn-vehicleshop's /managevehicle "Give to organization"
+-- button, generalized across every non-Police cm-law organization (Army,
+-- Sheriff, SAHP, FIB, ...): lets an admin drop a freshly granted persistent
+-- vehicle straight into that organization's Motor Pool (skipping the manual
+-- spawn+drive+H flow) at the admin's current position. Mirrors
+-- cm-gang:LinkGrantedOrganizationVehicle's contract and the Police-specific
+-- LinkGrantedPoliceFleetVehicle in embedded/police/server/vehicles.lua
+-- (kept as a separate export name so the two don't silently overwrite each
+-- other in this resource's shared export table). No matching rollback exists
+-- here either -- cm-vehicles' DeleteOrganizationVehicle is cm-gang-only --
+-- so a failure just leaves the vehicle un-linked (still a normal org-owned
+-- vehicle) rather than deleted; rn-vehicleshop reports that as a partial
+-- success, never a hard failure, since the grant itself already succeeded.
+exports('LinkGrantedFleetVehicle', function(src, orgId, model, vehicleId, minTier)
+    if GetInvokingResource() ~= 'rn-vehicleshop' then return false, 'untrusted_caller' end
+    src, vehicleId = tonumber(src), tonumber(vehicleId)
+    orgId = validOrgId(orgId)
+    model = tostring(model or ''):lower()
+    if not src or src <= 0 or not vehicleId or not orgId or model == '' then return false, 'invalid_request' end
+    if not adminAllowed(src) then return false, 'permission_denied' end
+    if not resolveCatalogRow(orgId, model) then return false, 'model_unknown' end
+
+    local lockKey = orgId .. ':' .. model
+    if FleetLocationBusy[lockKey] then return false, 'fleet_slot_busy' end
+    FleetLocationBusy[lockKey] = true
+    local existing = MySQL.single.await('SELECT location_configured FROM cm_legal_fleet_vehicles WHERE organization_id = ? AND model = ? LIMIT 1', { orgId, model })
+    if existing and dbBoolean(existing.location_configured) then
+        FleetLocationBusy[lockKey] = nil
+        return false, 'model_already_configured'
+    end
+
+    local ped = GetPlayerPed(src)
+    if not ped or ped == 0 then FleetLocationBusy[lockKey] = nil; return false, 'admin_not_loaded' end
+    local coords, heading = GetEntityCoords(ped), GetEntityHeading(ped)
+    local okClass, classId = pcall(GetVehicleClassFromName, GetHashKey(model))
+    local kind = okClass and classId == 15 and 'helicopter' or 'car'
+    minTier = math.max(0, math.min(100, math.floor(tonumber(minTier) or 0)))
+
+    if exports[VEHICLES_RESOURCE]:EnsureOrganizationOwnership(vehicleId, orgId) ~= true then
+        FleetLocationBusy[lockKey] = nil
+        return false, 'ownership_assign_failed'
+    end
+    MySQL.insert.await([[
+        INSERT INTO cm_legal_fleet_vehicles (organization_id, model, vehicle_id, kind, min_tier, enabled, location_configured, spawn_x, spawn_y, spawn_z, spawn_h, updated_by)
+        VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+            vehicle_id = VALUES(vehicle_id), kind = VALUES(kind), min_tier = VALUES(min_tier), enabled = 1,
+            location_configured = 1, spawn_x = VALUES(spawn_x), spawn_y = VALUES(spawn_y),
+            spawn_z = VALUES(spawn_z), spawn_h = VALUES(spawn_h), updated_by = VALUES(updated_by)
+    ]], { orgId, model, vehicleId, kind, minTier, coords.x, coords.y, coords.z, heading, characterIdFor(src) })
+    FleetLocationBusy[lockKey] = nil
+
+    exports[VEHICLES_RESOURCE]:TransitionVehicleLocation(vehicleId, 'JOB_GARAGE', { ref = 'law', reason = 'law_fleet_vehicle_granted', actorCharacterId = characterIdFor(src) })
+    logActivity(orgId, characterIdFor(src), 'fleet_vehicle_granted_linked', { model = model, vehicleId = vehicleId, minTier = minTier })
+    return true, 'linked'
+end)
+
 lib.callback.register('cm-law:server:fleetCatalog', function(src)
     local actor = select(1, actorFor(src))
     if not actor then return nil end
     local manage = actor.isLeader or actor.permissions['law.fleet'] == true
     local spawn = actor.isLeader or actor.permissions['law.vehicle'] == true
-    if not manage and not spawn then return {} end
+    if not manage and not spawn then return { vehicles = {}, canManage = false } end
 
     local catalog = getOrgCatalog(actor.organizationId)
     local settings = fleetSettingsByModel(actor.organizationId)
     local tier = math.floor(tonumber(actor.tier) or 0)
 
     local out = {}
-    for _, catalogRow in ipairs(catalog) do
-        local settingsRow = settings[tostring(catalogRow.model):lower()]
+    local seen = {}
+    local function consider(catalogRow, settingsRow)
         local merged = mergedRow(catalogRow, settingsRow)
         if manage then
             out[#out + 1] = merged
@@ -212,8 +302,22 @@ lib.callback.register('cm-law:server:fleetCatalog', function(src)
             out[#out + 1] = merged
         end
     end
+    for _, catalogRow in ipairs(catalog) do
+        local modelKey = tostring(catalogRow.model):lower()
+        seen[modelKey] = true
+        consider(catalogRow, settings[modelKey])
+    end
+    -- Vehicles linked via a "Give to organization" grant are never tagged in
+    -- the shared catalog (see resolveCatalogRow above), so include them here
+    -- from their own settings row.
+    for modelKey, settingsRow in pairs(settings) do
+        if not seen[modelKey] then
+            local info = getVehicleCatalogInfo(modelKey) or { model = modelKey, label = modelKey, category = 'Fleet' }
+            consider(info, settingsRow)
+        end
+    end
     table.sort(out, function(a, b) return a.label < b.label end)
-    return out
+    return { vehicles = out, canManage = manage }
 end)
 
 -- Rank gate only -- never touches location/kind. Bound to the inline number
@@ -243,8 +347,8 @@ local function beginFleetLocationEdit(src, model, adminOrgId)
     end
     if not rateLimit(src, 'law_fleet_edit', 1500) then return false, 'Please wait.' end
     model = tostring(model or ''):lower()
-    local catalogRow = findCatalogRow(getOrgCatalog(actor.organizationId), model)
-    if not catalogRow then return false, 'That vehicle is not tagged for this organization in /vehicleadmin.' end
+    local catalogRow = resolveCatalogRow(actor.organizationId, model)
+    if not catalogRow then return false, 'Unknown vehicle model.' end
     local previous = FleetPlacementBySource[src]
     if previous then pcall(function() exports[VEHICLES_RESOURCE]:DeleteAdminVehicle(previous.plate) end) end
     FleetPlacementBySource[src] = nil
@@ -305,8 +409,8 @@ lib.callback.register('cm-law:server:saveFleetVehicleLocation', function(src, mo
     if not rateLimit(src, 'law_fleet_save', 2000) then return false, 'Please wait.' end
 
     model = tostring(model or ''):lower()
-    local catalogRow = findCatalogRow(getOrgCatalog(actor.organizationId), model)
-    if not catalogRow then return false, 'That vehicle is not tagged for this organization in /vehicleadmin.' end
+    local catalogRow = resolveCatalogRow(actor.organizationId, model)
+    if not catalogRow then return false, 'Unknown vehicle model.' end
 
     local ped = GetPlayerPed(src)
     if not ped or ped == 0 then return false, 'Character is not loaded.' end
@@ -477,7 +581,7 @@ local function recallFleetVehicleCore(src, actorCid, orgId, model, settings, rep
         end
         state:set('cmLegalFleet', { model = model, organizationId = orgId, vehicleId = vehicleId, minTier = tonumber(settings.min_tier) or 0, ready = true }, true)
     end
-    local catalogRow = findCatalogRow(getOrgCatalog(orgId), model)
+    local catalogRow = resolveCatalogRow(orgId, model)
     if type(info) == 'table' and catalogRow then TriggerClientEvent('cm-law:client:applyFleetMods', src, info.netId, catalogRow.mods) end
     return true, ('%s recalled (vehicle #%d).'):format(row.label or model, vehicleId)
 end
@@ -508,7 +612,13 @@ AddEventHandler('cm-law:server:memberWentOffDuty', function(src, characterId, or
 end)
 
 lib.callback.register('cm-law:server:spawnFleetVehicle', function(src, model)
-    return false, 'Individual vehicle recall is disabled. Collect vehicles from organization parking or use Recall All.'
+    local actor, actorCid, err = actorFor(src)
+    if not actor then return false, err end
+    if not actor.onDuty then return false, 'Go on duty first.' end
+    if not (actor.isLeader or actor.permissions['law.vehicle'] == true) then
+        return false, 'Your rank cannot call this organization\'s vehicles.'
+    end
+    return spawnPersistent(src, actor, actorCid, tostring(model or ''):lower(), false)
 end)
 
 lib.callback.register('cm-law:server:recallAllFleetVehicles', function(src)

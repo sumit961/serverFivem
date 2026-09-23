@@ -1286,6 +1286,17 @@ body.admin-active #admin-panel{
   gap:9px;
   padding-right:4px;
 }
+
+#admin-capture-all{
+  min-width:108px;
+  color:#8ff5ff;
+  border-color:rgba(49,230,255,.35);
+}
+#admin-capture-all.is-running{
+  color:#fff;
+  border-color:rgba(49,230,255,.75);
+  background:rgba(49,230,255,.14);
+}
 .admin-car{
   display:grid;
   grid-template-columns:76px 1fr;

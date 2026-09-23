@@ -252,6 +252,12 @@ local function getPlayerGender(src)
     pcall(function()
         local st = Player(src).state
         stateGender = st.gender or st.sex or st.characterGender or st.character_gender or st.cmGender
+        if not stateGender and type(st.character) == 'table' then
+            stateGender = st.character.gender or st.character.sex
+        end
+        if not stateGender and type(st.PlayerData) == 'table' then
+            stateGender = st.PlayerData.gender or st.PlayerData.sex
+        end
     end)
     local normalized = normalizeGender(stateGender)
     if normalized then return normalized end
@@ -261,6 +267,17 @@ local function getPlayerGender(src)
         local model = GetEntityModel(ped)
         if model == GetHashKey('mp_f_freemode_01') then return 'female' end
         if model == GetHashKey('mp_m_freemode_01') then return 'male' end
+    end
+
+    local ownerType, ownerId = getOwner(src)
+    if ownerId then
+        local ok, row = pcall(function()
+            return MySQL.single.await('SELECT gender FROM characters WHERE id = ? LIMIT 1', { tostring(ownerId) })
+        end)
+        if ok and row and row.gender ~= nil then
+            local dbNorm = normalizeGender(row.gender)
+            if dbNorm then return dbNorm end
+        end
     end
 
     return nil

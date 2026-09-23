@@ -20,6 +20,10 @@ local garageConfirmPromise = nil
 local CAR_SYMBOL_MARKER = 36 -- MarkerTypeCarSymbol
 local syncingGarageVehicles = false
 local notify
+local customMenuOpen = false
+local savedGarageStyle = nil
+local openGarageCustomization = nil
+local closeGarageCustomization = nil
 
 local WINDOW_BONES = {
     [0] = { 'window_lf', 'window_lf1', 'window_lf2', 'window_lf3' },
@@ -174,6 +178,7 @@ local function safeVehicle(v)
     return {
         id = tonumber(v.id) or 0,
         plate = tostring(v.plate or ''),
+        licenseNumber = tostring(v.licenseNumber or ''),
         model = tostring(v.model or ''),
         label = tostring(v.label or v.model or 'Vehicle'),
         image = v.image and tostring(v.image) or nil,
@@ -205,6 +210,7 @@ local function safeVehicle(v)
         statusLabel = tostring(v.statusLabel or ''),
         recoverable = v.recoverable == true,
         unavailableReason = v.unavailableReason and tostring(v.unavailableReason) or nil,
+        rankAllowed = v.rankAllowed ~= false,
     }
 end
 
@@ -243,7 +249,7 @@ function openSlotMenu(slot)
         occupied = current ~= nil,
         current = current,
         vehicles = list,
-        canShare = current ~= nil and tonumber(current.ownerCid) == tonumber(MyCid),
+        canShare = false,
         isFamilyGarage = G.isFamilyGarage == true,
         familyName = G.familyName and tostring(G.familyName) or nil,
     }
@@ -346,6 +352,16 @@ RegisterNUICallback('garageSlot:action', function(data, cb)
         if selectedSlot.vehicle then
             ok, msg = false, 'This parking space already has a vehicle.'
         else
+            local label = tostring(data.vehicleLabel or 'This vehicle')
+            local parking = tostring(data.parkingLabel or 'another location')
+            local confirmed = awaitGarageConfirm(
+                'Relocate vehicle',
+                ('Move %s to this parking space? It is currently assigned to %s. Relocating will cancel its parking at that location.'):format(label, parking),
+                'Move car', 'Cancel', 'cyan')
+            if not confirmed then
+                cb({ ok = false, cancelled = true })
+                return
+            end
             ok, msg = lib.callback.await('cm-house:server:callVehicleById', false,
                 houseId, slotIndex, tonumber(data.vehicleId))
         end
@@ -408,7 +424,7 @@ end)
 CreateThread(function()
     while true do
         local sleep = 700
-        if G and not menuOpen then
+        if G and not menuOpen and not customMenuOpen then
             local pc = GetEntityCoords(PlayerPedId())
             local nearest, nearestDist = nil, 999.0
             local seatedVehicle = GetVehiclePedIsIn(PlayerPedId(), false)
@@ -444,7 +460,29 @@ CreateThread(function()
                 if d < nearestDist then nearest, nearestDist = slot, d end
             end
 
-            if nearest and nearestDist <= 2.6 and seatedVehicle == 0 then
+            local nearPanel = false
+            if G.customizable and seatedVehicle == 0 then
+                local panelCoords = vector3(-473.0675, -853.3423, 9.2998)
+                local distPanel = #(pc - panelCoords)
+                if distPanel < 20.0 then
+                    sleep = 0
+                    DrawMarker(20, panelCoords.x, panelCoords.y, panelCoords.z + 0.35,
+                        0.0, 0.0, 0.0,
+                        0.0, 180.0, 0.0,
+                        0.45, 0.45, 0.45,
+                        0, 229, 255, 200,
+                        false, true, 2, false, nil, nil, false)
+                    if distPanel <= 2.5 then
+                        nearPanel = true
+                        draw3d(panelCoords.x, panelCoords.y, panelCoords.z + 0.85, 'Garage Settings')
+                        if IsControlJustReleased(0, Config.Prompt.key) then
+                            openGarageCustomization()
+                        end
+                    end
+                end
+            end
+
+            if not nearPanel and nearest and nearestDist <= 2.6 and seatedVehicle == 0 then
                 local at = nearest.icon or nearest.coords
                 draw3d(at.x, at.y, at.z + 1.05,
                     nearest.vehicle and 'Manage parking space' or 'Select vehicle')
@@ -474,9 +512,26 @@ CreateThread(function()
             local driver = veh ~= 0 and GetPedInVehicleSeat(veh, -1) == ped
             local pos = driver and GetEntityCoords(veh) or GetEntityCoords(ped)
             for index, candidate in ipairs(exits) do
-                local distance = #(pos - vector3(candidate.x, candidate.y, candidate.z))
-                if nearestDistance == nil or distance < nearestDistance then
-                    exit, exitIndex, nearestDistance = candidate, index, distance
+                local cx = tonumber(candidate.x)
+                local cy = tonumber(candidate.y)
+                local cz = tonumber(candidate.z)
+                if cx and cy and cz then
+                    local distance = #(pos - vector3(cx, cy, cz))
+                    if distance < 35.0 then
+                        sleep = 0
+                        -- 30: MarkerTypeHorizontalBars (garage exit indicator)
+                        local markerZ = cz - 0.92
+                        DrawMarker(30,
+                            cx, cy, markerZ,
+                            0.0, 0.0, 0.0,
+                            0.0, 0.0, candidate.h or 0.0,
+                            3.2, 3.2, 0.85,
+                            0, 229, 255, 180,
+                            false, false, 2, false, nil, nil, false)
+                    end
+                    if nearestDistance == nil or distance < nearestDistance then
+                        exit, exitIndex, nearestDistance = candidate, index, distance
+                    end
                 end
             end
             local ex = exit and tonumber(exit.x)
@@ -486,11 +541,14 @@ CreateThread(function()
             if ex and ey and ez then
                 missingExitWarned = false
                 local dist = nearestDistance or #(pos - vector3(ex, ey, ez))
+                local maxDistance = driver
+                    and ((Config.GarageTemplate and Config.GarageTemplate.exitUseDistance) or 3.85)
+                    or 2.2
 
-                if dist <= ((Config.GarageTemplate and Config.GarageTemplate.exitUseDistance) or 1.35) then
+                if dist <= maxDistance then
                     sleep = 0
                     if CMHouseInteraction and CMHouseInteraction.Request then
-                        CMHouseInteraction.Request('garage:outside-exit', 'Go outside', nil, 85)
+                        CMHouseInteraction.Request('garage:outside-exit', driver and 'Drive outside' or 'Go outside', nil, 85)
                     end
 
                     if IsControlJustReleased(0, Config.Prompt.key) then
@@ -555,11 +613,135 @@ CreateThread(function()
     end
 end)
 
+closeGarageCustomization = function(revert)
+    if not customMenuOpen then return end
+    customMenuOpen = false
+    SetNuiFocus(false, false)
+    SendNUIMessage({ action = 'closeGarageCustomization' })
+    if revert and savedGarageStyle and GetResourceState('grand_garage') == 'started' then
+        pcall(function()
+            exports['grand_garage']:SetGarageStyle(
+                savedGarageStyle.wall,
+                savedGarageStyle.floor,
+                savedGarageStyle.ceiling
+            )
+        end)
+    end
+end
+
+openGarageCustomization = function()
+    if not G then
+        notify('You must be inside a garage.', 'error')
+        return
+    end
+    if not G.customizable then
+        notify('This garage does not support interior customization.', 'inform')
+        return
+    end
+
+    local ok, res = lib.callback.await('cm-house:server:getGarageCustomization', false, G.houseId)
+    if not ok or not res then
+        notify(res or 'Could not access garage settings.', 'error')
+        return
+    end
+    if res.canManage ~= true then
+        notify('Only the owner or authorized family manager can customize this garage.', 'error')
+        return
+    end
+
+    local currentStyle = res.customization or { wall = 1, floor = 1, ceiling = 1 }
+    savedGarageStyle = {
+        wall = currentStyle.wall,
+        floor = currentStyle.floor,
+        ceiling = currentStyle.ceiling,
+    }
+
+    customMenuOpen = true
+    SetNuiFocus(true, true)
+    SendNUIMessage({
+        action = 'openGarageCustomization',
+        data = {
+            houseId = G.houseId,
+            wall = currentStyle.wall,
+            floor = currentStyle.floor,
+            ceiling = currentStyle.ceiling,
+        }
+    })
+end
+
+RegisterNUICallback('garageCustom:preview', function(data, cb)
+    if not customMenuOpen then
+        cb({ ok = false })
+        return
+    end
+    local wall = tonumber(data and data.wall)
+    local floor = tonumber(data and data.floor)
+    local ceiling = tonumber(data and data.ceiling)
+    if GetResourceState('grand_garage') == 'started' then
+        pcall(function()
+            exports['grand_garage']:SetGarageStyle(wall, floor, ceiling)
+        end)
+    end
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('garageCustom:save', function(data, cb)
+    if not customMenuOpen or not G then
+        cb({ ok = false, message = 'Menu closed.' })
+        return
+    end
+
+    local payload = {
+        wall = tonumber(data and data.wall) or 1,
+        floor = tonumber(data and data.floor) or 1,
+        ceiling = tonumber(data and data.ceiling) or 1,
+    }
+
+    local ok, msg, newCustom = lib.callback.await('cm-house:server:saveGarageCustomization', false, G.houseId, payload)
+    if ok then
+        savedGarageStyle = newCustom
+        G.customization = newCustom
+        notify(msg or 'Garage styling saved.', 'success')
+        closeGarageCustomization(false)
+        cb({ ok = true, message = msg })
+    else
+        notify(msg or 'Failed to save styling.', 'error')
+        cb({ ok = false, message = msg })
+    end
+end)
+
+RegisterNUICallback('garageCustom:close', function(_, cb)
+    closeGarageCustomization(true)
+    cb({ ok = true })
+end)
+
+RegisterCommand('garagesettings', function()
+    if G and G.customizable then
+        openGarageCustomization()
+    else
+        notify('You are not inside a customizable garage.', 'inform')
+    end
+end, false)
+
 RegisterNetEvent('cm-house:client:garageUpdate', function(state)
     if not G or G.houseId ~= state.houseId then return end
     if menuOpen then closeSlotMenu() end
     G = state
     syncNetworkedVehicles()
+end)
+
+RegisterNetEvent('cm-house:client:applyGarageCustomization', function(houseId, customization)
+    if not G or tonumber(G.houseId) ~= tonumber(houseId) then return end
+    G.customization = customization
+    if GetResourceState('grand_garage') == 'started' and customization then
+        pcall(function()
+            exports['grand_garage']:SetGarageStyle(
+                customization.wall,
+                customization.floor,
+                customization.ceiling
+            )
+        end)
+    end
 end)
 
 RegisterNetEvent('cm-house:client:enterGarageState', function(houseId)
@@ -569,6 +751,15 @@ RegisterNetEvent('cm-house:client:enterGarageState', function(houseId)
         return
     end
     G = state
+    if state.customizable and state.customization and GetResourceState('grand_garage') == 'started' then
+        pcall(function()
+            exports['grand_garage']:SetGarageStyle(
+                state.customization.wall,
+                state.customization.floor,
+                state.customization.ceiling
+            )
+        end)
+    end
     syncNetworkedVehicles()
     notify(('%d of %d spaces used. Go to the configured exit and press %s to leave.')
         :format(state.used, state.capacity, Config.Prompt.keyLabel), 'inform')
@@ -576,6 +767,7 @@ end)
 
 RegisterNetEvent('cm-house:client:leaveGarageState', function()
     closeSlotMenu()
+    closeGarageCustomization(false)
     G = nil
     syncingGarageVehicles = false
     drivingOut = false
@@ -673,7 +865,8 @@ RegisterNetEvent('cm-house:client:setCid', function(cid) MyCid = tonumber(cid) o
 AddEventHandler('onResourceStop', function(res)
     if res == GetCurrentResourceName() then
         closeSlotMenu()
-                G = nil
+        closeGarageCustomization(false)
+        G = nil
         syncingGarageVehicles = false
         drivingOut = false
         storingFromReturnZone = false

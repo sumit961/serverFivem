@@ -3670,13 +3670,7 @@ body.hud-hidden .hud-event-notify{display:none!important}
 @keyframes eventDotPulse{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.15)}}
 @media(max-width:700px){.hud-event-notify{top:5vh;width:min(350px,calc(100vw - 24px));transform:translate(-50%,-18px)}.event-toast{grid-template-columns:4px 54px minmax(0,1fr)}.event-toast h2{font-size:15px}.event-toast-actions b{font-size:8px}}
 
-/* External interfaces hide HUD modules, but operational feedback must remain visible. */
-body.hud-hidden #hud-container {
-    display: block !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-    pointer-events: none !important;
-}
+/* Keep the notification layer visible while external interfaces hide the HUD. */
 body.hud-hidden #hud-notify {
     display: flex !important;
     opacity: 1 !important;
@@ -4278,4 +4272,81 @@ body.hud-hidden #hud-weapon { display: none !important; }
 @keyframes cmRaidPulse { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
 @media (max-width: 900px) {
     #hud-raid { right: 210px; }
+}
+
+/* Shared reusable countdown card. Keep this in the clear lower-center safe area. */
+.hud-timer-host {
+    position: fixed;
+    left: 50%;
+    bottom: clamp(176px, 23vh, 250px);
+    z-index: 925;
+    display: grid;
+    gap: 8px;
+    width: min(340px, calc(100vw - 32px));
+    transform: translateX(-50%);
+    pointer-events: none;
+    font-family: 'Nunito', 'Segoe UI', sans-serif;
+}
+
+.hud-timer-host.hidden { display: none !important; }
+
+.hud-timer-card {
+    --timer-accent: #00E5FF;
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    overflow: hidden;
+    padding: 11px 13px 13px 15px;
+    border: 1px solid rgba(0, 229, 255, .22);
+    border-radius: 8px;
+    background: rgba(18, 36, 47, .94);
+    color: #FFFFFF;
+    box-shadow: 0 8px 24px rgba(2, 13, 18, .3);
+    animation: hud-timer-enter .2s ease-out both;
+}
+
+.hud-timer-card.success { --timer-accent: #2ECC71; }
+.hud-timer-card.warning { --timer-accent: #FFC700; }
+.hud-timer-card.danger { --timer-accent: #E74C3C; }
+
+.hud-timer-copy { display: grid; gap: 2px; min-width: 0; }
+.hud-timer-kicker { color: var(--timer-accent); font-size: 10px; font-weight: 900; letter-spacing: .13em; }
+.hud-timer-copy strong { overflow: hidden; font-size: 13px; line-height: 1.2; letter-spacing: .04em; text-overflow: ellipsis; white-space: nowrap; }
+.hud-timer-copy small { overflow: hidden; color: #C2D2DC; font-size: 11px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.hud-timer-count { min-width: 56px; color: var(--timer-accent); font: 800 19px/1 'RobotoMono', monospace; font-variant-numeric: tabular-nums; text-align: right; }
+.hud-timer-progress { position: absolute; right: 0; bottom: 0; left: 0; height: 2px; background: rgba(255, 255, 255, .1); }
+.hud-timer-progress i { display: block; height: 100%; background: var(--timer-accent); transition: width .25s linear; }
+.hud-timer-card.urgent .hud-timer-count { color: #E74C3C; }
+.hud-timer-card.urgent .hud-timer-progress i { background: #E74C3C; }
+@keyframes hud-timer-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Preview mode temporarily ignores saved per-module visibility switches. */
+body.hud-preview-mode.cm-hide-top-right #hud-top-right,
+body.hud-preview-mode.cm-hide-location #hud-bottom-left,
+body.hud-preview-mode.cm-hide-left-keys #hud-left-keys,
+body.hud-preview-mode.cm-hide-time #hud-bottom-right,
+body.hud-preview-mode.cm-hide-speedo #hud-vehicle { display: block !important; }
+
+#hud-death.hud-preview-state::before {
+    content: 'HUD PREVIEW · VISUAL ONLY';
+    position: absolute;
+    top: -27px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 8px;
+    border: 1px solid rgba(0, 229, 255, .32);
+    border-radius: 4px;
+    background: #10222B;
+    color: #00E5FF;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .1em;
+    white-space: nowrap;
+}
+
+@media (max-width: 650px) {
+    .hud-timer-host { bottom: clamp(150px, 22vh, 205px); width: min(320px, calc(100vw - 24px)); }
+    .hud-timer-card { padding: 10px 11px 12px 13px; }
 }

@@ -797,6 +797,7 @@ local STATUS_LABELS = {
     MISSING_ENTITY = 'Missing entity — recovery available',
     OPERATION_IN_PROGRESS = 'Operation in progress',
     STORED_ELSEWHERE = 'Stored elsewhere',
+    RANK_LOCKED = 'Requires higher rank',
 }
 
 local function vehicleGarageStatus(v, houseId)
@@ -953,23 +954,60 @@ lib.callback.register('cm-house:server:parkable', function(src, houseId)
     local inside, insideWhy = requireInsideGarage(src, houseId)
     if not inside then return nil, insideWhy end
     local cid = GetCid(src)
-    local ok, why = CanAccessProperty(cid, houseId, ACTIONS.GARAGE_SPAWN_OWN)
+    local house = houseId and Houses[houseId]
+    local isFamilyHouse = house and house.family_id ~= nil
+    local familyId = isFamilyHouse and tonumber(house.family_id) or nil
+    local ok, why = CanAccessProperty(cid, houseId, isFamilyHouse and ACTIONS.GARAGE_VIEW or ACTIONS.GARAGE_SPAWN_OWN)
     if not ok then return nil, why end
 
-    local rows = MySQL.query.await([[
-        SELECT v.id, v.plate, v.model, v.label, v.is_stored, v.garage,
-               v.location_state, v.location_ref, v.location_slot,
-               s.house_id AS assigned_house_id, s.slot_index AS assigned_slot_index,
-               h.label AS assigned_house_label
-        FROM cm_owned_vehicles v
-        LEFT JOIN cm_house_vehicle_slots s ON s.vehicle_id = v.id
-        LEFT JOIN cm_houses h ON h.id = s.house_id
-        WHERE v.owner_character_id = ?
-        ORDER BY v.id DESC
-    ]], { tostring(cid) }) or {}
+    local famRes = tostring(Config.Family and Config.Family.resource or 'cm-family')
+    local famStarted = GetResourceState(famRes) == 'started'
+    local viewerTier = 1
+    local rankContext
+    if isFamilyHouse and famStarted then
+        rankContext = exports[famRes]:GetFamilyGarageRankContext(cid, familyId)
+        if rankContext and rankContext.viewerTier then
+            viewerTier = tonumber(rankContext.viewerTier) or 1
+        end
+    end
+
+    local rows
+    if isFamilyHouse then
+        rows = MySQL.query.await([[
+            SELECT DISTINCT v.id, v.plate, v.model, v.label, v.is_stored, v.garage,
+                   v.location_state, v.location_ref, v.location_slot, v.owner_character_id,
+                   s.house_id AS assigned_house_id, s.slot_index AS assigned_slot_index,
+                   h.label AS assigned_house_label,
+                   fva.level AS family_vehicle_level
+            FROM cm_owned_vehicles v
+            LEFT JOIN cm_house_vehicle_slots s ON s.vehicle_id = v.id
+            LEFT JOIN cm_houses h ON h.id = s.house_id
+            LEFT JOIN cm_family_vehicle_access fva ON fva.vehicle_id = v.id AND fva.family_id = ?
+            LEFT JOIN cm_family_members fm ON fm.character_id = v.owner_character_id AND fm.family_id = ?
+            WHERE v.owner_character_id = ?
+               OR h.family_id = ?
+               OR fva.vehicle_id IS NOT NULL
+               OR fm.character_id IS NOT NULL
+            ORDER BY v.id DESC
+        ]], { familyId, familyId, tostring(cid), familyId }) or {}
+    else
+        rows = MySQL.query.await([[
+            SELECT v.id, v.plate, v.model, v.label, v.is_stored, v.garage,
+                   v.location_state, v.location_ref, v.location_slot, v.owner_character_id,
+                   s.house_id AS assigned_house_id, s.slot_index AS assigned_slot_index,
+                   h.label AS assigned_house_label
+            FROM cm_owned_vehicles v
+            LEFT JOIN cm_house_vehicle_slots s ON s.vehicle_id = v.id
+            LEFT JOIN cm_houses h ON h.id = s.house_id
+            WHERE v.owner_character_id = ?
+            ORDER BY v.id DESC
+        ]], { tostring(cid) }) or {}
+    end
 
     local out = {}
     for _, v in ipairs(rows) do
+        local vehicleId = tonumber(v.id)
+        local isOwner = tonumber(v.owner_character_id) == tonumber(cid)
         local assignedHouseId = tonumber(v.assigned_house_id)
         local assignedSlotIndex = tonumber(v.assigned_slot_index)
         local assigned = assignedHouseId ~= nil and assignedSlotIndex ~= nil
@@ -984,7 +1022,21 @@ lib.callback.register('cm-house:server:parkable', function(src, houseId)
         end
         local blockedState = locationState == 'IMPOUND' or locationState == 'POLICE_SEIZED'
             or locationState == 'PENDING_DELETE' or operationActive
-        local statusCode = operationActive and 'OPERATION_IN_PROGRESS'
+
+        local vehicleLevel = 1
+        local rankAllowed = true
+        if isFamilyHouse then
+            vehicleLevel = tonumber(v.family_vehicle_level)
+                or (famStarted and tonumber(exports[famRes]:GetFamilyVehicleLevel(familyId, vehicleId)))
+                or (rankContext and tonumber(rankContext.defaultTier))
+                or 1
+            if not isOwner and viewerTier < vehicleLevel then
+                rankAllowed = false
+            end
+        end
+
+        local statusCode = (not rankAllowed and 'RANK_LOCKED')
+            or (operationActive and 'OPERATION_IN_PROGRESS')
             or (locationState == 'IMPOUND' and 'IMPOUNDED')
             or (locationState == 'POLICE_SEIZED' and 'POLICE_SEIZED')
             or (inAssignedGarage and 'PARKED_OTHER_SLOT')
@@ -992,8 +1044,14 @@ lib.callback.register('cm-house:server:parkable', function(src, houseId)
             or (not DbBool(v.is_stored) and 'AVAILABLE')
             or 'STORED_ELSEWHERE'
 
+        local canPark = not blockedState and rankAllowed and not assigned and not DbBool(v.is_stored)
+        local canCall = not blockedState and rankAllowed and (
+            (assigned and (not DbBool(v.is_stored) or inAssignedGarage or tostring(v.garage or ''):match('^house:') ~= nil))
+            or (isFamilyHouse and not inAssignedGarage)
+        )
+
         out[#out + 1] = {
-            id = tonumber(v.id),
+            id = vehicleId,
             plate = tostring(v.plate or ''),
             model = tostring(v.model or ''),
             label = tostring(v.label or v.model or 'Vehicle'),
@@ -1008,20 +1066,25 @@ lib.callback.register('cm-house:server:parkable', function(src, houseId)
             -- Empty slots can call an already-assigned owned car. The move
             -- callback atomically clears its previous slot before assigning this
             -- one. Vehicles held by a different storage authority stay blocked.
-            canPark = not blockedState and not assigned and not DbBool(v.is_stored),
-            canCall = not blockedState and assigned and (not DbBool(v.is_stored) or inAssignedGarage),
+            canPark = canPark,
+            canCall = canCall,
             locationState = locationState,
             locationRef = v.location_ref,
             locationSlot = tonumber(v.location_slot),
             statusCode = statusCode,
-            statusLabel = STATUS_LABELS[statusCode] or statusCode,
-            unavailableReason = blockedState
-                and (STATUS_LABELS[statusCode] or statusCode)
-                or storedElsewhere
-                and tostring(v.garage or 'Stored elsewhere')
+            statusLabel = not rankAllowed and ('Tier %d Required'):format(vehicleLevel) or (STATUS_LABELS[statusCode] or statusCode),
+            unavailableReason = not rankAllowed
+                and ('Requires family rank tier %d (your rank is %d)'):format(vehicleLevel, viewerTier)
+                or (blockedState and (STATUS_LABELS[statusCode] or statusCode))
+                or (storedElsewhere and tostring(v.garage or 'Stored elsewhere'))
                 or (assigned and ('Assigned to %s · space %d'):format(
                     tostring(v.assigned_house_label or ('House %d'):format(assignedHouseId)),
                     assignedSlotIndex) or nil),
+            requiredTier = vehicleLevel,
+            viewerTier = viewerTier,
+            rankAllowed = rankAllowed,
+            isOwner = isOwner,
+            isFamilyVehicle = isFamilyHouse,
         }
     end
     return out
@@ -1053,8 +1116,10 @@ end
 
 local function checkSeatAccess(src, cid, houseId, seat, vehicle)
     local isOwner = tonumber(vehicle.owner_character_id) == tonumber(cid)
+    local house = houseId and Houses[houseId]
+    local isFamilyHouse = house and house.family_id ~= nil
     if not isOwner then
-        if seat.owner_class ~= 'family' then return false, 'That is not your vehicle.' end
+        if seat.owner_class ~= 'family' and not isFamilyHouse then return false, 'That is not your vehicle.' end
         local okFam, whyFam = CanAccessProperty(cid, houseId, ACTIONS.GARAGE_SPAWN_FAMILY)
         if not okFam then return false, whyFam end
         -- Per-vehicle family LEVEL gate. cm-family owns the required tier for
@@ -1074,7 +1139,7 @@ local function checkSeatAccess(src, cid, houseId, seat, vehicle)
             end
         end
     else
-        local okOwn, whyOwn = CanAccessProperty(cid, houseId, ACTIONS.GARAGE_SPAWN_OWN)
+        local okOwn, whyOwn = CanAccessProperty(cid, houseId, isFamilyHouse and ACTIONS.GARAGE_VIEW or ACTIONS.GARAGE_SPAWN_OWN)
         if not okOwn then return false, whyOwn end
     end
     return true
@@ -1765,7 +1830,8 @@ local function recallAssignedVehicle(src, houseId, slotIndex, vehicleId)
     local okSlot, whySlot = ValidSlot(houseId, slotIndex)
     if not okSlot then return false, whySlot end
     local cid = GetCid(src)
-    local okAccess, whyAccess = CanAccessProperty(cid, houseId, ACTIONS.GARAGE_SPAWN_OWN)
+    local isFamilyHouse = house and house.family_id ~= nil
+    local okAccess, whyAccess = CanAccessProperty(cid, houseId, isFamilyHouse and ACTIONS.GARAGE_VIEW or ACTIONS.GARAGE_SPAWN_OWN)
     if not okAccess then return false, whyAccess end
 
     local seat = MySQL.single.await([[
@@ -2144,7 +2210,8 @@ lib.callback.register('cm-house:server:callVehicleById', function(src, houseId, 
 
     local okSlot, whySlot = ValidSlot(houseId, slotIndex)
     if not okSlot then return false, whySlot end
-    local okOwn, whyOwn = CanAccessProperty(cid, houseId, ACTIONS.GARAGE_SPAWN_OWN)
+    local isFamilyHouse = house and house.family_id ~= nil
+    local okOwn, whyOwn = CanAccessProperty(cid, houseId, isFamilyHouse and ACTIONS.GARAGE_VIEW or ACTIONS.GARAGE_SPAWN_OWN)
     if not okOwn then return false, whyOwn end
 
     local targetSeat = MySQL.single.await([[
@@ -2157,8 +2224,21 @@ lib.callback.register('cm-house:server:callVehicleById', function(src, houseId, 
 
     local selected = VehicleById(vehicleId)
     if not selected then return false, 'That vehicle does not exist.' end
-    if tonumber(selected.owner_character_id) ~= tonumber(cid) then
-        return false, 'You can only call a vehicle you own.'
+    local isOwner = tonumber(selected.owner_character_id) == tonumber(cid)
+    if not isOwner then
+        if not isFamilyHouse then
+            return false, 'You can only call a vehicle you own.'
+        end
+        local famRes = tostring(Config.Family and Config.Family.resource or 'cm-family')
+        if not (Config.Family and Config.Family.enabled and GetResourceState(famRes) == 'started') then
+            return false, 'Family vehicle service is unavailable.'
+        end
+        local okCall, allowed = pcall(function()
+            return exports[famRes]:CanUseFamilyVehicle(cid, vehicleId, 'call')
+        end)
+        if not okCall or allowed ~= true then
+            return false, 'Your family rank does not allow calling this vehicle.'
+        end
     end
 
     local sourceSeat = MySQL.single.await([[
@@ -2337,7 +2417,7 @@ lib.callback.register('cm-house:server:callVehicleById', function(src, houseId, 
                     WHERE house_id = ? AND slot_index = ? AND vehicle_id IS NULL
                 ]],
                 values = {
-                    vehicleId, sourceSeat.owner_class or 'personal', cid,
+                    vehicleId, isFamilyHouse and 'family' or (sourceSeat and sourceSeat.owner_class) or 'personal', cid,
                     houseId, slotIndex,
                 },
             },
@@ -2352,7 +2432,7 @@ lib.callback.register('cm-house:server:callVehicleById', function(src, houseId, 
                 values = {
                     garageKey(houseId), slotIndex, condition.fuel, condition.engine,
                     condition.body, condition.tank, condition.dirt,
-                    json.encode(condition.conditionState), vehicleId, tostring(cid),
+                    json.encode(condition.conditionState), vehicleId, tostring(selected.owner_character_id),
                 },
             },
         })
@@ -2453,13 +2533,27 @@ lib.callback.register('cm-house:server:assignVehicleToSlot', function(src, house
 
     local okSlot, whySlot = ValidSlot(houseId, slotIndex)
     if not okSlot then return false, whySlot end
-    local okOwn, whyOwn = CanAccessProperty(cid, houseId, ACTIONS.GARAGE_SPAWN_OWN)
+    local isFamilyHouse = house and house.family_id ~= nil
+    local okOwn, whyOwn = CanAccessProperty(cid, houseId, isFamilyHouse and ACTIONS.GARAGE_VIEW or ACTIONS.GARAGE_SPAWN_OWN)
     if not okOwn then return false, whyOwn end
 
     local selected = VehicleById(vehicleId)
     if not selected then return false, 'That vehicle does not exist.' end
-    if tonumber(selected.owner_character_id) ~= tonumber(cid) then
-        return false, 'You can only assign a vehicle you own.'
+    local isOwner = tonumber(selected.owner_character_id) == tonumber(cid)
+    if not isOwner then
+        if not isFamilyHouse then
+            return false, 'You can only assign a vehicle you own.'
+        end
+        local famRes = tostring(Config.Family and Config.Family.resource or 'cm-family')
+        if not (Config.Family and Config.Family.enabled and GetResourceState(famRes) == 'started') then
+            return false, 'Family vehicle service is unavailable.'
+        end
+        local okCall, allowed = pcall(function()
+            return exports[famRes]:CanUseFamilyVehicle(cid, vehicleId, 'call')
+        end)
+        if not okCall or allowed ~= true then
+            return false, 'Your family rank does not allow assigning this vehicle.'
+        end
     end
     local existingAssignment = MySQL.single.await([[
         SELECT s.house_id, s.slot_index, h.label AS house_label
@@ -2657,7 +2751,7 @@ lib.callback.register('cm-house:server:assignVehicleToSlot', function(src, house
                     selected.parking_id = NULL,
                     selected.parked_at = NOW(),
                     s.vehicle_id = selected.id,
-                    s.owner_class = 'personal',
+                    s.owner_class = isFamilyHouse and 'family' or 'personal',
                     s.assigned_by = ?,
                     s.assigned_at = NOW()
                 WHERE selected.id = ?
@@ -2667,7 +2761,7 @@ lib.callback.register('cm-house:server:assignVehicleToSlot', function(src, house
             ]], {
                 houseId, slotIndex,
                 garageKey(houseId), cid,
-                vehicleId, tostring(cid),
+                vehicleId, tostring(selected.owner_character_id),
             })
         end)
     end

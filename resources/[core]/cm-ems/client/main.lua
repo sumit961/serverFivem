@@ -96,6 +96,8 @@ RegisterNetEvent('cm-ems:client:openQuickMenu', function()
     if type(state) ~= 'table' then return end
     local options = {}
     if state.onDuty == true then
+        options[#options + 1] = { title = 'Medical Records', description = 'Open shared patient records', icon = 'file-medical',
+            onSelect = function() TriggerEvent('cm-ems:client:openMedicalRecords') end }
         options[#options + 1] = { title = 'Dispatch', description = 'Open active medical calls', icon = 'tower-broadcast',
             onSelect = function() ExecuteCommand('emsdispatchmenu') end }
         options[#options + 1] = { title = 'Deploy or Store Stretcher', description = 'Manage your EMS stretcher', icon = 'bed-pulse',

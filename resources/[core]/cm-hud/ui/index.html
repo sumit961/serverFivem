@@ -6,7 +6,7 @@
     <title>CM HUD</title>
     <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
     <link rel="stylesheet" href="nui://cm-ui/web/cm-components.css">
-    <link rel="stylesheet" href="style.css?v=8">
+    <link rel="stylesheet" href="style.css?v=9">
 </head>
 <body class="hud-hidden">
     <div id="hud-container">
@@ -16,6 +16,9 @@
 
         <!-- Reusable raid status widget (owned by cm-hud, fed by event resources). -->
         <div id="hud-raid" class="hud-module hidden" aria-live="polite"></div>
+
+        <!-- Shared countdown cards (for example, a taxi rental idle expiry). -->
+        <div id="hud-timers" class="hud-timer-host hidden" aria-live="polite"></div>
 
         <!-- BOTTOM LEFT: Location only, placed right of native minimap -->
         <div id="hud-bottom-left" class="hud-module"></div>
@@ -60,6 +63,6 @@
     <div id="hud-admin" class="hidden"></div>
 
     <script src="nui://cm-ui/web/cm-ui.js"></script>
-    <script src="app.js?v=8"></script>
+    <script src="app.js?v=9"></script>
 </body>
 </html>

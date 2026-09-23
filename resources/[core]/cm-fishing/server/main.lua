@@ -183,6 +183,28 @@ local function awardXp(src, amount)
     return status, leveledUp
 end
 
+-- Applied by cm-payday once xp banked from catches is paid out at the hourly
+-- payday, so a level-up notification still lands even though the catch
+-- itself only banked the xp rather than applying it instantly.
+exports('AddXp', function(src, amount)
+    local status, leveledUp = awardXp(src, amount)
+    if leveledUp then
+        notify(src, ('Fishing level up! You are now level %d.'):format(status.level), 'success')
+    end
+    return status, leveledUp
+end)
+
+-- Cash earned by selling the catch banks into cm-payday's hourly payout when
+-- it's running (salary paid at the top of every hour instead of instantly);
+-- falls back to the old instant pay if cm-payday isn't started.
+local function payJobCash(src, jobName, amount, reason)
+    if GetResourceState('cm-payday') == 'started' then
+        local ok, result = pcall(function() return exports['cm-payday']:AddPendingCash(src, jobName, amount, reason) end)
+        if ok and result == true then return true end
+    end
+    return addCash(src, amount, reason)
+end
+
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
@@ -467,7 +489,14 @@ RegisterNetEvent('cm-fishing:server:catchResult', function(success)
             return
         end
 
-        local status, leveledUp = awardXp(src, fishData.xpReward)
+        -- XP banks into cm-payday and is applied (level-ups included) at the
+        -- hourly payday instead of instantly, unless cm-payday isn't running.
+        local status, leveledUp
+        if GetResourceState('cm-payday') == 'started' then
+            pcall(function() exports['cm-payday']:AddPendingXp(src, 'fishing', fishData.xpReward) end)
+        else
+            status, leveledUp = awardXp(src, fishData.xpReward)
+        end
 
         -- Rods never break on a normal catch -- the one exception is a
         -- "heavy fish" (see the cast handler's HeavyFish roll): something
@@ -895,7 +924,7 @@ RegisterNetEvent('cm-fishing:server:sellFish', function(name, amount)
         return
     end
 
-    addCash(src, total, 'fishing_sell')
+    payJobCash(src, 'fishing', total, 'fishing_sell')
     notify(src, ('Sold %dx %s for $%d.'):format(sellAmount, fishData.label, total), 'success')
     TriggerClientEvent('cm-fishing:client:openStore', src, buildStorePayload(src))
 end)

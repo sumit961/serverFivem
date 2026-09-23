@@ -1,14 +1,30 @@
--- In-game live preview of the shared cm-ui components. Spawns a throwaway
--- demo ped in front of the player, shows the interact prompt, then opens the
--- cinematic dialogue with two sample choices wired to a local event so you
--- can see the full open -> choose -> respond -> close flow.
+-- In-game previews for the shared cm-ui components. /cmuistyle opens the
+-- reusable style language showcase. /cmuidialoguepreview spawns a throwaway
+-- demo ped and opens the cinematic dialogue flow.
 --
--- Run: /cmuipreview
+-- Run: /cmuistyle (or /cmuipreview)
 --
 -- For a preview with no FiveM at all, open web/preview.html directly in a
 -- browser (see docs/CM_UI_USAGE.md).
 
 local previewPed
+local function openStylePreview()
+    SetNuiFocus(true, true)
+    SendNUIMessage({ action = 'cmStylePreview:open' })
+end
+
+local function closeStylePreview()
+    SetNuiFocus(false, false)
+    SendNUIMessage({ action = 'cmStylePreview:close' })
+end
+
+RegisterCommand('cmuistyle', openStylePreview, false)
+RegisterCommand('cmuipreview', openStylePreview, false)
+
+RegisterNUICallback('cmStylePreviewClose', function(_, cb)
+    closeStylePreview()
+    cb({ ok = true })
+end)
 
 local function spawnPreviewPed()
     local playerPed = PlayerPedId()
@@ -36,7 +52,7 @@ local function despawnPreviewPed()
     previewPed = nil
 end
 
-RegisterCommand('cmuipreview', function()
+local function openDialoguePreview()
     if exports['cm-ui']:IsNpcDialogueOpen() then return end
     despawnPreviewPed()
 
@@ -58,7 +74,9 @@ RegisterCommand('cmuipreview', function()
             },
         })
     end)
-end, false)
+end
+
+RegisterCommand('cmuidialoguepreview', openDialoguePreview, false)
 
 AddEventHandler('cm-ui:preview:choice', function(payload)
     payload = type(payload) == 'table' and payload or {}
@@ -79,5 +97,8 @@ CreateThread(function()
 end)
 
 AddEventHandler('onResourceStop', function(resource)
-    if resource == GetCurrentResourceName() then despawnPreviewPed() end
+    if resource == GetCurrentResourceName() then
+        closeStylePreview()
+        despawnPreviewPed()
+    end
 end)

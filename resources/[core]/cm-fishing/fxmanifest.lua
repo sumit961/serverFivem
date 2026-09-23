@@ -30,4 +30,5 @@ files {
 -- ensure cm-inventory
 -- ensure cm-hud
 -- ensure cm-vehicles      (boat rental; job still works without it, minus the boats)
+-- ensure cm-payday        (optional -- sell/catch pay becomes hourly payday instead of instant when running)
 -- ensure cm-fishing

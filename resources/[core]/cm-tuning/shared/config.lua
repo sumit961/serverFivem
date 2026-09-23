@@ -4,15 +4,15 @@ CMTuning.Config = {
     Debug = false,
 
     interactKey = 38,          -- E
-    interactDistance = 6.0,
+    interactDistance = 3.0,
     detectDistance = 70.0,
     requireDriver = true,
     requireOwnership = true,   -- owner or temporary key holder
 
-    -- Cash and bank are both available by default. Disable either account here.
+    -- Tuning purchases are cash-only. The server rejects all other accounts.
     defaultAccount = 'cash',
     allowCash = true,
-    allowBank = true,
+    allowBank = false,
 
     Security = {
         maxVehicleDistance = 8.0,
@@ -38,41 +38,48 @@ CMTuning.Config = {
 
     Camera = {
         enabled = true,
-        fov = 45.0,
-        distance = 5.2,
-        height = 1.15,
-        startAngle = 320.0,
+        fov = 42.0,
+        distance = 5.5,
+        height = 2.0,
+        dragSpeed = 0.3,
+        startAngle = 220.0,
         rotateSpeed = 1.6,
         Presets = {
-            { label = 'Front', angle = 0.0 },
-            { label = '3/4', angle = 320.0 },
+            { label = 'Front', angle = 180.0 },
+            { label = '3/4', angle = 220.0 },
             { label = 'Side', angle = 270.0 },
-            { label = 'Rear', angle = 180.0 },
-            { label = 'Top', angle = 320.0, height = 4.0, distance = 4.0 },
+            { label = 'Rear', angle = 0.0 },
+            { label = 'Top', angle = 220.0, height = 4.0, distance = 4.0 },
         },
     },
 
     Shops = {
         chip = {
-            label = 'Chip Tuning',
-            sub = 'Performance and mechanical upgrades',
-            Blip = { enabled = true, sprite = 446, color = 47, scale = 0.75, shortRange = true, name = 'Chip Tuning' },
+            label = 'Performance Tuning',
+            sub = 'Engine, mechanical and performance upgrades',
+            Blip = { enabled = true, sprite = 446, color = 47, scale = 0.75, shortRange = true, name = 'Performance Tuning' },
             Locations = {
-                vector3(-337.0, -136.7, 39.0),
-                vector3(731.5, -1088.8, 22.2),
-                vector3(1174.9, 2640.2, 37.8),
-                vector3(110.6, 6626.4, 32.0),
+                vector3(-1154.7373, -2007.8556, 12.4114),
             },
         },
         workshop = {
-            label = 'Auto Workshop',
-            sub = 'Paint, bodywork and visual upgrades',
-            Blip = { enabled = true, sprite = 72, color = 3, scale = 0.75, shortRange = true, name = 'Auto Workshop' },
+            label = 'Body & Paint',
+            sub = 'Body parts, paint and visual upgrades',
+            Blip = { enabled = true, sprite = 72, color = 3, scale = 0.75, shortRange = true, name = 'Body & Paint' },
             Locations = {
-                vector3(-1155.5, -2007.1, 13.2),
-                vector3(-205.9, -1310.5, 31.3),
-                vector3(1182.0, 2648.0, 37.8),
-                vector3(-1420.0, -449.0, 35.9),
+                vector3(479.6613, -1315.4709, 28.4346),
+                vector3(731.4615, -1088.2009, 21.3987),
+                vector3(-338.4749, -136.7581, 38.2416),
+                vector3(1175.3162, 2640.8152, 36.9873),
+                vector3(110.8152, 6626.1064, 31.0191),
+            },
+        },
+        livery = {
+            label = 'Livery Studio',
+            sub = 'Vehicle liveries only',
+            Blip = { enabled = true, sprite = 72, color = 3, scale = 0.75, shortRange = true, name = 'Livery Studio' },
+            Locations = {
+                vector3(-211.5063, -1323.5352, 30.1224),
             },
         },
     },

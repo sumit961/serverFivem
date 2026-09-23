@@ -11,6 +11,7 @@ files {
     'web/index.html',
     'web/style.css',
     'web/app.js',
+    'web/camera-controls.js',
     'generated_images/README.txt',
     'generated_images/*.png',
     'generated_images/*.webp',
@@ -22,6 +23,8 @@ client_scripts {
     'client/cl_collection.lua',
     'client/cl_framework.lua',
     'client/cl_camera.lua',
+    'client/cl_stores.lua',
+    'client/cl_shopdev.lua',
     'client/cl_admin.lua',
     'client/cl_shop.lua',
     'client/cl_manage.lua',
@@ -37,6 +40,7 @@ server_scripts {
 
 shared_scripts {
     'shared/config.lua',
+    'shared/config_stores.lua',
 }
 
 escrow_ignore {
@@ -50,6 +54,7 @@ escrow_ignore {
 }
 
 dependency 'cm-items'
+dependency 'cm-commercial-ownership'
 
 -- Used locally by /clothingadmin Capture Inventory Icon. No RCore/API dependency.
 dependency 'screenshot-basic'

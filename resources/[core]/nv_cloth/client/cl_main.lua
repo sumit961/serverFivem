@@ -117,7 +117,12 @@ RegisterNetEvent('nv_cloth:openShopInteraction', function(label, categories, sho
 end)
 
 CreateThread(function()
-  -- Blips + NPCs
+  -- Blips (every shop) + NPCs (only shops NOT already handled by
+  -- cl_stores.lua's clerk system). The 14 physical 'clothes' storefronts get
+  -- their clerk, [E] prompt, and dialogue from cl_stores.lua's
+  -- Config.Shops[1..N] StoreList instead -- that system also owns the
+  -- counter/dressing-room/camera flow. Spawning a second ped + prompt here
+  -- too was creating two overlapping clerks at every clothing store.
   for shopKey, shop in pairs(Config.Shops or {}) do
     for index, loc in ipairs(shopLocations(shop)) do
       local pos = loc.pos
@@ -131,7 +136,9 @@ CreateThread(function()
       AddTextComponentString(loc.label or shop.label or 'Clothing Store')
       EndTextCommandSetBlipName(blip)
 
-      createShopPed(shopKey, index, shop, loc)
+      if shopKey ~= 'clothes' then
+        createShopPed(shopKey, index, shop, loc)
+      end
     end
   end
 end)
@@ -215,17 +222,21 @@ CreateThread(function()
 
     local nearest = nil
 
+    -- 'clothes' locations are excluded here too -- cl_stores.lua owns their
+    -- [E] prompt and dialogue now that it owns their clerk.
     for shopKey, shop in pairs(Config.Shops or {}) do
-      for index, loc in ipairs(shopLocations(shop)) do
-        local pos = loc.pos
-        local dist = #(playerCoords - vector3(pos.x, pos.y, pos.z))
+      if shopKey ~= 'clothes' then
+        for index, loc in ipairs(shopLocations(shop)) do
+          local pos = loc.pos
+          local dist = #(playerCoords - vector3(pos.x, pos.y, pos.z))
 
-        if dist <= 12.0 then
-          sleep = 0
-        end
+          if dist <= 12.0 then
+            sleep = 0
+          end
 
-        if dist <= 2.5 and (not nearest or dist < nearest.dist) then
-          nearest = { dist = dist, shopKey = shopKey, shop = shop, loc = loc, index = index }
+          if dist <= 2.5 and (not nearest or dist < nearest.dist) then
+            nearest = { dist = dist, shopKey = shopKey, shop = shop, loc = loc, index = index }
+          end
         end
       end
     end

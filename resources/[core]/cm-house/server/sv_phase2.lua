@@ -781,21 +781,23 @@ function P2.GetFamilyVehicleManagementList(familyId, ownerCid)
     ownerCid = ownerCid ~= nil and tostring(ownerCid) or nil
     if not familyId then return {} end
 
-    -- Shared cars are visible to every member. Private cars are included only
-    -- for their actual owner so the family menu can offer an explicit Share
-    -- toggle without leaking another player's vehicle list.
+    -- All vehicles assigned to family houses, registered in family vehicle access,
+    -- or owned by family members are part of the family vehicle fleet.
     return MySQL.query.await([[
         SELECT v.*, s.house_id, s.slot_index, s.owner_class, h.label AS house_label,
-               CASE WHEN sh.vehicle_id IS NULL THEN 0 ELSE 1 END AS shared,
+               CASE WHEN h.family_id = ? OR fva.vehicle_id IS NOT NULL THEN 1 ELSE 0 END AS shared,
                CASE WHEN h.family_id = ? THEN 1 ELSE 0 END AS family_house_eligible
         FROM cm_owned_vehicles v
         LEFT JOIN cm_house_vehicle_slots s ON s.vehicle_id = v.id
         LEFT JOIN cm_houses h ON h.id = s.house_id
-        LEFT JOIN cm_house_shared_vehicles sh ON sh.vehicle_id = v.id AND sh.house_id = h.id
+        LEFT JOIN cm_family_vehicle_access fva ON fva.vehicle_id = v.id AND fva.family_id = ?
+        LEFT JOIN cm_family_members fm ON fm.character_id = v.owner_character_id AND fm.family_id = ?
         WHERE CAST(v.owner_character_id AS CHAR) = ?
-           OR (h.family_id = ? AND sh.vehicle_id IS NOT NULL)
+           OR h.family_id = ?
+           OR fva.vehicle_id IS NOT NULL
+           OR fm.character_id IS NOT NULL
         ORDER BY shared DESC, family_house_eligible DESC, v.plate
-    ]], { familyId, ownerCid or '', familyId }) or {}
+    ]], { familyId, familyId, familyId, familyId, ownerCid or '', familyId }) or {}
 end
 
 function P2.GetFamilyVehicles(familyId)
@@ -806,7 +808,7 @@ function P2.GetFamilyVehicles(familyId)
         FROM cm_house_vehicle_slots s
         INNER JOIN cm_houses h ON h.id = s.house_id
         INNER JOIN cm_owned_vehicles v ON v.id = s.vehicle_id
-        WHERE h.family_id = ? AND s.owner_class = 'family'
+        WHERE h.family_id = ?
         ORDER BY s.house_id, s.slot_index
     ]], { familyId }) or {}
 end

@@ -50,26 +50,34 @@ RegisterNetEvent('cm-vehicles:server:giveTempKey', function(plate, targetSrc)
 end)
 
 
-RegisterNetEvent('cm-vehicles:server:requestEngineStart', function(plate, netId)
+RegisterNetEvent('cm-vehicles:server:requestEngineStart', function(plate, netId, token)
     local src = source
     plate = CMVehicles.Server.ResolvePlate(plate, netId)
     netId = tonumber(netId)
 
+    -- Echoed back so the client can tell which request a reply belongs to --
+    -- without it, two rapid start presses (spammed during the round-trip,
+    -- since nothing here dedupes) could each be approved and each play their
+    -- own start animation/notification client-side.
+    local function reply(allowed, message)
+        TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId or 0, allowed, message, token)
+    end
+
     if plate == '' then
-        return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId or 0, false, 'Vehicle id not found yet. Try again.')
+        return reply(false, 'Vehicle id not found yet. Try again.')
     end
 
     local row = CMVehicles.Server.GetVehicleByPlate(plate)
     if not row then
-        return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId or 0, false, 'Vehicle not found.')
+        return reply(false, 'Vehicle not found.')
     end
 
     if not CMVehicles.Server.HasAccess(src, plate, 'vehicle.engine') then
-        return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId or 0, false, 'You do not have keys for this vehicle.')
+        return reply(false, 'You do not have keys for this vehicle.')
     end
 
     if (tonumber(row.fuel) or tonumber(Config.Fuel and Config.Fuel.defaultFuel) or 100.0) <= 0.1 then
-        return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId or 0, false, 'Vehicle has no fuel.')
+        return reply(false, 'Vehicle has no fuel.')
     end
 
     local destroyedThreshold = tonumber(Config.Damage and Config.Damage.destroyedEngineHealth) or 150.0
@@ -80,15 +88,14 @@ RegisterNetEvent('cm-vehicles:server:requestEngineStart', function(plate, netId)
             local state = Entity(entity).state
             local stateVehicleId = tonumber(state.cmVehicleId)
             if stateVehicleId and tonumber(row.id) ~= stateVehicleId then
-                return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId, false, 'Vehicle identity changed. Try again.')
+                return reply(false, 'Vehicle identity changed. Try again.')
             end
             -- Use the trusted server registry. Do not authorize the bypass
             -- from a client-replicable state flag alone.
             local isAdminVehicle = CMVehicles.Admin and CMVehicles.Admin.IsAdminVehicle
                 and CMVehicles.Admin.IsAdminVehicle(plate) == true
             if not isAdminVehicle and state.cmConditionReady ~= true then
-                return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId, false,
-                    'Vehicle condition is still loading. Try again in a moment.')
+                return reply(false, 'Vehicle condition is still loading. Try again in a moment.')
             end
             if isAdminVehicle then
                 -- Temporary admin/placement vehicles are created from a known
@@ -111,12 +118,12 @@ RegisterNetEvent('cm-vehicles:server:requestEngineStart', function(plate, netId)
         end
     end
     if effectiveHealth <= destroyedThreshold then
-        return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId or 0, false, 'Engine is too damaged to start. Repair it first.')
+        return reply(false, 'Engine is too damaged to start. Repair it first.')
     end
 
     local near = CMVehicles.Server.ValidateNearVehicle(src, netId, 8.0)
     if not near then
-        return TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId or 0, false, 'You are too far from the vehicle.')
+        return reply(false, 'You are too far from the vehicle.')
     end
 
     -- Approved start. Replicate the garage-driving handoff before telling the
@@ -133,5 +140,5 @@ RegisterNetEvent('cm-vehicles:server:requestEngineStart', function(plate, netId)
     end
 
     -- Approved start. There is intentionally no hotwire/lockpick alternative.
-    TriggerClientEvent('cm-vehicles:client:engineStartResult', src, netId or 0, true, 'Engine started.')
+    reply(true, 'Engine started.')
 end)

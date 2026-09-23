@@ -330,6 +330,10 @@ local function wipeHouseStorage(houseId)
                 query = 'DELETE FROM inventory_items WHERE owner_type = ? AND owner_id LIKE ?',
                 values = { 'house_wardrobe', ('%d:%%'):format(houseId) },
             },
+            {
+                query = 'DELETE FROM inventory_items WHERE owner_type = ? AND owner_id LIKE ?',
+                values = { 'house_weapon_storage', ('%d:%%'):format(houseId) },
+            },
         })
     end)
     if not ok or result ~= true then
@@ -379,6 +383,10 @@ lib.callback.register('cm-house:server:adminAction', function(src, action, house
             {
                 query = 'DELETE FROM inventory_items WHERE owner_type = ? AND owner_id LIKE ?',
                 values = { 'house_wardrobe', ('%d:%%'):format(houseId) },
+            },
+            {
+                query = 'DELETE FROM inventory_items WHERE owner_type = ? AND owner_id LIKE ?',
+                values = { 'house_weapon_storage', ('%d:%%'):format(houseId) },
             },
             {
                 query = 'DELETE FROM cm_house_access WHERE house_id = ?',
@@ -453,6 +461,10 @@ lib.callback.register('cm-house:server:adminAction', function(src, action, house
             {
                 query = 'DELETE FROM inventory_items WHERE owner_type = ? AND owner_id LIKE ?',
                 values = { 'house_wardrobe', ('%d:%%'):format(houseId) },
+            },
+            {
+                query = 'DELETE FROM inventory_items WHERE owner_type = ? AND owner_id LIKE ?',
+                values = { 'house_weapon_storage', ('%d:%%'):format(houseId) },
             },
             {
                 query = 'DELETE FROM cm_house_access WHERE house_id = ?',

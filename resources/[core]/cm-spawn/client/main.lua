@@ -4,6 +4,8 @@
 
 local spawnCam = nil
 local isInSpawn = false
+local spawnTransitionActive = false
+local spawnTransitionGeneration = 0
 local pendingAppearance = nil
 local RESOURCE = 'CM-SPAWN'
 local HudStateCache = {}
@@ -107,6 +109,44 @@ local function makePlayerVisible(ped)
     ClearPedTasksImmediately(ped)
     SetPedCanRagdoll(ped, true)
     enablePlayerCombat(ped)
+end
+
+local function hasProtectedScreenFlow(state)
+    state = state or (LocalPlayer and LocalPlayer.state) or {}
+    return isInSpawn
+        or spawnTransitionActive
+        or state.isInCharacterSelector == true
+        or state.isInCharacterCreation == true
+        or state.isInSpawnSelector == true
+        or state.spawnSelectorOpen == true
+        or state.cmSpawnOpen == true
+        or state.cmSpawnActive == true
+        or state.cmCharactersPreparingSpawnClimate == true
+        or state.cmClimatimePreSpawnPreparing == true
+end
+
+local function restorePlayerScreen(reason)
+    local ped = PlayerPedId()
+    cleanupSpawnCam(true)
+    SetNuiFocus(false, false)
+    makePlayerVisible(ped)
+    DoScreenFadeIn(350)
+    setCmHudVisible(true, reason or 'spawn_recovery', true)
+    DisplayRadar(true)
+end
+
+local function startSpawnRecoveryWatchdog(generation)
+    SetTimeout(30000, function()
+        if generation ~= spawnTransitionGeneration or not spawnTransitionActive then return end
+
+        spawnTransitionActive = false
+        setLocalState('isInSpawnSelector', false, true)
+        setLocalState('spawnSelectorOpen', false, true)
+        setLocalState('cmSpawnOpen', false, true)
+        setLocalState('cmSpawnActive', false, true)
+        restorePlayerScreen('spawn_timeout_recovery')
+        print(('[%s] WARNING: spawn transition timed out; restored player visibility and screen'):format(RESOURCE))
+    end)
 end
 
 local function setupSkyToPlayerCamera(coords)
@@ -284,6 +324,11 @@ end)
 RegisterNetEvent('cm-spawn:client:spawn')
 AddEventHandler('cm-spawn:client:spawn', function(spawnKey, isFirstTime, coords, appearance)
     dprint('Spawning at ' .. tostring(spawnKey))
+    spawnTransitionGeneration = spawnTransitionGeneration + 1
+    local transitionGeneration = spawnTransitionGeneration
+    spawnTransitionActive = true
+    startSpawnRecoveryWatchdog(transitionGeneration)
+
     local isDeadSpawn = spawnKey == 'dead_location'
 
     TriggerServerEvent('cm-characters:server:leaveSelectorBucket')
@@ -353,6 +398,7 @@ AddEventHandler('cm-spawn:client:spawn', function(spawnKey, isFirstTime, coords,
     TriggerEvent('cm-spawn:client:spawned')
     TriggerEvent('cm-spawn:client:spawnComplete')
     TriggerServerEvent('cm-spawn:server:spawnComplete')
+    spawnTransitionActive = false
 end)
 
 RegisterNUICallback('selectSpawn', function(data, cb)
@@ -410,6 +456,34 @@ AddEventHandler('onResourceStop', function(resourceName)
     setLocalState('spawnSelectorOpen', false, true)
     setLocalState('cmSpawnOpen', false, true)
     setLocalState('cmSpawnActive', false, true)
+end)
+
+-- Resource restarts can interrupt a fade owned by another client script. Once
+-- this player is confirmed spawned, recover only a fade that remains black for
+-- several seconds and only when no selector/spawn transition is active.
+CreateThread(function()
+    local fadedSince = nil
+
+    while true do
+        Wait(1500)
+
+        local state = LocalPlayer and LocalPlayer.state or {}
+        local spawned = state.characterFullySpawned == true
+            or state.cmSpawned == true
+            or state.isSpawned == true
+        local faded = IsScreenFadedOut() or IsScreenFadingOut()
+
+        if spawned and faded and not hasProtectedScreenFlow(state) then
+            fadedSince = fadedSince or GetGameTimer()
+            if GetGameTimer() - fadedSince >= 6000 then
+                DoScreenFadeIn(350)
+                print(('[%s] WARNING: recovered a stuck black screen fade'):format(RESOURCE))
+                fadedSince = nil
+            end
+        else
+            fadedSince = nil
+        end
+    end
 end)
 
 if cfg('EnableClientFixCommand', false) then

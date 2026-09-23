@@ -65,6 +65,11 @@ end
 
 RegisterNetEvent('cm-law:client:dispatchCall', function(call)
     addCallBlip(call, true)
+    -- Notification carousel (html/app.js's #dispatchNotifyStack) -- a
+    -- persistent overlay outside the F6 menu, so a new call is actionable
+    -- (quick GPS/Accept) without opening the full Dispatch tab. addCallBlip
+    -- above already plays the sound; this only adds the visual card.
+    SendNUIMessage({ cmInterface = "law", action = 'dispatchNotifyNew', call = call })
 end)
 
 RegisterNetEvent('cm-law:client:dispatchCallUpdated', function(_)
@@ -74,6 +79,7 @@ end)
 RegisterNetEvent('cm-law:client:dispatchCallResolved', function(callId)
     removeBlip(tonumber(callId))
     SendNUIMessage({ cmInterface = "law", action = 'dispatchRefresh' })
+    SendNUIMessage({ cmInterface = "law", action = 'dispatchNotifyResolved', callId = tonumber(callId) })
 end)
 
 RegisterNetEvent('cm-law:client:liveOperationsUpdated', function()
@@ -85,6 +91,7 @@ RegisterNetEvent('cm-law:client:dispatchAssigned', function(call)
     TriggerEvent('cm-hud:client:notify', ('Assigned to call #%s · %s'):format(tostring(call.id), tostring(call.location or 'Unknown location')), 'success')
     addCallBlip(call, false)
     LawSetDispatchRoute(call.id)
+    SendNUIMessage({ cmInterface = "law", action = 'dispatchNotifyAssigned', call = call })
 end)
 
 function LawRequestOfficerAlert(alertType)

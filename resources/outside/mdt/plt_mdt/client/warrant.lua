@@ -1,0 +1,25 @@
+-- =============================================================================
+-- warrant.lua  (deobfuscated from decompiled SHX* form)
+-- Resource: plt_mdt  —  Client-side warrant logic
+-- =============================================================================
+-- NOTE: This file contains no logic. The original source decompiled to nothing
+-- more than the boilerplate decompiler header and a bare local declaration:
+--
+--   local SHX0_1, SHX1_1
+--
+-- Both variables are uninitialised and never used. The file is a stub — either
+-- the client-side warrant logic lives in another file, or this module was
+-- intentionally left empty (all warrant operations handled server-side).
+-- =============================================================================
+
+-- =============================================================================
+-- VERIFICATION
+-- =============================================================================
+-- Total lines in source:         8
+-- Total lines in output:         0 (no executable code was present)
+-- Obfuscation techniques found:  None — file is a bare stub
+-- Renamed identifiers:           2 (SHX0_1, SHX1_1 → removed; they were never used)
+-- Constructs flagged for review:
+--   • Entire file is empty after stripping decompiler boilerplate.
+--     If warrant CRUD operations are expected, they are missing from this file.
+-- Functionality preserved:       YES (nothing to preserve)

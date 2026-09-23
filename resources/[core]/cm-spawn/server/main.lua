@@ -364,7 +364,56 @@ local function normalizeOrganizationSpawn(src, charId)
     }
 end
 
+local function normalizeFamilySpawn(src, charId)
+    if GetResourceState('cm-family') ~= 'started' then return nil end
+    charId = tonumber(charId) or getCharacterId(src)
+    if not charId then return nil end
+
+    local okFam, fam = pcall(function()
+        return exports['cm-family']:GetFamilyForCharacter(charId)
+    end)
+    if not okFam or not fam or not fam.id then return nil end
+    if not fam.house_id then return nil end
+
+    if GetResourceState('cm-house') ~= 'started' then return nil end
+    local okHouse, house = pcall(function()
+        return exports['cm-house']:GetHouse(fam.house_id)
+    end)
+    if not okHouse or not house then return nil end
+
+    local door = house.door_coords or house.door
+    local coords = decodeCoords(door)
+    if not coords then return nil end
+
+    local famName = tostring(fam.name or 'Family')
+    local houseLabel = tostring(house.label or ('House #' .. tostring(house.id)))
+
+    return {
+        key = 'family',
+        label = string.upper(famName .. ' HOME'),
+        description = ('Spawn at your family safehouse (%s).'):format(houseLabel),
+        coords = coords,
+        locked = false,
+        icon = 'fa-house-chimney',
+        color = 'blue',
+        image = 'assets/family.svg',
+        groupType = 'family',
+        familyId = fam.id,
+        houseId = house.id,
+    }
+end
+
 local function resolveSpawnForKey(src, charId, spawnKey, lastPosition, hasSpawned)
+    if spawnKey == 'family' then
+        local famSpawn = normalizeFamilySpawn(src, charId)
+        if famSpawn then return famSpawn end
+        local base = getSpawnByKey('family') or {}
+        local copy = clonePublicSpawn(base)
+        copy.locked = true
+        copy.lockedReason = 'Join a family with an established safehouse to unlock this.'
+        return copy
+    end
+
     if spawnKey == 'organization' then
         local orgSpawn = normalizeOrganizationSpawn(src, charId)
         if orgSpawn then return orgSpawn end

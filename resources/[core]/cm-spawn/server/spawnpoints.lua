@@ -26,13 +26,14 @@ SpawnPoints = {
     {
         key = 'family',
         label = 'FAMILY HOME',
-        coords = vector4(0, 0, 0, 0),
-        description = 'Family house spawn point for future housing and family systems.',
+        coords = nil,
+        description = 'Spawn safely at your family safehouse.',
         locked = true,
-        lockedReason = 'Coming soon',
+        lockedReason = 'Join a family with an established safehouse to unlock this.',
         icon = 'fa-house-chimney',
         color = 'blue',
-        image = 'assets/family.svg'
+        image = 'assets/family.svg',
+        dynamic = 'family'
     },
     {
         key = 'organization',

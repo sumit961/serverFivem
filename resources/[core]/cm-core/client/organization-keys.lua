@@ -39,10 +39,6 @@ local function route(feature)
         if kind == 'police' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openDispatch')
         elseif kind == 'law' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openDispatch')
         elseif kind == 'ems' and GetResourceState('cm-ems') == 'started' then ExecuteCommand('emsdispatchmenu') end
-    elseif feature == 'records' then
-        if kind == 'police' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openMdt')
-        elseif kind == 'law' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openMdt')
-        elseif kind == 'ems' and GetResourceState('cm-ems') == 'started' then TriggerEvent('cm-ems:client:openMedicalRecords') end
     elseif feature == 'quick' then
         if kind == 'police' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openQuickMenu')
         elseif kind == 'law' and GetResourceState('cm-law') == 'started' then TriggerEvent('cm-law:client:openQuickMenu')
@@ -55,9 +51,6 @@ RegisterKeyMapping('cmorgdashboard', 'Organization: Main dashboard', 'keyboard',
 
 RegisterCommand('cmorgdispatch', function() route('dispatch') end, false)
 RegisterKeyMapping('cmorgdispatch', 'Organization: Dispatch', 'keyboard', 'F9')
-
-RegisterCommand('cmorgmdt', function() route('records') end, false)
-RegisterKeyMapping('cmorgmdt', 'Organization: MDT or records terminal', 'keyboard', 'TAB')
 
 RegisterCommand('cmorgquickmenu', function() route('quick') end, false)
 RegisterKeyMapping('cmorgquickmenu', 'Organization: Quick actions', 'keyboard', 'J')

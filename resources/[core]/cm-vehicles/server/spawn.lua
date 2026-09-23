@@ -1091,7 +1091,16 @@ RegisterNetEvent('cm-vehicles:server:garageReleaseApplied', function(netId, toke
     state:set('cmGarageReleasePending', false, true)
 end)
 
-function CMVehicles.Spawn.CreateForPlayer(src, row, opts)
+-- Two rapid triggers of the same server-authoritative spawn for one
+-- vehicleId (a doubled client event, or two access holders racing to call
+-- the same car) could otherwise both observe the vehicle as "not yet
+-- spawned" and each create their own live entity, since the body below
+-- yields several times (native creation, net-id polling) before
+-- RegisterEntity marks it spawned. Mirrors the GarageCreateById dedupe used
+-- for client-assisted garage creates above.
+local SpawnCreateById = {}
+
+local function createForPlayerLocked(src, row, opts)
     opts = type(opts) == 'table' and opts or {}
     if not row then return false, 'Vehicle missing.' end
     local plate = U.NormalizePlate(row.plate)
@@ -1135,7 +1144,7 @@ function CMVehicles.Spawn.CreateForPlayer(src, row, opts)
             if fallbackRow then
                 opts._missingModelFallbackAttempted = true
                 if notice ~= '' then U.Notify(src, notice, 'inform') end
-                return CMVehicles.Spawn.CreateForPlayer(src, fallbackRow, opts)
+                return createForPlayerLocked(src, fallbackRow, opts)
             end
         end
         return false, 'Server-side vehicle creation failed.'
@@ -1201,6 +1210,27 @@ function CMVehicles.Spawn.CreateForPlayer(src, row, opts)
     end
 
     return true, netId
+end
+
+-- Deduplicates concurrent spawn requests for the same DB vehicle instead of
+-- letting each one race through createForPlayerLocked independently.
+function CMVehicles.Spawn.CreateForPlayer(src, row, opts)
+    local vehicleId = type(row) == 'table' and tonumber(row.id)
+    if not vehicleId then return createForPlayerLocked(src, row, opts) end
+
+    local existing = SpawnCreateById[vehicleId]
+    if existing then
+        local shared = Citizen.Await(existing)
+        if type(shared) == 'table' and shared.ok == true then return true, shared.netId end
+        return false, type(shared) == 'table' and shared.error or 'The vehicle could not be created.'
+    end
+
+    local deferred = promise.new()
+    SpawnCreateById[vehicleId] = deferred
+    local ok, result = createForPlayerLocked(src, row, opts)
+    if SpawnCreateById[vehicleId] == deferred then SpawnCreateById[vehicleId] = nil end
+    deferred:resolve(ok == true and { ok = true, netId = result } or { ok = false, error = result })
+    return ok, result
 end
 
 RegisterNetEvent('cm-vehicles:server:spawnOwnedVehicle', function(vehicleId)

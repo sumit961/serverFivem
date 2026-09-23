@@ -20,6 +20,10 @@
             CMUI.dialogueRestoreChoices(data);
         } else if (data.action === 'cmDialogue:close') {
             CMUI.closeDialogue();
+        } else if (data.action === 'cmStylePreview:open') {
+            CMUI.openStylePreview();
+        } else if (data.action === 'cmStylePreview:close') {
+            CMUI.closeStylePreview(false);
         }
     });
 })();

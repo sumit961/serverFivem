@@ -78,9 +78,70 @@ button{cursor:pointer;border:1px solid #3b7790;border-radius:9px;background:#173
 .armory-manager{position:absolute;inset:0;z-index:2;overflow:auto;background:#09181e;padding:26px}.armory-manager__head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}.armory-manager__grid{display:grid;gap:10px}.armory-manage-row{display:grid;grid-template-columns:minmax(250px,1.5fr) 82px 112px 112px 105px 105px 76px;gap:12px;align-items:center;padding:12px;border:1px solid rgba(73,215,239,.14);border-radius:11px;background:#10252c}.armory-manage-row__item{display:flex;gap:12px;align-items:center}.armory-manage-row__item img{width:72px;height:52px;object-fit:contain}.armory-manage-row label{display:grid;gap:4px;color:#8da8af;font-size:10px;text-transform:uppercase}.armory-manage-row input{min-width:0;border:1px solid rgba(73,215,239,.18);border-radius:7px;background:#08191f;color:#fff;padding:9px}.armory-manage-row input[type=checkbox]{width:20px;height:20px}
 @media(max-width:1100px){.legal-armory__grid{grid-template-columns:repeat(2,minmax(210px,1fr))}.armory-manage-row{grid-template-columns:1fr 80px 100px 100px}.legal-armory__status span{display:none}}
 
+/* Organization fleet (Motor Pool) -- standalone panel opened only from the
+   Fleet facility NPC (client/facilities.lua), never through the F6 Command
+   & Operations dashboard. Mirrors .legal-armory's panel chrome. */
+.legal-fleet{position:fixed;inset:3.5vh 3vw;z-index:80;display:flex;flex-direction:column;overflow:hidden;border:1px solid rgba(67,216,244,.28);border-radius:18px;background:linear-gradient(135deg,rgba(8,18,25,.98),rgba(10,31,35,.96));color:#eefcff;box-shadow:0 25px 80px rgba(0,0,0,.55)}
+.legal-fleet.hidden{display:none}
+.legal-fleet__header{display:flex;align-items:center;justify-content:space-between;padding:24px 30px;border-bottom:1px solid rgba(93,211,232,.16)}
+.legal-fleet__header small{color:#49d7ef;letter-spacing:.18em;font-weight:800}.legal-fleet__header h1{margin:4px 0;font-size:30px}.legal-fleet__header p{margin:8px 0 0;color:#8ca5ad;max-width:640px}
+.legal-fleet__status{display:flex;gap:10px;align-items:center}
+.legal-fleet button{border:1px solid rgba(73,215,239,.28);border-radius:9px;background:#102a33;color:#dcfaff;padding:10px 15px;font-weight:800;cursor:pointer}.legal-fleet button:hover{border-color:#49d7ef;background:#174456}.legal-fleet button:disabled{opacity:.42;cursor:not-allowed}
+.legal-fleet .fleet-roster{flex:1;overflow:auto;padding:4px 30px 30px}
+
 /* Shared legal MDT */
 .mdt-searchbar{display:grid;grid-template-columns:1fr auto 180px auto;gap:9px;margin-bottom:14px}.mdt-searchbar input,.law-mdt-compose input,.law-mdt-compose textarea,.law-mdt-actions input{border:1px solid var(--line);border-radius:9px;background:#0b1521;color:#eefbff;padding:11px}.law-mdt-layout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:14px;min-height:560px}.law-mdt-results{display:flex;flex-direction:column;gap:8px;overflow:auto;border-right:1px solid var(--line);padding-right:12px}.law-mdt-result{display:grid;gap:4px;text-align:left;background:#142337!important}.law-mdt-result span,.mdt-record span,.mdt-record time{color:#91aab7;font-size:12px}.law-mdt-workspace{overflow:auto;padding-right:5px}.law-mdt-profile{display:grid;gap:13px}.law-mdt-profile__head{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:12px}.law-mdt-profile__head h2{margin:4px 0}.law-mdt-actions{display:grid;grid-template-columns:90px 1fr auto;gap:9px;align-items:end}.law-mdt-actions label{display:grid;gap:5px;color:#8fa8b5;font-size:11px}.law-mdt-columns{display:grid;grid-template-columns:1fr 1fr;gap:12px}.mdt-record{display:grid;width:100%;gap:4px;border-bottom:1px solid rgba(76,120,145,.24);padding:10px 0;text-align:left}.mdt-record--button{border:0!important;border-radius:0!important;background:transparent!important}.mdt-record summary{cursor:pointer}.mdt-record p{margin:9px 0;white-space:pre-wrap}.law-mdt-compose{display:grid;grid-template-columns:1fr auto;gap:9px}.law-mdt-compose textarea{min-height:70px;resize:vertical}.law-mdt-compose--report{grid-template-columns:1fr auto}.law-mdt-compose--report input{grid-column:1}.law-mdt-compose--report textarea{grid-column:1}.law-mdt-compose--report button{grid-column:2;grid-row:1/3}.law-mdt-warrant-compose{grid-template-columns:1fr 80px auto}.law-mdt-vehicle{display:grid;gap:12px}.law-mdt-workspace .card{padding:15px}
 @media(max-width:900px){.mdt-searchbar{grid-template-columns:1fr auto}.law-mdt-layout{grid-template-columns:1fr}.law-mdt-results{max-height:180px;border-right:0;border-bottom:1px solid var(--line)}.law-mdt-columns{grid-template-columns:1fr}}
+.law-mdt-dashboard{display:grid;gap:14px}.law-mdt-dashboard__stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.mdt-record-list{display:grid;gap:0;max-height:260px;overflow:auto}.mdt-record--alert{border:1px solid #ff6f78;border-radius:9px;padding:10px 12px;margin-bottom:10px;background:rgba(255,111,120,.08)}.mdt-record--alert strong{color:#ff8790}
+
+/* Criminal Code */
+.charge-create-form{display:grid;grid-template-columns:1fr 130px 130px auto;gap:10px;align-items:end;margin-bottom:16px}
+.charge-create-form input{border:1px solid var(--line);border-radius:9px;background:#0b1521;color:#eefbff;padding:11px;width:100%}
+.charge-create-form label{display:grid;gap:4px;color:#8fa8b5;font-size:11px}
+.charges-list{display:grid;gap:10px}
+.charge-row{display:grid;grid-template-columns:minmax(180px,1.4fr) 90px 110px 100px auto;gap:12px;align-items:end;padding:12px;border:1px solid rgba(116,195,208,.15);border-radius:11px;background:rgba(19,43,50,.5)}
+.charge-row.is-disabled{opacity:.55}
+.charge-row input{border:1px solid var(--line);border-radius:7px;background:#08191f;color:#fff;padding:9px;width:100%}
+.charge-row label{display:grid;gap:4px;color:#8da8af;font-size:10px;text-transform:uppercase}
+.charge-row__label{align-self:end}
+.charge-row__enabled{flex-direction:row;align-items:center;display:flex;gap:6px}
+.charge-row__enabled input{width:auto}
+@media(max-width:900px){.charge-create-form{grid-template-columns:1fr}.charge-row{grid-template-columns:1fr}}
+
+/* Photos: citizen/officer/case-file capture */
+.mdt-profile-photo{width:56px;height:56px;border-radius:10px;object-fit:cover;border:1px solid var(--line);margin-right:10px;background:#0b1521}
+.law-mdt-profile__head{gap:10px}
+.law-mdt-profile__head button{align-self:center;border:1px solid var(--line);border-radius:9px;background:#122437;color:#eefbff;padding:8px 12px;cursor:pointer}
+.case-summary{color:#9fd8e6;font-style:italic;margin:0 0 6px}
+.case-photo-row{display:flex;align-items:center;gap:12px;margin:8px 0}
+.case-photo{width:120px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+.case-photo-row button,.case-section button{border:1px solid var(--line);border-radius:8px;background:#122437;color:#eefbff;padding:7px 11px;cursor:pointer}
+.case-section{margin-top:10px;border-top:1px solid rgba(116,195,208,.15);padding-top:8px}
+.case-section>small{color:#7fb9c9;letter-spacing:.1em}
+.mdt-case select{border:1px solid var(--line);border-radius:6px;background:#0b1521;color:#eefbff;padding:3px 6px;font-size:11px}
+.org-identity-photo{display:flex;flex-direction:column;align-items:center;gap:6px;margin-right:12px}
+.org-identity-photo img{width:64px;height:64px;border-radius:12px;object-fit:cover;border:1px solid var(--line);background:#0b1521}
+.org-identity-photo button{border:1px solid var(--line);border-radius:8px;background:#122437;color:#eefbff;padding:5px 8px;font-size:10px;cursor:pointer;white-space:nowrap}
+.member-avatar{float:left;width:36px;height:36px;border-radius:8px;object-fit:cover;margin:0 10px 4px 0;border:1px solid var(--line)}
+
+/* Dispatch notification carousel -- lives outside #app so it stays visible
+   with the F6 menu closed (see law.html's comment on #dispatchNotifyStack). */
+.dispatch-notify-stack{position:fixed;top:18px;right:18px;width:320px;display:grid;gap:10px;z-index:50;pointer-events:none}
+.dispatch-notify-card{pointer-events:auto;background:rgba(9,20,26,.96);border:1px solid rgba(116,195,208,.3);border-left:4px solid #52dce9;border-radius:10px;padding:12px 14px;box-shadow:0 12px 30px rgba(0,0,0,.4);animation:dispatchNotifyIn .18s ease-out}
+.dispatch-notify-card.is-priority{border-left-color:#ff4d55}
+.dispatch-notify-card.is-assigned{border-left-color:#3ddc84}
+.dispatch-notify-card__head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.dispatch-notify-card__code{font:800 11px var(--lw-font,inherit);letter-spacing:.08em;color:#52dce9;text-transform:uppercase}
+.dispatch-notify-card.is-priority .dispatch-notify-card__code{color:#ff8790}
+.dispatch-notify-card__dismiss{background:none;border:0;color:#8fa8b5;cursor:pointer;font-size:16px;line-height:1;padding:0 2px}
+.dispatch-notify-card__details{margin:6px 0 4px;color:#eefbff;font-size:13px;font-weight:600}
+.dispatch-notify-card__meta{color:#8fa8b5;font-size:11px;margin-bottom:8px}
+.dispatch-notify-card__actions{display:flex;gap:8px}
+.dispatch-notify-card__actions button{flex:1;border:1px solid rgba(116,195,208,.3);border-radius:7px;background:#122437;color:#eefbff;padding:7px 8px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.04em}
+.dispatch-notify-card__actions button[data-notify-accept]{background:#173a2b;border-color:#2f8a5a}
+@keyframes dispatchNotifyIn{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:translateX(0)}}
+.law-mdt-license-compose{grid-template-columns:130px 110px 1fr auto}
+.law-mdt-license-compose select{border:1px solid var(--line);border-radius:9px;background:#0b1521;color:#eefbff;padding:11px}
 
 /* F10/Tab standalone workspaces. Dispatch and MDT stay out of the F7 nav. */
 #dispatchTab,#mdtTab{display:none!important}

@@ -97,16 +97,17 @@
     <!-- STATISTICS OVERLAY MODAL -->
     <!-- FULL TACTICAL CHARACTER STATISTICS DASHBOARD -->
     <div class="stats-modal hidden" id="statsModal">
-      <div class="stats-modal-card">
+      <div class="stats-dash-container">
+
         <div class="stats-modal-header">
           <div class="stats-badge">CITIZEN PROFILE</div>
           <h2 class="heading stats-name" id="statsPlayerName">Citizen Name</h2>
           <div class="stats-id">Citizen ID: <span id="statsPlayerId">#0000</span></div>
-      <div class="stats-dash-container">
-        
+        </div>
+
         <!-- Top Header Bar -->
         <div class="stats-dash-header">
-          
+
           <!-- Account, Level & VIP Info -->
           <div class="stats-account-cluster">
             <div class="stats-account-title-row">
@@ -114,14 +115,14 @@
               <span class="heading stats-acc-num" id="statAccountId">#31120</span>
               <span class="stats-gender-sym male" id="statGenderIcon">♂</span>
             </div>
-            
+
             <div class="stats-lvl-cluster">
               <div class="stats-lvl-badge heading" id="statLevelBadge">LVL 39</div>
               <div class="stats-xp-bar-track">
                 <div class="stats-xp-bar-progress" id="statXpFill" style="width: 35%;"></div>
               </div>
               <span class="stats-xp-fraction heading" id="statXpText">8 / 156</span>
-              
+
               <div class="stats-vip-tag heading">
                 <span class="vip-txt-lbl">VIP-STATUS</span>
                 <span class="vip-txt-val" id="statVipStatus">VIP OFF</span>
@@ -152,12 +153,27 @@
           <div class="stats-tile">
             <span class="stats-label">CASH IN WALLET</span>
             <span class="stats-val green" id="statsCash">$0</span>
+          </div>
+          <div class="stats-tile">
+            <span class="stats-label">BANK BALANCE</span>
+            <span class="stats-val cyan" id="statsBank">$0</span>
+          </div>
+          <div class="stats-tile">
+            <span class="stats-label">FAMILY</span>
+            <span class="stats-val" id="statsFamily">None</span>
+          </div>
+          <div class="stats-tile">
+            <span class="stats-label">ORGANIZATION</span>
+            <span class="stats-val yellow" id="statsOrg">Civilian</span>
+          </div>
+        </div>
+
         <!-- Dashboard Body: 4 Columns -->
         <div class="stats-dash-grid">
-          
+
           <!-- Column 1: Vertical Vitals & Records Strip -->
           <div class="stats-col-vitals">
-            
+
             <div class="vital-entry">
               <div class="vital-ico-box">
                 <svg viewBox="0 0 24 24"><path d="M8 4c-2.21 0-4 1.79-4 4v2.09c-.31.11-.6.28-.85.53L1.7 12.07c-.94.94-.94 2.47 0 3.41l3.54 3.54c.94.94 2.47.94 3.41 0l1.45-1.45c.25-.25.42-.54.53-.85H13v-2H9.91c.06-.32.09-.65.09-1V8c0-2.21-1.79-4-4-4zm8 0c-2.21 0-4 1.79-4 4v2.09c-.31.11-.6.28-.85.53l-1.45 1.45c-.25.25-.42.54-.53.85H11v2h2.09c-.06.32-.09.65-.09 1v2.09c.31.11.6.28.85.53l1.45 1.45c.94.94 2.47.94 3.41 0l3.54-3.54c.94-.94.94-2.47 0-3.41l-1.45-1.45c-.25-.25-.54-.42-.85-.53V8c0-2.21-1.79-4-4-4z"/></svg>
@@ -249,13 +265,10 @@
             </div>
 
           </div>
-          <div class="stats-tile">
-            <span class="stats-label">BANK BALANCE</span>
-            <span class="stats-val cyan" id="statsBank">$0</span>
 
           <!-- Column 2: Center Feature (Business, Org, Skills, Collectible) -->
           <div class="stats-col-center">
-            
+
             <!-- Top Mini Row -->
             <div class="stats-mini-row">
               <div class="stats-mini-card">
@@ -305,9 +318,6 @@
             </div>
 
           </div>
-          <div class="stats-tile">
-            <span class="stats-label">FAMILY</span>
-            <span class="stats-val" id="statsFamily">None</span>
 
           <!-- Column 3: Licenses Checklist -->
           <div class="stats-col-licenses">
@@ -340,13 +350,10 @@
               <span class="heading lic-title">HEALTH INSURANCE</span>
             </div>
           </div>
-          <div class="stats-tile">
-            <span class="stats-label">ORGANIZATION</span>
-            <span class="stats-val yellow" id="statsOrg">Civilian</span>
 
           <!-- Column 4: Warnings, Autopark & Houses -->
           <div class="stats-col-properties">
-            
+
             <!-- Warnings Counter Card -->
             <div class="stats-warn-badge-card">
               <div class="warn-qmark">?</div>

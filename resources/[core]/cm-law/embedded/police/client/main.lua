@@ -330,7 +330,6 @@ local function captureImpoundEvidence(data, cb)
     end
     local plate = tostring(GetVehicleNumberPlateText(nearest) or ''):gsub('%s+', ''):upper()
     TriggerEvent('cm-police:client:closeMenu')
-    if type(PoliceCloseMdtTerminal) == 'function' then PoliceCloseMdtTerminal() end
     Wait(300)
     impoundPhotoPreviousView = GetFollowPedCamViewMode()
     SetFollowPedCamViewMode(4)
