@@ -5,7 +5,8 @@ Config = {}
 -- ============================================================
 Config.Debug = false
 -- Set to false in production environments to disable in-game/console automated test commands.
-Config.DevTests = true
+-- Can be enabled via server convar `cm_dev_tests=true` or during development runs.
+Config.DevTests = false
 Config.HouseResource = 'cm-house'
 Config.VehiclesResource = 'cm-vehicles'
 Config.VehicleKeysResource = 'cm-vehiclekeys'
@@ -566,9 +567,9 @@ Config.HQUpgrades = {
         description = 'Expands general item storage compartments inside the family headquarters.',
         maxTier = 3,
         tiers = {
-            [1] = { cost = 50000,  minLevel = 5,  label = 'Tier 1 (+250kg allowance)' },
-            [2] = { cost = 125000, minLevel = 8,  label = 'Tier 2 (+500kg allowance)' },
-            [3] = { cost = 250000, minLevel = 14, label = 'Tier 3 (+1000kg allowance)' },
+            [1] = { cost = 50000,  minLevel = 5,  label = 'Tier 1 (+10 Storage Slots)' },
+            [2] = { cost = 125000, minLevel = 8,  label = 'Tier 2 (+20 Storage Slots)' },
+            [3] = { cost = 250000, minLevel = 14, label = 'Tier 3 (+35 Storage Slots)' },
         },
     },
     weapon_storage_capacity = {
@@ -576,9 +577,9 @@ Config.HQUpgrades = {
         description = 'Reinforced lockers expanding weapon and ammunition storage allowance.',
         maxTier = 3,
         tiers = {
-            [1] = { cost = 75000,  minLevel = 10, label = 'Tier 1 (+10 weapon slots)' },
-            [2] = { cost = 175000, minLevel = 15, label = 'Tier 2 (+20 weapon slots)' },
-            [3] = { cost = 350000, minLevel = 20, label = 'Tier 3 (+35 weapon slots)' },
+            [1] = { cost = 75000,  minLevel = 10, label = 'Tier 1 (+10 Weapon Slots)' },
+            [2] = { cost = 175000, minLevel = 15, label = 'Tier 2 (+20 Weapon Slots)' },
+            [3] = { cost = 350000, minLevel = 20, label = 'Tier 3 (+35 Weapon Slots)' },
         },
     },
     garage_slots = {
@@ -667,8 +668,7 @@ Config.Objectives = {
 -- Used uniformly by objectives, weekly contributions, and future family events.
 -- ============================================================
 function CMFamilyGetWeekKey(timestamp)
-    if timestamp then
-        return os.date('%Y-W%W', tonumber(timestamp))
-    end
-    return os.date('%Y-W%W')
+    local dateStr = timestamp and os.date('%Y-W%W', tonumber(timestamp)) or os.date('%Y-W%W')
+    local y, w = dateStr:match('^(%d+)%-W(%d+)$')
+    return dateStr, tonumber(y) or 2026, tonumber(w) or 1
 end

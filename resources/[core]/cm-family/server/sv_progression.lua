@@ -392,6 +392,7 @@ function AwardFamilyActivityReward(payload)
     end
 
     local currentWeekKey = (type(CMFamilyGetWeekKey) == 'function' and CMFamilyGetWeekKey()) or os.date('%Y-W%W')
+    local actualTreasuryCredited = 0
 
     local execOk, resSuccess, resPayload = pcall(function()
         local statements = {}
@@ -437,25 +438,31 @@ function AwardFamilyActivityReward(payload)
             }
         end
 
-        -- 3. Treasury payout
+        -- 3. Treasury payout with strict balance cap accounting
         if treasuryReward > 0 then
             local maxBal = tonumber(Config.Bank and Config.Bank.maxBalance) or 2000000000
-            statements[#statements + 1] = {
-                query = [[
-                    UPDATE cm_families
-                    SET bank_balance = LEAST(bank_balance + ?, ?)
-                    WHERE id = ?
-                ]],
-                values = { treasuryReward, maxBal, familyId }
-            }
+            local curBal = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { familyId })) or 0
+            local spaceRemaining = math.max(0, maxBal - curBal)
+            actualTreasuryCredited = math.min(treasuryReward, spaceRemaining)
 
-            statements[#statements + 1] = {
-                query = [[
-                    INSERT INTO cm_family_bank_log (family_id, character_id, direction, category, amount, balance_after, reason)
-                    VALUES (?, ?, 'deposit', 'event_reward', ?, (SELECT bank_balance FROM cm_families WHERE id = ?), ?)
-                ]],
-                values = { familyId, actorCid, treasuryReward, familyId, ('event_reward:%s'):format(eventType) }
-            }
+            if actualTreasuryCredited > 0 then
+                statements[#statements + 1] = {
+                    query = [[
+                        UPDATE cm_families
+                        SET bank_balance = bank_balance + ?
+                        WHERE id = ?
+                    ]],
+                    values = { actualTreasuryCredited, familyId }
+                }
+
+                statements[#statements + 1] = {
+                    query = [[
+                        INSERT INTO cm_family_bank_log (family_id, character_id, direction, category, amount, balance_after, reason)
+                        VALUES (?, ?, 'deposit', 'event_reward', ?, (SELECT bank_balance FROM cm_families WHERE id = ?), ?)
+                    ]],
+                    values = { familyId, actorCid, actualTreasuryCredited, familyId, ('event_reward:%s'):format(eventType) }
+                }
+            end
         end
 
         -- 4. Requirement 4: Include participant contributions in the SAME transaction!
@@ -525,7 +532,7 @@ function AwardFamilyActivityReward(payload)
         end
 
         -- Update treasury in memory
-        if treasuryReward > 0 then
+        if actualTreasuryCredited > 0 then
             local fam = GetFamilyById(familyId)
             local newBal = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { familyId })) or 0
             if fam then fam.bank_balance = newBal end
@@ -543,8 +550,8 @@ function AwardFamilyActivityReward(payload)
     -- 5. Advance weekly objectives
     if type(AdvanceFamilyObjective) == 'function' then
         AdvanceFamilyObjective(familyId, 'family_actions', 1, actorCid)
-        if treasuryReward > 0 then
-            AdvanceFamilyObjective(familyId, 'net_deposits', treasuryReward, actorCid)
+        if actualTreasuryCredited > 0 then
+            AdvanceFamilyObjective(familyId, 'net_deposits', actualTreasuryCredited, actorCid)
         end
     end
 
@@ -553,7 +560,8 @@ function AwardFamilyActivityReward(payload)
         uniqueId = uniqueId,
         reputation = repReward,
         memberContribution = contribReward,
-        treasury = treasuryReward,
+        treasuryRequested = treasuryReward,
+        treasuryCredited = actualTreasuryCredited,
         participantCount = #targetCids,
     })
 
@@ -561,8 +569,11 @@ function AwardFamilyActivityReward(payload)
         familyId = familyId,
         uniqueId = uniqueId,
         reputation = repReward,
-        treasury = treasuryReward,
+        treasury = actualTreasuryCredited,
+        treasuryRequested = treasuryReward,
+        treasuryCredited = actualTreasuryCredited,
         memberContribution = contribReward,
+        participantCount = #targetCids,
         participants = targetCids,
     }
 end

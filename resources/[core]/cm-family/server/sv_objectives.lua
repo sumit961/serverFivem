@@ -23,9 +23,16 @@ local function getWeeklyObjectivesForFamily(familyId)
     local pool = getObjectivePool()
     if #pool == 0 then return {} end
 
-    local weekKey = getCurrentWeekKey()
-    local weekNum = tonumber(os.date('%W')) or 1
-    local yearNum = tonumber(os.date('%Y')) or 2026
+    local weekKey, yearNum, weekNum
+    if type(CMFamilyGetWeekKey) == 'function' then
+        weekKey, yearNum, weekNum = CMFamilyGetWeekKey()
+    else
+        weekKey = os.date('%Y-W%W')
+        yearNum = tonumber(os.date('%Y')) or 2026
+        weekNum = tonumber(os.date('%W')) or 1
+    end
+    yearNum = tonumber(yearNum) or 2026
+    weekNum = tonumber(weekNum) or 1
     local seed = (tonumber(familyId) * 17) + (yearNum * 53) + weekNum
 
     local selected = {}
@@ -43,6 +50,7 @@ local function getWeeklyObjectivesForFamily(familyId)
 
     return selected, weekKey
 end
+CMFamilyGetWeeklyObjectivesForFamily = getWeeklyObjectivesForFamily
 
 -- Crash recovery for stuck processing objectives
 function RecoverStaleObjectiveProcessing(targetFamilyId)

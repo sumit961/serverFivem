@@ -126,7 +126,7 @@ function GetFamilySharedVehicleLimit(familyId)
 end
 exports('GetFamilySharedVehicleLimit', GetFamilySharedVehicleLimit)
 
-function PurchaseHQUpgrade(actorCid, upgradeKey)
+function PurchaseHQUpgrade(actorCid, upgradeKey, _testHook)
     actorCid = tostring(actorCid)
     local canonicalKey = normalizeUpgradeKey(upgradeKey)
 
@@ -181,60 +181,81 @@ function PurchaseHQUpgrade(actorCid, upgradeKey)
         end
     end
 
-    -- 1. Atomic debit guarded by sufficient balance
-    if cost > 0 then
-        local debitAffected
-        local debitOk = pcall(function()
-            debitAffected = MySQL.update.await(
-                'UPDATE cm_families SET bank_balance = bank_balance - ? WHERE id = ? AND bank_balance >= ?',
-                { cost, fam.id, cost }
-            )
-        end)
+    -- Build single atomic transaction: debit treasury + persist upgrade + write bank ledger.
+    -- All operations commit together or all rollback together.
+    local statements = {}
 
-        if not debitOk or not debitAffected or debitAffected == 0 then
-            return releaseLock(false, 'The family treasury does not have enough funds.')
-        end
+    -- 1. Atomic debit guarded by conditional balance check (fails explicitly if balance < cost)
+    if cost > 0 then
+        statements[#statements + 1] = {
+            query = [[
+                UPDATE cm_families
+                SET bank_balance = (CASE WHEN bank_balance >= ? THEN bank_balance - ? ELSE (SELECT 1 UNION SELECT 2) END)
+                WHERE id = ?
+            ]],
+            values = { cost, cost, fam.id }
+        }
     end
 
-    -- 2. Upgrade tier persistence with optimistic concurrency verification
-    local upgradeSuccess = false
+    -- Test hook for crash/failure atomicity verification (Requirement 3 Part C)
+    if _testHook == 'fail_after_debit' then
+        statements[#statements + 1] = {
+            query = 'INSERT INTO non_existent_table_for_rollback_test (col) VALUES (1)',
+            values = {}
+        }
+    end
+
+    -- 2. Upgrade tier persistence with optimistic concurrency verification:
+    -- If currentTier == 0, insert row (fails on unique key uniq_family_upgrade if already exists).
+    -- If currentTier > 0, update row with conditional check (fails explicitly if tier != currentTier).
     if currentTier == 0 then
-        local insOk, insId = pcall(function()
-            return MySQL.insert.await([[
+        statements[#statements + 1] = {
+            query = [[
                 INSERT INTO cm_family_hq_upgrades (family_id, upgrade_key, tier, purchased_by, purchased_at)
                 VALUES (?, ?, 1, ?, NOW())
-            ]], { fam.id, canonicalKey, actorCid })
-        end)
-        upgradeSuccess = insOk and insId and insId > 0
+            ]],
+            values = { fam.id, canonicalKey, actorCid }
+        }
     else
-        local updOk, updCount = pcall(function()
-            return MySQL.update.await([[
+        statements[#statements + 1] = {
+            query = [[
                 UPDATE cm_family_hq_upgrades
-                SET tier = ?, purchased_by = ?, purchased_at = NOW()
-                WHERE family_id = ? AND upgrade_key = ? AND tier = ?
-            ]], { targetTier, actorCid, fam.id, canonicalKey, currentTier })
-        end)
-        upgradeSuccess = updOk and updCount and updCount > 0
+                SET tier = (CASE WHEN tier = ? THEN ? ELSE (SELECT 1 UNION SELECT 2) END),
+                    purchased_by = ?,
+                    purchased_at = NOW()
+                WHERE family_id = ? AND upgrade_key = ?
+            ]],
+            values = { currentTier, targetTier, actorCid, fam.id, canonicalKey }
+        }
     end
 
-    if not upgradeSuccess then
-        -- Roll back treasury deduction if upgrade write failed or tier conflict occurred
-        if cost > 0 then
-            pcall(function()
-                MySQL.update.await('UPDATE cm_families SET bank_balance = bank_balance + ? WHERE id = ?', { cost, fam.id })
-            end)
-        end
-        return releaseLock(false, 'Upgrade conflict: upgrade tier was modified by another operation.')
-    end
-
-    -- 3. Write bank transaction ledger ONLY after upgrade success is confirmed
+    -- 3. Write bank transaction ledger in the SAME transaction
     if cost > 0 then
-        pcall(function()
-            MySQL.insert.await([[
+        statements[#statements + 1] = {
+            query = [[
                 INSERT INTO cm_family_bank_log (family_id, character_id, direction, category, amount, balance_after, reason)
                 VALUES (?, ?, 'withdraw', 'hq_upgrade', ?, (SELECT bank_balance FROM cm_families WHERE id = ?), ?)
-            ]], { fam.id, actorCid, cost, fam.id, ('hq_upgrade:%s:t%d'):format(canonicalKey, targetTier) })
-        end)
+            ]],
+            values = { fam.id, actorCid, cost, fam.id, ('hq_upgrade:%s:t%d'):format(canonicalKey, targetTier) }
+        }
+    end
+
+    -- Execute all statements in ONE true atomic database transaction
+    local txOk, txResult = pcall(function()
+        return MySQL.transaction.await(statements)
+    end)
+
+    if not txOk or txResult ~= true then
+        -- Transaction was rolled back completely by MySQL engine. No manual refund required.
+        local recheckBal = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { fam.id })) or 0
+        if recheckBal < cost then
+            return releaseLock(false, 'The family treasury does not have enough funds.')
+        end
+        local recheckTier = GetFamilyHQUpgradeLevel(fam.id, canonicalKey)
+        if recheckTier ~= currentTier then
+            return releaseLock(false, 'Upgrade conflict: upgrade tier was modified by another operation.')
+        end
+        return releaseLock(false, 'Upgrade transaction failed to commit.')
     end
 
     local newBalance = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { fam.id })) or 0

@@ -75,7 +75,7 @@ local function RunFamilyHardeningTests()
         end
 
         local testsPassed = 0
-        local testsTotal = 16
+        local testsTotal = 19
 
         -- ============================================================
         -- TEST 1: Same reputation unique ID sent twice simultaneously
@@ -584,24 +584,111 @@ local function RunFamilyHardeningTests()
         end
 
         -- ============================================================
-        -- TEST 16: Force transaction rollback and verify treasury unchanged
+        -- TEST 16: HQ Real Transaction Rollback on Failure After Debit (Requirement 3 Part C)
+        -- Debit statement executes within transaction, subsequent statement fails,
+        -- entire DB transaction rolls back, treasury balance unchanged (no manual refund used).
         -- ============================================================
-        print('^3[TEST 16] Force atomic transaction failure and verify treasury unchanged...^7')
-        local balBefore16 = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { testFamId })) or 0
+        print('^3[TEST 16] HQ real transaction rollback after debit statement...^7')
+        MySQL.query.await('DELETE FROM cm_family_hq_upgrades WHERE family_id = ?', { testFamId })
+        MySQL.query.await('DELETE FROM cm_family_bank_log WHERE family_id = ?', { testFamId })
+        MySQL.query.await('UPDATE cm_families SET bank_balance = 500000 WHERE id = ?', { testFamId })
+        if Families and Families[testFamId] then Families[testFamId].bank_balance = 500000 end
 
-        local testTx16 = {
+        local logCountBefore16 = MySQL.scalar.await('SELECT COUNT(*) FROM cm_family_bank_log WHERE family_id = ?', { testFamId }) or 0
+        local buyOk16, buyErr16 = PurchaseHQUpgrade(testCid1, 'storage_capacity', 'fail_after_debit')
+        local balAfter16 = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { testFamId })) or 0
+        local tierAfter16 = GetFamilyHQUpgradeLevel(testFamId, 'storage_capacity')
+        local logCountAfter16 = MySQL.scalar.await('SELECT COUNT(*) FROM cm_family_bank_log WHERE family_id = ?', { testFamId }) or 0
+
+        if buyOk16 == false and balAfter16 == 500000 and tierAfter16 == 0 and logCountBefore16 == logCountAfter16 then
+            print('^2[TEST 16 PASS] HQ true transaction rollback: failure after debit statement completely rolled back by MySQL (treasury $500,000 unchanged, 0 upgrade, 0 bank logs).^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 16 FAIL] buyOk=%s, bal=%d (expected 500000), tier=%d, logDiff=%d^7'):format(tostring(buyOk16), balAfter16, tierAfter16, logCountAfter16 - logCountBefore16))
+        end
+
+        -- ============================================================
+        -- TEST 17: Treasury Reward Near Max Balance & Bank Log Accounting (Requirements 4 & 5)
+        -- Max Balance = $2,000,000,000 default or Config.Bank.maxBalance;
+        -- Setting start balance to maxBal - 1,000. Reward requested = 35,000.
+        -- Credited = 1,000. Bank log must record 1,000 (NOT 35,000).
+        -- ============================================================
+        print('^3[TEST 17] Treasury reward near max balance cap accounting...^7')
+        MySQL.query.await('DELETE FROM cm_family_bank_log WHERE family_id = ?', { testFamId })
+        local maxBal17 = tonumber(Config.Bank and Config.Bank.maxBalance) or 2000000000
+        local targetStartBal17 = maxBal17 - 1000
+        MySQL.query.await('UPDATE cm_families SET bank_balance = ? WHERE id = ?', { targetStartBal17, testFamId })
+        if Families and Families[testFamId] then Families[testFamId].bank_balance = targetStartBal17 end
+
+        local uid17 = ('test17_cap_%d'):format(math.random(100000, 999999))
+        local ok17, res17 = AwardFamilyActivityReward({
+            familyId = testFamId,
+            actorCid = testCid1,
+            eventType = 'heist',
+            uniqueId = uid17,
+            treasuryAmount = 35000,
+        })
+
+        local balAfter17 = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { testFamId })) or 0
+        local loggedAmount17 = tonumber(MySQL.scalar.await([[
+            SELECT amount FROM cm_family_bank_log
+            WHERE family_id = ? AND category = 'event_reward' AND reason LIKE 'event_reward:heist%'
+            ORDER BY id DESC LIMIT 1
+        ]], { testFamId })) or 0
+
+        local resCredited17 = res17 and res17.treasuryCredited
+        local resRequested17 = res17 and res17.treasuryRequested
+        local resTreasury17 = res17 and res17.treasury
+
+        if ok17 == true and balAfter17 == maxBal17 and loggedAmount17 == 1000 and resCredited17 == 1000 and resRequested17 == 35000 and resTreasury17 == 1000 then
+            print(('^2[TEST 17 PASS] Treasury cap accounting accurate: $1,000 credited (requested $35,000), bank log = $1,000, bank balance = $%d.^7'):format(maxBal17))
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 17 FAIL] ok=%s, bal=%d (expected %d), logged=%d (expected 1000), credited=%s, requested=%s^7'):format(
+                tostring(ok17), balAfter17, maxBal17, loggedAmount17, tostring(resCredited17), tostring(resRequested17)))
+        end
+
+        -- ============================================================
+        -- TEST 18: Week Key & Objective Rotation Consistency (Requirement 7)
+        -- Objective rotation derives year/week seed from authoritative CMFamilyGetWeekKey().
+        -- ============================================================
+        print('^3[TEST 18] Week key rotation consistency...^7')
+        local weekKey18, yearNum18, weekNum18 = CMFamilyGetWeekKey()
+        local objs18, rotWeekKey18 = CMFamilyGetWeeklyObjectivesForFamily(testFamId)
+
+        local formatMatches = type(weekKey18) == 'string' and weekKey18:match('^%d%d%d%d%-W%d%d$') ~= nil
+        local keysMatch = weekKey18 == rotWeekKey18
+        local yearValid = type(yearNum18) == 'number' and yearNum18 >= 2026
+        local weekValid = type(weekNum18) == 'number' and weekNum18 >= 0 and weekNum18 <= 53
+
+        if formatMatches and keysMatch and yearValid and weekValid then
+            print(('^2[TEST 18 PASS] Week key consistency verified: key=%s, year=%d, week=%d, objective rotation key matches.^7'):format(
+                weekKey18, yearNum18, weekNum18))
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 18 FAIL] formatMatches=%s, keysMatch=%s, year=%s, week=%s^7'):format(
+                tostring(formatMatches), tostring(keysMatch), tostring(yearNum18), tostring(weekNum18)))
+        end
+
+        -- ============================================================
+        -- TEST 19: Force transaction rollback and verify treasury unchanged
+        -- ============================================================
+        print('^3[TEST 19] Force atomic transaction failure and verify treasury unchanged...^7')
+        local balBefore19 = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { testFamId })) or 0
+
+        local testTx19 = {
             { query = 'UPDATE cm_families SET bank_balance = bank_balance - 50000 WHERE id = ?', values = { testFamId } },
             { query = 'INSERT INTO non_existent_table_for_rollback_test (col) VALUES (1)', values = {} }
         }
-        local pOk16, txResult16 = pcall(function() return MySQL.transaction.await(testTx16) end)
+        local pOk19, txResult19 = pcall(function() return MySQL.transaction.await(testTx19) end)
 
-        local balAfter16 = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { testFamId })) or 0
+        local balAfter19 = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { testFamId })) or 0
 
-        if balBefore16 == balAfter16 then
-            print(('^2[TEST 16 PASS] Transaction rolled back completely: treasury balance unchanged ($%d -> $%d).^7'):format(balBefore16, balAfter16))
+        if balBefore19 == balAfter19 then
+            print(('^2[TEST 19 PASS] Transaction rolled back completely: treasury balance unchanged ($%d -> $%d).^7'):format(balBefore19, balAfter19))
             testsPassed = testsPassed + 1
         else
-            print(('^1[TEST 16 FAIL] Treasury changed on failed transaction! Before=$%d, After=$%d^7'):format(balBefore16, balAfter16))
+            print(('^1[TEST 19 FAIL] Treasury changed on failed transaction! Before=$%d, After=$%d^7'):format(balBefore19, balAfter19))
         end
 
         -- Clean up test family rows
@@ -625,3 +712,10 @@ RegisterCommand('run_family_hardening_tests', function(source, args, raw)
     end
     RunFamilyHardeningTests()
 end, false)
+
+if Config and Config.DevTests == true then
+    CreateThread(function()
+        Wait(2000)
+        RunFamilyHardeningTests()
+    end)
+end
