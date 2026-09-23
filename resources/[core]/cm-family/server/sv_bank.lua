@@ -35,9 +35,10 @@ local function withdrawnToday(cid)
     return rec
 end
 
-local function logBank(familyId, cid, direction, amount, balanceAfter, reason)
-    MySQL.insert('INSERT INTO cm_family_bank_log (family_id, character_id, direction, amount, balance_after, reason) VALUES (?, ?, ?, ?, ?, ?)',
-        { tonumber(familyId), cid and tostring(cid) or nil, direction, amount, balanceAfter, reason })
+local function logBank(familyId, cid, direction, amount, balanceAfter, reason, category)
+    category = tostring(category or direction or 'deposit')
+    MySQL.insert('INSERT INTO cm_family_bank_log (family_id, character_id, direction, category, amount, balance_after, reason) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        { tonumber(familyId), cid and tostring(cid) or nil, direction, category, amount, balanceAfter, reason })
 end
 
 -- Deposit: take from player, add to family. Player charge happens FIRST and is
@@ -71,8 +72,19 @@ function BankDeposit(actorCid, amount)
     end
 
     fam.bank_balance = tonumber(newBalance) or (fam.bank_balance + amount)
-    logBank(fam.id, actorCid, 'deposit', amount, fam.bank_balance, 'deposit')
+    logBank(fam.id, actorCid, 'deposit', amount, fam.bank_balance, 'deposit', 'deposit')
     LogFamily(fam.id, actorCid, 'bank_deposit', { amount = amount })
+
+    -- Track member financial contribution without allowing infinite point exploit
+    if type(RecordFinancialContribution) == 'function' then
+        RecordFinancialContribution(actorCid, fam.id, amount)
+    end
+
+    -- Advance weekly objectives
+    if type(AdvanceFamilyObjective) == 'function' then
+        AdvanceFamilyObjective(fam.id, 'net_deposits', amount, actorCid)
+    end
+
     return true, fam.bank_balance
 end
 
@@ -143,7 +155,7 @@ function BankWithdraw(actorCid, amount)
         local newBalance = MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { fam.id })
         fam.bank_balance = tonumber(newBalance) or math.max(0, fam.bank_balance - amount)
 
-        logBank(fam.id, actorCid, 'withdraw', amount, fam.bank_balance, 'withdraw')
+        logBank(fam.id, actorCid, 'withdraw', amount, fam.bank_balance, 'withdraw', 'withdraw')
         LogFamily(fam.id, actorCid, 'bank_withdraw', { amount = amount })
         return true, fam.bank_balance
     end, debug.traceback)
@@ -160,10 +172,69 @@ end
 
 function GetBankLog(familyId, limit)
     limit = math.max(1, math.min(100, tonumber(limit) or 30))
-    return MySQL.query.await(
-        'SELECT * FROM cm_family_bank_log WHERE family_id = ? ORDER BY created_at DESC LIMIT ?',
-        { tonumber(familyId), limit }) or {}
+    local rows = MySQL.query.await([[
+        SELECT id, family_id, character_id, direction, category, amount, balance_after, reason, created_at
+        FROM cm_family_bank_log
+        WHERE family_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+    ]], { tonumber(familyId), limit }) or {}
+
+    for _, row in ipairs(rows) do
+        if row.character_id then
+            row.characterName = B.GetCharName(row.character_id)
+        end
+        row.category = row.category or row.direction or 'deposit'
+    end
+    return rows
 end
+
+function GetTreasuryOverview(familyId)
+    familyId = tonumber(familyId)
+    if not familyId then return nil end
+
+    local fam = GetFamilyById(familyId)
+    local balance = fam and tonumber(fam.bank_balance) or 0
+
+    local weekStats = MySQL.single.await([[
+        SELECT
+            COALESCE(SUM(CASE WHEN direction = 'deposit' THEN amount ELSE 0 END), 0) AS income7d,
+            COALESCE(SUM(CASE WHEN direction = 'withdraw' THEN amount ELSE 0 END), 0) AS expenses7d,
+            COUNT(*) AS transactions7d
+        FROM cm_family_bank_log
+        WHERE family_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+    ]], { familyId }) or {}
+
+    local topContributors = MySQL.query.await([[
+        SELECT c.character_id, c.money_contributed
+        FROM cm_family_member_contributions c
+        WHERE c.family_id = ? AND c.money_contributed > 0
+        ORDER BY c.money_contributed DESC
+        LIMIT 5
+    ]], { familyId }) or {}
+
+    local formattedContributors = {}
+    for idx, row in ipairs(topContributors) do
+        formattedContributors[#formattedContributors + 1] = {
+            position = idx,
+            cid = row.character_id,
+            name = B.GetCharName(row.character_id),
+            amount = tonumber(row.money_contributed) or 0,
+        }
+    end
+
+    local recentTransactions = GetBankLog(familyId, 25)
+
+    return {
+        balance = balance,
+        income7d = tonumber(weekStats.income7d) or 0,
+        expenses7d = tonumber(weekStats.expenses7d) or 0,
+        transactions7d = tonumber(weekStats.transactions7d) or 0,
+        topContributors = formattedContributors,
+        recentTransactions = recentTransactions,
+    }
+end
+exports('GetTreasuryOverview', GetTreasuryOverview)
 
 -- Allow other CM resources (e.g. a business or shop) to spend from the family
 -- bank with an atomic guard. Returns (ok, newBalance|reason).
@@ -185,7 +256,7 @@ exports('FamilyBankCharge', function(familyId, amount, reason)
     local newBalance = MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { familyId })
     if fam then fam.bank_balance = tonumber(newBalance) or fam.bank_balance end
     local finalBalance = tonumber(newBalance) or 0
-    logBank(familyId, nil, 'withdraw', amount, finalBalance, reason or 'external_charge')
+    logBank(familyId, nil, 'withdraw', amount, finalBalance, reason or 'external_charge', 'external_charge')
     LogFamily(familyId, nil, 'bank_external_charge', {
         amount = amount,
         reason = tostring(reason or 'external_charge'):sub(1, 128),

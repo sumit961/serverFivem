@@ -127,6 +127,19 @@ local function saveInvite(familyId, targetCid, actorCid, rankId, inviteSeconds)
     return true, row
 end
 
+function GetMaxMembersForFamily(familyId)
+    familyId = tonumber(familyId)
+    if not familyId then return 15 end
+    if type(GetFamilyProgression) == 'function' then
+        local prog = GetFamilyProgression(familyId)
+        local lvl = prog and prog.level or 1
+        local unlocks = Config.GetLevelUnlocks and Config.GetLevelUnlocks(lvl) or {}
+        return unlocks.memberCapacity or 15
+    end
+    return 15
+end
+exports('GetMaxMembersForFamily', GetMaxMembersForFamily)
+
 function InviteMember(actorCid, targetCid, rankId)
     local actorRank, fam, err = actorContext(actorCid)
     if not actorRank then return false, err end
@@ -134,6 +147,17 @@ function InviteMember(actorCid, targetCid, rankId)
     targetCid = targetCid ~= nil and tostring(targetCid) or nil
     if not targetCid or targetCid == '' then return false, 'invalid_target' end
     if GetMembership(targetCid) then return false, 'That player is already in a family.' end
+
+    local maxCap = GetMaxMembersForFamily(fam.id)
+    local curMembers = 0
+    for _, m in pairs(MemberByCid) do
+        if tonumber(m.family_id) == tonumber(fam.id) then
+            curMembers = curMembers + 1
+        end
+    end
+    if curMembers >= maxCap then
+        return false, ('Family roster is full (%d/%d members). Advance family level to expand capacity.'):format(curMembers, maxCap)
+    end
 
     local rank = rankId and fam.ranksById[tonumber(rankId)] or lowestRank(fam)
     if not rank then return false, 'no_rank_available' end
@@ -232,6 +256,17 @@ function RespondToInvite(targetCid, accept, requestedInviteId, requestedFamilyId
 
         local rank = fam.ranksById[inviteRankId] or lowestRank(fam)
         if not rank then return false, 'No valid family rank is available.' end
+
+        local maxCap = GetMaxMembersForFamily(fam.id)
+        local curMembers = 0
+        for _, m in pairs(MemberByCid) do
+            if tonumber(m.family_id) == tonumber(fam.id) then
+                curMembers = curMembers + 1
+            end
+        end
+        if curMembers >= maxCap then
+            return false, 'Family roster is full.'
+        end
 
         local inserted, insertErr = CMFamilyInsertMember(fam.id, targetCid, rank.id)
         if not inserted then

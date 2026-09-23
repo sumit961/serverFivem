@@ -867,7 +867,10 @@ function GarageState(houseId)
         if index then byIndex[index] = v end
     end
 
-    local capacity = tonumber(g.capacity) or 0
+    local capacity = GarageCapacity(houseId)
+    for slotIdx, _ in pairs(byIndex) do
+        if slotIdx > capacity then capacity = slotIdx end
+    end
     local slots = {}
     local used = 0
     for i = 1, capacity do
@@ -2981,6 +2984,21 @@ lib.callback.register('cm-house:server:shareVehicle', function(src, houseId, veh
     end
 
     if share then
+        local house = Houses[houseId]
+        if house and house.family_id then
+            local famRes = tostring(Config.Family and Config.Family.resource or 'cm-family')
+            if GetResourceState(famRes) == 'started' then
+                local allowed = exports[famRes]:GetFamilySharedVehicleLimit(house.family_id) or 4
+                local curCount = MySQL.scalar.await([[
+                    SELECT COUNT(*) FROM cm_house_shared_vehicles
+                    WHERE house_id = ? AND vehicle_id != ?
+                ]], { houseId, vehicleId }) or 0
+                if tonumber(curCount) >= tonumber(allowed) then
+                    return false, ('The family has reached its shared fleet vehicle limit (%d/%d). Advance family level or purchase HQ garage upgrades to share more vehicles.'):format(curCount, allowed)
+                end
+            end
+        end
+
         MySQL.insert.await([[
             INSERT INTO cm_house_shared_vehicles (vehicle_id, house_id, shared_by)
             VALUES (?,?,?)
@@ -3008,6 +3026,35 @@ lib.callback.register('cm-house:server:shareVehicle', function(src, houseId, veh
         and ('%s can now be used by the family.'):format(v.label or v.plate)
         or  ('%s is private again.'):format(v.label or v.plate)
 end)
+
+-- ------------------------------------------------------------
+--  Family rank restriction: sets minimum rank tier to drive a shared vehicle.
+-- ------------------------------------------------------------
+lib.callback.register('cm-house:server:setFamilyVehicleRank', function(src, houseId, vehicleId, level)
+    houseId, vehicleId, level = tonumber(houseId), tonumber(vehicleId), tonumber(level)
+    local inside, insideWhy = requireInsideGarage(src, houseId)
+    if not inside then return false, insideWhy end
+    local cid = GetCid(src)
+    if not cid then return false, 'character_not_loaded' end
+
+    local house = Houses[houseId]
+    if not house or not house.family_id then
+        return false, 'This garage is not a linked family headquarters.'
+    end
+
+    if GetResourceState('cm-family') ~= 'started' then
+        return false, 'The family system is not available.'
+    end
+
+    local ok, why = exports['cm-family']:SetFamilyVehicleLevelFromGarage(cid, house.family_id, vehicleId, level)
+    if not ok then
+        return false, why == 'no_permission' and 'You lack permission to configure family vehicle ranks.' or tostring(why or 'Failed to update vehicle rank.')
+    end
+
+    BroadcastGarage(houseId)
+    return true, 'Family vehicle rank updated.', { requiredTier = level }
+end)
+
 
 -- ------------------------------------------------------------
 --  Push a fresh garage view to everyone standing in it.

@@ -206,11 +206,16 @@ local function buildMemberList(fam)
     local rows = MySQL.query.await([[
         SELECT m.character_id, m.rank_id, m.custom_title, m.tag_hidden, m.joined_at,
                c.last_seen,
-               COALESCE(b.total_contributed, 0) AS total_contributed,
-               COALESCE(b.week_contributed, 0) AS week_contributed,
+               COALESCE(contrib.total_points, 0) AS total_points,
+               COALESCE(contrib.weekly_points, 0) AS weekly_points,
+               COALESCE(contrib.money_contributed, 0) AS money_contributed,
+               COALESCE(b.total_contributed, 0) AS legacy_total_contributed,
+               COALESCE(b.week_contributed, 0) AS legacy_week_contributed,
                COALESCE(a.week_actions, 0) AS week_actions
         FROM cm_family_members m
         LEFT JOIN characters c ON c.id = m.character_id
+        LEFT JOIN cm_family_member_contributions contrib
+          ON contrib.family_id = m.family_id AND contrib.character_id = m.character_id
         LEFT JOIN (
             SELECT character_id,
                    SUM(CASE WHEN direction = 'deposit' THEN amount ELSE 0 END) AS total_contributed,
@@ -232,6 +237,13 @@ local function buildMemberList(fam)
         local rankId = tonumber(m.rank_id) or m.rank_id
         local rank = fam.ranksById[rankId]
         local online = B.GetSrcByCid(m.character_id) ~= nil
+        local totalPoints = tonumber(m.total_points) or 0
+        local weeklyPoints = tonumber(m.weekly_points) or 0
+        local moneyContrib = tonumber(m.money_contributed) or 0
+        if moneyContrib == 0 and (tonumber(m.legacy_total_contributed) or 0) > 0 then
+            moneyContrib = tonumber(m.legacy_total_contributed) or 0
+        end
+
         out[#out + 1] = {
             cid = m.character_id,
             name = B.GetCharName(m.character_id),
@@ -244,8 +256,9 @@ local function buildMemberList(fam)
             tagHidden = tonumber(m.tag_hidden) == 1,
             joinedAt = m.joined_at,
             lastSeen = online and nil or m.last_seen,
-            totalContribution = tonumber(m.total_contributed) or 0,
-            weeklyContribution = tonumber(m.week_contributed) or 0,
+            totalContribution = totalPoints,
+            weeklyContribution = weeklyPoints,
+            financialContribution = moneyContrib,
             weeklyActions = tonumber(m.week_actions) or 0,
         }
     end
@@ -281,41 +294,35 @@ local function buildWeeklyStats(fam)
     }
 end
 
--- Progression is derived from the authoritative family activity and bank
--- ledgers. This keeps old databases compatible while ensuring reputation cannot
--- be forged by the client or silently reset on a resource restart.
+-- Authoritative progression engine read
 local function buildProgression(fam)
-    local activity = MySQL.single.await([[SELECT COUNT(*) AS actions
-        FROM cm_family_activity_log WHERE family_id = ?]], { fam.id }) or {}
-    local bank = MySQL.single.await([[SELECT
-        COALESCE(SUM(CASE WHEN direction = 'deposit' THEN amount ELSE 0 END), 0) AS deposits,
-        COALESCE(SUM(CASE WHEN direction = 'withdraw' THEN amount ELSE 0 END), 0) AS expenses
-        FROM cm_family_bank_log WHERE family_id = ?]], { fam.id }) or {}
-    local reputation = (tonumber(activity.actions) or 0) * 5
-        + math.floor((tonumber(bank.deposits) or 0) / 1000) * 10
-    local level = math.floor(reputation / 1000) + 1
-    local currentXp = reputation % 1000
+    if type(GetFamilyProgression) == 'function' then
+        local prog = GetFamilyProgression(fam.id)
+        if prog then return prog end
+    end
     return {
-        reputation = reputation,
-        level = level,
-        currentXp = currentXp,
+        reputation = 0,
+        level = 1,
+        currentXp = 0,
         nextLevelXp = 1000,
-        totalActions = tonumber(activity.actions) or 0,
+        lifetimeReputation = 0,
+        xpPercent = 0,
+        maxLevel = 25,
     }
 end
 
 local function buildTreasury(fam)
-    local row = MySQL.single.await([[SELECT
-        COALESCE(SUM(CASE WHEN direction = 'deposit' THEN amount ELSE 0 END), 0) AS income7d,
-        COALESCE(SUM(CASE WHEN direction = 'withdraw' THEN amount ELSE 0 END), 0) AS expenses7d,
-        COUNT(*) AS transactions7d
-        FROM cm_family_bank_log
-        WHERE family_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)]], { fam.id }) or {}
+    if type(GetTreasuryOverview) == 'function' then
+        local t = GetTreasuryOverview(fam.id)
+        if t then return t end
+    end
     return {
         balance = tonumber(fam.bank_balance) or 0,
-        income7d = tonumber(row.income7d) or 0,
-        expenses7d = tonumber(row.expenses7d) or 0,
-        transactions7d = tonumber(row.transactions7d) or 0,
+        income7d = 0,
+        expenses7d = 0,
+        transactions7d = 0,
+        topContributors = {},
+        recentTransactions = {},
     }
 end
 
@@ -327,6 +334,7 @@ local function buildContributionLeaderboard(members)
             name = member.name,
             totalContribution = tonumber(member.totalContribution) or 0,
             weeklyContribution = tonumber(member.weeklyContribution) or 0,
+            financialContribution = tonumber(member.financialContribution) or 0,
             weeklyActions = tonumber(member.weeklyActions) or 0,
         }
     end
@@ -385,6 +393,10 @@ end
 
 local function buildFamilyHousePreview(fam)
     if not fam.house_id then return nil end
+    if B.GetHouseHQDetails then
+        local hq = B.GetHouseHQDetails(fam.house_id, fam.id)
+        if hq then return hq end
+    end
     local house = B.GetHouse(fam.house_id)
     if type(house) ~= 'table' then
         local rawNum = tostring(fam.house_id):gsub('^#+', '')
@@ -403,7 +415,7 @@ local function buildFamilyHousePreview(fam)
         label = houseLabel,
         image = house.image_url or house.image,
         imageData = photoData,
-        garageCapacity = tonumber(house.garage_capacity or house.garage_slots or house.max_garage_slots),
+        garageCapacity = tonumber(house.garage_capacity or house.garage_slots or house.max_garage_slots) or 0,
         doorCoords = house.door_coords or house.coords or house.door,
     }
 end
@@ -437,6 +449,12 @@ lib.callback.register('cm-family:server:getMenu', function(src)
     for _, p in ipairs(Config.Permissions) do viewer.permissions[p.key] = RankHasPermission(rank, p.key) end
 
     local members = buildMemberList(fam)
+    local progression = buildProgression(fam)
+    local levelUnlocks = Config.GetLevelUnlocks and Config.GetLevelUnlocks(progression.level) or {}
+    local hqUpgrades = type(GetFamilyHQUpgrades) == 'function' and GetFamilyHQUpgrades(fam.id) or {}
+    local objectives = type(GetFamilyWeeklyObjectives) == 'function' and GetFamilyWeeklyObjectives(fam.id) or {}
+    local weeklyLeaderboard = type(GetFamilyContributionLeaderboard) == 'function' and GetFamilyContributionLeaderboard(fam.id, 'this_week') or buildContributionLeaderboard(members)
+    local allTimeLeaderboard = type(GetFamilyContributionLeaderboard) == 'function' and GetFamilyContributionLeaderboard(fam.id, 'all_time') or {}
 
     return {
         ok = true,
@@ -455,9 +473,14 @@ lib.callback.register('cm-family:server:getMenu', function(src)
         viewer = viewer,
         members = members,
         weeklyStats = buildWeeklyStats(fam),
-        progression = buildProgression(fam),
+        progression = progression,
+        levelUnlocks = levelUnlocks,
+        allLevelUnlocks = Config.LevelUnlocks or {},
+        hqUpgrades = hqUpgrades,
+        objectives = objectives,
         treasury = buildTreasury(fam),
-        contributionLeaderboard = buildContributionLeaderboard(members),
+        contributionLeaderboard = weeklyLeaderboard,
+        allTimeLeaderboard = allTimeLeaderboard,
         familyEvents = buildFamilyEventList(),
         familyHouse = buildFamilyHousePreview(fam),
         ranks = buildRankList(fam),
@@ -689,6 +712,11 @@ lib.callback.register('cm-family:server:action', function(src, action, payload)
         LogFamily(fam.id, cid, 'family_renamed', { name = name })
         SyncFamilyState(fam.id)
         return true
+    elseif action == 'purchaseHQUpgrade' then
+        if type(PurchaseHQUpgrade) == 'function' then
+            return PurchaseHQUpgrade(cid, payload.upgradeKey)
+        end
+        return false, 'hq_upgrade_service_unavailable'
     end
 
     return false, 'unknown_action'

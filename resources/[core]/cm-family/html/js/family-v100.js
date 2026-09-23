@@ -100,7 +100,18 @@
 
   function renderTab(tab) {
     if (!state) return;
-    const titles = { overview: 'Family information', manage: 'Management', members: 'Members', ranks: 'Ranks & access', vehicles: 'Family vehicles', treasury: 'Family treasury', events: 'Events', logs: 'Activity logs' };
+    const titles = {
+      overview: 'Family information',
+      manage: 'Management',
+      members: 'Members',
+      ranks: 'Ranks & access',
+      vehicles: 'Family vehicles',
+      hq: 'Headquarters',
+      treasury: 'Family treasury',
+      progression: 'Family progression',
+      events: 'Family operations (Preview)',
+      logs: 'Activity logs'
+    };
     const heading = document.getElementById('workspace-title');
     if (heading) heading.textContent = (titles[tab] || titles.overview).toUpperCase();
     const subtitle = document.getElementById('workspace-subtitle');
@@ -111,7 +122,9 @@
         members: '// ROSTER & MEMBERS',
         ranks: '// ROLES & PERMISSIONS',
         vehicles: '// FLEET & GARAGE',
+        hq: '// HEADQUARTERS & PROPERTY',
         treasury: '// FINANCIAL CONTROL',
+        progression: '// REPUTATION & MILESTONES',
         events: '// TACTICAL OPERATIONS',
         logs: '// AUDIT & ACTIVITY',
       };
@@ -123,8 +136,16 @@
       levelBadge.textContent = `LEVEL ${level} FAMILY`;
     }
     ({
-      overview: renderInformation, manage: renderManagementHub, members: renderMembers, ranks: renderRanks,
-      vehicles: renderVehicles, treasury: renderBank, events: renderGameplayEvents, logs: renderEvents,
+      overview: renderInformation,
+      manage: renderManagementHub,
+      members: renderMembers,
+      ranks: renderRanks,
+      vehicles: renderVehicles,
+      hq: renderHeadquarters,
+      treasury: renderBank,
+      progression: renderProgression,
+      events: renderGameplayEvents,
+      logs: renderEvents,
     }[tab] || renderInformation)();
   }
 
@@ -256,16 +277,10 @@
   function renderInformation() {
     const f = state.family;
     const online = state.members.filter(member => member.online).length;
-    const week = state.weeklyStats || {};
     const progression = state.progression || {};
-    const leaderboard = Array.isArray(state.contributionLeaderboard) ? state.contributionLeaderboard : [];
-    const rank = (state.ranks.find(item => item.id === state.viewer.rankId) || {}).name || 'Member';
-    const featuredEvent = (state.familyEvents || [])[0];
     const house = state.familyHouse || (f.houseId ? { id: f.houseId, label: `House ${String(f.houseId).replace(/#/g, '')}` } : null);
     const houseNumberClean = house ? String(house.houseNumber || house.id || '').replace(/[#\s]+/g, '') : (f.houseId ? String(f.houseId).replace(/[#\s]+/g, '') : '');
-    const houseLabelClean = house ? (house.label ? String(house.label).replace(/#/g, '').trim() : (houseNumberClean ? `House ${houseNumberClean}` : 'Family House')) : 'NO FAMILY HOUSE';
-    const garageUsed = Array.isArray(state.vehicles) ? state.vehicles.length : 0;
-    const garageCapacity = Number(house && house.garageCapacity) || Math.max(garageUsed, 10);
+    const houseLabelClean = house ? (house.label ? String(house.label).replace(/#/g, '').trim() : (houseNumberClean ? `House ${houseNumberClean}` : 'Family House')) : 'NO LINKED HQ';
     const safeCssUrl = value => {
       const raw = String(value || '');
       if (/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(raw)) return raw;
@@ -274,234 +289,223 @@
     };
     const houseImage = safeCssUrl(house && (house.imageData || house.image));
     const houseStyle = houseImage ? `style="background-image:linear-gradient(0deg,rgba(15,23,34,0.95) 0%,rgba(15,23,34,0.6) 100%),url('${esc(houseImage)}')"` : '';
-    const actionGoal = Math.min(Number(week.actions) || 0, 3);
-    const contributionGoal = Math.min(Number(week.deposits) || 0, 50000);
+
     const currentXp = Number(progression.currentXp) || 0;
     const nextLevelXp = Number(progression.nextLevelXp) || 1000;
     const xpPercent = Math.min(100, Math.max(0, Math.round((currentXp / nextLevelXp) * 100)));
-    const contributionPercent = Math.min(100, Math.max(0, Math.round((contributionGoal / 50000) * 100)));
     const progressionLevel = Number(progression.level) || 1;
-    const treasuryIncome = (state.treasury && state.treasury.income7d != null) ? state.treasury.income7d : (week.deposits || 0);
-    const treasuryExpenses = (state.treasury && state.treasury.expenses7d != null) ? state.treasury.expenses7d : (week.withdrawals || 0);
+    const rank = (state.ranks.find(item => item.id === state.viewer.rankId) || {}).name || 'Member';
+    const symbol = f.symbol || state.viewer.symbol || 'shield';
+    const color = f.color || state.viewer.symbolColor || '#00E5FF';
 
-    const onlineMembers = state.members.filter(member => member.online);
-    const onlineListHtml = onlineMembers.length ? onlineMembers.slice(0, 3).map(member => `
-      <div class="list-row">
-        <div class="user-info">
-          <div class="user-avatar">${esc(String(member.name || '?').charAt(0).toUpperCase())}</div>
-          <span class="user-name">${esc(member.name)}</span>
-        </div>
-        <span class="status-badge warning">${esc(member.rankName || 'Member')}</span>
-      </div>`).join('') : '<p class="card-desc" style="margin-top:14px">NO FAMILY MEMBERS ONLINE</p>';
+    const hqLevel = (state.hqUpgrades && state.hqUpgrades.level) || (house && house.hqLevel) || 1;
+    const objectives = Array.isArray(state.objectives) ? state.objectives : [];
+    const activeObjective = objectives.find(o => !o.is_completed) || objectives[0];
 
-    const leaderboardHtml = leaderboard.length ? leaderboard.slice(0, 3).map((member, index) => `
-      <div class="list-row">
-        <div class="user-info">
-          <div class="user-avatar warning">${index + 1}</div>
-          <span class="user-name">${esc(member.name)}</span>
-        </div>
-        <span style="font-size: 10px; font-weight: 800; color: var(--accent-success);">${money(member.weeklyContribution)} THIS WEEK</span>
-      </div>`).join('') : '<p class="card-desc" style="margin-top:14px">NO CONTRIBUTIONS THIS WEEK</p>';
+    const leaderboard = Array.isArray(state.contributionLeaderboard) ? state.contributionLeaderboard : [];
+    const topContributors = leaderboard.slice(0, 3);
+    const logs = Array.isArray(state.activityLog) ? state.activityLog.slice(0, 4) : [];
 
     content.innerHTML = `
       <div class="bento-grid">
-        <!-- ROW 1 -->
-        <!-- Hero Card -->
+        <!-- ROW 1: Hero + HQ preview -->
         <div class="glass-card span-2-col image-card hero-bg">
           <div style="z-index: 2;">
-            <div class="card-desc" style="color: var(--accent-primary); margin-bottom: 5px;">SHARED CM HERO ART</div>
-            <h2 class="page-title" style="font-size: 42px; margin-bottom: 10px;">${esc(f.name)}</h2>
-            <div style="display: flex; gap: 10px; margin-bottom: 25px;">
+            <div class="card-desc" style="color: var(--accent-primary); margin-bottom: 5px;">AUTHORITATIVE FAMILY COMMAND</div>
+            <h2 class="page-title" style="font-size: 38px; margin-bottom: 8px;">${esc(f.name)}</h2>
+            <div style="display: flex; gap: 10px; margin-bottom: 20px;">
               <span class="status-badge warning">${esc(rank)}</span>
+              <span class="status-badge primary">TIER ${state.viewer.tier || 1}</span>
             </div>
           </div>
           <div style="z-index: 2; display: flex; justify-content: space-between; align-items: flex-end;">
-            <div>
-              <div class="card-desc" style="margin-bottom: 8px;">FAMILY REPUTATION - LEVEL ${progressionLevel} &bull; ${currentXp} / ${nextLevelXp} XP</div>
-              <button class="btn-primary btn-warning" id="overview-events-btn">VIEW FAMILY EVENTS &#10142;</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Store Robbery / Upcoming Event -->
-        <div class="glass-card image-card event-bg" id="card-featured-event" style="cursor:pointer">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
-            <div class="card-desc" style="color: var(--accent-primary);">UPCOMING EVENT</div>
-          </div>
-          <div style="display: flex; flex-direction: column; justify-content: space-between; height: 100%;">
-            <h2 class="card-title" style="font-size: 22px;">${esc(featuredEvent ? featuredEvent.name : 'STORE ROBBERY')}</h2>
-            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: auto;">
-              <div class="tag-group-row" style="gap: 15px;">
-                <div class="tag-block">
-                  <span class="tag-lbl">STATUS</span>
-                  <span class="tag-val">${esc(featuredEvent ? String(featuredEvent.status).toUpperCase() : 'AVAILABLE')}</span>
+            <div style="width: 100%; max-width: 480px;">
+              <div class="card-desc" style="margin-bottom: 6px;">REPUTATION PROGRESS &middot; LEVEL ${progressionLevel}</div>
+              <div class="progress-block" style="margin-bottom: 12px;">
+                <div class="progress-track" style="height: 10px;">
+                  <div class="progress-fill" style="width: ${xpPercent}%;"></div>
                 </div>
-                <div class="tag-block">
-                  <span class="tag-lbl">REC. MEMBERS</span>
-                  <span class="tag-val">${featuredEvent ? Number(featuredEvent.recommendedMembers) || 2 : 2}</span>
-                </div>
-                <div class="tag-block">
-                  <span class="tag-lbl">DIFFICULTY</span>
-                  <span class="tag-val">${esc(featuredEvent ? String(featuredEvent.difficulty).toUpperCase() : 'MEDIUM')}</span>
+                <div class="progress-header" style="margin-top: 5px; font-size: 11px;">
+                  <span>${currentXp.toLocaleString()} / ${nextLevelXp.toLocaleString()} XP (${xpPercent}%)</span>
+                  <span>${Number(progression.lifetimeReputation || progression.reputation || 0).toLocaleString()} LIFETIME XP</span>
                 </div>
               </div>
+              <button class="btn-primary" id="btn-goto-progression" style="padding: 10px 18px; font-size: 11px;">VIEW PROGRESSION ROADMAP &#10142;</button>
             </div>
+            <div class="hub-symbol" style="color:${esc(color)}; border-color:${esc(color)}; width: 70px; height: 70px; margin-left: 20px;">${symbolSvg(symbol)}</div>
           </div>
         </div>
 
-        <!-- Family House -->
-        <div class="glass-card image-card house-bg warning-accent" ${houseStyle}>
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
-            <div class="card-desc" style="color: var(--accent-warning);">FAMILY HOUSE</div>
+        <div class="glass-card span-2-col image-card house-bg warning-accent" ${houseStyle}>
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; z-index: 2;">
+            <div class="card-desc" style="color: var(--accent-warning);">FAMILY HEADQUARTERS</div>
+            <span class="badge ${house ? '' : 'founder'}">${house ? 'ACTIVE HQ' : 'NO HQ LINKED'}</span>
           </div>
-          <div style="display: flex; flex-direction: column; justify-content: space-between; height: 100%;">
-            <h2 class="card-title" style="font-size: 22px;">${esc(houseLabelClean)}</h2>
+          <div style="display: flex; flex-direction: column; justify-content: space-between; height: 100%; z-index: 2;">
+            <div>
+              <h2 class="card-title" style="font-size: 24px; margin-bottom: 4px;">${esc(houseLabelClean)}</h2>
+              <div class="card-desc">${houseNumberClean ? 'HOUSE #' + esc(houseNumberClean) : 'LINK A RESIDENCE TO EXPAND HQ'}</div>
+            </div>
             <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: auto;">
-              <div class="tag-group-row" style="gap: 15px;">
+              <div class="tag-group-row" style="gap: 16px;">
                 <div class="tag-block">
-                  <span class="tag-lbl">HOUSE NO.</span>
-                  <span class="tag-val">${esc(houseNumberClean || '1')}</span>
+                  <span class="tag-lbl">HQ LEVEL</span>
+                  <span class="tag-val" style="color: var(--accent-primary);">LEVEL ${hqLevel}</span>
                 </div>
                 <div class="tag-block">
                   <span class="tag-lbl">GARAGE</span>
-                  <span class="tag-val">${garageUsed} / ${garageCapacity}</span>
-                </div>
-                <div class="tag-block">
-                  <span class="tag-lbl">ONLINE</span>
-                  <span class="tag-val">${online} MEMBER${online === 1 ? '' : 'S'}</span>
+                  <span class="tag-val">${Array.isArray(state.vehicles) ? state.vehicles.length : 0} / ${Number(house && house.garageCapacity) || 10}</span>
                 </div>
               </div>
-            </div>
-            <div style="display: flex; gap: 8px; margin-top: 12px;">
-              <button class="btn ghost sm" id="overview-house-route-btn">ROUTE &#10142;</button>
-              <button class="btn ghost sm" id="overview-management-btn">MANAGE &#10142;</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- ROW 2 -->
-        <!-- Reputation Builder -->
-        <div class="glass-card span-2-col">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-            <div>
-              <div class="card-desc" style="color: var(--accent-primary); margin-bottom: 5px;">FAMILY PROGRESSION - LEVEL ${progressionLevel}</div>
-              <h2 class="card-title">BUILD REPUTATION TOGETHER</h2>
-            </div>
-            <div class="digital-readout">${Number(progression.reputation) || 0} <span>REPUTATION</span></div>
-          </div>
-          <div style="margin-top: 10px;">
-            <div class="progress-block">
-              <div class="progress-header">
-                <span>COMPLETE FAMILY ACTIVITIES</span>
-                <span style="color: var(--text-main);">${currentXp} / ${nextLevelXp} XP</span>
-              </div>
-              <div class="progress-track">
-                <div class="progress-fill" style="width: ${xpPercent}%;"></div>
-              </div>
-              <div class="progress-header" style="margin-top: 6px;">
-                <span></span>
-                <span>${actionGoal} / 3</span>
-              </div>
-            </div>
-            <div class="progress-block">
-              <div class="progress-header">
-                <span>CONTRIBUTE TO THE FAMILY</span>
-                <span style="color: var(--text-main);">${money(contributionGoal)} / $50,000</span>
-              </div>
-              <div class="progress-track">
-                <div class="progress-fill success" style="width: ${contributionPercent}%;"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Family Network -->
-        <div class="glass-card">
-          <div>
-            <div class="card-desc" style="color: var(--accent-primary); margin-bottom: 5px;">ONLINE MEMBERS - ${online}/${state.members.length}</div>
-            <h2 class="card-title">FAMILY NETWORK</h2>
-          </div>
-          <div>${onlineListHtml}</div>
-        </div>
-
-        <!-- Top Contributors -->
-        <div class="glass-card">
-          <div>
-            <div class="card-desc" style="color: var(--accent-primary); margin-bottom: 5px;">CONTRIBUTION LEADERBOARD</div>
-            <h2 class="card-title">TOP CONTRIBUTORS</h2>
-          </div>
-          <div>${leaderboardHtml}</div>
-        </div>
-
-        <!-- ROW 3 -->
-        <!-- Treasury -->
-        <div class="glass-card span-2-col success-accent">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
-            <div class="card-desc" style="color: var(--accent-success);">FAMILY TREASURY</div>
-            <button class="action-btn" id="overview-treasury-btn">OPEN TREASURY &#10142;</button>
-          </div>
-          <div style="display: flex; flex-direction: column; justify-content: flex-end; height: 100%;">
-            <div class="digital-readout" style="color: var(--accent-success); font-size: 42px; margin-bottom: 10px;">
-              ${money(f.bankBalance)}
-            </div>
-            <div class="tag-group-row" style="gap: 30px;">
-              <div class="tag-block">
-                <span class="tag-lbl">INCOME THIS WEEK</span>
-                <span class="tag-val" style="color: var(--accent-success);">${money(treasuryIncome)}</span>
-              </div>
-              <div class="tag-block">
-                <span class="tag-lbl">EXPENSES</span>
-                <span class="tag-val" style="color: var(--accent-danger);">${money(treasuryExpenses)}</span>
+              <div style="display: flex; gap: 8px;">
+                ${house ? '<button class="btn ghost sm" id="overview-house-route-btn">GPS ROUTE &#10142;</button>' : ''}
+                <button class="btn sm" id="overview-hq-btn">HQ DETAILS &#10142;</button>
               </div>
             </div>
           </div>
         </div>
       </div>
 
+      <!-- ROW 2: Four Compact Stats -->
+      <div class="compact-stat-grid">
+        <div class="compact-stat-pill pill-cyan">
+          <span class="stat-label">Members Online</span>
+          <span class="stat-value">${online} <span style="font-size: 14px; color: var(--text-dim);">/ ${state.members.length}</span></span>
+        </div>
+        <div class="compact-stat-pill pill-green">
+          <span class="stat-label">Treasury Balance</span>
+          <span class="stat-value">${money(f.bankBalance)}</span>
+        </div>
+        <div class="compact-stat-pill pill-amber">
+          <span class="stat-label">Family Reputation</span>
+          <span class="stat-value">${Number(progression.reputation || 0).toLocaleString()} <span style="font-size: 12px; color: var(--text-dim);">XP</span></span>
+        </div>
+        <div class="compact-stat-pill pill-blue">
+          <span class="stat-label">HQ Upgrade Level</span>
+          <span class="stat-value">LEVEL ${hqLevel}</span>
+        </div>
+      </div>
+
+      <!-- ROW 3: Weekly Objective, Top Contributors, Recent Activity -->
+      <div class="overview-lower-grid">
+        <!-- Current Weekly Objective -->
+        <div class="glass-card">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+            <div>
+              <div class="card-desc" style="color: var(--accent-primary); margin-bottom: 4px;">CURRENT WEEKLY OBJECTIVE</div>
+              <h3 class="card-title" style="font-size: 18px;">${esc(activeObjective ? activeObjective.label : 'WEEKLY OPERATIONS')}</h3>
+            </div>
+            <span class="badge ${activeObjective && activeObjective.is_completed ? 'success' : ''}">${activeObjective && activeObjective.is_completed ? 'COMPLETED' : 'ACTIVE'}</span>
+          </div>
+          <div>
+            <p class="card-desc" style="margin-bottom: 12px; text-transform: none;">${esc(activeObjective ? activeObjective.description : 'Contribute to family goals to earn reputation and rewards.')}</p>
+            <div class="progress-block">
+              <div class="progress-header">
+                <span>PROGRESS</span>
+                <span style="color: var(--text-main); font-weight: 800;">${Number(activeObjective ? activeObjective.current_value : 0).toLocaleString()} / ${Number(activeObjective ? activeObjective.target_value : 1).toLocaleString()}</span>
+              </div>
+              <div class="progress-track">
+                <div class="progress-fill ${activeObjective && activeObjective.is_completed ? 'success' : ''}" style="width: ${Math.min(100, Math.round(((activeObjective ? activeObjective.current_value : 0) / (activeObjective ? activeObjective.target_value : 1)) * 100))}%;"></div>
+              </div>
+            </div>
+            ${activeObjective ? `
+            <div style="display: flex; gap: 8px; margin-top: 14px;">
+              <span class="reward-pill">+${activeObjective.reward_reputation} XP</span>
+              <span class="reward-pill">+${activeObjective.reward_contribution} PTS</span>
+              ${activeObjective.reward_money ? `<span class="reward-pill">+${money(activeObjective.reward_money)}</span>` : ''}
+            </div>` : ''}
+          </div>
+          <div style="margin-top: 14px;">
+            <button class="btn ghost sm" id="overview-more-objectives-btn" style="width: 100%;">VIEW ALL OBJECTIVES &#10142;</button>
+          </div>
+        </div>
+
+        <!-- Top Contributors -->
+        <div class="glass-card">
+          <div style="margin-bottom: 10px;">
+            <div class="card-desc" style="color: var(--accent-primary); margin-bottom: 4px;">CONTRIBUTIONS</div>
+            <h3 class="card-title" style="font-size: 18px;">TOP 3 MEMBERS</h3>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            ${topContributors.length ? topContributors.map((c, i) => `
+              <div class="list-row" style="padding: 6px 10px;">
+                <div class="user-info">
+                  <div class="user-avatar ${i === 0 ? 'warning' : ''}">${i + 1}</div>
+                  <span class="user-name" style="font-size: 12px;">${esc(c.name)}</span>
+                </div>
+                <span style="font-size: 10px; font-weight: 800; color: var(--accent-success);">${Number(c.weeklyPoints != null ? c.weeklyPoints : c.weeklyContribution).toLocaleString()} PTS</span>
+              </div>
+            `).join('') : '<p class="card-desc" style="margin-top:14px">NO CONTRIBUTIONS YET</p>'}
+          </div>
+          <div style="margin-top: auto; padding-top: 14px;">
+            <button class="btn ghost sm" id="overview-leaderboard-btn" style="width: 100%;">LEADERBOARD &#10142;</button>
+          </div>
+        </div>
+
+        <!-- Compact Recent Activity -->
+        <div class="glass-card">
+          <div style="margin-bottom: 10px;">
+            <div class="card-desc" style="color: var(--accent-primary); margin-bottom: 4px;">AUDIT TRAIL</div>
+            <h3 class="card-title" style="font-size: 18px;">RECENT ACTIVITY</h3>
+          </div>
+          <div class="compact-activity-list">
+            ${logs.length ? logs.map(l => `
+              <div class="compact-activity-item">
+                <div>
+                  <strong>${esc(String(l.action || 'Action').replace(/_/g, ' '))}</strong>
+                  <div style="font-size: 10px; color: var(--text-dim);">${esc(l.actor_name || 'System')}</div>
+                </div>
+                <span class="time">${esc(formatTimestamp(l.created_at, 16))}</span>
+              </div>
+            `).join('') : '<p class="card-desc" style="margin-top:14px">NO RECENT LOGS</p>'}
+          </div>
+          <div style="margin-top: auto; padding-top: 14px;">
+            <button class="btn ghost sm" id="overview-logs-btn" style="width: 100%;">VIEW ALL LOGS &#10142;</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Family Announcement -->
-      <section class="family-announcement">
+      <section class="family-announcement" style="margin-top: 4px;">
         <div class="family-announcement__head">
-          <div><span class="card-desc" style="color: var(--accent-primary);">MESSAGE FROM THE FAMILY</span><h3>${f.announcement ? 'Latest announcement' : 'No announcement yet'}</h3></div>
+          <div><span class="card-desc" style="color: var(--accent-primary);">LEADERSHIP ANNOUNCEMENT</span><h3>${f.announcement ? 'Broadcast' : 'No announcement'}</h3></div>
           ${can('family.manage_announcement') ? '<button class="btn ghost sm" id="announcement-edit">Edit message</button>' : ''}
         </div>
-        <p class="family-announcement__message">${esc(f.announcement || 'The family leadership has not posted a message.')}</p>
+        <p class="family-announcement__message">${esc(f.announcement || 'No active announcement from family leadership.')}</p>
         ${f.announcement ? `<small>${esc(f.announcementByName || 'Family leadership')} &bull; ${esc(formatTimestamp(f.announcementAt, 16))}</small>` : ''}
         <div class="family-announcement__editor" id="announcement-editor" hidden>
-          <textarea class="input" id="announcement-message" maxlength="280" rows="4" placeholder="Write a short message for your family...">${esc(f.announcement || '')}</textarea>
+          <textarea class="input" id="announcement-message" maxlength="280" rows="3" placeholder="Write a broadcast message for your family...">${esc(f.announcement || '')}</textarea>
           <div class="family-announcement__actions">
             <span id="announcement-count">${String(f.announcement || '').length}/280</span>
             <button class="btn ghost sm" id="announcement-cancel">Cancel</button>
             <button class="btn sm" id="announcement-save">Save message</button>
           </div>
         </div>
-      </section>`;
+      </section>
+    `;
 
-    const eventsBtn = document.getElementById('overview-events-btn');
-    if (eventsBtn) eventsBtn.onclick = () => goTab('events');
-    const cardEvent = document.getElementById('card-featured-event');
-    if (cardEvent) cardEvent.onclick = () => goTab('events');
+    const gotoProgression = document.getElementById('btn-goto-progression');
+    if (gotoProgression) gotoProgression.onclick = () => goTab('progression');
+    const gotoHq = document.getElementById('overview-hq-btn');
+    if (gotoHq) gotoHq.onclick = () => goTab('hq');
+    const moreObj = document.getElementById('overview-more-objectives-btn');
+    if (moreObj) moreObj.onclick = () => goTab('progression');
+    const lbBtn = document.getElementById('overview-leaderboard-btn');
+    if (lbBtn) lbBtn.onclick = () => goTab('progression');
+    const logsBtn = document.getElementById('overview-logs-btn');
+    if (logsBtn) logsBtn.onclick = () => goTab('logs');
 
     const routeBtn = document.getElementById('overview-house-route-btn');
     if (routeBtn) {
       routeBtn.onclick = () => {
-        if (!house) {
-          flash('No family house is assigned.', 'error');
-          return;
-        }
+        if (!house) { flash('No family house is assigned.', 'error'); return; }
         const coords = house.doorCoords || house.coords || house.door;
         post('routeToHouse', { houseId: house.id, coords }).then(res => {
-          if (res && res.ok) {
-            flash(houseNumberClean ? `GPS route marked to Family House (${houseNumberClean}).` : 'GPS route marked to Family House.', 'ok');
-          } else {
-            flash('Could not mark GPS route to family house.', 'error');
-          }
+          if (res && res.ok) flash(houseNumberClean ? `GPS route marked to Family House (${houseNumberClean}).` : 'GPS route marked to Family House.', 'ok');
+          else flash('Could not mark GPS route to family house.', 'error');
         });
       };
     }
-    const mgmtBtn = document.getElementById('overview-management-btn');
-    if (mgmtBtn) mgmtBtn.onclick = () => goTab('manage');
-    const treasuryBtn = document.getElementById('overview-treasury-btn');
-    if (treasuryBtn) treasuryBtn.onclick = () => goTab('treasury');
 
     const editAnnouncement = document.getElementById('announcement-edit');
     if (editAnnouncement) editAnnouncement.onclick = () => {
@@ -543,90 +547,277 @@
     document.getElementById('rename-btn').onclick = () => act('rename', { name: document.getElementById('rename-input').value });
   }
 
-  // ---------------- overview ----------------
-  function renderOverview() {
-    const f = state.family, online = state.members.filter(m => m.online).length;
-    const week = state.weeklyStats || {};
-    const myRank = (state.ranks.find(r => r.id === state.viewer.rankId) || {}).name || '—';
-    const mySymbol = f.symbol || state.viewer.symbol || 'shield';
-    const mySymbolColor = f.color || state.viewer.symbolColor || '#00f0ff';
-    content.innerHTML = `
-      <div class="grid grid--3" style="margin-bottom:18px">
-        <div class="card"><h3>Members</h3><div class="big">${state.members.length}</div></div>
-        <div class="card"><h3>Online now</h3><div class="big">${online}</div></div>
-        <div class="card"><h3>Your rank</h3><div class="big" style="font-size:19px">${esc(myRank)}</div></div>
-      </div>
-      <div class="grid grid--2">
-        <div class="card"><h3>Family house</h3><div style="font-size:15px;color:var(--text)">${f.houseId ? 'Linked (house #' + f.houseId + ')' : 'None'}</div></div>
-        <div class="card"><h3>Family overhead symbol</h3><div class="symbol-preview" style="color:${esc(mySymbolColor)}">${symbolSvg(mySymbol)}</div><div class="row__sub">Every member uses the same family symbol.</div></div>
-      </div>
-      ${can('family.set_meeting') ? `
-      <div class="card" style="margin-top:18px">
-        <h3>Family meeting point</h3>
-        <div class="row__sub">Send your current location to every online family member and set their GPS waypoint.</div>
-        <button class="btn" id="meeting-point-btn" style="margin-top:10px">Set meeting point here</button>
-      </div>` : ''}
-      <div class="card" style="margin-top:18px">
-        <h3>Family garage</h3>
-        <div class="row__sub">Recall every unoccupied outside vehicle assigned to the family garage. Cars being driven or occupied are skipped.</div>
-        <button class="btn" id="recall-all-cars-btn" style="margin-top:10px">Recall all family cars</button>
-      </div>
-      <div class="section-title" style="margin-top:22px">Last 7 days</div>
-      <div class="grid grid--3" style="margin-bottom:12px">
-        <div class="card"><h3>Contributed</h3><div class="big">${money(week.deposits)}</div><div class="row__sub">Family-bank deposits</div></div>
-        <div class="card"><h3>Spent</h3><div class="big">${money(week.withdrawals)}</div><div class="row__sub">Family-bank withdrawals</div></div>
-        <div class="card"><h3>Transactions</h3><div class="big">${Number(week.transactions) || 0}</div><div class="row__sub">Bank activity</div></div>
-      </div>
-      <div class="grid grid--3">
-        <div class="card"><h3>Family actions</h3><div class="big">${Number(week.actions) || 0}</div><div class="row__sub">Recorded activity</div></div>
-        <div class="card"><h3>Active members</h3><div class="big">${Number(week.activeMembers) || 0}</div><div class="row__sub">Members with recorded actions</div></div>
-        <div class="card"><h3>New members</h3><div class="big">${Number(week.newMembers) || 0}</div><div class="row__sub">Joined this week</div></div>
-      </div>
-      ${can('family.manage_tags') ? `
-      <div class="card" style="margin-top:18px">
-        <h3>Family overhead symbol</h3>
-        <div class="symbol-picker" id="family-symbol-picker" style="margin-top:12px">${(state.symbolCatalog || []).map(item => `<button type="button" class="symbol-choice ${mySymbol === item.key ? 'selected' : ''}" title="${esc(item.label)}" data-family-symbol="${esc(item.key)}" style="color:${esc(mySymbolColor)}">${symbolSvg(item.key)}</button>`).join('')}</div>
-        <div class="inline" style="margin-top:10px"><label>Colour</label><input id="family-symbol-color" class="input symbol-color-input" type="color" value="${esc(mySymbolColor)}"><button class="btn" id="family-symbol-save">Save family symbol</button></div>
-      </div>` : ''}
-      <div class="card" style="margin-top:18px">
-        <h3>Nearby family members on minimap</h3>
-        <div class="row__sub">Shows only nearby online members of your family. This is a local preference and does not create global GPS tracking.</div>
-        <div class="inline" style="margin-top:8px">
-          <label class="inline"><input id="member-map-enabled" type="checkbox" ${(state.clientTracking && state.clientTracking.memberBlipsEnabled) ? 'checked' : ''}> Enable nearby family-member blips</label>
-          <button class="btn ghost" id="member-map-save">Save</button>
-        </div>
-      </div>
-      ${can('family.rename') ? `
-      <div class="card" style="margin-top:18px">
-        <h3>Rename family</h3>
-        <div class="inline" style="margin-top:8px">
-          <input class="input" id="rename-input" maxlength="32" value="${esc(f.name)}">
-          <button class="btn" id="rename-btn">Save</button>
-        </div>
-      </div>` : ''}
-      <div style="margin-top:22px" class="inline">
-        <button class="btn danger" id="leave-btn">Leave family</button>
-        ${isFounder() ? '<button class="btn danger" id="disband-btn">Disband family</button>' : ''}
-      </div>`;
-
-    document.querySelectorAll('[data-family-symbol]').forEach(btn => btn.onclick = () => document.querySelectorAll('[data-family-symbol]').forEach(x => x.classList.toggle('selected', x === btn)));
-    const meetingButton = document.getElementById('meeting-point-btn');
-    if (meetingButton) meetingButton.onclick = () => confirmAct('Send your current location to all online family members?', 'setMeetingPoint', {});
-    const recallAllButton = document.getElementById('recall-all-cars-btn');
-    if (recallAllButton) recallAllButton.onclick = () => confirmAct('Recall every available outside car into the family garage?', 'recallAllFamilyCars', {});
-    const familyColor = document.getElementById('family-symbol-color');
-    if (familyColor) familyColor.oninput = () => document.querySelectorAll('[data-family-symbol]').forEach(x => { x.style.color = familyColor.value; });
-    const familySave = document.getElementById('family-symbol-save');
-    if (familySave) familySave.onclick = () => {
-      const selected = document.querySelector('[data-family-symbol].selected');
-      act('setFamilySymbol', { symbol: selected ? selected.dataset.familySymbol : 'shield', color: familyColor.value });
+  // ---------------- headquarters ----------------
+  function renderHeadquarters() {
+    const f = state.family;
+    const house = state.familyHouse || (f.houseId ? { id: f.houseId, label: `House ${String(f.houseId).replace(/#/g, '')}` } : null);
+    const houseNumberClean = house ? String(house.houseNumber || house.id || '').replace(/[#\s]+/g, '') : (f.houseId ? String(f.houseId).replace(/[#\s]+/g, '') : '');
+    const houseLabelClean = house ? (house.label ? String(house.label).replace(/#/g, '').trim() : (houseNumberClean ? `House ${houseNumberClean}` : 'Family House')) : 'NO ASSIGNED HOUSE';
+    const safeCssUrl = value => {
+      const raw = String(value || '');
+      if (/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(raw)) return raw;
+      if (!/^https?:\/\//i.test(raw)) return '';
+      return encodeURI(raw).replace(/['"()\\]/g, char => '%' + char.charCodeAt(0).toString(16).toUpperCase());
     };
-    document.getElementById('member-map-save').onclick = () => post('setMemberTracking', { enabled: document.getElementById('member-map-enabled').checked }).then(r => { if (!r.ok) flash('Could not update member tracking.', 'error'); else flash(r.enabled ? 'Nearby family member blips enabled.' : 'Nearby family member blips disabled.', 'ok'); });
-    const rn = document.getElementById('rename-btn');
-    if (rn) rn.onclick = () => act('rename', { name: document.getElementById('rename-input').value });
-    document.getElementById('leave-btn').onclick = () => confirmAct('Leave this family?', 'leave', {});
-    const db = document.getElementById('disband-btn');
-    if (db) db.onclick = () => confirmAct('Disband the whole family? This cannot be undone.', 'disband', {});
+    const houseImage = safeCssUrl(house && (house.imageData || house.image));
+    const houseStyle = houseImage ? `style="background-image:linear-gradient(0deg,rgba(15,23,34,0.95) 0%,rgba(15,23,34,0.6) 100%),url('${esc(houseImage)}')"` : '';
+
+    const garageUsed = Array.isArray(state.vehicles) ? state.vehicles.length : 0;
+    const garageCapacity = Number(house && (house.garageCapacity || house.garageSlots)) || 10;
+    const hqUpgrades = state.hqUpgrades || {};
+    const hqLevel = Number(hqUpgrades.level || (house && house.hqLevel) || 1);
+    const canUpgrade = isFounder() || can('house.upgrade') || can('family.manage_house');
+
+    const UPGRADE_SPECS = [
+      { key: 'storage', name: 'Storage Allowance', desc: 'Increases shared HQ stash item capacity.', max: 3, unit: '+10 / +20 / +35 Stash Slots', baseCost: 50000, mult: 75000 },
+      { key: 'armory', name: 'Armory Storage Space', desc: 'Increases weapon rack and secure armory allowance.', max: 3, unit: '+10 / +20 / +35 Armory Slots', baseCost: 75000, mult: 100000 },
+      { key: 'garage_slots', name: 'Garage Fleet Slots', desc: 'Expands maximum stored family vehicles at the property.', max: 3, unit: '+2 / +4 / +6 Fleet Slots', baseCost: 100000, mult: 125000 },
+      { key: 'command_room', name: 'Command & Briefing Room', desc: 'Enables high-tier tactical coordination, map tracking, and planning features.', max: 1, unit: 'UNLOCKED / FUTURE CAPABILITY', baseCost: 150000, mult: 0 }
+    ];
+
+    content.innerHTML = `
+      <section class="hq-hero" ${houseStyle}>
+        <div>
+          <span class="card-desc" style="color: var(--accent-primary); margin-bottom: 6px;">FAMILY HEADQUARTERS &middot; AUTHORITATIVE PROPERTY</span>
+          <h2 class="page-title" style="font-size: 36px; margin-bottom: 6px;">${esc(houseLabelClean)}</h2>
+          <div class="card-desc" style="font-size: 13px; color: var(--text-main); margin-bottom: 16px;">
+            ${house ? 'HOUSE #' + esc(houseNumberClean) + ' &bull; AUTHORITATIVE cm-house PROPERTY INTEGRATION' : 'NO LINKED PROPERTY'}
+          </div>
+          <div class="tag-group-row" style="gap: 20px;">
+            <div class="tag-block">
+              <span class="tag-lbl">HEADQUARTERS TIER</span>
+              <span class="tag-val" style="color: var(--accent-primary);">LEVEL ${hqLevel}</span>
+            </div>
+            <div class="tag-block">
+              <span class="tag-lbl">GARAGE USAGE</span>
+              <span class="tag-val">${garageUsed} / ${garageCapacity} SLOTS</span>
+            </div>
+            <div class="tag-block">
+              <span class="tag-lbl">TREASURY FUNDING</span>
+              <span class="tag-val" style="color: var(--accent-success);">${money(f.bankBalance)}</span>
+            </div>
+          </div>
+        </div>
+        <div>
+          ${house ? '<button class="btn-primary" id="btn-hq-route" style="padding: 12px 24px;">GPS ROUTE TO HQ &#10142;</button>' : ''}
+        </div>
+      </section>
+
+      <div class="section-title">Headquarters Features</div>
+      <div class="hq-specs-grid">
+        <div class="hq-spec-card">
+          <span class="spec-title">GARAGE &amp; FLEET</span>
+          <span class="spec-status">${garageUsed} / ${garageCapacity}</span>
+          <span class="spec-detail">Shared family vehicle slots managed by cm-house.</span>
+        </div>
+        <div class="hq-spec-card">
+          <span class="spec-title">ARMORY / WEAPON STASH</span>
+          <span class="spec-status" style="color: var(--accent-warning);">${(house && house.armoryCapacity) ? house.armoryCapacity + ' SLOTS' : 'AVAILABLE'}</span>
+          <span class="spec-detail">Authoritative weapon locker with tier-restricted access.</span>
+        </div>
+        <div class="hq-spec-card">
+          <span class="spec-title">STORAGE &amp; WARDROBE</span>
+          <span class="spec-status" style="color: var(--accent-success);">${(house && house.storageCapacity) ? house.storageCapacity + ' SLOTS' : 'AVAILABLE'}</span>
+          <span class="spec-detail">Family shared stash and wardrobe dressing points.</span>
+        </div>
+        <div class="hq-spec-card">
+          <span class="spec-title">HELIPAD AVAILABILITY</span>
+          <span class="spec-status">${(house && house.hasHelipad) ? 'AVAILABLE' : 'NONE'}</span>
+          <span class="spec-detail">${(house && house.hasHelipad) ? 'Property includes dedicated rooftop/ground helipad.' : 'No helipad registered at this property.'}</span>
+        </div>
+      </div>
+
+      <div class="section-title" style="margin-top: 14px;">
+        Headquarters Upgrades
+        <span class="card-desc" style="font-weight: normal; margin-left: 10px;">(FUNDED VIA FAMILY TREASURY)</span>
+      </div>
+      <div class="hq-upgrades-grid">
+        ${UPGRADE_SPECS.map(spec => {
+          const currentTier = Number(hqUpgrades[spec.key] || 0);
+          const isMaxed = currentTier >= spec.max;
+          const nextCost = spec.baseCost + (currentTier * spec.mult);
+          const canAfford = Number(f.bankBalance || 0) >= nextCost;
+          return `
+            <div class="hq-upgrade-card">
+              <div>
+                <div class="upgrade-header">
+                  <h4 style="font-size: 16px; font-weight: 800; color: var(--text-main);">${esc(spec.name)}</h4>
+                  <span class="upgrade-tier-pill ${isMaxed ? 'maxed' : ''}">${isMaxed ? 'MAX TIER' : 'TIER ' + currentTier + ' / ' + spec.max}</span>
+                </div>
+                <p class="card-desc" style="text-transform: none; margin-top: 8px; font-size: 12px;">${esc(spec.desc)}</p>
+                <div style="margin-top: 12px; font-size: 11px; font-weight: 800; color: var(--accent-primary);">
+                  BENEFIT: ${esc(spec.unit)}
+                </div>
+              </div>
+              <div style="margin-top: 16px;">
+                ${isMaxed ? `
+                  <button class="btn ghost sm" disabled style="width: 100%;">MAXIMUM LEVEL REACHED</button>
+                ` : `
+                  <button class="btn sm ${canAfford ? '' : 'danger'}" data-upgrade-key="${esc(spec.key)}" ${(!canUpgrade || !canAfford) ? 'disabled' : ''} style="width: 100%;">
+                    ${!canUpgrade ? 'PERMISSIONS REQUIRED' : (!canAfford ? 'INSUFFICIENT FUNDS (' + money(nextCost) + ')' : 'PURCHASE UPGRADE (' + money(nextCost) + ')')}
+                  </button>
+                `}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+    const routeBtn = document.getElementById('btn-hq-route');
+    if (routeBtn) {
+      routeBtn.onclick = () => {
+        if (!house) return flash('No family house linked.', 'error');
+        const coords = house.doorCoords || house.coords || house.door;
+        post('routeToHouse', { houseId: house.id, coords }).then(res => {
+          if (res && res.ok) flash('GPS route marked to Family HQ.', 'ok');
+          else flash('Could not mark GPS route.', 'error');
+        });
+      };
+    }
+
+    content.querySelectorAll('[data-upgrade-key]').forEach(btn => {
+      btn.onclick = () => {
+        const key = btn.dataset.upgradeKey;
+        confirmAct(`Purchase this HQ upgrade from the family treasury?`, 'purchaseHQUpgrade', { upgradeKey: key });
+      };
+    });
+  }
+
+  // ---------------- progression ----------------
+  let progressionLeaderboardTab = 'this_week';
+  function renderProgression() {
+    const f = state.family;
+    const progression = state.progression || {};
+    const currentXp = Number(progression.currentXp) || 0;
+    const nextLevelXp = Number(progression.nextLevelXp) || 1000;
+    const xpPercent = Math.min(100, Math.max(0, Math.round((currentXp / nextLevelXp) * 100)));
+    const progressionLevel = Number(progression.level) || 1;
+    const lifetimeRep = Number(progression.lifetimeReputation || progression.reputation || 0);
+
+    const objectives = Array.isArray(state.objectives) ? state.objectives : [];
+    const allUnlocks = (state.allLevelUnlocks && typeof state.allLevelUnlocks === 'object') ? state.allLevelUnlocks : {};
+
+    const weeklyLb = Array.isArray(state.contributionLeaderboard) ? state.contributionLeaderboard : [];
+    const allTimeLb = Array.isArray(state.allTimeLeaderboard) ? state.allTimeLeaderboard : [];
+    const activeLb = progressionLeaderboardTab === 'this_week' ? weeklyLb : allTimeLb;
+
+    content.innerHTML = `
+      <section class="progression-hero">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+          <div>
+            <span class="card-desc" style="color: var(--accent-primary); margin-bottom: 4px;">FAMILY PROGRESSION &middot; LEVEL ${progressionLevel}</span>
+            <h2 class="page-title" style="font-size: 34px; margin-bottom: 6px;">REPUTATION &amp; MILESTONES</h2>
+            <div class="card-desc" style="font-size: 12px; text-transform: none;">Level up your family by completing weekly objectives, raids, and collaborative work.</div>
+          </div>
+          <div style="display: flex; gap: 14px; align-items: center;">
+            <div class="tag-block" style="text-align: right;">
+              <span class="tag-lbl">LIFETIME REP</span>
+              <span class="tag-val" style="color: var(--accent-warning);">${lifetimeRep.toLocaleString()} XP</span>
+            </div>
+            <div class="status-badge primary" style="font-size: 16px; padding: 10px 18px;">LEVEL ${progressionLevel}</div>
+          </div>
+        </div>
+
+        <div class="progression-bar-container" style="margin-top: 10px;">
+          <div class="progression-bar-track">
+            <div class="progression-bar-fill" style="width: ${xpPercent}%;"></div>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 800; color: var(--text-dim);">
+            <span>CURRENT XP: <strong style="color: var(--text-main);">${currentXp.toLocaleString()}</strong></span>
+            <span>NEXT LEVEL: <strong style="color: var(--accent-primary);">${nextLevelXp.toLocaleString()} XP</strong> (${xpPercent}%)</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Weekly Objectives Section -->
+      <div class="section-title">Weekly Family Objectives</div>
+      <div class="objectives-grid">
+        ${objectives.length ? objectives.map(obj => {
+          const target = Number(obj.target_value) || 1;
+          const current = Number(obj.current_value) || 0;
+          const pct = Math.min(100, Math.round((current / target) * 100));
+          return `
+            <div class="objective-card ${obj.is_completed ? 'completed' : ''}">
+              <div>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
+                  <h4 style="font-size: 16px; font-weight: 800; color: var(--text-main);">${esc(obj.label || 'Objective')}</h4>
+                  <span class="badge ${obj.is_completed ? 'success' : ''}">${obj.is_completed ? 'COMPLETED' : 'IN PROGRESS'}</span>
+                </div>
+                <p class="card-desc" style="text-transform: none; font-size: 12px; margin-bottom: 12px;">${esc(obj.description || '')}</p>
+                <div class="progress-block">
+                  <div class="progress-header">
+                    <span>PROGRESS</span>
+                    <span style="font-weight: 800; color: var(--text-main);">${current.toLocaleString()} / ${target.toLocaleString()} (${pct}%)</span>
+                  </div>
+                  <div class="progress-track" style="height: 8px;">
+                    <div class="progress-fill ${obj.is_completed ? 'success' : ''}" style="width: ${pct}%;"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="objective-reward-pills">
+                <span class="reward-pill">+${obj.reward_reputation} Family XP</span>
+                <span class="reward-pill">+${obj.reward_contribution} Member Pts</span>
+                ${obj.reward_money ? `<span class="reward-pill">+${money(obj.reward_money)} Treasury</span>` : ''}
+              </div>
+            </div>
+          `;
+        }).join('') : '<div class="empty">No weekly objectives assigned.</div>'}
+      </div>
+
+      <!-- Level Unlocks Roadmap -->
+      <div class="section-title" style="margin-top: 14px;">Family Level Unlocks (Levels 1 &ndash; 25)</div>
+      <div class="milestones-scroll-list">
+        ${Array.from({ length: 25 }, (_, i) => i + 1).map(lvl => {
+          const unlock = allUnlocks[lvl] || {};
+          const isUnlocked = progressionLevel >= lvl;
+          const isCurrent = progressionLevel === lvl;
+          return `
+            <div class="milestone-card ${isUnlocked ? 'unlocked' : 'locked'} ${isCurrent ? 'current' : ''}">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 16px; font-weight: 900; color: ${isUnlocked ? 'var(--accent-primary)' : 'var(--text-dim)'};">LVL ${lvl}</span>
+                <span class="badge ${isUnlocked ? 'success' : ''}" style="font-size: 9px;">${isUnlocked ? (isCurrent ? 'CURRENT' : 'UNLOCKED') : 'LOCKED'}</span>
+              </div>
+              <div style="font-size: 11px; font-weight: 700; color: var(--text-main); margin-top: 4px;">
+                ${esc(unlock.title || ('Level ' + lvl + ' Perks'))}
+              </div>
+              <div class="card-desc" style="text-transform: none; font-size: 10px; line-height: 1.4;">
+                ${esc(unlock.description || (unlock.maxMembers ? `${unlock.maxMembers} members, ${unlock.maxVehicles || 5} vehicles` : 'Expanded family capabilities.'))}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+
+      <!-- Member Contribution Leaderboard -->
+      <div class="section-title" style="margin-top: 14px;">Member Contribution Leaderboard</div>
+      <div class="glass-card" style="padding: 20px;">
+        <div class="leaderboard-toggle">
+          <button class="leaderboard-toggle-btn ${progressionLeaderboardTab === 'this_week' ? 'active' : ''}" id="btn-lb-week">THIS WEEK</button>
+          <button class="leaderboard-toggle-btn ${progressionLeaderboardTab === 'all_time' ? 'active' : ''}" id="btn-lb-all">ALL TIME</button>
+        </div>
+        <div class="list">
+          ${activeLb.length ? activeLb.map((m, idx) => `
+            <div class="row" style="padding: 10px 14px;">
+              <div style="font-size: 18px; font-weight: 900; color: ${idx === 0 ? 'var(--accent-warning)' : 'var(--text-dim)'}; width: 32px;">#${idx + 1}</div>
+              <div class="row__main">
+                <div class="row__title">${esc(m.name)}</div>
+                <div class="row__sub">CID ${esc(m.characterId || m.character_id || m.cid || '?')} &bull; Financial: ${money(m.moneyContributed != null ? m.moneyContributed : m.totalContribution || 0)}</div>
+              </div>
+              <div style="text-align: right;">
+                <div style="font-size: 16px; font-weight: 900; color: var(--accent-success);">${Number(progressionLeaderboardTab === 'this_week' ? (m.weeklyPoints != null ? m.weeklyPoints : m.weeklyContribution) : (m.totalPoints != null ? m.totalPoints : m.totalContribution)).toLocaleString()} PTS</div>
+                <div style="font-size: 10px; color: var(--text-dim);">${progressionLeaderboardTab === 'this_week' ? 'Weekly Contribution' : 'Lifetime Contribution'}</div>
+              </div>
+            </div>
+          `).join('') : '<div class="empty">No contributions recorded for this period.</div>'}
+        </div>
+      </div>
+    `;
+
+    const weekBtn = document.getElementById('btn-lb-week');
+    if (weekBtn) weekBtn.onclick = () => { progressionLeaderboardTab = 'this_week'; renderProgression(); };
+    const allBtn = document.getElementById('btn-lb-all');
+    if (allBtn) allBtn.onclick = () => { progressionLeaderboardTab = 'all_time'; renderProgression(); };
   }
 
   // ---------------- members ----------------
@@ -641,17 +832,17 @@
       if (canManage && can('family.demote')) actions.push(`<button class="btn ghost sm" data-demote="${esc(m.cid)}">Decrease rank</button>`);
       if (canManage && can('family.kick')) actions.push(`<button class="btn danger sm" data-kick="${esc(m.cid)}">Kick</button>`);
       if (can('family.manage_titles') && (isFounder() || m.tier < myTier() || String(m.cid) === String(state.viewer.cid))) {
-        actions.push(`<input class="input" maxlength="24" placeholder="Member title" value="${esc(m.customTitle || '')}" data-title="${esc(m.cid)}" style="width:145px">`);
+        actions.push(`<input class="input" maxlength="24" placeholder="Member title" value="${esc(m.customTitle || '')}" data-title="${esc(m.cid)}" style="width:130px">`);
       }
       return `<div class="row">
         <span class="dot ${m.online ? 'on' : 'off'}"></span>
         <div class="row__main">
-          <div class="row__title">${esc(m.name)} ${m.isFounder ? '<span class="badge founder">Head</span>' : ''}</div>
-          <div class="row__sub">${esc(m.customTitle || m.rankName)} · tier ${m.tier} · ${m.online ? 'online now' : 'last seen ' + (formatTimestamp(m.lastSeen, 16) || 'unknown')}</div>
-          <div class="member-metrics">
-            <span>Contributed: <strong>${money(m.totalContribution)}</strong></span>
-            <span>This week: <strong>${money(m.weeklyContribution)}</strong></span>
-            <span>Weekly actions: <strong>${Number(m.weeklyActions) || 0}</strong></span>
+          <div class="row__title">${esc(m.name)} ${m.isFounder ? '<span class="badge founder">Head</span>' : ''} <span style="font-size: 11px; color: var(--text-dim); font-weight: normal;">(CID ${esc(m.cid)})</span></div>
+          <div class="row__sub">${esc(m.customTitle || m.rankName)} · Tier ${m.tier} · ${m.online ? '<span style="color:var(--accent-success)">online now</span>' : 'last seen ' + (formatTimestamp(m.lastSeen, 16) || 'unknown')}</div>
+          <div class="member-metrics" style="margin-top: 6px;">
+            <span>Contribution: <strong>${Number(m.totalPoints != null ? m.totalPoints : m.totalContribution).toLocaleString()} pts</strong></span>
+            <span>This week: <strong>${Number(m.weeklyPoints != null ? m.weeklyPoints : m.weeklyContribution).toLocaleString()} pts</strong></span>
+            <span>Financial: <strong>${money(m.moneyContributed != null ? m.moneyContributed : m.totalContribution)}</strong></span>
             <span>Joined: <strong>${esc(formatTimestamp(m.joinedAt, 10) || 'unknown')}</strong></span>
           </div>
         </div>
@@ -663,7 +854,7 @@
       ${can('family.invite') ? `
       <div class="card" style="margin-bottom:18px">
         <h3>Invite a player</h3>
-        <div class="row__sub" style="margin-top:6px">Use the G menu while looking at a player. Character-ID invitation remains available here for offline/admin workflows.</div>
+        <div class="row__sub" style="margin-top:6px">Use the G menu while looking at a player, or invite via character ID below:</div>
         <div class="inline" style="margin-top:8px">
           <input class="input" id="invite-cid" placeholder="Character ID" style="width:180px">
           <select class="input" id="invite-rank" style="width:180px">${rankOpts}</select>
@@ -814,35 +1005,71 @@
   }
 
   // ---------------- bank ----------------
+  // ---------------- bank / treasury ----------------
   function renderBank() {
     const f = state.family;
     const treasury = state.treasury || {};
     const leaderboard = Array.isArray(state.contributionLeaderboard) ? state.contributionLeaderboard : [];
-    const log = (state.bankLog || []).map(l => `
-      <div class="log-row">
-        <span class="when">${esc(formatTimestamp(l.created_at, 16))}</span>
-        <span class="what">${l.direction === 'deposit' ? '+' : '−'} ${money(l.amount)} · ${esc(l.reason || l.direction)} ${l.character_id ? '· by ' + esc(l.character_id) : ''}</span>
-      </div>`).join('');
+    const log = (state.bankLog || []).map(l => {
+      const cat = String(l.category || l.reason || l.direction || 'default').toLowerCase();
+      const badgeClass = cat.includes('deposit') ? 'tx-category--deposit' : (cat.includes('withdraw') ? 'tx-category--withdraw' : (cat.includes('upgrade') ? 'tx-category--hq_upgrade' : (cat.includes('event') ? 'tx-category--event_reward' : 'tx-category--default')));
+      return `
+        <div class="log-row" style="display:flex; justify-content:space-between; align-items:center; padding: 10px 14px;">
+          <div>
+            <span class="tx-category-badge ${badgeClass}">${esc(l.category || l.direction)}</span>
+            <span class="what" style="margin-left: 8px; font-weight: 700; color: ${l.direction === 'deposit' ? 'var(--accent-success)' : 'var(--text-main)'};">${l.direction === 'deposit' ? '+' : '−'} ${money(l.amount)}</span>
+            <div style="font-size: 11px; color: var(--text-dim); margin-top: 4px;">
+              ${esc(l.reason || l.direction)} ${l.character_id ? '· CID ' + esc(l.character_id) : ''}
+            </div>
+          </div>
+          <span class="when" style="font-size: 11px; color: var(--text-dim);">${esc(formatTimestamp(l.created_at, 16))}</span>
+        </div>`;
+    }).join('');
 
     content.innerHTML = `
       <div class="grid grid--3" style="margin-bottom:18px">
-        <div class="card treasury-balance-card"><h3>Available treasury</h3><div class="big">${money(f.bankBalance)}</div><div class="row__sub">Shared family funds</div></div>
-        <div class="card"><h3>Income this week</h3><div class="big treasury-positive">${money(treasury.income7d || 0)}</div><div class="row__sub">Deposits and contributions</div></div>
-        <div class="card"><h3>Expenses this week</h3><div class="big treasury-expense">${money(treasury.expenses7d || 0)}</div><div class="row__sub">Withdrawals and charges</div></div>
+        <div class="card treasury-balance-card">
+          <h3>Available treasury</h3>
+          <div class="big" style="color: var(--accent-success);">${money(f.bankBalance)}</div>
+          <div class="row__sub">Shared family funds</div>
+        </div>
+        <div class="card">
+          <h3>Income last 7 days</h3>
+          <div class="big treasury-positive" style="color: var(--accent-success);">${money(treasury.income7d || 0)}</div>
+          <div class="row__sub">Deposits and rewards</div>
+        </div>
+        <div class="card">
+          <h3>Expenses last 7 days</h3>
+          <div class="big treasury-expense" style="color: var(--accent-danger);">${money(treasury.expenses7d || 0)}</div>
+          <div class="row__sub">Withdrawals and HQ upgrades</div>
+        </div>
       </div>
       <div class="grid grid--2" style="margin-bottom:18px">
         <div class="card">
           <h3>Move money</h3>
+          <div class="row__sub" style="margin-bottom: 10px;">Deposit to family funds or withdraw if authorized by rank permissions.</div>
           <div class="inline" style="margin-top:8px">
-            <input class="input" id="bank-amount" type="number" min="1" placeholder="Amount" style="width:150px">
+            <input class="input" id="bank-amount" type="number" min="1" placeholder="Amount ($)" style="width:180px">
             ${can('bank.deposit') ? '<button class="btn" id="deposit-btn">Deposit</button>' : ''}
-            ${can('bank.withdraw') ? '<button class="btn" id="withdraw-btn">Withdraw</button>' : ''}
+            ${can('bank.withdraw') ? '<button class="btn ghost danger" id="withdraw-btn">Withdraw</button>' : ''}
           </div>
         </div>
-        <div class="card"><h3>Contribution leaderboard</h3><div class="contribution-leaderboard contribution-leaderboard--dark">${leaderboard.slice(0, 5).map((member, index) => `<div><i>${index + 1}</i><strong>${esc(member.name)}</strong><small>${money(member.totalContribution)} total · ${money(member.weeklyContribution)} this week</small></div>`).join('') || '<p>No contributions recorded yet.</p>'}</div></div>
+        <div class="card">
+          <h3>Top Financial Contributors</h3>
+          <div class="contribution-leaderboard contribution-leaderboard--dark">
+            ${leaderboard.slice(0, 5).map((member, index) => `
+              <div>
+                <i>${index + 1}</i>
+                <strong>${esc(member.name)}</strong>
+                <small>${money(member.moneyContributed != null ? member.moneyContributed : member.totalContribution)} total financial</small>
+              </div>
+            `).join('') || '<p>No financial contributions recorded yet.</p>'}
+          </div>
+        </div>
       </div>
-      <div class="section-title">Recent movements</div>
-      ${log ? `<div class="list">${log}</div>` : '<div class="empty">No transactions yet.</div>'}`;
+      <div class="section-title">Treasury Movements &amp; Activity</div>
+      ${log ? `<div class="list">${log}</div>` : '<div class="empty">No transactions yet.</div>'}
+    `;
 
     const amt = () => Math.floor(Number(document.getElementById('bank-amount').value) || 0);
     const d = document.getElementById('deposit-btn');

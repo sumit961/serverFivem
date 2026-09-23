@@ -159,23 +159,49 @@ local function notify(src, message, kind)
     TriggerClientEvent('cm-hud:client:notify', tonumber(src), tostring(message), kind or 'inform')
 end
 
-local function awardFamily(familyId, raidId)
+local function awardFamily(familyId, raidId, raid)
     local amount = math.floor(tonumber(raidConfig('reward', 50000)) or 50000)
-    local maxBalance = tonumber(Config.Bank and Config.Bank.maxBalance) or 2000000000
-    local affected = MySQL.update.await(
-        'UPDATE cm_families SET bank_balance = LEAST(bank_balance + ?, ?) WHERE id = ?',
-        { amount, maxBalance, tonumber(familyId) })
-    if not affected or tonumber(affected) < 1 then return false, 'family_bank_update_failed' end
+    local repReward = 1000
+    local contribReward = 150
+
+    local participants = {}
+    if raid and raid.players then
+        for _, p in pairs(raid.players) do
+            if tonumber(p.familyId) == tonumber(familyId) and p.cid then
+                participants[#participants + 1] = p.cid
+            end
+        end
+    end
+
+    if type(AwardFamilyActivityReward) == 'function' then
+        AwardFamilyActivityReward({
+            familyId = familyId,
+            eventType = 'family_raid',
+            uniqueId = ('raid:%s:%s'):format(tostring(familyId), tostring(raidId)),
+            reputation = repReward,
+            memberContribution = contribReward,
+            treasuryAmount = amount,
+            participants = participants,
+            metadata = { raidId = raidId, participantCount = #participants },
+        })
+    else
+        local maxBalance = tonumber(Config.Bank and Config.Bank.maxBalance) or 2000000000
+        MySQL.update.await(
+            'UPDATE cm_families SET bank_balance = LEAST(bank_balance + ?, ?) WHERE id = ?',
+            { amount, maxBalance, tonumber(familyId) })
+        local balance = tonumber(MySQL.scalar.await(
+            'SELECT bank_balance FROM cm_families WHERE id = ?', { tonumber(familyId) })) or 0
+        MySQL.insert.await([[INSERT INTO cm_family_bank_log
+            (family_id, character_id, direction, category, amount, balance_after, reason)
+            VALUES (?, NULL, 'deposit', 'event_reward', ?, ?, ?)]],
+            { tonumber(familyId), amount, balance, ('family_raid_win:%s'):format(tostring(raidId)) })
+    end
 
     local balance = tonumber(MySQL.scalar.await(
         'SELECT bank_balance FROM cm_families WHERE id = ?', { tonumber(familyId) })) or 0
-    MySQL.insert.await([[INSERT INTO cm_family_bank_log
-        (family_id, character_id, direction, amount, balance_after, reason)
-        VALUES (?, NULL, 'deposit', ?, ?, ?)]],
-        { tonumber(familyId), amount, balance, ('family_raid_win:%s'):format(tostring(raidId)) })
     local family = GetFamilyById(familyId)
     if family then family.bank_balance = balance end
-    LogFamily(familyId, nil, 'raid_reward', { raidId = raidId, amount = amount, balance = balance })
+    LogFamily(familyId, nil, 'raid_reward', { raidId = raidId, amount = amount, balance = balance, participants = #participants })
     return true, balance
 end
 
@@ -192,7 +218,7 @@ local function finishRaid(raid, winnerFamilyId, reason)
     raid.finished = true
     raid.phase = 'finished'
     local rewardOk, balance = false, nil
-    if winnerFamilyId then rewardOk, balance = awardFamily(winnerFamilyId, raid.id) end
+    if winnerFamilyId then rewardOk, balance = awardFamily(winnerFamilyId, raid.id, raid) end
 
     local result = {
         raidId = raid.id,

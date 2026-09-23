@@ -388,6 +388,7 @@ function WS.BuildPayload(src, houseId, index)
     }
     local family = isFamily and GetFamilyDisplay(ctx.house.family_id) or nil
     local familyName = family and tostring(family.name or family.label or '') or nil
+    local storageCap = getWeaponStorageCapacity(houseId)
     return true, {
         houseId = tonumber(houseId),
         familyId = ctx.house.family_id,
@@ -399,7 +400,7 @@ function WS.BuildPayload(src, houseId, index)
             or tostring(ctx.house.label or ('Property #' .. tostring(houseId))),
         player = publicRows(PLAYER_OWNER_TYPE, ctx.cid),
         storage = publicRows(OWNER_TYPE, ctx.ownerId),
-        capacity = MAX_SLOTS,
+        capacity = storageCap,
         canDeposit = canDeposit == true,
         canWithdraw = canWithdraw == true,
         canManage = canManage == true,
@@ -408,10 +409,31 @@ function WS.BuildPayload(src, houseId, index)
     }
 end
 
+function getWeaponStorageCapacity(houseId)
+    local house = houseId and Houses and Houses[tonumber(houseId)]
+    local baseCap = MAX_SLOTS
+    if not house or not house.family_id then return baseCap end
+
+    local famRes = tostring(Config.Family and Config.Family.resource or 'cm-family')
+    if famRes and GetResourceState(famRes) == 'started' then
+        local ok, tier = pcall(function()
+            return exports[famRes]:GetFamilyHQUpgradeLevel(house.family_id, 'weapon_storage_capacity')
+        end)
+        if ok and tonumber(tier) then
+            local t = tonumber(tier)
+            local bonus = t == 1 and 10 or (t == 2 and 20 or (t >= 3 and 35 or 0))
+            return baseCap + bonus
+        end
+    end
+    return baseCap
+end
+
 local function findEmptySlot(ownerId)
+    local houseId = tonumber(tostring(ownerId):match('^(%d+):'))
+    local cap = getWeaponStorageCapacity(houseId)
     local occupied = {}
     for _, row in ipairs(rowsFor(OWNER_TYPE, ownerId)) do occupied[tostring(row.slot)] = true end
-    for i = 1, MAX_SLOTS do
+    for i = 1, cap do
         local slot = SLOT_PREFIX .. i
         if not occupied[slot] then return slot end
     end

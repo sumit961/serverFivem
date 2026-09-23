@@ -5,7 +5,7 @@ lua54 'yes'
 name        'cm-family'
 author      'Sumit'
 description 'CM Framework | Family system (ranks, vehicles, bank, family house)'
-version     '1.7.6'
+version     '1.8.0'
 
 shared_scripts {
     '@ox_lib/init.lua',
@@ -30,6 +30,10 @@ server_scripts {
     'server/sv_schema.lua',   -- auto-install/repair and validate DB before callbacks run
     'server/sv_core.lua',     -- state + HasHousePermission (the seam cm-house calls)
     'server/sv_audit.lua',    -- durable activity audit + cm-admin read contract
+    'server/sv_progression.lua', -- authoritative progression, leveling & activity reward engine
+    'server/sv_contributions.lua', -- multi-category member contribution score & leaderboards
+    'server/sv_objectives.lua',  -- weekly family objectives & anti-abuse tracking
+    'server/sv_hq.lua',          -- family headquarters upgrades system
     'server/sv_vehicles.lua', -- per-vehicle access level
     'server/sv_raid.lua',     -- family-vs-family raid event
     'server/sv_ranks.lua',    -- rank create/edit with authority rules

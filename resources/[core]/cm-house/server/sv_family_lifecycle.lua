@@ -90,6 +90,26 @@ function FL.AppendDeleteStatements(statements, familyId, houseId)
     statements = statements or {}
 
     statements[#statements + 1] = {
+        query = 'DELETE FROM cm_family_reward_history WHERE family_id = ?',
+        values = { familyId },
+    }
+    statements[#statements + 1] = {
+        query = 'DELETE FROM cm_family_hq_upgrades WHERE family_id = ?',
+        values = { familyId },
+    }
+    statements[#statements + 1] = {
+        query = 'DELETE FROM cm_family_objective_progress WHERE family_id = ?',
+        values = { familyId },
+    }
+    statements[#statements + 1] = {
+        query = 'DELETE FROM cm_family_member_contributions WHERE family_id = ?',
+        values = { familyId },
+    }
+    statements[#statements + 1] = {
+        query = 'DELETE FROM cm_family_progression WHERE family_id = ?',
+        values = { familyId },
+    }
+    statements[#statements + 1] = {
         query = 'DELETE FROM cm_family_log WHERE family_id = ?',
         values = { familyId },
     }

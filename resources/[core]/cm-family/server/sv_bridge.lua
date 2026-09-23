@@ -240,4 +240,54 @@ function B.GetHousePhotoData(houseId)
     return nil
 end
 
+function B.GetHouseHQDetails(houseId, familyId)
+    if not started(HOUSE) or not houseId then return nil end
+    local house = B.GetHouse(houseId)
+    if not house then return nil end
+
+    local photoData = B.GetHousePhotoData(houseId)
+    local rawNum = tostring(house.house_number or house.id or houseId):gsub('^#+', '')
+    local houseLabel = (house.label or house.name or ('House ' .. rawNum)):gsub('#', '')
+
+    -- Garage capacity
+    local baseCap = 0
+    local okCap, cap = pcall(function() return exports[HOUSE]:GetGarageCapacity(houseId) end)
+    if okCap and tonumber(cap) then baseCap = tonumber(cap) end
+
+    -- Garage stored vehicles
+    local vehicles = B.GetFamilyVehicles(familyId) or {}
+    local storedCount = 0
+    for _, v in ipairs(vehicles) do
+        if v.is_stored == true or tonumber(v.is_stored) == 1 then
+            storedCount = storedCount + 1
+        end
+    end
+
+    -- Armory / weapon storage points
+    local armoryPoints = 0
+    local okArm, armCount = pcall(function() return exports[HOUSE]:GetHouseWeaponStoragePointCount(houseId) end)
+    if okArm and tonumber(armCount) then armoryPoints = tonumber(armCount) end
+
+    -- Helipad
+    local hasHelipad = house.helipad_coords ~= nil and house.helipad_coords ~= false
+
+    return {
+        id = tonumber(houseId) or houseId,
+        houseNumber = rawNum,
+        label = houseLabel,
+        image = house.image_url or house.image,
+        imageData = photoData,
+        doorCoords = house.door_coords or house.coords or house.door,
+        garageCapacity = baseCap,
+        vehiclesStored = storedCount,
+        vehiclesTotal = #vehicles,
+        armoryPoints = armoryPoints,
+        armoryStatus = armoryPoints > 0 and 'Available' or 'Not Installed',
+        storageStatus = 'Available',
+        hasHelipad = hasHelipad,
+        helipadStatus = hasHelipad and 'Available' or 'Not Installed',
+        accessStatus = 'Active Linked HQ',
+    }
+end
+
 return B

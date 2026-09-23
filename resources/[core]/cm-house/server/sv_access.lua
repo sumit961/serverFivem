@@ -370,7 +370,33 @@ function GarageCapacity(houseId)
     local h = houseId and Houses[houseId]
     if not h or not h.garage_template_id then return 0 end
     local g = GarageTemplates[h.garage_template_id]
-    return g and g.capacity or 0
+    local baseCap = g and g.capacity or 0
+    if baseCap <= 0 then return 0 end
+
+    -- Personal properties or houses without a linked family use base capacity
+    if not h.family_id then return baseCap end
+
+    -- Linked family headquarters query cm-family for authoritative garage_slots upgrades
+    local famRes = familyResource()
+    if famRes and GetResourceState(famRes) == 'started' then
+        local ok, tier = pcall(function()
+            return exports[famRes]:GetFamilyHQUpgradeLevel(h.family_id, 'garage_slots')
+        end)
+        if ok and tonumber(tier) then
+            local t = tonumber(tier)
+            local bonus = t == 1 and 2 or (t == 2 and 4 or (t >= 3 and 6 or 0))
+            local physicalSlots = 0
+            if g and g.slots then
+                for _ in pairs(g.slots) do physicalSlots = physicalSlots + 1 end
+            end
+            if physicalSlots > 0 then
+                return math.min(physicalSlots, baseCap + bonus)
+            end
+            return baseCap + bonus
+        end
+    end
+
+    return baseCap
 end
 
 function ValidSlot(houseId, slotIndex)

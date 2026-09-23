@@ -388,3 +388,272 @@ Config.Audit = {
         ['cm-admin'] = true,
     },
 }
+
+-- ============================================================
+--  Family Progression & Level Curve (Priority 1)
+-- ============================================================
+Config.Progression = {
+    maxLevel = 25,
+    levelXp = {
+        [1]  = 1000,
+        [2]  = 1500,
+        [3]  = 2250,
+        [4]  = 3200,
+        [5]  = 4400,
+        [6]  = 5900,
+        [7]  = 7700,
+        [8]  = 9800,
+        [9]  = 12300,
+        [10] = 15200,
+        [11] = 18600,
+        [12] = 22500,
+        [13] = 27000,
+        [14] = 32100,
+        [15] = 37900,
+        [16] = 44500,
+        [17] = 52000,
+        [18] = 60400,
+        [19] = 69800,
+        [20] = 80300,
+        [21] = 92000,
+        [22] = 105000,
+        [23] = 119500,
+        [24] = 135600,
+        [25] = 153500,
+    },
+}
+
+function Config.Progression.GetXpForNextLevel(level)
+    level = math.max(1, math.min(tonumber(level) or 1, Config.Progression.maxLevel))
+    return Config.Progression.levelXp[level] or 150000
+end
+
+-- ============================================================
+--  Member Contribution Categories & Limits (Priority 2)
+-- ============================================================
+Config.Contribution = {
+    categories = {
+        activity    = { label = 'Activity', maxWeekly = 1000 },
+        objective   = { label = 'Objective', maxWeekly = 2000 },
+        event       = { label = 'Event', maxWeekly = 5000 },
+        financial   = { label = 'Financial', maxWeekly = 500 },
+        family_work = { label = 'Family Work', maxWeekly = 1500 },
+        defence     = { label = 'Defence', maxWeekly = 2000 },
+        management  = { label = 'Management', maxWeekly = 500 },
+        support     = { label = 'Support', maxWeekly = 1000 },
+    },
+    moneyPerPoint = 1000,
+    maxDailyFinancialPoints = 100,
+}
+
+-- ============================================================
+--  Family Level Progression Unlocks (Priority 3)
+-- ============================================================
+Config.LevelUnlocks = {
+    [1] = {
+        title = 'Foundation',
+        description = 'Base family capabilities, headquarters registration, 15 member capacity, and basic shared fleet.',
+        memberCapacity = 15,
+        sharedVehicleLimit = 4,
+        perks = { 'Base family operations', '15 member capacity', '4 shared vehicle slots' },
+    },
+    [2] = {
+        title = 'Expanded Roster',
+        description = 'Expand family capacity to recruit additional active members.',
+        memberCapacity = 20,
+        perks = { '+5 Member capacity (20 total)' },
+    },
+    [3] = {
+        title = 'Family Crest',
+        description = 'Unlock customizable family symbols and distinctive overhead identity options.',
+        perks = { 'Exclusive family symbols unlocked', 'Overhead identity styling' },
+    },
+    [4] = {
+        title = 'Fleet Expansion I',
+        description = 'Authorized storage for additional shared fleet vehicles.',
+        sharedVehicleLimit = 6,
+        perks = { '+2 Shared vehicle capacity (6 total)' },
+    },
+    [5] = {
+        title = 'Quartermaster I',
+        description = 'Increased family headquarters storage capacity and tier 1 storage upgrades.',
+        perks = { 'HQ Storage expansion unlocked', 'Higher storage weight limit' },
+    },
+    [6] = {
+        title = 'Syndicate Growth',
+        description = 'Expand family capacity to 25 total members.',
+        memberCapacity = 25,
+        perks = { '+5 Member capacity (25 total)' },
+    },
+    [7] = {
+        title = 'Rapid Fleet Tracking',
+        description = 'Advanced telemetry reducing vehicle tracking cooldowns for family officers.',
+        perks = { 'Vehicle tracking cooldown reduced by 50%' },
+    },
+    [8] = {
+        title = 'Quartermaster II',
+        description = 'Tier 2 headquarters general storage allowance.',
+        perks = { 'HQ Storage Tier 2 upgrade available' },
+    },
+    [9] = {
+        title = 'Fleet Expansion II',
+        description = 'Increased shared fleet vehicle capacity.',
+        sharedVehicleLimit = 8,
+        perks = { '+2 Shared vehicle capacity (8 total)' },
+    },
+    [10] = {
+        title = 'Armory Foundation',
+        description = 'Unlock Family Armory capacity expansions and garage slot bonuses.',
+        perks = { 'HQ Armory Tier 1 expansion', '+2 Garage slots bonus' },
+    },
+    [12] = {
+        title = 'Syndicate Elite',
+        description = 'Expand family capacity to 30 members and enhanced rank customizations.',
+        memberCapacity = 30,
+        perks = { '+5 Member capacity (30 total)', 'Expanded rank titles' },
+    },
+    [15] = {
+        title = 'Operations Command',
+        description = 'Unlock the Tactical Command Room upgrade and high-tier operations.',
+        perks = { 'HQ Command Room upgrade available', 'High-tier operations access' },
+    },
+    [20] = {
+        title = 'Los Santos Cartel',
+        description = 'Major capacity expansions across fleet, armory, and roster.',
+        memberCapacity = 40,
+        sharedVehicleLimit = 12,
+        perks = { '40 Member capacity', '12 Shared vehicle slots', 'Master armory allowance' },
+    },
+    [25] = {
+        title = 'Apex Family',
+        description = 'Pinnacle family status with maximum allowances, prestige symbol, and priority operations.',
+        memberCapacity = 50,
+        sharedVehicleLimit = 16,
+        perks = { '50 Member capacity', '16 Shared vehicle slots', 'Prestige apex crest' },
+    },
+}
+
+function Config.GetLevelUnlocks(level)
+    level = tonumber(level) or 1
+    local effective = {
+        memberCapacity = 15,
+        sharedVehicleLimit = 4,
+        unlockedTiers = {},
+    }
+    for lvl = 1, level do
+        local u = Config.LevelUnlocks[lvl]
+        if u then
+            if u.memberCapacity and u.memberCapacity > effective.memberCapacity then
+                effective.memberCapacity = u.memberCapacity
+            end
+            if u.sharedVehicleLimit and u.sharedVehicleLimit > effective.sharedVehicleLimit then
+                effective.sharedVehicleLimit = u.sharedVehicleLimit
+            end
+            effective.unlockedTiers[lvl] = u
+        end
+    end
+    return effective
+end
+
+-- ============================================================
+--  Family Headquarters Upgrades (Priority 4)
+-- ============================================================
+Config.HQUpgrades = {
+    storage_capacity = {
+        label = 'Secure Storage Expansion',
+        description = 'Expands general item storage compartments inside the family headquarters.',
+        maxTier = 3,
+        tiers = {
+            [1] = { cost = 50000,  minLevel = 5,  label = 'Tier 1 (+250kg allowance)' },
+            [2] = { cost = 125000, minLevel = 8,  label = 'Tier 2 (+500kg allowance)' },
+            [3] = { cost = 250000, minLevel = 14, label = 'Tier 3 (+1000kg allowance)' },
+        },
+    },
+    weapon_storage_capacity = {
+        label = 'Armory Expansion',
+        description = 'Reinforced lockers expanding weapon and ammunition storage allowance.',
+        maxTier = 3,
+        tiers = {
+            [1] = { cost = 75000,  minLevel = 10, label = 'Tier 1 (+10 weapon slots)' },
+            [2] = { cost = 175000, minLevel = 15, label = 'Tier 2 (+20 weapon slots)' },
+            [3] = { cost = 350000, minLevel = 20, label = 'Tier 3 (+35 weapon slots)' },
+        },
+    },
+    garage_slots = {
+        label = 'Garage Expansion',
+        description = 'Enhances vehicle staging and allocated family garage parking slots.',
+        maxTier = 3,
+        tiers = {
+            [1] = { cost = 100000, minLevel = 6,  label = 'Tier 1 (+2 Garage slots)' },
+            [2] = { cost = 225000, minLevel = 12, label = 'Tier 2 (+4 Garage slots)' },
+            [3] = { cost = 450000, minLevel = 18, label = 'Tier 3 (+6 Garage slots)' },
+        },
+    },
+    meeting_room = {
+        label = 'Tactical Command Room',
+        description = 'Designates a dedicated tactical briefing area for family operations.',
+        maxTier = 1,
+        tiers = {
+            [1] = { cost = 150000, minLevel = 15, label = 'Operational Status: Active' },
+        },
+    },
+}
+
+-- ============================================================
+--  Weekly Family Objectives (Priority 6)
+-- ============================================================
+Config.Objectives = {
+    rotationCount = 3,
+    pool = {
+        {
+            key = 'active_members',
+            title = 'Roster Mobilization',
+            description = 'Have 5 unique family members active in the city this week.',
+            targetType = 'unique_active_members',
+            targetValue = 5,
+            rewardReputation = 500,
+            rewardContribution = 100,
+            rewardTreasury = 25000,
+        },
+        {
+            key = 'treasury_contribute',
+            title = 'War Chest Contribution',
+            description = 'Contribute a combined $50,000 into the family treasury.',
+            targetType = 'net_deposits',
+            targetValue = 50000,
+            rewardReputation = 600,
+            rewardContribution = 150,
+            rewardTreasury = 10000,
+        },
+        {
+            key = 'family_activities',
+            title = 'Family Engagements',
+            description = 'Complete 15 approved family operations and actions.',
+            targetType = 'family_actions',
+            targetValue = 15,
+            rewardReputation = 750,
+            rewardContribution = 120,
+            rewardTreasury = 30000,
+        },
+        {
+            key = 'fleet_operations',
+            title = 'Fleet Deployment',
+            description = 'Store and organize 6 shared fleet vehicles in the family garage.',
+            targetType = 'fleet_vehicles',
+            targetValue = 6,
+            rewardReputation = 450,
+            rewardContribution = 80,
+            rewardTreasury = 20000,
+        },
+        {
+            key = 'syndicate_unity',
+            title = 'Syndicate Unity',
+            description = 'Maintain at least 6 verified members on the family roster.',
+            targetType = 'member_count',
+            targetValue = 6,
+            rewardReputation = 400,
+            rewardContribution = 75,
+            rewardTreasury = 15000,
+        },
+    },
+}

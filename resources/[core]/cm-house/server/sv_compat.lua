@@ -347,13 +347,30 @@ function OpenPropertyStash(src, houseId, index, def)
     local canWithdraw = CanAccessProperty(cid, houseId, ACTIONS.STORAGE_WITHDRAW) == true
     local canDeposit = CanAccessProperty(cid, houseId, ACTIONS.STORAGE_DEPOSIT) == true
 
+    local baseSlots = def.slots or 30
+    local bonusSlots = 0
+    if house and house.family_id then
+        local famRes = tostring(Config.Family and Config.Family.resource or 'cm-family')
+        if GetResourceState(famRes) == 'started' then
+            local okTier, tier = pcall(function()
+                return exports[famRes]:GetFamilyHQUpgradeLevel(house.family_id, 'storage_capacity')
+            end)
+            if okTier and tonumber(tier) then
+                local t = tonumber(tier)
+                bonusSlots = t == 1 and 10 or (t == 2 and 20 or (t >= 3 and 35 or 0))
+            end
+        end
+    end
+    local totalSlots = baseSlots + bonusSlots
+    local displaySlots = math.max(30, totalSlots)
+
     local ok, res, err = pcall(function()
         return exports[INV]:OpenExternalInventory(src, {
             ownerType    = 'house_storage',
             ownerId      = ownerId,
             slotPrefix   = 'store-',
-            slots        = def.slots or 30,
-            displaySlots = 30,
+            slots        = totalSlots,
+            displaySlots = displaySlots,
             kind         = familyName and 'family_house_storage' or 'house_storage',
             label        = storageLabel,
             subtitle     = storageSubtitle,

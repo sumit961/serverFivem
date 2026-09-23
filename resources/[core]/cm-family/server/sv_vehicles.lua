@@ -361,6 +361,12 @@ local function requestVehicleTrack(characterId, vehicleId)
     end
 
     local cooldown = math.max(60, tonumber(Config.Tracking.vehicles.cooldownSeconds) or 300)
+    if context and context.familyId and type(GetFamilyProgression) == 'function' then
+        local prog = GetFamilyProgression(context.familyId)
+        if prog and (tonumber(prog.level) or 1) >= 7 then
+            cooldown = math.max(30, math.floor(cooldown * 0.5))
+        end
+    end
     trackCooldown[characterId] = trackCooldown[characterId] or {}
     trackCooldown[characterId][vehicleId] = os.time() + cooldown
 
