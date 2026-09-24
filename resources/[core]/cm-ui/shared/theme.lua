@@ -2,7 +2,7 @@ CMUI = CMUI or {}
 
 CMUI.Theme = {
     name = 'CM Cyan/Deep Teal',
-    version = '2.0.0',
+    version = '2.0.1',
 
     colors = {
         bg = '#0B171E',

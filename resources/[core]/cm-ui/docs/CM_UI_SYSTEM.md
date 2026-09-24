@@ -1,4 +1,4 @@
-# CM UI Design System & Contract v2.0.0
+# CM UI Design System & Contract v2.0.1
 
 Authoritative specification for all FiveM player-facing interfaces across the CM framework server.
 
@@ -110,17 +110,19 @@ Classes:
 
 ---
 
-## 5. Authoritative Confirmation Modal
+## 5. Authoritative Confirmation Modal (v2.0.1)
 
 Every NUI confirmation MUST use `await CMUI.confirm(...)`. Native `window.confirm()` is strictly forbidden.
 
+### In-NUI JavaScript Confirmation:
 ```javascript
 const confirmed = await CMUI.confirm({
     title: 'REMOVE VEHICLE?',
     message: 'This will remove the vehicle from your garage slot permanently.',
     confirmText: 'REMOVE',
     cancelText: 'CANCEL',
-    danger: true
+    danger: true,
+    dismissOnBackdrop: true // Set to false for critical / high-risk operations
 });
 
 if (confirmed) {
@@ -128,16 +130,19 @@ if (confirmed) {
 }
 ```
 
-### Confirmation Contract:
-1. `CMUI.confirm` is DOM-only. It NEVER calls `SetNuiFocus` or releases parent NUI focus.
-2. Cancel button receives default focus immediately upon display.
-3. Pressing `Escape` cancels and resolves `false`.
-4. Clicking outside / clicking Cancel resolves `false`.
-5. Clicking Confirm resolves `true`.
-6. Parent screen stays open and interactive after Cancel.
+### Confirmation Contract & Architecture:
+1. **FIFO Queue Serialization**: Calling `CMUI.confirm()` while another confirmation is open serializes requests into a resilient FIFO queue. Never hangs, never orphans promises, never leaves ghost backdrops.
+2. **Single-Settle Guarantee**: Every confirmation modal resolves its Promise exactly once (`true` or `false`) and immediately advances any queued confirmations.
+3. **DOM-Only Context**: `CMUI.confirm` operates entirely within the host resource's DOM. It NEVER calls `SetNuiFocus` or touches parent focus state.
+4. **Keyboard Safety**: Cancel button receives default keyboard focus immediately upon display.
+5. **Escape Key Handling**: `Escape` is captured at window capture phase, preventing parent screen close handlers from firing prematurely, dismissing the confirmation, and resolving `false`. Parent screens remain open.
+6. **Backdrop Click Dismissal**: Clicking directly on the `.cm-modal-backdrop` (outside `.cm-modal`) resolves `false` by default. Set `dismissOnBackdrop: false` for high-risk flows where explicit button clicks are required.
+7. **Cancel / Confirm**: Clicking Cancel resolves `false`. Clicking Confirm resolves `true`.
 
-### Lua Confirmation Bridge (replacing `lib.alertDialog`):
-From client Lua scripts outside NUI:
+### World / Lua Confirmation Bridge:
+**SCOPE: WORLD-SCRIPT CONFIRMATION ONLY**
+The Lua export `exports['cm-ui']:Confirm(...)` is strictly intended for gameplay scripts (such as world interaction prompts, G-menus, or job tasks) where NO parent NUI interface is currently open:
+
 ```lua
 local confirmed = exports['cm-ui']:Confirm({
     title = 'CONFIRM ACTION',
@@ -147,6 +152,11 @@ local confirmed = exports['cm-ui']:Confirm({
     danger = true
 })
 ```
+
+- If another NUI interface is already open (e.g. House, Family, Bank): **DO NOT** call the Lua bridge. Use `await CMUI.confirm()` inside the in-page JavaScript.
+- The Lua bridge safely tracks whether it acquired NUI focus and only releases focus upon completion if `cm-ui` acquired it.
+- Fail-safe concurrency: does not stack multiple world confirmations.
+- `onResourceStop` lifecycle safety: if `cm-ui` or the calling resource stops while awaiting, the promise resolves `false`, the modal is dismissed, and any acquired focus is cleanly released.
 
 ---
 
@@ -235,7 +245,7 @@ Every NUI resource must link stylesheets and scripts in this exact order:
 ## 9. Forbidden Patterns
 
 1. **DO NOT redefine central selectors outside `cm-ui`:**
-   `.cm-btn`, `.cm-modal`, `.cm-toast`, `.cm-card`, `.cm-input`, `.cm-tab`, `.cm-badge`, `.cm-slot`, `.cm-actions`, `.cm-screen`.
+   `.cm-btn`, `.cm-modal`, `.cm-toast`, `.cm-card`, `.cm-input`, `.cm-tab`, `.cm-badge`, `.cm-slot`, `.cm-actions`, `.cm-screen` (including prefixed variants such as `body .cm-btn`, `button.cm-btn`, or `div.cm-card`).
 2. **DO NOT override central CM tokens:**
    `--cm-primary`, `--cm-cyan`, `--cm-yellow`, `--cm-green`, `--cm-red`, `--cm-bg`, `--cm-panel`, `--cm-border`, `--cm-radius`, `--cm-font`.
 3. **DO NOT use native `window.confirm()` or `confirm()` in FiveM NUI.**
@@ -243,3 +253,6 @@ Every NUI resource must link stylesheets and scripts in this exact order:
 5. **DO NOT use purple as a primary/secondary UI accent.**
 6. **DO NOT re-declare `@font-face` for `Poppins` or `DM Sans` in resource stylesheets.**
 7. **DO NOT use raw `vw/vh` on regular text sizes or standard button heights.**
+8. **DO NOT apply custom `font-family` to standard `.cm-*` controls.**
+9. **DO NOT load resource-local stylesheets before `cm-theme.css`.**
+10. **DO NOT violate canonical asset load order (`cm-theme.css` -> `cm-components.css` -> `cm-layout.css` -> `cm-icons.css` -> local CSS -> `cm-ui.js`).**

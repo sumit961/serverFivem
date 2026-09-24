@@ -5,7 +5,7 @@ lua54 'yes'
 name 'cm-ui'
 author 'CM Framework / Grand RP'
 description 'Central CM Framework UI theme, components, and NUI helper utilities'
-version '2.0.0'
+version '2.0.1'
 
 shared_script 'shared/theme.lua'
 

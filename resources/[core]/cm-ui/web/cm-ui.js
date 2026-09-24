@@ -1,5 +1,5 @@
 /*
-    CM Framework UI Kernel Helper v2.0.0
+    CM Framework UI Kernel Helper v2.0.1
     Authoritative shared UI runtime logic for all CM FiveM NUI resources.
 */
 (function () {
@@ -7,7 +7,7 @@
 
     const CMUI = window.CMUI || {};
 
-    CMUI.version = '2.0.0';
+    CMUI.version = '2.0.1';
 
     CMUI.qs = function (selector, root) {
         return (root || document).querySelector(selector);
@@ -78,79 +78,138 @@
         return toast;
     };
 
-    /* ── Authoritative Confirmation Modal System ─────────── */
-    CMUI.confirm = function (options) {
-        options = options || {};
-        return new Promise(function (resolve) {
-            // Remove any existing modal to prevent duplicate open state
-            const existing = document.querySelector('.cm-modal-backdrop');
-            if (existing && existing.parentNode) {
-                existing.parentNode.removeChild(existing);
-            }
+    /* ── Authoritative Confirmation Modal System (v2.0.1) ─────────── */
+    const confirmQueue = [];
+    let activeConfirm = null;
 
-            const backdrop = document.createElement('div');
-            backdrop.className = 'cm-modal-backdrop cm-style-modal-backdrop';
+    function processConfirmQueue() {
+        if (activeConfirm || confirmQueue.length === 0) {
+            return;
+        }
 
-            const title = CMUI.safeText(options.title || 'CONFIRM ACTION');
-            const safeBodyHtml = CMUI.safeText(options.message || 'Are you sure you want to proceed?').replace(/\n/g, '<br>');
-            const confirmText = CMUI.safeText(options.confirmText || 'CONFIRM');
-            const cancelText = CMUI.safeText(options.cancelText || 'CANCEL');
-            const isDanger = options.danger === true;
-            const confirmClass = isDanger ? 'cm-btn-danger cm-style-btn--danger' : 'cm-btn-yellow cm-style-btn--yellow';
+        const item = confirmQueue.shift();
+        const options = item.options || {};
+        const resolve = item.resolve;
 
-            backdrop.innerHTML = `
-                <div class="cm-modal cm-style-modal" role="dialog" aria-modal="true">
-                    <div class="cm-modal-header cm-style-modal__title">${title}</div>
-                    <div class="cm-modal-body cm-style-modal__body">${safeBodyHtml}</div>
-                    <div class="cm-modal-actions cm-style-actions">
-                        <button type="button" class="cm-btn cm-btn-secondary cm-style-btn cm-style-btn--secondary" data-cm-cancel>${cancelText}</button>
-                        <button type="button" class="cm-btn ${confirmClass} cm-style-btn" data-cm-confirm>${confirmText}</button>
-                    </div>
+        const backdrop = document.createElement('div');
+        backdrop.className = 'cm-modal-backdrop cm-style-modal-backdrop';
+
+        const title = CMUI.safeText(options.title || options.header || 'CONFIRM ACTION');
+        const safeBodyHtml = CMUI.safeText(options.message || options.content || 'Are you sure you want to proceed?').replace(/\n/g, '<br>');
+        const confirmText = CMUI.safeText(options.confirmText || (options.labels && options.labels.confirm) || 'CONFIRM');
+        const cancelText = CMUI.safeText(options.cancelText || (options.labels && options.labels.cancel) || 'CANCEL');
+        const isDanger = options.danger === true || options.destructive === true || (options.tone === 'danger');
+        const confirmClass = isDanger ? 'cm-btn-danger cm-style-btn--danger' : 'cm-btn-yellow cm-style-btn--yellow';
+        const dismissOnBackdrop = options.dismissOnBackdrop !== false;
+
+        backdrop.innerHTML = `
+            <div class="cm-modal cm-style-modal" role="dialog" aria-modal="true">
+                <div class="cm-modal-header cm-style-modal__title">${title}</div>
+                <div class="cm-modal-body cm-style-modal__body">${safeBodyHtml}</div>
+                <div class="cm-modal-actions cm-style-actions">
+                    <button type="button" class="cm-btn cm-btn-secondary cm-style-btn cm-style-btn--secondary" data-cm-cancel>${cancelText}</button>
+                    <button type="button" class="cm-btn ${confirmClass} cm-style-btn" data-cm-confirm>${confirmText}</button>
                 </div>
-            `;
+            </div>
+        `;
 
-            document.body.appendChild(backdrop);
+        document.body.appendChild(backdrop);
 
-            let settled = false;
-            function finish(result) {
-                if (settled) return;
-                settled = true;
-                window.removeEventListener('keydown', onKeyDown, true);
-                if (backdrop.parentNode) {
-                    backdrop.parentNode.removeChild(backdrop);
-                }
-                resolve(result);
+        let settled = false;
+
+        function finish(result) {
+            if (settled) return;
+            settled = true;
+
+            // Clean up event listeners
+            window.removeEventListener('keydown', onKeyDown, true);
+            backdrop.removeEventListener('click', onBackdropClick);
+
+            // Clean up DOM
+            if (backdrop.parentNode) {
+                backdrop.parentNode.removeChild(backdrop);
             }
 
-            function onKeyDown(event) {
-                if (event.key === 'Escape') {
-                    event.preventDefault();
-                    event.stopPropagation();
+            activeConfirm = null;
+
+            // Resolve Promise exactly once, then advance queued confirmations
+            try {
+                resolve(result === true);
+            } finally {
+                processConfirmQueue();
+            }
+        }
+
+        function onKeyDown(event) {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                finish(false);
+            }
+        }
+
+        function onBackdropClick(event) {
+            // Dismiss only when clicking directly on the backdrop, not inside .cm-modal
+            if (event.target === backdrop) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (dismissOnBackdrop) {
                     finish(false);
                 }
             }
-            // Capture phase ensures we intercept Escape before parent screens close
-            window.addEventListener('keydown', onKeyDown, true);
+        }
 
-            const cancelBtn = backdrop.querySelector('[data-cm-cancel]');
-            const confirmBtn = backdrop.querySelector('[data-cm-confirm]');
+        // Capture phase ensures we intercept Escape before parent screens close
+        window.addEventListener('keydown', onKeyDown, true);
+        backdrop.addEventListener('click', onBackdropClick);
 
-            if (cancelBtn) {
-                cancelBtn.addEventListener('click', function (e) {
-                    e.stopPropagation();
-                    finish(false);
-                });
-                // Crucial usability contract: Cancel receives default focus!
-                cancelBtn.focus();
-            }
+        const cancelBtn = backdrop.querySelector('[data-cm-cancel]');
+        const confirmBtn = backdrop.querySelector('[data-cm-confirm]');
 
-            if (confirmBtn) {
-                confirmBtn.addEventListener('click', function (e) {
-                    e.stopPropagation();
-                    finish(true);
-                });
-            }
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                finish(false);
+            });
+            // Crucial usability contract: Cancel receives default focus!
+            cancelBtn.focus();
+        }
+
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                finish(true);
+            });
+        }
+
+        activeConfirm = {
+            backdrop: backdrop,
+            resolve: resolve,
+            settled: function () { return settled; },
+            finish: finish
+        };
+    }
+
+    CMUI.confirm = function (options) {
+        return new Promise(function (resolve) {
+            confirmQueue.push({
+                options: options || {},
+                resolve: resolve
+            });
+            processConfirmQueue();
         });
+    };
+
+    CMUI.cancelAllConfirms = function () {
+        while (confirmQueue.length > 0) {
+            const queued = confirmQueue.shift();
+            try {
+                queued.resolve(false);
+            } catch (e) {}
+        }
+        if (activeConfirm) {
+            activeConfirm.finish(false);
+        }
     };
 
     /* ── Tab Binding Utility ─────────────────────────────── */

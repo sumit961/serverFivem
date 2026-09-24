@@ -25,6 +25,10 @@
             CMUI.confirm(data).then(function (result) {
                 CMUI.postNui('cmConfirm:result', { result: result });
             });
+        } else if (data.action === 'cmConfirm:cancel') {
+            if (CMUI.cancelAllConfirms) {
+                CMUI.cancelAllConfirms();
+            }
         } else if (data.action === 'cmStylePreview:open') {
             CMUI.openStylePreview();
         } else if (data.action === 'cmStylePreview:close') {
