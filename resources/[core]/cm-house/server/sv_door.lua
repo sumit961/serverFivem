@@ -418,6 +418,16 @@ lib.callback.register('cm-house:server:sellHouse', function(src, houseId)
     if not cid or not house then return false, 'That house is not registered.' end
     if houseSaleLocks[houseId] then return false, 'This property sale is already being processed.' end
 
+    -- Fail closed if linked to a family BEFORE any mutation or journal creation
+    if house.family_id ~= nil and tonumber(house.family_id) and tonumber(house.family_id) > 0 then
+        return false, 'family_house_must_be_unlinked'
+    end
+    local dbFamilyCheck = MySQL.single.await('SELECT family_id FROM cm_houses WHERE id = ? LIMIT 1', { houseId })
+    if dbFamilyCheck and dbFamilyCheck.family_id ~= nil and tonumber(dbFamilyCheck.family_id) and tonumber(dbFamilyCheck.family_id) > 0 then
+        house.family_id = tonumber(dbFamilyCheck.family_id)
+        return false, 'family_house_must_be_unlinked'
+    end
+
     local allowed, why = CanAccessProperty(cid, houseId, ACTIONS.HOUSE_SELL)
     if not allowed then return false, why end
 
@@ -433,21 +443,15 @@ lib.callback.register('cm-house:server:sellHouse', function(src, houseId)
 
     local weaponCount = HouseWeaponStorageCount and HouseWeaponStorageCount(houseId) or 0
     if weaponCount > 0 then
-        return false, ('Empty the family weapon storage first. It still contains %d item stack%s.')
+        return false, ('Empty the weapon storage first. It still contains %d item stack%s.')
             :format(weaponCount, weaponCount == 1 and '' or 's')
-    end
-
-    local familyOk, familyContext = CMHouseFamilyLifecycle.GetContext(house, { requireEmptyBank = true })
-    if not familyOk then
-        return false, formatFamilyBankError(familyContext)
-            or ('The linked family could not be prepared for deletion: %s'):format(tostring(familyContext))
     end
 
     houseSaleLocks[houseId] = true
     local ok, result, message = xpcall(function()
         -- Vehicles are real entities and must be safely persisted/released before
         -- the database stops describing this location as a garage.
-        local vehiclesReleased, releaseInfo = EvictVehicles(houseId, 'family_house_sale', cid)
+        local vehiclesReleased, releaseInfo = EvictVehicles(houseId, 'house_sale', cid)
         if not vehiclesReleased then
             return false, 'A parked vehicle could not be released: ' .. tostring(releaseInfo)
         end
@@ -458,10 +462,9 @@ lib.callback.register('cm-house:server:sellHouse', function(src, houseId)
         local journalId = tonumber(MySQL.insert.await([[
             INSERT INTO cm_house_sale_journal
                 (token, house_id, seller_cid, seller_source, payout, account, old_family_id, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'prepared')
+            VALUES (?, ?, ?, ?, ?, ?, NULL, 'prepared')
         ]], {
             token, houseId, cid, src, payout, account,
-            familyContext and familyContext.id or nil,
         }))
         if not journalId or journalId <= 0 then
             return false, 'The sale journal could not be created. You still own the property.'
@@ -484,22 +487,7 @@ lib.callback.register('cm-house:server:sellHouse', function(src, houseId)
                 query = 'DELETE FROM cm_house_access WHERE house_id = ?',
                 values = { houseId },
             },
-        }
-        CMHouseFamilyLifecycle.AppendDeleteStatements(
-            statements, familyContext and familyContext.id or nil, houseId)
-
-        if familyContext and familyContext.id then
-            statements[#statements + 1] = {
-                query = [[
-                    UPDATE cm_houses
-                    SET owner_cid = NULL, family_id = NULL, for_sale = 1,
-                        paid_until = NULL, locked = 1
-                    WHERE id = ? AND owner_cid = ? AND family_id = ?
-                ]],
-                values = { houseId, cid, familyContext.id },
-            }
-        else
-            statements[#statements + 1] = {
+            {
                 query = [[
                     UPDATE cm_houses
                     SET owner_cid = NULL, family_id = NULL, for_sale = 1,
@@ -507,15 +495,15 @@ lib.callback.register('cm-house:server:sellHouse', function(src, houseId)
                     WHERE id = ? AND owner_cid = ? AND family_id IS NULL
                 ]],
                 values = { houseId, cid },
-            }
-        end
-        statements[#statements + 1] = {
-            query = [[
-                UPDATE cm_house_sale_journal
-                SET status = 'ownership_released', ownership_released_at = NOW()
-                WHERE token = ? AND status = 'prepared'
-            ]],
-            values = { token },
+            },
+            {
+                query = [[
+                    UPDATE cm_house_sale_journal
+                    SET status = 'ownership_released', ownership_released_at = NOW()
+                    WHERE token = ? AND status = 'prepared'
+                ]],
+                values = { token },
+            },
         }
 
         local committed = MySQL.transaction.await(statements)
@@ -539,7 +527,6 @@ lib.callback.register('cm-house:server:sellHouse', function(src, houseId)
             return false, 'The property state could not be verified. Contact an administrator before retrying.'
         end
 
-        local oldFamily = familyContext and familyContext.id or nil
         house.owner_cid, house.family_id = nil, nil
         house.for_sale, house.paid_until, house.locked = true, nil, true
 
@@ -554,10 +541,8 @@ lib.callback.register('cm-house:server:sellHouse', function(src, houseId)
         end
         for _, set in pairs(Access) do set[houseId] = nil end
 
-        CMHouseFamilyLifecycle.FinalizeDeletedFamily(familyContext, houseId, 'sold', cid)
-        LogHouse(houseId, oldFamily, cid, 'family_house_sell', {
+        LogHouse(houseId, nil, cid, 'house_sell', {
             payout = payout,
-            familyDeleted = oldFamily ~= nil,
         })
         TriggerClientEvent('cm-house:client:syncHouse', -1, BuildClientHouse(house))
         PushOwnership(cid)
@@ -569,11 +554,10 @@ lib.callback.register('cm-house:server:sellHouse', function(src, houseId)
             account = account,
         }, src)
         if paid then
-            local familySuffix = oldFamily and ' The linked family was disbanded.' or ''
-            return true, ('Sold for $%s.%s'):format(Comma(payout), familySuffix)
+            return true, ('Sold for $%s.'):format(Comma(payout))
         end
 
-        return true, ('The property was sold and the family was disbanded. Your $%s payout is safely queued because the bank is unavailable.')
+        return true, ('The property was sold. Your $%s payout is safely queued because the bank is unavailable.')
             :format(Comma(payout))
     end, debug.traceback)
 

@@ -76,28 +76,54 @@
             const backdrop = document.createElement('div');
             backdrop.className = 'cm-modal-backdrop';
 
+            const safeBodyHtml = CMUI.safeText(options.message || 'Are you sure?').replace(/\n/g, '<br>');
+
             backdrop.innerHTML = `
                 <div class="cm-modal">
                     <div class="cm-modal-header">${CMUI.safeText(options.title || 'Confirm')}</div>
-                    <div class="cm-modal-body">${CMUI.safeText(options.message || 'Are you sure?')}</div>
+                    <div class="cm-modal-body">${safeBodyHtml}</div>
                     <div class="cm-modal-actions">
-                        <button class="cm-btn cm-btn-secondary" data-cancel>${CMUI.safeText(options.cancelText || 'Cancel')}</button>
-                        <button class="cm-btn ${options.danger ? 'cm-btn-danger' : ''}" data-confirm>${CMUI.safeText(options.confirmText || 'Confirm')}</button>
+                        <button type="button" class="cm-btn cm-btn-secondary" data-cancel>${CMUI.safeText(options.cancelText || 'Cancel')}</button>
+                        <button type="button" class="cm-btn ${options.danger ? 'cm-btn-danger' : ''}" data-confirm>${CMUI.safeText(options.confirmText || 'Confirm')}</button>
                     </div>
                 </div>
             `;
 
             document.body.appendChild(backdrop);
 
-            backdrop.querySelector('[data-cancel]').addEventListener('click', function () {
-                backdrop.remove();
-                resolve(false);
-            });
+            let settled = false;
+            function finish(result) {
+                if (settled) return;
+                settled = true;
+                window.removeEventListener('keydown', onKeyDown, true);
+                if (backdrop.parentNode) backdrop.remove();
+                resolve(result);
+            }
 
-            backdrop.querySelector('[data-confirm]').addEventListener('click', function () {
-                backdrop.remove();
-                resolve(true);
-            });
+            function onKeyDown(event) {
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    finish(false);
+                }
+            }
+            window.addEventListener('keydown', onKeyDown, true);
+
+            const cancelBtn = backdrop.querySelector('[data-cancel]');
+            const confirmBtn = backdrop.querySelector('[data-confirm]');
+
+            if (cancelBtn) {
+                cancelBtn.addEventListener('click', function () {
+                    finish(false);
+                });
+                cancelBtn.focus();
+            }
+
+            if (confirmBtn) {
+                confirmBtn.addEventListener('click', function () {
+                    finish(true);
+                });
+            }
         });
     };
 

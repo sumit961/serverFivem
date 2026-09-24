@@ -414,6 +414,10 @@ RegisterNUICallback('garageSlot:action', function(data, cb)
         end
     end
 
+    if not ok and msg == 'vehicle_in_public_parking' then
+        msg = 'This vehicle is parked in public parking. Retrieve it from public parking first.'
+    end
+
     notify(msg or (ok and 'Garage updated.' or 'Garage action failed.'), ok and 'success' or 'error')
     if ok then closeSlotMenu() end
     cb({ ok = ok == true, message = msg })

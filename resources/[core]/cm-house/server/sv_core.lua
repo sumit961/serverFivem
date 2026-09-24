@@ -332,6 +332,8 @@ function BuildDoorView(cid, house)
             local display = house.family_id and GetFamilyDisplay(house.family_id) or nil
             return display and (display.name or display.label) or nil
         end)(),
+        familyId     = house.family_id,
+        isFamilyHouse = house.family_id ~= nil,
         familyEligible = house.family_eligible,
 
         insurance    = house.insurance,

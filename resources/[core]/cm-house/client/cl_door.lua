@@ -460,6 +460,8 @@ local function buildDoorNuiPayload(view, requestId)
         image           = text(view.image),
         ownerName       = text(view.ownerName),
         familyName      = text(view.familyName),
+        familyId        = number(view.familyId, nil),
+        isFamilyHouse   = view.isFamilyHouse == true or view.familyId ~= nil,
         insurance       = number(view.insurance, 0),
         price           = number(view.price, 0),
         govValue        = number(view.govValue, 0),
@@ -705,16 +707,13 @@ RegisterNUICallback('door:buy', function(d, cb)
 end)
 
 RegisterNUICallback('door:sell', function(d, cb)
-    local confirmed = CMHouseConfirm and CMHouseConfirm(
-        'Sell this house?',
-        'It goes back on the market and you lose everything stored inside. This cannot be undone.',
-        'Sell it', 'Keep it', 'danger')
-    if not confirmed then cb({ ok = false }) return end
-
     local ok, msg = lib.callback.await('cm-house:server:sellHouse', false, d.houseId)
+    if not ok and msg == 'family_house_must_be_unlinked' then
+        msg = 'This property is currently your Family House. Remove the Family House link before selling it.'
+    end
     hudNotify(msg, ok and 'success' or 'error')
     if ok then closeMenu() end
-    cb({ ok = ok, message = msg })
+    cb({ ok = ok == true, message = msg })
 end)
 
 -- ------------------------------------------------------------

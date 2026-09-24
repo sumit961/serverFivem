@@ -509,6 +509,20 @@
     transform: translateY(-2px) !important;
 }
 
+#door.property-card-screen .btn-sell.btn-sell--disabled,
+#door.property-card-screen .btn-sell:disabled {
+    background: rgba(18, 36, 47, 0.7) !important;
+    border: 1px dashed rgba(130, 157, 174, 0.45) !important;
+    color: var(--door-text-secondary) !important;
+    opacity: 0.75 !important;
+    cursor: not-allowed !important;
+    pointer-events: auto !important;
+    transform: none !important;
+    box-shadow: none !important;
+    letter-spacing: 0.5px !important;
+    font-size: 10px !important;
+}
+
 #door.property-card-screen .btn-sell.btn-sell--confirming {
     background: rgba(231, 76, 60, 0.25) !important;
     color: #FFFFFF !important;

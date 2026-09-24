@@ -57,6 +57,19 @@
   }
 
   function openConfirm(data) {
+    if (window.CMUI && typeof window.CMUI.confirm === 'function') {
+      data = data || {};
+      window.CMUI.confirm({
+        title: data.title || 'Confirm action',
+        message: data.content || 'Are you sure?',
+        confirmText: data.confirmLabel || 'Confirm',
+        cancelText: data.cancelLabel || 'Cancel',
+        danger: data.tone === 'danger'
+      }).then(function (confirmed) {
+        post('garageSlot:confirm', { confirmed: confirmed === true });
+      });
+      return;
+    }
     if (!confirmRoot) return;
     data = data || {};
     text('gc-title', data.title || 'Confirm action');
@@ -128,14 +141,27 @@
         tone: 'blocked'
       };
     }
+    var code = String(vehicle.statusCode || '').toUpperCase();
+    var loc = String(vehicle.locationState || '').toUpperCase();
+    if (code === 'PUBLIC_PARKING' || loc === 'PUBLIC_GARAGE' || loc === 'PUBLIC_PARKING') {
+      return {
+        key: 'blocked',
+        label: 'PUBLIC PARKING',
+        tone: 'blocked'
+      };
+    }
     if (vehicle.canPark) return { key: 'available', label: 'AVAILABLE', tone: 'available', action: 'park', actionLabel: 'ASSIGN HERE' };
     if (vehicle.canCall) return { key: 'assigned', label: vehicle.inGarage ? 'PARKED' : 'ASSIGNED', tone: 'assigned', action: 'call', actionLabel: 'MOVE HERE' };
-    var code = String(vehicle.statusCode || '').toUpperCase();
     var tone = code === 'IMPOUNDED' || code === 'POLICE_SEIZED' ? 'danger' : 'blocked';
     return { key: vehicle.assigned || vehicle.parked ? 'assigned' : 'blocked', label: vehicle.statusLabel || 'UNAVAILABLE', tone: tone };
   }
 
   function vehicleLocation(vehicle) {
+    var code = String(vehicle.statusCode || '').toUpperCase();
+    var loc = String(vehicle.locationState || '').toUpperCase();
+    if (code === 'PUBLIC_PARKING' || loc === 'PUBLIC_GARAGE' || loc === 'PUBLIC_PARKING') {
+      return 'PUBLIC PARKING';
+    }
     if (vehicle.parkedHouseLabel) {
       return String(vehicle.parkedHouseLabel) + (vehicle.parkedSlotIndex ? ' · SPACE ' + String(vehicle.parkedSlotIndex) : '');
     }
@@ -221,11 +247,15 @@
     } else {
       var unavailable = document.createElement('span');
       unavailable.className = 'garage-vehicle-row__unavailable';
-      unavailable.textContent = replacing
-        ? 'CURRENT SPACE IS OCCUPIED'
-        : (vehicle.rankAllowed === false
-          ? ('REQUIRES TIER ' + (vehicle.requiredTier || ''))
-          : 'ACTION UNAVAILABLE');
+      var unavailText = 'ACTION UNAVAILABLE';
+      if (replacing) {
+        unavailText = 'CURRENT SPACE IS OCCUPIED';
+      } else if (state.label === 'PUBLIC PARKING' || String(vehicle.statusCode || '').toUpperCase() === 'PUBLIC_PARKING') {
+        unavailText = 'IN PUBLIC PARKING';
+      } else if (vehicle.rankAllowed === false) {
+        unavailText = 'REQUIRES TIER ' + (vehicle.requiredTier || '');
+      }
+      unavailable.textContent = unavailText;
       actions.appendChild(unavailable);
     }
 
@@ -435,6 +465,9 @@
   });
 
   document.addEventListener('keydown', function (event) {
+    if (document.querySelector('.cm-modal-backdrop')) {
+      return;
+    }
     var open = root && root.classList.contains('on');
     if (event.key === '/' && open && document.activeElement !== searchInput) {
       event.preventDefault();

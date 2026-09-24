@@ -178,8 +178,20 @@
       buy.disabled = !can.buy;
     }
     if (sell) {
-      sell.hidden = !can.sell;
-      sell.disabled = !can.sell;
+      var isFamilyLinked = !!(view && (view.isFamilyHouse === true || (view.familyId && Number(view.familyId) > 0) || (view.familyName && view.ownerName)));
+      if (isFamilyLinked && can.sell) {
+        sell.hidden = false;
+        sell.disabled = true;
+        sell.classList.add('btn-sell--disabled');
+        sell.title = 'Remove the Family House link before selling this property.';
+        sell.innerHTML = '<span class="icon">&#10006;</span> FAMILY HOUSE — REMOVE LINK FIRST';
+      } else {
+        sell.hidden = !can.sell;
+        sell.disabled = !can.sell;
+        sell.classList.remove('btn-sell--disabled');
+        sell.title = '';
+        sell.innerHTML = '<span class="icon">&#10006;</span> SELL PROPERTY';
+      }
     }
 
     if (foot) {
@@ -436,62 +448,34 @@
       }
 
       if (action === 'sell') {
-        var confirmModal = el('d-confirm-modal');
-        if (confirmModal) {
-          setText('d-confirm-payout', money(current ? current.govValue : 0));
-          confirmModal.hidden = false;
-          confirmModal.setAttribute('aria-hidden', 'false');
-        } else {
+        if (button.disabled || !current) return;
+        var payout = money(current.govValue);
+        var sellConfirm = window.CMUI && typeof window.CMUI.confirm === 'function'
+          ? window.CMUI.confirm({
+              title: 'Sell Property',
+              message: 'Are you sure you want to sell this property? It will be returned to the market and any stored contents will be cleared. This action cannot be undone.\n\nGovernment Payout: ' + payout,
+              confirmText: 'Confirm Sell',
+              cancelText: 'Cancel',
+              danger: true
+            })
+          : Promise.resolve(window.confirm('Sell this property for ' + payout + '?'));
+
+        sellConfirm.then(function (confirmed) {
+          if (!confirmed) {
+            // Player cancelled or hit Escape: keep Door UI open and active!
+            return;
+          }
           button.disabled = true;
           post('door:sell', { houseId: houseId }, function (response) {
-            if (response && response.ok) closeLocal(false);
-            else if (current) button.disabled = false;
+            button.disabled = false;
+            if (response && response.ok) {
+              closeLocal(false);
+            }
           });
-        }
+        });
+        return;
       }
     });
-
-    var confirmModal = el('d-confirm-modal');
-    var confirmCancel = el('d-confirm-cancel');
-    var confirmProceed = el('d-confirm-proceed');
-
-    if (confirmCancel) {
-      confirmCancel.addEventListener('click', function (event) {
-        event.stopPropagation();
-        if (confirmModal) {
-          confirmModal.hidden = true;
-          confirmModal.setAttribute('aria-hidden', 'true');
-        }
-      });
-    }
-
-    if (confirmModal) {
-      confirmModal.addEventListener('click', function (event) {
-        if (event.target === confirmModal) {
-          confirmModal.hidden = true;
-          confirmModal.setAttribute('aria-hidden', 'true');
-        }
-      });
-    }
-
-    if (confirmProceed) {
-      confirmProceed.addEventListener('click', function (event) {
-        event.stopPropagation();
-        if (!current) return;
-        var houseId = current.id;
-        confirmProceed.disabled = true;
-        post('door:sell', { houseId: houseId }, function (response) {
-          confirmProceed.disabled = false;
-          if (confirmModal) {
-            confirmModal.hidden = true;
-            confirmModal.setAttribute('aria-hidden', 'true');
-          }
-          if (response && response.ok) {
-            closeLocal(false);
-          }
-        });
-      });
-    }
   }
 
   window.addEventListener('message', function (event) {
@@ -528,6 +512,9 @@
 
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape' && root && root.classList.contains('on')) {
+      if (document.querySelector('.cm-modal-backdrop')) {
+        return; // CMUI modal will handle its own Escape cancellation
+      }
       var confirmModal = el('d-confirm-modal');
       if (confirmModal && !confirmModal.hidden) {
         confirmModal.hidden = true;

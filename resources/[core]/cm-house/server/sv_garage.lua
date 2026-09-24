@@ -798,7 +798,32 @@ local STATUS_LABELS = {
     OPERATION_IN_PROGRESS = 'Operation in progress',
     STORED_ELSEWHERE = 'Stored elsewhere',
     RANK_LOCKED = 'Requires higher rank',
+    PUBLIC_PARKING = 'Public Parking',
 }
+
+local function isVehicleInPublicParking(vehicleId)
+    vehicleId = tonumber(vehicleId)
+    if not vehicleId then return false end
+
+    local inSpace = pcall(function()
+        local row = MySQL.single.await([[
+            SELECT id, parking_id, spot_index
+            FROM cm_parking_spaces
+            WHERE vehicle_id = ? AND (expires_at IS NULL OR expires_at > NOW())
+            LIMIT 1
+        ]], { vehicleId })
+        return row ~= nil
+    end)
+    if inSpace == true and select(2, inSpace) == true then return true end
+
+    local v = VehicleById(vehicleId)
+    if v then
+        local loc = tostring(v.location_state or ''):upper()
+        if loc == 'PUBLIC_GARAGE' or loc == 'PUBLIC_PARKING' then return true end
+        if v.parking_id and tonumber(v.parking_id) then return true end
+    end
+    return false
+end
 
 local function vehicleGarageStatus(v, houseId)
     if not v then return 'AVAILABLE', STATUS_LABELS.AVAILABLE, false end
@@ -891,6 +916,7 @@ function GarageState(houseId)
                     plate   = v.plate,
                     model   = v.model,
                     label   = v.label,
+                    image   = v.image and tostring(v.image) or nil,
                     fuel    = normalizeVehicleFuel(v.fuel, 100.0),
                     engine  = normalizeVehicleHealth(v.engine_health, 1000.0),
                     body    = normalizeVehicleHealth(v.body_health, 1000.0),
@@ -979,6 +1005,7 @@ lib.callback.register('cm-house:server:parkable', function(src, houseId)
         rows = MySQL.query.await([[
             SELECT DISTINCT v.id, v.plate, v.model, v.label, v.is_stored, v.garage,
                    v.location_state, v.location_ref, v.location_slot, v.owner_character_id,
+                   catalog.image AS catalog_image,
                    s.house_id AS assigned_house_id, s.slot_index AS assigned_slot_index,
                    h.label AS assigned_house_label,
                    fva.level AS family_vehicle_level
@@ -986,22 +1013,25 @@ lib.callback.register('cm-house:server:parkable', function(src, houseId)
             LEFT JOIN cm_house_vehicle_slots s ON s.vehicle_id = v.id
             LEFT JOIN cm_houses h ON h.id = s.house_id
             LEFT JOIN cm_family_vehicle_access fva ON fva.vehicle_id = v.id AND fva.family_id = ?
-            LEFT JOIN cm_family_members fm ON fm.character_id = v.owner_character_id AND fm.family_id = ?
+            LEFT JOIN cm_house_shared_vehicles sh ON sh.vehicle_id = v.id AND sh.house_id = ?
+            LEFT JOIN cm_vehicle_catalog catalog ON LOWER(catalog.model) = LOWER(v.model)
             WHERE v.owner_character_id = ?
-               OR h.family_id = ?
+               OR (h.family_id = ? AND (s.owner_class = 'family' OR s.shared = 1))
                OR fva.vehicle_id IS NOT NULL
-               OR fm.character_id IS NOT NULL
+               OR sh.vehicle_id IS NOT NULL
             ORDER BY v.id DESC
-        ]], { familyId, familyId, tostring(cid), familyId }) or {}
+        ]], { familyId, houseId, tostring(cid), familyId }) or {}
     else
         rows = MySQL.query.await([[
             SELECT v.id, v.plate, v.model, v.label, v.is_stored, v.garage,
                    v.location_state, v.location_ref, v.location_slot, v.owner_character_id,
+                   catalog.image AS catalog_image,
                    s.house_id AS assigned_house_id, s.slot_index AS assigned_slot_index,
                    h.label AS assigned_house_label
             FROM cm_owned_vehicles v
             LEFT JOIN cm_house_vehicle_slots s ON s.vehicle_id = v.id
             LEFT JOIN cm_houses h ON h.id = s.house_id
+            LEFT JOIN cm_vehicle_catalog catalog ON LOWER(catalog.model) = LOWER(v.model)
             WHERE v.owner_character_id = ?
             ORDER BY v.id DESC
         ]], { tostring(cid) }) or {}
@@ -1018,13 +1048,14 @@ lib.callback.register('cm-house:server:parkable', function(src, houseId)
             and tostring(v.garage or '') == garageKey(assignedHouseId)
         local storedElsewhere = DbBool(v.is_stored) and not inAssignedGarage
         local locationState = tostring(v.location_state or (DbBool(v.is_stored) and 'STORED' or 'OUTSIDE')):upper()
+        local inPublicParking = isVehicleInPublicParking(vehicleId)
         local operationActive = false
         if GetResourceState('cm-vehicles') == 'started' then
             local okBusy, busy = pcall(function() return exports['cm-vehicles']:IsVehicleOperationActive(v.id) end)
             operationActive = okBusy and busy == true
         end
         local blockedState = locationState == 'IMPOUND' or locationState == 'POLICE_SEIZED'
-            or locationState == 'PENDING_DELETE' or operationActive
+            or locationState == 'PENDING_DELETE' or operationActive or inPublicParking
 
         local vehicleLevel = 1
         local rankAllowed = true
@@ -1040,6 +1071,7 @@ lib.callback.register('cm-house:server:parkable', function(src, houseId)
 
         local statusCode = (not rankAllowed and 'RANK_LOCKED')
             or (operationActive and 'OPERATION_IN_PROGRESS')
+            or (inPublicParking and 'PUBLIC_PARKING')
             or (locationState == 'IMPOUND' and 'IMPOUNDED')
             or (locationState == 'POLICE_SEIZED' and 'POLICE_SEIZED')
             or (inAssignedGarage and 'PARKED_OTHER_SLOT')
@@ -1058,6 +1090,7 @@ lib.callback.register('cm-house:server:parkable', function(src, houseId)
             plate = tostring(v.plate or ''),
             model = tostring(v.model or ''),
             label = tostring(v.label or v.model or 'Vehicle'),
+            image = (v.catalog_image and tostring(v.catalog_image) ~= '' and tostring(v.catalog_image)) or nil,
             isStored = DbBool(v.is_stored),
             assigned = assigned,
             parked = assigned,
@@ -1078,6 +1111,7 @@ lib.callback.register('cm-house:server:parkable', function(src, houseId)
             statusLabel = not rankAllowed and ('Tier %d Required'):format(vehicleLevel) or (STATUS_LABELS[statusCode] or statusCode),
             unavailableReason = not rankAllowed
                 and ('Requires family rank tier %d (your rank is %d)'):format(vehicleLevel, viewerTier)
+                or (inPublicParking and 'Vehicle is in public parking')
                 or (blockedState and (STATUS_LABELS[statusCode] or statusCode))
                 or (storedElsewhere and tostring(v.garage or 'Stored elsewhere'))
                 or (assigned and ('Assigned to %s · space %d'):format(
@@ -2227,6 +2261,9 @@ lib.callback.register('cm-house:server:callVehicleById', function(src, houseId, 
 
     local selected = VehicleById(vehicleId)
     if not selected then return false, 'That vehicle does not exist.' end
+    if isVehicleInPublicParking(vehicleId) then
+        return false, 'vehicle_in_public_parking'
+    end
     local isOwner = tonumber(selected.owner_character_id) == tonumber(cid)
     if not isOwner then
         if not isFamilyHouse then
@@ -2542,6 +2579,9 @@ lib.callback.register('cm-house:server:assignVehicleToSlot', function(src, house
 
     local selected = VehicleById(vehicleId)
     if not selected then return false, 'That vehicle does not exist.' end
+    if isVehicleInPublicParking(vehicleId) then
+        return false, 'vehicle_in_public_parking'
+    end
     local isOwner = tonumber(selected.owner_character_id) == tonumber(cid)
     if not isOwner then
         if not isFamilyHouse then
