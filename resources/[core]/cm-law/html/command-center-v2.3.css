@@ -73,8 +73,8 @@
   --cc-warn: #f5b13c;
 
   /* Type stacks */
-  --cc-display: 'Archivo', 'Segoe UI', system-ui, sans-serif;
-  --cc-body: 'Archivo', 'Segoe UI', system-ui, sans-serif;
+  --cc-display: var(--cm-font-display, 'Poppins', sans-serif);
+  --cc-body: var(--cm-font, 'DM Sans', sans-serif);
   --cc-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
 
   --cc-r: 2px;
@@ -97,9 +97,6 @@
    ========================================================================== */
 
 :root {
-  /* cm-ui shared shell */
-  --cm-font: var(--cc-body);
-  --cm-font-display: var(--cc-display);
 
   /* cm-law style.css */
   --cyan: var(--cc-accent);

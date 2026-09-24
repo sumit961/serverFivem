@@ -72,7 +72,16 @@ function renderMissionBoard() {
   }).join('') || '<article class="card">No missions are configured.</article>';
   const cancel = document.getElementById('cancelActiveMission');
   if (cancel) cancel.onclick = async () => {
-    if (active?.isLeader && crew.length > 1 && !window.confirm('Leave the mission and transfer leadership to another medic? Their crew keeps working the active run.')) return;
+    if (active?.isLeader && crew.length > 1) {
+      const ok = await CMUI.confirm({
+        title: 'LEAVE MISSION?',
+        message: 'Leave the mission and transfer leadership to another medic? Their crew keeps working the active run.',
+        confirmText: 'LEAVE MISSION',
+        cancelText: 'STAY',
+        danger: true
+      });
+      if (!ok) return;
+    }
     const result = await post('cancelMission'); if (result?.board) missionBoardData = result.board; else await loadMissionBoard(); renderMissionBoard();
   };
 }
@@ -248,7 +257,14 @@ document.getElementById('fleetList').addEventListener('click', async (event) => 
   if (spawn) post('spawnFleetVehicle', { model: spawn.dataset.fleetSpawn });
   const location = event.target.closest('[data-fleet-location]');
   if (location) {
-    if (!window.confirm('Overwrite this vehicle\'s saved spawn location with your current position?')) return;
+    const ok = await CMUI.confirm({
+      title: 'SAVE SPAWN LOCATION?',
+      message: "Overwrite this vehicle's saved spawn location with your current position?",
+      confirmText: 'SAVE LOCATION',
+      cancelText: 'CANCEL',
+      danger: false
+    });
+    if (!ok) return;
     await post('setFleetVehicleLocation', { model: location.dataset.fleetLocation });
     loadFleet();
   }
@@ -445,18 +461,39 @@ document.getElementById('memberMap').onclick = async () => {
   const on = button.classList.toggle('is-active');
   button.textContent = on ? 'Member map: on' : 'Member map';
 };
-document.getElementById('meetingPoint').onclick = () => {
-  // One click broadcasts a routed waypoint to every online EMS member,
-  // so make it deliberate rather than instant.
-  if (!window.confirm('Set the EMS meeting point at your current position? Every online member gets a map route to it.')) return;
+document.getElementById('meetingPoint').onclick = async () => {
+  const ok = await CMUI.confirm({
+    title: 'SET MEETING POINT?',
+    message: 'Set the EMS meeting point at your current position? Every online member gets a map route to it.',
+    confirmText: 'SET POINT',
+    cancelText: 'CANCEL',
+    danger: false
+  });
+  if (!ok) return;
   post('action', { action: 'set_meeting', payload: {} });
 };
-document.getElementById('clearMeeting').onclick = () => {
-  if (!window.confirm('Clear the EMS meeting point for everyone?')) return;
+document.getElementById('clearMeeting').onclick = async () => {
+  const ok = await CMUI.confirm({
+    title: 'CLEAR MEETING POINT?',
+    message: 'Clear the EMS meeting point for everyone?',
+    confirmText: 'CLEAR',
+    cancelText: 'CANCEL',
+    danger: false
+  });
+  if (!ok) return;
   post('action', { action: 'clear_meeting', payload: {} });
 };
 document.getElementById('setClothingNpc').onclick = () => post('action', { action: 'set_clothing_npc', payload: {} });
-document.getElementById('recallFleet').onclick = () => { if (window.confirm('Recall every free EMS fleet vehicle back to its spawn point?')) post('recallAllFleetVehicles', {}); };
+document.getElementById('recallFleet').onclick = async () => {
+  const ok = await CMUI.confirm({
+    title: 'RECALL ALL FLEET VEHICLES?',
+    message: 'Recall every free EMS fleet vehicle back to its spawn point?',
+    confirmText: 'RECALL ALL',
+    cancelText: 'CANCEL',
+    danger: false
+  });
+  if (ok) post('recallAllFleetVehicles', {});
+};
 document.getElementById('openEmsClothingAdmin').onclick = () => post('openEmsClothingAdmin', {});
 document.getElementById('wardrobeDone').onclick = async () => {
   if (wardrobeNpcMode) {
@@ -473,24 +510,60 @@ document.getElementById('wardrobeColorNext').onclick = () => { const current = w
 document.getElementById('saveFavoriteOutfit').onclick = async () => {
   const slot = Number(document.getElementById('favoriteOutfitSlot').value);
   const existing = (state.favoriteOutfits || []).find((item) => Number(item.slot) === slot);
-  if (existing && !window.confirm(`Replace slot ${slot} (${existing.name}) with your current clothing?`)) return;
+  if (existing) {
+    const ok = await CMUI.confirm({
+      title: 'OVERWRITE OUTFIT SLOT?',
+      message: `Replace slot ${slot} (${existing.name}) with your current clothing?`,
+      confirmText: 'REPLACE',
+      cancelText: 'CANCEL',
+      danger: false
+    });
+    if (!ok) return;
+  }
   post('action', { action: 'save_favorite_outfit', payload: { slot, name: document.getElementById('favoriteOutfitName').value.trim() || `Favorite ${slot}` } });
 };
-document.getElementById('favoriteOutfitList').onclick = (event) => {
+document.getElementById('favoriteOutfitList').onclick = async (event) => {
   const del = event.target.closest('[data-favorite-delete]');
-  if (del && window.confirm('Delete this favorite outfit slot?')) post('action', { action: 'delete_favorite_outfit', payload: { slot: Number(del.dataset.favoriteDelete) } });
+  if (del) {
+    const ok = await CMUI.confirm({
+      title: 'DELETE FAVORITE OUTFIT?',
+      message: 'Delete this favorite outfit slot?',
+      confirmText: 'DELETE',
+      cancelText: 'CANCEL',
+      danger: true
+    });
+    if (ok) post('action', { action: 'delete_favorite_outfit', payload: { slot: Number(del.dataset.favoriteDelete) } });
+  }
 };
 (() => { const viewport = document.getElementById('wardrobeViewport'); let dragging = false, lastX = 0; viewport.onmousedown = (event) => { dragging = true; lastX = event.clientX; }; window.addEventListener('mouseup', () => { dragging = false; }); window.addEventListener('mousemove', (event) => { if (!dragging) return; const dx = event.clientX - lastX; lastX = event.clientX; post('rotateWardrobePed', { delta: -dx * .45 }); }); })();
-document.getElementById('assignLeader').onclick = () => {
+document.getElementById('assignLeader').onclick = async () => {
   const characterId = document.getElementById('leaderCid').value;
-  if (!window.confirm(`Hand over full EMS leadership to character ID ${characterId}? This replaces the current leader immediately.`)) return;
+  if (!characterId) return;
+  const ok = await CMUI.confirm({
+    title: 'TRANSFER EMS LEADERSHIP?',
+    message: `Hand over full EMS leadership to character ID ${characterId}? This replaces the current leader immediately.`,
+    confirmText: 'TRANSFER LEADERSHIP',
+    cancelText: 'CANCEL',
+    danger: true
+  });
+  if (!ok) return;
   post('assignLeader', { characterId });
 };
-document.querySelectorAll('[data-staff-action]').forEach((button) => { button.onclick = () => {
+document.querySelectorAll('[data-staff-action]').forEach((button) => { button.onclick = async () => {
+  const actionType = button.dataset.staffAction;
   const confirmMessages = { fire: 'Fire this EMS employee?', suspend: 'Suspend this EMS employee?' };
-  const message = confirmMessages[button.dataset.staffAction];
-  if (message && !window.confirm(message)) return;
-  post('adminStaffAction', { action: button.dataset.staffAction, characterId: document.getElementById('staffCid').value, rankId: Number(document.getElementById('staffRank').value), minutes: Number(document.getElementById('staffMinutes').value), reason: document.getElementById('staffReason').value });
+  const message = confirmMessages[actionType];
+  if (message) {
+    const ok = await CMUI.confirm({
+      title: actionType === 'fire' ? 'FIRE EMPLOYEE?' : 'SUSPEND EMPLOYEE?',
+      message: message,
+      confirmText: actionType === 'fire' ? 'FIRE' : 'SUSPEND',
+      cancelText: 'CANCEL',
+      danger: true
+    });
+    if (!ok) return;
+  }
+  post('adminStaffAction', { action: actionType, characterId: document.getElementById('staffCid').value, rankId: Number(document.getElementById('staffRank').value), minutes: Number(document.getElementById('staffMinutes').value), reason: document.getElementById('staffReason').value });
 }; });
 document.getElementById('saveSettings').onclick = () => post('adminSaveSettings', { treatmentPrice: Number(document.getElementById('settingTreatment').value), deathRespawnPrice: Number(document.getElementById('settingRespawn').value), medicReward: Number(document.getElementById('settingReward').value), aiArrivalMs: Number(document.getElementById('settingArrival').value) * 1000, sharedResponseRadius: Number(document.getElementById('settingRadius').value), hospitalEnabled: document.getElementById('settingHospital').checked, autoDispatchEnabled: document.getElementById('settingAutoDispatch').checked });
 document.getElementById('medicalSearch').onclick = async () => {
@@ -526,20 +599,39 @@ document.getElementById('saveRank').onclick = () => {
   const permissions = [...document.querySelectorAll('#permissionEditor input:checked')].map((input) => input.value);
   post('action', { action: 'save_rank', payload: { rankId: editingRankId, name: document.getElementById('rankName').value, tier: document.getElementById('rankTier').value, permissions } });
 };
-document.getElementById('members').onclick = (event) => {
+document.getElementById('members').onclick = async (event) => {
   const button = event.target.closest('[data-action]');
   if (!button) return;
+  const actionType = button.dataset.action;
   const confirmMessages = { demote: 'Demote this EMS member?', kick: 'Remove this member from the EMS roster?' };
-  const message = confirmMessages[button.dataset.action];
-  if (message && !window.confirm(message)) return;
-  post('action', { action: button.dataset.action, payload: { characterId: button.dataset.cid } });
+  const message = confirmMessages[actionType];
+  if (message) {
+    const ok = await CMUI.confirm({
+      title: actionType === 'demote' ? 'DEMOTE MEMBER?' : 'REMOVE MEMBER?',
+      message: message,
+      confirmText: actionType === 'demote' ? 'DEMOTE' : 'REMOVE',
+      cancelText: 'CANCEL',
+      danger: true
+    });
+    if (!ok) return;
+  }
+  post('action', { action: actionType, payload: { characterId: button.dataset.cid } });
 };
-document.getElementById('ranks').onclick = (event) => {
+document.getElementById('ranks').onclick = async (event) => {
   const edit = event.target.closest('[data-rank-edit]');
   const remove = event.target.closest('[data-rank-delete]');
   if (edit) openRankEditor(state.ranks.find((rank) => rank.id === Number(edit.dataset.rankEdit)));
-  if (remove && window.confirm('Delete this rank? Members holding it will need to be reassigned.')) {
-    post('action', { action: 'delete_rank', payload: { rankId: Number(remove.dataset.rankDelete) } });
+  if (remove) {
+    const ok = await CMUI.confirm({
+      title: 'DELETE RANK?',
+      message: 'Delete this rank? Members holding it will need to be reassigned.',
+      confirmText: 'DELETE RANK',
+      cancelText: 'CANCEL',
+      danger: true
+    });
+    if (ok) {
+      post('action', { action: 'delete_rank', payload: { rankId: Number(remove.dataset.rankDelete) } });
+    }
   }
 };
 document.getElementById('newAdminMission').onclick = () => openMissionEditor();
@@ -568,9 +660,18 @@ document.getElementById('missionAdminList').onclick = async (event) => {
   const edit = event.target.closest('[data-edit-admin-mission]');
   const remove = event.target.closest('[data-delete-admin-mission]');
   if (edit) openMissionEditor((missionAdminData || []).find((mission) => Number(mission.databaseId) === Number(edit.dataset.editAdminMission)));
-  if (remove && window.confirm('Delete this custom EMS mission? Existing active runs will not be interrupted.')) {
-    const result = await post('deleteAdminMission', { databaseId: Number(remove.dataset.deleteAdminMission) });
-    if (result?.ok) { missionAdminData = null; closeMissionEditor(); await loadMissionAdmin(); }
+  if (remove) {
+    const ok = await CMUI.confirm({
+      title: 'DELETE CUSTOM MISSION?',
+      message: 'Delete this custom EMS mission? Existing active runs will not be interrupted.',
+      confirmText: 'DELETE MISSION',
+      cancelText: 'CANCEL',
+      danger: true
+    });
+    if (ok) {
+      const result = await post('deleteAdminMission', { databaseId: Number(remove.dataset.deleteAdminMission) });
+      if (result?.ok) { missionAdminData = null; closeMissionEditor(); await loadMissionAdmin(); }
+    }
   }
 };
 document.getElementById('saveAdminMission').onclick = async () => {
@@ -735,7 +836,7 @@ document.querySelectorAll('[data-dispatch-filter]').forEach((button) => {
 });
 document.getElementById('dispatchClose').onclick = () => post('dispatchClose');
 document.getElementById('dispatchRefresh').onclick = () => post('dispatchRefresh');
-dispatchBoardRows.onclick = (event) => {
+dispatchBoardRows.onclick = async (event) => {
   const take = event.target.closest('[data-dispatch-take]');
   const remove = event.target.closest('[data-dispatch-remove]');
   const government = event.target.closest('[data-dispatch-government]');
@@ -748,12 +849,30 @@ dispatchBoardRows.onclick = (event) => {
   const assign = event.target.closest('[data-dispatch-assign]');
   const replace = event.target.closest('[data-dispatch-replace]');
   if (take && !take.disabled) post('dispatchTake', { callId: Number(take.dataset.dispatchTake) });
-  if (remove && window.confirm('Remove this call from dispatch? This cannot be undone.')) post('dispatchRemove', { callId: Number(remove.dataset.dispatchRemove) });
+  if (remove) {
+    const ok = await CMUI.confirm({
+      title: 'REMOVE DISPATCH CALL?',
+      message: 'Remove this call from dispatch? This cannot be undone.',
+      confirmText: 'REMOVE CALL',
+      cancelText: 'CANCEL',
+      danger: true
+    });
+    if (ok) post('dispatchRemove', { callId: Number(remove.dataset.dispatchRemove) });
+  }
   if (government) post('dispatchGovernmentDoctor', { callId: Number(government.dataset.dispatchGovernment) });
   if (reject) post('dispatchReject', { callId: Number(reject.dataset.dispatchReject) });
   if (backup) post('dispatchBackup', { callId: Number(backup.dataset.dispatchBackup) });
   if (acknowledge) post('dispatchAcknowledgePriority', { callId: Number(acknowledge.dataset.dispatchAck) });
-  if (clearPriority && window.confirm('Clear this priority backup alert? Other responders will no longer see it.')) post('dispatchClearPriority', { callId: Number(clearPriority.dataset.dispatchClearPriority) });
+  if (clearPriority) {
+    const ok = await CMUI.confirm({
+      title: 'CLEAR PRIORITY ALERT?',
+      message: 'Clear this priority backup alert? Other responders will no longer see it.',
+      confirmText: 'CLEAR ALERT',
+      cancelText: 'CANCEL',
+      danger: false
+    });
+    if (ok) post('dispatchClearPriority', { callId: Number(clearPriority.dataset.dispatchClearPriority) });
+  }
   if (route) post('dispatchRoute', { callId: Number(route.dataset.dispatchRoute) });
   if (note) {
     const value = window.prompt('Incident note (maximum 120 characters):', '');
@@ -763,7 +882,17 @@ dispatchBoardRows.onclick = (event) => {
     const button = assign || replace;
     const callId = Number(assign ? button.dataset.dispatchAssign : button.dataset.dispatchReplace);
     const select = dispatchBoardRows.querySelector(`[data-dispatch-unit="${callId}"]`);
-    if (select?.value && (!replace || window.confirm('Replace the unit(s) currently assigned to this call?'))) {
+    if (select?.value) {
+      if (replace) {
+        const ok = await CMUI.confirm({
+          title: 'REPLACE ASSIGNED UNIT?',
+          message: 'Replace the unit(s) currently assigned to this call?',
+          confirmText: 'REPLACE UNIT',
+          cancelText: 'CANCEL',
+          danger: false
+        });
+        if (!ok) return;
+      }
       post('dispatchAssignUnit', { callId, characterId: select.value, replace: Boolean(replace) });
     }
   }

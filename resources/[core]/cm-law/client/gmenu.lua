@@ -9,16 +9,18 @@ local SearchResult, SearchTarget
 
 local function registerPage()
     if GetResourceState(Config.PlayerDataResource) ~= 'started' then return end
-    exports[Config.PlayerDataResource]:RegisterInteractionPage({ id = PAGE, label = 'Legal Org', icon = 'gavel', order = 36, emptyLabel = 'No Legal Org actions available' })
+    -- cm-playerdata owns the single shared G-menu presentation. This page
+    -- only contributes server-validated Legal organization actions.
+    exports[Config.PlayerDataResource]:RegisterInteractionPage({ id = PAGE, label = 'Organization', icon = 'shield', order = 35, emptyLabel = 'No organization actions available' })
 end
 
 local function add(id, label, order)
-    exports[Config.PlayerDataResource]:RegisterInteractionOption(PAGE, { id = id, action = id, label = label, icon = 'gavel', type = 'extension', order = order, close = true })
+    exports[Config.PlayerDataResource]:RegisterInteractionOption(PAGE, { id = id, action = id, label = label, icon = 'shield', type = 'extension', order = order, close = true })
 end
 
 local function addInvite(label)
     exports[Config.PlayerDataResource]:RegisterInteractionOption(PAGE, {
-        id = 'law_invite', action = 'law_invite', label = label, icon = 'gavel', order = 30, close = true,
+        id = 'law_invite', action = 'law_invite', label = label, icon = 'shield', order = 30, close = true,
         type = 'clientEvent', event = 'cm-law:client:confirmInvite',
     })
 end
@@ -26,30 +28,34 @@ end
 RegisterNetEvent('cm-law:client:confirmInvite', function(targetServerId)
     local mine = LocalPlayer.state.cmLegalOrg
     local label = type(mine) == 'table' and (mine.shortLabel or mine.label) or 'Organization'
-    local result = lib.alertDialog({
-        header = ('%s Invitation'):format(label), content = ('Invite the selected nearby player to %s?'):format(label),
-        centered = true, cancel = true, labels = { confirm = 'Send Invite', cancel = 'Cancel' },
+    local confirmed = exports['cm-ui']:Confirm({
+        title = ('%s INVITATION'):format(label:upper()),
+        message = ('Invite the selected nearby player to %s?'):format(label),
+        confirmText = 'SEND INVITE',
+        cancelText = 'CANCEL',
+        danger = false,
     })
-    if result == 'confirm' then TriggerServerEvent('cm-playerdata:server:extensionInteraction', targetServerId, 'law_invite', {}) end
+    if confirmed then TriggerServerEvent('cm-playerdata:server:extensionInteraction', targetServerId, 'law_invite', {}) end
 end)
 
 RegisterNetEvent('cm-law:client:invite', function(data)
     data = type(data) == 'table' and data or {}
     CreateThread(function()
-        local result = lib.alertDialog({
-            header = 'Organization Invitation',
-            content = ('%s invited you to join **%s** as **%s**.'):format(
+        local confirmed = exports['cm-ui']:Confirm({
+            title = 'ORGANIZATION INVITATION',
+            message = ('%s invited you to join %s as %s.'):format(
                 tostring(data.inviter or 'An authorized member'), tostring(data.organization or 'a legal organization'), tostring(data.rank or 'Recruit')),
-            centered = true, cancel = true, labels = { confirm = 'Accept', cancel = 'Decline' },
+            confirmText = 'ACCEPT',
+            cancelText = 'DECLINE',
+            danger = false,
         })
-        local ok, message = lib.callback.await('cm-law:server:respondInvite', false, data.organizationId, result == 'confirm')
+        local ok, message = lib.callback.await('cm-law:server:respondInvite', false, data.organizationId, confirmed == true)
         TriggerEvent('cm-hud:client:notify', message or 'Invitation response failed.', ok and 'success' or 'error')
     end)
 end)
-
 local function addSearchRow(id, label, description, order)
     exports[Config.PlayerDataResource]:RegisterInteractionOption(PAGE, {
-        id = id, label = label, description = description, icon = 'gavel', type = 'noop', order = order, close = false,
+        id = id, label = label, description = description, icon = 'shield', type = 'noop', order = order, close = false,
     })
 end
 
@@ -78,7 +84,7 @@ local function rebuild(targetServerId)
         addSearchRow('law_search_illegal', 'Illegal items', listText(SearchResult.illegalItems), 6)
         if tonumber(SearchResult.confiscatableCount) and tonumber(SearchResult.confiscatableCount) > 0 then
             exports[Config.PlayerDataResource]:RegisterInteractionOption(PAGE, {
-                id = 'law_confiscate', label = 'Confiscate contraband', icon = 'gavel', type = 'clientEvent',
+                id = 'law_confiscate', label = 'Confiscate contraband', icon = 'shield', type = 'clientEvent',
                 event = 'cm-law:client:confiscatePlayer', order = 7, close = false,
             })
         end
@@ -106,7 +112,7 @@ local function rebuild(targetServerId)
             if canCuff then add('law_uncuff', 'Uncuff', 11) end
             if canSearch then
                 exports[Config.PlayerDataResource]:RegisterInteractionOption(PAGE, {
-                    id = 'law_search', label = 'Search Player', icon = 'gavel', type = 'clientEvent',
+                    id = 'law_search', label = 'Search Player', icon = 'shield', type = 'clientEvent',
                     event = 'cm-law:client:searchPlayer', order = 15, close = false,
                 })
             end
@@ -125,7 +131,7 @@ local function rebuild(targetServerId)
     -- trusted labels or minutes.
     if canCuff and Player(targetServerId).state.cmCuffed == true then
         exports[Config.PlayerDataResource]:RegisterInteractionOption(PAGE, {
-            id = 'law_book_suspect', label = 'Book Suspect', icon = 'gavel', type = 'clientEvent',
+            id = 'law_book_suspect', label = 'Book Suspect', icon = 'shield', type = 'clientEvent',
             event = 'cm-law:client:bookingIntake', order = 20, close = true,
         })
     end
@@ -176,18 +182,24 @@ end)
 RegisterNetEvent('cm-law:client:confiscatePlayer', function(targetServerId)
     targetServerId = tonumber(targetServerId)
     if not targetServerId then return end
-    local decision = lib.alertDialog({ header = 'Confirm confiscation',
-        content = 'Move every unlicensed weapon, unlicensed ammunition, and illegal item found into your organization evidence storage?',
-        centered = true, cancel = true, labels = { confirm = 'Confiscate evidence', cancel = 'Cancel' } })
-    if decision ~= 'confirm' then return end
-    local response = lib.callback.await('cm-law:server:confiscatePlayer', false, targetServerId)
-    TriggerEvent('cm-hud:client:notify', response and (response.message or response.error) or 'Confiscation failed.',
-        response and response.ok and 'success' or 'error')
-    if response and response.result then
-        SearchResult, SearchTarget = response.result, targetServerId
-        rebuild(targetServerId)
-        TriggerEvent('cm-playerdata:client:refreshInteractionMenu')
-    end
+    CreateThread(function()
+        local confirmed = exports['cm-ui']:Confirm({
+            title = 'CONFIRM CONFISCATION',
+            message = 'Move every unlicensed weapon, unlicensed ammunition, and illegal item found into your organization evidence storage?',
+            confirmText = 'CONFISCATE EVIDENCE',
+            cancelText = 'CANCEL',
+            danger = true,
+        })
+        if not confirmed then return end
+        local response = lib.callback.await('cm-law:server:confiscatePlayer', false, targetServerId)
+        TriggerEvent('cm-hud:client:notify', response and (response.message or response.error) or 'Confiscation failed.',
+            response and response.ok and 'success' or 'error')
+        if response and response.result then
+            SearchResult, SearchTarget = response.result, targetServerId
+            rebuild(targetServerId)
+            TriggerEvent('cm-playerdata:client:refreshInteractionMenu')
+        end
+    end)
 end)
 
 RegisterNetEvent('cm-playerdata:client:interactionTargetChanged', rebuild)

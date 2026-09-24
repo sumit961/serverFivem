@@ -1,0 +1,294 @@
+/* CM Law shared command-center shell. Dashboard geometry lives here only. */
+:root {
+  --law-ref-cyan: var(--cm-cyan);
+  --law-ref-muted: var(--cm-text-muted);
+  --law-ref-line: var(--cm-border);
+  --lw-font: var(--cm-font, 'DM Sans', 'Segoe UI', Arial, sans-serif);
+  --lw-font-display: var(--cm-font-display, 'Poppins', 'DM Sans', 'Segoe UI', Arial, sans-serif);
+}
+
+html, body {
+  width: 100%; height: 100%; margin: 0; overflow: hidden;
+  background: transparent !important;
+  color: var(--cm-text);
+  font-family: var(--lw-font);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+.hidden, [hidden] { display: none !important; }
+.sr-only {
+  position: absolute !important; width: 1px !important; height: 1px !important;
+  padding: 0 !important; margin: -1px !important; overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important;
+}
+
+/* The closed state is fully transparent. Only the visible app paints the modal backdrop. */
+#app.hidden { display: none !important; visibility: hidden !important; pointer-events: none !important; background: transparent !important; }
+#app:not(.hidden) {
+  position: fixed; inset: 0; z-index: 1; display: flex; align-items: stretch; justify-content: stretch;
+  padding: 5vh 4vw; background: transparent !important;
+}
+
+.command-shell {
+  width: 92vw;
+  height: 90vh;
+  min-width: 0; min-height: 0;
+  display: grid; grid-template-rows: 98px minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--cm-border); border-top: 3px solid var(--cm-cyan); border-radius: 8px;
+  background: var(--cm-panel); box-shadow: 0 20px 50px rgba(0,0,0,.48);
+}
+
+.command-topbar {
+  min-width: 0; min-height: 0; display: grid;
+  grid-template-columns: minmax(230px, auto) minmax(0, 1fr) auto;
+  grid-template-areas: 'brand nav actions';
+  align-items: center; gap: clamp(16px, 1.6vw, 30px); padding: 0 clamp(20px, 2vw, 38px);
+  min-height: 9vh;
+  border-bottom: 1px solid rgba(188, 210, 226, .17);
+  background: rgba(6, 13, 22, .95);
+}
+.command-brand { grid-area: brand; min-width: 0; display: flex; align-items: center; gap: 17px; }
+.brand-mark {
+  flex: 0 0 49px; width: 49px; height: 49px; display: grid; place-items: center;
+  border: 1px solid rgba(0, 229, 255, .55); border-radius: 5px; background: rgba(0, 229, 255, .10);
+}
+.brand-mark img { width: 32px; height: 32px; object-fit: contain; }
+.brand-copy { min-width: 0; display: grid; gap: 0; }
+/* The org short code duplicates the full org name directly beneath it; the reference
+   brand block is two lines (name + subtitle), so the code stays for screen readers only. */
+.brand-copy small { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+.brand-copy h1 { margin: 0; overflow: hidden; color: var(--cm-text); font: 900 clamp(15px, 1.1vw, 18px)/1 var(--lw-font-display); letter-spacing: .04em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.command-brand__subtitle { margin-top: 5px; color: var(--cm-cyan); font-size: clamp(10px, .8vw, 13px); font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.command-topbar__context { display: none; }
+.command-topbar__context small { color: var(--cm-cyan); font-size: 10px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+.command-topbar__context h2 { margin: 0; color: var(--cm-text-secondary); font: 700 14px/1.2 var(--lw-font); letter-spacing: .12em; text-transform: uppercase; }
+
+.command-nav { grid-area: nav; min-width: 0; display: flex; align-items: stretch; justify-content: flex-start; gap: clamp(16px, 2.2vw, 41px); height: 100%; }
+.command-nav > .tab, .command-nav > .nav-more { flex: 0 0 auto; }
+/* components.css styles every `#app button` as a bordered panel with !important;
+   that ID-bearing selector outranks a plain two-class rule, so the nav tabs need
+   both the #app prefix and !important to render as flat text like the reference. */
+#app .command-nav .tab {
+  position: relative; min-width: 0; min-height: 100% !important; padding: 0 2px !important;
+  border: 0 !important; border-radius: 0 !important; background: transparent !important; color: var(--cm-text-muted) !important;
+  font: 900 clamp(11px, .85vw, 15px)/1 var(--lw-font) !important; letter-spacing: .08em !important; text-transform: uppercase !important; white-space: nowrap;
+}
+#app .command-nav .tab:hover, #app .command-nav .tab.active { color: var(--cm-text) !important; background: transparent !important; }
+.command-nav .tab.active::after { position: absolute; right: 0; bottom: 0; left: 0; height: 5px; content: ''; border-radius: 5px 5px 0 0; background: var(--cm-cyan); }
+.command-nav .tab b { display: none; }
+.nav-more { position: relative; align-self: stretch; display: flex; align-items: center; }
+.nav-more summary { display: grid; place-items: center; height: 100%; padding: 0; color: var(--cm-text-muted); cursor: pointer; font: 900 clamp(11px, .85vw, 15px)/1 var(--lw-font); letter-spacing: .08em; list-style: none; text-transform: uppercase; white-space: nowrap; }
+.nav-more summary::-webkit-details-marker { display: none; }
+.nav-more[open] summary, .nav-more summary:hover { color: var(--cm-text); }
+.nav-more-menu { position: absolute; top: calc(100% - 10px); right: 0; z-index: 30; min-width: 190px; display: grid; gap: 3px; padding: 8px; border: 1px solid var(--cm-border); border-radius: 8px; background: #0d2029; box-shadow: 0 18px 40px rgba(0,0,0,.45); }
+/* Re-assert the dropdown's own sizing: the flat-tab rule above also matches these. */
+#app .nav-more-menu .tab { min-height: 38px !important; padding: 0 10px !important; text-align: left; border-radius: 5px !important; }
+#app .nav-more-menu .tab.active, #app .nav-more-menu .tab:hover { background: rgba(0, 229, 255, .10) !important; }
+.nav-more-menu .tab.active::after { right: 6px; bottom: 6px; left: auto; width: 3px; height: 26px; }
+
+.command-actions { grid-area: actions; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: clamp(8px, 1.1vw, 18px); }
+.command-actions > * { white-space: nowrap; }
+/* The reference topbar carries no live-link badge; the clock alone reads as the status line. */
+.law-system-status { display: none; }
+#dashboardClock { display: inline-flex; align-items: center; margin-right: clamp(0px, .8vw, 15px); padding: 0; border: 0; background: none; color: var(--cm-text-muted); font: 900 clamp(11px, .9vw, 14px) var(--lw-font); letter-spacing: .02em; text-transform: uppercase; }
+/* A trailing space in `content` collapses, so the separator is a non-breaking space. */
+#dashboardClock::before { content: 'SYS:\00a0'; }
+/* #app + !important is required to beat components.css's generic `#app button` reset. */
+#app .command-actions button { height: 42px; min-height: 42px; min-width: clamp(84px, 9vw, 130px); padding: 0 19px !important; border: 1px solid var(--line-soft, rgba(170,199,221,.16)) !important; border-radius: 5px !important; background: rgba(255,255,255,.04) !important; color: var(--cm-text) !important; font: 900 clamp(11px, .8vw, 13px) var(--lw-font) !important; letter-spacing: .03em !important; text-transform: uppercase !important; }
+#app .command-actions button:hover { border-color: rgba(0,229,255,.6) !important; background: rgba(0,229,255,.08) !important; }
+#app .command-actions .law-close-button { color: var(--cm-red) !important; border-color: rgba(231,76,60,.34) !important; }
+#app .command-actions .law-close-button:hover { border-color: var(--cm-red) !important; background: rgba(231,76,60,.12) !important; color: var(--cm-red) !important; }
+#app .command-actions .law-duty-button.is-on { color: #06170c !important; background: var(--cm-green) !important; border-color: var(--cm-green) !important; }
+
+.command-content {
+  min-width: 0; min-height: 0; overflow: auto;
+  padding: clamp(24px, 2.2vw, 42px) clamp(20px, 2.3vw, 44px) 52px;
+  background:
+    linear-gradient(rgba(16, 22, 30, .87), rgba(11, 17, 24, .96)),
+    #27303b url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='240' viewBox='0 0 420 240'%3E%3Cg fill='%23080d13' fill-opacity='.58'%3E%3Cpath d='M43 37c18-18 31-16 45 0 14-16 27-18 45 0-23 0-37 7-45 19-8-12-22-19-45-19Zm234 27c13-13 24-12 35 0 11-12 22-13 35 0-18 0-29 6-35 15-6-9-17-15-35-15ZM144 161c16-17 28-15 42 0 14-15 26-17 42 0-21 0-34 7-42 18-8-11-21-18-42-18Zm147 38c10-11 19-10 28 0 9-10 18-11 28 0-14 0-23 5-28 12-5-7-14-12-28-12Z'/%3E%3C/g%3E%3C/svg%3E");
+  scrollbar-color: var(--cm-border) transparent;
+}
+.command-content > .view { min-width: 0; }
+
+#overviewView:not(.hidden) {
+  display: grid; grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr) minmax(220px, 1fr);
+  grid-template-areas:
+    'heading heading heading'
+    'identity calls duty'
+    'custody capabilities capabilities'
+    'feed shift shift'
+    'keybar keybar keybar';
+  gap: 25px; align-content: start; align-items: stretch; max-width: 100%; margin: 0; padding: 0 0 18px;
+}
+.overview-heading { grid-area: heading; padding: 2px 0 8px; margin-bottom: 16px; }
+.overview-heading small { color: var(--cm-cyan); font-size: 11px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; }
+.overview-heading h1 { margin: 9px 0 0; color: var(--cm-text); font: 900 clamp(34px, 4vw, 58px)/.98 var(--lw-font-display); letter-spacing: -.04em; text-transform: uppercase; }
+#overviewPriorityAlert { grid-column: 1 / -1; }
+.org-identity-card, .stat, .prison-status-card, .command-panel { min-width: 0; border: 1px solid var(--cm-border); border-radius: 8px; background: var(--cm-panel); box-shadow: none; }
+.org-identity-card { grid-area: identity; min-height: 222px; display: flex; align-items: center; gap: 30px; padding: 31px; }
+.org-identity-photo { position: relative; flex: 0 0 96px; width: 96px; height: 96px; display: grid; place-items: center; margin: 0; border: 2px solid #398eff; border-radius: 8px; background: rgba(57,142,255,.12); overflow: hidden; }
+.org-identity-photo::before { content: '👤'; color: var(--cm-cyan); font-size: 42px; line-height: 1; }
+.org-identity-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border: 0; }
+#overviewCapturePhoto { display: none !important; }
+.org-tier-ring { display: none !important; }
+.org-identity-copy { min-width: 0; flex: 1; }
+.identity-kicker { display: block; margin-bottom: 8px; color: var(--cm-cyan); font-size: 13px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; }
+.org-identity-copy h2 { margin: 0 0 14px; overflow: hidden; color: var(--cm-text); font: 900 clamp(24px, 2.4vw, 33px)/1 var(--lw-font-display); letter-spacing: -.03em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.org-identity-copy > div { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.org-identity-copy > div > span { display: inline-flex; align-items: center; min-height: 30px; padding: 0 13px; border: 0; border-radius: 5px; background: rgba(129,151,171,.24); color: var(--cm-text); font-size: 12px; font-weight: 900; letter-spacing: .03em; text-transform: uppercase; }
+#overviewRank::before { content: 'RANK:\00a0'; }
+#overviewDutyBadge::before { content: 'STATUS:\00a0'; }
+.status-pill.is-off { color: var(--cm-yellow) !important; border: 1px solid rgba(255,199,0,.54) !important; background: rgba(255,199,0,.1) !important; }
+.status-pill.is-on { color: var(--cm-green) !important; border-color: var(--cm-green) !important; background: rgba(46,204,113,.10) !important; }
+.status-pill.is-suspended { color: var(--cm-orange) !important; border-color: var(--cm-orange) !important; background: rgba(255,140,0,.10) !important; }
+.overview-authorized { align-self: flex-start; display: inline-flex; align-items: center; min-height: 26px; padding: 0 10px; color: var(--cm-green); border: 1px solid var(--cm-green); border-radius: 5px; font-size: 11px; font-weight: 900; letter-spacing: .05em; text-transform: uppercase; }
+
+#overviewStats { display: contents; }
+#overviewStats .stat { position: relative; display: flex; flex-direction: column; align-items: flex-start; min-height: 222px; padding: 33px 30px 27px; }
+.stat-badge { position: absolute; top: 33px; right: 30px; display: inline-flex; align-items: center; min-height: 30px; padding: 0 13px; border-radius: 5px; font: 900 12px var(--lw-font); font-style: normal; letter-spacing: .035em; text-transform: uppercase; }
+.stat-badge--green { color: var(--cm-green); border: 1px solid rgba(46,204,113,.62); background: rgba(46,204,113,.08); }
+.stat-badge--amber { color: var(--cm-yellow); border: 1px solid rgba(255,199,0,.54); background: rgba(255,199,0,.1); }
+.stat-badge--red { color: var(--cm-red); border: 1px solid rgba(231,76,60,.54); background: rgba(231,76,60,.1); }
+#overviewStats .stat--calls { grid-area: calls; }
+#overviewStats .stat--duty { grid-area: duty; }
+#overviewStats .stat--fleet, #overviewStats .stat--command { display: none !important; }
+/* The text rules below are scoped with child combinators on purpose: .stat-icon is
+   itself a <span>, so a loose `.stat span` rule would also reorder the icon. */
+.stat > .stat-icon { order: 0; display: block; width: auto; height: auto; flex: none; border: 0; background: none; border-radius: 0; font-size: 25px; line-height: 1; color: var(--cm-yellow); }
+.stat--calls > .stat-icon::before { content: '🚨'; }
+.stat--duty > .stat-icon::before { content: '🚓'; color: #8eeaff; }
+.stat > div { order: 1; display: flex; flex-direction: column; min-width: 0; }
+.stat > div > small { display: block; order: 2; margin-top: 15px; color: var(--cm-text); font-size: 19px; font-weight: 900; letter-spacing: .015em; text-transform: uppercase; }
+.stat > div > strong { display: block; order: 1; margin-top: 24px; color: var(--cm-text); font: 900 53px/.92 var(--lw-font-display); letter-spacing: -.07em; }
+.stat > div > span { display: block; order: 3; margin-top: 6px; color: var(--cm-text-muted); font-size: 11px; }
+.org-readiness-strip { display: none !important; }
+
+/* Reference layout: kicker + big title stacked top-left, state tag pinned top-right,
+   occupancy pinned bottom-right -- not the horizontal four-column row this used to be. */
+.prison-status-card { grid-area: custody; align-self: stretch; min-height: 216px; position: relative; overflow: hidden; display: block; padding: 30px; background: linear-gradient(110deg, rgba(107,55,57,.78), var(--cm-panel) 67%); }
+.prison-status-card::after { content: ''; position: absolute; inset: 0; opacity: .12; background: repeating-linear-gradient(-27deg, transparent 0 29px, #fff 30px 31px); pointer-events: none; }
+.prison-status-card > * { position: relative; z-index: 1; }
+.prison-status-card__icon { display: none; }
+.prison-status-card__copy { max-width: calc(100% - 215px); }
+.prison-status-card__copy small { color: var(--cm-cyan); font-size: clamp(12px, .9vw, 15px); font-weight: 900; letter-spacing: .04em; text-transform: uppercase; }
+.prison-status-card__copy h3 { margin: 26px 0 0; color: var(--cm-text); font: 900 clamp(22px, 2vw, 29px)/1 var(--lw-font-display); text-transform: uppercase; }
+.prison-status-card__copy p { max-width: 530px; margin: 13px 0 0; color: #a6b4c3; font-size: 13px; line-height: 1.4; }
+.prison-status-card__stats { position: absolute; right: 30px; bottom: 30px; display: flex; gap: 24px; text-align: right; }
+.prison-status-card__stats b { display: block; color: var(--cm-text); font: 900 clamp(30px, 3vw, 47px)/.9 var(--lw-font-display); letter-spacing: -.07em; }
+.prison-status-card__stats small { display: block; margin-top: 4px; color: var(--cm-text-muted); font-size: 11px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; }
+.prison-status-card__state { position: absolute; top: 30px; right: 30px; display: inline-flex; align-items: center; justify-content: center; min-width: 192px; height: 43px; padding: 0 14px; border: 1px solid var(--cm-green); border-radius: 5px; color: var(--cm-green); font-size: 12px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; }
+.prison-status-card__state.is-warning { color: var(--cm-yellow); border-color: var(--cm-yellow); }
+.prison-status-card__state.is-offline { color: var(--cm-red); border-color: var(--cm-red); }
+
+.org-operations-grid { display: contents; }
+.org-operations-grid .command-panel--capabilities { grid-area: capabilities; align-self: stretch; min-height: 216px; height: auto; }
+.org-command-column { display: contents; }
+.org-command-column .command-panel--tools { grid-area: shift; min-height: 217px; }
+/* The shift panel is the accented card in this layout. #app prefix is required to
+   beat components.css's generic `#app .command-panel` background/border !important. */
+#app .org-command-column .command-panel--tools { border-color: rgba(0,229,255,.8) !important; background: rgba(10,34,45,.82) !important; }
+/* #app's ID gives components.css's generic `#app .command-panel{display:flex!important}`
+   higher specificity than a plain two-class selector even under !important, so this
+   hide rule needs the same #app prefix to actually win. */
+#app .org-command-column .command-panel--duty { display: none !important; }
+.command-panel { display: flex; flex-direction: column; min-height: 217px; padding: 30px; }
+.panel-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.panel-title h3 { margin-top: 4px; }
+/* Not every panel wraps its heading in .panel-title (the shift panel doesn't),
+   so these target the panel itself to keep every card's kicker + heading identical. */
+.command-panel small { color: var(--cm-cyan); font-size: 11px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; }
+.command-panel h3 { margin: 8px 0 0; color: var(--cm-text); font: 900 25px/1 var(--lw-font-display); text-transform: uppercase; }
+/* The capabilities panel's kicker repeats its own heading verbatim ("KEY CAPABILITIES"
+   above "Key capabilities"); the reference shows the heading only. */
+.command-panel--capabilities .panel-title small { display: none; }
+.panel-kicker { color: var(--cm-cyan); font-size: 11px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+#app .capability-pills { display: flex !important; flex-wrap: wrap; align-content: flex-start; gap: 13px; flex: 1; padding-top: 42px; }
+#app .capability-pill { display: inline-flex !important; flex-direction: row !important; align-items: center; gap: 9px !important; min-height: 38px !important; padding: 0 15px !important; border: 1px solid var(--cm-border); border-radius: 5px; background: rgba(128,151,173,.14); color: var(--cm-text); font-size: 12px; font-weight: 900; letter-spacing: .02em; text-transform: uppercase; }
+#app .capability-pill i { width: 7px !important; height: 7px !important; border-radius: 50%; background: var(--cm-text-muted); box-shadow: none; }
+.operation-actions { display: flex; flex-wrap: wrap; gap: 18px; margin-top: auto; padding-top: 25px; }
+.operation-actions button { min-height: 47px; min-width: 165px; padding: 0 24px; font-size: 14px; }
+.operation-actions .primary { color: #201800; border-color: var(--cm-yellow); background: var(--cm-yellow); }
+#overviewActivityPanel { grid-area: feed; min-height: 217px; }
+.activity-preview { display: grid; gap: 8px; padding-top: 14px; }
+.activity-item { display: grid !important; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 7px 0 !important; border-bottom: 1px solid rgba(33,59,74,.7); }
+.activity-marker { width: 6px; height: 6px; border-radius: 50%; background: var(--cm-cyan); }
+.activity-item strong { color: var(--cm-text-secondary); font-size: 12px; }
+.activity-item p { margin: 2px 0 0; color: var(--cm-text-muted); font-size: 11px; }
+.activity-item time { color: var(--cm-text-muted); font-size: 9px; white-space: nowrap; }
+.command-keybar { grid-area: keybar; display: flex; justify-content: flex-end; gap: 20px; padding-top: 2px; color: var(--cm-text-muted); }
+.command-keybar > div { display: inline-flex; align-items: center; gap: 7px; }
+.command-keybar kbd { padding: 3px 6px; border: 1px solid var(--cm-border); border-radius: 4px; color: var(--cm-cyan); background: var(--cm-bg-deep); font-size: 9px; }
+.command-keybar b { display: block; color: var(--cm-text-secondary); font-size: 9px; text-transform: uppercase; }
+.command-keybar small { display: block; font-size: 9px; }
+
+/* Secondary views share the same command content surface. */
+.command-content .view:not(#overviewView) { min-height: 100%; }
+.command-content .section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.command-content .section-head h3 { margin: 4px 0 0; color: var(--cm-text); font: 800 22px var(--lw-font-display); }
+.command-content .section-head .hint { margin: 0; }
+.command-content .card, .command-content .member, .command-content .rank-card, .command-content .log-row, .command-content .fleet-row, .command-content .logistics-order, .command-content .custody-row, .command-content .facility-card { border: 1px solid var(--cm-border); border-radius: 8px; background: var(--cm-panel-solid); }
+
+/* Standalone dispatch/MDT keeps the same full-bleed shell. */
+#app.standalone-interface .command-topbar__context { justify-items: start; text-align: left; }
+#app.standalone-interface .command-content { padding: 18px; }
+#app.standalone-interface .command-nav { display: none; }
+#app.standalone-dispatch #dispatchView, #app.standalone-mdt #mdtView { min-height: 100%; }
+
+/* Keep independent utility panels transparent outside their own visible surfaces. */
+#app.hidden ~ #dispatchNotifyStack { background: transparent; }
+
+@media (max-width: 1500px) {
+  .command-topbar { grid-template-columns: minmax(210px, .85fr) minmax(0, 1fr) auto; gap: 14px; padding-inline: 20px; }
+  .command-nav { gap: clamp(7px, 1vw, 15px); }
+  .command-actions { gap: 5px; }
+  .command-actions .law-system-status { display: none; }
+  .command-content { padding-inline: clamp(20px, 3vw, 48px); }
+}
+@media (max-width: 1100px) {
+  .command-topbar { grid-template-columns: minmax(180px, .8fr) minmax(0, 1fr) auto; }
+  .command-topbar__context { display: none; }
+  .command-nav { justify-content: flex-start; overflow-x: auto; }
+  .command-nav > .tab, .command-nav > .nav-more { flex: 0 0 auto; }
+  #overviewView:not(.hidden) { grid-template-columns: minmax(0, 1.6fr) minmax(190px, 1fr); grid-template-areas: 'heading heading' 'identity calls' 'duty duty' 'custody custody' 'capabilities capabilities' 'feed feed' 'shift shift' 'keybar keybar'; }
+  #overviewStats .stat--duty { min-height: 120px; }
+}
+@media (max-width: 760px) {
+  #app:not(.hidden) { padding: 0; }
+  .command-shell { width: 100vw; height: 100vh; border-radius: 0; grid-template-rows: auto minmax(0, 1fr); }
+  .command-topbar { grid-template-columns: 1fr auto; min-height: 92px; padding-inline: 14px; }
+  .command-brand { max-width: 220px; }
+  .brand-mark { flex-basis: 38px; width: 38px; height: 38px; }
+  .brand-mark img { width: 26px; height: 26px; }
+  .command-nav { grid-column: 1 / -1; grid-row: 2; height: 42px; margin: 0 -14px; padding: 0 14px; border-top: 1px solid var(--cm-border); }
+  .command-actions { gap: 4px; }
+  .command-actions #dashboardClock, .command-actions #dashboardRefresh { display: none; }
+  .command-actions .law-duty-button { min-width: 74px; padding-inline: 7px; }
+  .command-content { padding: 22px 14px; }
+  #overviewView:not(.hidden) { display: flex; flex-direction: column; gap: 14px; }
+  #overviewStats { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  #overviewStats .stat { min-height: 130px; }
+  #overviewStats .stat--calls, #overviewStats .stat--duty { grid-area: auto; }
+  .prison-status-card { grid-template-columns: auto minmax(0, 1fr); }
+  .prison-status-card__stats, .prison-status-card__state { grid-column: 2; }
+  .command-keybar { justify-content: flex-start; flex-wrap: wrap; }
+}
+
+/* Keep the reference proportions while scaling the dashboard up on large
+   displays, where fixed pixel caps otherwise make the same UI feel tiny. */
+@media (min-width: 1920px) {
+  .command-shell { grid-template-rows: 10vh minmax(0, 1fr); }
+  .brand-copy h1 { font-size: clamp(19px, 1.2vw, 29px); }
+  .command-brand__subtitle { font-size: clamp(13px, .9vw, 20px); }
+  #app .command-nav .tab, .nav-more summary { font-size: clamp(15px, .9vw, 21px) !important; }
+  #dashboardClock { font-size: clamp(14px, .85vw, 20px); }
+  #app .command-actions button { height: clamp(46px, 3.2vh, 62px); min-height: clamp(46px, 3.2vh, 62px); font-size: clamp(14px, .82vw, 19px) !important; }
+  .overview-heading h1 { font-size: clamp(58px, 4vw, 88px); }
+  .identity-kicker { font-size: clamp(13px, .82vw, 18px); }
+  .org-identity-copy h2 { font-size: clamp(33px, 2.25vw, 49px); }
+  #overviewStats .stat > div > small { font-size: clamp(19px, 1.1vw, 25px); }
+  #overviewStats .stat > div > strong { font-size: clamp(53px, 3.4vw, 76px); }
+  .command-content .section-head h3 { font-size: clamp(22px, 1.45vw, 32px); }
+}
+
+/* Legacy selectors are intentionally absent: .shell, .side, .workspace and the 1180px modal no longer define this dashboard. */

@@ -1415,7 +1415,7 @@ lib.callback.register('cm-police:server:action', function(src, action, payload)
         local name = cleanRankName(payload.name)
         local tier = math.floor(tonumber(payload.tier) or 0)
         if not name then return false, 'Rank name must be between 3 and 32 characters.' end
-        if tier < 1 or tier >= tonumber(actor.tier) or tier >= 100 then return false, 'Rank tier must be below your own tier and between 1 and 99.' end
+        if tier < 1 or tier > 12 or tier >= tonumber(actor.tier) then return false, 'Rank tier must be between 1 and 12 and below your own tier.' end
         local existing
         if rankId then
             existing = MySQL.single.await('SELECT id, name, tier, is_leader, permissions FROM cm_police_ranks WHERE id = ? LIMIT 1', { rankId })
@@ -1424,7 +1424,7 @@ lib.callback.register('cm-police:server:action', function(src, action, payload)
             if tonumber(existing.tier) >= tonumber(actor.tier) then return false, 'You cannot edit a rank at or above your tier.' end
         else
             local count = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM cm_police_ranks')) or 0
-            if count >= 15 then return false, 'Police can have at most 15 ranks.' end
+            if count >= 12 then return false, 'Police can have at most 12 ranks.' end
         end
         local duplicate = MySQL.single.await('SELECT id FROM cm_police_ranks WHERE (tier = ? OR LOWER(name) = LOWER(?)) AND id <> ? LIMIT 1', { tier, name, rankId or 0 })
         if duplicate then return false, 'Another Police rank already uses that name or tier.' end
@@ -1544,6 +1544,34 @@ local function registerGMenu()
     end
 end
 
+local function sendPoliceInvite(src, targetSrc, actor, actorCid, targetCid)
+    if not actor or not has(actor, 'police.invite') then return false, 'Your rank cannot invite Police members.' end
+    if PoliceLegacyDbBoolean(actor.is_suspended) then return false, 'Suspended members cannot invite recruits.' end
+    if cid(src) ~= actorCid or cid(targetSrc) ~= targetCid or not invitePlayersNearby(src, targetSrc) then return false, 'That player is no longer nearby.' end
+    if inviteThrottled(actorCid, targetCid) then return false, 'Please wait before inviting that player again.' end
+    if PoliceLegacyMemberFor(targetCid) then return false, 'That character is already in Police.' end
+    local rival = rivalMember(targetCid)
+    if rival then return false, ('That character is already a member of %s.'):format(rival.orgLabel) end
+    local recruit = MySQL.single.await('SELECT name FROM cm_police_ranks WHERE is_leader = 0 ORDER BY tier ASC LIMIT 1')
+    if not recruit then return false, 'Police has no entry rank configured.' end
+    MySQL.insert.await([[INSERT INTO cm_police_invites (character_id, invited_by, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND)) ON DUPLICATE KEY UPDATE invited_by = VALUES(invited_by), expires_at = VALUES(expires_at)]], { targetCid, actorCid, PoliceConfig.InviteSeconds })
+    TriggerClientEvent('cm-police:client:invite', targetSrc, { inviter = PoliceLegacyNameFor(actorCid), rank = recruit.name, expires = PoliceConfig.InviteSeconds })
+    log(actorCid, 'invite_sent', { targetCid = targetCid })
+    return true, ('Police invitation sent to %s.'):format(PoliceLegacyNameFor(targetCid))
+end
+
+lib.callback.register('cm-police:server:inviteFromHub', function(src, targetCid)
+    if not ready or not PoliceLegacyRateLimit(src, 'gmenu', 900) then return { ok = false, error = 'Please wait before inviting a player.' } end
+    local actorCid = cid(src)
+    targetCid = tostring(targetCid or '')
+    if #targetCid > 64 or not targetCid:match('^[%w_%-]+$') or actorCid == targetCid then return { ok = false, error = 'Enter another player’s character ID.' } end
+    local actor = actorCid and PoliceLegacyMemberFor(actorCid)
+    local targetSrc = PoliceLegacySourceFor(targetCid)
+    if not actor or not targetSrc then return { ok = false, error = 'That character must be online and nearby.' } end
+    local ok, message = sendPoliceInvite(src, targetSrc, actor, actorCid, targetCid)
+    return { ok = ok == true, message = ok and message or nil, error = not ok and message or nil }
+end)
+
 AddEventHandler('cm-police:server:gMenuAction', function(src, targetSrc, action, _, context)
     if not ready or not PoliceLegacyRateLimit(src, 'gmenu', 900) then return end
     local actorCid = context and context.sourceCharacterId and tostring(context.sourceCharacterId) or cid(src)
@@ -1551,19 +1579,8 @@ AddEventHandler('cm-police:server:gMenuAction', function(src, targetSrc, action,
     local actor = actorCid and PoliceLegacyMemberFor(actorCid)
     if not actor or not targetCid or actorCid == targetCid then return end
     if action == 'police_invite' then
-        if not has(actor, 'police.invite') then return notify(src, 'Your rank cannot invite Police members.', 'error') end
-        if PoliceLegacyDbBoolean(actor.is_suspended) then return notify(src, 'Suspended members cannot invite recruits.', 'error') end
-        if cid(src) ~= actorCid or cid(targetSrc) ~= targetCid or not invitePlayersNearby(src, targetSrc) then return notify(src, 'That player is no longer nearby.', 'error') end
-        if inviteThrottled(actorCid, targetCid) then return notify(src, 'Please wait before inviting that player again.', 'error') end
-        if PoliceLegacyMemberFor(targetCid) then return notify(src, 'That character is already in Police.', 'error') end
-        local rival = rivalMember(targetCid)
-        if rival then return notify(src, ('That character is already a member of %s.'):format(rival.orgLabel), 'error') end
-        local recruit = MySQL.single.await('SELECT name FROM cm_police_ranks WHERE is_leader = 0 ORDER BY tier ASC LIMIT 1')
-        if not recruit then return notify(src, 'Police has no entry rank configured.', 'error') end
-        MySQL.insert.await([[INSERT INTO cm_police_invites (character_id, invited_by, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND)) ON DUPLICATE KEY UPDATE invited_by = VALUES(invited_by), expires_at = VALUES(expires_at)]], { targetCid, actorCid, PoliceConfig.InviteSeconds })
-        TriggerClientEvent('cm-police:client:invite', targetSrc, { inviter = PoliceLegacyNameFor(actorCid), rank = recruit.name, expires = PoliceConfig.InviteSeconds })
-        log(actorCid, 'invite_sent', { targetCid = targetCid })
-        return notify(src, ('Police invitation sent to %s.'):format(PoliceLegacyNameFor(targetCid)), 'success')
+        local ok, message = sendPoliceInvite(src, targetSrc, actor, actorCid, targetCid)
+        return notify(src, message, ok and 'success' or 'error')
     end
     local ok, message
     if action == 'police_promote' then ok, message = targetChange(actorCid, targetCid, 'up')

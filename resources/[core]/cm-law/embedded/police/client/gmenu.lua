@@ -3,16 +3,16 @@ local SearchResult, SearchTarget
 
 local function registerPage()
     if GetResourceState(PoliceConfig.PlayerDataResource) ~= 'started' then return end
-    exports[PoliceConfig.PlayerDataResource]:RegisterInteractionPage({ id = PAGE, label = 'Organization', icon = 'shield-alt', order = 35, emptyLabel = 'No Police actions available' })
+    exports[PoliceConfig.PlayerDataResource]:RegisterInteractionPage({ id = PAGE, label = 'Organization', icon = 'shield', order = 35, emptyLabel = 'No Police actions available' })
 end
 
 local function add(id, label, order)
-    exports[PoliceConfig.PlayerDataResource]:RegisterInteractionOption(PAGE, { id = id, action = id, label = label, icon = 'shield-alt', type = 'extension', order = order, close = true })
+    exports[PoliceConfig.PlayerDataResource]:RegisterInteractionOption(PAGE, { id = id, action = id, label = label, icon = 'shield', type = 'extension', order = order, close = true })
 end
 
 local function addSearchRow(id, label, description, order, icon)
     exports[PoliceConfig.PlayerDataResource]:RegisterInteractionOption(PAGE, {
-        id = id, label = label, description = description, icon = icon or 'shield-alt',
+        id = id, label = label, description = description, icon = icon or 'shield',
         type = 'noop', order = order, close = false,
     })
 end
@@ -39,7 +39,7 @@ end)
 -- confirm-gated (showConfirmOverlay in html/app.js).
 local function addConfirm(id, label, order, confirmTitle, confirmMessage)
     exports[PoliceConfig.PlayerDataResource]:RegisterInteractionOption(PAGE, {
-        id = id, action = id, label = label, icon = 'shield-alt', order = order, close = true,
+        id = id, action = id, label = label, icon = 'shield', order = order, close = true,
         type = 'clientEvent', event = 'cm-police:client:confirmExtensionInteraction',
         payload = { confirmTitle = confirmTitle, confirmMessage = confirmMessage },
     })
@@ -71,10 +71,10 @@ function rebuild(targetServerId)
     local permissions = mine.permissions or {}
     if SearchResult and SearchTarget == targetServerId then
         addSearchRow('search_license', 'Firearms licence', SearchResult.firearmsLicensed and 'ACTIVE' or 'NOT ACTIVE', 1, 'license')
-        addSearchRow('search_licensed_weapons', 'Licensed weapons', listText(SearchResult.licensedWeapons), 2, 'shield-alt')
-        addSearchRow('search_unlicensed_weapons', 'Unlicensed weapons', listText(SearchResult.unlicensedWeapons), 3, 'shield-alt')
-        addSearchRow('search_ammunition', 'Ammunition', listText(SearchResult.ammunition), 4, 'shield-alt')
-        addSearchRow('search_illegal_items', 'Illegal items', listText(SearchResult.illegalItems), 5, 'shield-alt')
+        addSearchRow('search_licensed_weapons', 'Licensed weapons', listText(SearchResult.licensedWeapons), 2, 'shield')
+        addSearchRow('search_unlicensed_weapons', 'Unlicensed weapons', listText(SearchResult.unlicensedWeapons), 3, 'shield')
+        addSearchRow('search_ammunition', 'Ammunition', listText(SearchResult.ammunition), 4, 'shield')
+        addSearchRow('search_illegal_items', 'Illegal items', listText(SearchResult.illegalItems), 5, 'shield')
         return
     end
     -- Cuffing/escort works on any nearby player, not just other Police
@@ -91,7 +91,7 @@ function rebuild(targetServerId)
         else
             add('police_uncuff', 'Uncuff', 11)
             exports[PoliceConfig.PlayerDataResource]:RegisterInteractionOption(PAGE, {
-                id = 'police_search', label = 'Search Player', icon = 'shield-alt', type = 'clientEvent',
+                id = 'police_search', label = 'Search Player', icon = 'shield', type = 'clientEvent',
                 event = 'cm-police:client:searchPlayer', order = 15, close = false,
             })
             if targetEscortedBy == mySrc then
@@ -111,7 +111,7 @@ function rebuild(targetServerId)
         local targetState = Player(targetServerId).state
         if targetState.cmCuffed == true then
             exports[PoliceConfig.PlayerDataResource]:RegisterInteractionOption(PAGE, {
-                id = 'police_book', action = 'police_book', label = 'Book by Wanted Stars', icon = 'shield-alt',
+                id = 'police_book', action = 'police_book', label = 'Book by Wanted Stars', icon = 'shield',
                 type = 'clientEvent', event = 'cm-law:client:bookingIntake', order = 16, close = true,
             })
         end

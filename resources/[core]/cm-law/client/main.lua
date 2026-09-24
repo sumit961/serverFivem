@@ -23,6 +23,10 @@ end
 local function closeMenu()
     open = false
     SendNUIMessage({ cmInterface = "law", action = 'close' })
+    -- The embedded Police backend can open this same shared surface. Clear
+    -- its companion state whenever the shared Law close path wins ESC,
+    -- refresh failure, or an explicit close callback.
+    TriggerEvent('cm-law:client:sharedDashboardClosed')
     applyNotifyFocus()
 end
 
@@ -31,7 +35,9 @@ CreateThread(function()
         if open then
             DisableControlAction(0, 200, true)
             DisableControlAction(0, 202, true)
-            if IsDisabledControlJustReleased(0, 200) or IsDisabledControlJustReleased(0, 202) then closeMenu() end
+            if IsDisabledControlJustReleased(0, 200) or IsDisabledControlJustReleased(0, 202) then
+                SendNUIMessage({ cmInterface = 'law', action = 'escape' })
+            end
             Wait(0)
         else
             Wait(250)
@@ -136,6 +142,7 @@ RegisterCommand(Config.MenuCommand, function()
 end, false)
 
 RegisterNetEvent('cm-law:client:openDashboard', function() openMenu('overview') end)
+RegisterNetEvent('cm-law:client:closeDashboard', function() closeMenu() end)
 
 RegisterNetEvent('cm-law:client:openMdt', function()
     local state = LocalPlayer.state.cmLegalOrg
@@ -166,7 +173,24 @@ RegisterNUICallback('bookingSubmit', function(data, cb)
         TriggerEvent('cm-hud:client:notify', result.message or 'Booking confirmed.', 'success')
     end
 end)
-RegisterNUICallback('refresh', function(_, cb) cb(refresh() or { ok = false }) end)
+RegisterNUICallback('refresh', function(_, cb)
+    -- LSPD uses the shared Law renderer but keeps cm-police's authoritative
+    -- membership tables. Refresh through that backend and normalize again so
+    -- the dashboard never falls back to a stale organisation/session.
+    if type(LocalPlayer.state.cmPolice) == 'table' and type(NormalizePoliceDashboard) == 'function' then
+        local policeData, reason = lib.callback.await('cm-police:server:dashboard', false, false, type(sex) == 'function' and sex() or 'male')
+        if not policeData then
+            closeMenu()
+            cb({ ok = false, error = reason or 'Police organization access is no longer available.' })
+            return
+        end
+        local normalized = NormalizePoliceDashboard(policeData)
+        SendNUIMessage({ cmInterface = 'law', action = 'dashboard', data = normalized })
+        cb(normalized)
+        return
+    end
+    cb(refresh() or { ok = false })
+end)
 RegisterNUICallback('endDuty', function(_, cb)
     local result = lib.callback.await('cm-law:server:setDuty', false, false)
     cb(result or { ok = false, error = 'No response from server.' })
@@ -175,6 +199,14 @@ RegisterNUICallback('staffAction', function(data, cb)
     local result = lib.callback.await('cm-law:server:staffAction', false, data.action, data)
     cb(result or { ok = false, error = 'No response from server.' })
     if result and result.ok then refresh() end
+end)
+-- The F6 recruit form accepts character identity only. Each server backend
+-- resolves the session and reuses its nearby invitation validation.
+RegisterNUICallback('hubInvite', function(data, cb)
+    local targetCid = type(data) == 'table' and tostring(data.characterId or '') or ''
+    local callback = type(LocalPlayer.state.cmPolice) == 'table'
+        and 'cm-police:server:inviteFromHub' or 'cm-law:server:inviteFromHub'
+    cb(lib.callback.await(callback, false, targetCid) or { ok = false, error = 'The invitation service did not respond.' })
 end)
 -- Ranks & Access page (html/app.js).
 RegisterNUICallback('saveRank', function(data, cb)

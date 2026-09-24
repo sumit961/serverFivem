@@ -110,9 +110,17 @@
   });
   document.getElementById('liveOpsCloseCall')?.addEventListener('click', async () => {
     if (!callSelect.value) return liveNotice('Select an active call.', 'error');
-    const confirmed = typeof showConfirmOverlay === 'function'
-      ? await showConfirmOverlay('Command Close', `Close call #${callSelect.value} and release every assigned unit?`, 'Close Call', 'Cancel')
-      : window.confirm(`Close call #${callSelect.value} and release every assigned unit?`);
+    const confirmed = window.CMUI && typeof window.CMUI.confirm === 'function'
+      ? await window.CMUI.confirm({
+          title: 'COMMAND CLOSE',
+          message: `Close call #${callSelect.value} and release every assigned unit?`,
+          confirmText: 'CLOSE CALL',
+          cancelText: 'CANCEL',
+          danger: true
+        })
+      : (typeof showConfirmOverlay === 'function'
+        ? await showConfirmOverlay('Command Close', `Close call #${callSelect.value} and release every assigned unit?`, 'Close Call', 'Cancel')
+        : false);
     if (confirmed) action('dispatchResolve', { callId: Number(callSelect.value), resolution: 'Closed by incident command' });
   });
   document.addEventListener('click', async event => {
@@ -123,9 +131,17 @@
     if (scene) action('dispatchOnScene', { callId: Number(scene.dataset.liveopsScene) });
     if (release) {
       const isSelf = release.dataset.liveopsRelease === live.selfCharacterId;
-      const confirmed = isSelf || (typeof showConfirmOverlay === 'function'
-        ? await showConfirmOverlay('Release Unit', 'Release this unit from its active call?', 'Release', 'Cancel')
-        : window.confirm('Release this unit from its active call?'));
+      const confirmed = isSelf || (window.CMUI && typeof window.CMUI.confirm === 'function'
+        ? await window.CMUI.confirm({
+            title: 'RELEASE UNIT',
+            message: 'Release this unit from its active call?',
+            confirmText: 'RELEASE',
+            cancelText: 'CANCEL',
+            danger: false
+          })
+        : (typeof showConfirmOverlay === 'function'
+          ? await showConfirmOverlay('Release Unit', 'Release this unit from its active call?', 'Release', 'Cancel')
+          : false));
       if (confirmed) action('dispatchReleaseUnit', { callId: Number(release.dataset.liveopsCall), characterId: release.dataset.liveopsRelease });
     }
     const tab = event.target.closest('[data-tab="dispatch"],[data-page="dispatch"]');

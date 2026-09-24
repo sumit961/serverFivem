@@ -1,5 +1,6 @@
 local open = false
 local adminMode = false
+local sharedDashboardOpen = false
 local civilianOutfit
 local impoundPhotoMode = false
 local impoundPhotoPreviousView = 1
@@ -34,7 +35,7 @@ end)
 -- whether to restore NUI focus to the F7 dashboard (still open underneath)
 -- or drop it entirely once they close.
 function IsPoliceMenuOpen()
-    return open
+    return open or sharedDashboardOpen
 end
 
 local function notify(message, kind)
@@ -77,9 +78,14 @@ end
 
 local function closeMenu()
     open = false
+    sharedDashboardOpen = false
     SetNuiFocus(false, false)
     SendNUIMessage({ cmInterface = "police", action = 'close' })
 end
+
+RegisterNetEvent('cm-law:client:sharedDashboardClosed', function()
+    sharedDashboardOpen = false
+end)
 
 CreateThread(function()
     while true do
@@ -96,9 +102,121 @@ end)
 
 AddEventHandler('cm-police:client:closeMenu', closeMenu)
 
+-- Police owns a mature database and gameplay surface, while cm-law owns the
+-- shared organisation dashboard. Keep that backend contract intact and
+-- translate the Police result once at the UI boundary.
+function NormalizePoliceDashboard(data)
+    data = type(data) == 'table' and data or {}
+    local source = type(data.self) == 'table' and data.self or {}
+    local capabilities = type(data.capabilities) == 'table' and data.capabilities or {}
+    local member = {
+        characterId = tostring(source.characterId or ''),
+        rankName = tostring(source.rankName or 'Police Member'),
+        tier = tonumber(source.tier) or 0,
+        isLeader = source.isLeader == true,
+        onDuty = source.onDuty == true,
+        suspended = source.suspended == true,
+        permissions = type(source.permissions) == 'table' and source.permissions or {},
+        capabilities = {
+            dispatch = capabilities.receiveDispatch == true,
+            mdt = capabilities.useMdt == true,
+            fleet = capabilities.spawnVehicles == true or capabilities.manageVehicles == true,
+            armory = capabilities.useArmory == true,
+            citations = true,
+            impound = capabilities.manageImpound == true,
+            radar = true,
+            spikes = true,
+            barricades = capabilities.manageBarricades == true,
+            clamp = true,
+            k9 = true,
+            alpr = capabilities.manageAlpr == true,
+            prisonIntake = true,
+        },
+    }
+    local roster = {}
+    for _, row in ipairs(type(data.members) == 'table' and data.members or {}) do
+        roster[#roster + 1] = {
+            character_id = tostring(row.characterId or ''),
+            name = tostring(row.name or row.characterId or 'Police member'),
+            rank_id = tonumber(row.rankId),
+            rank_name = tostring(row.rankName or 'Police Member'),
+            tier = tonumber(row.tier) or 0,
+            on_duty = row.onDuty == true,
+            online = row.online == true,
+            callsign = row.callsign,
+            suspended = row.suspended == true,
+            is_leader = row.isLeader == true,
+            photo_url = row.photoUrl,
+        }
+    end
+    local ranks = {}
+    for _, row in ipairs(type(data.ranks) == 'table' and data.ranks or {}) do
+        ranks[#ranks + 1] = {
+            id = tonumber(row.id), name = tostring(row.name or 'Rank'),
+            tier = tonumber(row.tier) or 0, is_leader = row.isLeader == true,
+            permissions = row.permissions or {},
+        }
+    end
+    local summary = type(data.summary) == 'table' and data.summary or {}
+    local feature = type(data.featureCapabilities) == 'table' and data.featureCapabilities or {}
+    local function allowed(permission)
+        return not member.suspended and (member.isLeader or member.permissions[permission] == true)
+    end
+    local inspectPermissions = capabilities.manageRanks == true or capabilities.managePermissions == true
+    if not inspectPermissions then
+        for _, rank in ipairs(ranks) do rank.permissions = {} end
+    end
+    local normalized = {
+        ok = true,
+        source = 'cm-police',
+        organization = {
+            id = 'lspd', label = 'Los Santos Police Department', shortLabel = 'LSPD',
+            color = '#2D7FF9', jurisdiction = 'Los Santos and state law enforcement coverage',
+            leaderCid = data.organization and data.organization.leaderCid or nil,
+            leaderName = data.organization and data.organization.leaderName or 'Not assigned',
+        },
+        member = member, characterId = member.characterId, roster = roster, ranks = ranks,
+        summary = {
+            memberCount = tonumber(summary.memberCount) or #roster,
+            onDutyCount = tonumber(summary.onDutyCount) or 0,
+            fleetConfigured = tonumber(summary.fleetConfigured) or 0,
+            fleetAvailable = tonumber(summary.fleetAvailable) or 0,
+            activeCalls = tonumber(summary.activeCalls) or 0,
+            assignedCalls = tonumber(summary.assignedCalls) or 0,
+            balance = capabilities.viewFund == true and type(data.fund) == 'table' and tonumber(data.fund.balance) or nil,
+        },
+        canViewMembers = allowed('police.view_members'),
+        -- The Hub submits Police mutations only through police_action and
+        -- inviteFromHub; cm-law staffing callbacks never touch Police tables.
+        canInvite = allowed('police.invite'),
+        canManage = allowed('police.promote') or allowed('police.demote') or allowed('police.kick'),
+        canManageRanks = capabilities.manageRanks == true,
+        canManagePermissions = capabilities.managePermissions == true,
+        canInspectRankPermissions = inspectPermissions,
+        permissions = inspectPermissions and data.permissions or {},
+        canDispatch = false,
+        canMdt = false,
+        canCustody = false,
+        canFleetManage = false,
+        canFleetSpawn = false,
+        logisticsVisible = false,
+        canManageCharges = false,
+        prison = { ready = false, configured = false, intakeConfigured = false, releaseConfigured = false, spawnCount = 0, capacity = 0, activeCount = 0 },
+        facilities = {}, facilityTypes = {}, featureCapabilities = feature,
+        canViewActivity = data.canViewLogs == true, recentActivity = data.logs or {},
+    }
+    return normalized
+end
+
 local function loadDashboard(initialPage, options)
     local data, reason = lib.callback.await('cm-police:server:dashboard', false, adminMode, sex())
     if not data then notify(reason or 'Unable to open Police.', 'error'); return false end
+    if not adminMode and not (options and options.utility == true) then
+        sharedDashboardOpen = true
+        SendNUIMessage({ cmInterface = "law", action = 'open', data = NormalizePoliceDashboard(data), initialTab = initialPage,
+            standaloneMode = initialPage == 'dispatch' })
+        return true
+    end
     SendNUIMessage({ cmInterface = "police", action = 'open', data = data, initialPage = initialPage,
         armoryStandalone = options and options.armoryStandalone == true,
         fleetStandalone = options and options.fleetStandalone == true,
@@ -109,20 +227,21 @@ end
 RegisterNetEvent('cm-police:client:open', function(asAdmin)
     adminMode = asAdmin == true
     if not loadDashboard(adminMode and 'admin' or nil) then return end
+    if not adminMode then SetNuiFocus(true, true); return end
     open = true
     SetNuiFocus(true, true)
 end)
 
 RegisterNetEvent('cm-police:client:openFleet', function()
     adminMode = false
-    if not loadDashboard('fleet', { fleetStandalone = true }) then return end
+    if not loadDashboard('fleet', { fleetStandalone = true, utility = true }) then return end
     open = true
     SetNuiFocus(true, true)
 end)
 
 RegisterNetEvent('cm-police:client:openArmory', function()
     adminMode = false
-    if not loadDashboard('armory', { armoryStandalone = true }) then return end
+    if not loadDashboard('armory', { armoryStandalone = true, utility = true }) then return end
     open = true
     SetNuiFocus(true, true)
 end)
@@ -133,6 +252,10 @@ end, false)
 
 RegisterNetEvent('cm-police:client:openDashboard', function()
     if open then return closeMenu() end
+    if sharedDashboardOpen then
+        TriggerEvent('cm-law:client:closeDashboard')
+        return
+    end
     if GetResourceState('cm-police') == 'started' then
         notify('Duplicate Police resource detected. Remove ensure cm-police; the embedded cm-law dashboard is opening underneath it.', 'error')
     end
@@ -146,7 +269,7 @@ RegisterNetEvent('cm-police:client:openDispatch', function()
     if type(state) ~= 'table' or state.onDuty ~= true then return end
     local permissions = type(state.permissions) == 'table' and state.permissions or {}
     if state.isLeader ~= true and permissions['police.receive_dispatch'] ~= true then return end
-    if not loadDashboard('dispatch', { dispatchStandalone = true }) then return end
+    if not loadDashboard('dispatch', { dispatchStandalone = true, utility = true }) then return end
     open = true
     SetNuiFocus(true, true)
 end)

@@ -1199,6 +1199,16 @@ const policeConfirmOverlay = document.getElementById('policeConfirm');
 // Queuing means the second prompt simply waits its turn instead.
 let confirmQueue = Promise.resolve();
 function showConfirmOverlay(title, message, yesLabel = 'Confirm', noLabel = 'Cancel') {
+  if (window.CMUI && typeof window.CMUI.confirm === 'function') {
+    const isDanger = /delete|fire|suspend|kick|recall|reset|clear|remove|close/i.test(`${title} ${yesLabel}`);
+    return window.CMUI.confirm({
+      title: (title || 'CONFIRM').toUpperCase(),
+      message: message || 'Are you sure you want to proceed?',
+      confirmText: (yesLabel || 'CONFIRM').toUpperCase(),
+      cancelText: (noLabel || 'CANCEL').toUpperCase(),
+      danger: isDanger
+    });
+  }
   const run = () => new Promise((resolve) => {
     document.getElementById('policeConfirmTitle').textContent = title || 'Confirm';
     document.getElementById('policeConfirmMessage').textContent = message || 'Are you sure?';

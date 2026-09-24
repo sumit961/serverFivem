@@ -76,19 +76,19 @@ PoliceConfig.Permissions = {
 -- and can only be assigned through the server-authoritative admin flow.
 -- Fully editable afterwards through Ranks & Permissions (same as EMS).
 PoliceConfig.Ranks = {
-    { tier = 100, name = 'Police Chief', leader = true, permissions = 'ALL' },
-    { tier = 80, name = 'Captain', permissions = {
+    { tier = 12, name = 'Police Chief', leader = true, permissions = 'ALL' },
+    { tier = 9, name = 'Captain', permissions = {
         'police.invite', 'police.kick', 'police.promote', 'police.demote',
         'police.manage_outfits', 'police.manage_ranks', 'police.manage_permissions',
         'police.view_members', 'police.view_logs', 'police.manage_vehicles',
         'police.spawn_vehicles', 'police.view_member_map', 'police.set_meeting',
         'police.suspend_members', 'police.cuff', 'police.book', 'police.manage_booking', 'police.cite', 'police.impound', 'police.radar', 'police.spike', 'police.mdt', 'police.receive_dispatch', 'police.manage_armory', 'police.manage_alpr', 'police.k9', 'police.sign_off_cadets', 'police.manage_impound', 'police.barricade', 'police.manage_barricades', 'police.clamp',
     } },
-    { tier = 50, name = 'Sergeant', permissions = {
+    { tier = 6, name = 'Sergeant', permissions = {
         'police.invite', 'police.view_members', 'police.view_logs',
         'police.spawn_vehicles', 'police.view_member_map', 'police.set_meeting', 'police.cuff', 'police.book', 'police.cite', 'police.impound', 'police.radar', 'police.spike', 'police.mdt', 'police.receive_dispatch', 'police.k9', 'police.barricade', 'police.clamp',
     } },
-    { tier = 20, name = 'Officer', permissions = { 'police.view_members', 'police.spawn_vehicles', 'police.cuff', 'police.book', 'police.cite', 'police.impound', 'police.radar', 'police.spike', 'police.mdt', 'police.receive_dispatch', 'police.k9', 'police.barricade', 'police.clamp' } },
+    { tier = 3, name = 'Officer', permissions = { 'police.view_members', 'police.spawn_vehicles', 'police.cuff', 'police.book', 'police.cite', 'police.impound', 'police.radar', 'police.spike', 'police.mdt', 'police.receive_dispatch', 'police.k9', 'police.barricade', 'police.clamp' } },
     { tier = 1, name = 'Cadet', permissions = { 'police.view_members', 'police.cuff', 'police.book', 'police.cite', 'police.impound', 'police.radar', 'police.spike', 'police.mdt', 'police.receive_dispatch', 'police.k9', 'police.barricade', 'police.clamp' } },
 }
 

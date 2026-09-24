@@ -3,40 +3,130 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>CM Law Command Center</title>
+  <title>CM Law Interface</title>
   <style>
-    html,body{width:100%;height:100%;margin:0;overflow:hidden;background:transparent}
-    .surface{position:fixed;inset:0;width:100%;height:100%;border:0;background:transparent;visibility:hidden;pointer-events:none}
-    .surface.active{visibility:visible;pointer-events:auto}
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+    .surface { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: transparent; visibility: hidden; pointer-events: none; }
+    .surface.visible { visibility: visible; }
+    .surface.interactive { pointer-events: auto; }
   </style>
 </head>
 <body>
-  <iframe id="law" class="surface active" src="law.html?v=6" title="Legal organization dashboard"></iframe>
-  <iframe id="police" class="surface" src="police/index.html?v=2" title="Los Santos Police dashboard"></iframe>
+  <!-- F6 uses only the reference Organization Hub. Standalone gameplay tools
+       retain their existing callbacks in an independent document. -->
+  <iframe id="law" class="surface" src="law.html?v=8" title="Organization Hub"></iframe>
+  <iframe id="tools" class="surface" src="operations.html?v=1" title="Law gameplay tools"></iframe>
+  <iframe id="police" class="surface" loading="lazy" src="police/index.html?v=3" title="Police gameplay utilities"></iframe>
   <script>
-    const surfaces = { law: document.getElementById('law'), police: document.getElementById('police') };
-    const ready = { law: false, police: false };
-    const queued = { law: [], police: [] };
-    const panelIds = {
-      law: ['app', 'legalArmory', 'legalFleet', 'wardrobeRoom', 'facilityDialogue', 'lawConfirm'],
-      police: ['app', 'wardrobeRoom', 'impoundRelease', 'npcDialogue', 'policeQuickMenu', 'policeConfirm', 'cinematicAccessibility'],
+    const surfaces = { law: document.getElementById('law'), tools: document.getElementById('tools'), police: document.getElementById('police') };
+    const ready = { law: false, tools: false, police: false };
+    const queued = { law: [], tools: [], police: [] };
+    const hubTabs = new Set(['overview', 'dashboard', 'roster', 'ranks', 'logs']);
+    let dashboardSurface = 'law';
+    const utilityOpenActions = new Set([
+      'policeCloset:open', 'quickMenuOpen', 'confirmOpen', 'impoundRelease:open',
+      'impoundCamera:show', 'npcDialogue:open', 'policeCinematic:show',
+      'cinematicAccessibility:open'
+    ]);
+    const passiveActions = new Set([
+      'facilityPrompt', 'facilityDialogue', 'facilityDialogueChoices', 'facilityDialogueResponse',
+      'dispatchNotifyNew', 'dispatchNotifyAssigned', 'dispatchNotifyResolved',
+      'liveOperationsRefresh', 'bookingOpen', 'bookingResult', 'dispatchRefresh', 'notice',
+      'showHint', 'hideHint', 'npcInteraction:show', 'npcInteraction:hide', 'notify',
+      'policeCinematic:update', 'policeCinematic:stamp', 'policeCinematic:flash', 'policeCinematic:hide',
+      'cmInteract:show', 'cmInteract:hide', 'cmDialogue:open', 'cmDialogue:response', 'cmDialogue:restoreChoices', 'cmDialogue:close'
+    ]);
+    const lawInteractiveSelectors = [
+      '#app:not(.hidden)', '#bookingPanel:not([hidden])', '#legalArmory:not(.hidden)',
+      '#legalFleet:not(.hidden)', '#wardrobeRoom:not(.hidden)', '#facilityDialogue:not(.hidden)',
+      '#lawConfirm:not([hidden])', '#dispatchNotifyStack .dispatch-notify-card'
+    ];
+    const lawPassiveSelectors = [
+      '#facilityPrompt:not(.hidden)',
+      '.cm-interact:not([hidden])', '.cm-dialogue:not([hidden])', '.cm-toast-stack .cm-toast'
+    ];
+    const policeInteractiveSelectors = [
+      '#app:not([hidden])', '#wardrobeRoom:not([hidden])', '#impoundRelease:not([hidden])',
+      '#npcDialogue:not([hidden])', '#policeQuickMenu:not([hidden])', '#policeConfirm:not([hidden])',
+      '#cinematicAccessibility:not([hidden])', '#policeCinematic:not([hidden])', '#impoundCamera:not([hidden])'
+    ];
+    const policePassiveSelectors = [
+      '#npcInteraction:not([hidden])', '#policeHint:not([hidden])', '#policeToasts > *',
+      '.cm-interact:not([hidden])', '.cm-dialogue:not([hidden])', '.cm-toast-stack .cm-toast'
+    ];
+    let visibleSurface = null;
+    let interactiveSurface = null;
+    let focusTarget = null;
+    let syncQueued = false;
+    const isVisible = node => {
+      if (!node || node.hidden || node.classList.contains('hidden')) return false;
+      const style = node.ownerDocument.defaultView.getComputedStyle(node);
+      if (style.display === 'none' || style.visibility === 'hidden') return false;
+      const rect = node.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
     };
-    let active = 'law';
-    const hasPanel = name => ready[name] && panelIds[name].some(id => {
-      const node = surfaces[name].contentDocument.getElementById(id);
-      return node && !node.hidden && !node.classList.contains('hidden');
+    const hasVisible = (doc, selectors) => selectors.some(selector => {
+      try { return Array.from(doc.querySelectorAll(selector)).some(isVisible); } catch (_) { return false; }
     });
-    const activate = (name, focus = false) => {
-      active = name;
-      Object.entries(surfaces).forEach(([key, frame]) => frame.classList.toggle('active', key === name));
-      if (focus && ready[name]) surfaces[name].contentWindow.focus();
+    const childState = name => {
+      const doc = surfaces[name].contentDocument;
+      if (!doc) return { interactive: false, passive: false };
+      const selectors = name === 'law'
+        ? { interactive: ['#app'], passive: [] }
+        : name === 'police'
+        ? { interactive: policeInteractiveSelectors, passive: policePassiveSelectors }
+        : { interactive: lawInteractiveSelectors, passive: lawPassiveSelectors };
+      return {
+        interactive: hasVisible(doc, selectors.interactive),
+        passive: hasVisible(doc, selectors.passive),
+      };
     };
-    const interactiveOpen = payload => ['open', 'bookingOpen', 'legalArmoryOpen', 'legalFleetOpen', 'legalWardrobeOpen', 'policeCloset:open',
-      'quickMenuOpen', 'confirmOpen', 'cinematicAccessibility:open',
-      'impoundRelease:open', 'npcDialogue:open'].includes(payload.action)
-      || (payload.action === 'facilityDialogue' && payload.visible === true);
-    const passiveOpen = payload => ['npcInteraction:show', 'showHint', 'policeCinematic:show', 'notify'].includes(payload.action)
-      || (payload.action === 'facilityPrompt' && payload.visible === true);
+    const snapshot = name => {
+      const frame = surfaces[name];
+      const doc = frame.contentDocument;
+      const state = childState(name);
+      const appNode = doc?.getElementById('app');
+      return {
+        frame: { id: frame.id, className: frame.className, visibility: getComputedStyle(frame).visibility, display: getComputedStyle(frame).display, pointerEvents: getComputedStyle(frame).pointerEvents },
+        child: doc ? { htmlBackground: getComputedStyle(doc.documentElement).background, bodyBackground: getComputedStyle(doc.body).background, bodyClassName: doc.body.className } : null,
+        dashboard: appNode ? { exists: true, hidden: appNode.hidden || appNode.classList.contains('hidden'), className: appNode.className, display: getComputedStyle(appNode).display, visibility: getComputedStyle(appNode).visibility, background: getComputedStyle(appNode).background, width: appNode.getBoundingClientRect().width, height: appNode.getBoundingClientRect().height } : { exists: false },
+        state,
+        overlays: doc ? Array.from(doc.querySelectorAll('*')).filter(node => { const style = getComputedStyle(node); const rect = node.getBoundingClientRect(); return style.position === 'fixed' && rect.width >= innerWidth * .8 && rect.height >= innerHeight * .8 && isVisible(node); }).map(node => ({ id: node.id, classes: node.className, display: getComputedStyle(node).display, visibility: getComputedStyle(node).visibility, background: getComputedStyle(node).background, zIndex: getComputedStyle(node).zIndex })) : [],
+      };
+    };
+    window.cmLawNuiSnapshot = () => ({ visibleSurface, interactiveSurface, law: snapshot('law'), tools: snapshot('tools'), police: snapshot('police') });
+    const nuiDebug = new URLSearchParams(location.search).get('nuiDebug') === '1';
+    const syncSurfaceVisibility = () => {
+      syncQueued = false;
+      const states = { law: childState('law'), tools: childState('tools'), police: childState('police') };
+      const interactive = states.law.interactive ? 'law' : states.tools.interactive ? 'tools' : states.police.interactive ? 'police' : null;
+      const visible = interactive || (states.tools.passive ? 'tools' : states.police.passive ? 'police' : null);
+      visibleSurface = visible;
+      interactiveSurface = interactive;
+      Object.entries(surfaces).forEach(([key, frame]) => {
+        frame.classList.toggle('visible', key === visible);
+        frame.classList.toggle('interactive', key === interactive);
+      });
+      if (interactive && focusTarget === interactive && ready[interactive]) surfaces[interactive].contentWindow.focus();
+      focusTarget = null;
+      if (nuiDebug) console.info('[cm-law nui]', window.cmLawNuiSnapshot());
+    };
+    const scheduleSync = (focus = null) => {
+      if (focus) focusTarget = focus;
+      if (syncQueued) return;
+      syncQueued = true;
+      setTimeout(syncSurfaceVisibility, 0);
+    };
+    const targetFor = payload => {
+      if (payload.cmInterface === 'police') return 'police';
+      if (utilityOpenActions.has(payload.action)) return 'police';
+      if (payload.action === 'open') {
+        dashboardSurface = !payload.initialTab || hubTabs.has(payload.initialTab) ? 'law' : 'tools';
+        return dashboardSurface;
+      }
+      if (['dashboard', 'notice', 'close', 'escape'].includes(payload.action)) return dashboardSurface;
+      return 'tools';
+    };
     const forward = (name, payload) => {
       if (!ready[name]) queued[name].push(payload);
       else surfaces[name].contentWindow.postMessage(payload, '*');
@@ -44,28 +134,37 @@
     Object.entries(surfaces).forEach(([name, frame]) => frame.addEventListener('load', () => {
       ready[name] = true;
       queued[name].splice(0).forEach(payload => forward(name, payload));
-      // Restore the previous menu after a cross-interface confirmation closes.
-      new MutationObserver(() => {
-        if (hasPanel(active)) return;
-        const previous = Object.keys(surfaces).find(key => key !== active && hasPanel(key));
-        if (previous) activate(previous, true);
-      }).observe(frame.contentDocument.body, { subtree: true, attributes: true, attributeFilter: ['hidden', 'class'] });
-      if (active === name) frame.contentWindow.focus();
+      const doc = frame.contentDocument;
+      if (doc?.body) {
+        new MutationObserver(() => scheduleSync()).observe(doc.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'hidden', 'style'] });
+      }
+      scheduleSync();
     }));
     window.addEventListener('message', event => {
-      // Child windows do not route game messages back through the shell.
       if (Object.values(surfaces).some(frame => event.source === frame.contentWindow)) return;
-      const payload = event.data || {};
-      const name = payload.cmInterface === 'police' ? 'police' : payload.cmInterface === 'law' ? 'law' : active;
-      if (interactiveOpen(payload)) activate(name, true);
-      else if (passiveOpen(payload) && !hasPanel(active)) activate(name);
-      forward(name, payload);
+      const payload = event.data && typeof event.data === 'object' ? event.data : {};
+      const name = targetFor(payload);
+      if (nuiDebug) console.info('[cm-law nui event]', { action: payload.action, cmInterface: payload.cmInterface, target: name });
+      if (payload.action === 'close' && payload.cmInterface !== 'police') {
+        forward('law', payload); forward('tools', payload);
+      } else if (payload.action === 'escape' && ready[name]) {
+        surfaces[name].contentWindow.cmHandleEscape?.();
+      } else {
+        if (payload.action === 'open' && name !== 'police') {
+          forward(name === 'law' ? 'tools' : 'law', { action: 'close' });
+          // MDT, Dispatch and Fleet are separate tools, with no route back to
+          // the retired F6 navigation or dashboard.
+          if (name === 'tools') payload.standaloneMode = true;
+        }
+        forward(name, payload);
+      }
+      const focus = payload.action === 'open' || payload.action === 'legalFleetOpen' || payload.action === 'legalArmoryOpen' || payload.action === 'legalWardrobeOpen' || utilityOpenActions.has(payload.action);
+      if (passiveActions.has(payload.action) || focus || payload.action === 'close' || payload.action === 'escape') scheduleSync(focus ? name : null);
     });
-    // NUI focus may initially land on the shell instead of its iframe.
     document.addEventListener('keydown', event => {
-      if (!['Escape', 'Esc'].includes(event.key) && event.keyCode !== 27) return;
+      if (event.key !== 'Escape' && event.key !== 'Esc' && event.keyCode !== 27) return;
       event.preventDefault();
-      if (!event.repeat) surfaces[active].contentWindow.cmHandleEscape?.();
+      if (!event.repeat && interactiveSurface && ready[interactiveSurface]) surfaces[interactiveSurface].contentWindow.cmHandleEscape?.();
     });
   </script>
 </body>

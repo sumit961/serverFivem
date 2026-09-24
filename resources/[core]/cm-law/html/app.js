@@ -1,6 +1,7 @@
 const app=document.querySelector('#app'),roster=document.querySelector('#roster'),toast=document.querySelector('#toast');let state=null,facilityOnly=false;
 const res=typeof GetParentResourceName==='function'?GetParentResourceName():'cm-law';
-const post=async(name,data={})=>{if(window.cmRequest)return window.cmRequest(`https://${res}/${name}`,data);try{const r=await fetch(`https://${res}/${name}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});if(!r.ok)return{ok:false,error:`Request failed (${r.status}).`};return await r.json()}catch(_){return{ok:false,error:'The organization terminal did not respond.'}}};
+const previewParams=new URLSearchParams(location.search);const previewOrg=String(previewParams.get('preview')||'').toLowerCase();const previewMode=['lspd','sheriff','sahp','fib','army'].includes(previewOrg);
+const post=async(name,data={})=>{if(previewMode)return{ok:false,error:'Preview mode is read-only.'};if(window.cmRequest)return window.cmRequest(`https://${res}/${name}`,data);try{const r=await fetch(`https://${res}/${name}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});if(!r.ok)return{ok:false,error:`Request failed (${r.status}).`};return await r.json()}catch(_){return{ok:false,error:'The organization terminal did not respond.'}}};
 // Shared booking review. It is intentionally outside the dashboard lifecycle so
 // the same intake form works from the player interaction menu while F6 is closed.
 const bookingPanel=document.querySelector('#bookingPanel');let bookingData=null,bookingBusy=false;
@@ -28,7 +29,18 @@ document.querySelector('#bookingSubmit')?.addEventListener('click',async()=>{if(
 // resolves waits its turn instead of orphaning the first caller's promise.
 let lawConfirmQueue=Promise.resolve();
 function showConfirmOverlay(title,message,yesLabel='Confirm',noLabel='Cancel'){
+  if (window.CMUI && typeof window.CMUI.confirm === 'function') {
+    const isDanger = /delete|fire|suspend|kick|recall|reset|clear|remove|close/i.test(`${title} ${yesLabel}`);
+    return window.CMUI.confirm({
+      title: (title || 'CONFIRM').toUpperCase(),
+      message: message || 'Are you sure you want to proceed?',
+      confirmText: (yesLabel || 'CONFIRM').toUpperCase(),
+      cancelText: (noLabel || 'CANCEL').toUpperCase(),
+      danger: isDanger
+    });
+  }
   const overlay=document.getElementById('lawConfirm');
+  if (!overlay) return Promise.resolve(false);
   const run=()=>new Promise(resolve=>{
     document.getElementById('lawConfirmTitle').textContent=title||'Confirm';
     document.getElementById('lawConfirmMessage').textContent=message||'Are you sure?';
@@ -46,12 +58,19 @@ function showConfirmOverlay(title,message,yesLabel='Confirm',noLabel='Cancel'){
 function notice(message,kind='success'){toast.textContent=message||'';toast.className=`show ${kind}`;clearTimeout(notice.timer);notice.timer=setTimeout(()=>toast.className='',2600)}
 function formatTerminalTime(value){const raw=String(value??'').trim();if(!raw)return'';const numeric=Number(raw.replace(/[^0-9.+-]/g,''));const date=Number.isFinite(numeric)&&numeric>0?new Date(numeric>1e12?numeric:numeric>1e9?numeric*1000:numeric):new Date(raw);return Number.isNaN(date.getTime())?raw:date.toLocaleString([], {month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
 const orgBranding={
+  lspd:{logo:'police/assets/org/lspd.svg',banner:'police/assets/org/lspd-banner.svg',art:'police/assets/org/lspd-officer.png',mark:'LSPD',label:'Los Santos Police Department',shortLabel:'LSPD',jurisdiction:'Los Santos and state law enforcement coverage',color:'#2D7FF9'},
   sahp:{logo:'assets/org/sahp.svg',banner:'assets/org/sahp-banner.svg',art:'assets/org/sahp-officer.png',mark:'SAHP',label:'San Andreas Highway Patrol',shortLabel:'SAHP',jurisdiction:'State highway patrol coverage'},
   sheriff:{logo:'assets/org/sheriff.svg',banner:'assets/org/sheriff-banner.svg',art:'assets/org/sheriff-officer.png',mark:'BCSO',label:"Blaine County Sheriff's Office",shortLabel:'BCSO',jurisdiction:'Blaine County and county contract areas'},
   fib:{logo:'assets/org/fib.svg',banner:'assets/org/fib-banner.svg',art:'assets/org/fib-agent.png',mark:'FIB',label:'Federal Investigation Bureau',shortLabel:'FIB',jurisdiction:'Federal investigations and intelligence'},
   army:{logo:'assets/org/army.svg',banner:'assets/org/army-banner.svg',art:'assets/org/army-soldier.png',mark:'ARMY',label:'San Andreas Army',shortLabel:'ARMY',jurisdiction:'Military support and controlled deployments'},
   default:{logo:'assets/org/default.svg',banner:'assets/org/default-banner.svg',art:'assets/org/default-officer.png',mark:'LAW',label:'Legal Organization',shortLabel:'LEGAL ORGANIZATION',jurisdiction:'Authorized jurisdiction'}
 };
+function previewPayload(id){
+  const profile=orgProfile({id});
+  const names=['Alex Mercer','Jordan Wells','Maya Ortiz','Riley Chen','Taylor Brooks','Samira Cole','Noah Grant','Casey Reed'];
+  const roster=names.map((name,index)=>({character_id:`${4200+index}`,name,rank_id:index===0?1:2,rank_name:index===0?'Chief':'Officer',tier:index===0?5:2,on_duty:index<5,suspended:false,is_leader:index===0,photo_url:''}));
+  return {ok:true,organization:{id,label:profile.label,shortLabel:profile.shortLabel,color:profile.color||'#00E5FF',jurisdiction:profile.jurisdiction,leaderCid:'4200',leaderName:'Alex Mercer'},characterId:'4201',member:{characterId:'4201',rankName:'Officer',tier:2,isLeader:false,onDuty:true,suspended:false,permissions:{'law.view_members':true,'law.receive_dispatch':true,'law.mdt':true},capabilities:{dispatch:true,mdt:true,fleet:true,armory:true,arrest:true,search:true,citations:true,prisonIntake:true}},roster,ranks:[{id:1,name:'Chief',tier:5,is_leader:true,permissions:{}},{id:2,name:'Officer',tier:2,is_leader:false,permissions:{'law.view_members':true}}],summary:{memberCount:8,onDutyCount:5,fleetConfigured:12,fleetAvailable:8,activeCalls:3,assignedCalls:1,priorityCall:{id:1,callerName:'Dispatch',details:'Officer assistance requested',location:'Mission Row',priority:3,createdAt:Date.now()/1000}},canViewMembers:true,canManage:true,canManageRanks:true,canManagePermissions:false,canInspectRankPermissions:true,canDispatch:true,canMdt:true,canCustody:true,canFleetManage:true,canFleetSpawn:true,logisticsVisible:id==='army',logistics:{canRequest:id==='army'},canManageCharges:true,canViewActivity:true,recentActivity:[{id:1,actorName:'Alex Mercer',action:'duty_started',createdAt:'Just now',detail:{}}],prison:{ready:true,configured:true,intakeConfigured:true,releaseConfigured:true,spawnCount:12,capacity:48,activeCount:9},facilities:{},facilityTypes:{}};
+}
 function orgProfile(org={}){const brand=orgBranding[org.id]||orgBranding.default;return {...brand,...org,label:org.label||brand.label||'Organization',shortLabel:org.shortLabel||brand.shortLabel||brand.mark||'LAW',jurisdiction:org.jurisdiction||brand.jurisdiction||'Authorized jurisdiction'}}
 function applyOrgBranding(org={}){
   const profile=orgProfile(org);
@@ -73,11 +92,14 @@ function render(data){
   const dutyStatusEl=document.querySelector('#dutyStatus'); if(dutyStatusEl) dutyStatusEl.textContent=m.suspended?'Suspended':m.onDuty?'On duty':'Off duty';
   const dispatchTab=document.querySelector('#dispatchTab');if(dispatchTab)dispatchTab.classList.toggle('hidden',data.canDispatch!==true);
   const mdtTab=document.querySelector('#mdtTab');if(mdtTab)mdtTab.classList.toggle('hidden',data.canMdt!==true);
+  const ranksTab=document.querySelector('#ranksTab');if(ranksTab)ranksTab.classList.toggle('hidden',data.canInspectRankPermissions!==true && data.canManageRanks!==true);
   const dutyButton=document.querySelector('#dashboardDutyButton');
-  if(dutyButton){dutyButton.textContent=m.onDuty?'End duty':'Off duty';dutyButton.disabled=m.onDuty!==true;dutyButton.classList.toggle('is-on',m.onDuty===true)}
+  if(dutyButton){dutyButton.hidden=data.source==='cm-police';dutyButton.textContent=m.onDuty?'End duty':'Off duty';dutyButton.disabled=m.onDuty!==true;dutyButton.classList.toggle('is-on',m.onDuty===true)}
+  const capturePhoto=document.querySelector('#overviewCapturePhoto');if(capturePhoto)capturePhoto.hidden=data.source==='cm-police';
   const logsAllowed = data.canManage || data.canViewActivity === true;
   const logsTab=document.querySelector('#logsTab'); if(logsTab) logsTab.classList.toggle('hidden',!logsAllowed);
   const custodyTab=document.querySelector('#custodyTab'); if(custodyTab) custodyTab.classList.toggle('hidden',data.canCustody!==true);
+  const fleetTab=document.querySelector('#fleetTab'); if(fleetTab) fleetTab.classList.toggle('hidden',data.canFleetSpawn!==true && data.canFleetManage!==true);
   const logisticsTab=document.querySelector('#logisticsTab'); if(logisticsTab) logisticsTab.classList.toggle('hidden',data.logisticsVisible!==true);
   const chargesTab=document.querySelector('#chargesTab'); if(chargesTab) chargesTab.classList.toggle('hidden',data.canManageCharges!==true);
   const ranks=(data.ranks||[]).filter(r=>!r.is_leader&&Number(r.tier)<Number(m.tier||0));
@@ -178,12 +200,17 @@ function renderOverview(data){
     prisonCard.classList.toggle('is-warning',online&&!configured);
   }
   const overviewCount=value=>String(Math.max(0,Number(value)||0)).padStart(2,'0');
+  // Card status badges are derived from live counts, never fixed labels, so they
+  // cannot claim a readiness state the server data does not actually show.
+  const priorityCalls=Number(summary.priorityCalls||0);
+  const callsState=priorityCalls>0?['PRIORITY','red']:activeCalls>0?['ACTIVE','amber']:['ALL CLEAR','green'];
+  const dutyState=onDutyCount>0?['ACTIVE','green']:['STANDBY','amber'];
   document.querySelector('#overviewStats').innerHTML=[
-    ['ON DUTY',overviewCount(onDutyCount),`${memberCount} total personnel`,'duty'],
-    ['ACTIVE CALLS',overviewCount(activeCalls),`${assignedCalls} assigned · ${Number(summary.priorityCalls||0)} priority`,'calls'],
+    ['ON DUTY UNITS',overviewCount(onDutyCount),`${memberCount} total personnel`,'duty',dutyState],
+    ['ACTIVE CALLS',overviewCount(activeCalls),`${assignedCalls} assigned · ${priorityCalls} priority`,'calls',callsState],
     ['FLEET AVAILABLE',Number(summary.fleetAvailable||0).toLocaleString(),`${Number(summary.fleetConfigured||0)} configured for agency`,'fleet'],
     ['COMMAND',leaderName,leaderCid?`CID ${leaderCid}`:'Leader not assigned','command'],
-  ].map(([label,value,sub,kind])=>`<div class="stat stat--${kind}"><span class="stat-icon" aria-hidden="true"></span><div><small>${esc(label)}</small><strong>${esc(value)}</strong><span>${esc(sub)}</span></div></div>`).join('');
+  ].map(([label,value,sub,kind,badge])=>`<div class="stat stat--${kind}"><span class="stat-icon" aria-hidden="true"></span>${badge?`<em class="stat-badge stat-badge--${badge[1]}">${esc(badge[0])}</em>`:''}<div><small>${esc(label)}</small><strong>${esc(value)}</strong><span>${esc(sub)}</span></div></div>`).join('');
   const enabled=Object.entries(caps).filter(([,on])=>on===true);
   document.querySelector('#overviewCapabilityCount').textContent=`${enabled.length} SYSTEMS ONLINE`;
   const capsBox=document.querySelector('#overviewCapabilities');
@@ -195,8 +222,8 @@ function renderOverview(data){
   const canMap=data.canViewMemberMap===true,canMeet=data.canSetMeeting===true;
   const canDeskMdt=data.canMdt===true, canDeskDispatch=data.canDispatch===true;
   const launchMdt=document.querySelector('#overviewLaunchMdt'), openDispatch=document.querySelector('#overviewDispatch');
-  if(launchMdt){launchMdt.hidden=false;launchMdt.disabled=!canDeskMdt;launchMdt.title=canDeskMdt?'Open the shared MDT':'MDT requires on-duty access for this rank';}
-  if(openDispatch){openDispatch.hidden=false;openDispatch.disabled=!canDeskDispatch;openDispatch.title=canDeskDispatch?'Open shared dispatch':'Dispatch requires on-duty access for this rank';}
+  if(launchMdt){launchMdt.hidden=!canDeskMdt;launchMdt.disabled=!canDeskMdt;launchMdt.title=canDeskMdt?'Open the shared MDT':'MDT requires on-duty access for this rank';}
+  if(openDispatch){openDispatch.hidden=!canDeskDispatch;openDispatch.disabled=!canDeskDispatch;openDispatch.title=canDeskDispatch?'Open shared dispatch':'Dispatch requires on-duty access for this rank';}
   document.querySelector('#overviewToolsPanel').hidden=false;
   document.querySelector('#memberMap').hidden=!canMap;
   document.querySelector('#meetingPoint').hidden=!canMeet;
@@ -360,9 +387,12 @@ setInterval(()=>document.querySelectorAll('[data-custody-release]').forEach(node
 // every tagged vehicle shows up here, unconfigured ones just need a
 // location set first (Set location, drive it, press H).
 let fleetVehicles = [], fleetCanManage = false;
+const fleetRosterNode=()=>document.querySelector('#fleetView:not(.hidden) #orgFleetRoster')||document.querySelector('#fleetRoster');
+const fleetRecallNode=()=>document.querySelector('#fleetView:not(.hidden) #orgFleetRecallAll')||document.querySelector('#fleetRecallAll');
 function renderFleetList(){
   const manage = fleetCanManage;
-  document.querySelector('#fleetRoster').innerHTML = fleetVehicles.map(v => {
+  const rosterNode=fleetRosterNode(); if(!rosterNode)return;
+  rosterNode.innerHTML = fleetVehicles.map(v => {
     const canSpawnThis = manage || (v.configured && v.enabled);
     return `<article class="fleet-row${v.configured && !v.enabled ? ' disabled' : ''}">
     <div class="fleet-row__main"><strong>${esc(v.label)}</strong><small>${esc(v.category || 'Vehicle')} · Parking: ${v.configured ? `${v.location?.x ?? 'saved'}, ${v.location?.y ?? 'saved'}` : 'not configured'} · Minimum rank tier ${v.minTier}${v.enabled ? '' : ' · Disabled'} · ${esc(String(v.status || 'available').replaceAll('_', ' '))}${v.assignedOfficer ? ` · Assigned: ${esc(v.assignedOfficer)}` : ''}${v.engineHealth != null ? ` · Engine ${Math.round(Number(v.engineHealth) / 10)}% · Body ${Math.round(Number(v.bodyHealth) / 10)}% · Fuel ${Math.round(Number(v.fuel || 0))}%` : ''}</small></div>
@@ -374,24 +404,24 @@ function renderFleetList(){
   </article>`;
   }).join('') || `<p>${manage ? 'No vehicles have been added to this organization\'s fleet yet.' : 'No fleet vehicles are available to your rank yet.'}</p>`;
 }
-async function loadFleet(){const r=await post('fleetCatalog');fleetVehicles=r?.vehicles||[];fleetCanManage=r?.canManage===true;renderFleetList();const fleetRecall=document.querySelector('#fleetRecallAll');if(fleetRecall)fleetRecall.classList.toggle('hidden',!fleetCanManage)}
-document.querySelector('#fleetRoster').onclick=async e=>{
+async function loadFleet(){const r=await post('fleetCatalog');fleetVehicles=r?.vehicles||[];fleetCanManage=r?.canManage===true;renderFleetList();const fleetRecall=fleetRecallNode();if(fleetRecall)fleetRecall.classList.toggle('hidden',!fleetCanManage)}
+document.querySelectorAll('#orgFleetRoster,#fleetRoster').forEach(node=>node.addEventListener('click',async e=>{
   const location=e.target.closest('[data-fleet-location]');
   if(location){const r=await post('setFleetVehicleLocation',{model:location.dataset.fleetLocation});notice(r.message||r.error,r.ok?'success':'error')}
   const spawn=e.target.closest('[data-fleet-spawn]');
   if(spawn){const r=await post('spawnFleetVehicle',{model:spawn.dataset.fleetSpawn});notice(r.message||r.error,r.ok?'success':'error');loadFleet()}
-};
-document.querySelector('#fleetRoster').addEventListener('change',async e=>{
+}));
+document.querySelectorAll('#orgFleetRoster,#fleetRoster').forEach(node=>node.addEventListener('change',async e=>{
   const tierInput=e.target.closest('[data-fleet-tier]');
   if(!tierInput)return;
   const r=await post('setFleetVehicleMinTier',{model:tierInput.dataset.fleetTier,minTier:Number(tierInput.value||0)});
   if(!r?.ok)loadFleet();
-});
-document.querySelector('#fleetRecallAll').onclick=async()=>{
+}));
+document.querySelectorAll('#orgFleetRecallAll,#fleetRecallAll').forEach(node=>node.addEventListener('click',async()=>{
   if(!(await showConfirmOverlay('Recall fleet','Recall every enabled fleet vehicle back to its saved location?','Recall','Cancel')))return;
   const r=await post('recallAllFleetVehicles');
   notice(r.message||r.error,r.ok?'success':'error');
-};
+}));
 // Standalone Motor Pool panel (opened only from the Fleet facility NPC --
 // never through the F6 dashboard). Reuses the fleet list/actions above,
 // which already read from a dedicated fleetCanManage flag rather than the
@@ -503,7 +533,7 @@ async function loadArsenalHistory(){const r=await post('arsenalHistory'),box=doc
 document.querySelector('#logisticsOrderForm').onsubmit=async e=>{e.preventDefault();const r=await post('logisticsCreate',{lines:[{itemName:document.querySelector('#logisticsItem').value,quantity:Number(document.querySelector('#logisticsQuantity').value||0)}]});notice(r.message||r.error,r.ok?'success':'error');if(r.ok)loadLogistics()};
 document.querySelector('#logisticsOrders').onclick=async e=>{const b=e.target.closest('[data-logistics-action]');if(!b)return;const r=await post('logisticsAction',{action:b.dataset.logisticsAction,orderId:Number(b.dataset.orderId)});notice(r.message||r.error,r.ok?'success':'error');if(r.ok)loadLogistics()};
 const pageTitles={overview:'Overview',roster:'Members',ranks:'Ranks & Access',facilities:'Facilities',fleet:'Fleet Vehicles',logs:'Activity Logs',custody:'Custody',dispatch:'Dispatch',mdt:'Shared MDT',logistics:'Logistics',charges:'Criminal Code'};
-document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));document.querySelector(`#${b.dataset.tab}View`).classList.remove('hidden');document.querySelector('#pageTitle').textContent=pageTitles[b.dataset.tab]||b.dataset.tab;if(b.dataset.tab==='dispatch'){loadDispatchActiveCalls();loadDispatchHistory()}if(b.dataset.tab==='fleet')loadFleet();if(b.dataset.tab==='logs')loadActivityLog();if(b.dataset.tab==='custody')loadCustody();if(b.dataset.tab==='logistics'){loadLogistics();loadArsenalHistory()}if(b.dataset.tab==='mdt')loadMdtDashboard();if(b.dataset.tab==='charges')loadCriminalCode()});
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{b.closest('.nav-more')?.setAttribute('open','');document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));document.querySelector(`#${b.dataset.tab}View`).classList.remove('hidden');document.querySelector('#pageTitle').textContent=pageTitles[b.dataset.tab]||b.dataset.tab;if(b.dataset.tab==='dispatch'){loadDispatchActiveCalls();loadDispatchHistory()}if(b.dataset.tab==='fleet')loadFleet();if(b.dataset.tab==='logs')loadActivityLog();if(b.dataset.tab==='custody')loadCustody();if(b.dataset.tab==='logistics'){loadLogistics();loadArsenalHistory()}if(b.dataset.tab==='mdt')loadMdtDashboard();if(b.dataset.tab==='charges')loadCriminalCode()});
 
 // ── Criminal Code (F6 -> Criminal Code, leaders/cm-admin only) ─────────────
 let chargeRows=[];
@@ -766,3 +796,11 @@ document.querySelector('#clearMeeting').onclick=async()=>{
   const r=await post('setMeetingPoint',{clear:true});
   notice(r.message||r.error,r.ok?'success':'error');
 };
+
+// Local design preview uses the production law.html, app.js and CSS. It is
+// deliberately query-string gated, so mock data can never run in FiveM NUI.
+if(previewMode){
+  app.classList.remove('hidden');
+  render(previewPayload(previewOrg));
+  document.querySelectorAll('.tab').forEach(button=>button.classList.remove('hidden'));
+}

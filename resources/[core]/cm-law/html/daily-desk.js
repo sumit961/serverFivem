@@ -7,7 +7,12 @@
   const tab = document.createElement('button');
   tab.className = police ? 'nav' : 'tab';
   tab.dataset[police ? 'page' : 'tab'] = 'daily';
-  tab.innerHTML = '<b>✓</b><span>Daily desk<small>Checklist &amp; shift notes</small></span>';
+  // The law dashboard's nav is a compact horizontal tab bar (icon + single-line
+  // label, see dashboard.css .command-nav .tab); the two-line sidebar label
+  // only fits the police embedded dashboard's vertical nav.
+  tab.innerHTML = police
+    ? '<b>✓</b><span>Daily desk<small>Checklist &amp; shift notes</small></span>'
+    : '<b>✓</b><span>Daily desk</span>';
   nav.appendChild(tab);
   const view = document.createElement('section');
   view.id = 'dailyView'; view.className = police ? 'page daily-desk' : 'view daily-desk hidden';
@@ -67,7 +72,13 @@
     $('pageTitle').textContent = 'Daily desk'; shortcuts(); if ((!snapshot || (!dirty && snapshot.date !== new Date().toISOString().slice(0,10))) && !loading) load();
   };
   const overview = document.getElementById('overviewView') || content.querySelector('[data-view="overview"]');
-  const banner = document.createElement('button'); banner.className = 'desk-entry'; banner.innerHTML = '<span><small>MAKE THE MOST OF YOUR SHIFT</small><strong>Open your daily desk</strong></span><span>Checklist · Notes · Recent days →</span>'; banner.onclick = () => tab.click(); overview.prepend(banner);
+  const banner = document.createElement('button'); banner.className = 'desk-entry'; banner.innerHTML = '<span><small>MAKE THE MOST OF YOUR SHIFT</small><strong>Open your daily desk</strong></span><span>Checklist · Notes · Recent days →</span>'; banner.onclick = () => tab.click();
+  // #overviewView is itself a CSS grid whose cells are all claimed by named
+  // grid-template-areas (see dashboard.css); an unpositioned child prepended
+  // inside it can't be auto-placed into any of them, so the browser dumps it
+  // into a new implicit row after everything else. Insert it as a sibling
+  // before the grid instead so it renders as a plain full-width banner above it.
+  overview.before(banner);
   window.addEventListener('message', event => {
     const payload = event.data || {}; if (!['open','dashboard','refresh'].includes(payload.action) || !payload.data) return;
     const data = payload.data, member = police ? data.self : data.member;

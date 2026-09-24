@@ -232,26 +232,37 @@ end)
 
 RegisterNetEvent('cm-ems:client:invite', function(data)
     CreateThread(function()
-        local result = lib.alertDialog({ header = 'EMS Invitation', content = ('%s invited you to join Emergency Medical Services as %s.'):format(tostring(data.inviter or 'EMS'), tostring(data.rank or 'Recruit')), centered = true, cancel = true, labels = { confirm = 'Join EMS', cancel = 'Decline' } })
-        local ok, message = lib.callback.await('cm-ems:server:respondInvite', false, result == 'confirm')
+        local confirmed = exports['cm-ui']:Confirm({
+            title = 'EMS INVITATION',
+            message = ('%s invited you to join Emergency Medical Services as %s.'):format(
+                tostring(data.inviter or 'EMS'),
+                tostring(data.rank or 'Recruit')
+            ),
+            confirmText = 'JOIN EMS',
+            cancelText = 'DECLINE',
+            danger = false
+        })
+        local ok, message = lib.callback.await('cm-ems:server:respondInvite', false, confirmed == true)
         notify(message, ok and 'success' or 'error')
     end)
 end)
 
 RegisterNetEvent('cm-ems:client:medicineOffer', function(data)
     data = type(data) == 'table' and data or {}
-    local result = lib.alertDialog({
-        header = 'Buy Medicine',
-        content = ('%s offers **%s** for **$%d**.'):format(
-            tostring(data.sellerName or 'An EMS medic'),
-            tostring(data.itemLabel or 'medicine'),
-            math.max(0, math.floor(tonumber(data.price) or 0))
-        ),
-        centered = true,
-        cancel = true,
-        labels = { confirm = 'Buy', cancel = 'Refuse' },
-    })
-    TriggerServerEvent('cm-ems:server:medicineOfferResponse', result == 'confirm')
+    CreateThread(function()
+        local confirmed = exports['cm-ui']:Confirm({
+            title = 'PURCHASE MEDICINE',
+            message = ('%s offers %s for $%d.'):format(
+                tostring(data.sellerName or 'An EMS medic'),
+                tostring(data.itemLabel or 'medicine'),
+                math.max(0, math.floor(tonumber(data.price) or 0))
+            ),
+            confirmText = 'BUY',
+            cancelText = 'DECLINE',
+            danger = false
+        })
+        TriggerServerEvent('cm-ems:server:medicineOfferResponse', confirmed == true)
+    end)
 end)
 
 RegisterNetEvent('cm-ems:client:forceDutyCleanup', function()

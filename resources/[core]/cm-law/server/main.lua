@@ -389,6 +389,7 @@ local function dashboardFor(src)
             row.character_id = tostring(row.character_id)
             row.name = (('%s %s'):format(row.first_name or '', row.last_name or '')):gsub('^%s+', ''):gsub('%s+$', '')
             row.on_duty = dbBoolean(row.on_duty)
+            row.online = sourceFor(row.character_id) ~= nil
             row.is_leader = dbBoolean(row.is_leader)
             row.suspended = row.suspended_until ~= nil
             row.first_name, row.last_name, row.suspended_until = nil, nil, nil
@@ -484,7 +485,7 @@ local function dashboardFor(src)
 
     return { ok = true, organization = { id = member.organizationId, label = org.label, shortLabel = org.shortLabel,
         color = org.color, jurisdiction = org.jurisdiction, radioChannel = org.radioChannel, chatChannel = org.chatChannel },
-        member = payload, canManage = canManage(member), characterId = member.characterId,
+        member = payload, canManage = canManage(member), canInvite = canManage(member), characterId = member.characterId,
         canViewMembers = canViewMembers,
         canInspectRankPermissions = canInspectRankPermissions,
         canDispatch = canDispatch,
@@ -1093,7 +1094,7 @@ lib.callback.register('cm-law:server:saveRank', function(src, payload)
     local name = tostring(payload.name or ''):gsub('^%s+', ''):gsub('%s+$', ''):gsub('[%c]', '')
     if #name < 2 or #name > 48 then return { ok = false, error = 'Rank name must be 2-48 characters.' } end
     local tier = math.floor(tonumber(payload.tier) or -1)
-    if tier < 1 or tier >= 100 then return { ok = false, error = 'Tier must be between 1 and 99.' } end
+    if tier < 1 or tier > 12 then return { ok = false, error = 'Tier must be between 1 and 12.' } end
     if not actor.isLeader and tier >= actor.tier then return { ok = false, error = 'You cannot set a tier at or above your own.' } end
 
     local existing = rankId and MySQL.single.await('SELECT id, tier, is_leader FROM cm_legal_ranks WHERE id = ? AND organization_id = ? LIMIT 1', { rankId, orgId })
@@ -1101,6 +1102,11 @@ lib.callback.register('cm-law:server:saveRank', function(src, payload)
     if existing then
         if dbBoolean(existing.is_leader) then return { ok = false, error = 'The organization leader rank is protected.' } end
         if not actor.isLeader and tonumber(existing.tier) >= actor.tier then return { ok = false, error = 'You cannot edit a rank at or above your own tier.' } end
+    end
+
+    if not existing then
+        local rankCount = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM cm_legal_ranks WHERE organization_id = ?', { orgId })) or 0
+        if rankCount >= 12 then return { ok = false, error = 'An organization can have at most 12 ranks.' } end
     end
 
     -- Permissions only change if the payload actually included a
@@ -1643,6 +1649,42 @@ local function orgTargetChange(actorCid, targetCid, orgId, direction)
     return true, ('%s is now %s.'):format(nameFor(targetCid), rank.name)
 end
 
+-- Shared by nearby G interactions and the F6 recruitment form. All identities
+-- and membership below are resolved on the server; the entry rank is fixed.
+local function sendOrganizationInvite(src, targetSrc, actor, actorCid, targetCid)
+    if not canManage(actor) then return false, 'Your rank cannot invite members.' end
+    if actor.suspended then return false, 'Suspended members cannot invite recruits.' end
+    if characterIdFor(src) ~= actorCid or characterIdFor(targetSrc) ~= targetCid or not invitePlayersNearby(src, targetSrc) then return false, 'That player is no longer nearby.' end
+    if inviteThrottled(actorCid, targetCid) then return false, 'Please wait before inviting that player again.' end
+    local orgId = actor.organizationId
+    if memberFor(targetCid, orgId) then return false, 'That character is already a member.' end
+    local rival = exports[Config.AdminResource]:FindRivalMembership(orgId, targetCid)
+    if rival then return false, ('That character already belongs to %s.'):format(rival.orgLabel) end
+    local rank = MySQL.single.await('SELECT id, name FROM cm_legal_ranks WHERE organization_id = ? AND is_leader = 0 ORDER BY tier ASC LIMIT 1', { orgId })
+    if not rank then return false, 'No recruit rank is configured.' end
+    MySQL.insert.await([[INSERT INTO cm_legal_invites (organization_id, character_id, invited_by, expires_at)
+        VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 60 SECOND))
+        ON DUPLICATE KEY UPDATE invited_by = VALUES(invited_by), expires_at = VALUES(expires_at)]],
+        { orgId, targetCid, actorCid })
+    TriggerClientEvent('cm-law:client:invite', targetSrc, {
+        organizationId = orgId, organization = Config.Organizations[orgId].label,
+        inviter = nameFor(actorCid), rank = rank.name, expires = 60,
+    })
+    logActivity(orgId, actorCid, 'invite_sent', { targetCid = targetCid, rankId = rank.id })
+    return true, ('Invitation sent to %s.'):format(nameFor(targetCid))
+end
+
+lib.callback.register('cm-law:server:inviteFromHub', function(src, targetCid)
+    if not LawIsReady() or not rateLimit(src, 'law_gmenu', 900) then return { ok = false, error = 'Please wait before inviting a player.' } end
+    local actor, actorCid = activeMemberForSource(src)
+    targetCid = tostring(targetCid or '')
+    if #targetCid > 64 or not targetCid:match('^[%w_%-]+$') or actorCid == targetCid then return { ok = false, error = 'Enter another player’s character ID.' } end
+    local targetSrc = sourceFor(targetCid)
+    if not actor or not targetSrc then return { ok = false, error = 'That character must be online and nearby.' } end
+    local ok, message = sendOrganizationInvite(src, targetSrc, actor, actorCid, targetCid)
+    return { ok = ok == true, message = ok and message or nil, error = not ok and message or nil }
+end)
+
 AddEventHandler('cm-law:server:gMenuAction', function(src, targetSrc, action, _, context)
     src, targetSrc = tonumber(src), tonumber(targetSrc)
     if not LawIsReady() or not src or not targetSrc or src == targetSrc then return end
@@ -1654,25 +1696,8 @@ AddEventHandler('cm-law:server:gMenuAction', function(src, targetSrc, action, _,
     local function notifySrc(message, kind) TriggerClientEvent('cm-playerdata:client:interactionNotify', src, tostring(message), kind or 'inform') end
 
     if action == 'law_invite' then
-        if not canManage(actor) then return notifySrc('Your rank cannot invite members.', 'error') end
-        if actor.suspended then return notifySrc('Suspended members cannot invite recruits.', 'error') end
-        if characterIdFor(src) ~= actorCid or characterIdFor(targetSrc) ~= targetCid or not invitePlayersNearby(src, targetSrc) then return notifySrc('That player is no longer nearby.', 'error') end
-        if inviteThrottled(actorCid, targetCid) then return notifySrc('Please wait before inviting that player again.', 'error') end
-        if memberFor(targetCid, orgId) then return notifySrc('That character is already a member.', 'error') end
-        local rival = exports[Config.AdminResource]:FindRivalMembership(orgId, targetCid)
-        if rival then return notifySrc(('That character already belongs to %s.'):format(rival.orgLabel), 'error') end
-        local rank = MySQL.single.await('SELECT id, name FROM cm_legal_ranks WHERE organization_id = ? AND is_leader = 0 ORDER BY tier ASC LIMIT 1', { orgId })
-        if not rank then return notifySrc('No recruit rank is configured.', 'error') end
-        MySQL.insert.await([[INSERT INTO cm_legal_invites (organization_id, character_id, invited_by, expires_at)
-            VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 60 SECOND))
-            ON DUPLICATE KEY UPDATE invited_by = VALUES(invited_by), expires_at = VALUES(expires_at)]],
-            { orgId, targetCid, actorCid })
-        TriggerClientEvent('cm-law:client:invite', targetSrc, {
-            organizationId = orgId, organization = Config.Organizations[orgId].label,
-            inviter = nameFor(actorCid), rank = rank.name, expires = 60,
-        })
-        logActivity(orgId, actorCid, 'invite_sent', { targetCid = targetCid, rankId = rank.id })
-        return notifySrc(('Invitation sent to %s.'):format(nameFor(targetCid)), 'success')
+        local ok, message = sendOrganizationInvite(src, targetSrc, actor, actorCid, targetCid)
+        return notifySrc(message, ok and 'success' or 'error')
     end
 
     if not canManage(actor) then return notifySrc('Your rank cannot manage members.', 'error') end

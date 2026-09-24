@@ -5,7 +5,7 @@ lua54 'yes'
 name 'cm-ems'
 author 'Sumit'
 description 'CM Framework | Single EMS medical organization'
-version '5.10.0'
+version '5.11.0'
 
 shared_scripts {
     '@ox_lib/init.lua',

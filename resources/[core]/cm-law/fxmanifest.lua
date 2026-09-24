@@ -5,7 +5,7 @@ lua54 'yes'
 name 'cm-law'
 author 'CM Framework'
 description 'CM legal organizations and embedded Los Santos Police operations'
-version '2.9.0'
+version '3.1.0'
 
 shared_scripts {
     '@ox_lib/init.lua',
@@ -128,17 +128,16 @@ ui_page 'html/index.html'
 files {
     'html/index.html',
     'html/law.html',
+    'html/operations.html', -- standalone MDT, dispatch and facility tools
+    'html/organization.js', -- the four-tab F6 Organization Hub
+    'html/organization-preview.js', -- local HTTP preview only; never used for game data
     'html/dashboard-filters.js',   -- roster + activity log search (standalone, loads after app.js)
     'html/assets/fonts/*.woff2',   -- optional self-hosted Archivo / JetBrains Mono
     'html/assets/mdt.png',         -- MDT tab icon (sourced from resources/outside/mdt reference resource's static image asset)
 
     'html/style.css',
     'html/law-armory-v4.css',
-    'html/command-center.css',
-    'html/command-center-v2.3.css', -- cache-busted shared F6 shell and compact organization overview
-    'html/law-command-rail.css',   -- cm-law-only: right-hand member record rail + letter nav chips (loads after command-center.css, overrides it for this resource only)
-    'html/dashboard-v1.6.css',     -- live operations header, priority call strip, and compact v1.6 overview polish
-    'html/police-dashboard.css',
+    'html/law-command-rail.css',
     'html/dispatch-board.css',
     'html/live-operations-v2.1.css',
     'html/live-operations-v2.1.js',
@@ -146,9 +145,8 @@ files {
     'html/daily-desk.js',
     'html/request-feedback.js',
     'html/operations-v2.5.css',
-    'html/command-ui-v2.6.css',
-    'html/command-ui-v3.0.css', -- full-screen command deck theme; loads last and overrides v2.6 chrome
-    'html/law-command-dashboard.css', -- CM command dashboard overview skin
+    'html/components.css',
+    'html/dashboard.css',
     'html/command-ui-v2.6.js',
     'html/assets/org/*.svg',
     'html/assets/org/*.png',

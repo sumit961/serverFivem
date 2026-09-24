@@ -98,14 +98,16 @@ function LawRequestOfficerAlert(alertType)
     alertType = tostring(alertType or ''):lower()
     if alertType ~= 'backup' and alertType ~= 'panic' then return false end
     local panic = alertType == 'panic'
-    local result = lib.alertDialog({
-        header = panic and 'Confirm panic button' or 'Confirm backup request',
-        content = panic and 'Send an urgent officer-in-distress alert to every available legal unit?'
+    local confirmed = exports['cm-ui']:Confirm({
+        title = panic and 'OFFICER IN DISTRESS' or 'REQUEST BACKUP',
+        message = panic and 'Send an urgent officer-in-distress alert to every available legal unit?'
             or 'Send your current location and request additional units?',
-        centered = true, cancel = true,
-        labels = { confirm = panic and 'Activate panic' or 'Request backup', cancel = 'Cancel' },
+        confirmText = panic and 'ACTIVATE PANIC' or 'REQUEST BACKUP',
+        cancelText = 'CANCEL',
+        danger = panic,
+        dismissOnBackdrop = not panic,
     })
-    if result ~= 'confirm' then return false end
+    if not confirmed then return false end
     local ok, message = lib.callback.await('cm-law:server:createOfficerAlert', false, alertType)
     TriggerEvent('cm-hud:client:notify', message or 'Dispatch request failed.', ok and 'success' or 'error')
     return ok == true

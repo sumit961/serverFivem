@@ -17,11 +17,14 @@ local function addInvite(label)
 end
 
 RegisterNetEvent('cm-ems:client:confirmInvite', function(targetServerId)
-    local result = lib.alertDialog({
-        header = 'EMS Invitation', content = 'Invite the selected nearby player to EMS?',
-        centered = true, cancel = true, labels = { confirm = 'Send Invite', cancel = 'Cancel' },
+    local confirmed = exports['cm-ui']:Confirm({
+        title = 'EMS INVITATION',
+        message = 'Invite the selected nearby player to EMS?',
+        confirmText = 'SEND INVITE',
+        cancelText = 'CANCEL',
+        danger = false
     })
-    if result == 'confirm' then TriggerServerEvent('cm-playerdata:server:extensionInteraction', targetServerId, 'ems_invite', {}) end
+    if confirmed then TriggerServerEvent('cm-playerdata:server:extensionInteraction', targetServerId, 'ems_invite', {}) end
 end)
 
 local function rebuild(targetServerId)
