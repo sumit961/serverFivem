@@ -142,8 +142,7 @@
       };
     }
     var code = String(vehicle.statusCode || '').toUpperCase();
-    var loc = String(vehicle.locationState || '').toUpperCase();
-    if (code === 'PUBLIC_PARKING' || loc === 'PUBLIC_GARAGE' || loc === 'PUBLIC_PARKING') {
+    if (code === 'PUBLIC_PARKING') {
       return {
         key: 'blocked',
         label: 'PUBLIC PARKING',
@@ -158,8 +157,7 @@
 
   function vehicleLocation(vehicle) {
     var code = String(vehicle.statusCode || '').toUpperCase();
-    var loc = String(vehicle.locationState || '').toUpperCase();
-    if (code === 'PUBLIC_PARKING' || loc === 'PUBLIC_GARAGE' || loc === 'PUBLIC_PARKING') {
+    if (code === 'PUBLIC_PARKING') {
       return 'PUBLIC PARKING';
     }
     if (vehicle.parkedHouseLabel) {

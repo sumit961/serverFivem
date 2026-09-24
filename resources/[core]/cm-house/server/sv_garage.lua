@@ -805,24 +805,16 @@ local function isVehicleInPublicParking(vehicleId)
     vehicleId = tonumber(vehicleId)
     if not vehicleId then return false end
 
-    local inSpace = pcall(function()
+    local ok, hasRow = pcall(function()
         local row = MySQL.single.await([[
-            SELECT id, parking_id, spot_index
+            SELECT id
             FROM cm_parking_spaces
             WHERE vehicle_id = ? AND (expires_at IS NULL OR expires_at > NOW())
             LIMIT 1
         ]], { vehicleId })
         return row ~= nil
     end)
-    if inSpace == true and select(2, inSpace) == true then return true end
-
-    local v = VehicleById(vehicleId)
-    if v then
-        local loc = tostring(v.location_state or ''):upper()
-        if loc == 'PUBLIC_GARAGE' or loc == 'PUBLIC_PARKING' then return true end
-        if v.parking_id and tonumber(v.parking_id) then return true end
-    end
-    return false
+    return ok and hasRow == true
 end
 
 local function vehicleGarageStatus(v, houseId)
