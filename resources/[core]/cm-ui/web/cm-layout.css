@@ -1,0 +1,190 @@
+/*
+    CM Authoritative Layout System v2.0.0
+    Load order:
+    1. cm-theme.css
+    2. cm-components.css
+    3. cm-layout.css
+    4. cm-icons.css
+
+    Provides standardized shells, headers, grids, and action bars across all CM resources.
+*/
+
+/* ── Standard Shell Layout ───────────────────────────────── */
+.cm-shell {
+    position: fixed;
+    inset: 0;
+    z-index: 20000;
+    display: flex;
+    flex-direction: column;
+    padding: var(--cm-screen-pad-y) var(--cm-screen-pad-x);
+    color: var(--cm-text);
+    background:
+        radial-gradient(circle at 12% 0%, rgba(0, 229, 255, 0.08), transparent 32%),
+        linear-gradient(135deg, var(--cm-bg) 0%, var(--cm-bg-deep) 100%);
+    font-family: var(--cm-font);
+    overflow: auto;
+}
+
+.cm-shell::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.16;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 0);
+    background-size: 1.5rem 1.5rem;
+}
+
+.cm-shell > * {
+    position: relative;
+    z-index: 1;
+}
+
+/* ── Screen Header System ────────────────────────────────── */
+.cm-screen-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--cm-space-5);
+    padding-bottom: 1.125rem;
+    border-bottom: 2px solid var(--cm-border);
+    margin-bottom: var(--cm-space-5);
+}
+
+.cm-screen-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.cm-screen-kicker,
+.cm-screen-subtitle {
+    margin: 0;
+    color: var(--cm-text-muted);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.cm-screen-title {
+    margin: 0;
+    color: var(--cm-text);
+    font-family: var(--cm-font-display);
+    font-size: 2rem;
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.cm-screen-stats {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--cm-space-6);
+}
+
+.cm-screen-stat {
+    display: flex;
+    flex-direction: column;
+    min-width: 5.5rem;
+}
+
+.cm-screen-stat-label {
+    color: var(--cm-text-muted);
+    font-size: var(--cm-text-xs);
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.cm-screen-stat-value {
+    display: block;
+    margin-top: 0.25rem;
+    color: var(--cm-text);
+    font-family: var(--cm-font-display);
+    font-size: var(--cm-title-md);
+    font-weight: 800;
+}
+
+.cm-screen-stat-value--cyan { color: var(--cm-cyan); }
+.cm-screen-stat-value--yellow { color: var(--cm-yellow); }
+.cm-screen-stat-value--green { color: var(--cm-green); }
+.cm-screen-stat-value--orange { color: var(--cm-orange); }
+.cm-screen-stat-value--red { color: var(--cm-red); }
+
+/* ── Footer Action System ────────────────────────────────── */
+.cm-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--cm-space-4);
+    margin-top: var(--cm-space-5);
+}
+
+.cm-actions--end {
+    justify-content: flex-end;
+}
+
+.cm-actions--fixed {
+    position: fixed;
+    right: 2rem;
+    bottom: 2rem;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.cm-actions--fixed .cm-btn,
+.cm-actions .cm-btn-lg {
+    height: 4rem;
+}
+
+/* ── Layout Grids & Flex ─────────────────────────────────── */
+.cm-grid {
+    display: grid;
+    gap: var(--cm-space-4);
+}
+
+.cm-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cm-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cm-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+.cm-row {
+    display: flex;
+    align-items: center;
+    gap: var(--cm-space-3);
+}
+
+.cm-row-between {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--cm-space-3);
+}
+
+.cm-col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cm-space-3);
+}
+
+@media (max-width: 900px) {
+    .cm-grid-2,
+    .cm-grid-3,
+    .cm-grid-4 {
+        grid-template-columns: 1fr;
+    }
+
+    .cm-screen-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .cm-screen-stats {
+        justify-content: flex-start;
+    }
+}

@@ -1440,14 +1440,15 @@
     let ok = false;
     if (window.CMUI && typeof window.CMUI.confirm === 'function') {
       ok = await window.CMUI.confirm({
-        title: options.title || 'Family Confirmation',
+        title: options.title || 'CONFIRM ACTION',
         message: question,
-        confirmText: options.confirmText || 'Confirm',
-        cancelText: options.cancelText || 'Cancel',
+        confirmText: options.confirmText || 'CONFIRM',
+        cancelText: options.cancelText || 'CANCEL',
         danger: options.danger !== undefined ? options.danger : true
       });
     } else {
-      ok = window.confirm(question);
+      console.warn('[cm-family] CMUI.confirm not available');
+      ok = false;
     }
     if (ok) act(action, data);
   }
@@ -1578,14 +1579,15 @@
         let confirmed = false;
         if (window.CMUI && typeof window.CMUI.confirm === 'function') {
           confirmed = await window.CMUI.confirm({
-            title: 'Repair Founder Membership',
+            title: 'REPAIR FOUNDER MEMBERSHIP',
             message: `Repair verified founder membership for family ${familyId}?`,
-            confirmText: 'Repair',
-            cancelText: 'Cancel',
+            confirmText: 'REPAIR',
+            cancelText: 'CANCEL',
             danger: false
           });
         } else {
-          confirmed = window.confirm(`Repair verified founder membership for family ${familyId}?`);
+          console.warn('[cm-family] CMUI.confirm not available');
+          confirmed = false;
         }
         if (!confirmed) return;
       }

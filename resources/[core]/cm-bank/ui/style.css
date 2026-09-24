@@ -16,26 +16,26 @@
 :root{
   --ui-scale:1;
   --cash-opacity:.5;
-  --ink:#0B1026;
-  --panel:#0B1026;
-  --panel-2:#10183a;
-  --panel-3:#17214b;
-  --cyan:#00D1FF;
-  --cyan-bright:#9eefff;
-  --cyan-dark:#007a99;
-  --blue:#A259FF;
-  --green:#00FFA3;
-  --red:#ff5578;
-  --amber:#FFD166;
-  --gold:#FFD166;
-  --text:#ffffff;
-  --body:#cbd3f4;
-  --muted:#8791b9;
-  --line:rgba(114,153,225,.18);
-  --line-strong:rgba(0,209,255,.38);
-  --display:"CM Narrow","Arial Narrow",sans-serif;
-  --body-font:"Segoe UI",Arial,sans-serif;
-  --mono:"Cascadia Mono",Consolas,monospace;
+  --ink:var(--cm-bg);
+  --panel:var(--cm-panel-solid);
+  --panel-2:var(--cm-bg-deep);
+  --panel-3:var(--cm-panel);
+  --cyan:var(--cm-cyan);
+  --cyan-bright:#33EBFF;
+  --cyan-dark:var(--cm-blue);
+  --blue:var(--cm-blue);
+  --green:var(--cm-green);
+  --red:var(--cm-red);
+  --amber:var(--cm-yellow);
+  --gold:var(--cm-yellow);
+  --text:var(--cm-text);
+  --body:var(--cm-text-secondary);
+  --muted:var(--cm-text-muted);
+  --line:var(--cm-border);
+  --line-strong:rgba(0,229,255,.38);
+  --display:var(--cm-font-display);
+  --body-font:var(--cm-font);
+  --mono:var(--cm-mono);
 }
 
 *{box-sizing:border-box;margin:0;padding:0}

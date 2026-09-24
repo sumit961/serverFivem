@@ -5,13 +5,14 @@ lua54 'yes'
 name 'cm-ui'
 author 'CM Framework / Grand RP'
 description 'Central CM Framework UI theme, components, and NUI helper utilities'
-version '1.4.0'
+version '2.0.0'
 
 shared_script 'shared/theme.lua'
 
 client_scripts {
     'client/interact.lua',
     'client/dialogue.lua',
+    'client/confirm.lua',
     'client/preview.lua'
 }
 
@@ -22,7 +23,12 @@ files {
     'web/app.js',
     'web/cm-theme.css',
     'web/cm-dashboard.css',
+    'web/cm-organization.css',
+    'web/cm-organization-fonts.css',
+    'web/cm-organization-icons.css',
+    'web/cm-organization.js',
     'web/cm-components.css',
+    'web/cm-layout.css',
     'web/cm-armory.css',
     'web/cm-interact.css',
     'web/cm-dialogue.css',
@@ -32,5 +38,7 @@ files {
     'web/cm-icons.css',
     'web/preview.html',
     'web/fonts/*.ttf',
-    'docs/CM_UI_USAGE.md'
+    'web/fonts/*.woff2',
+    'docs/CM_UI_USAGE.md',
+    'docs/CM_UI_SYSTEM.md'
 }

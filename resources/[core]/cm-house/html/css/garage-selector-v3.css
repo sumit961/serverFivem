@@ -761,13 +761,10 @@
 .garage-confirm__button,
 .garage-confirm .cm-confirm-modal__cancel,
 .garage-confirm .cm-confirm-modal__confirm {
-  width: 10vw;
-  min-width: 130px;
-  height: 7vh;
-  min-height: 48px;
-  max-height: 56px;
-  border-radius: 6px;
-  font: 800 clamp(16px, 1.5vw, 18px) 'DM Sans',sans-serif;
+  width: 10rem;
+  height: 4rem;
+  border-radius: var(--cm-radius);
+  font: 800 var(--cm-text-lg) var(--cm-font);
   letter-spacing: .04em;
   text-transform: uppercase;
   cursor: pointer;

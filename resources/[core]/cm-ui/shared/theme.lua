@@ -1,27 +1,40 @@
 CMUI = CMUI or {}
 
 CMUI.Theme = {
-    name = 'CM Blue/Cyan',
-    version = '1.0.0',
+    name = 'CM Cyan/Deep Teal',
+    version = '2.0.0',
 
     colors = {
-        bg = '#07111f',
-        panel = '#081222',
-        panelSoft = '#0c1a2e',
-        primary = '#00e5ff',
-        primaryDark = '#0891b2',
-        blue = '#2563eb',
-        success = '#22c55e',
-        warning = '#f59e0b',
-        danger = '#ef4444',
-        text = '#eaf7ff',
-        muted = '#8aa4b8'
+        bg = '#0B171E',
+        bgDeep = '#10222B',
+        panel = 'rgba(18, 36, 47, 0.94)',
+        panelSolid = '#142733',
+        border = '#213B4A',
+        cyan = '#00E5FF',
+        blue = '#1E88E5',
+        yellow = '#FFC700',
+        green = '#2ECC71',
+        orange = '#FF8C00',
+        red = '#E74C3C',
+        text = '#FFFFFF',
+        textSecondary = '#C2D2DC',
+        textMuted = '#829DAE',
+
+        -- Semantic aliases
+        primary = '#00E5FF',
+        primaryDark = '#1E88E5',
+        success = '#2ECC71',
+        warning = '#FFC700',
+        danger = '#E74C3C',
+        info = '#00E5FF',
+        muted = '#829DAE'
     },
 
     nui = {
         useBackdropFilter = false,
-        fontFamily = 'Inter, Segoe UI, Roboto, Arial, sans-serif',
-        radius = 16
+        fontFamily = '"DM Sans", "Segoe UI", Arial, sans-serif',
+        fontDisplay = '"Poppins", "DM Sans", sans-serif',
+        radius = '0.5rem'
     }
 }
 

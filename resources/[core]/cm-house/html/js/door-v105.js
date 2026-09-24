@@ -452,13 +452,13 @@
         var payout = money(current.govValue);
         var sellConfirm = window.CMUI && typeof window.CMUI.confirm === 'function'
           ? window.CMUI.confirm({
-              title: 'Sell Property',
+              title: 'SELL PROPERTY',
               message: 'Are you sure you want to sell this property? It will be returned to the market and any stored contents will be cleared. This action cannot be undone.\n\nGovernment Payout: ' + payout,
-              confirmText: 'Confirm Sell',
-              cancelText: 'Cancel',
+              confirmText: 'CONFIRM SELL',
+              cancelText: 'CANCEL',
               danger: true
             })
-          : Promise.resolve(window.confirm('Sell this property for ' + payout + '?'));
+          : Promise.resolve(false);
 
         sellConfirm.then(function (confirmed) {
           if (!confirmed) {

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CM Resource Template</title>
+
+    <!-- ── Authoritative CM UI Load Order ──────────────────────── -->
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-components.css">
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-layout.css">
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-icons.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app" class="cm-shell">
+        <!-- ── Standard Screen Header ──────────────────────────── -->
+        <header class="cm-screen-header">
+            <div class="cm-screen-heading">
+                <span class="cm-screen-subtitle">// LOS SANTOS OPERATIONS</span>
+                <h1 class="cm-screen-title">FACILITY DASHBOARD</h1>
+            </div>
+            <div class="cm-screen-stats">
+                <div class="cm-screen-stat">
+                    <span class="cm-screen-stat-label">STATUS</span>
+                    <span class="cm-screen-stat-value cm-screen-stat-value--cyan">OPERATIONAL</span>
+                </div>
+                <div class="cm-screen-stat">
+                    <span class="cm-screen-stat-label">BALANCE</span>
+                    <span class="cm-screen-stat-value cm-screen-stat-value--green">$1,250,000</span>
+                </div>
+                <button type="button" class="cm-btn cm-btn-sm cm-btn-secondary" id="btnClose">EXIT</button>
+            </div>
+        </header>
+
+        <!-- ── Navigation Tabs ─────────────────────────────────── -->
+        <nav class="cm-tabs" id="mainTabs">
+            <button type="button" class="cm-tab cm-active" data-cm-tab="overview">OVERVIEW</button>
+            <button type="button" class="cm-tab" data-cm-tab="operations">OPERATIONS</button>
+            <button type="button" class="cm-tab" data-cm-tab="management">MANAGEMENT</button>
+        </nav>
+
+        <!-- ── Tab Panels ──────────────────────────────────────── -->
+        <main class="template-content">
+            <!-- Overview Panel -->
+            <section data-cm-panel="overview" class="template-panel">
+                <div class="cm-grid cm-grid-3">
+                    <div class="cm-card cm-card-interactive">
+                        <div class="cm-row-between">
+                            <span class="cm-badge cm-badge-cyan">PRIMARY</span>
+                            <span class="cm-text-muted">#01</span>
+                        </div>
+                        <h3 class="cm-text-lg" style="margin: 0.75rem 0 0.25rem;">Storage Facility</h3>
+                        <p class="cm-text-muted" style="margin: 0;">Capacity: 450 / 500 KG</p>
+                    </div>
+
+                    <div class="cm-card cm-card-interactive">
+                        <div class="cm-row-between">
+                            <span class="cm-badge cm-badge-green">ACTIVE</span>
+                            <span class="cm-text-muted">#02</span>
+                        </div>
+                        <h3 class="cm-text-lg" style="margin: 0.75rem 0 0.25rem;">Vehicle Bay</h3>
+                        <p class="cm-text-muted" style="margin: 0;">Slots: 4 / 6 Available</p>
+                    </div>
+
+                    <div class="cm-card cm-card-interactive">
+                        <div class="cm-row-between">
+                            <span class="cm-badge cm-badge-yellow">MAINTENANCE</span>
+                            <span class="cm-text-muted">#03</span>
+                        </div>
+                        <h3 class="cm-text-lg" style="margin: 0.75rem 0 0.25rem;">Generator Station</h3>
+                        <p class="cm-text-muted" style="margin: 0;">Output: 94% Efficiency</p>
+                    </div>
+                </div>
+
+                <div class="cm-card" style="margin-top: 1.5rem;">
+                    <h3 style="margin-top: 0;">Transfer Funds</h3>
+                    <div class="template-form-row">
+                        <div>
+                            <label class="cm-label">RECIPIENT CHARACTER ID</label>
+                            <input type="number" class="cm-input" id="inputRecipient" placeholder="e.g. 1042">
+                        </div>
+                        <div>
+                            <label class="cm-label">AMOUNT ($)</label>
+                            <input type="number" class="cm-input" id="inputAmount" placeholder="e.g. 50000">
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Operations Panel -->
+            <section data-cm-panel="operations" class="template-panel cm-hidden">
+                <div class="cm-slot-grid">
+                    <div class="cm-slot cm-slot--available">
+                        <div class="cm-slot-head">
+                            <span class="cm-slot-name">BAY 01</span>
+                            <span class="cm-badge cm-badge-green">OPEN</span>
+                        </div>
+                        <div class="cm-slot-icon">🚗</div>
+                        <div class="cm-slot-foot">
+                            <span class="cm-slot-price">$5,000</span>
+                        </div>
+                    </div>
+                    <div class="cm-slot cm-slot--selected">
+                        <div class="cm-slot-head">
+                            <span class="cm-slot-name">BAY 02</span>
+                            <span class="cm-badge cm-badge-cyan">SELECTED</span>
+                        </div>
+                        <div class="cm-slot-icon">🏎️</div>
+                        <div class="cm-slot-foot">
+                            <span class="cm-slot-price">$12,500</span>
+                        </div>
+                    </div>
+                    <div class="cm-slot cm-slot--owned">
+                        <div class="cm-slot-head">
+                            <span class="cm-slot-name">BAY 03</span>
+                            <span class="cm-badge cm-badge-yellow">OWNED</span>
+                        </div>
+                        <div class="cm-slot-icon">🚙</div>
+                        <div class="cm-slot-foot">
+                            <span class="cm-slot-price">PARKED</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Management Panel -->
+            <section data-cm-panel="management" class="template-panel cm-hidden">
+                <div class="cm-card cm-card-danger">
+                    <h3 class="cm-text-red" style="margin-top: 0;">Danger Zone</h3>
+                    <p class="cm-text-muted">Permanently reset facility configuration or release slot assignments.</p>
+                    <button type="button" class="cm-btn cm-btn-danger" id="btnDestructive">RESET FACILITY</button>
+                </div>
+            </section>
+        </main>
+
+        <!-- ── Fixed Footer Action Bar ─────────────────────────── -->
+        <footer class="cm-actions cm-actions--fixed">
+            <button type="button" class="cm-btn cm-btn-secondary" id="btnTestToast">TEST NOTIFICATION</button>
+            <button type="button" class="cm-btn cm-btn-primary" id="btnSubmit">CONFIRM ACTION</button>
+        </footer>
+    </div>
+
+    <!-- ── Scripts ─────────────────────────────────────────── -->
+    <script src="nui://cm-ui/web/cm-ui.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

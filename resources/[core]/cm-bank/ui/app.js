@@ -210,6 +210,10 @@
 
   function showToast(message, type) {
     type = type || 'success';
+    if (window.CMUI && typeof window.CMUI.toast === 'function') {
+      window.CMUI.toast(message, type === 'error' ? 'error' : (type === 'info' ? 'info' : 'success'));
+      return;
+    }
     el('toastMessage').textContent = String(message || '');
     el('toast').classList.toggle('error', type === 'error');
     el('toast').classList.remove('hidden');
@@ -1374,6 +1378,22 @@
     var governmentValue = Math.floor(ownership.purchasePrice * ownership.governmentSellPercent / 100);
     var recoverableContribution = Math.min(atmInfo.ownerReserveContribution || 0, atmInfo.cashReserve || 0);
     var payout = governmentValue + (atmInfo.pendingEarnings || 0) + recoverableContribution;
+
+    if (window.CMUI && typeof window.CMUI.confirm === 'function') {
+      window.CMUI.confirm({
+        title: 'SELL ATM' + (atmInfo.id ? (' #' + atmInfo.id) : ''),
+        message: 'Selling this ATM removes your ownership permanently.\n\nGovernment Payout: $' + formatMoney(payout),
+        confirmText: 'SELL ATM',
+        cancelText: 'CANCEL',
+        danger: true
+      }).then(function (confirmed) {
+        if (confirmed) {
+          doSellAtm();
+        }
+      });
+      return;
+    }
+
     pendingConfirmAction = 'sellAtm';
     el('confirmTitle').textContent = 'SELL ATM' + (atmInfo.id ? (' #' + atmInfo.id) : '');
     el('confirmAcceptLabel').textContent = 'Sell to Government';

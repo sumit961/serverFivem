@@ -666,14 +666,15 @@ $('admin').addEventListener('click', async (e) => {
   async function askConfirm(title, message, danger = false) {
     if (window.CMUI && typeof window.CMUI.confirm === 'function') {
       return await window.CMUI.confirm({
-        title: title || 'Confirm Action',
+        title: title || 'CONFIRM ACTION',
         message: message,
-        confirmText: 'Confirm',
-        cancelText: 'Cancel',
+        confirmText: 'CONFIRM',
+        cancelText: 'CANCEL',
         danger: danger
       });
     }
-    return window.confirm(message);
+    console.warn('[cm-house] CMUI.confirm not available');
+    return false;
   }
 
   // Vehicle recovery actions

@@ -1,10 +1,13 @@
-/* CM Framework UI helper v1.0.0 */
+/*
+    CM Framework UI Kernel Helper v2.0.0
+    Authoritative shared UI runtime logic for all CM FiveM NUI resources.
+*/
 (function () {
     'use strict';
 
     const CMUI = window.CMUI || {};
 
-    CMUI.version = '1.0.0';
+    CMUI.version = '2.0.0';
 
     CMUI.qs = function (selector, root) {
         return (root || document).querySelector(selector);
@@ -45,6 +48,7 @@
         }).catch(function () { return null; });
     };
 
+    /* ── Authoritative Toast System (Bottom-Left) ────────── */
     CMUI.toast = function (message, type, timeout) {
         type = type || 'info';
         timeout = timeout || 3500;
@@ -58,33 +62,49 @@
 
         const toast = document.createElement('div');
         toast.className = `cm-toast cm-toast-${type}`;
-        toast.textContent = message || '';
+        toast.textContent = String(message || '');
         stack.appendChild(toast);
 
         setTimeout(function () {
             toast.style.opacity = '0';
-            toast.style.transform = 'translateX(12px)';
-            setTimeout(function () { toast.remove(); }, 180);
+            toast.style.transform = 'translateY(10px)';
+            setTimeout(function () {
+                if (toast.parentNode) {
+                    toast.parentNode.removeChild(toast);
+                }
+            }, 180);
         }, timeout);
 
         return toast;
     };
 
+    /* ── Authoritative Confirmation Modal System ─────────── */
     CMUI.confirm = function (options) {
         options = options || {};
         return new Promise(function (resolve) {
+            // Remove any existing modal to prevent duplicate open state
+            const existing = document.querySelector('.cm-modal-backdrop');
+            if (existing && existing.parentNode) {
+                existing.parentNode.removeChild(existing);
+            }
+
             const backdrop = document.createElement('div');
             backdrop.className = 'cm-modal-backdrop cm-style-modal-backdrop';
 
-            const safeBodyHtml = CMUI.safeText(options.message || 'Are you sure?').replace(/\n/g, '<br>');
+            const title = CMUI.safeText(options.title || 'CONFIRM ACTION');
+            const safeBodyHtml = CMUI.safeText(options.message || 'Are you sure you want to proceed?').replace(/\n/g, '<br>');
+            const confirmText = CMUI.safeText(options.confirmText || 'CONFIRM');
+            const cancelText = CMUI.safeText(options.cancelText || 'CANCEL');
+            const isDanger = options.danger === true;
+            const confirmClass = isDanger ? 'cm-btn-danger cm-style-btn--danger' : 'cm-btn-yellow cm-style-btn--yellow';
 
             backdrop.innerHTML = `
-                <div class="cm-modal cm-style-modal">
-                    <div class="cm-modal-header cm-style-modal__title">${CMUI.safeText(options.title || 'Confirm')}</div>
+                <div class="cm-modal cm-style-modal" role="dialog" aria-modal="true">
+                    <div class="cm-modal-header cm-style-modal__title">${title}</div>
                     <div class="cm-modal-body cm-style-modal__body">${safeBodyHtml}</div>
                     <div class="cm-modal-actions cm-style-actions">
-                        <button type="button" class="cm-btn cm-btn-secondary cm-style-btn cm-style-btn--secondary" data-cancel>${CMUI.safeText(options.cancelText || 'Cancel')}</button>
-                        <button type="button" class="cm-btn ${options.danger ? 'cm-btn-danger cm-style-btn--danger' : 'cm-btn-yellow cm-style-btn--yellow'} cm-style-btn" data-confirm>${CMUI.safeText(options.confirmText || 'Confirm')}</button>
+                        <button type="button" class="cm-btn cm-btn-secondary cm-style-btn cm-style-btn--secondary" data-cm-cancel>${cancelText}</button>
+                        <button type="button" class="cm-btn ${confirmClass} cm-style-btn" data-cm-confirm>${confirmText}</button>
                     </div>
                 </div>
             `;
@@ -96,7 +116,9 @@
                 if (settled) return;
                 settled = true;
                 window.removeEventListener('keydown', onKeyDown, true);
-                if (backdrop.parentNode) backdrop.remove();
+                if (backdrop.parentNode) {
+                    backdrop.parentNode.removeChild(backdrop);
+                }
                 resolve(result);
             }
 
@@ -107,26 +129,31 @@
                     finish(false);
                 }
             }
+            // Capture phase ensures we intercept Escape before parent screens close
             window.addEventListener('keydown', onKeyDown, true);
 
-            const cancelBtn = backdrop.querySelector('[data-cancel]');
-            const confirmBtn = backdrop.querySelector('[data-confirm]');
+            const cancelBtn = backdrop.querySelector('[data-cm-cancel]');
+            const confirmBtn = backdrop.querySelector('[data-cm-confirm]');
 
             if (cancelBtn) {
-                cancelBtn.addEventListener('click', function () {
+                cancelBtn.addEventListener('click', function (e) {
+                    e.stopPropagation();
                     finish(false);
                 });
+                // Crucial usability contract: Cancel receives default focus!
                 cancelBtn.focus();
             }
 
             if (confirmBtn) {
-                confirmBtn.addEventListener('click', function () {
+                confirmBtn.addEventListener('click', function (e) {
+                    e.stopPropagation();
                     finish(true);
                 });
             }
         });
     };
 
+    /* ── Tab Binding Utility ─────────────────────────────── */
     CMUI.bindTabs = function (root, options) {
         root = root || document;
         options = options || {};
@@ -168,10 +195,9 @@
         });
     };
 
-    // ── cm-interact: "Press [key]" prompt, reusable from any NUI page ──────
-    // Backed by cm-ui/client/interact.lua (exports ShowInteract/HideInteract).
+    /* ── cm-interact: "Press [key]" prompt ────────────────── */
     function ensureInteract() {
-        var el = document.querySelector('.cm-interact');
+        let el = document.querySelector('.cm-interact');
         if (el) return el;
         el = document.createElement('aside');
         el.className = 'cm-interact';
@@ -185,17 +211,14 @@
     }
 
     function isDialogueOpen() {
-        var el = document.querySelector('.cm-dialogue');
+        const el = document.querySelector('.cm-dialogue');
         return !!(el && !el.hidden);
     }
 
     CMUI.showInteract = function (options) {
-        // Never show the interact prompt while the cinematic dialogue is
-        // open on top of it -- callers don't need to track dialogue state
-        // themselves to avoid this, it's handled here in one place.
         if (isDialogueOpen()) return;
         options = options || {};
-        var el = ensureInteract();
+        const el = ensureInteract();
         el.querySelector('.cm-interact__key').textContent = options.key || 'E';
         el.querySelector('.cm-interact__label').textContent = options.label || 'INTERACTION';
         el.querySelector('.cm-interact__identity').textContent = [options.name, options.role].filter(Boolean).join(' · ');
@@ -203,20 +226,15 @@
     };
 
     CMUI.hideInteract = function () {
-        var el = document.querySelector('.cm-interact');
+        const el = document.querySelector('.cm-interact');
         if (el) el.hidden = true;
     };
 
-    // ── cm-dialogue: cinematic NPC dialogue, reusable from any NUI page ────
-    // Backed by cm-ui/client/dialogue.lua (exports OpenNpcDialogue/
-    // NpcDialogueRespond/NpcDialogueRestoreChoices/CancelNpcDialogue).
-    // Choices carry an `event` name (TriggerEvent'd back on the caller's own
-    // client) instead of a Lua function, so this stays safe to call from any
-    // resource via exports (Lua closures do not marshal across resources).
-    var dialogueState = { choices: [], deferChoices: false, serviceLabel: '' };
+    /* ── cm-dialogue: cinematic NPC dialogue ─────────────── */
+    let dialogueState = { choices: [], deferChoices: false, serviceLabel: '' };
 
     function ensureDialogue() {
-        var el = document.querySelector('.cm-dialogue');
+        let el = document.querySelector('.cm-dialogue');
         if (el) return el;
         el = document.createElement('section');
         el.className = 'cm-dialogue';
@@ -232,7 +250,7 @@
         document.body.appendChild(el);
 
         el.querySelector('.cm-dialogue__continue').addEventListener('click', function () {
-            var optionsBox = el.querySelector('.cm-dialogue__service-options');
+            const optionsBox = el.querySelector('.cm-dialogue__service-options');
             if (dialogueState.deferChoices && optionsBox.hidden) {
                 optionsBox.hidden = false;
                 el.querySelector('.cm-dialogue__text').textContent = dialogueState.serviceLabel || 'Please choose an option.';
@@ -248,7 +266,7 @@
         });
 
         el.querySelector('.cm-dialogue__service-options').addEventListener('click', function (event) {
-            var button = event.target.closest('[data-cm-dialogue-choice]');
+            const button = event.target.closest('[data-cm-dialogue-choice]');
             if (!button) return;
             CMUI.postNui('cmDialogueChoice', { choice: button.dataset.cmDialogueChoice });
         });
@@ -259,24 +277,24 @@
     CMUI.openDialogue = function (options) {
         options = options || {};
         CMUI.hideInteract();
-        var el = ensureDialogue();
+        const el = ensureDialogue();
         el.className = 'cm-dialogue';
         el.querySelector('.cm-dialogue__role').textContent = options.role || 'CM FRAMEWORK';
         el.querySelector('.cm-dialogue__name').textContent = options.name || 'NPC';
         el.querySelector('.cm-dialogue__text').textContent = options.quote || 'How can I help you?';
         el.querySelector('.cm-dialogue__signature').textContent = '— ' + (options.name || 'NPC');
 
-        var continueBtn = el.querySelector('.cm-dialogue__continue');
+        const continueBtn = el.querySelector('.cm-dialogue__continue');
         continueBtn.textContent = options.continueLabel || 'Continue';
 
-        var choices = Array.isArray(options.choices) ? options.choices : [];
+        const choices = Array.isArray(options.choices) ? options.choices : [];
         dialogueState = {
             choices: choices,
             deferChoices: options.deferChoices === true,
             serviceLabel: options.serviceLabel || 'Please choose an option.'
         };
 
-        var optionsBox = el.querySelector('.cm-dialogue__service-options');
+        const optionsBox = el.querySelector('.cm-dialogue__service-options');
         if (choices.length > 0) {
             optionsBox.innerHTML = choices.map(function (choice) {
                 return '<button type="button" class="cm-dialogue__option" data-cm-dialogue-choice="' + CMUI.safeText(choice.id) + '">' +
@@ -297,7 +315,7 @@
 
     CMUI.dialogueResponse = function (options) {
         options = options || {};
-        var el = document.querySelector('.cm-dialogue');
+        const el = document.querySelector('.cm-dialogue');
         if (!el) return;
         el.className = 'cm-dialogue cm-dialogue--response' + (options.tone ? ' cm-dialogue--' + options.tone : '');
         el.querySelector('.cm-dialogue__text').textContent = options.message || '';
@@ -305,7 +323,7 @@
 
     CMUI.dialogueRestoreChoices = function (options) {
         options = options || {};
-        var el = document.querySelector('.cm-dialogue');
+        const el = document.querySelector('.cm-dialogue');
         if (!el) return;
         el.className = 'cm-dialogue';
         el.querySelector('.cm-dialogue__service-options').hidden = false;
@@ -314,12 +332,10 @@
     };
 
     CMUI.closeDialogue = function () {
-        var el = document.querySelector('.cm-dialogue');
+        const el = document.querySelector('.cm-dialogue');
         if (el) el.hidden = true;
     };
 
-    // Esc dismisses the open cinematic dialogue the same way the "I'm not
-    // interested right now" button does (fires closeEvent, no choice/continue).
     document.addEventListener('keydown', function (event) {
         if (event.key !== 'Escape') return;
         if (!isDialogueOpen()) return;

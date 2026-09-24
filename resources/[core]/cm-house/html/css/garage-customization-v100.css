@@ -3,21 +3,6 @@
    Cyan theme tokens strictly complying with ui/AGENTS.md
    No purple, no backdrop-filter, 8px border-radius.
    ============================================================ */
-:root {
-  --cm-bg: #0B171E;
-  --cm-bg-deep: #10222B;
-  --cm-panel: rgba(18, 36, 47, 0.94);
-  --cm-panel-solid: #142733;
-  --cm-border: #213B4A;
-  --cm-cyan: #00E5FF;
-  --cm-yellow: #FFC700;
-  --cm-green: #2ECC71;
-  --cm-orange: #FF8C00;
-  --cm-red: #E74C3C;
-  --cm-text: #FFFFFF;
-  --cm-text-secondary: #C2D2DC;
-  --cm-text-muted: #829DAE;
-}
 
 .garage-custom-screen,
 .garage-custom-screen * {

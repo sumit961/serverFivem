@@ -1,0 +1,29 @@
+/*
+    CM Resource Template Local Stylesheet
+    Rule: Never override central .cm-* selectors or --cm-* tokens here.
+    Only add resource-specific layout arrangements.
+*/
+
+.template-content {
+    margin-top: 1.5rem;
+    padding-bottom: 5rem; /* Ensure clearance above fixed footer */
+}
+
+.template-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.template-form-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+@media (max-width: 768px) {
+    .template-form-row {
+        grid-template-columns: 1fr;
+    }
+}

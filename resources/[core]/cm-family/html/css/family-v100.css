@@ -2,42 +2,6 @@
    CM FAMILY — CLEAN TACTICAL HUD & BENTO GRID SYSTEM
    ============================================================ */
 
-@font-face {
-  font-family: 'Poppins';
-  src: url('../fonts/poppins-600.ttf') format('truetype');
-  font-weight: 600;
-  font-style: normal;
-}
-@font-face {
-  font-family: 'Poppins';
-  src: url('../fonts/poppins-700.ttf') format('truetype');
-  font-weight: 700;
-  font-style: normal;
-}
-@font-face {
-  font-family: 'Poppins';
-  src: url('../fonts/poppins-800.ttf') format('truetype');
-  font-weight: 800;
-  font-style: normal;
-}
-@font-face {
-  font-family: 'DM Sans';
-  src: url('../fonts/dm-sans-400.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-}
-@font-face {
-  font-family: 'DM Sans';
-  src: url('../fonts/dm-sans-500.ttf') format('truetype');
-  font-weight: 500;
-  font-style: normal;
-}
-@font-face {
-  font-family: 'DM Sans';
-  src: url('../fonts/dm-sans-700.ttf') format('truetype');
-  font-weight: 700;
-  font-style: normal;
-}
 
 :root {
   /* High-Contrast Clean Tactical Palette bound to Persistent Gaming UI Directive */
