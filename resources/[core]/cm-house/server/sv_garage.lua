@@ -801,6 +801,54 @@ local STATUS_LABELS = {
     PUBLIC_PARKING = 'Public Parking',
 }
 
+local function isAirOrWaterVehicle(model, catalogType, catalogCategory)
+    local cType = tostring(catalogType or ''):lower()
+    if cType == 'air' or cType == 'boat' then return true end
+
+    local cCat = tostring(catalogCategory or ''):lower()
+    if cCat:find('boat', 1, true) or cCat:find('plane', 1, true) or cCat:find('heli', 1, true) or cCat:find('air', 1, true) then
+        return true
+    end
+
+    local modelStr = tostring(model or ''):lower()
+    if modelStr ~= '' then
+        local hash = (type(joaat) == 'function' and joaat(modelStr)) or (type(GetHashKey) == 'function' and GetHashKey(modelStr)) or 0
+        if hash ~= 0 and type(GetVehicleTypeFromName) == 'function' then
+            local okType, vType = pcall(GetVehicleTypeFromName, hash)
+            if okType and vType then
+                local vt = tostring(vType):lower()
+                if vt == 'heli' or vt == 'plane' or vt == 'boat' or vt == 'submarine' then
+                    return true
+                end
+            end
+        end
+
+        if hash ~= 0 and type(GetVehicleClassFromName) == 'function' then
+            local okClass, vClass = pcall(GetVehicleClassFromName, hash)
+            if okClass and vClass then
+                local vc = tonumber(vClass)
+                -- 14 = Boats, 15 = Helicopters, 16 = Planes
+                if vc == 14 or vc == 15 or vc == 16 then
+                    return true
+                end
+            end
+        end
+
+        for _, token in ipairs({
+            'heli', 'buzzard', 'frogger', 'maverick', 'annihilator', 'cargobob', 'polmav',
+            'swift', 'supervolito', 'havok', 'hunter', 'valkyrie', 'volatus', 'seasparrow', 'sparrow',
+            'luxor', 'shamal', 'titan', 'mammatus', 'velum', 'duster', 'cuban', 'besra', 'lazer',
+            'hydra', 'miljet', 'vestra', 'alphaz1', 'seabreeze', 'rogue', 'nokota', 'pyro', 'bombushka',
+            'dinghy', 'jetmax', 'marquis', 'seashark', 'speeder', 'squalo', 'suntrap', 'toro',
+            'tropic', 'tug', 'avisa', 'submersible', 'kosatka', 'patrolboat', 'longfin', 'weaponizeddinghy'
+        }) do
+            if modelStr:find(token, 1, true) then return true end
+        end
+    end
+
+    return false
+end
+
 local function isVehicleInPublicParking(vehicleId)
     vehicleId = tonumber(vehicleId)
     if not vehicleId then return false end
@@ -998,6 +1046,8 @@ lib.callback.register('cm-house:server:parkable', function(src, houseId)
             SELECT DISTINCT v.id, v.plate, v.model, v.label, v.is_stored, v.garage,
                    v.location_state, v.location_ref, v.location_slot, v.owner_character_id,
                    catalog.image AS catalog_image,
+                   catalog.vehicle_type AS catalog_vehicle_type,
+                   catalog.category AS catalog_category,
                    s.house_id AS assigned_house_id, s.slot_index AS assigned_slot_index,
                    h.label AS assigned_house_label,
                    fva.level AS family_vehicle_level
@@ -1018,6 +1068,8 @@ lib.callback.register('cm-house:server:parkable', function(src, houseId)
             SELECT v.id, v.plate, v.model, v.label, v.is_stored, v.garage,
                    v.location_state, v.location_ref, v.location_slot, v.owner_character_id,
                    catalog.image AS catalog_image,
+                   catalog.vehicle_type AS catalog_vehicle_type,
+                   catalog.category AS catalog_category,
                    s.house_id AS assigned_house_id, s.slot_index AS assigned_slot_index,
                    h.label AS assigned_house_label
             FROM cm_owned_vehicles v
@@ -1031,90 +1083,92 @@ lib.callback.register('cm-house:server:parkable', function(src, houseId)
 
     local out = {}
     for _, v in ipairs(rows) do
-        local vehicleId = tonumber(v.id)
-        local isOwner = tonumber(v.owner_character_id) == tonumber(cid)
-        local assignedHouseId = tonumber(v.assigned_house_id)
-        local assignedSlotIndex = tonumber(v.assigned_slot_index)
-        local assigned = assignedHouseId ~= nil and assignedSlotIndex ~= nil
-        local inAssignedGarage = assigned and DbBool(v.is_stored)
-            and tostring(v.garage or '') == garageKey(assignedHouseId)
-        local storedElsewhere = DbBool(v.is_stored) and not inAssignedGarage
-        local locationState = tostring(v.location_state or (DbBool(v.is_stored) and 'STORED' or 'OUTSIDE')):upper()
-        local inPublicParking = isVehicleInPublicParking(vehicleId)
-        local operationActive = false
-        if GetResourceState('cm-vehicles') == 'started' then
-            local okBusy, busy = pcall(function() return exports['cm-vehicles']:IsVehicleOperationActive(v.id) end)
-            operationActive = okBusy and busy == true
-        end
-        local blockedState = locationState == 'IMPOUND' or locationState == 'POLICE_SEIZED'
-            or locationState == 'PENDING_DELETE' or operationActive or inPublicParking
-
-        local vehicleLevel = 1
-        local rankAllowed = true
-        if isFamilyHouse then
-            vehicleLevel = tonumber(v.family_vehicle_level)
-                or (famStarted and tonumber(exports[famRes]:GetFamilyVehicleLevel(familyId, vehicleId)))
-                or (rankContext and tonumber(rankContext.defaultTier))
-                or 1
-            if not isOwner and viewerTier < vehicleLevel then
-                rankAllowed = false
+        if not isAirOrWaterVehicle(v.model, v.catalog_vehicle_type, v.catalog_category) then
+            local vehicleId = tonumber(v.id)
+            local isOwner = tonumber(v.owner_character_id) == tonumber(cid)
+            local assignedHouseId = tonumber(v.assigned_house_id)
+            local assignedSlotIndex = tonumber(v.assigned_slot_index)
+            local assigned = assignedHouseId ~= nil and assignedSlotIndex ~= nil
+            local inAssignedGarage = assigned and DbBool(v.is_stored)
+                and tostring(v.garage or '') == garageKey(assignedHouseId)
+            local storedElsewhere = DbBool(v.is_stored) and not inAssignedGarage
+            local locationState = tostring(v.location_state or (DbBool(v.is_stored) and 'STORED' or 'OUTSIDE')):upper()
+            local inPublicParking = isVehicleInPublicParking(vehicleId)
+            local operationActive = false
+            if GetResourceState('cm-vehicles') == 'started' then
+                local okBusy, busy = pcall(function() return exports['cm-vehicles']:IsVehicleOperationActive(v.id) end)
+                operationActive = okBusy and busy == true
             end
+            local blockedState = locationState == 'IMPOUND' or locationState == 'POLICE_SEIZED'
+                or locationState == 'PENDING_DELETE' or operationActive or inPublicParking
+
+            local vehicleLevel = 1
+            local rankAllowed = true
+            if isFamilyHouse then
+                vehicleLevel = tonumber(v.family_vehicle_level)
+                    or (famStarted and tonumber(exports[famRes]:GetFamilyVehicleLevel(familyId, vehicleId)))
+                    or (rankContext and tonumber(rankContext.defaultTier))
+                    or 1
+                if not isOwner and viewerTier < vehicleLevel then
+                    rankAllowed = false
+                end
+            end
+
+            local statusCode = (not rankAllowed and 'RANK_LOCKED')
+                or (operationActive and 'OPERATION_IN_PROGRESS')
+                or (inPublicParking and 'PUBLIC_PARKING')
+                or (locationState == 'IMPOUND' and 'IMPOUNDED')
+                or (locationState == 'POLICE_SEIZED' and 'POLICE_SEIZED')
+                or (inAssignedGarage and 'PARKED_OTHER_SLOT')
+                or (assigned and 'RESERVED_OUTSIDE')
+                or (not DbBool(v.is_stored) and 'AVAILABLE')
+                or 'STORED_ELSEWHERE'
+
+            local canPark = not blockedState and rankAllowed and not assigned and not DbBool(v.is_stored)
+            local canCall = not blockedState and rankAllowed and (
+                (assigned and (not DbBool(v.is_stored) or inAssignedGarage or tostring(v.garage or ''):match('^house:') ~= nil))
+                or (isFamilyHouse and not inAssignedGarage)
+            )
+
+            out[#out + 1] = {
+                id = vehicleId,
+                plate = tostring(v.plate or ''),
+                model = tostring(v.model or ''),
+                label = tostring(v.label or v.model or 'Vehicle'),
+                image = (v.catalog_image and tostring(v.catalog_image) ~= '' and tostring(v.catalog_image)) or nil,
+                isStored = DbBool(v.is_stored),
+                assigned = assigned,
+                parked = assigned,
+                inGarage = inAssignedGarage,
+                parkedHouseId = assignedHouseId,
+                parkedSlotIndex = assignedSlotIndex,
+                parkedHouseLabel = tostring(v.assigned_house_label
+                    or (assignedHouseId and ('House %d'):format(assignedHouseId)) or ''),
+                -- Empty slots can call an already-assigned owned car. The move
+                -- callback atomically clears its previous slot before assigning this
+                -- one. Vehicles held by a different storage authority stay blocked.
+                canPark = canPark,
+                canCall = canCall,
+                locationState = locationState,
+                locationRef = v.location_ref,
+                locationSlot = tonumber(v.location_slot),
+                statusCode = statusCode,
+                statusLabel = not rankAllowed and ('Tier %d Required'):format(vehicleLevel) or (STATUS_LABELS[statusCode] or statusCode),
+                unavailableReason = not rankAllowed
+                    and ('Requires family rank tier %d (your rank is %d)'):format(vehicleLevel, viewerTier)
+                    or (inPublicParking and 'Vehicle is in public parking')
+                    or (blockedState and (STATUS_LABELS[statusCode] or statusCode))
+                    or (storedElsewhere and tostring(v.garage or 'Stored elsewhere'))
+                    or (assigned and ('Assigned to %s · space %d'):format(
+                        tostring(v.assigned_house_label or ('House %d'):format(assignedHouseId)),
+                        assignedSlotIndex) or nil),
+                requiredTier = vehicleLevel,
+                viewerTier = viewerTier,
+                rankAllowed = rankAllowed,
+                isOwner = isOwner,
+                isFamilyVehicle = isFamilyHouse,
+            }
         end
-
-        local statusCode = (not rankAllowed and 'RANK_LOCKED')
-            or (operationActive and 'OPERATION_IN_PROGRESS')
-            or (inPublicParking and 'PUBLIC_PARKING')
-            or (locationState == 'IMPOUND' and 'IMPOUNDED')
-            or (locationState == 'POLICE_SEIZED' and 'POLICE_SEIZED')
-            or (inAssignedGarage and 'PARKED_OTHER_SLOT')
-            or (assigned and 'RESERVED_OUTSIDE')
-            or (not DbBool(v.is_stored) and 'AVAILABLE')
-            or 'STORED_ELSEWHERE'
-
-        local canPark = not blockedState and rankAllowed and not assigned and not DbBool(v.is_stored)
-        local canCall = not blockedState and rankAllowed and (
-            (assigned and (not DbBool(v.is_stored) or inAssignedGarage or tostring(v.garage or ''):match('^house:') ~= nil))
-            or (isFamilyHouse and not inAssignedGarage)
-        )
-
-        out[#out + 1] = {
-            id = vehicleId,
-            plate = tostring(v.plate or ''),
-            model = tostring(v.model or ''),
-            label = tostring(v.label or v.model or 'Vehicle'),
-            image = (v.catalog_image and tostring(v.catalog_image) ~= '' and tostring(v.catalog_image)) or nil,
-            isStored = DbBool(v.is_stored),
-            assigned = assigned,
-            parked = assigned,
-            inGarage = inAssignedGarage,
-            parkedHouseId = assignedHouseId,
-            parkedSlotIndex = assignedSlotIndex,
-            parkedHouseLabel = tostring(v.assigned_house_label
-                or (assignedHouseId and ('House %d'):format(assignedHouseId)) or ''),
-            -- Empty slots can call an already-assigned owned car. The move
-            -- callback atomically clears its previous slot before assigning this
-            -- one. Vehicles held by a different storage authority stay blocked.
-            canPark = canPark,
-            canCall = canCall,
-            locationState = locationState,
-            locationRef = v.location_ref,
-            locationSlot = tonumber(v.location_slot),
-            statusCode = statusCode,
-            statusLabel = not rankAllowed and ('Tier %d Required'):format(vehicleLevel) or (STATUS_LABELS[statusCode] or statusCode),
-            unavailableReason = not rankAllowed
-                and ('Requires family rank tier %d (your rank is %d)'):format(vehicleLevel, viewerTier)
-                or (inPublicParking and 'Vehicle is in public parking')
-                or (blockedState and (STATUS_LABELS[statusCode] or statusCode))
-                or (storedElsewhere and tostring(v.garage or 'Stored elsewhere'))
-                or (assigned and ('Assigned to %s · space %d'):format(
-                    tostring(v.assigned_house_label or ('House %d'):format(assignedHouseId)),
-                    assignedSlotIndex) or nil),
-            requiredTier = vehicleLevel,
-            viewerTier = viewerTier,
-            rankAllowed = rankAllowed,
-            isOwner = isOwner,
-            isFamilyVehicle = isFamilyHouse,
-        }
     end
     return out
 end)
@@ -1585,6 +1639,11 @@ lib.callback.register('cm-house:server:storeVehicle', function(src, houseId, pla
     plate = tostring(plate or ''):gsub('%s+$', '')
     local v = VehicleByPlate(plate)
     if not v then return false, 'That vehicle is not owned by anyone.' end
+
+    local catalogInfo = MySQL.single.await('SELECT vehicle_type, category FROM cm_vehicle_catalog WHERE LOWER(model) = LOWER(?) LIMIT 1', { tostring(v.model or '') })
+    if isAirOrWaterVehicle(v.model, catalogInfo and catalogInfo.vehicle_type, catalogInfo and catalogInfo.category) then
+        return false, 'Air and boat vehicles cannot be stored in a house garage.'
+    end
 
     local isOwner = tonumber(v.owner_character_id) == tonumber(cid)
     if not isOwner then
@@ -2256,6 +2315,10 @@ lib.callback.register('cm-house:server:callVehicleById', function(src, houseId, 
     if isVehicleInPublicParking(vehicleId) then
         return false, 'vehicle_in_public_parking'
     end
+    local catalogInfo = MySQL.single.await('SELECT vehicle_type, category FROM cm_vehicle_catalog WHERE LOWER(model) = LOWER(?) LIMIT 1', { tostring(selected.model or '') })
+    if isAirOrWaterVehicle(selected.model, catalogInfo and catalogInfo.vehicle_type, catalogInfo and catalogInfo.category) then
+        return false, 'Air and boat vehicles cannot be called into a house garage.'
+    end
     local isOwner = tonumber(selected.owner_character_id) == tonumber(cid)
     if not isOwner then
         if not isFamilyHouse then
@@ -2573,6 +2636,10 @@ lib.callback.register('cm-house:server:assignVehicleToSlot', function(src, house
     if not selected then return false, 'That vehicle does not exist.' end
     if isVehicleInPublicParking(vehicleId) then
         return false, 'vehicle_in_public_parking'
+    end
+    local catalogInfo = MySQL.single.await('SELECT vehicle_type, category FROM cm_vehicle_catalog WHERE LOWER(model) = LOWER(?) LIMIT 1', { tostring(selected.model or '') })
+    if isAirOrWaterVehicle(selected.model, catalogInfo and catalogInfo.vehicle_type, catalogInfo and catalogInfo.category) then
+        return false, 'Air and boat vehicles cannot be assigned to a house garage.'
     end
     local isOwner = tonumber(selected.owner_character_id) == tonumber(cid)
     if not isOwner then
