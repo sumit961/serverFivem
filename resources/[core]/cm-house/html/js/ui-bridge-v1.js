@@ -37,8 +37,24 @@
   }
 
   function renderAlert(message) {
-    const body = frame(active.title, 'Confirm this action before continuing');
     const c = active.content || {};
+    if (window.CMUI && typeof window.CMUI.confirm === 'function') {
+      window.CMUI.confirm({
+        title: active.title || 'House Confirmation',
+        message: c.message || '',
+        confirmText: c.confirm || 'Confirm',
+        cancelText: c.cancel || 'Cancel',
+        danger: !!c.danger
+      }).then(ok => {
+        if (ok) {
+          post('uiBridge:result', { id: active.id, value: 'confirm' }).then(() => close(false));
+        } else {
+          post('uiBridge:result', { id: active.id, cancelled: true }).then(() => close(false));
+        }
+      });
+      return;
+    }
+    const body = frame(active.title, 'Confirm this action before continuing');
     body.innerHTML = `<p class="cm-bridge__message">${clean(c.message)}</p><div class="cm-bridge__actions"><button class="cm-bridge__btn cm-bridge__btn--ghost" data-no>${clean(c.cancel || 'Cancel')}</button><button class="cm-bridge__btn ${c.danger ? 'cm-bridge__btn--danger' : ''}" data-yes>${clean(c.confirm || 'Confirm')}</button></div>`;
     body.querySelector('[data-no]').onclick = () => post('uiBridge:result', { id: active.id, cancelled: true }).then(() => close(false));
     body.querySelector('[data-yes]').onclick = () => post('uiBridge:result', { id: active.id, value: 'confirm' }).then(() => close(false));

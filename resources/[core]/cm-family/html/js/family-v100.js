@@ -258,8 +258,8 @@
     document.querySelectorAll('[data-hub-action]').forEach(button => button.onclick = () => {
       const action = button.dataset.hubAction;
       if (['members', 'ranks', 'vehicles', 'treasury', 'logs'].includes(action)) return goTab(action);
-      if (action === 'recall') return confirmAct('Recall every available outside car into the family garage?', 'recallAllFamilyCars', {});
-      if (action === 'meeting') return confirmAct('Send your current location to all online family members?', 'setMeetingPoint', {});
+      if (action === 'recall') return confirmAct('Recall every available outside car into the family garage?', 'recallAllFamilyCars', {}, { title: 'Recall Vehicles', confirmText: 'Recall Cars', danger: false });
+      if (action === 'meeting') return confirmAct('Send your current location to all online family members as a rally point?', 'setMeetingPoint', {}, { title: 'Call Family Rally', confirmText: 'Send Location', danger: false });
       if (action === 'tracking') {
         const next = !(state.clientTracking && state.clientTracking.memberBlipsEnabled);
         return post('setMemberTracking', { enabled: next }).then(result => {
@@ -272,8 +272,8 @@
       }
       if (action === 'identity') return renderIdentityManager();
       if (action === 'rename') return renderRenameManager();
-      if (action === 'leave') return confirmAct('Leave this family?', 'leave', {});
-      if (action === 'disband') return confirmAct('Disband the whole family? This cannot be undone.', 'disband', {});
+      if (action === 'leave') return confirmAct('Leave this family?', 'leave', {}, { title: 'Leave Family', confirmText: 'Leave Family', danger: true });
+      if (action === 'disband') return confirmAct('Disband the whole family? This cannot be undone.', 'disband', {}, { title: 'Disband Family', confirmText: 'Disband Family', danger: true });
     });
   }
 
@@ -700,7 +700,7 @@
     content.querySelectorAll('[data-upgrade-key]').forEach(btn => {
       btn.onclick = () => {
         const key = btn.dataset.upgradeKey;
-        confirmAct(`Purchase this HQ upgrade from the family treasury?`, 'purchaseHQUpgrade', { upgradeKey: key });
+        confirmAct('Purchase this HQ upgrade from the family treasury?', 'purchaseHQUpgrade', { upgradeKey: key }, { title: 'Purchase HQ Upgrade', confirmText: 'Purchase', danger: false });
       };
     });
   }
@@ -892,7 +892,7 @@
     });
     content.querySelectorAll('[data-promote]').forEach(b => b.onclick = () => act('promote', { targetCid: b.dataset.promote }));
     content.querySelectorAll('[data-demote]').forEach(b => b.onclick = () => act('demote', { targetCid: b.dataset.demote }));
-    content.querySelectorAll('[data-kick]').forEach(b => b.onclick = () => confirmAct('Kick this member?', 'kick', { targetCid: b.dataset.kick }));
+    content.querySelectorAll('[data-kick]').forEach(b => b.onclick = () => confirmAct('Kick this member from the family?', 'kick', { targetCid: b.dataset.kick }, { title: 'Kick Member', confirmText: 'Kick Member', danger: true }));
     content.querySelectorAll('[data-title]').forEach(inp => inp.onchange = () => act('setMemberTitle', { targetCid: inp.dataset.title, title: inp.value.trim() }, true));
   }
 
@@ -963,7 +963,7 @@
     content.querySelectorAll('[data-rankname]').forEach(inp => inp.onchange = () =>
       act('renameRank', { rankId: Number(inp.dataset.rankname), name: inp.value.trim() }, true));
     content.querySelectorAll('[data-delrank]').forEach(b => b.onclick = () =>
-      confirmAct('Delete this rank? Members on it drop to the lowest rank.', 'deleteRank', { rankId: Number(b.dataset.delrank) }));
+      confirmAct('Delete this rank? Members on it drop to the lowest rank.', 'deleteRank', { rankId: Number(b.dataset.delrank) }, { title: 'Delete Rank', confirmText: 'Delete Rank', danger: true }));
   }
 
   // ---------------- vehicles ----------------
@@ -1436,8 +1436,20 @@
     });
   }
 
-  function confirmAct(question, action, data) {
-    if (window.confirm(question)) act(action, data);
+  async function confirmAct(question, action, data, options = {}) {
+    let ok = false;
+    if (window.CMUI && typeof window.CMUI.confirm === 'function') {
+      ok = await window.CMUI.confirm({
+        title: options.title || 'Family Confirmation',
+        message: question,
+        confirmText: options.confirmText || 'Confirm',
+        cancelText: options.cancelText || 'Cancel',
+        danger: options.danger !== undefined ? options.danger : true
+      });
+    } else {
+      ok = window.confirm(question);
+    }
+    if (ok) act(action, data);
   }
 
   // ---------------- create screen ----------------
@@ -1561,12 +1573,29 @@
     if (!button) return;
     const familyId = Number(button.closest('[data-admin-family]').dataset.adminFamily);
     const action = button.dataset.familyRecovery;
-    if (action === 'repair_founder' && !window.confirm(`Repair verified founder membership for family ${familyId}?`)) return;
-    button.disabled = true;
-    post('familyAdminAction', { action, familyId }).then(result => {
-      if (!result.ok) flash(result.message || 'Family recovery failed.', 'error');
-      button.disabled = false;
-    });
+    const runRecovery = async () => {
+      if (action === 'repair_founder') {
+        let confirmed = false;
+        if (window.CMUI && typeof window.CMUI.confirm === 'function') {
+          confirmed = await window.CMUI.confirm({
+            title: 'Repair Founder Membership',
+            message: `Repair verified founder membership for family ${familyId}?`,
+            confirmText: 'Repair',
+            cancelText: 'Cancel',
+            danger: false
+          });
+        } else {
+          confirmed = window.confirm(`Repair verified founder membership for family ${familyId}?`);
+        }
+        if (!confirmed) return;
+      }
+      button.disabled = true;
+      post('familyAdminAction', { action, familyId }).then(result => {
+        if (!result.ok) flash(result.message || 'Family recovery failed.', 'error');
+        button.disabled = false;
+      });
+    };
+    runRecovery();
   });
 
   // ---------------- message bus ----------------

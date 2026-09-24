@@ -1,26 +1,26 @@
 /* cm-house v1.8.0 — shared CM dashboard adapter.
    Loaded last to convert every house NUI view without changing JS contracts. */
 :root {
-  --house-panel:var(--cm-dashboard-panel,linear-gradient(160deg,#111936 0%,#0B1026 58%,#080d20 100%));
-  --house-card:var(--cm-dashboard-card,linear-gradient(155deg,#18244b,#111936));
-  --house-row:#151f43;
-  --house-row-hover:#202d58;
-  --house-line:var(--cm-dashboard-line,rgba(255,255,255,.075));
-  --house-line-strong:var(--cm-dashboard-line-strong,rgba(91,134,255,.34));
-  --house-text:var(--cm-dashboard-text,#f4f6ff);
-  --house-soft:var(--cm-dashboard-text-soft,#c3c6de);
-  --house-muted:var(--cm-dashboard-muted,#969bb8);
-  --house-blue:var(--cm-dashboard-blue,#A259FF);
-  --house-blue-dark:var(--cm-dashboard-blue-dark,#7b38d9);
-  --house-cyan:var(--cm-dashboard-cyan,#00D1FF);
-  --house-green:var(--cm-dashboard-green,#00FFA3);
-  --house-amber:var(--cm-dashboard-amber,#FFD166);
-  --house-red:var(--cm-dashboard-red,#ff6b6b);
+  --house-panel:var(--cm-dashboard-panel,rgba(8, 18, 34, 0.96));
+  --house-card:var(--cm-dashboard-card,rgba(12, 26, 46, 0.92));
+  --house-row:rgba(15, 23, 34, 0.85);
+  --house-row-hover:rgba(20, 35, 52, 0.95);
+  --house-line:var(--cm-dashboard-line,rgba(var(--cm-primary-rgb, 0, 240, 255), 0.14));
+  --house-line-strong:var(--cm-dashboard-line-strong,rgba(var(--cm-primary-rgb, 0, 240, 255), 0.32));
+  --house-text:var(--cm-dashboard-text,#ffffff);
+  --house-soft:var(--cm-dashboard-text-soft,#eaf7ff);
+  --house-muted:var(--cm-dashboard-muted,#8aa4b8);
+  --house-blue:var(--cm-dashboard-blue,#0891b2);
+  --house-blue-dark:var(--cm-dashboard-blue-dark,#0e7490);
+  --house-cyan:var(--cm-dashboard-cyan,#00f0ff);
+  --house-green:var(--cm-dashboard-green,#22c55e);
+  --house-amber:var(--cm-dashboard-amber,#f59e0b);
+  --house-red:var(--cm-dashboard-red,#ef4444);
   --house-font:"DM Sans","Segoe UI",Arial,sans-serif;
   --house-font-display:"Poppins","DM Sans","Segoe UI",Arial,sans-serif;
-  --cm-dashboard-primary:linear-gradient(135deg,#00D1FF,#A259FF);
-  --cm-dashboard-shadow:0 38px 110px rgba(3,6,20,.58);
-  --cm-dashboard-shadow-button:0 13px 27px -15px rgba(73,115,240,.88);
+  --cm-dashboard-primary:linear-gradient(135deg,var(--cm-primary-dark, #0891b2),var(--cm-primary, #00f0ff));
+  --cm-dashboard-shadow:0 18px 60px rgba(0, 0, 0, 0.48);
+  --cm-dashboard-shadow-button:0 4px 14px rgba(0, 240, 255, 0.3);
 }
 
 * { font-family:var(--cm-font,var(--house-font)) !important; }
@@ -31,7 +31,7 @@ h1,h2,h3,strong,.deed__id h1,.row__title,.row__name,.tile__name,.card__name,
 }
 body { color:var(--house-text) !important; background:transparent !important; }
 body.cm-photo-clean > * { display:none !important; }
-.screen { padding:clamp(16px,2.5vw,34px) !important; background:rgba(94,103,157,.43) !important; }
+.screen { padding:clamp(16px,2.5vw,34px) !important; background:rgba(3, 8, 18, 0.75) !important; }
 
 .deed,.wiz,.adm,.garage-slot-card,.interior-door-card,.weapon-storage-card {
   color:var(--house-text) !important;
@@ -122,7 +122,7 @@ body.cm-photo-clean > * { display:none !important; }
   box-shadow:var(--cm-dashboard-shadow-button) !important;
 }
 .act--home { color:#fff !important; background:linear-gradient(135deg,#34d399,#0e9f6e) !important; }
-.act--family { color:#fff !important; background:linear-gradient(135deg,#A259FF,#6840C8) !important; }
+.act--family { color:#fff !important; background:linear-gradient(135deg,#0891b2,#0284c7) !important; }
 .ghost--sell,.garage-slot-action--danger,.weapon-item-action--danger {
   color:#fff !important; background:linear-gradient(135deg,#f87171,#dc2626) !important;
   border-color:rgba(255,107,107,.34) !important;

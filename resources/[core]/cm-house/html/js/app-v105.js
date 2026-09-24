@@ -663,6 +663,19 @@ $('admin').addEventListener('click', async (e) => {
     return;
   }
 
+  async function askConfirm(title, message, danger = false) {
+    if (window.CMUI && typeof window.CMUI.confirm === 'function') {
+      return await window.CMUI.confirm({
+        title: title || 'Confirm Action',
+        message: message,
+        confirmText: 'Confirm',
+        cancelText: 'Cancel',
+        danger: danger
+      });
+    }
+    return window.confirm(message);
+  }
+
   // Vehicle recovery actions
   const recoveryBtn = e.target.closest('[data-vr]');
   if (recoveryBtn) {
@@ -671,7 +684,7 @@ $('admin').addEventListener('click', async (e) => {
     const identity = Number(row.dataset.vehicleRecovery);
     const action = recoveryBtn.dataset.vr;
     const destructive = ['impound', 'clear_assignment', 'delete_entity', 'public'].includes(action);
-    if (destructive && !window.confirm(`Run ${action.replace('_', ' ')} for vehicle ${identity}?`)) return;
+    if (destructive && !await askConfirm('Vehicle Recovery', `Run ${action.replace('_', ' ')} for vehicle ${identity}?`, true)) return;
     recoveryBtn.disabled = true;
     await post('admin:vehicleRecovery', { identity, action, data: {} });
     recoveryBtn.disabled = false;
@@ -683,7 +696,7 @@ $('admin').addEventListener('click', async (e) => {
     e.stopPropagation();
     const row = weaponRecoveryBtn.closest('[data-weapon-recovery]');
     const id = Number(row.dataset.weaponRecovery);
-    if (!window.confirm(`Restore weapon recovery row ${id} to its online character?`)) return;
+    if (!await askConfirm('Weapon Recovery', `Restore weapon recovery row ${id} to its online character?`, false)) return;
     weaponRecoveryBtn.disabled = true;
     await post('admin:weaponRecovery', { id });
     weaponRecoveryBtn.disabled = false;
@@ -710,7 +723,7 @@ $('admin').addEventListener('click', async (e) => {
       if (arg === null) return;
     }
     if (act === 'evict' || act === 'delete') {
-      if (!window.confirm(`Really ${act} this property?`)) return;
+      if (!await askConfirm('Property Action', `Really ${act} this property?`, true)) return;
     }
 
     const r = await post('admin:action', { action: act, houseId: id, arg });
@@ -741,8 +754,8 @@ $('admin').addEventListener('click', async (e) => {
       arg = window.prompt('New name?');
       if (!arg) return;
     }
-    if (act === 'disable' && !window.confirm('Disable this layout? It stops being offered but stays in the database.')) return;
-    if (act === 'delete' && !window.confirm('DELETE this layout permanently? This cannot be undone.')) return;
+    if (act === 'disable' && !await askConfirm('Disable Layout', 'Disable this layout? It stops being offered but stays in the database.', true)) return;
+    if (act === 'delete' && !await askConfirm('Delete Layout', 'DELETE this layout permanently? This cannot be undone.', true)) return;
 
     await post('admin:template', { action: act, kind, id, arg });
     return;
