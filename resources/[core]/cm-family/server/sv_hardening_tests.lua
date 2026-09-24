@@ -75,7 +75,7 @@ local function RunFamilyHardeningTests()
         end
 
         local testsPassed = 0
-        local testsTotal = 19
+        local testsTotal = 23
 
         -- ============================================================
         -- TEST 1: Same reputation unique ID sent twice simultaneously
@@ -689,6 +689,179 @@ local function RunFamilyHardeningTests()
             testsPassed = testsPassed + 1
         else
             print(('^1[TEST 19 FAIL] Treasury changed on failed transaction! Before=$%d, After=$%d^7'):format(balBefore19, balAfter19))
+        end
+
+        -- ============================================================
+        -- TESTS 20 - 23: Treasury Credit Consistency & Concurrency
+        -- ============================================================
+        local B = CMFamilyBridge
+        local origGetSrc = B.GetSrcByCid
+        local origGetMoney = B.GetMoney
+        local origRemoveMoney = B.RemoveMoney
+        local origAddMoney = B.AddMoney
+
+        local simulatedCash = 100000
+        B.GetSrcByCid = function(cid)
+            if cid == testCid1 or cid == testCid2 then return 9999 end
+            return origGetSrc(cid)
+        end
+        B.GetMoney = function(src)
+            if src == 9999 then return simulatedCash end
+            return origGetMoney(src)
+        end
+        B.RemoveMoney = function(src, amount, reason)
+            if src == 9999 then
+                if simulatedCash >= amount then
+                    simulatedCash = simulatedCash - amount
+                    return true
+                end
+                return false
+            end
+            return origRemoveMoney(src, amount, reason)
+        end
+        B.AddMoney = function(src, amount, reason)
+            if src == 9999 then
+                simulatedCash = simulatedCash + amount
+                return true
+            end
+            return origAddMoney(src, amount, reason)
+        end
+
+        local maxBal = tonumber(Config.Bank and Config.Bank.maxBalance) or 2000000000
+
+        -- TEST 20: Partial Player Deposit (Treasury has $1,000 space; deposit $50,000)
+        print('^3[TEST 20] Partial Player Deposit at bank cap boundary...^7')
+        MySQL.query.await('UPDATE cm_families SET bank_balance = ? WHERE id = ?', { maxBal - 1000, testFamId })
+        if Families and Families[testFamId] then Families[testFamId].bank_balance = maxBal - 1000 end
+        MySQL.query.await('DELETE FROM cm_family_bank_log WHERE family_id = ?', { testFamId })
+        simulatedCash = 100000
+
+        local dayKey20 = os.date('!%Y-%m-%d')
+        local contribCashBefore20 = tonumber(MySQL.scalar.await('SELECT money_contributed FROM cm_family_contribution_daily WHERE family_id = ? AND character_id = ? AND day_key = ?', { testFamId, testCid1, dayKey20 })) or 0
+
+        local ok20, res20 = BankDeposit(testCid1, 50000)
+        local balAfter20 = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { testFamId })) or 0
+        local logRow20 = MySQL.single.await('SELECT amount, balance_after FROM cm_family_bank_log WHERE family_id = ? ORDER BY id DESC LIMIT 1', { testFamId })
+        local contribCashAfter20 = tonumber(MySQL.scalar.await('SELECT money_contributed FROM cm_family_contribution_daily WHERE family_id = ? AND character_id = ? AND day_key = ?', { testFamId, testCid1, dayKey20 })) or 0
+
+        local playerCharged20 = 100000 - simulatedCash
+        local contribDiff20 = contribCashAfter20 - contribCashBefore20
+        local logAmt20 = logRow20 and tonumber(logRow20.amount) or 0
+
+        if ok20 == true and res20.accepted == 1000 and res20.rejected == 49000 and playerCharged20 == 1000 and balAfter20 == maxBal and logAmt20 == 1000 and contribDiff20 == 1000 then
+            print('^2[TEST 20 PASS] Partial deposit accurate: player charged exactly $1,000, treasury increased $1,000, bank log = $1,000, contrib = $1,000.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 20 FAIL] ok=%s, accepted=%s, charged=%d, balAfter=%d, logAmt=%d, contribDiff=%d^7'):format(
+                tostring(ok20), tostring(res20 and res20.accepted), playerCharged20, balAfter20, logAmt20, contribDiff20))
+        end
+
+        -- TEST 21: Full Treasury Deposit (Treasury is already at maxBalance)
+        print('^3[TEST 21] Full Treasury Deposit rejection...^7')
+        MySQL.query.await('UPDATE cm_families SET bank_balance = ? WHERE id = ?', { maxBal, testFamId })
+        if Families and Families[testFamId] then Families[testFamId].bank_balance = maxBal end
+        simulatedCash = 100000
+        local logCountBefore21 = MySQL.scalar.await('SELECT COUNT(*) FROM cm_family_bank_log WHERE family_id = ?', { testFamId }) or 0
+
+        local ok21, res21 = BankDeposit(testCid1, 50000)
+        local balAfter21 = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { testFamId })) or 0
+        local logCountAfter21 = MySQL.scalar.await('SELECT COUNT(*) FROM cm_family_bank_log WHERE family_id = ?', { testFamId }) or 0
+        local playerCharged21 = 100000 - simulatedCash
+
+        if ok21 == false and res21 == 'family_bank_full' and playerCharged21 == 0 and balAfter21 == maxBal and logCountAfter21 == logCountBefore21 then
+            print('^2[TEST 21 PASS] Full treasury deposit rejected: returned family_bank_full, player charged $0, treasury unchanged, 0 bank logs.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 21 FAIL] ok=%s, res=%s, charged=%d, balAfter=%d, logDiff=%d^7'):format(
+                tostring(ok21), tostring(res21), playerCharged21, balAfter21, logCountAfter21 - logCountBefore21))
+        end
+
+        -- TEST 22: Simultaneous Event Credits Near Cap (Space = $10,000; Event A = $20k, Event B = $20k)
+        print('^3[TEST 22] Simultaneous event credits near cap ($10,000 space, two $20k rewards)...^7')
+        MySQL.query.await('UPDATE cm_families SET bank_balance = ? WHERE id = ?', { maxBal - 10000, testFamId })
+        if Families and Families[testFamId] then Families[testFamId].bank_balance = maxBal - 10000 end
+        MySQL.query.await('DELETE FROM cm_family_bank_log WHERE family_id = ?', { testFamId })
+
+        local uid22_A = ('test22_A_%d'):format(math.random(100000, 999999))
+        local uid22_B = ('test22_B_%d'):format(math.random(100000, 999999))
+        local done22_A, done22_B = false, false
+        local ok22_A, res22_A, ok22_B, res22_B
+
+        CreateThread(function()
+            ok22_A, res22_A = AwardFamilyActivityReward({
+                familyId = testFamId, actorCid = testCid1, eventType = 'eventA',
+                uniqueId = uid22_A, treasuryAmount = 20000, reputation = 50,
+            })
+            done22_A = true
+        end)
+        CreateThread(function()
+            ok22_B, res22_B = AwardFamilyActivityReward({
+                familyId = testFamId, actorCid = testCid2, eventType = 'eventB',
+                uniqueId = uid22_B, treasuryAmount = 20000, reputation = 50,
+            })
+            done22_B = true
+        end)
+
+        while not (done22_A and done22_B) do Wait(10) end
+
+        local balAfter22 = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { testFamId })) or 0
+        local credited22_A = res22_A and res22_A.treasuryCredited or 0
+        local credited22_B = res22_B and res22_B.treasuryCredited or 0
+        local loggedSum22 = tonumber(MySQL.scalar.await('SELECT COALESCE(SUM(amount), 0) FROM cm_family_bank_log WHERE family_id = ? AND category = "event_reward"', { testFamId })) or 0
+
+        if ok22_A == true and ok22_B == true and balAfter22 == maxBal and (credited22_A + credited22_B == 10000) and loggedSum22 == 10000 then
+            print(('^2[TEST 22 PASS] Simultaneous events strictly capped: total credited = $%d, bank log sum = $%d, final bal = $%d (cap preserved).^7'):format(
+                credited22_A + credited22_B, loggedSum22, balAfter22))
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 22 FAIL] okA=%s, okB=%s, credA=%d, credB=%d, balAfter=%d, loggedSum=%d^7'):format(
+                tostring(ok22_A), tostring(ok22_B), credited22_A, credited22_B, balAfter22, loggedSum22))
+        end
+
+        -- TEST 23: Deposit + Event Race ($10,000 space; deposit $8,000 + event $8,000)
+        print('^3[TEST 23] Deposit + Event race ($10,000 space, deposit $8k + event $8k)...^7')
+        MySQL.query.await('UPDATE cm_families SET bank_balance = ? WHERE id = ?', { maxBal - 10000, testFamId })
+        if Families and Families[testFamId] then Families[testFamId].bank_balance = maxBal - 10000 end
+        MySQL.query.await('DELETE FROM cm_family_bank_log WHERE family_id = ?', { testFamId })
+        simulatedCash = 50000
+
+        local uid23 = ('test23_race_%d'):format(math.random(100000, 999999))
+        local done23_dep, done23_evt = false, false
+        local ok23_dep, res23_dep, ok23_evt, res23_evt
+
+        CreateThread(function()
+            ok23_dep, res23_dep = BankDeposit(testCid1, 8000)
+            done23_dep = true
+        end)
+        CreateThread(function()
+            ok23_evt, res23_evt = AwardFamilyActivityReward({
+                familyId = testFamId, actorCid = testCid2, eventType = 'race_event',
+                uniqueId = uid23, treasuryAmount = 8000,
+            })
+            done23_evt = true
+        end)
+
+        while not (done23_dep and done23_evt) do Wait(10) end
+
+        local balAfter23 = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { testFamId })) or 0
+        local depAccepted23 = res23_dep and res23_dep.accepted or 0
+        local evtCredited23 = res23_evt and res23_evt.treasuryCredited or 0
+        local loggedSum23 = tonumber(MySQL.scalar.await('SELECT COALESCE(SUM(amount), 0) FROM cm_family_bank_log WHERE family_id = ?', { testFamId })) or 0
+        local playerCharged23 = 50000 - simulatedCash
+
+        -- Restore original bridge functions
+        B.GetSrcByCid = origGetSrc
+        B.GetMoney = origGetMoney
+        B.RemoveMoney = origRemoveMoney
+        B.AddMoney = origAddMoney
+
+        if ok23_dep == true and ok23_evt == true and balAfter23 == maxBal and (depAccepted23 + evtCredited23 == 10000) and playerCharged23 == depAccepted23 and loggedSum23 == 10000 then
+            print(('^2[TEST 23 PASS] Deposit + Event race safe: depAccepted=$%d, evtCredited=$%d, total=$%d, playerCharged=$%d, final bal=$%d.^7'):format(
+                depAccepted23, evtCredited23, depAccepted23 + evtCredited23, playerCharged23, balAfter23))
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 23 FAIL] okDep=%s, okEvt=%s, depAcc=%d, evtCred=%d, charged=%d, balAfter=%d, loggedSum=%d^7'):format(
+                tostring(ok23_dep), tostring(ok23_evt), depAccepted23, evtCredited23, playerCharged23, balAfter23, loggedSum23))
         end
 
         -- Clean up test family rows

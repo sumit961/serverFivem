@@ -41,9 +41,115 @@ local function logBank(familyId, cid, direction, amount, balanceAfter, reason, c
         { tonumber(familyId), cid and tostring(cid) or nil, direction, category, amount, balanceAfter, reason })
 end
 
--- Deposit: take from player, add to family. Player charge happens FIRST and is
--- confirmed before the family balance is credited, so a failed charge never
--- creates money.
+local treasuryLocks = {}
+
+function AcquireTreasuryLock(familyId, maxWaitMs)
+    familyId = tonumber(familyId)
+    if not familyId then return false, 'invalid_family_id' end
+    maxWaitMs = tonumber(maxWaitMs) or 5000
+    local elapsed = 0
+    while treasuryLocks[familyId] do
+        Wait(10)
+        elapsed = elapsed + 10
+        if elapsed >= maxWaitMs then
+            return false, 'treasury_lock_timeout'
+        end
+    end
+    treasuryLocks[familyId] = true
+    return true
+end
+
+function ReleaseTreasuryLock(familyId)
+    familyId = tonumber(familyId)
+    if familyId then
+        treasuryLocks[familyId] = nil
+    end
+end
+
+-- Centralized Authoritative Treasury Credit Service
+function CreditFamilyTreasuryAtomic(familyId, amount, opts)
+    familyId = tonumber(familyId)
+    if not familyId then return false, 'invalid_family_id' end
+    amount = math.max(0, math.floor(tonumber(amount) or 0))
+    opts = type(opts) == 'table' and opts or {}
+
+    local lockHeld = opts.lockAlreadyHeld == true
+    if not lockHeld then
+        local lockOk, lockErr = AcquireTreasuryLock(familyId)
+        if not lockOk then return false, lockErr or 'treasury_lock_timeout' end
+    end
+
+    local function done(ok, res)
+        if not lockHeld then ReleaseTreasuryLock(familyId) end
+        return ok, res
+    end
+
+    local curBal = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { familyId }))
+    if not curBal then
+        return done(false, 'family_not_found')
+    end
+
+    local maxBal = tonumber(Config.Bank and Config.Bank.maxBalance) or 2000000000
+    local availableSpace = math.max(0, maxBal - curBal)
+
+    if amount > 0 and availableSpace <= 0 and not opts.allowZero then
+        return done(false, 'family_bank_full')
+    end
+
+    local acceptedAmount = math.min(amount, availableSpace)
+    local rejectedAmount = amount - acceptedAmount
+    local newBalance = curBal + acceptedAmount
+
+    local statements = {}
+    if type(opts.extraStatements) == 'table' then
+        for _, stmt in ipairs(opts.extraStatements) do
+            statements[#statements + 1] = stmt
+        end
+    end
+
+    if acceptedAmount > 0 then
+        statements[#statements + 1] = {
+            query = 'UPDATE cm_families SET bank_balance = bank_balance + ? WHERE id = ?',
+            values = { acceptedAmount, familyId }
+        }
+
+        local actorCid = opts.actorCid and tostring(opts.actorCid) or nil
+        local category = tostring(opts.category or 'deposit')
+        local reason = tostring(opts.reason or 'deposit')
+
+        statements[#statements + 1] = {
+            query = [[
+                INSERT INTO cm_family_bank_log (family_id, character_id, direction, category, amount, balance_after, reason)
+                VALUES (?, ?, 'deposit', ?, ?, ?, ?)
+            ]],
+            values = { familyId, actorCid, category, acceptedAmount, newBalance, reason }
+        }
+    end
+
+    if #statements > 0 then
+        local txOk = MySQL.transaction.await(statements)
+        if not txOk then
+            return done(false, 'transaction_failed')
+        end
+    end
+
+    local fam = GetFamilyById and GetFamilyById(familyId)
+    if fam then fam.bank_balance = newBalance end
+
+    return done(true, {
+        familyId = familyId,
+        requested = amount,
+        accepted = acceptedAmount,
+        rejected = rejectedAmount,
+        balance = newBalance,
+        bank_balance = newBalance,
+    })
+end
+exports('CreditFamilyTreasuryAtomic', CreditFamilyTreasuryAtomic)
+
+-- Deposit: take from player, add to family.
+-- Accurately calculates available space; charges player ONLY the accepted amount.
+-- Returns error and charges $0 if bank is full.
 function BankDeposit(actorCid, amount)
     local rank, fam = GetRankForCid(actorCid)
     if not rank or not fam then return false, 'not_in_family' end
@@ -53,40 +159,72 @@ function BankDeposit(actorCid, amount)
 
     local src = B.GetSrcByCid(actorCid)
     if not src then return false, 'player_not_online' end
-    if B.GetMoney(src) < amount then return false, 'You do not have that much.' end
+    local playerCash = B.GetMoney(src)
+    if playerCash < amount then return false, 'You do not have that much.' end
 
-    local charged = B.RemoveMoney(src, amount, 'family_bank_deposit')
-    if not charged then return false, 'The bank could not take the funds.' end
+    local lockOk, lockErr = AcquireTreasuryLock(fam.id)
+    if not lockOk then
+        return false, lockErr or 'Another bank transaction is currently processing. Please try again.'
+    end
 
-    -- Credit the family atomically.
-    local newBalance
-    local ok = pcall(function()
-        MySQL.update.await('UPDATE cm_families SET bank_balance = LEAST(bank_balance + ?, ?) WHERE id = ?',
-            { amount, Config.Bank.maxBalance, fam.id })
-        newBalance = MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { fam.id })
-    end)
-    if not ok or newBalance == nil then
-        -- Refund the player if the credit failed.
-        B.AddMoney(src, amount, 'family_bank_deposit_refund')
+    local curBal = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { fam.id })) or 0
+    local maxBal = tonumber(Config.Bank and Config.Bank.maxBalance) or 2000000000
+    local availableSpace = math.max(0, maxBal - curBal)
+
+    if availableSpace <= 0 then
+        ReleaseTreasuryLock(fam.id)
+        return false, 'family_bank_full'
+    end
+
+    local acceptedAmount = math.min(amount, availableSpace)
+    local rejectedAmount = amount - acceptedAmount
+
+    local charged = B.RemoveMoney(src, acceptedAmount, 'family_bank_deposit')
+    if not charged then
+        ReleaseTreasuryLock(fam.id)
+        return false, 'The bank could not take the funds.'
+    end
+
+    local creditOk, creditRes = CreditFamilyTreasuryAtomic(fam.id, acceptedAmount, {
+        actorCid = actorCid,
+        category = 'deposit',
+        reason = 'deposit',
+        lockAlreadyHeld = true,
+    })
+
+    ReleaseTreasuryLock(fam.id)
+
+    if not creditOk or not creditRes then
+        B.AddMoney(src, acceptedAmount, 'family_bank_deposit_refund')
         return false, 'Deposit failed and your money was returned.'
     end
 
-    fam.bank_balance = tonumber(newBalance) or (fam.bank_balance + amount)
-    logBank(fam.id, actorCid, 'deposit', amount, fam.bank_balance, 'deposit', 'deposit')
-    LogFamily(fam.id, actorCid, 'bank_deposit', { amount = amount })
+    LogFamily(fam.id, actorCid, 'bank_deposit', {
+        requested = amount,
+        amount = acceptedAmount,
+        rejected = rejectedAmount,
+        balance = creditRes.balance
+    })
 
-    -- Track member financial contribution without allowing infinite point exploit
+    -- Track member financial contribution using actual accepted money
     if type(RecordFinancialContribution) == 'function' then
-        RecordFinancialContribution(actorCid, fam.id, amount)
+        RecordFinancialContribution(actorCid, fam.id, acceptedAmount)
     end
 
-    -- Advance weekly objectives
+    -- Advance weekly objectives using actual accepted money
     if type(AdvanceFamilyObjective) == 'function' then
-        AdvanceFamilyObjective(fam.id, 'net_deposits', amount, actorCid)
+        AdvanceFamilyObjective(fam.id, 'net_deposits', acceptedAmount, actorCid)
     end
 
-    return true, fam.bank_balance
+    return true, {
+        requested = amount,
+        accepted = acceptedAmount,
+        rejected = rejectedAmount,
+        balance = creditRes.balance,
+        bank_balance = creditRes.balance,
+    }
 end
+exports('BankDeposit', BankDeposit)
 
 -- Withdraw: check daily limit + balance, debit family atomically, then pay the
 -- player. The atomic UPDATE with a balance guard prevents two concurrent

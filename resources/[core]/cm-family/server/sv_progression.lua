@@ -10,6 +10,9 @@ ProgressionByFamily = {} -- [familyId] = { level, currentXp, lifetimeReputation,
 local progressionLocks = {}
 
 local function acquireProgressionLock(familyId, maxWaitMs)
+    if type(AcquireTreasuryLock) == 'function' then
+        return AcquireTreasuryLock(familyId, maxWaitMs)
+    end
     maxWaitMs = tonumber(maxWaitMs) or 2000
     local elapsed = 0
     while progressionLocks[familyId] do
@@ -24,6 +27,9 @@ local function acquireProgressionLock(familyId, maxWaitMs)
 end
 
 local function releaseProgressionLock(familyId)
+    if type(ReleaseTreasuryLock) == 'function' then
+        return ReleaseTreasuryLock(familyId)
+    end
     progressionLocks[familyId] = nil
 end
 

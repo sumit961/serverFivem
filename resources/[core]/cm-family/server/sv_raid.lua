@@ -185,16 +185,11 @@ local function awardFamily(familyId, raidId, raid)
             metadata = { raidId = raidId, participantCount = #participants },
         })
     else
-        local maxBalance = tonumber(Config.Bank and Config.Bank.maxBalance) or 2000000000
-        MySQL.update.await(
-            'UPDATE cm_families SET bank_balance = LEAST(bank_balance + ?, ?) WHERE id = ?',
-            { amount, maxBalance, tonumber(familyId) })
-        local balance = tonumber(MySQL.scalar.await(
-            'SELECT bank_balance FROM cm_families WHERE id = ?', { tonumber(familyId) })) or 0
-        MySQL.insert.await([[INSERT INTO cm_family_bank_log
-            (family_id, character_id, direction, category, amount, balance_after, reason)
-            VALUES (?, NULL, 'deposit', 'event_reward', ?, ?, ?)]],
-            { tonumber(familyId), amount, balance, ('family_raid_win:%s'):format(tostring(raidId)) })
+        CreditFamilyTreasuryAtomic(familyId, amount, {
+            category = 'event_reward',
+            reason = ('family_raid_win:%s'):format(tostring(raidId)),
+            allowZero = true,
+        })
     end
 
     local balance = tonumber(MySQL.scalar.await(
