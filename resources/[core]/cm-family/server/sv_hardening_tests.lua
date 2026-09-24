@@ -75,7 +75,7 @@ local function RunFamilyHardeningTests()
         end
 
         local testsPassed = 0
-        local testsTotal = 56
+        local testsTotal = 62
 
         -- ============================================================
         -- TEST 1: Same reputation unique ID sent twice simultaneously
@@ -1224,6 +1224,7 @@ local function RunFamilyHardeningTests()
         -- TEST 45: Active event lock prevents concurrent event start until completion finalization
         print('^3[TEST 45] Active event lock prevents concurrent event start until finalization...^7')
         ClearFamilyEventCooldown(testFamId, 'family_raid')
+        ClearFamilyEventCooldown(testFamId2, 'family_raid')
         local ok45_ev, inst45 = CreateFamilyEvent('family_raid', {
             initiatorFamilyId = testFamId,
             targetFamilyId = testFamId2,
@@ -1240,6 +1241,10 @@ local function RunFamilyHardeningTests()
         else
             print(('^1[TEST 45 FAIL] Active event lock check failed: ok_ev=%s, can=%s, err=%s, dup=%s, dupErr=%s^7'):format(
                 tostring(ok45_ev), tostring(ok45_can), tostring(err45_can), tostring(ok45_dup), tostring(err45_dup)))
+        end
+        if ok45_dup and type(err45_dup) == 'table' and err45_dup.eventUid then
+            CleanupFamilyEvent(err45_dup.eventUid, 'test_cleanup')
+            MySQL.query.await('DELETE FROM cm_family_event_instances WHERE event_uid = ?', { err45_dup.eventUid })
         end
 
         -- TEST 46: Failed event reward remains retryable / recoverable
@@ -1527,6 +1532,190 @@ local function RunFamilyHardeningTests()
         else
             print(('^1[TEST 56 FAIL] Admin command security check failed: list=%s, cancel=%s, recover=%s^7'):format(
                 tostring(err56_list), tostring(err56_cancel), tostring(err56_recover)))
+        end
+        end
+
+        -- ============================================================
+        -- TESTS 57 - 62: Family Event Engine Crash Consistency & Cooldowns
+        -- ============================================================
+        do
+        -- TEST 57: Participant Crash Recovery (Completed-state crash before participant finalization)
+        print('^3[TEST 57] Participant crash recovery: active participants finalize to completed, preserved statuses untouched...^7')
+        local evtUid57 = 'evt_test_pcrash_' .. os.time()
+        MySQL.query.await([[
+            INSERT INTO cm_family_event_instances
+            (event_uid, event_key, state, initiator_family_id, target_family_id, winner_family_id, reward_state, completed_at)
+            VALUES (?, 'family_raid', 'completed', ?, ?, ?, 'processing', FROM_UNIXTIME(?))
+        ]], { evtUid57, testFamId, testFamId2, testFamId, os.time() - 60 })
+
+        MySQL.query.await([[
+            INSERT INTO cm_family_event_participants (event_uid, family_id, character_id, status)
+            VALUES (?, ?, ?, 'active'),
+                   (?, ?, ?, 'eliminated'),
+                   (?, ?, ?, 'left')
+        ]], {
+            evtUid57, testFamId, testCid1,
+            evtUid57, testFamId, testCid2,
+            evtUid57, testFamId2, testCid3,
+        })
+
+        RecoverPendingEventSettlements()
+
+        local p1Row57 = MySQL.single.await('SELECT status, left_at FROM cm_family_event_participants WHERE event_uid = ? AND character_id = ?', { evtUid57, testCid1 })
+        local p2Row57 = MySQL.single.await('SELECT status FROM cm_family_event_participants WHERE event_uid = ? AND character_id = ?', { evtUid57, testCid2 })
+        local p3Row57 = MySQL.single.await('SELECT status FROM cm_family_event_participants WHERE event_uid = ? AND character_id = ?', { evtUid57, testCid3 })
+
+        if p1Row57 and p1Row57.status == 'completed' and p1Row57.left_at ~= nil
+            and p2Row57 and p2Row57.status == 'eliminated'
+            and p3Row57 and p3Row57.status == 'left' then
+            print('^2[TEST 57 PASS] Participant crash recovery verified: active -> completed, eliminated/left untouched.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 57 FAIL] Participant crash recovery failed: p1=%s, p2=%s, p3=%s^7'):format(
+                json.encode(p1Row57 or {}), json.encode(p2Row57 or {}), json.encode(p3Row57 or {})))
+        end
+        MySQL.query.await('DELETE FROM cm_family_event_instances WHERE event_uid = ?', { evtUid57 })
+        MySQL.query.await('DELETE FROM cm_family_event_participants WHERE event_uid = ?', { evtUid57 })
+
+        -- TEST 58: Cooldown Recovery from Event Completion Timestamp (does not restart full 3 hours)
+        print('^3[TEST 58] Cooldown recovery based on original completed_at timestamp...^7')
+        ClearFamilyEventCooldown(testFamId, 'family_raid')
+        ClearFamilyEventCooldown(testFamId2, 'family_raid')
+        local evtUid58 = 'evt_test_cdcrash_' .. os.time()
+        local oneHourAgo = os.time() - 3600 -- completed 1 hour ago
+        MySQL.query.await([[
+            INSERT INTO cm_family_event_instances
+            (event_uid, event_key, state, initiator_family_id, target_family_id, winner_family_id, reward_state, completed_at)
+            VALUES (?, 'family_raid', 'completed', ?, ?, ?, 'processing', FROM_UNIXTIME(?))
+        ]], { evtUid58, testFamId, testFamId2, testFamId, oneHourAgo })
+
+        RecoverPendingEventSettlements()
+
+        local cd58_init = GetFamilyEventCooldown(testFamId, 'family_raid')
+        local cd58_target = GetFamilyEventCooldown(testFamId2, 'family_raid')
+        -- Configured raid cooldown is 10800s (3h). Since it completed 1h ago, remaining should be ~7200s (approx 2h), NOT 10800s!
+        local initOk = cd58_init and cd58_init.remaining > 7000 and cd58_init.remaining <= 7205
+        local targetOk = cd58_target and cd58_target.remaining > 7000 and cd58_target.remaining <= 7205
+
+        if initOk and targetOk then
+            print(('^2[TEST 58 PASS] Cooldown restored from completed_at: initiator=%ds remaining, target=%ds remaining (~2 hours, not 3 new hours).^7'):format(
+                cd58_init.remaining, cd58_target.remaining))
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 58 FAIL] Cooldown calculation failed: initRem=%s, targetRem=%s^7'):format(
+                tostring(cd58_init and cd58_init.remaining), tostring(cd58_target and cd58_target.remaining)))
+        end
+
+        -- TEST 59: Repeated Recovery Idempotency (no cooldown extension, no duplicate reward)
+        print('^3[TEST 59] Repeated recovery idempotency: cooldown not extended, no duplicate reward...^7')
+        local remBefore59 = cd58_init.remaining
+        RecoverPendingEventSettlements()
+        local cd59_init = GetFamilyEventCooldown(testFamId, 'family_raid')
+        -- Cooldown must NOT have been extended!
+        if cd59_init and cd59_init.remaining <= remBefore59 and cd59_init.remaining > 6900 then
+            print('^2[TEST 59 PASS] Repeated recovery idempotent: cooldown was not extended.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 59 FAIL] Repeated recovery extended cooldown: before=%d, after=%s^7'):format(
+                remBefore59, tostring(cd59_init and cd59_init.remaining)))
+        end
+        MySQL.query.await('DELETE FROM cm_family_event_instances WHERE event_uid = ?', { evtUid58 })
+
+        -- TEST 60: Root reward committed but event metadata missing (exact treasury-credit recovery)
+        print('^3[TEST 60] Exact treasury-credit recovery from committed root reward envelope...^7')
+        local maxBal60 = tonumber(Config.Bank and Config.Bank.maxBalance) or 2000000000
+        -- Leave only $10,000 capacity
+        MySQL.query.await('UPDATE cm_families SET bank_balance = ? WHERE id = ?', { maxBal60 - 10000, testFamId })
+        if Families and Families[testFamId] then Families[testFamId].bank_balance = maxBal60 - 10000 end
+
+        local evtUid60 = 'evt_test_envelope_' .. os.time()
+        local uniqueRewardId60 = ('family_event:%s:winner:%s'):format(evtUid60, testFamId)
+        local ok60_award, res60_award = AwardFamilyActivityReward({
+            familyId = testFamId,
+            uniqueId = uniqueRewardId60,
+            eventType = 'family_raid',
+            eventUid = evtUid60,
+            eventKey = 'family_raid',
+            reputation = 300,
+            treasuryAmount = 50000, -- Requested $50,000 but only $10,000 capacity!
+            memberContribution = 80,
+            participants = { testCid1 },
+        })
+
+        -- Simulate crash: root cm_family_reward_history exists with authoritative envelope,
+        -- but event row is still reward_state = 'processing' and reward_metadata = NULL!
+        MySQL.query.await([[
+            INSERT INTO cm_family_event_instances
+            (event_uid, event_key, state, initiator_family_id, target_family_id, winner_family_id, reward_state, reward_metadata, completed_at)
+            VALUES (?, 'family_raid', 'completed', ?, ?, ?, 'processing', NULL, CURRENT_TIMESTAMP)
+        ]], { evtUid60, testFamId, testFamId2, testFamId })
+
+        local balBeforeRecover = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { testFamId })) or 0
+
+        RecoverPendingEventSettlements()
+
+        local balAfterRecover = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { testFamId })) or 0
+        local evtRow60 = MySQL.single.await([[
+            SELECT reward_state, reward_metadata FROM cm_family_event_instances WHERE event_uid = ?
+        ]], { evtUid60 })
+        local meta60 = evtRow60 and evtRow60.reward_metadata and json.decode(evtRow60.reward_metadata) or {}
+
+        if balBeforeRecover == balAfterRecover and evtRow60 and evtRow60.reward_state == 'delivered'
+            and tonumber(meta60.treasuryCredited) == 10000
+            and tonumber(meta60.treasuryRequested) == 50000
+            and tonumber(meta60.reputation) == 300 then
+            print('^2[TEST 60 PASS] Exact treasury credit ($10k credited of $50k requested) recovered from root metadata without double payout.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 60 FAIL] Envelope recovery failed: balBefore=%d, balAfter=%d, row=%s^7'):format(
+                balBeforeRecover, balAfterRecover, json.encode(evtRow60 or {})))
+        end
+        MySQL.query.await('DELETE FROM cm_family_event_instances WHERE event_uid = ?', { evtUid60 })
+
+        -- TEST 61: Target Family Cooldown Protection
+        print('^3[TEST 61] Target family cooldown protection in CreateFamilyEvent...^7')
+        -- testFamId2 is cooling down from Test 58
+        -- testFamId3 attempts to attack testFamId2
+        ClearFamilyEventCooldown(testFamId3, 'family_raid')
+        local ok61_blocked, err61_blocked, data61_blocked = CreateFamilyEvent('family_raid', {
+            initiatorFamilyId = testFamId3,
+            targetFamilyId = testFamId2,
+            startedByCid = testCid4,
+        })
+        -- Clear target cooldown and verify start is now allowed
+        ClearFamilyEventCooldown(testFamId2, 'family_raid')
+        local ok61_allowed, res61_allowed = CreateFamilyEvent('family_raid', {
+            initiatorFamilyId = testFamId3,
+            targetFamilyId = testFamId2,
+            startedByCid = testCid4,
+        })
+
+        if ok61_blocked == false and err61_blocked == 'target_event_on_cooldown' and data61_blocked and data61_blocked.remaining > 0
+            and ok61_allowed == true and res61_allowed and res61_allowed.eventUid then
+            print('^2[TEST 61 PASS] Target family cooldown protection verified: blocked cooling-down target, allowed after expiry.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 61 FAIL] Target cooldown check failed: blocked=%s, err=%s, data=%s, allowed=%s^7'):format(
+                tostring(ok61_blocked), tostring(err61_blocked), json.encode(data61_blocked or {}), tostring(ok61_allowed)))
+        end
+        if res61_allowed and res61_allowed.eventUid then
+            CleanupFamilyEvent(res61_allowed.eventUid, 'test_cleanup')
+            MySQL.query.await('DELETE FROM cm_family_event_instances WHERE event_uid = ?', { res61_allowed.eventUid })
+        end
+
+        -- TEST 62: Bank Log Traceability with unique event reward ID
+        print('^3[TEST 62] Bank log traceability with unique event reward ID...^7')
+        local logRow62 = MySQL.single.await([[
+            SELECT reason FROM cm_family_bank_log
+            WHERE family_id = ? AND category = 'event_reward' AND reason LIKE ?
+            ORDER BY id DESC LIMIT 1
+        ]], { testFamId, 'event_reward:%' .. evtUid60 .. '%' })
+
+        if logRow62 and logRow62.reason and logRow62.reason:find(evtUid60, 1, true) then
+            print(('^2[TEST 62 PASS] Bank log entry traceable: %s^7'):format(logRow62.reason))
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 62 FAIL] Bank log traceability check failed: %s^7'):format(json.encode(logRow62 or {})))
         end
         end
 

@@ -177,6 +177,44 @@ function ClearFamilyEventCooldown(familyId, eventKey)
 end
 exports('ClearFamilyEventCooldown', ClearFamilyEventCooldown)
 
+function EnsureFamilyEventCooldown(familyId, eventKey, targetAvailableAt, eventUid)
+    familyId = tonumber(familyId)
+    targetAvailableAt = tonumber(targetAvailableAt) or 0
+    if not familyId or not eventKey or targetAvailableAt <= 0 then return false end
+
+    local cacheKey = cooldownCacheKey(familyId, eventKey)
+    local cached = CooldownCache[cacheKey]
+
+    -- If memory cache already has a longer or equal cooldown, do not shorten it
+    if cached and cached.availableAt and cached.availableAt >= targetAvailableAt then
+        return true, cached.availableAt
+    end
+
+    -- Insert or update in database using GREATEST to never shorten a longer valid cooldown
+    MySQL.query.await([[
+        INSERT INTO cm_family_event_cooldowns (event_key, family_id, available_at, last_event_uid)
+        VALUES (?, ?, FROM_UNIXTIME(?), ?)
+        ON DUPLICATE KEY UPDATE
+            available_at = GREATEST(available_at, VALUES(available_at)),
+            last_event_uid = IF(VALUES(available_at) >= available_at, VALUES(last_event_uid), last_event_uid),
+            updated_at = CURRENT_TIMESTAMP
+    ]], { tostring(eventKey), familyId, targetAvailableAt, eventUid and tostring(eventUid) or nil })
+
+    -- Refresh cache to reflect the greatest available_at
+    local row = MySQL.single.await([[
+        SELECT UNIX_TIMESTAMP(available_at) AS avail_ts
+        FROM cm_family_event_cooldowns
+        WHERE event_key = ? AND family_id = ?
+        LIMIT 1
+    ]], { tostring(eventKey), familyId })
+
+    local finalAvail = row and tonumber(row.avail_ts) or targetAvailableAt
+    CooldownCache[cacheKey] = { availableAt = finalAvail }
+
+    return true, finalAvail
+end
+exports('EnsureFamilyEventCooldown', EnsureFamilyEventCooldown)
+
 -- ------------------------------------------------------------
 -- Eligibility Check
 -- ------------------------------------------------------------
@@ -309,7 +347,7 @@ function CreateFamilyEvent(eventKey, payload)
     local lockOk, lockErr = acquireEventCreateLocks(familyIdsToLock)
     if not lockOk then return false, lockErr end
 
-    local ok, res, errData = pcall(function()
+    local ok, res, errData, extra = pcall(function()
         local canStart, errCode, errDetails = CanFamilyStartEvent(initiatorId, eventKey)
         if not canStart then return false, errCode, errDetails end
 
@@ -323,6 +361,15 @@ function CreateFamilyEvent(eventKey, payload)
             local targetFam = GetFamilyById(targetId)
             if not targetFam then
                 return false, 'target_family_not_found'
+            end
+
+            -- Target family cooldown protection: prevent attacking a cooling-down family
+            local targetCooldown = GetFamilyEventCooldown(targetId, eventKey)
+            if not targetCooldown.ready and targetCooldown.remaining > 0 then
+                return false, 'target_event_on_cooldown', {
+                    remaining = targetCooldown.remaining,
+                    availableAt = targetCooldown.availableAt,
+                }
             end
         end
 
@@ -393,7 +440,7 @@ function CreateFamilyEvent(eventKey, payload)
     releaseEventCreateLocks(familyIdsToLock)
 
     if not ok then return false, tostring(res) end
-    return res, errData
+    return res, errData, extra
 end
 exports('CreateFamilyEvent', CreateFamilyEvent)
 
@@ -663,16 +710,16 @@ function CompleteFamilyEvent(eventUid, result)
     })
 
     -- 2. Finalize participants in DB
-    -- Active participants become completed; eliminated/left remain untouched
+    -- Active/joined participants become completed; eliminated/left remain untouched
     MySQL.query.await([[
         UPDATE cm_family_event_participants
         SET status = 'completed', left_at = COALESCE(left_at, FROM_UNIXTIME(?))
-        WHERE event_uid = ? AND status = 'active'
+        WHERE event_uid = ? AND status IN ('active', 'joined')
     ]], { now, eventUid })
 
     if instance.participants then
         for cid, p in pairs(instance.participants) do
-            if p.status == 'active' then
+            if p.status == 'active' or p.status == 'joined' then
                 p.status = 'completed'
                 p.leftAt = now
             end
@@ -681,11 +728,12 @@ function CompleteFamilyEvent(eventUid, result)
 
     -- 3. Apply durable cooldown in DB & memory
     local cdSeconds = tonumber(def and def.cooldownSeconds or 10800) or 10800
+    local targetAvailAt = now + cdSeconds
     if instance.initiatorFamilyId then
-        SetFamilyEventCooldown(instance.initiatorFamilyId, instance.eventKey, cdSeconds, eventUid)
+        EnsureFamilyEventCooldown(instance.initiatorFamilyId, instance.eventKey, targetAvailAt, eventUid)
     end
     if instance.targetFamilyId then
-        SetFamilyEventCooldown(instance.targetFamilyId, instance.eventKey, cdSeconds, eventUid)
+        EnsureFamilyEventCooldown(instance.targetFamilyId, instance.eventKey, targetAvailAt, eventUid)
     end
 
     -- 4. Reward settlement
@@ -708,6 +756,8 @@ function CompleteFamilyEvent(eventUid, result)
                 familyId = winnerId,
                 uniqueId = uniqueRewardId,
                 eventType = instance.eventKey,
+                eventUid = eventUid,
+                eventKey = instance.eventKey,
                 reputation = rep,
                 treasuryAmount = treasury,
                 memberContribution = contrib,
@@ -984,7 +1034,7 @@ end
 local function recoverPendingEventSettlements()
     local pendingRows = MySQL.query.await([[
         SELECT event_uid, event_key, initiator_family_id, target_family_id, winner_family_id,
-               reward_state, metadata
+               reward_state, metadata, UNIX_TIMESTAMP(completed_at) AS completed_at_ts
         FROM cm_family_event_instances
         WHERE state = 'completed'
           AND reward_state IN ('processing', 'failed', 'unclaimed')
@@ -992,30 +1042,86 @@ local function recoverPendingEventSettlements()
     ]]) or {}
 
     if #pendingRows == 0 then return end
-    print(('^3[cm-family] recovering %d pending event reward settlement(s)...^7'):format(#pendingRows))
+    print(('^3[cm-family] recovering %d pending event finalization/settlement(s)...^7'):format(#pendingRows))
 
     for _, r in ipairs(pendingRows) do
         local uid = r.event_uid
         local winnerId = tonumber(r.winner_family_id)
-        local uniqueRewardId = ('family_event:%s:winner:%s'):format(uid, winnerId)
+        local completedAtTs = tonumber(r.completed_at_ts) or os.time()
+        local def = GetEventDefinition(r.event_key)
+        local cdSeconds = tonumber(def and def.cooldownSeconds or 10800) or 10800
+        local targetAvailAt = completedAtTs + cdSeconds
 
-        -- Check if root record already exists in cm_family_reward_history
+        -- 1. PARTICIPANT FINALIZATION RECOVERY:
+        -- Idempotently update active/joined participants to completed.
+        -- DO NOT overwrite eliminated, left, or cancelled.
+        MySQL.query.await([[
+            UPDATE cm_family_event_participants
+            SET status = 'completed', left_at = COALESCE(left_at, FROM_UNIXTIME(?))
+            WHERE event_uid = ? AND status IN ('active', 'joined')
+        ]], { completedAtTs, uid })
+
+        if EventInstances[uid] and EventInstances[uid].participants then
+            for cid, p in pairs(EventInstances[uid].participants) do
+                if p.status == 'active' or p.status == 'joined' then
+                    p.status = 'completed'
+                    p.leftAt = completedAtTs
+                end
+            end
+        end
+
+        -- 2. COOLDOWN RECOVERY:
+        -- Ensure cooldown exists for BOTH families based on completed_at + cooldownSeconds
+        if r.initiator_family_id then
+            EnsureFamilyEventCooldown(r.initiator_family_id, r.event_key, targetAvailAt, uid)
+        end
+        if r.target_family_id then
+            EnsureFamilyEventCooldown(r.target_family_id, r.event_key, targetAvailAt, uid)
+        end
+
+        -- 3. REWARD SETTLEMENT & RECOVERY FROM ROOT METADATA:
+        local uniqueRewardId = ('family_event:%s:winner:%s'):format(uid, winnerId)
         local existingRoot = MySQL.single.await([[
             SELECT id, amount, metadata FROM cm_family_reward_history
             WHERE unique_id = ? LIMIT 1
         ]], { uniqueRewardId })
 
         if existingRoot then
-            -- Already paid! Mark delivered without paying again!
+            -- Already paid! Parse root authoritative envelope so actual credited values are preserved
+            local rootMeta = {}
+            if existingRoot.metadata and type(existingRoot.metadata) == 'string' then
+                pcall(function() rootMeta = json.decode(existingRoot.metadata) or {} end)
+            elseif type(existingRoot.metadata) == 'table' then
+                rootMeta = existingRoot.metadata
+            end
+
+            local deliveredMeta = {
+                treasuryRequested = tonumber(rootMeta.treasuryRequested) or tonumber(def and def.rewards and def.rewards.treasury) or 0,
+                treasuryCredited = (rootMeta.treasuryCredited ~= nil and tonumber(rootMeta.treasuryCredited)) or 'unknown_legacy',
+                reputation = tonumber(rootMeta.reputation) or tonumber(existingRoot.amount) or 0,
+                memberContribution = tonumber(rootMeta.memberContribution) or 0,
+                participantCount = tonumber(rootMeta.participantCount) or 0,
+                recovered = true,
+                recoveredAt = os.time(),
+            }
+
             MySQL.update.await([[
                 UPDATE cm_family_event_instances
-                SET reward_state = 'delivered', reward_delivered_at = CURRENT_TIMESTAMP
+                SET reward_state = 'delivered',
+                    reward_delivered_at = COALESCE(reward_delivered_at, CURRENT_TIMESTAMP),
+                    reward_metadata = ?
                 WHERE event_uid = ?
-            ]], { uid })
-            print(('^2[cm-family] settlement for event %s confirmed already delivered in reward history^7'):format(uid))
+            ]], { json.encode(deliveredMeta), uid })
+
+            if EventInstances[uid] then
+                EventInstances[uid].rewardState = 'delivered'
+                EventInstances[uid].rewardMetadata = deliveredMeta
+            end
+
+            print(('^2[cm-family] finalization & settlement for event %s recovered from root metadata (treasuryCredited=%s)^7'):format(
+                uid, tostring(deliveredMeta.treasuryCredited)))
         else
             -- Not paid yet! Attempt retry safely using AwardFamilyActivityReward
-            local def = GetEventDefinition(r.event_key)
             if def and def.rewards and type(AwardFamilyActivityReward) == 'function' then
                 local rep = tonumber(def.rewards.reputation) or 0
                 local treasury = tonumber(def.rewards.treasury) or 0
@@ -1034,6 +1140,8 @@ local function recoverPendingEventSettlements()
                     familyId = winnerId,
                     uniqueId = uniqueRewardId,
                     eventType = r.event_key,
+                    eventUid = uid,
+                    eventKey = r.event_key,
                     reputation = rep,
                     treasuryAmount = treasury,
                     memberContribution = contrib,
@@ -1051,8 +1159,10 @@ local function recoverPendingEventSettlements()
                         reputation = tonumber(resRew.reputation or rep) or 0,
                         memberContribution = tonumber(resRew.memberContribution or contrib) or 0,
                         participantCount = #winnerParticipants,
+                        recovered = true,
                         recoveredAt = os.time(),
                     }
+
                     MySQL.update.await([[
                         UPDATE cm_family_event_instances
                         SET reward_state = 'delivered',
@@ -1060,7 +1170,14 @@ local function recoverPendingEventSettlements()
                             reward_metadata = ?
                         WHERE event_uid = ?
                     ]], { json.encode(deliveredMeta), uid })
-                    print(('^2[cm-family] successfully recovered and paid reward for event %s^7'):format(uid))
+
+                    if EventInstances[uid] then
+                        EventInstances[uid].rewardState = 'delivered'
+                        EventInstances[uid].rewardMetadata = deliveredMeta
+                    end
+
+                    print(('^2[cm-family] successfully recovered and paid reward for event %s (treasuryCredited=%d)^7'):format(
+                        uid, deliveredMeta.treasuryCredited))
                 else
                     MySQL.update.await([[
                         UPDATE cm_family_event_instances

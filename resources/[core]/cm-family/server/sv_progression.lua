@@ -403,6 +403,34 @@ function AwardFamilyActivityReward(payload)
     local execOk, resSuccess, resPayload = pcall(function()
         local statements = {}
 
+        -- Pre-calculate treasury headroom under the lock for accurate delivery envelope
+        if treasuryReward > 0 then
+            local maxBal = tonumber(Config.Bank and Config.Bank.maxBalance) or 2000000000
+            local curBal = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { familyId })) or 0
+            local spaceRemaining = math.max(0, maxBal - curBal)
+            actualTreasuryCredited = math.min(treasuryReward, spaceRemaining)
+        end
+
+        -- Build authoritative delivery envelope for root reward history
+        local deliveryEnvelope = {
+            reputation = repReward,
+            treasuryRequested = treasuryReward,
+            treasuryCredited = actualTreasuryCredited,
+            memberContribution = contribReward,
+            participantCount = #targetCids,
+            eventUid = payload.eventUid,
+            eventKey = payload.eventKey or eventType,
+            familyId = familyId,
+            deliveredAt = os.time(),
+        }
+        if type(payload.metadata) == 'table' then
+            for k, v in pairs(payload.metadata) do
+                if deliveryEnvelope[k] == nil then
+                    deliveryEnvelope[k] = v
+                end
+            end
+        end
+
         -- 1. Reserve root operation in cm_family_reward_history.
         -- This guarantees that even if repReward == 0 (treasury-only or contribution-only),
         -- calling twice will fail on unique key constraint.
@@ -412,7 +440,7 @@ function AwardFamilyActivityReward(payload)
                     INSERT INTO cm_family_reward_history (unique_id, family_id, reward_type, amount, source, metadata)
                     VALUES (?, ?, 'activity_root', ?, ?, ?)
                 ]],
-                values = { uniqueId, familyId, repReward, eventType, payload.metadata and json.encode(payload.metadata) or nil }
+                values = { uniqueId, familyId, repReward, eventType, json.encode(deliveryEnvelope) }
             }
         end
 
@@ -445,30 +473,24 @@ function AwardFamilyActivityReward(payload)
         end
 
         -- 3. Treasury payout with strict balance cap accounting
-        if treasuryReward > 0 then
-            local maxBal = tonumber(Config.Bank and Config.Bank.maxBalance) or 2000000000
-            local curBal = tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { familyId })) or 0
-            local spaceRemaining = math.max(0, maxBal - curBal)
-            actualTreasuryCredited = math.min(treasuryReward, spaceRemaining)
+        if actualTreasuryCredited > 0 then
+            statements[#statements + 1] = {
+                query = [[
+                    UPDATE cm_families
+                    SET bank_balance = bank_balance + ?
+                    WHERE id = ?
+                ]],
+                values = { actualTreasuryCredited, familyId }
+            }
 
-            if actualTreasuryCredited > 0 then
-                statements[#statements + 1] = {
-                    query = [[
-                        UPDATE cm_families
-                        SET bank_balance = bank_balance + ?
-                        WHERE id = ?
-                    ]],
-                    values = { actualTreasuryCredited, familyId }
-                }
-
-                statements[#statements + 1] = {
-                    query = [[
-                        INSERT INTO cm_family_bank_log (family_id, character_id, direction, category, amount, balance_after, reason)
-                        VALUES (?, ?, 'deposit', 'event_reward', ?, (SELECT bank_balance FROM cm_families WHERE id = ?), ?)
-                    ]],
-                    values = { familyId, actorCid, actualTreasuryCredited, familyId, ('event_reward:%s'):format(eventType) }
-                }
-            end
+            local bankReason = (uniqueId and uniqueId ~= '') and ('event_reward:%s:%s'):format(eventType, uniqueId) or ('event_reward:%s'):format(eventType)
+            statements[#statements + 1] = {
+                query = [[
+                    INSERT INTO cm_family_bank_log (family_id, character_id, direction, category, amount, balance_after, reason)
+                    VALUES (?, ?, 'deposit', 'event_reward', ?, (SELECT bank_balance FROM cm_families WHERE id = ?), ?)
+                ]],
+                values = { familyId, actorCid, actualTreasuryCredited, familyId, bankReason }
+            }
         end
 
         -- 4. Requirement 4: Include participant contributions in the SAME transaction!
