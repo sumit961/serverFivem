@@ -27,6 +27,10 @@ from pathlib import Path
 
 EXCLUDED_DIRS = {'.git', 'node_modules', '.agents', 'graphify-out', 'cm-agent-out', 'tools', 'dist'}
 
+EXEMPT_RESOURCES = {
+    'cm-vehicles': 'Approved Vehicle G-menu (visually and functionally protected; exempt from CM UI migration)'
+}
+
 PROTECTED_SELECTOR_PATTERN = re.compile(
     r'(?:^|[\s,>+~])(?:[a-zA-Z0-9_-]+)?\.cm-(?:btn|modal|toast|card|input|select|tabs?|badge|slot|actions?|screen)(?:[-_a-zA-Z0-9]+)?'
 )
@@ -265,6 +269,10 @@ def audit_resource(name, res_path):
     elif is_cm_ui:
         report['category'] = 'KERNEL_PROVIDER'
         report['pass'] = True
+    elif name in EXEMPT_RESOURCES:
+        report['category'] = 'EXEMPT_APPROVED'
+        report['pass'] = True
+        report['exempt_reason'] = EXEMPT_RESOURCES[name]
     else:
         has_all_assets = (
             report['has_theme'] and
@@ -321,6 +329,7 @@ def main():
 
     kernel = [r['name'] for r in ui_reports if r['category'] == 'KERNEL_PROVIDER']
     fully_migrated = [r['name'] for r in ui_reports if r['category'] == 'FULLY_MIGRATED']
+    exempt_ui = [r['name'] for r in ui_reports if r['category'] == 'EXEMPT_APPROVED']
     partial_cm_ui = [r['name'] for r in ui_reports if r['category'] == 'PARTIAL_CM_UI']
     legacy_ui = [r['name'] for r in ui_reports if r['category'] == 'LEGACY_UI']
 
@@ -353,6 +362,11 @@ def main():
     for p in fully_migrated:
         print(f"  [+] {p}")
     print()
+    print(f"EXEMPT / PROTECTED ({len(exempt_ui)}):")
+    for ex in exempt_ui:
+        reason = EXEMPT_RESOURCES.get(ex, 'Exempt from migration')
+        print(f"  [#] {ex} - {reason}")
+    print()
     print(f"PARTIAL CM UI ({len(partial_cm_ui)}):")
     for part in partial_cm_ui:
         print(f"  [~] {part}")
@@ -366,7 +380,7 @@ def main():
         print("\nDETAILED AUDIT BY RESOURCE:")
         for r in ui_reports:
             has_issues = (not r['pass']) or r['load_order_violations'] or r['dangerous_sizing']
-            if has_issues and r['category'] != 'KERNEL_PROVIDER':
+            if has_issues and r['category'] not in ('KERNEL_PROVIDER', 'EXEMPT_APPROVED'):
                 print(f"\nResource: {r['name']} [{r['category']}]")
                 missing = []
                 if not r['has_theme']: missing.append('cm-theme.css')

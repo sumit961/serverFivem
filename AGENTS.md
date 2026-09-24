@@ -102,6 +102,7 @@ Agents must verify these ownership assumptions against actual exports, events an
 - Family capabilities must use explicit permission identifiers rather than hard-coded rank names.
 - Family house, vehicle, storage, weapon storage, banking and high-risk membership actions require activity logs.
 - Prepare integrations through documented exports/events instead of command-only access where future cm-admin or family use is expected.
+- **CRITICAL EXCLUSION: Vehicle G-menu**: The existing Vehicle G-menu (`cm-vehicles/client/menu.lua` and `cm-vehicles/ui/`) is APPROVED and strictly exempt from CM UI visual migration. Do NOT redesign its layout, size, positioning, typography, icons, colors, button placement, interaction prompt, targeting, or G arbitration. Any visual difference caused by migration must be reverted immediately.
 
 ## Performance and logging
 
