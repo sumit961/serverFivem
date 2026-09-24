@@ -32,6 +32,7 @@ local nameCache = {}
 function B.GetCid(src)
     src = tonumber(src)
     if not src then return nil end
+    if B._mockCids and B._mockCids[src] ~= nil then return B._mockCids[src] end
     if started(PD) then
         local ok, cid = pcall(function() return exports[PD]:GetCharacterId(src) end)
         if ok and cid then return tonumber(cid) or cid end
@@ -41,6 +42,7 @@ end
 
 function B.GetSrcByCid(cid)
     if cid == nil then return nil end
+    if B._mockSrcs and B._mockSrcs[cid] ~= nil then return B._mockSrcs[cid] end
     if started(PD) then
         local ok, src = pcall(function() return exports[PD]:GetSourceByCharId(cid) end)
         if ok and tonumber(src) then return tonumber(src) end

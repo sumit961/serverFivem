@@ -330,6 +330,10 @@ local CREATE_CHILD_TABLES = {
           `completed_at`        TIMESTAMP NULL DEFAULT NULL,
           `result_reason`       VARCHAR(128) NULL,
           `metadata`            JSON NULL,
+          `reward_state`        VARCHAR(32) NOT NULL DEFAULT 'not_applicable',
+          `reward_processing_at` TIMESTAMP NULL DEFAULT NULL,
+          `reward_delivered_at` TIMESTAMP NULL DEFAULT NULL,
+          `reward_metadata`     LONGTEXT NULL,
           `created_at`          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           `updated_at`          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           PRIMARY KEY (`id`),
@@ -338,6 +342,7 @@ local CREATE_CHILD_TABLES = {
           KEY `idx_evt_initiator` (`initiator_family_id`),
           KEY `idx_evt_target` (`target_family_id`),
           KEY `idx_evt_winner` (`winner_family_id`),
+          KEY `idx_evt_reward_state` (`reward_state`),
           KEY `idx_evt_created` (`created_at`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ]],
@@ -467,6 +472,12 @@ local ADDITIVE_COLUMNS = {
         { name = 'reward_state', ddl = "`reward_state` VARCHAR(16) NOT NULL DEFAULT 'unclaimed' AFTER `completed`" },
         { name = 'reward_processing_at', ddl = "`reward_processing_at` TIMESTAMP NULL DEFAULT NULL AFTER `reward_state`" },
     },
+    cm_family_event_instances = {
+        { name = 'reward_state', ddl = "`reward_state` VARCHAR(32) NOT NULL DEFAULT 'not_applicable' AFTER `metadata`" },
+        { name = 'reward_processing_at', ddl = "`reward_processing_at` TIMESTAMP NULL DEFAULT NULL AFTER `reward_state`" },
+        { name = 'reward_delivered_at', ddl = "`reward_delivered_at` TIMESTAMP NULL DEFAULT NULL AFTER `reward_processing_at`" },
+        { name = 'reward_metadata', ddl = "`reward_metadata` LONGTEXT NULL AFTER `reward_delivered_at`" },
+    },
 }
 
 local REQUIRED_COLUMNS = {
@@ -518,6 +529,9 @@ local REQUIRED_INDEXES = {
         { name = 'idx_family_activity_high_time', ddl = 'KEY `idx_family_activity_high_time` (`high_risk`, `created_at`)' },
         { name = 'idx_family_activity_action', ddl = 'KEY `idx_family_activity_action` (`action`)' },
         { name = 'idx_family_activity_actor', ddl = 'KEY `idx_family_activity_actor` (`actor_cid`)' },
+    },
+    cm_family_event_instances = {
+        { name = 'idx_evt_reward_state', ddl = 'KEY `idx_evt_reward_state` (`reward_state`)' },
     },
 }
 
@@ -984,6 +998,14 @@ end
 function CMFamilyDeleteFamilyRows(familyId)
     familyId = tonumber(familyId)
     if not familyId then return false, 'invalid_family_id' end
+
+    -- Before deleting: cancel any active event involving this family safely
+    if type(GetActiveFamilyEventForFamily) == 'function' and type(CancelFamilyEvent) == 'function' then
+        local activeEvt = GetActiveFamilyEventForFamily(familyId)
+        if activeEvt and activeEvt.eventUid then
+            CancelFamilyEvent(activeEvt.eventUid, 'family_disbanded')
+        end
+    end
 
     local statements = {
         { query = 'DELETE FROM cm_family_event_participants WHERE family_id = ?', values = { familyId } },

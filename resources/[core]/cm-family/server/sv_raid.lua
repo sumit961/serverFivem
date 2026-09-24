@@ -76,7 +76,6 @@ local function canStart(context)
     return rank.is_founder == true or tonumber(rank.is_founder) == 1
         or RankHasPermission(rank, 'family.start_events')
         or RankHasPermission(rank, 'family.raid_start')
-        or RankHasPermission(rank, 'family.manage_vehicles')
 end
 
 local function familyCounts(raid)
@@ -192,7 +191,13 @@ local function finishRaid(raid, winnerFamilyId, reason)
         if okComp then completeRes = res end
     end
 
-    local rewardAmount = (completeRes and completeRes.rewardOk) and tonumber(raidConfig('reward', 50000)) or 0
+    local actualTreasury = 0
+    if completeRes and completeRes.actualDelivered and completeRes.actualDelivered.treasuryCredited then
+        actualTreasury = tonumber(completeRes.actualDelivered.treasuryCredited) or 0
+    elseif completeRes and completeRes.rewardOk then
+        actualTreasury = tonumber(raidConfig('reward', 50000)) or 0
+    end
+
     local balance = nil
     if winnerFamilyId then
         balance = tonumber(MySQL.scalar.await(
@@ -206,7 +211,7 @@ local function finishRaid(raid, winnerFamilyId, reason)
         eventUid = raid.eventUid,
         winnerFamilyId = winnerFamilyId and tonumber(winnerFamilyId) or nil,
         winnerName = winnerFamilyId and familyName(winnerFamilyId) or nil,
-        reward = rewardAmount,
+        reward = actualTreasury,
         balance = balance,
         reason = reason or 'raid_complete',
     }
@@ -264,11 +269,15 @@ local function eliminate(src, reason)
     player.eliminationReason = reason or 'eliminated'
     PlayerRaid[sourceId] = nil
 
-    if type(LeaveFamilyEvent) == 'function' and player.cid then
+    if type(UpdateFamilyEventParticipantStatus) == 'function' and player.cid then
+        UpdateFamilyEventParticipantStatus(raid.eventUid, player.cid, 'eliminated', {
+            eliminationReason = player.eliminationReason,
+            eliminatedAt = player.eliminatedAt,
+        })
+    elseif type(LeaveFamilyEvent) == 'function' and player.cid then
         LeaveFamilyEvent(raid.eventUid, player.cid, player.eliminationReason)
-    else
-        SetPlayerRoutingBucket(sourceId, 0)
     end
+    SetPlayerRoutingBucket(sourceId, 0)
 
     TriggerClientEvent('cm-family:client:raidEliminated', sourceId, { reason = player.eliminationReason })
     broadcastRaid(raid)
@@ -499,14 +508,22 @@ CreateThread(function()
             if raid and not raid.finished then
                 local now = os.time()
                 if raid.phase == 'countdown' and raid.startsAt and now >= raid.startsAt then
-                    raid.phase = 'active'
-                    raid.startedAt = now
-                    raid.endsAt = now + (tonumber(raidConfig('durationSeconds', 900)) or 900)
+                    local okTrans = true
                     if type(TransitionEventState) == 'function' then
-                        TransitionEventState(raid.eventUid, 'active', { durationSeconds = tonumber(raidConfig('durationSeconds', 900)) or 900 })
+                        local success, errTrans = TransitionEventState(raid.eventUid, 'active', { durationSeconds = tonumber(raidConfig('durationSeconds', 900)) or 900 })
+                        if not success then
+                            okTrans = false
+                            print(('^1[cm-family:raid] Failed to transition raid %s to active: %s. Aborting raid.^7'):format(tostring(raid.eventUid), tostring(errTrans)))
+                            finishRaid(raid, nil, 'transition_failed')
+                        end
                     end
-                    broadcastRaid(raid)
-                    for src in pairs(raid.players) do notify(src, 'Raid started. Last family standing wins.', 'inform') end
+                    if okTrans and not raid.finished then
+                        raid.phase = 'active'
+                        raid.startedAt = now
+                        raid.endsAt = now + (tonumber(raidConfig('durationSeconds', 900)) or 900)
+                        broadcastRaid(raid)
+                        for src in pairs(raid.players) do notify(src, 'Raid started. Last family standing wins.', 'inform') end
+                    end
                 end
                 for src, player in pairs(raid.players) do
                     if player.alive == true then

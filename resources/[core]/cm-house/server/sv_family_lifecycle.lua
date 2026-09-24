@@ -89,6 +89,24 @@ function FL.AppendDeleteStatements(statements, familyId, houseId)
     if not familyId then return statements end
     statements = statements or {}
 
+    -- Cancel any active event involving this family before removing data
+    pcall(function()
+        if GetResourceState('cm-family') == 'started' then
+            local activeEvt = exports['cm-family']:GetActiveFamilyEventForFamily(familyId)
+            if activeEvt and activeEvt.eventUid then
+                exports['cm-family']:CancelFamilyEvent(activeEvt.eventUid, 'family_disbanded')
+            end
+        end
+    end)
+
+    statements[#statements + 1] = {
+        query = 'DELETE FROM cm_family_event_participants WHERE family_id = ?',
+        values = { familyId },
+    }
+    statements[#statements + 1] = {
+        query = 'DELETE FROM cm_family_event_cooldowns WHERE family_id = ?',
+        values = { familyId },
+    }
     statements[#statements + 1] = {
         query = 'DELETE FROM cm_family_reward_history WHERE family_id = ?',
         values = { familyId },

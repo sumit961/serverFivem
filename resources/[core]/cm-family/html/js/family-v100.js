@@ -1260,14 +1260,21 @@
             <tbody>
               ${recent.map(r => {
                 let resBadge = '';
-                if (r.won) {
-                  resBadge = '<span class="status-badge primary" style="padding:2px 8px; font-size:10px;">VICTORY</span>';
+                if (r.state === 'completed') {
+                  resBadge = r.won
+                    ? '<span class="status-badge primary" style="padding:2px 8px; font-size:10px;">VICTORY</span>'
+                    : '<span class="status-badge danger" style="padding:2px 8px; font-size:10px;">DEFEAT</span>';
                 } else if (r.state === 'cancelled') {
                   resBadge = '<span class="status-badge" style="padding:2px 8px; font-size:10px; background:rgba(255,255,255,0.06); color:var(--text-muted);">CANCELLED</span>';
+                } else if (r.state === 'failed') {
+                  resBadge = '<span class="status-badge danger" style="padding:2px 8px; font-size:10px; background:rgba(255,80,80,0.1); color:#ff6b6b;">FAILED</span>';
+                } else if (r.state === 'expired') {
+                  resBadge = '<span class="status-badge warning" style="padding:2px 8px; font-size:10px;">EXPIRED</span>';
                 } else {
-                  resBadge = '<span class="status-badge danger" style="padding:2px 8px; font-size:10px;">DEFEAT</span>';
+                  resBadge = `<span class="status-badge" style="padding:2px 8px; font-size:10px;">${esc((r.state || 'UNKNOWN').toUpperCase())}</span>`;
                 }
                 const reasonLabel = String(r.resultReason || 'complete').replace(/_/g, ' ');
+                const actualCredited = r.treasuryCredited != null ? r.treasuryCredited : (r.rewardCredited || 0);
                 return `
                   <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
                     <td style="padding:10px 12px; font-weight:700; color:#fff;">${esc(r.label || r.eventKey)}</td>
@@ -1275,7 +1282,7 @@
                     <td style="padding:10px 12px;">${resBadge}</td>
                     <td style="padding:10px 12px; color:var(--text-muted); text-transform:capitalize;">${esc(reasonLabel)}</td>
                     <td style="padding:10px 12px;">${r.durationMinutes || 0}m</td>
-                    <td style="padding:10px 12px; color:${r.won ? 'var(--cyan)' : 'var(--text-muted)'}; font-weight:700;">${r.won ? money(r.rewardCredited) : '$0'}</td>
+                    <td style="padding:10px 12px; color:${r.won ? 'var(--cyan)' : 'var(--text-muted)'}; font-weight:700;">${r.won ? money(actualCredited) : '$0'}</td>
                     <td style="padding:10px 12px; color:var(--text-muted); font-size:11px;">${formatTimestamp(r.completedAt, 16)}</td>
                   </tr>`;
               }).join('')}
