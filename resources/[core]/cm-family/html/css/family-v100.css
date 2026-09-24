@@ -40,43 +40,44 @@
 }
 
 :root {
-  /* High-Contrast Clean Tactical Palette bound to cm-ui tokens */
-  --bg-dark:        var(--cm-bg, #060B11);
-  --bg-card:        var(--cm-panel, rgba(15, 23, 34, 0.96));
-  --accent-primary: var(--cm-primary, #00E5FF);
-  --accent-blue:    var(--cm-blue, #2563eb);
-  --accent-warning: var(--cm-warning, #F59E0B);
-  --accent-danger:  var(--cm-danger, #EF4444);
-  --accent-success: var(--cm-success, #22c55e);
+  /* High-Contrast Clean Tactical Palette bound to Persistent Gaming UI Directive */
+  --bg-dark:        #0B171E;
+  --bg-card:        rgba(18, 36, 47, 0.94);
+  --accent-primary: #00E5FF;
+  --accent-blue:    #1E88E5;
+  --accent-warning: #FF8C00;
+  --accent-danger:  #E74C3C;
+  --accent-success: #2ECC71;
+  --accent-yellow:  #FFC700;
 
-  --text-main:      var(--cm-text-strong, #F8FAFC);
-  --text-dim:       var(--cm-muted, #94A3B8);
-  --border-light:   var(--cm-border-soft, rgba(148, 163, 184, 0.2));
-  --border-bright:  var(--cm-border, rgba(0, 229, 255, 0.3));
+  --text-main:      #FFFFFF;
+  --text-dim:       #829DAE;
+  --border-light:   #213B4A;
+  --border-bright:  rgba(0, 229, 255, 0.35);
 
   --font-main:      var(--cm-font, 'DM Sans', -apple-system, sans-serif);
   --font-display:   var(--cm-font-display, 'Poppins', 'DM Sans', sans-serif);
 
   /* Theme mappings for compatibility */
-  --bg-deep:      var(--cm-bg-deep, #030812);
-  --panel-bg:     var(--cm-panel, rgba(8, 18, 34, 0.96));
-  --panel-card:   var(--cm-panel-soft, rgba(12, 26, 46, 0.92));
-  --panel-btn:    rgba(12, 26, 46, 0.86);
-  --border-dim:   var(--cm-border-soft, rgba(143, 190, 220, 0.14));
-  --border-cyan:  var(--cm-border, rgba(0, 229, 255, 0.32));
+  --bg-deep:      #10222B;
+  --panel-bg:     rgba(18, 36, 47, 0.94);
+  --panel-card:   #142733;
+  --panel-btn:    #10222B;
+  --border-dim:   #213B4A;
+  --border-cyan:  rgba(0, 229, 255, 0.32);
 
-  --cyan:         var(--cm-primary, #00E5FF);
-  --yellow:       var(--cm-warning, #F59E0B);
-  --green:        var(--cm-success, #22c55e);
-  --orange:       var(--cm-warning, #F59E0B);
-  --red:          var(--cm-danger, #EF4444);
+  --cyan:         #00E5FF;
+  --yellow:       #FFC700;
+  --green:        #2ECC71;
+  --orange:       #FF8C00;
+  --red:          #E74C3C;
 
-  --text-white:   var(--cm-text-strong, #ffffff);
-  --text-body:    var(--cm-text, #eaf7ff);
-  --text-muted:   var(--cm-muted, #8aa4b8);
+  --text-white:   #ffffff;
+  --text-body:    #C2D2DC;
+  --text-muted:   #829DAE;
 
-  --radius-card:  var(--cm-radius-md, 14px);
-  --radius-btn:   var(--cm-radius-sm, 9px);
+  --radius-card:  8px;
+  --radius-btn:   6px;
   --radius-pill:  999px;
 }
 
@@ -113,13 +114,12 @@ html, body {
 #root.is-open {
   display: flex;
   flex-direction: column;
-  background-color: var(--bg-dark);
+  background-color: #0B171E;
   background-image:
-    radial-gradient(circle at top right, rgba(0, 229, 255, 0.1) 0%, transparent 50%),
-    linear-gradient(0deg, rgba(6, 11, 17, 0.95) 0%, rgba(6, 11, 17, 0.75) 100%),
-    url('https://images.unsplash.com/photo-1542382156909-9ae37b3f56fd?q=80&w=2584&auto=format&fit=crop');
-  background-size: cover;
-  background-position: center;
+    radial-gradient(circle at 12% 0%, rgba(0, 229, 255, 0.08), transparent 32%),
+    radial-gradient(rgba(255, 255, 255, 0.10) 1px, transparent 0),
+    linear-gradient(135deg, #0B171E 0%, #10222B 100%);
+  background-size: 100% 100%, 24px 24px, 100% 100%;
 }
 
 #root .family-shell {
@@ -141,8 +141,8 @@ html, body {
   align-items: center;
   padding: 0 40px;
   height: 80px;
-  background: rgba(11, 17, 26, 0.95);
-  border-bottom: 1px solid var(--border-light);
+  background: #0B171E;
+  border-bottom: 2px solid #213B4A;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
   z-index: 10;
   flex-shrink: 0;
@@ -209,9 +209,9 @@ html, body {
   content: '';
   position: absolute;
   bottom: 0; left: 0; right: 0;
-  height: 4px;
-  background: var(--accent-primary);
-  border-radius: 4px 4px 0 0;
+  height: 3px;
+  background: var(--accent-yellow, #FFC700);
+  border-radius: 3px 3px 0 0;
 }
 
 .nav-controls {
@@ -229,40 +229,40 @@ html, body {
 }
 
 .action-btn {
-  background: rgba(12, 26, 46, 0.86);
-  border: 1px solid var(--border-light);
+  background: #10222B;
+  border: 1px solid #213B4A;
   padding: 8px 16px;
   min-height: 36px;
   border-radius: var(--radius-btn);
   font-size: 12px;
   font-weight: 800;
-  color: var(--text-main);
+  color: #FFFFFF;
   letter-spacing: 0.02em;
   cursor: pointer;
   transition: transform var(--cm-fast, 120ms ease), background var(--cm-fast, 120ms ease), border-color var(--cm-fast, 120ms ease), color var(--cm-fast, 120ms ease);
   text-transform: uppercase;
 }
 .action-btn:hover {
-  background: var(--cm-panel-hover, rgba(16, 35, 60, 0.96));
-  border-color: var(--border-bright);
-  color: var(--accent-primary);
+  background: rgba(255, 255, 255, 0.1);
+  border-color: #829DAE;
+  color: #FFFFFF;
   transform: translateY(-1px);
 }
 
 .action-btn.active {
-  color: var(--accent-primary);
-  border-color: var(--accent-primary);
-  background: rgba(0, 229, 255, 0.15);
-  box-shadow: 0 0 16px rgba(0, 229, 255, 0.25);
+  color: #000000;
+  border-color: #FFC700;
+  background: #FFC700;
+  box-shadow: 0 0 16px rgba(255, 199, 0, 0.25);
 }
 
 .action-btn.danger {
   color: #ffffff;
-  border-color: var(--cm-border-danger, rgba(239, 68, 68, 0.42));
-  background: linear-gradient(135deg, #991b1b, var(--accent-danger));
+  border: none;
+  background: #E74C3C;
 }
 .action-btn.danger:hover {
-  background: linear-gradient(135deg, #b91c1c, #f87171);
+  background: #c0392b;
   color: #ffffff;
   box-shadow: 0 4px 14px rgba(239, 68, 68, 0.35);
   transform: translateY(-1px);
@@ -874,37 +874,50 @@ html, body {
 }
 
 /* ============================================================
-   BUTTONS — ADHERING STRICTLY TO DIRECTIVE
+   BUTTONS — ADHERING STRICTLY TO PERSISTENT GAMING UI DIRECTIVE
    ============================================================ */
-/* Primary CTA: CM UI Ice Cyan gradient with bold dark text */
+/* Primary CTA: Solid Yellow #FFC700 with bold black text */
 .btn-primary, .btn--primary, .cinematic-primary, .btn.primary {
-  background: linear-gradient(135deg, var(--cm-primary-dark, #0891b2), var(--cm-primary, #00f0ff)) !important;
-  color: #030812 !important;
+  background: #FFC700 !important;
+  color: #000000 !important;
   font-weight: 800 !important;
   font-size: 13px !important;
-  letter-spacing: 0.02em !important;
+  letter-spacing: 0.04em !important;
   text-transform: uppercase !important;
-  border: 1px solid var(--cm-border, rgba(0, 240, 255, 0.32)) !important;
-  border-radius: var(--radius-card, 14px) !important;
+  border: none !important;
+  border-radius: 6px !important;
   min-height: 40px !important;
   padding: 10px 18px !important;
-  box-shadow: 0 4px 14px rgba(0, 240, 255, 0.3) !important;
-  transition: transform var(--cm-fast, 120ms ease), opacity var(--cm-fast, 120ms ease), box-shadow var(--cm-fast, 120ms ease) !important;
+  box-shadow: 0 4px 14px rgba(255, 199, 0, 0.3) !important;
+  transition: transform var(--cm-fast, 120ms ease), opacity var(--cm-fast, 120ms ease), box-shadow var(--cm-fast, 120ms ease), filter var(--cm-fast, 120ms ease) !important;
   cursor: pointer;
 }
 .btn-primary:hover, .btn--primary:hover, .cinematic-primary:hover, .btn.primary:hover {
-  background: #00f0ff !important;
-  color: #030812 !important;
+  background: #FFD233 !important;
+  color: #000000 !important;
   transform: translateY(-1px) !important;
-  box-shadow: 0 6px 20px rgba(0, 240, 255, 0.45) !important;
+  filter: brightness(1.08) !important;
+  box-shadow: 0 6px 20px rgba(255, 199, 0, 0.45) !important;
 }
 
-/* Secondary CTA: Dark panel button with 1px border and light text */
+.btn-cyan, .btn.cyan {
+  background: #00E5FF !important;
+  color: #000000 !important;
+  font-weight: 800 !important;
+  border: none !important;
+  border-radius: 6px !important;
+}
+.btn-cyan:hover, .btn.cyan:hover {
+  background: #33EBFF !important;
+  transform: translateY(-1px) !important;
+}
+
+/* Secondary CTA: Dark slate panel button #10222B with 1px #213B4A border and white text */
 .btn {
-  background: rgba(12, 26, 46, 0.86);
-  border: 1px solid var(--border-dim);
-  border-radius: var(--radius-card, 14px);
-  color: var(--text-white);
+  background: #10222B;
+  border: 1px solid #213B4A;
+  border-radius: 6px;
+  color: #FFFFFF;
   font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.02em;
@@ -919,37 +932,37 @@ html, body {
   gap: 8px;
 }
 .btn:hover {
-  background: var(--cm-panel-hover, rgba(16, 35, 60, 0.96));
-  border-color: var(--cyan);
-  color: var(--cyan);
-  box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  border-color: #829DAE;
+  color: #FFFFFF;
   transform: translateY(-1px);
 }
 .btn.ghost {
   background: transparent;
-  border-color: var(--border-dim);
+  border-color: #213B4A;
   color: var(--text-muted);
 }
 .btn.ghost:hover {
-  background: rgba(var(--cm-primary-rgb, 0, 240, 255), 0.08);
-  border-color: var(--border-bright);
-  color: var(--text-white);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #829DAE;
+  color: #FFFFFF;
 }
 .btn.danger {
-  background: linear-gradient(135deg, #991b1b, var(--red));
-  border-color: var(--cm-border-danger, rgba(239, 68, 68, 0.42));
-  color: #ffffff;
+  background: #E74C3C !important;
+  border: none !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 4px 14px rgba(231, 76, 60, 0.35);
 }
 .btn.danger:hover {
-  background: linear-gradient(135deg, #b91c1c, #f87171);
-  box-shadow: 0 4px 14px rgba(231, 76, 60, 0.35);
+  background: #c0392b !important;
+  color: #FFFFFF !important;
   transform: translateY(-1px);
 }
 .btn.sm {
   min-height: 32px;
   padding: 7px 11px;
   font-size: 12px;
-  border-radius: var(--radius-btn, 9px);
+  border-radius: 6px;
 }
 .btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
 

@@ -1,26 +1,26 @@
 /* cm-house v1.8.0 — shared CM dashboard adapter.
    Loaded last to convert every house NUI view without changing JS contracts. */
 :root {
-  --house-panel:var(--cm-dashboard-panel,rgba(8, 18, 34, 0.96));
-  --house-card:var(--cm-dashboard-card,rgba(12, 26, 46, 0.92));
-  --house-row:rgba(15, 23, 34, 0.85);
-  --house-row-hover:rgba(20, 35, 52, 0.95);
-  --house-line:var(--cm-dashboard-line,rgba(var(--cm-primary-rgb, 0, 240, 255), 0.14));
-  --house-line-strong:var(--cm-dashboard-line-strong,rgba(var(--cm-primary-rgb, 0, 240, 255), 0.32));
-  --house-text:var(--cm-dashboard-text,#ffffff);
-  --house-soft:var(--cm-dashboard-text-soft,#eaf7ff);
-  --house-muted:var(--cm-dashboard-muted,#8aa4b8);
-  --house-blue:var(--cm-dashboard-blue,#0891b2);
-  --house-blue-dark:var(--cm-dashboard-blue-dark,#0e7490);
-  --house-cyan:var(--cm-dashboard-cyan,#00f0ff);
-  --house-green:var(--cm-dashboard-green,#22c55e);
-  --house-amber:var(--cm-dashboard-amber,#f59e0b);
-  --house-red:var(--cm-dashboard-red,#ef4444);
-  --house-font:"DM Sans","Segoe UI",Arial,sans-serif;
-  --house-font-display:"Poppins","DM Sans","Segoe UI",Arial,sans-serif;
-  --cm-dashboard-primary:linear-gradient(135deg,var(--cm-primary-dark, #0891b2),var(--cm-primary, #00f0ff));
-  --cm-dashboard-shadow:0 18px 60px rgba(0, 0, 0, 0.48);
-  --cm-dashboard-shadow-button:0 4px 14px rgba(0, 240, 255, 0.3);
+  --house-panel:#10222B;
+  --house-card:#142733;
+  --house-row:rgba(18, 36, 47, 0.94);
+  --house-row-hover:rgba(26, 48, 62, 0.95);
+  --house-line:#213B4A;
+  --house-line-strong:rgba(0, 229, 255, 0.35);
+  --house-text:#ffffff;
+  --house-soft:#C2D2DC;
+  --house-muted:#829DAE;
+  --house-blue:#1E88E5;
+  --house-blue-dark:#1565C0;
+  --house-cyan:#00E5FF;
+  --house-green:#2ECC71;
+  --house-amber:#FF8C00;
+  --house-red:#E74C3C;
+  --house-font:var(--cm-font, "DM Sans", -apple-system, sans-serif);
+  --house-font-display:var(--cm-font-display, "Poppins", "DM Sans", sans-serif);
+  --cm-dashboard-primary:#FFC700;
+  --cm-dashboard-shadow:0 18px 48px rgba(0, 0, 0, 0.5);
+  --cm-dashboard-shadow-button:0 4px 14px rgba(255, 199, 0, 0.3);
 }
 
 * { font-family:var(--cm-font,var(--house-font)) !important; }
@@ -31,13 +31,13 @@ h1,h2,h3,strong,.deed__id h1,.row__title,.row__name,.tile__name,.card__name,
 }
 body { color:var(--house-text) !important; background:transparent !important; }
 body.cm-photo-clean > * { display:none !important; }
-.screen { padding:clamp(16px,2.5vw,34px) !important; background:rgba(3, 8, 18, 0.75) !important; }
+.screen { padding:clamp(16px,2.5vw,34px) !important; background:rgba(11, 23, 30, 0.85) !important; }
 
 .deed,.wiz,.adm,.garage-slot-card,.interior-door-card,.weapon-storage-card {
   color:var(--house-text) !important;
   background:var(--house-panel) !important;
-  border:1px solid var(--house-line-strong) !important;
-  border-radius:30px !important;
+  border:1px solid var(--house-line) !important;
+  border-radius:8px !important;
   box-shadow:var(--cm-dashboard-shadow),inset 0 0 0 1px rgba(255,255,255,.02) !important;
 }
 .deed::before,.wiz::before,.adm::before,.garage-slot-card::before,
@@ -51,7 +51,7 @@ body.cm-photo-clean > * { display:none !important; }
 .deed__head,.interior-door-head,.garage-slot-head,.weapon-storage-head,
 .adm__head,.wiz__head {
   color:var(--house-text) !important;
-  background:#17192b !important;
+  background:#0B171E !important;
   border-bottom:1px solid var(--house-line) !important;
 }
 .deed__head { padding:24px 28px 20px !important; }
@@ -102,37 +102,49 @@ body.cm-photo-clean > * { display:none !important; }
 
 .act,.ghost,.solid,.tab,.mini,.garage-slot-action,.interior-door-option,
 .garage-vehicle-row__button,.ws-tab,.weapon-storage-refresh,.weapon-item-action {
-  border-radius:12px !important; font-size:15px !important; font-weight:600 !important;
+  border-radius:6px !important; font-size:14px !important; font-weight:800 !important;
+  text-transform: uppercase !important;
   transition:filter .15s,transform .15s,border-color .15s,background .15s !important;
 }
 .act,.ghost,.tab,.mini,.interior-door-option,.garage-slot-action {
-  color:var(--house-soft) !important; background:#20233a !important;
-  border:1px solid var(--house-line) !important; box-shadow:none !important;
+  color:#FFFFFF !important; background:#10222B !important;
+  border:1px solid #213B4A !important; box-shadow:none !important;
 }
 .act:hover:not(:disabled),.ghost:hover:not(:disabled),.tab:hover:not(:disabled),
 .mini:hover:not(:disabled),.interior-door-option:hover:not(:disabled),
 .garage-slot-action:hover:not(:disabled) {
-  color:#fff !important; background:var(--house-row-hover) !important;
-  border-color:rgba(82,220,233,.3) !important; transform:translateY(-1px);
+  color:#FFFFFF !important; background:rgba(255, 255, 255, 0.1) !important;
+  border-color:#829DAE !important; transform:translateY(-1px);
 }
 .solid,.ghost--buy,.act--garage,.tab--on,.garage-slot-action--cyan,
 .garage-vehicle-row__button,.ws-tab.is-active,.weapon-item-action {
-  color:#fff !important; background:var(--cm-dashboard-primary) !important;
-  border:1px solid rgba(151,183,255,.42) !important;
+  color:#000000 !important; background:#FFC700 !important;
+  font-weight: 800 !important;
+  border:none !important;
   box-shadow:var(--cm-dashboard-shadow-button) !important;
 }
-.act--home { color:#fff !important; background:linear-gradient(135deg,#34d399,#0e9f6e) !important; }
-.act--family { color:#fff !important; background:linear-gradient(135deg,#0891b2,#0284c7) !important; }
+.solid:hover:not(:disabled),.ghost--buy:hover:not(:disabled),.act--garage:hover:not(:disabled),
+.garage-vehicle-row__button:hover:not(:disabled),.weapon-item-action:hover:not(:disabled) {
+  background:#FFD233 !important;
+  color:#000000 !important;
+  filter:brightness(1.08) !important;
+}
+.act--home { color:#000000 !important; background:#2ECC71 !important; border:none !important; }
+.act--family { color:#000000 !important; background:#00E5FF !important; border:none !important; }
 .ghost--sell,.garage-slot-action--danger,.weapon-item-action--danger {
-  color:#fff !important; background:linear-gradient(135deg,#f87171,#dc2626) !important;
-  border-color:rgba(255,107,107,.34) !important;
+  color:#FFFFFF !important; background:#E74C3C !important;
+  border:none !important;
+  box-shadow:0 4px 14px rgba(231, 76, 60, 0.35) !important;
+}
+.ghost--sell:hover:not(:disabled),.garage-slot-action--danger:hover:not(:disabled),.weapon-item-action--danger:hover:not(:disabled) {
+  background:#c0392b !important;
 }
 .act__label { font-size:14px !important; }
 .act__icon { font-size:19px !important; }
 
 .interior-door-badge,.garage-slot-symbol,.weapon-storage-mark {
-  color:#fff !important; background:var(--cm-dashboard-primary) !important;
-  border:1px solid rgba(151,183,255,.38) !important;
+  color:#000000 !important; background:#FFC700 !important;
+  border:none !important;
   box-shadow:var(--cm-dashboard-shadow-button) !important;
 }
 .interior-door-option,.garage-slot-action { min-height:74px !important; }
@@ -141,32 +153,34 @@ body.cm-photo-clean > * { display:none !important; }
 .interior-door-option small,.garage-slot-action small,.garage-vehicle-row small,
 .garage-current small { color:var(--house-muted) !important; font-size:13px !important; }
 .garage-slot-foot,.interior-door-foot,.weapon-storage-foot {
-  color:var(--house-muted) !important; background:#151726 !important;
+  color:var(--house-muted) !important; background:#0B171E !important;
   border-top:1px solid var(--house-line) !important;
 }
-kbd { color:var(--house-text) !important; background:#23263f !important; border-color:var(--house-line) !important; }
+kbd { color:var(--house-text) !important; background:#10222B !important; border-color:var(--house-line) !important; }
 
-.wiz__body,.adm__list { background:#17192b !important; }
-.wiz__foot,.adm__bar { background:#151726 !important; border-color:var(--house-line) !important; }
-.rail { color:var(--house-text) !important; background:#151726 !important; border-left:1px solid var(--house-line) !important; }
+.wiz__body,.adm__list { background:#10222B !important; }
+.wiz__foot,.adm__bar { background:#0B171E !important; border-color:var(--house-line) !important; }
+.rail { color:var(--house-text) !important; background:#0B171E !important; border-left:1px solid var(--house-line) !important; }
 .tile,.tog,.card,.row {
   color:var(--house-text) !important; background:var(--house-row) !important;
   border:1px solid var(--house-line) !important; box-shadow:none !important;
+  border-radius:6px !important;
 }
 .tile:hover,.tog:hover,.card:hover,.row:hover {
-  background:var(--house-row-hover) !important; border-color:rgba(82,220,233,.28) !important;
+  background:var(--house-row-hover) !important; border-color:#829DAE !important;
 }
-.tile.on,.tog.on,.row.on { color:#fff !important; background:rgba(91,134,255,.16) !important; border-color:var(--house-blue) !important; }
+.tile.on,.tog.on,.row.on { color:#000000 !important; background:#FFC700 !important; border:none !important; }
 .tile__name,.card__name,.row__name,.row__title,.row__plate,.build__err { color:var(--house-text) !important; }
 .tile__cost,.tog__cost,.card__meta,.row__meta { color:var(--house-muted) !important; }
-.row__plate { color:var(--house-cyan) !important; background:rgba(82,220,233,.1) !important; border-color:rgba(82,220,233,.22) !important; }
+.row__plate { color:var(--house-cyan) !important; background:rgba(0, 229, 255, 0.1) !important; border-color:rgba(0, 229, 255, 0.25) !important; }
 .f__in,input,select,textarea {
-  color:var(--house-text) !important; background:#20233a !important;
-  border:1px solid rgba(255,255,255,.14) !important; box-shadow:none !important;
+  color:var(--house-text) !important; background:#0B171E !important;
+  border:1px solid #213B4A !important; box-shadow:none !important;
+  border-radius:6px !important;
   font-size:15px !important;
 }
 .f__in::placeholder,input::placeholder,textarea::placeholder { color:var(--house-muted) !important; }
-.f__in:focus,input:focus,select:focus,textarea:focus { border-color:var(--house-blue) !important; box-shadow:0 0 0 3px rgba(91,134,255,.13) !important; }
+.f__in:focus,input:focus,select:focus,textarea:focus { border-color:#00E5FF !important; box-shadow:0 0 0 3px rgba(0, 229, 255, 0.10) !important; }
 
 .weapon-storage-screen { background:rgba(94,103,157,.43) !important; font-family:var(--cm-font,var(--house-font)) !important; }
 .weapon-storage-card { width:min(1240px,96vw) !important; }

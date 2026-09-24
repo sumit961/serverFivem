@@ -74,17 +74,17 @@
         options = options || {};
         return new Promise(function (resolve) {
             const backdrop = document.createElement('div');
-            backdrop.className = 'cm-modal-backdrop';
+            backdrop.className = 'cm-modal-backdrop cm-style-modal-backdrop';
 
             const safeBodyHtml = CMUI.safeText(options.message || 'Are you sure?').replace(/\n/g, '<br>');
 
             backdrop.innerHTML = `
-                <div class="cm-modal">
-                    <div class="cm-modal-header">${CMUI.safeText(options.title || 'Confirm')}</div>
-                    <div class="cm-modal-body">${safeBodyHtml}</div>
-                    <div class="cm-modal-actions">
-                        <button type="button" class="cm-btn cm-btn-secondary" data-cancel>${CMUI.safeText(options.cancelText || 'Cancel')}</button>
-                        <button type="button" class="cm-btn ${options.danger ? 'cm-btn-danger' : ''}" data-confirm>${CMUI.safeText(options.confirmText || 'Confirm')}</button>
+                <div class="cm-modal cm-style-modal">
+                    <div class="cm-modal-header cm-style-modal__title">${CMUI.safeText(options.title || 'Confirm')}</div>
+                    <div class="cm-modal-body cm-style-modal__body">${safeBodyHtml}</div>
+                    <div class="cm-modal-actions cm-style-actions">
+                        <button type="button" class="cm-btn cm-btn-secondary cm-style-btn cm-style-btn--secondary" data-cancel>${CMUI.safeText(options.cancelText || 'Cancel')}</button>
+                        <button type="button" class="cm-btn ${options.danger ? 'cm-btn-danger cm-style-btn--danger' : 'cm-btn-yellow cm-style-btn--yellow'} cm-style-btn" data-confirm>${CMUI.safeText(options.confirmText || 'Confirm')}</button>
                     </div>
                 </div>
             `;
