@@ -785,7 +785,7 @@ function P2.GetFamilyVehicleManagementList(familyId, ownerCid)
     -- are returned. Member personal vehicles are strictly private unless shared.
     return MySQL.query.await([[
         SELECT v.*, catalog.image AS catalog_image, s.house_id, s.slot_index, s.owner_class, h.label AS house_label,
-               CASE WHEN (h.family_id = ? AND (s.owner_class = 'family' OR s.shared = 1)) OR fva.vehicle_id IS NOT NULL THEN 1 ELSE 0 END AS shared,
+               CASE WHEN (h.family_id = ? AND s.owner_class = 'family') OR fva.vehicle_id IS NOT NULL THEN 1 ELSE 0 END AS shared,
                CASE WHEN h.family_id = ? THEN 1 ELSE 0 END AS family_house_eligible
         FROM cm_owned_vehicles v
         LEFT JOIN cm_house_vehicle_slots s ON s.vehicle_id = v.id
@@ -793,7 +793,7 @@ function P2.GetFamilyVehicleManagementList(familyId, ownerCid)
         LEFT JOIN cm_family_vehicle_access fva ON fva.vehicle_id = v.id AND fva.family_id = ?
         LEFT JOIN cm_vehicle_catalog catalog ON LOWER(catalog.model) = LOWER(v.model)
         WHERE (CAST(v.owner_character_id AS CHAR) = ? AND ? <> '')
-           OR (h.family_id = ? AND (s.owner_class = 'family' OR s.shared = 1))
+           OR (h.family_id = ? AND s.owner_class = 'family')
            OR fva.vehicle_id IS NOT NULL
         ORDER BY shared DESC, family_house_eligible DESC, v.plate
     ]], { familyId, familyId, familyId, ownerCid or '', ownerCid or '', familyId }) or {}

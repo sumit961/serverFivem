@@ -1016,7 +1016,7 @@ lib.callback.register('cm-house:server:parkable', function(src, houseId)
             LEFT JOIN cm_house_shared_vehicles sh ON sh.vehicle_id = v.id AND sh.house_id = ?
             LEFT JOIN cm_vehicle_catalog catalog ON LOWER(catalog.model) = LOWER(v.model)
             WHERE v.owner_character_id = ?
-               OR (h.family_id = ? AND (s.owner_class = 'family' OR s.shared = 1))
+               OR (h.family_id = ? AND s.owner_class = 'family')
                OR fva.vehicle_id IS NOT NULL
                OR sh.vehicle_id IS NOT NULL
             ORDER BY v.id DESC

@@ -111,7 +111,7 @@ local function isSharedFamilyVehicle(familyId, vehicleId)
             SELECT 1 AS shared
             FROM cm_house_vehicle_slots s
             JOIN cm_houses house ON house.id = s.house_id
-            WHERE s.vehicle_id = ? AND house.family_id = ? AND (s.owner_class = 'family' OR s.shared = 1)
+            WHERE s.vehicle_id = ? AND house.family_id = ? AND s.owner_class = 'family'
             LIMIT 1
         ]], { vehicleId, familyId })
     end)
