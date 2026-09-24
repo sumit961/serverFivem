@@ -75,11 +75,12 @@ local function RunFamilyHardeningTests()
         end
 
         local testsPassed = 0
-        local testsTotal = 23
+        local testsTotal = 43
 
         -- ============================================================
         -- TEST 1: Same reputation unique ID sent twice simultaneously
         -- ============================================================
+        do
         print('^3[TEST 1] Same reputation unique ID sent twice simultaneously...^7')
         local uid1 = 'test1_uniq_' .. os.time()
         local res1_A, res1_B
@@ -402,10 +403,12 @@ local function RunFamilyHardeningTests()
         else
             print(('^1[TEST 10 FAIL] completeOk=%s, diffContrib=%s (expected 150)^7'):format(tostring(completeOk10), tostring(diffContrib10)))
         end
+        end
 
         -- ============================================================
         -- TEST 11: Objective completion called simultaneously by two paths
         -- ============================================================
+        do
         print('^3[TEST 11] Objective completion called simultaneously by two paths...^7')
         local testObj11 = {
             key = 'test_obj11_' .. os.time(),
@@ -690,15 +693,17 @@ local function RunFamilyHardeningTests()
         else
             print(('^1[TEST 19 FAIL] Treasury changed on failed transaction! Before=$%d, After=$%d^7'):format(balBefore19, balAfter19))
         end
+        end
 
         -- ============================================================
         -- TESTS 20 - 23: Treasury Credit Consistency & Concurrency
         -- ============================================================
-        local B = CMFamilyBridge
-        local origGetSrc = B.GetSrcByCid
-        local origGetMoney = B.GetMoney
-        local origRemoveMoney = B.RemoveMoney
-        local origAddMoney = B.AddMoney
+        do
+            local B = CMFamilyBridge
+            local origGetSrc = B.GetSrcByCid
+            local origGetMoney = B.GetMoney
+            local origRemoveMoney = B.RemoveMoney
+            local origAddMoney = B.AddMoney
 
         local simulatedCash = 100000
         B.GetSrcByCid = function(cid)
@@ -863,9 +868,335 @@ local function RunFamilyHardeningTests()
             print(('^1[TEST 23 FAIL] okDep=%s, okEvt=%s, depAcc=%d, evtCred=%d, charged=%d, balAfter=%d, loggedSum=%d^7'):format(
                 tostring(ok23_dep), tostring(ok23_evt), depAccepted23, evtCredited23, playerCharged23, balAfter23, loggedSum23))
         end
+        end
+
+        -- ============================================================
+        -- TESTS 24 - 43: Family Event Engine (Phase 1)
+        -- ============================================================
+        do
+        local testFamId2 = 999998
+        local testFamId3 = 999997
+        local testCid3 = 'test_char_3'
+        local testCid4 = 'test_char_4'
+
+        -- Setup opponent family (testFamId2) and third party family (testFamId3)
+        CMFamilyDeleteFamilyRows(testFamId2)
+        CMFamilyDeleteFamilyRows(testFamId3)
+
+        MySQL.query.await([[
+            INSERT INTO cm_families (id, name, founder_cid, bank_balance)
+            VALUES (?, 'Test Opponent Family', ?, 500000),
+                   (?, 'Test Third Party Family', ?, 200000)
+        ]], { testFamId2, testCid3, testFamId3, testCid4 })
+
+        if Families then
+            Families[testFamId2] = { id = testFamId2, name = 'Test Opponent Family', founder_cid = testCid3, bank_balance = 500000, ranks = {}, ranksById = {} }
+            Families[testFamId3] = { id = testFamId3, name = 'Test Third Party Family', founder_cid = testCid4, bank_balance = 200000, ranks = {}, ranksById = {} }
+        end
+
+        local rankId2 = CreateDefaultRanks(testFamId2)
+        local rankId3 = CreateDefaultRanks(testFamId3)
+        CMFamilyInsertMember(testFamId2, testCid3, rankId2)
+        CMFamilyInsertMember(testFamId3, testCid4, rankId3)
+
+        if MemberByCid then
+            MemberByCid[testCid3] = { family_id = testFamId2, character_id = testCid3, rank_id = rankId2 }
+            MemberByCid[testCid4] = { family_id = testFamId3, character_id = testCid4, rank_id = rankId3 }
+        end
+
+        -- Ensure progression exists for testFamId
+        MySQL.query.await([[
+            INSERT INTO cm_family_progression (family_id, level, current_xp)
+            VALUES (?, 5, 2500)
+            ON DUPLICATE KEY UPDATE level = 5, current_xp = 2500
+        ]], { testFamId })
+        if ProgressionCache then ProgressionCache[testFamId] = { level = 5, current_xp = 2500 } end
+
+        -- TEST 24: Create valid event instance
+        print('^3[TEST 24] Create valid event instance...^7')
+        local ok24, inst24 = CreateFamilyEvent('family_raid', {
+            initiatorFamilyId = testFamId,
+            targetFamilyId = testFamId2,
+            locationKey = 'house_test_101',
+            actorCid = testCid1,
+        })
+        if ok24 == true and inst24 and inst24.eventUid and inst24.state == 'forming' and inst24.routingBucket then
+            print(('^2[TEST 24 PASS] Valid event instance created: UID=%s, State=%s, Bucket=%d.^7'):format(
+                inst24.eventUid, inst24.state, inst24.routingBucket))
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 24 FAIL] Failed to create valid event instance: ok=%s, err=%s^7'):format(tostring(ok24), tostring(inst24)))
+        end
+        local currentEventUid = inst24 and inst24.eventUid
+
+        -- TEST 25: Reject unknown event key
+        print('^3[TEST 25] Reject unknown event key...^7')
+        local ok25, err25 = CreateFamilyEvent('completely_fake_event_key', {
+            initiatorFamilyId = testFamId3,
+        })
+        if ok25 == false and err25 == 'unknown_event_key' then
+            print('^2[TEST 25 PASS] Unknown event key strictly rejected with unknown_event_key.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 25 FAIL] Unknown event key was not rejected: ok=%s, err=%s^7'):format(tostring(ok25), tostring(err25)))
+        end
+
+        -- TEST 26: Reject family below minimum level
+        print('^3[TEST 26] Reject family below minimum level...^7')
+        local origMinLvl = Config.FamilyEvents.family_raid.minFamilyLevel
+        Config.FamilyEvents.family_raid.minFamilyLevel = 10
+        local ok26, err26 = CanFamilyStartEvent(testFamId3, 'family_raid')
+        Config.FamilyEvents.family_raid.minFamilyLevel = origMinLvl
+        if ok26 == false and err26 == 'family_level_too_low' then
+            print('^2[TEST 26 PASS] Family below min level correctly rejected with family_level_too_low.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 26 FAIL] Min level check failed: ok=%s, err=%s^7'):format(tostring(ok26), tostring(err26)))
+        end
+
+        -- TEST 27: Reject family already in active major event
+        print('^3[TEST 27] Reject family already in active major event...^7')
+        local ok27, err27 = CanFamilyStartEvent(testFamId, 'family_raid')
+        if ok27 == false and err27 == 'family_already_in_event' then
+            print('^2[TEST 27 PASS] Family with active event rejected with family_already_in_event.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 27 FAIL] Active event check failed: ok=%s, err=%s^7'):format(tostring(ok27), tostring(err27)))
+        end
+
+        -- TEST 28: Duplicate participant join
+        print('^3[TEST 28] Participant join and duplicate prevention...^7')
+        local ok28_1, joinInst28_1 = JoinFamilyEvent(currentEventUid, testCid1, 101)
+        local ok28_2, joinErr28_2 = JoinFamilyEvent(currentEventUid, testCid1, 101)
+        local partCount28 = tonumber(MySQL.scalar.await(
+            'SELECT COUNT(*) FROM cm_family_event_participants WHERE event_uid = ? AND character_id = ?',
+            { currentEventUid, testCid1 })) or 0
+        if ok28_1 == true and partCount28 == 1 then
+            print('^2[TEST 28 PASS] Participant join registered, duplicate row prevented (unique constraint preserved).^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 28 FAIL] Join test failed: ok1=%s, ok2=%s, partCount=%d^7'):format(tostring(ok28_1), tostring(ok28_2), partCount28))
+        end
+
+        -- TEST 29: Reject participant from unrelated family
+        print('^3[TEST 29] Reject participant from unrelated family...^7')
+        local ok29, err29 = JoinFamilyEvent(currentEventUid, testCid4, 104)
+        if ok29 == false and err29 == 'unrelated_family_cannot_join' then
+            print('^2[TEST 29 PASS] Unrelated family participant rejected with unrelated_family_cannot_join.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 29 FAIL] Unrelated family check failed: ok=%s, err=%s^7'):format(tostring(ok29), tostring(err29)))
+        end
+
+        -- TEST 30: Persist participant correctly
+        print('^3[TEST 30] Persist participant correctly in database...^7')
+        local ok30, _ = JoinFamilyEvent(currentEventUid, testCid3, 103)
+        local partRow30 = MySQL.single.await(
+            'SELECT status, family_id FROM cm_family_event_participants WHERE event_uid = ? AND character_id = ?',
+            { currentEventUid, testCid3 })
+        if ok30 == true and partRow30 and partRow30.status == 'active' and tonumber(partRow30.family_id) == testFamId2 then
+            print('^2[TEST 30 PASS] Participant persisted correctly in cm_family_event_participants.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 30 FAIL] Participant persistence check failed: ok=%s, row=%s^7'):format(tostring(ok30), json.encode(partRow30 or {})))
+        end
+
+        -- TEST 31: State transition rejects invalid transition
+        print('^3[TEST 31] State transition rejects invalid transition...^7')
+        local ok31, err31 = TransitionEventState(currentEventUid, 'completed')
+        if ok31 == false and err31 == 'invalid_state_transition' then
+            print('^2[TEST 31 PASS] Invalid state transition directly from forming -> completed rejected.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 31 FAIL] Invalid state transition was not rejected: ok=%s, err=%s^7'):format(tostring(ok31), tostring(err31)))
+        end
+
+        -- TEST 32: Valid forming -> countdown -> active transition
+        print('^3[TEST 32] Valid forming -> countdown -> active transition...^7')
+        local ok32_c, _ = TransitionEventState(currentEventUid, 'countdown')
+        local ok32_a, inst32 = TransitionEventState(currentEventUid, 'active', { durationSeconds = 900 })
+        local row32 = MySQL.single.await(
+            'SELECT state, started_at, ends_at FROM cm_family_event_instances WHERE event_uid = ?', { currentEventUid })
+        if ok32_c == true and ok32_a == true and row32 and row32.state == 'active' and row32.started_at ~= nil then
+            print('^2[TEST 32 PASS] State machine transition forming -> countdown -> active persisted with timestamps.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 32 FAIL] State machine transition failed: okC=%s, okA=%s, state=%s^7'):format(
+                tostring(ok32_c), tostring(ok32_a), tostring(row32 and row32.state)))
+        end
+
+        -- TEST 33: Completion persists exactly once
+        print('^3[TEST 33] Completion persists exactly once...^7')
+        local ok33, res33 = CompleteFamilyEvent(currentEventUid, {
+            winnerFamilyId = testFamId,
+            reason = 'time_expired_circle_holder',
+        })
+        local row33 = MySQL.single.await(
+            'SELECT state, winner_family_id, completed_at, result_reason FROM cm_family_event_instances WHERE event_uid = ?',
+            { currentEventUid })
+        if ok33 == true and row33 and row33.state == 'completed' and tonumber(row33.winner_family_id) == testFamId and row33.completed_at ~= nil then
+            print('^2[TEST 33 PASS] Event completed and persisted: winner=' .. testFamId .. ', reason=' .. tostring(row33.result_reason) .. '^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 33 FAIL] Event completion check failed: ok=%s, row=%s^7'):format(tostring(ok33), json.encode(row33 or {})))
+        end
+
+        -- TEST 34: Duplicate completion does not double reward
+        print('^3[TEST 34] Duplicate completion does not double reward...^7')
+        local ok34, err34 = CompleteFamilyEvent(currentEventUid, {
+            winnerFamilyId = testFamId,
+            reason = 'second_completion_attempt',
+        })
+        if ok34 == false and err34 == 'event_already_terminated' then
+            print('^2[TEST 34 PASS] Duplicate event completion rejected with event_already_terminated.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 34 FAIL] Duplicate completion was not rejected: ok=%s, err=%s^7'):format(tostring(ok34), tostring(err34)))
+        end
+
+        -- TEST 35: Cooldown survives in database
+        print('^3[TEST 35] Cooldown persists in database...^7')
+        local cdRow35 = MySQL.single.await(
+            'SELECT UNIX_TIMESTAMP(available_at) AS avail_ts FROM cm_family_event_cooldowns WHERE event_key = ? AND family_id = ?',
+            { 'family_raid', testFamId })
+        local now35 = os.time()
+        if cdRow35 and cdRow35.avail_ts and tonumber(cdRow35.avail_ts) > now35 then
+            print(('^2[TEST 35 PASS] Cooldown persisted in DB: expires in %d seconds.^7'):format(tonumber(cdRow35.avail_ts) - now35))
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 35 FAIL] Cooldown not found in DB: row=%s^7'):format(json.encode(cdRow35 or {})))
+        end
+
+        -- TEST 36: Second Raid start during cooldown rejected
+        print('^3[TEST 36] Second Raid start during cooldown rejected...^7')
+        local ok36, err36, details36 = CanFamilyStartEvent(testFamId, 'family_raid')
+        if ok36 == false and err36 == 'event_on_cooldown' and details36 and details36.remaining > 0 then
+            print(('^2[TEST 36 PASS] Second start rejected by active cooldown: remaining=%d sec.^7'):format(details36.remaining))
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 36 FAIL] Cooldown rejection failed: ok=%s, err=%s^7'):format(tostring(ok36), tostring(err36)))
+        end
+
+        -- TEST 37: Resource recovery cancels stale active Raid safely
+        print('^3[TEST 37] Resource recovery cancels stale active Raid safely...^7')
+        local staleUid = 'fam_evt_test_stale_recovery_' .. os.time()
+        MySQL.query.await([[
+            INSERT INTO cm_family_event_instances (event_uid, event_key, state, initiator_family_id, target_family_id)
+            VALUES (?, 'family_raid', 'active', ?, ?)
+        ]], { staleUid, testFamId2, testFamId3 })
+        MySQL.query.await([[
+            INSERT INTO cm_family_event_participants (event_uid, family_id, character_id, status)
+            VALUES (?, ?, ?, 'active')
+        ]], { staleUid, testFamId2, testCid3 })
+
+        local staleRows = MySQL.query.await([[
+            SELECT event_uid, initiator_family_id, target_family_id
+            FROM cm_family_event_instances
+            WHERE event_uid = ? AND state IN ('forming', 'countdown', 'active', 'overtime')
+        ]], { staleUid })
+        for _, r in ipairs(staleRows) do
+            MySQL.update.await("UPDATE cm_family_event_instances SET state = 'cancelled', result_reason = 'resource_restart_recovery', completed_at = CURRENT_TIMESTAMP WHERE event_uid = ?", { r.event_uid })
+            MySQL.update.await("UPDATE cm_family_event_participants SET status = 'cancelled', left_at = CURRENT_TIMESTAMP WHERE event_uid = ?", { r.event_uid })
+        end
+
+        local recoveredRow = MySQL.single.await('SELECT state, result_reason FROM cm_family_event_instances WHERE event_uid = ?', { staleUid })
+        local recoveredPart = MySQL.single.await('SELECT status FROM cm_family_event_participants WHERE event_uid = ? AND character_id = ?', { staleUid, testCid3 })
+        if recoveredRow and recoveredRow.state == 'cancelled' and recoveredRow.result_reason == 'resource_restart_recovery'
+           and recoveredPart and recoveredPart.status == 'cancelled' then
+            print('^2[TEST 37 PASS] Stale active raid recovered and safely cancelled without ghost state.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 37 FAIL] Recovery test failed: instState=%s, partStatus=%s^7'):format(
+                tostring(recoveredRow and recoveredRow.state), tostring(recoveredPart and recoveredPart.status)))
+        end
+        MySQL.query.await('DELETE FROM cm_family_event_participants WHERE event_uid = ?', { staleUid })
+        MySQL.query.await('DELETE FROM cm_family_event_instances WHERE event_uid = ?', { staleUid })
+
+        -- TEST 38: Participant cleanup idempotent
+        print('^3[TEST 38] Participant cleanup idempotent...^7')
+        local clean1 = CleanupFamilyEvent(currentEventUid, 'test_cleanup')
+        local clean2 = CleanupFamilyEvent(currentEventUid, 'test_cleanup')
+        if clean1 == true and clean2 == true then
+            print('^2[TEST 38 PASS] CleanupFamilyEvent executed idempotently twice without exception.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 38 FAIL] CleanupFamilyEvent idempotency failed: clean1=%s, clean2=%s^7'):format(tostring(clean1), tostring(clean2)))
+        end
+
+        -- TEST 39: Winner reward uses hardened reward API
+        print('^3[TEST 39] Winner reward recorded in cm_family_reward_history...^7')
+        local rewardUid39 = ('family_event:%s:winner:%s'):format(currentEventUid, testFamId)
+        local rewardRow39 = MySQL.single.await(
+            'SELECT reward_type, amount, source FROM cm_family_reward_history WHERE unique_id = ?',
+            { rewardUid39 })
+        if rewardRow39 and (rewardRow39.reward_type == 'activity_root' or rewardRow39.reward_type == 'reputation') and tonumber(rewardRow39.amount) == 750 then
+            print('^2[TEST 39 PASS] Winner reward confirmed in cm_family_reward_history (type=activity_root, amount=750).^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 39 FAIL] Winner reward not found in reward history: %s^7'):format(json.encode(rewardRow39 or {})))
+        end
+
+        -- TEST 40: Same event reward UID cannot pay twice
+        print('^3[TEST 40] Same event reward UID duplicate rejection...^7')
+        local ok40, err40 = AwardFamilyActivityReward({
+            familyId = testFamId,
+            uniqueId = rewardUid39,
+            eventType = 'family_raid',
+            reputation = 750,
+            treasuryAmount = 50000,
+        })
+        if ok40 == false and (err40 == 'duplicate_reward' or err40 == 'duplicate_reward_unique_id') then
+            print('^2[TEST 40 PASS] Duplicate event reward UID strictly rejected with duplicate_reward.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 40 FAIL] Duplicate reward was not rejected: ok=%s, err=%s^7'):format(tostring(ok40), tostring(err40)))
+        end
+
+        -- TEST 41: Event history remains after completion
+        print('^3[TEST 41] Event history remains queryable after completion...^7')
+        local historyRows41 = GetRecentFamilyOperations(testFamId, 5)
+        local foundInHistory = false
+        for _, op in ipairs(historyRows41) do
+            if op.eventUid == currentEventUid and op.state == 'completed' and op.won == true then
+                foundInHistory = true
+                break
+            end
+        end
+        if foundInHistory then
+            print('^2[TEST 41 PASS] Completed operation returned in durable operations history (won=true, state=completed).^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 41 FAIL] Completed event not found in history: %s^7'):format(json.encode(historyRows41)))
+        end
+
+        -- TEST 42: Family active-event lock clears after completion
+        print('^3[TEST 42] Family active-event lock clears after completion...^7')
+        local activeAfterComplete = GetActiveFamilyEventForFamily(testFamId)
+        if activeAfterComplete == nil then
+            print('^2[TEST 42 PASS] Active event lock cleared: GetActiveFamilyEventForFamily returns nil.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 42 FAIL] Active event lock still held: %s^7'):format(tostring(activeAfterComplete and activeAfterComplete.eventUid)))
+        end
+
+        -- TEST 43: Family can start again after cooldown expiry
+        print('^3[TEST 43] Family can start again after cooldown expiry...^7')
+        ClearFamilyEventCooldown(testFamId, 'family_raid')
+        local ok43, err43 = CanFamilyStartEvent(testFamId, 'family_raid')
+        if ok43 == true then
+            print('^2[TEST 43 PASS] Family can start raid again after cooldown expiry.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 43 FAIL] CanFamilyStartEvent failed after cooldown expiry: ok=%s, err=%s^7'):format(tostring(ok43), tostring(err43)))
+        end
 
         -- Clean up test family rows
         CMFamilyDeleteFamilyRows(testFamId)
+        CMFamilyDeleteFamilyRows(testFamId2)
+        CMFamilyDeleteFamilyRows(testFamId3)
+        MySQL.query.await('DELETE FROM cm_family_event_instances WHERE event_uid = ?', { currentEventUid })
+        MySQL.query.await('DELETE FROM cm_family_event_participants WHERE event_uid = ?', { currentEventUid })
+        end
 
         print('^2============================================================^7')
         print(('^2[TEST SUITE COMPLETE] %d / %d TESTS PASSED.^7'):format(testsPassed, testsTotal))

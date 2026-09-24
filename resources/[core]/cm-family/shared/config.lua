@@ -83,6 +83,7 @@ Config.Permissions = {
     { key = 'family.set_meeting',   label = 'Set meeting point',     group = 'management' },
     { key = 'family.manage_announcement', label = 'Edit family announcement', group = 'management' },
     { key = 'family.raid_start',      label = 'Start family raids', group = 'management' },
+    { key = 'family.start_events',    label = 'Start family events / operations', group = 'management' },
     { key = 'vehicle.track',        label = 'Track shared vehicles', group = 'vehicles' },
 
     -- Bank
@@ -292,42 +293,34 @@ Config.Chat = {
 --  Family gameplay events
 -- ============================================================
 -- Catalogue only: these entries describe events in the family dashboard.
--- Starting/joining an event must be implemented by its owning gameplay
--- resource and validated server-side before an action button is enabled.
+-- ============================================================
+--  Family Events & Tactical Operations (Phase 1 Engine)
+-- ============================================================
 Config.FamilyEvents = {
-    {
-        key = 'store_robbery',
-        name = 'Store Robbery',
-        category = 'Robbery',
-        description = 'Coordinate a fast convenience-store robbery and escape before the response closes in.',
-        status = 'available',
-        difficulty = 'Medium',
-        recommendedMembers = 2,
-        durationMinutes = 20,
-        cooldownMinutes = 45,
-        schedule = 'Available at any time',
-        location = 'Convenience stores across Los Santos',
-        accent = '#52dce9',
-        requirements = { '2 online family members recommended', 'Required robbery equipment', 'No active family event' },
-        rewards = { 'Family reputation', 'Shared robbery payout', 'Weekly objective progress' },
-        rules = { 'Police response may interrupt the event', 'Rewards are granted only after server validation', 'Leaving the area can fail the event' },
-    },
-    {
+    family_raid = {
         key = 'family_raid',
-        name = 'Family Raid',
-        category = 'Competitive',
-        description = 'Assemble your strongest crew for a coordinated, high-risk family combat objective.',
-        status = 'scheduled',
-        difficulty = 'High',
-        recommendedMembers = 4,
-        durationMinutes = 45,
-        cooldownMinutes = 180,
-        schedule = 'Scheduled by server administration',
-        location = 'Announced before the raid begins',
-        accent = '#ff5d6c',
-        requirements = { '4 online family members recommended', 'Family leadership approval', 'No active family event' },
-        rewards = { 'Large family reputation reward', 'Raid reward pool', 'Family leaderboard progress' },
-        rules = { 'One active raid per family', 'Only registered participants qualify', 'All outcomes are decided by the authoritative raid resource' },
+        label = 'Family Raid',
+        category = 'competitive',
+        description = 'High-stakes tactical match against an opposing family at their headquarters.',
+        minFamilyLevel = 1,
+        minParticipants = 2,
+        maxParticipants = 8,
+        durationSeconds = 900,
+        countdownSeconds = 10,
+        cooldownSeconds = 10800, -- 3 hours
+        rewards = {
+            reputation = 750,
+            treasury = 50000,
+            contribution = 150,
+        },
+        rules = {
+            allowVehicles = false,
+            routingBucket = true,
+            arenaRadius = 50.0,
+            joinRadius = 4.0,
+            joinEdgeBand = 3.0,
+            boundaryGraceSeconds = 5,
+        },
     },
 }
 

@@ -365,30 +365,87 @@ local function buildRankList(fam)
     return out
 end
 
-local function buildFamilyEventList()
-    local out = {}
-    for _, event in ipairs(Config.FamilyEvents or {}) do
-        if type(event) == 'table' and type(event.key) == 'string' and type(event.name) == 'string' then
-            out[#out + 1] = {
-                key = event.key,
-                name = event.name,
-                category = event.category,
-                description = event.description,
-                status = event.status,
-                difficulty = event.difficulty,
-                recommendedMembers = tonumber(event.recommendedMembers) or 1,
-                durationMinutes = tonumber(event.durationMinutes) or 0,
-                cooldownMinutes = tonumber(event.cooldownMinutes) or 0,
-                schedule = event.schedule,
-                location = event.location,
-                accent = event.accent,
-                requirements = type(event.requirements) == 'table' and event.requirements or {},
-                rewards = type(event.rewards) == 'table' and event.rewards or {},
-                rules = type(event.rules) == 'table' and event.rules or {},
+local function buildOperationsData(fam, progression)
+    local familyId = tonumber(fam.id)
+    local curLevel = tonumber(progression and progression.level) or 1
+
+    local activeOp = nil
+    if type(GetActiveFamilyEventForFamily) == 'function' then
+        local inst = GetActiveFamilyEventForFamily(familyId)
+        if inst then
+            local def = type(GetEventDefinition) == 'function' and GetEventDefinition(inst.eventKey)
+            local isInitiator = inst.initiatorFamilyId == familyId
+            local oppId = isInitiator and inst.targetFamilyId or inst.initiatorFamilyId
+            local oppFamily = oppId and GetFamilyById(oppId)
+            local partCount = 0
+            if inst.participants then
+                for _, p in pairs(inst.participants) do
+                    if p.status == 'active' then partCount = partCount + 1 end
+                end
+            end
+            local now = os.time()
+            local remainingSecs = inst.endsAt and math.max(0, inst.endsAt - now) or 0
+            activeOp = {
+                eventUid = inst.eventUid,
+                eventKey = inst.eventKey,
+                label = def and def.label or inst.eventKey,
+                state = inst.state,
+                opponentName = oppFamily and oppFamily.name or 'Opposing Family',
+                participantCount = partCount,
+                endsAt = inst.endsAt,
+                timeRemainingSeconds = remainingSecs,
+                location = inst.locationKey or 'Designated Area',
             }
         end
     end
-    return out
+
+    local available = {}
+    if Config.FamilyEvents then
+        for key, def in pairs(Config.FamilyEvents) do
+            local cd = type(GetFamilyEventCooldown) == 'function' and GetFamilyEventCooldown(familyId, key) or { ready = true, remaining = 0 }
+            local status = 'ready'
+            local reqLevel = tonumber(def.minFamilyLevel) or 1
+            if curLevel < reqLevel then
+                status = 'locked'
+            elseif not cd.ready then
+                status = 'cooldown'
+            end
+
+            available[#available + 1] = {
+                key = key,
+                label = def.label or key,
+                name = def.label or key,
+                category = def.category or 'Competitive',
+                description = def.description or '',
+                minFamilyLevel = reqLevel,
+                minParticipants = tonumber(def.minParticipants) or 2,
+                maxParticipants = tonumber(def.maxParticipants) or 8,
+                durationMinutes = math.ceil((tonumber(def.durationSeconds) or 900) / 60),
+                cooldownMinutes = math.ceil((tonumber(def.cooldownSeconds) or 10800) / 60),
+                cooldownRemainingSeconds = cd.remaining or 0,
+                status = status,
+                rewards = def.rewards or {},
+                rules = def.rules or {},
+            }
+        end
+    end
+    table.sort(available, function(a, b) return tostring(a.label) < tostring(b.label) end)
+
+    local recent = {}
+    if type(GetRecentFamilyOperations) == 'function' then
+        recent = GetRecentFamilyOperations(familyId, 10)
+    end
+
+    return {
+        active = activeOp,
+        available = available,
+        recent = recent,
+    }
+end
+
+local function buildFamilyEventList(fam, progression)
+    local ops = buildOperationsData(fam, progression)
+    return ops.available
 end
 
 local function buildFamilyHousePreview(fam)
@@ -481,7 +538,8 @@ lib.callback.register('cm-family:server:getMenu', function(src)
         treasury = buildTreasury(fam),
         contributionLeaderboard = weeklyLeaderboard,
         allTimeLeaderboard = allTimeLeaderboard,
-        familyEvents = buildFamilyEventList(),
+        operations = buildOperationsData(fam, progression),
+        familyEvents = buildFamilyEventList(fam, progression),
         familyHouse = buildFamilyHousePreview(fam),
         ranks = buildRankList(fam),
         vehicles = GetFamilyVehiclesWithLevels(fam.id, cid),

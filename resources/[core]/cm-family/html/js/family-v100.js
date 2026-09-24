@@ -106,10 +106,11 @@
       members: 'Members',
       ranks: 'Ranks & access',
       vehicles: 'Family vehicles',
+      operations: 'Tactical Operations',
       hq: 'Headquarters',
       treasury: 'Family treasury',
       progression: 'Family progression',
-      events: 'Family operations (Preview)',
+      events: 'Tactical Operations',
       logs: 'Activity logs'
     };
     const heading = document.getElementById('workspace-title');
@@ -122,6 +123,7 @@
         members: '// ROSTER & MEMBERS',
         ranks: '// ROLES & PERMISSIONS',
         vehicles: '// FLEET & GARAGE',
+        operations: '// TACTICAL OPERATIONS',
         hq: '// HEADQUARTERS & PROPERTY',
         treasury: '// FINANCIAL CONTROL',
         progression: '// REPUTATION & MILESTONES',
@@ -141,10 +143,11 @@
       members: renderMembers,
       ranks: renderRanks,
       vehicles: renderVehicles,
+      operations: renderOperations,
       hq: renderHeadquarters,
       treasury: renderBank,
       progression: renderProgression,
-      events: renderGameplayEvents,
+      events: renderOperations,
       logs: renderEvents,
     }[tab] || renderInformation)();
   }
@@ -306,7 +309,23 @@
     const topContributors = leaderboard.slice(0, 3);
     const logs = Array.isArray(state.activityLog) ? state.activityLog.slice(0, 4) : [];
 
+    const activeOp = (state.operations && state.operations.active) || null;
+    const activeOpStrip = activeOp ? `
+      <div class="glass-card active-op-strip" style="display:flex; justify-content:space-between; align-items:center; padding:12px 20px; margin-bottom:14px; border-left:3px solid var(--cyan); background:rgba(0,229,255,0.06);">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span class="status-badge primary" style="font-size:10px; padding:3px 8px; font-weight:800;">OPERATION IN PROGRESS</span>
+          <strong style="color:#fff; font-size:13px; text-transform:uppercase;">${esc(activeOp.label || activeOp.eventKey)}</strong>
+          <span style="color:var(--text-muted); font-size:12px;">Phase: <b style="color:var(--cyan); text-transform:uppercase;">${esc(activeOp.state)}</b></span>
+          <span style="color:var(--text-muted); font-size:12px;">Opponent: <b style="color:#fff;">${esc(activeOp.opponentName)}</b></span>
+        </div>
+        <div style="display:flex; align-items:center; gap:14px;">
+          <span style="color:var(--text-muted); font-size:12px;">Participants: <b style="color:var(--cyan);">${activeOp.participantCount} Active</b></span>
+          <button class="btn-primary" id="btn-info-goto-op" style="padding:6px 14px; font-size:11px;">VIEW OPERATION &rsaquo;</button>
+        </div>
+      </div>` : '';
+
     content.innerHTML = `
+      ${activeOpStrip}
       <div class="bento-grid">
         <!-- ROW 1: Hero + HQ preview -->
         <div class="glass-card span-2-col image-card hero-bg">
@@ -484,6 +503,8 @@
       </section>
     `;
 
+    const gotoOpBtn = document.getElementById('btn-info-goto-op');
+    if (gotoOpBtn) gotoOpBtn.onclick = () => goTab('operations');
     const gotoProgression = document.getElementById('btn-goto-progression');
     if (gotoProgression) gotoProgression.onclick = () => goTab('progression');
     const gotoHq = document.getElementById('overview-hq-btn');
@@ -1129,52 +1150,170 @@
     };
   }
 
-  // ---------------- gameplay events ----------------
-  function renderGameplayEvents() {
-    const events = Array.isArray(state.familyEvents) ? state.familyEvents : [];
-    const label = value => String(value || '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
-    const listItems = items => (Array.isArray(items) && items.length)
-      ? `<ul>${items.map(item => `<li>${esc(item)}</li>`).join('')}</ul>`
-      : '<p class="event-catalogue__muted">Nothing listed.</p>';
-    const renderPreview = item => item ? `
-      <section class="event-preview gameplay-event-preview" style="--event-accent:${esc(item.accent || '#52dce9')}">
-        <div class="event-preview__hero gameplay-event-preview__hero">
-          <div><span class="hub-eyebrow">${esc(label(item.category || 'Family event'))}</span><h3>${esc(item.name)}</h3><p>${esc(item.description || '')}</p></div>
-          <span class="gameplay-event-status gameplay-event-status--${esc(item.status || 'unavailable')}">${esc(label(item.status || 'Unavailable'))}</span>
-        </div>
-        <div class="gameplay-event-stats">
-          <div><span>Difficulty</span><strong>${esc(item.difficulty || 'Unknown')}</strong></div>
-          <div><span>Recommended</span><strong>${Number(item.recommendedMembers) || 1} members</strong></div>
-          <div><span>Duration</span><strong>${Number(item.durationMinutes) || 0} min</strong></div>
-          <div><span>Cooldown</span><strong>${Number(item.cooldownMinutes) || 0} min</strong></div>
-        </div>
-        <div class="gameplay-event-location"><span>Schedule</span><strong>${esc(item.schedule || 'To be announced')}</strong><span>Location</span><strong>${esc(item.location || 'To be announced')}</strong></div>
-        <div class="gameplay-event-columns">
-          <div><h4>Requirements</h4>${listItems(item.requirements)}</div>
-          <div><h4>Rewards</h4>${listItems(item.rewards)}</div>
-        </div>
-        <div class="gameplay-event-rules"><h4>Event rules</h4>${listItems(item.rules)}</div>
-        <div class="gameplay-event-notice">Preview only. Starting and joining this event will be enabled when its authoritative gameplay resource is connected.</div>
-      </section>` : `<section class="event-preview event-preview--empty"><div><span class="event-preview__mark">06</span><h3>No events configured</h3><p>Add family events in the server configuration to publish them here.</p></div></section>`;
-    const renderCards = selectedKey => events.map(item => `
-      <button type="button" class="gameplay-event-card ${String(item.key) === String(selectedKey) ? 'is-selected' : ''}" data-gameplay-event="${esc(item.key)}" style="--event-accent:${esc(item.accent || '#52dce9')}">
-        <span class="gameplay-event-card__category">${esc(label(item.category || 'Family event'))}</span>
-        <strong>${esc(item.name)}</strong><small>${esc(item.description || '')}</small>
-        <span class="gameplay-event-card__meta"><b>${esc(item.difficulty || 'Unknown')}</b><b>${Number(item.recommendedMembers) || 1} members</b></span>
-        <span class="event-row__action">View event <b>&rsaquo;</b></span>
-      </button>`).join('');
-    const selected = events[0];
+  // ---------------- tactical operations (phase 1) ----------------
+  function renderOperations() {
+    const ops = state.operations || {};
+    const activeOp = ops.active || null;
+    const available = Array.isArray(ops.available) ? ops.available : (Array.isArray(state.familyEvents) ? state.familyEvents : []);
+    const recent = Array.isArray(ops.recent) ? ops.recent : [];
+
+    // 1. ACTIVE OPERATION SECTION
+    let activeHtml = '';
+    if (activeOp) {
+      const remainingMin = Math.ceil((activeOp.timeRemainingSeconds || 0) / 60);
+      const phaseBadge = `<span class="status-badge ${activeOp.state === 'active' ? 'primary' : 'warning'}" style="font-weight:900; letter-spacing:0.08em;">${esc(activeOp.state.toUpperCase())}</span>`;
+      activeHtml = `
+        <section class="glass-card" style="border-left: 4px solid var(--cyan); background: rgba(0, 229, 255, 0.05); margin-bottom: 22px;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 14px;">
+            <div>
+              <span class="tag-lbl" style="color:var(--cyan); letter-spacing:0.12em;">// ACTIVE TACTICAL OPERATION</span>
+              <h2 style="font-size: 26px; color:#fff; margin: 4px 0 0 0; text-transform:uppercase;">${esc(activeOp.label || activeOp.eventKey)}</h2>
+            </div>
+            <div>${phaseBadge}</div>
+          </div>
+          <div class="gameplay-event-stats" style="grid-template-columns: repeat(5, 1fr); margin-bottom: 16px;">
+            <div><span>Opponent</span><strong style="color:#fff;">${esc(activeOp.opponentName)}</strong></div>
+            <div><span>Participants</span><strong style="color:var(--cyan);">${activeOp.participantCount} Active</strong></div>
+            <div><span>Location</span><strong>${esc(activeOp.location || 'Designated Area')}</strong></div>
+            <div><span>Time Remaining</span><strong>${remainingMin} min</strong></div>
+            <div><span>Objective</span><strong style="color:var(--accent-warning);">${activeOp.state === 'forming' ? 'Awaiting Opponent' : (activeOp.state === 'countdown' ? 'Countdown Phase' : 'Hold Circle')}</strong></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <p style="margin:0; font-size:12.5px; color:var(--text-muted);">
+              ${activeOp.state === 'forming' ? 'Waiting for opposing family members to enter the raid circle.' : (activeOp.state === 'countdown' ? 'Countdown initiated. Stand ground inside the perimeter wall.' : 'Combat active. Eliminate opponents or hold the circle until time expires.')}
+            </p>
+            <button class="btn-primary" id="btn-close-to-operation" style="padding: 9px 20px; font-size: 11px;">CLOSE &amp; RETURN TO WORLD &#10142;</button>
+          </div>
+        </section>`;
+    } else {
+      activeHtml = `
+        <div class="glass-card" style="padding: 16px 20px; margin-bottom: 22px; display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <span class="tag-lbl" style="color:var(--text-muted);">// CURRENT STATUS</span>
+            <div style="color:var(--text-white); font-weight:700; font-size:14px; margin-top:2px;">NO ACTIVE OPERATIONS UNDERWAY</div>
+            <div style="color:var(--text-muted); font-size:12px; margin-top:2px;">Your family is not currently engaged in any tactical operation. Review eligible operations below.</div>
+          </div>
+          <span class="badge" style="background:rgba(255,255,255,0.06); color:var(--text-muted); border:1px solid rgba(255,255,255,0.1);">STANDBY</span>
+        </div>`;
+    }
+
+    // 2. AVAILABLE OPERATIONS SECTION (Phase 1: family_raid)
+    const availableCards = available.map(op => {
+      let badgeHtml = '';
+      if (op.status === 'ready') {
+        badgeHtml = `<span class="badge" style="background:rgba(0,229,255,0.15); color:var(--cyan); border:1px solid var(--cyan); font-weight:800;">READY</span>`;
+      } else if (op.status === 'cooldown') {
+        const cdMin = Math.ceil((op.cooldownRemainingSeconds || 0) / 60);
+        badgeHtml = `<span class="badge warning">COOLDOWN (${cdMin}M)</span>`;
+      } else {
+        badgeHtml = `<span class="badge danger">LOCKED (REQ. LVL ${op.minFamilyLevel || 1})</span>`;
+      }
+
+      const rewardPreview = op.rewards ? `
+        <div style="margin-top: 10px; padding: 8px 12px; background:#10222B; border:1px solid var(--border-dim); border-radius:4px; font-size:11.5px; display:flex; gap:16px;">
+          <span>Treasury: <b style="color:var(--cyan);">${money(op.rewards.treasury || 50000)}</b></span>
+          <span>Reputation: <b style="color:var(--cyan);">+${Number(op.rewards.reputation || 750).toLocaleString()} XP</b></span>
+          <span>Contribution: <b style="color:var(--accent-warning);">+${op.rewards.contribution || 150} PTS</b></span>
+        </div>` : '';
+
+      return `
+        <div class="glass-card" style="padding: 20px 22px; border:1px solid var(--border-dim); border-bottom:3px solid var(--cyan);">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 8px;">
+            <div>
+              <span class="tag-lbl" style="color:var(--cyan); letter-spacing:0.12em;">${esc(op.category || 'COMPETITIVE').toUpperCase()}</span>
+              <h3 style="font-size: 20px; color:#fff; margin: 3px 0 0 0; text-transform:uppercase;">${esc(op.label || op.name || 'Family Operation')}</h3>
+            </div>
+            <div>${badgeHtml}</div>
+          </div>
+          <p style="color:var(--text-body); font-size:12.5px; line-height:1.45; margin: 4px 0 14px 0;">${esc(op.description || '')}</p>
+          <div class="gameplay-event-stats">
+            <div><span>Required Level</span><strong>Level ${op.minFamilyLevel || 1}</strong></div>
+            <div><span>Team Requirement</span><strong>${op.minParticipants || 2}&ndash;${op.maxParticipants || 8} Members</strong></div>
+            <div><span>Duration</span><strong>${op.durationMinutes || 15} min</strong></div>
+            <div><span>Cooldown</span><strong>${op.cooldownMinutes || 180} min</strong></div>
+          </div>
+          ${rewardPreview}
+          <div style="margin-top: 14px; font-size: 11px; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
+            <span>Initiation: Travel to an opposing family's linked headquarters door.</span>
+            <span style="color:var(--cyan); font-weight:700;">PHASE 1 OPERATIONAL</span>
+          </div>
+        </div>`;
+    }).join('') || '<div class="empty">No family operations configured.</div>';
+
+    // 3. RECENT OPERATIONS SECTION (~10)
+    let recentRows = '';
+    if (recent.length > 0) {
+      recentRows = `
+        <div class="table-wrap" style="margin-top: 10px;">
+          <table class="table" style="width:100%; border-collapse:collapse; font-size:12px;">
+            <thead>
+              <tr style="text-align:left; border-bottom:1px solid var(--border-dim); color:var(--text-muted);">
+                <th style="padding:10px 12px;">OPERATION</th>
+                <th style="padding:10px 12px;">OPPONENT</th>
+                <th style="padding:10px 12px;">RESULT</th>
+                <th style="padding:10px 12px;">REASON</th>
+                <th style="padding:10px 12px;">DURATION</th>
+                <th style="padding:10px 12px;">REWARD</th>
+                <th style="padding:10px 12px;">DATE</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${recent.map(r => {
+                let resBadge = '';
+                if (r.won) {
+                  resBadge = '<span class="status-badge primary" style="padding:2px 8px; font-size:10px;">VICTORY</span>';
+                } else if (r.state === 'cancelled') {
+                  resBadge = '<span class="status-badge" style="padding:2px 8px; font-size:10px; background:rgba(255,255,255,0.06); color:var(--text-muted);">CANCELLED</span>';
+                } else {
+                  resBadge = '<span class="status-badge danger" style="padding:2px 8px; font-size:10px;">DEFEAT</span>';
+                }
+                const reasonLabel = String(r.resultReason || 'complete').replace(/_/g, ' ');
+                return `
+                  <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                    <td style="padding:10px 12px; font-weight:700; color:#fff;">${esc(r.label || r.eventKey)}</td>
+                    <td style="padding:10px 12px;">${esc(r.opponentName || 'Unknown')}</td>
+                    <td style="padding:10px 12px;">${resBadge}</td>
+                    <td style="padding:10px 12px; color:var(--text-muted); text-transform:capitalize;">${esc(reasonLabel)}</td>
+                    <td style="padding:10px 12px;">${r.durationMinutes || 0}m</td>
+                    <td style="padding:10px 12px; color:${r.won ? 'var(--cyan)' : 'var(--text-muted)'}; font-weight:700;">${r.won ? money(r.rewardCredited) : '$0'}</td>
+                    <td style="padding:10px 12px; color:var(--text-muted); font-size:11px;">${formatTimestamp(r.completedAt, 16)}</td>
+                  </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    } else {
+      recentRows = '<div class="empty" style="padding: 24px 0; text-align:center; color:var(--text-muted); font-size:12.5px;">No recent tactical operations on record.</div>';
+    }
+
     content.innerHTML = `
-      <div class="events-toolbar"><div><div class="section-title" style="margin:0">Family operations</div><div class="row__sub">Plan robberies, raids, and future family activities.</div></div><span class="gameplay-event-count">${events.length} event${events.length === 1 ? '' : 's'}</span></div>
-      <div class="events-layout gameplay-events-layout"><div class="gameplay-event-list">${renderCards(selected && selected.key) || '<div class="empty">No family events configured.</div>'}</div><div id="gameplay-event-preview">${renderPreview(selected)}</div></div>`;
-    content.onclick = event => {
-      const button = event.target.closest('[data-gameplay-event]');
-      if (!button) return;
-      document.querySelectorAll('[data-gameplay-event]').forEach(item => item.classList.toggle('is-selected', item === button));
-      const selectedEvent = events.find(item => String(item.key) === String(button.dataset.gameplayEvent));
-      document.getElementById('gameplay-event-preview').innerHTML = renderPreview(selectedEvent);
-    };
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        ${activeHtml}
+
+        <div style="margin-top: 6px; margin-bottom: 22px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+            <div class="section-title" style="margin:0;">Available Operations</div>
+            <span class="tag-lbl" style="color:var(--text-muted);">PHASE 1 ENGINE</span>
+          </div>
+          <div style="display:grid; grid-template-columns: 1fr; gap:14px;">
+            ${availableCards}
+          </div>
+        </div>
+
+        <section class="glass-card" style="padding: 20px 22px;">
+          <div class="section-title" style="margin:0 0 4px 0;">Recent Operations History</div>
+          <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">Durable operational record of recent battles and raid results.</div>
+          ${recentRows}
+        </section>
+      </div>`;
+
+    const closeBtn = document.getElementById('btn-close-to-operation');
+    if (closeBtn) {
+      closeBtn.onclick = () => closeMenu();
+    }
   }
+
+  const renderGameplayEvents = renderOperations;
   // ---------------- activity event timeline ----------------
   function renderEvents() {
     if (state.activityLog === false) {
