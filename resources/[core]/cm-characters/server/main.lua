@@ -121,6 +121,10 @@ exports('GetCharacterByUniqueId', function(uniqueId)
     return getCharacterByIdRaw(uniqueId)
 end)
 
+exports('GetOwnedCharacter', function(src, charId)
+    return CMCharacters.GetOwnedCharacter(src, charId)
+end)
+
 -- Character selector scene editor persistence.
 -- Saved file path: cm-characters/data/selector_scene.json
 local SELECTOR_SCENE_FILE = 'data/selector_scene.json'

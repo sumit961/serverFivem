@@ -408,6 +408,14 @@ RegisterNetEvent('cm-playerdata:client:setHealth', function(health)
     lastHealth = health
 end)
 
+RegisterNetEvent('cm-playerdata:client:setArmor', function(armor)
+    local ped = PlayerPedId()
+    armor = math.max(0, math.min((Config.Vitals and Config.Vitals.MaxArmor) or 100, math.floor(tonumber(armor) or 0)))
+    SetPedArmour(ped, armor)
+    lastArmor = armor
+    PlayerData.armor = armor
+end)
+
 local function BuildDeathReport(ped)
     local report = { killerServerId = nil, causeHash = nil, killerType = 'unknown' }
 

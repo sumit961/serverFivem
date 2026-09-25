@@ -6,6 +6,9 @@
 
 local Config = CMPlayerData.Config
 local PlayerData = {}
+local LoadLocks = {}
+local ActiveSaves = {}
+local CharacterSwitchLocks = {}
 local PendingHandshakes = {} -- [targetSrc] = { from = src, expires = ms }
 local PendingTreatments = {} -- [treaterSrc] = { target = src, startedAt = ms, duration = ms }
 local PendingTreatmentOffers = {} -- [targetSrc] = { from = src, expires = ms }
@@ -246,6 +249,48 @@ local function GetCharId(src)
 
     local charId = state.charId or state.characterId or state.rpId
     return charId and tostring(charId) or nil
+end
+
+local function ValidateCharacterOwnership(src, charId)
+    src = tonumber(src)
+    charId = tostring(charId or '')
+    if not src or src <= 0 or charId == '' then
+        return false, 'invalid_parameters'
+    end
+
+    -- 1. Check via cm-characters export if running
+    if GetResourceState('cm-characters') == 'started' then
+        local ok, char, accountId, err = pcall(function()
+            return exports['cm-characters']:GetOwnedCharacter(src, charId)
+        end)
+        if ok then
+            if char and tostring(char.id) == charId then
+                return true, char
+            end
+            return false, err or 'not_owned'
+        end
+    end
+
+    -- 2. Fallback direct validation using authenticated accountId from state bag against DB
+    local ok, state = pcall(function() return Player(src).state end)
+    local accountId = ok and state and (state.accountId or state.account_id)
+    if not accountId or tostring(accountId) == '' then
+        return false, 'no_authenticated_account'
+    end
+
+    local row = MySQL.single.await([[
+        SELECT id, account_id FROM characters WHERE id = ? LIMIT 1
+    ]], { charId })
+
+    if not row then
+        return false, 'character_not_found'
+    end
+
+    if tostring(row.account_id) ~= tostring(accountId) then
+        return false, 'account_mismatch'
+    end
+
+    return true, row
 end
 
 local function SetState(src, key, value, replicated)
@@ -532,11 +577,231 @@ local function NotifyLoaded(src)
     TriggerEvent('cm-playerdata:server:readyForSpawn', src, safeData)
 end
 
-local function LoadPlayerData(src)
-    local charId = GetCharId(src)
-    if not charId then
-        Debug('Load skipped, charId missing for src=' .. tostring(src))
+local function SavePlayerData(src, reason)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    if not data or not data.loaded or not data.charId then return false end
+
+    local charId = tostring(data.charId)
+
+    -- If a save is already in progress for this character, queue another save
+    if ActiveSaves[charId] then
+        data.saveQueued = true
+        Debug(('Save queued for char=%s (save already active)'):format(charId))
+        return true
+    end
+
+    ActiveSaves[charId] = true
+
+    local savedRevision = tonumber(data.revision) or 1
+    local snapshot = {
+        charId = charId,
+        cash = tonumber(data.cash) or 0,
+        bank = tonumber(data.bank) or 0,
+        health = tonumber(data.health) or Config.Vitals.MaxHealth,
+        armor = tonumber(data.armor) or 0,
+        isDead = data.isDead == true,
+        deathCount = tonumber(data.deathCount) or 0,
+        deathDeadlineAt = data.deathDeadlineAt,
+        deathLocation = data.deathLocation,
+        ambulanceCalled = data.ambulanceCalled == true,
+        deathReason = data.deathReason,
+        lastPosition = data.lastPosition,
+        metadata = data.metadata or {},
+        revision = savedRevision
+    }
+
+    local ok, err = pcall(function()
+        MySQL.update.await([[
+            UPDATE characters SET
+                cash = ?,
+                bank = ?,
+                health = ?,
+                armor = ?,
+                is_dead = ?,
+                death_count = ?,
+                death_deadline_at = ?,
+                death_location = ?,
+                ambulance_called = ?,
+                death_reason = ?,
+                last_position = ?,
+                metadata = ?
+            WHERE id = ?
+        ]], {
+            snapshot.cash,
+            snapshot.bank,
+            snapshot.health,
+            snapshot.armor,
+            snapshot.isDead and 1 or 0,
+            snapshot.deathCount,
+            snapshot.deathDeadlineAt,
+            EncodeJson(snapshot.deathLocation),
+            snapshot.ambulanceCalled and 1 or 0,
+            snapshot.deathReason,
+            EncodeJson(snapshot.lastPosition),
+            EncodeJson(snapshot.metadata or {}),
+            snapshot.charId
+        })
+    end)
+
+    ActiveSaves[charId] = nil
+
+    if not ok then
+        Log('error', 'Save failed', { src = src, charId = charId, reason = reason, error = tostring(err) })
         return false
+    end
+
+    -- If the current loaded player is still the same character:
+    local current = PlayerData[src]
+    if current and tostring(current.charId or '') == charId then
+        current.persistedPosition = snapshot.lastPosition
+        if current.revision == savedRevision and not current.saveQueued then
+            current.dirty = false
+        else
+            current.dirty = true
+            if current.saveQueued then
+                current.saveQueued = nil
+                SetTimeout(100, function()
+                    if PlayerData[src] and PlayerData[src].loaded and tostring(PlayerData[src].charId) == charId and PlayerData[src].dirty then
+                        SavePlayerData(src, 'queued_save')
+                    end
+                end)
+            end
+        end
+    end
+
+    Debug(('Saved src=%s char=%s rev=%s reason=%s'):format(src, charId, savedRevision, reason or 'manual'))
+    return true
+end
+
+local function SavePositionOnly(src)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    if not data or not data.loaded or not data.charId or not data.lastPosition then return false end
+
+    -- Optimization: Check Config.Save.MinimumPositionMove
+    local minMove = (Config.Save and Config.Save.MinimumPositionMove) or 1.5
+    local current = data.lastPosition
+    local persisted = data.persistedPosition
+
+    if persisted and current then
+        local dx = (current.x or 0) - (persisted.x or 0)
+        local dy = (current.y or 0) - (persisted.y or 0)
+        local dz = (current.z or 0) - (persisted.z or 0)
+        local dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+        local dh = math.abs((current.h or 0) - (persisted.h or 0))
+        if dh > 180 then dh = 360 - dh end
+
+        if dist < minMove and dh < 30.0 then
+            -- Movement below threshold, skip write!
+            return true
+        end
+    end
+
+    local charId = tostring(data.charId)
+    local ok, err = pcall(function()
+        MySQL.update.await(
+            'UPDATE characters SET last_position = ? WHERE id = ?',
+            { EncodeJson(current), charId }
+        )
+    end)
+
+    if ok then
+        data.persistedPosition = current
+        return true
+    else
+        Log('error', 'Position save failed', { src = src, charId = charId, error = tostring(err) })
+        return false
+    end
+end
+
+local function ClearPlayerData(src)
+    local oldData = PlayerData[src]
+    if oldData then
+        local safeData = ClonePlayerData(oldData)
+        TriggerEvent('cm-playerdata:server:characterUnloaded', src, safeData)
+        TriggerClientEvent('cm-playerdata:client:characterUnloaded', src, safeData)
+        TriggerEvent('cm-playerdata:server:unloaded', src, safeData)
+        TriggerClientEvent('cm-playerdata:client:unloaded', src, safeData)
+    end
+
+    PlayerData[src] = nil
+    pcall(function()
+        local state = Player(src).state
+        state:set('cash', nil, true)
+        state:set('bank', nil, true)
+        state:set('health', nil, true)
+        state:set('armor', nil, true)
+        state:set('isDead', nil, true)
+        state:set('deathRemainingMs', nil, true)
+        state:set('playerDataLoaded', nil, true)
+        state:set('identityReady', nil, true)
+        state:set('charId', nil, true)
+        state:set('characterId', nil, true)
+        state:set('rpId', nil, true)
+        state:set('charName', nil, true)
+        state:set('firstName', nil, true)
+        state:set('lastName', nil, true)
+    end)
+    ClearRateLimits(src)
+end
+
+local function LoadPlayerData(src, explicitCharId)
+    src = tonumber(src)
+    if not src or src <= 0 then return false end
+
+    if LoadLocks[src] then
+        Debug(('Load already in progress for src=%s'):format(src))
+        return false
+    end
+    LoadLocks[src] = true
+
+    local function unlock()
+        LoadLocks[src] = nil
+    end
+
+    local charId = explicitCharId and tostring(explicitCharId) or GetCharId(src)
+    if not charId or charId == '' then
+        Debug('Load skipped, charId missing for src=' .. tostring(src))
+        unlock()
+        return false
+    end
+
+    -- Authoritative ownership check: playerdata must never load an arbitrary character
+    local valid, ownerOrErr = ValidateCharacterOwnership(src, charId)
+    if not valid then
+        Log('warn', 'Character load rejected: ownership validation failed', { src = src, charId = charId, reason = tostring(ownerOrErr) })
+        Audit(src, 'character_load_denied', { charId = charId, reason = tostring(ownerOrErr) })
+        unlock()
+        return false
+    end
+
+    -- Character switch: if existing loaded character is different
+    if PlayerData[src] and PlayerData[src].loaded then
+        local oldCharId = tostring(PlayerData[src].charId or '')
+        if oldCharId ~= '' and oldCharId ~= tostring(charId) then
+            Debug(('Character switch detected for src=%s: %s -> %s'):format(src, oldCharId, charId))
+            CharacterSwitchLocks[src] = true
+
+            -- Save old character completely before unloading
+            local oldData = PlayerData[src]
+            if oldData.dirty or (oldData.revision and oldData.revision > 1) then
+                local saved = SavePlayerData(src, 'character_switch')
+                if not saved then
+                    Log('error', 'Failed to save old character during character switch', { src = src, oldCharId = oldCharId, newCharId = charId })
+                end
+            end
+
+            -- Emit unload events and clear old state
+            ClearPlayerData(src)
+            CharacterSwitchLocks[src] = nil
+        elseif oldCharId == tostring(charId) then
+            -- Already loaded for this character
+            Debug(('Character %s already loaded for src=%s'):format(charId, src))
+            NotifyLoaded(src)
+            unlock()
+            return true
+        end
     end
 
     local row = MySQL.single.await([[
@@ -548,17 +813,11 @@ local function LoadPlayerData(src)
 
     if not row then
         Log('error', 'Load failed: character row not found', { src = src, charId = charId })
+        unlock()
         return false
     end
 
     local defaults = Config.Defaults
-
-    if PlayerData[src] and PlayerData[src].loaded
-        and tostring(PlayerData[src].charId or '') ~= tostring(charId) then
-        -- Character switched while this resource stayed alive. The old record will
-        -- be saved by the normal save loop/drop hook if needed; replace cache now.
-        PlayerData[src] = nil
-    end
 
     local dirtyAfterLoad = false
     local persistedMetadata = DecodeJson(row.metadata) or {}
@@ -597,8 +856,6 @@ local function LoadPlayerData(src)
 
         local remaining = deathDeadlineAt - now
         if remaining <= 0 then
-            -- They were dead long enough while offline. Let the client finish
-            -- spawn, show the death state briefly, then the server respawns them.
             remaining = 1500
             deathDeadlineAt = now + remaining
             dirtyAfterLoad = true
@@ -610,6 +867,8 @@ local function LoadPlayerData(src)
 
         deathDeadline = GetGameTimer() + remaining
     end
+
+    local initialPosition = NormalizeCoords(DecodeJson(row.last_position))
 
     PlayerData[src] = {
         src = src,
@@ -630,7 +889,8 @@ local function LoadPlayerData(src)
         ambulanceCalled = (tonumber(row.ambulance_called) or 0) == 1,
         deathReason = row.death_reason,
         deathLocation = NormalizeCoords(DecodeJson(row.death_location)),
-        lastPosition = NormalizeCoords(DecodeJson(row.last_position)),
+        lastPosition = initialPosition,
+        persistedPosition = initialPosition,
         metadata = persistedMetadata,
 
         wantedStars = wantedStars,
@@ -638,7 +898,9 @@ local function LoadPlayerData(src)
 
         loaded = true,
         dirty = dirtyAfterLoad,
-        lastVitalsSync = GetGameTimer()
+        revision = 1,
+        lastVitalsSync = GetGameTimer(),
+        armorGuardUntil = GetGameTimer() + 5000
     }
 
     if PlayerData[src].isDead and not PlayerData[src].deathLocation then
@@ -646,8 +908,8 @@ local function LoadPlayerData(src)
         PlayerData[src].dirty = true
     end
 
-    Debug(('Loaded src=%s char=%s HP=%s dead=%s'):format(
-        src, charId, PlayerData[src].health, tostring(PlayerData[src].isDead)
+    Debug(('Loaded src=%s char=%s HP=%s armor=%s dead=%s'):format(
+        src, charId, PlayerData[src].health, PlayerData[src].armor, tostring(PlayerData[src].isDead)
     ))
 
     NotifyLoaded(src)
@@ -660,99 +922,129 @@ local function LoadPlayerData(src)
         end
     end
 
+    unlock()
     return true
 end
 
-local function SavePlayerData(src, reason)
-    local data = PlayerData[src]
-    if not data or not data.loaded then return false end
+local function TransferMoneyBetweenPlayersAuthoritative(fromSrc, toSrc, account, amount, reason, metadata)
+    fromSrc = tonumber(fromSrc)
+    toSrc = tonumber(toSrc)
+    account = NormalizeAccount(account)
+    amount = NormalizeAmount(amount)
 
-    local ok, err = pcall(function()
-        MySQL.update.await([[
-            UPDATE characters SET
-                cash = ?,
-                bank = ?,
-                health = ?,
-                armor = ?,
-                is_dead = ?,
-                death_count = ?,
-                death_deadline_at = ?,
-                death_location = ?,
-                ambulance_called = ?,
-                death_reason = ?,
-                last_position = ?,
-                metadata = ?
-            WHERE id = ?
-        ]], {
-            data.cash,
-            data.bank,
-            data.health,
-            data.armor,
-            data.isDead and 1 or 0,
-            data.deathCount,
-            data.deathDeadlineAt,
-            EncodeJson(data.deathLocation),
-            data.ambulanceCalled and 1 or 0,
-            data.deathReason,
-            EncodeJson(data.lastPosition),
-            EncodeJson(data.metadata or {}),
-            data.charId
+    if not fromSrc or not toSrc then return false, 'invalid_players' end
+    if fromSrc == toSrc then return false, 'same_player' end
+    if not account then return false, 'invalid_account' end
+    if not amount then return false, 'invalid_amount' end
+
+    local fromData = PlayerData[fromSrc]
+    local toData = PlayerData[toSrc]
+    if not fromData or not fromData.loaded or not toData or not toData.loaded then
+        return false, 'player_not_loaded'
+    end
+
+    -- Deterministic lock acquisition to prevent deadlocks:
+    local lock1 = math.min(fromSrc, toSrc)
+    local lock2 = math.max(fromSrc, toSrc)
+    if MoneyMutationLocks[lock1] or MoneyMutationLocks[lock2] then
+        return false, 'money_busy'
+    end
+    MoneyMutationLocks[lock1] = true
+    MoneyMutationLocks[lock2] = true
+
+    local function releaseLocks()
+        MoneyMutationLocks[lock1] = nil
+        MoneyMutationLocks[lock2] = nil
+    end
+
+    -- Verify balances inside lock
+    local fromBefore = tonumber(fromData[account]) or 0
+    if fromBefore < amount then
+        releaseLocks()
+        return false, 'insufficient_funds'
+    end
+
+    local toBefore = tonumber(toData[account]) or 0
+    local fromAfter = fromBefore - amount
+    local toAfter = toBefore + amount
+
+    local callingResource = GetCallingResourceName()
+    local safeMeta = type(metadata) == 'table' and metadata or {}
+    local fromMeta = DecodeJson(EncodeJson(safeMeta)) or {}
+    local toMeta = DecodeJson(EncodeJson(safeMeta)) or {}
+    fromMeta.counterparty_character_id = toData.charId
+    fromMeta.counterparty_source = toSrc
+    toMeta.counterparty_character_id = fromData.charId
+    toMeta.counterparty_source = fromSrc
+
+    local queries = {
+        {
+            query = 'UPDATE characters SET ' .. account .. ' = ? WHERE id = ? AND ' .. account .. ' = ?',
+            values = { fromAfter, fromData.charId, fromBefore }
+        },
+        {
+            query = 'UPDATE characters SET ' .. account .. ' = ? WHERE id = ? AND ' .. account .. ' = ?',
+            values = { toAfter, toData.charId, toBefore }
+        },
+        {
+            query = [[
+                INSERT INTO economy_transactions
+                    (character_id, account_type, amount, action, reason, resource_name, balance_before, balance_after, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ]],
+            values = {
+                fromData.charId, account, -amount, 'transfer_out',
+                tostring(reason or 'p2p_transfer_out'):sub(1, 100),
+                callingResource, fromBefore, fromAfter, EncodeJson(fromMeta)
+            }
+        },
+        {
+            query = [[
+                INSERT INTO economy_transactions
+                    (character_id, account_type, amount, action, reason, resource_name, balance_before, balance_after, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ]],
+            values = {
+                toData.charId, account, amount, 'transfer_in',
+                tostring(reason or 'p2p_transfer_in'):sub(1, 100),
+                callingResource, toBefore, toAfter, EncodeJson(toMeta)
+            }
+        }
+    }
+
+    local txOk, txResult = pcall(function()
+        return MySQL.transaction.await(queries)
+    end)
+
+    releaseLocks()
+
+    if not txOk or txResult ~= true then
+        Log('error', 'Authoritative P2P money transfer transaction failed', {
+            from = fromData.charId, to = toData.charId, account = account, amount = amount, error = tostring(txResult)
         })
-    end)
-
-    if not ok then
-        Log('error', 'Save failed', { src = src, reason = reason, error = tostring(err) })
-        return false
+        return false, 'transaction_failed'
     end
 
-    data.dirty = false
-    Debug(('Saved src=%s reason=%s'):format(src, reason or 'manual'))
-    return true
-end
+    -- Atomic persistence succeeded! Update runtime memory state:
+    fromData[account] = fromAfter
+    toData[account] = toAfter
+    fromData.revision = (fromData.revision or 1) + 1
+    toData.revision = (toData.revision or 1) + 1
 
-local function SavePositionOnly(src)
-    local data = PlayerData[src]
-    if not data or not data.loaded or not data.lastPosition then return false end
+    SetState(fromSrc, account, fromAfter)
+    SetState(toSrc, account, toAfter)
+    PushUpdate(fromSrc, account, fromAfter)
+    PushUpdate(toSrc, account, toAfter)
 
-    local ok = pcall(function()
-        MySQL.update.await(
-            'UPDATE characters SET last_position = ? WHERE id = ?',
-            { EncodeJson(data.lastPosition), data.charId }
-        )
-    end)
+    TriggerEvent('cm-playerdata:server:moneyChanged', fromSrc, account, fromBefore, fromAfter, reason or 'p2p_transfer_out')
+    TriggerClientEvent('cm-playerdata:client:moneyChanged', fromSrc, account, fromBefore, fromAfter, reason or 'p2p_transfer_out')
+    TriggerEvent('cm-playerdata:server:moneyChanged', toSrc, account, toBefore, toAfter, reason or 'p2p_transfer_in')
+    TriggerClientEvent('cm-playerdata:client:moneyChanged', toSrc, account, toBefore, toAfter, reason or 'p2p_transfer_in')
 
-    return ok
-end
+    Audit(fromSrc, 'transfer_p2p_out', { to = toData.charId, account = account, amount = amount, reason = reason })
+    Audit(toSrc, 'transfer_p2p_in', { from = fromData.charId, account = account, amount = amount, reason = reason })
 
-local function ClearPlayerData(src)
-    local oldData = PlayerData[src]
-    if oldData then
-        local safeData = ClonePlayerData(oldData)
-        TriggerEvent('cm-playerdata:server:characterUnloaded', src, safeData)
-        TriggerClientEvent('cm-playerdata:client:characterUnloaded', src, safeData)
-        TriggerEvent('cm-playerdata:server:unloaded', src, safeData)
-        TriggerClientEvent('cm-playerdata:client:unloaded', src, safeData)
-    end
-
-    PlayerData[src] = nil
-    pcall(function()
-        local state = Player(src).state
-        state:set('cash', nil, true)
-        state:set('bank', nil, true)
-        state:set('health', nil, true)
-        state:set('armor', nil, true)
-        state:set('isDead', nil, true)
-        state:set('deathRemainingMs', nil, true)
-        state:set('playerDataLoaded', nil, true)
-        state:set('identityReady', nil, true)
-        state:set('charId', nil, true)
-        state:set('characterId', nil, true)
-        state:set('rpId', nil, true)
-        state:set('charName', nil, true)
-        state:set('firstName', nil, true)
-        state:set('lastName', nil, true)
-    end)
-    ClearRateLimits(src)
+    return true, nil
 end
 
 local function SetMoney(src, account, value, reason, metadata)
@@ -766,16 +1058,54 @@ local function SetMoney(src, account, value, reason, metadata)
     local delta = after - before
     if before == after then return true end
 
-    data[account] = after
-    data.dirty = true
+    MoneyMutationLocks[src] = true
 
-    SetState(src, account, data[account])
-    PushUpdate(src, account, data[account])
+    if Config.Money and Config.Money.ImmediateSave then
+        local queries = {
+            {
+                query = 'UPDATE characters SET ' .. account .. ' = ? WHERE id = ?',
+                values = { after, data.charId }
+            }
+        }
+        if (Config.Money and Config.Money.TransactionLog) ~= false then
+            queries[#queries + 1] = {
+                query = [[
+                    INSERT INTO economy_transactions
+                        (character_id, account_type, amount, action, reason, resource_name, balance_before, balance_after, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ]],
+                values = {
+                    data.charId, account, delta, 'set',
+                    tostring(reason or 'set_money'):sub(1, 100),
+                    GetCallingResourceName(), before, after,
+                    EncodeJson(metadata or {})
+                }
+            }
+        end
+
+        local ok, err = pcall(function() return MySQL.transaction.await(queries) end)
+        MoneyMutationLocks[src] = nil
+        if not ok or err ~= true then
+            Log('error', 'SetMoney persistence failed', { src = src, charId = data.charId, error = tostring(err) })
+            return false
+        end
+    else
+        MoneyMutationLocks[src] = nil
+        data.dirty = true
+        if (Config.Money and Config.Money.TransactionLog) ~= false then
+            RecordMoneyTransaction(src, account, delta, 'set', reason or 'set_money', before, after, metadata)
+        end
+    end
+
+    data[account] = after
+    data.revision = (data.revision or 1) + 1
+
+    SetState(src, account, after)
+    PushUpdate(src, account, after)
     TriggerEvent('cm-playerdata:server:moneyChanged', src, account, before, after, reason or 'set_money')
     TriggerClientEvent('cm-playerdata:client:moneyChanged', src, account, before, after, reason or 'set_money')
+    Audit(src, 'money_set', { account = account, before = before, after = after, reason = reason })
 
-    RecordMoneyTransaction(src, account, delta, 'set', reason or 'set_money', before, after, metadata)
-    -- Persisted by the async batch saver (data.dirty). No blocking write here.
     return true
 end
 
@@ -789,16 +1119,54 @@ local function AddMoney(src, account, amount, reason, metadata)
     local before = tonumber(data[account]) or 0
     local after = before + amount
 
+    MoneyMutationLocks[src] = true
+
+    if Config.Money and Config.Money.ImmediateSave then
+        local queries = {
+            {
+                query = 'UPDATE characters SET ' .. account .. ' = ? WHERE id = ?',
+                values = { after, data.charId }
+            }
+        }
+        if (Config.Money and Config.Money.TransactionLog) ~= false then
+            queries[#queries + 1] = {
+                query = [[
+                    INSERT INTO economy_transactions
+                        (character_id, account_type, amount, action, reason, resource_name, balance_before, balance_after, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ]],
+                values = {
+                    data.charId, account, amount, 'add',
+                    tostring(reason or 'add_money'):sub(1, 100),
+                    GetCallingResourceName(), before, after,
+                    EncodeJson(metadata or {})
+                }
+            }
+        end
+
+        local ok, err = pcall(function() return MySQL.transaction.await(queries) end)
+        MoneyMutationLocks[src] = nil
+        if not ok or err ~= true then
+            Log('error', 'AddMoney persistence failed', { src = src, charId = data.charId, error = tostring(err) })
+            return false
+        end
+    else
+        MoneyMutationLocks[src] = nil
+        data.dirty = true
+        if (Config.Money and Config.Money.TransactionLog) ~= false then
+            RecordMoneyTransaction(src, account, amount, 'add', reason or 'add_money', before, after, metadata)
+        end
+    end
+
     data[account] = after
-    data.dirty = true
+    data.revision = (data.revision or 1) + 1
 
     SetState(src, account, after)
     PushUpdate(src, account, after)
     TriggerEvent('cm-playerdata:server:moneyChanged', src, account, before, after, reason or 'add_money')
     TriggerClientEvent('cm-playerdata:client:moneyChanged', src, account, before, after, reason or 'add_money')
+    Audit(src, 'money_add', { account = account, amount = amount, before = before, after = after, reason = reason })
 
-    RecordMoneyTransaction(src, account, amount, 'add', reason or 'add_money', before, after, metadata)
-    -- Persisted by the async batch saver (data.dirty). No blocking write here.
     return true
 end
 
@@ -813,16 +1181,54 @@ local function RemoveMoney(src, account, amount, reason, metadata)
     if before < amount then return false end
     local after = before - amount
 
+    MoneyMutationLocks[src] = true
+
+    if Config.Money and Config.Money.ImmediateSave then
+        local queries = {
+            {
+                query = 'UPDATE characters SET ' .. account .. ' = ? WHERE id = ? AND ' .. account .. ' >= ?',
+                values = { after, data.charId, amount }
+            }
+        }
+        if (Config.Money and Config.Money.TransactionLog) ~= false then
+            queries[#queries + 1] = {
+                query = [[
+                    INSERT INTO economy_transactions
+                        (character_id, account_type, amount, action, reason, resource_name, balance_before, balance_after, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ]],
+                values = {
+                    data.charId, account, -amount, 'remove',
+                    tostring(reason or 'remove_money'):sub(1, 100),
+                    GetCallingResourceName(), before, after,
+                    EncodeJson(metadata or {})
+                }
+            }
+        end
+
+        local ok, err = pcall(function() return MySQL.transaction.await(queries) end)
+        MoneyMutationLocks[src] = nil
+        if not ok or err ~= true then
+            Log('error', 'RemoveMoney persistence failed', { src = src, charId = data.charId, error = tostring(err) })
+            return false
+        end
+    else
+        MoneyMutationLocks[src] = nil
+        data.dirty = true
+        if (Config.Money and Config.Money.TransactionLog) ~= false then
+            RecordMoneyTransaction(src, account, -amount, 'remove', reason or 'remove_money', before, after, metadata)
+        end
+    end
+
     data[account] = after
-    data.dirty = true
+    data.revision = (data.revision or 1) + 1
 
     SetState(src, account, after)
     PushUpdate(src, account, after)
     TriggerEvent('cm-playerdata:server:moneyChanged', src, account, before, after, reason or 'remove_money')
     TriggerClientEvent('cm-playerdata:client:moneyChanged', src, account, before, after, reason or 'remove_money')
+    Audit(src, 'money_remove', { account = account, amount = amount, before = before, after = after, reason = reason })
 
-    RecordMoneyTransaction(src, account, -amount, 'remove', reason or 'remove_money', before, after, metadata)
-    -- Persisted by the async batch saver (data.dirty). No blocking write here.
     return true
 end
 
@@ -836,70 +1242,94 @@ local function CanAfford(src, account, amount)
 end
 
 local function TransferMoney(src, fromAccount, toAccount, amount, reason, metadata)
+    src = tonumber(src)
     fromAccount = NormalizeAccount(fromAccount)
     toAccount = NormalizeAccount(toAccount)
     amount = NormalizeAmount(amount)
-    if not fromAccount or not toAccount or not amount or fromAccount == toAccount then return false end
-    if not CanAfford(src, fromAccount, amount) then return false end
-    if not RemoveMoney(src, fromAccount, amount, reason or 'transfer_out', metadata) then return false end
-    if not AddMoney(src, toAccount, amount, reason or 'transfer_in', metadata) then
-        AddMoney(src, fromAccount, amount, 'transfer_refund', { originalReason = reason })
+    if not src or not fromAccount or not toAccount or not amount or fromAccount == toAccount then return false end
+
+    local data = PlayerData[src]
+    if not data or not data.loaded then return false end
+
+    if MoneyMutationLocks[src] then return false end
+    MoneyMutationLocks[src] = true
+
+    local function release()
+        MoneyMutationLocks[src] = nil
+    end
+
+    local fromBefore = tonumber(data[fromAccount]) or 0
+    if fromBefore < amount then
+        release()
         return false
     end
+
+    local toBefore = tonumber(data[toAccount]) or 0
+    local fromAfter = fromBefore - amount
+    local toAfter = toBefore + amount
+
+    local callingResource = GetCallingResourceName()
+    local safeMeta = type(metadata) == 'table' and metadata or {}
+
+    local queries = {
+        {
+            query = 'UPDATE characters SET ' .. fromAccount .. ' = ?, ' .. toAccount .. ' = ? WHERE id = ? AND ' .. fromAccount .. ' >= ?',
+            values = { fromAfter, toAfter, data.charId, amount }
+        },
+        {
+            query = [[
+                INSERT INTO economy_transactions
+                    (character_id, account_type, amount, action, reason, resource_name, balance_before, balance_after, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ]],
+            values = {
+                data.charId, fromAccount, -amount, 'transfer_out',
+                tostring(reason or 'transfer_between_accounts'):sub(1, 100),
+                callingResource, fromBefore, fromAfter, EncodeJson(safeMeta)
+            }
+        },
+        {
+            query = [[
+                INSERT INTO economy_transactions
+                    (character_id, account_type, amount, action, reason, resource_name, balance_before, balance_after, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ]],
+            values = {
+                data.charId, toAccount, amount, 'transfer_in',
+                tostring(reason or 'transfer_between_accounts'):sub(1, 100),
+                callingResource, toBefore, toAfter, EncodeJson(safeMeta)
+            }
+        }
+    }
+
+    local ok, err = pcall(function() return MySQL.transaction.await(queries) end)
+    release()
+
+    if not ok or err ~= true then
+        Log('error', 'Same-player transfer transaction failed', { src = src, charId = data.charId, error = tostring(err) })
+        return false
+    end
+
+    data[fromAccount] = fromAfter
+    data[toAccount] = toAfter
+    data.revision = (data.revision or 1) + 1
+
+    SetState(src, fromAccount, fromAfter)
+    SetState(src, toAccount, toAfter)
+    PushUpdate(src, fromAccount, fromAfter)
+    PushUpdate(src, toAccount, toAfter)
+
+    TriggerEvent('cm-playerdata:server:moneyChanged', src, fromAccount, fromBefore, fromAfter, reason or 'transfer_out')
+    TriggerClientEvent('cm-playerdata:client:moneyChanged', src, fromAccount, fromBefore, fromAfter, reason or 'transfer_out')
+    TriggerEvent('cm-playerdata:server:moneyChanged', src, toAccount, toBefore, toAfter, reason or 'transfer_in')
+    TriggerClientEvent('cm-playerdata:client:moneyChanged', src, toAccount, toBefore, toAfter, reason or 'transfer_in')
+
+    Audit(src, 'transfer_accounts', { from = fromAccount, to = toAccount, amount = amount, reason = reason })
     return true
 end
 
--- Cash-only, two-character mutation for trusted robbery/owner integrations.
--- Both live balances are locked, flushed, and changed by one conditional SQL
--- statement. The affected-row check prevents stale/replayed balance writes.
 local function TransferCashBetweenCharactersAtomic(fromSrc, toSrc, amount, reason, metadata)
-    fromSrc, toSrc = tonumber(fromSrc), tonumber(toSrc)
-    amount = NormalizeAmount(amount)
-    if not fromSrc or not toSrc or fromSrc == toSrc or not amount then return false, 'invalid_transfer' end
-    local fromData, toData = PlayerData[fromSrc], PlayerData[toSrc]
-    if not fromData or not fromData.loaded or not toData or not toData.loaded then return false, 'player_not_loaded' end
-    if MoneyMutationLocks[fromSrc] or MoneyMutationLocks[toSrc] then return false, 'money_busy' end
-    if (tonumber(fromData.cash) or 0) < amount then return false, 'insufficient_funds' end
-
-    MoneyMutationLocks[fromSrc], MoneyMutationLocks[toSrc] = true, true
-    local ok, result, errorCode = xpcall(function()
-        local fromBefore, toBefore = tonumber(fromData.cash) or 0, tonumber(toData.cash) or 0
-        if not SaveMoneyOnly(fromSrc, 'atomic_cash_transfer_prepare')
-            or not SaveMoneyOnly(toSrc, 'atomic_cash_transfer_prepare') then
-            return false, 'prepare_failed'
-        end
-        local changed = MySQL.update.await([[
-            UPDATE characters
-            SET cash = CASE WHEN id = ? THEN ? WHEN id = ? THEN ? ELSE cash END
-            WHERE (id = ? AND cash = ?) OR (id = ? AND cash = ?)
-        ]], {
-            fromData.charId, fromBefore - amount, toData.charId, toBefore + amount,
-            fromData.charId, fromBefore, toData.charId, toBefore,
-        })
-        if tonumber(changed) ~= 2 then return false, 'balance_changed' end
-
-        fromData.cash, toData.cash = fromBefore - amount, toBefore + amount
-        fromData.dirty, toData.dirty = false, false
-        for src, balances in pairs({
-            [fromSrc] = { fromBefore, fromData.cash },
-            [toSrc] = { toBefore, toData.cash },
-        }) do
-            SetState(src, 'cash', balances[2])
-            PushUpdate(src, 'cash', balances[2])
-            TriggerEvent('cm-playerdata:server:moneyChanged', src, 'cash', balances[1], balances[2], reason or 'atomic_cash_transfer')
-            TriggerClientEvent('cm-playerdata:client:moneyChanged', src, 'cash', balances[1], balances[2], reason or 'atomic_cash_transfer')
-        end
-        local safeMeta = type(metadata) == 'table' and metadata or {}
-        RecordMoneyTransaction(fromSrc, 'cash', -amount, 'remove', reason or 'atomic_cash_transfer', fromBefore, fromData.cash, safeMeta)
-        RecordMoneyTransaction(toSrc, 'cash', amount, 'add', reason or 'atomic_cash_transfer', toBefore, toData.cash, safeMeta)
-        return true
-    end, debug.traceback)
-    MoneyMutationLocks[fromSrc], MoneyMutationLocks[toSrc] = nil, nil
-    if not ok then
-        Log('error', 'Atomic cash transfer failed', { error = tostring(result) })
-        return false, 'transaction_failed'
-    end
-    return result, errorCode
+    return TransferMoneyBetweenPlayersAuthoritative(fromSrc, toSrc, 'cash', amount, reason or 'atomic_cash_transfer', metadata)
 end
 
 local function SyncInventoryDeathState(src, dead)
@@ -1016,12 +1446,32 @@ AddEventHandler('cm-core:characterLoaded', function(src, charId)
     end
 
     SetTimeout(500, function()
-        LoadPlayerData(src)
+        LoadPlayerData(src, charId)
     end)
 end)
 
 RegisterNetEvent('cm-playerdata:server:load', function()
-    LoadPlayerData(source)
+    local src = source
+    if PlayerData[src] and PlayerData[src].loaded then
+        -- Already loaded for this source: re-sync safe client state
+        NotifyLoaded(src)
+        return
+    end
+
+    local charId = GetCharId(src)
+    if not charId then
+        Log('warn', 'Rejected unauthenticated cm-playerdata:server:load (missing charId)', { src = src })
+        return
+    end
+
+    local valid, err = ValidateCharacterOwnership(src, charId)
+    if not valid then
+        Log('warn', 'Security violation: unowned character load blocked via net event', { src = src, charId = charId, reason = tostring(err) })
+        Audit(src, 'security_blocked_load', { charId = charId, reason = tostring(err) })
+        return
+    end
+
+    LoadPlayerData(src, charId)
 end)
 
 -- Clean server-side handoff event for cm-characters/cm-spawn.
@@ -1038,7 +1488,7 @@ AddEventHandler('cm-playerdata:server:loadCharacter', function(src, charId)
             state:set('rpId', charId, true)
         end)
     end
-    LoadPlayerData(src)
+    LoadPlayerData(src, charId)
 end)
 
 -- Compatibility event names used by some CM resources.
@@ -1064,7 +1514,7 @@ AddEventHandler('cm-spawn:server:spawned', function(src, charId)
                 state:set('rpId', tostring(charId), true)
             end)
         end
-        LoadPlayerData(src)
+        LoadPlayerData(src, charId)
     end
 end)
 
@@ -1088,53 +1538,62 @@ RegisterNetEvent('cm-playerdata:server:updatePosition', function(coords)
     local src = source
     if not RateLimit(src, 'position', 1000) then return end
     local data = PlayerData[src]
-    if not data or type(coords) ~= 'table' then return end
-    -- Never overwrite the saved body/death location while the character is dead.
-    -- cm-spawn may temporarily resurrect/move the ped for placement, but the RP
-    -- death location must remain the place where SetDead captured it.
-    if data.isDead == true then return end
-    -- Never save the fixed character-selector/creation preview coordinates as
-    -- the player's last position (docs/V1_4_1_FIXED_PREVIEW_COORDS.md's
-    -- documented contract: cm-playerdata ignores position updates while
-    -- skipPositionSave or isInCharacterSelector is true). cm-characters and
-    -- cm-spawn already set these state bags; this event handler simply never
-    -- checked them, so a position sample taken during selector preview could
-    -- overwrite last_position and cause the next "spawn at last location" to
-    -- place the player back at the selector scene.
+    if not data or not data.loaded or data.isDead == true then return end
+
+    -- Routing bucket check: ignore updates while in isolated dimensions (e.g. selector bucket)
+    local bucket = GetPlayerRoutingBucket(src)
+    if bucket ~= 0 then return end
+
+    -- Never save position during character selector, scene preview, or spawn transitions
     local ok, state = pcall(function() return Player(src).state end)
-    if ok and state and (state.skipPositionSave == true or state.isInCharacterSelector == true) then
+    if ok and state and (state.skipPositionSave == true or state.isInCharacterSelector == true or (state.selectorBucket and state.selectorBucket ~= 0)) then
         return
     end
 
-    local x, y, z, h = tonumber(coords.x), tonumber(coords.y), tonumber(coords.z), tonumber(coords.h)
-    if not x or not y or not z then return end
-    if math.abs(x) > 10000 or math.abs(y) > 10000 or z < -500 or z > 2000 then return end
+    -- Server-authoritative ped coordinates:
+    local ped = GetPlayerPed(src)
+    if not ped or ped == 0 then return end
 
-    -- Movement sanity logging (log only, never auto-punish: admin teleports,
-    -- respawns and lag spikes are legitimate causes of big jumps).
+    local pedCoords = GetEntityCoords(ped)
+    local pedHeading = GetEntityHeading(ped) or 0.0
+
+    -- Sanity check: valid world coords (not 0,0,0 unspawned ped)
+    if math.abs(pedCoords.x) < 0.1 and math.abs(pedCoords.y) < 0.1 and math.abs(pedCoords.z) < 0.1 then
+        return
+    end
+    if math.abs(pedCoords.x) > 10000 or math.abs(pedCoords.y) > 10000 or pedCoords.z < -500 or pedCoords.z > 2000 then
+        return
+    end
+
+    local serverCoords = NormalizeCoords({
+        x = pedCoords.x,
+        y = pedCoords.y,
+        z = pedCoords.z,
+        h = pedHeading
+    })
+    if not serverCoords then return end
+
+    -- Movement sanity logging based on server-observed coordinates
     local logCfg = Config.Logging or {}
     if logCfg.LogMovementAnomalies ~= false and data.lastPosSample and not data.isDead then
         local now = os.clock()
         local dt = now - (data.lastPosSampleTime or now)
         if dt > 0.5 then
-            local dx = x - data.lastPosSample.x
-            local dy = y - data.lastPosSample.y
-            local dz = z - data.lastPosSample.z
+            local dx = serverCoords.x - data.lastPosSample.x
+            local dy = serverCoords.y - data.lastPosSample.y
+            local dz = serverCoords.z - data.lastPosSample.z
             local dist2d = math.sqrt(dx * dx + dy * dy)
             local speed = dist2d / dt
 
             local inVehicle = false
-            local ped = GetPlayerPed(src)
-            if ped and ped ~= 0 then
-                local ok, veh = pcall(GetVehiclePedIsIn, ped, false)
-                inVehicle = ok and veh ~= 0
-            end
+            local vehOk, veh = pcall(GetVehiclePedIsIn, ped, false)
+            inVehicle = vehOk and veh ~= 0
 
             local falling = dz <= (logCfg.FallZDelta or -9.0)
 
             if dist2d >= (logCfg.TeleportDistance or 300.0) then
                 Audit(src, 'movement_teleport', {
-                    from = data.lastPosSample, to = { x = x, y = y, z = z },
+                    from = data.lastPosSample, to = serverCoords,
                     distance = math.floor(dist2d), seconds = math.floor(dt * 10) / 10
                 })
             elseif not inVehicle and not falling and speed > (logCfg.MaxOnFootSpeed or 11.0) then
@@ -1142,16 +1601,22 @@ RegisterNetEvent('cm-playerdata:server:updatePosition', function(coords)
                     speed_ms = math.floor(speed * 10) / 10,
                     distance = math.floor(dist2d * 10) / 10,
                     seconds = math.floor(dt * 10) / 10,
-                    at = { x = x, y = y, z = z }
+                    at = serverCoords
                 })
             end
         end
     end
 
-    data.lastPosSample = { x = x, y = y, z = z }
+    data.lastPosSample = { x = serverCoords.x, y = serverCoords.y, z = serverCoords.z }
     data.lastPosSampleTime = os.clock()
 
-    data.lastPosition = NormalizeCoords({ x = x, y = y, z = z, h = h })
+    local prevPos = data.lastPosition
+    data.lastPosition = serverCoords
+
+    if not prevPos or math.abs(serverCoords.x - prevPos.x) > 0.5 or math.abs(serverCoords.y - prevPos.y) > 0.5 then
+        data.revision = (data.revision or 1) + 1
+        data.dirty = true
+    end
 end)
 
 RegisterNetEvent('cm-playerdata:server:syncVitals', function(clientHealth, clientArmor)
@@ -1161,32 +1626,57 @@ RegisterNetEvent('cm-playerdata:server:syncVitals', function(clientHealth, clien
     if not data or not data.loaded or data.isDead then return end
 
     local previousHealth = tonumber(data.health) or Config.Vitals.MaxHealth
-    local serverHealth = GetServerPedHealth(src)
-    local nextHealth = Clamp(clientHealth or previousHealth, 0, Config.Vitals.MaxHealth)
-    local nextArmor = Clamp(clientArmor or 0, 0, Config.Vitals.MaxArmor)
+    local previousArmor = tonumber(data.armor) or 0
 
-    -- The client may report damage quickly, but never trust a huge healing jump from the client.
-    -- Healing/revive should come from server exports so jobs/admin/hospital scripts stay authoritative.
+    local ped = GetPlayerPed(src)
+    local serverHealth = GetServerPedHealth(src)
+    local serverArmor = nil
+    if ped and ped ~= 0 then
+        local ok, arm = pcall(GetPedArmour, ped)
+        if ok and arm then serverArmor = Clamp(arm, 0, Config.Vitals.MaxArmor) end
+    end
+
+    local nextHealth = Clamp(clientHealth or previousHealth, 0, Config.Vitals.MaxHealth)
+    local nextArmor = Clamp(clientArmor or previousArmor, 0, Config.Vitals.MaxArmor)
+
+    -- HEALTH RULES:
+    -- Never trust client healing jumps. Healing/revive must come from server exports.
     local maxPassiveHeal = math.max(0, tonumber(Config.Vitals.MaxPassiveHealDelta) or 0)
     if nextHealth > previousHealth + maxPassiveHeal then
         nextHealth = previousHealth
     end
 
-    -- Prefer server-observed ped health when available and lower than the client value.
+    -- Prefer server-observed ped health when available and lower than client reported
     if serverHealth and serverHealth < nextHealth then
         nextHealth = Clamp(serverHealth, 0, Config.Vitals.MaxHealth)
     end
 
-    -- Right after a revive/heal, a lower reading here is almost always one
-    -- stale sync still in flight from before the client actually applied the
-    -- new health, not real new damage -- see GuardVitalsAfterRevive.
+    -- Revive guard window: skip stale downward sync readings right after revive/heal
     if data.vitalsGuardUntil and GetGameTimer() < data.vitalsGuardUntil and nextHealth < previousHealth then
         nextHealth = previousHealth
+    end
+
+    -- ARMOR RULES:
+    -- Server authority: Client sync may ONLY report armor damage/decrease.
+    -- Armor INCREASE can only occur through server SetArmor/items/admin logic.
+    if nextArmor > previousArmor then
+        nextArmor = previousArmor
+    end
+
+    -- Prefer server-observed ped armor if lower
+    if serverArmor and serverArmor < nextArmor then
+        nextArmor = serverArmor
+    end
+
+    -- Armor guard window: skip stale downward sync readings right after SetArmor
+    if data.armorGuardUntil and GetGameTimer() < data.armorGuardUntil and nextArmor < previousArmor then
+        nextArmor = previousArmor
     end
 
     if nextHealth ~= data.health or nextArmor ~= data.armor then
         data.health = nextHealth
         data.armor = nextArmor
+        data.revision = (data.revision or 1) + 1
         data.dirty = true
         data.lastVitalsSync = GetGameTimer()
 
@@ -1955,14 +2445,21 @@ RegisterNetEvent('cm-playerdata:server:giveCashToPlayer', function(targetSrc, am
         return
     end
 
-    if not RemoveMoney(src, 'cash', amount, 'player_give_cash') then
-        NotifyPlayer(src, 'You do not have enough cash.', 'error')
+    local success, errCode = TransferMoneyBetweenPlayersAuthoritative(src, target, 'cash', amount, 'player_give_cash', {
+        interaction = 'give_cash',
+        maxGift = maxGift
+    })
+
+    if not success then
+        local msg = 'Cash transfer failed.'
+        if errCode == 'insufficient_funds' then
+            msg = 'You do not have enough cash.'
+        elseif errCode == 'money_busy' then
+            msg = 'A transaction is already in progress. Please wait.'
+        end
+        NotifyPlayer(src, msg, 'error')
         return
     end
-
-    AddMoney(target, 'cash', amount, 'player_receive_cash')
-    Audit(src, 'give_cash_to_player', { target_character_id = GetPublicCharacterId(target), amount = amount })
-    Audit(target, 'receive_cash_from_player', { from_character_id = GetPublicCharacterId(src), amount = amount })
 
     NotifyPlayer(src, ('You gave $%s cash to %s.'):format(amount, GetPublicPlayerLabel(target)), 'success')
     NotifyPlayer(target, ('%s gave you $%s cash.'):format(GetPublicPlayerLabel(src), amount), 'success')
@@ -2426,9 +2923,20 @@ exports('RemoveMoney', RemoveMoney)
 exports('CanAfford', CanAfford)
 exports('TransferMoney', TransferMoney)
 exports('TransferCashBetweenCharactersAtomic', function(fromSrc, toSrc, amount, reason, metadata)
-    local invoking = GetInvokingResource and GetInvokingResource() or nil
-    if invoking ~= 'cm-gang' then return false, 'untrusted_resource' end
     return TransferCashBetweenCharactersAtomic(fromSrc, toSrc, amount, reason, metadata)
+end)
+
+exports('TransferMoneyBetweenAuthoritative', function(fromSrc, toSrc, account, amount, reason, metadata)
+    return TransferMoneyBetweenPlayersAuthoritative(fromSrc, toSrc, account, amount, reason, metadata)
+end)
+
+exports('TransferMoneyBetween', function(fromSrc, toSrc, account, amount, reason, metadata)
+    local ok, err = TransferMoneyBetweenPlayersAuthoritative(fromSrc, toSrc, account, amount, reason, metadata)
+    return ok
+end)
+
+exports('TransferMoneyBetweenDetailed', function(fromSrc, toSrc, account, amount, reason, metadata)
+    return TransferMoneyBetweenPlayersAuthoritative(fromSrc, toSrc, account, amount, reason, metadata)
 end)
 
 exports('AddCash', function(src, amount, reason)
@@ -2533,17 +3041,22 @@ exports('SetHealth', function(src, health, reason)
     return true
 end)
 
-exports('SetArmor', function(src, armor, reason)
+local function SetArmor(src, armor, reason)
     src = tonumber(src)
     local data = src and PlayerData[src] or nil
     if not data or not data.loaded then return false end
     data.armor = Clamp(armor or 0, 0, Config.Vitals.MaxArmor)
+    data.revision = (data.revision or 1) + 1
     data.dirty = true
+    data.armorGuardUntil = GetGameTimer() + 4500
     SetState(src, 'armor', data.armor)
     PushUpdate(src, 'armor', data.armor)
+    TriggerClientEvent('cm-playerdata:client:setArmor', src, data.armor)
     Audit(src, 'set_armor', { armor = data.armor, reason = reason })
     return true
-end)
+end
+
+exports('SetArmor', SetArmor)
 
 exports('Heal', function(src, amountOrPercent, reason)
     src = tonumber(src)

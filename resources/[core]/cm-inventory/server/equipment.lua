@@ -185,6 +185,20 @@ local function syncEquipmentSlot(src, slot)
         Player(src).state:set('cm_masked', item ~= nil, true)
     end
 
+    if slot == 'bodyarmor' then
+        if item then
+            local md = item.metadata or {}
+            local armorVal = tonumber(md.armorValue or md.armor_value or md.durability or item.durability or 100) or 100
+            if GetResourceState('cm-playerdata') == 'started' then
+                pcall(function() exports['cm-playerdata']:SetArmor(src, armorVal, 'inventory_equip') end)
+            end
+        else
+            if GetResourceState('cm-playerdata') == 'started' then
+                pcall(function() exports['cm-playerdata']:SetArmor(src, 0, 'inventory_unequip') end)
+            end
+        end
+    end
+
     -- Weapon/ammo are linked: whenever either slot changes, push the real
     -- inventory ammo count to the client so GTA ammo never uses fake bullets.
     local ammoSlot = (Config.Ammo and Config.Ammo.slot) or 'ammo'

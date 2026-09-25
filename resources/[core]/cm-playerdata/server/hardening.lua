@@ -61,54 +61,15 @@ local function normalizeAccount(account)
 end
 
 -- Returns ok(boolean), errorMessage(string|nil).
--- fromSrc / toSrc are server IDs; they may differ (that's the whole point).
+-- Routes through the authoritative, atomic MySQL transaction implementation in main.lua.
 local function transferBetweenPlayers(fromSrc, toSrc, account, amount, reason, metadata)
-    fromSrc = tonumber(fromSrc)
-    toSrc = tonumber(toSrc)
-    account = normalizeAccount(account)
-    amount = normalizeAmount(amount)
-
-    if not fromSrc or not toSrc then return false, 'invalid_players' end
-    if fromSrc == toSrc then return false, 'same_player' end
-    if not account then return false, 'invalid_account' end
-    if not amount then return false, 'invalid_amount' end
-    if not isLoaded(fromSrc) or not isLoaded(toSrc) then return false, 'player_not_loaded' end
-
-    -- Affordability is checked by RemoveMoney itself (returns false if short),
-    -- but we check first to avoid a pointless state write.
-    local canAfford = exports[RESOURCE]:CanAfford(fromSrc, account, amount)
-    if not canAfford then return false, 'insufficient_funds' end
-
-    local reasonOut = reason or 'p2p_transfer_out'
-    local reasonIn = reason or 'p2p_transfer_in'
-    local meta = type(metadata) == 'table' and metadata or {}
-    meta.counterparty_character_id = charIdOf(toSrc)
-
-    -- Deduct leg. RemoveMoney is synchronous and atomic within the call.
-    if not exports[RESOURCE]:RemoveMoney(fromSrc, account, amount, reasonOut, meta) then
-        return false, 'deduct_failed'
+    local ok, res, err = pcall(function()
+        return exports[RESOURCE]:TransferMoneyBetweenAuthoritative(fromSrc, toSrc, account, amount, reason, metadata)
+    end)
+    if ok then
+        return res, err
     end
-
-    -- Credit leg. If it fails, refund the source and audit the anomaly loudly.
-    local creditMeta = { counterparty_character_id = charIdOf(fromSrc) }
-    if not exports[RESOURCE]:AddMoney(toSrc, account, amount, reasonIn, creditMeta) then
-        local refunded = exports[RESOURCE]:AddMoney(fromSrc, account, amount, 'p2p_transfer_refund', {
-            originalReason = reasonOut,
-            failedTarget = charIdOf(toSrc)
-        })
-        -- Record the failure regardless of refund success so money never silently vanishes.
-        pcall(function()
-            exports[RESOURCE]:GetPlayerData(fromSrc)  -- touch to ensure still loaded
-        end)
-        if not refunded then
-            print(('[CM-PLAYERDATA] CRITICAL: p2p transfer credit AND refund failed. from=%s to=%s amount=%d account=%s')
-                :format(tostring(charIdOf(fromSrc)), tostring(charIdOf(toSrc)), amount, account))
-            return false, 'credit_failed_refund_failed'
-        end
-        return false, 'credit_failed_refunded'
-    end
-
-    return true, nil
+    return false, 'transfer_unavailable'
 end
 
 -- Public export. Other resources (give-cash interaction, trade, shops) call this.
