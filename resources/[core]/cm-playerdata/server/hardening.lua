@@ -1,149 +1,19 @@
 -- cm-playerdata/server/hardening.lua
--- Additive hardening + future-proofing layer. Loads AFTER server/main.lua and
--- extends it purely through the existing exports and shared globals. It never
--- edits main.lua, keeping clean boundaries (same philosophy as cross-resource
--- integration: additive, reversible, low-risk).
---
--- Adds:
---   1. Player-to-player money transfer with atomic deduct/credit + audited
---      refund on failure (unblocks "give cash" between two different players).
---   2. Persistent identity-memory table (cm_known_identities) so remembered
---      names survive restarts and no longer bloat character metadata JSON.
---   3. A small set of read helpers other resources need for the feature roadmap.
+-- Additive extension helpers for CM Player Data.
+-- Roadmap read helpers (proximity, affiliation).
+-- Persistent identity and P2P transfers are authoritatively owned by server/main.lua.
 
 local RESOURCE = GetCurrentResourceName()
 
--- ---- Safe access to main.lua internals via its own exports --------------------
--- We deliberately go through exports rather than reaching into locals, so this
--- module stays decoupled and won't break if main.lua's internals move.
-
 local function getData(src)
-    -- GetRawPlayerData returns the live in-memory table (authoritative balances).
-    local ok, data = pcall(function() return exports[RESOURCE]:GetRawPlayerData(src) end)
+    local ok, data = pcall(function() return exports[RESOURCE]:GetPlayerData(src) end)
     if ok then return data end
     return nil
 end
 
-local function charIdOf(src)
-    local ok, id = pcall(function() return exports[RESOURCE]:GetCharacterId(src) end)
-    if ok then return id end
-    return nil
-end
-
-local function isLoaded(src)
-    local ok, loaded = pcall(function() return exports[RESOURCE]:IsLoaded(src) end)
-    return ok and loaded == true
-end
-
-local function notify(src, msg, kind)
-    TriggerClientEvent('cm-playerdata:client:notify', src, msg, kind or 'info')
-end
-
 -- =============================================================================
--- 1. PLAYER-TO-PLAYER MONEY TRANSFER
+-- ROADMAP READ HELPERS
 -- =============================================================================
--- The built-in TransferMoney only moves between accounts of the SAME player.
--- This moves an amount from one player's account to ANOTHER player's account,
--- with server-side validation and an audited refund if the credit leg fails.
-
-local MAX_TRANSFER = 100000000  -- hard ceiling; matches money normalization cap
-
-local function normalizeAmount(amount)
-    amount = math.floor(tonumber(amount) or 0)
-    if amount <= 0 or amount > MAX_TRANSFER then return nil end
-    return amount
-end
-
-local function normalizeAccount(account)
-    account = tostring(account or 'cash'):lower()
-    if account ~= 'cash' and account ~= 'bank' then return nil end
-    return account
-end
-
--- Returns ok(boolean), errorMessage(string|nil).
--- Routes through the authoritative, atomic MySQL transaction implementation in main.lua.
--- Note: TransferMoneyBetween and TransferMoneyBetweenDetailed authoritative exports
--- are defined in main.lua. Duplicate registration removed to eliminate dual export ownership.
-
--- =============================================================================
--- 2. PERSISTENT IDENTITY MEMORY  (cm_known_identities)
--- =============================================================================
--- main.lua stores known identities inside character metadata JSON. That works
--- but grows unbounded and can't be queried. This adds a relational table (the
--- one sketched in docs/FUTURE_EXTENSIONS) and mirrors writes into it, so names
--- remembered between two characters survive restarts and scale cleanly.
-
-local function ensureIdentityTable()
-    pcall(function()
-        MySQL.query.await([[
-            CREATE TABLE IF NOT EXISTS cm_known_identities (
-                owner_character_id BIGINT NOT NULL,
-                known_character_id BIGINT NOT NULL,
-                reason VARCHAR(32) NOT NULL DEFAULT 'met',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (owner_character_id, known_character_id),
-                INDEX idx_owner (owner_character_id)
-            )
-        ]])
-    end)
-end
-
--- Persist a directed "owner knows known" edge. Idempotent (upsert).
-local function persistKnown(ownerCharId, knownCharId, reason)
-    ownerCharId = tonumber(ownerCharId)
-    knownCharId = tonumber(knownCharId)
-    if not ownerCharId or not knownCharId or ownerCharId == knownCharId then return false end
-    pcall(function()
-        MySQL.query.await([[
-            INSERT INTO cm_known_identities (owner_character_id, known_character_id, reason)
-            VALUES (?, ?, ?)
-            ON DUPLICATE KEY UPDATE reason = VALUES(reason)
-        ]], { ownerCharId, knownCharId, tostring(reason or 'met'):sub(1, 32) })
-    end)
-    return true
-end
-
--- Export so main.lua's identity events (or any resource) can mirror into the table.
--- Call alongside the existing KnowPlayerIdentity so both layers stay in sync.
-exports('PersistKnownIdentity', function(ownerCharId, knownCharId, reason)
-    return persistKnown(ownerCharId, knownCharId, reason)
-end)
-
--- Load all character IDs a given owner already knows (for warm-loading on join).
-exports('GetKnownIdentities', function(ownerCharId)
-    ownerCharId = tonumber(ownerCharId)
-    if not ownerCharId then return {} end
-    local rows = {}
-    pcall(function()
-        rows = MySQL.query.await(
-            'SELECT known_character_id, reason, created_at FROM cm_known_identities WHERE owner_character_id = ?',
-            { ownerCharId }
-        ) or {}
-    end)
-    return rows
-end)
-
--- Combined export: mark identity known (in-memory, via main.lua) AND persist it
--- to the relational table in one call. Extension resources and the handshake/
--- shared-id flows should call THIS instead of KnowPlayerIdentity when they want
--- the memory to survive restarts. It degrades gracefully if either layer fails.
---
---   exports['cm-playerdata']:KnowPlayerIdentityPersistent(viewerSrc, targetSrc, 'handshake')
-exports('KnowPlayerIdentityPersistent', function(viewerSrc, targetSrc, reason)
-    local memOk = false
-    pcall(function()
-        memOk = exports[RESOURCE]:KnowPlayerIdentity(viewerSrc, targetSrc, reason) == true
-    end)
-    local owner, known = charIdOf(viewerSrc), charIdOf(targetSrc)
-    local dbOk = (owner and known) and persistKnown(owner, known, reason) or false
-    return memOk or dbOk
-end)
-
--- =============================================================================
--- 3. ROADMAP READ HELPERS
--- =============================================================================
--- Small conveniences the planned extension resources (medical, families, orgs,
--- police, trade) will want, so they never need to reach into playerdata internals.
 
 -- True if the two server IDs are within `maxDist` metres of each other, checked
 -- server-side. Extension resources should gate any player-to-player action on this.
@@ -152,9 +22,8 @@ exports('ArePlayersWithin', function(aSrc, bSrc, maxDist)
     maxDist = tonumber(maxDist) or 5.0
     if not aSrc or not bSrc then return false end
     local aPed, bPed = GetPlayerPed(aSrc), GetPlayerPed(bSrc)
-    if aPed == 0 or bPed == 0 then return false end
+    if not aPed or not bPed or aPed == 0 or bPed == 0 then return false end
     local ac, bc = GetEntityCoords(aPed), GetEntityCoords(bPed)
-    -- vector distance (cheaper than Vdist native)
     return #(ac - bc) <= maxDist
 end)
 
@@ -168,11 +37,4 @@ exports('GetAffiliation', function(src)
         familyId = m.family_id, family = m.family,
         organizationId = m.organization_id, organization = m.organization,
     }
-end)
-
-CreateThread(function()
-    -- Wait for main.lua's schema pass to have run, then add ours.
-    Wait(1500)
-    ensureIdentityTable()
-    print('[CM-PLAYERDATA] hardening layer ready: p2p transfer, persistent identity, roadmap helpers')
 end)

@@ -93,6 +93,12 @@ CMPlayerData.Config = {
         MaxSingleChange = 1000000000
     },
 
+    Metadata = {
+        MaxDepth = 8,
+        MaxStringLength = 4096,
+        MaxSerializedBytes = 65536
+    },
+
     Gameplay = {
         -- Player never gets tired: stamina is constantly restored.
         InfiniteStamina = true,

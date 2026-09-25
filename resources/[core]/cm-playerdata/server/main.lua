@@ -9,6 +9,8 @@ local PlayerData = {}
 local LoadLocks = {}
 local ActiveSaves = {}
 local CharacterSwitchLocks = {}
+local SavePlayerData -- pre-declared for forward references
+local KnownIdentityCache = {} -- [ownerCharId] = { [knownCharId] = true }
 local PendingHandshakes = {} -- [targetSrc] = { from = src, expires = ms }
 local PendingTreatments = {} -- [treaterSrc] = { target = src, startedAt = ms, duration = ms }
 local PendingTreatmentOffers = {} -- [targetSrc] = { from = src, expires = ms }
@@ -153,6 +155,76 @@ local function DecodeJson(value)
     if not value or value == '' then return nil end
     local ok, decoded = pcall(json.decode, value)
     return ok and decoded or nil
+end
+
+local function DeepCopy(val, visited)
+    if type(val) ~= 'table' then return val end
+    visited = visited or {}
+    if visited[val] then return visited[val] end
+    local copy = {}
+    visited[val] = copy
+    for k, v in pairs(val) do
+        copy[DeepCopy(k, visited)] = DeepCopy(v, visited)
+    end
+    return copy
+end
+
+local function ValidateAndCopyMetadataValue(val, depth, visited)
+    depth = depth or 1
+    visited = visited or {}
+
+    if val == nil then
+        return true, nil
+    end
+
+    local valType = type(val)
+    if valType == 'boolean' then
+        return true, val
+    elseif valType == 'number' then
+        if val ~= val or val == math.huge or val == -math.huge then
+            return false, 'invalid_number'
+        end
+        return true, val
+    elseif valType == 'string' then
+        local maxLen = (Config.Metadata and Config.Metadata.MaxStringLength) or 4096
+        if #val > maxLen then
+            return false, 'string_too_long'
+        end
+        return true, val
+    elseif valType == 'table' then
+        local maxDepth = (Config.Metadata and Config.Metadata.MaxDepth) or 8
+        if depth > maxDepth then
+            return false, 'max_depth_exceeded'
+        end
+        if visited[val] then
+            return false, 'cyclic_reference'
+        end
+        visited[val] = true
+
+        local copy = {}
+        for k, v in pairs(val) do
+            local kType = type(k)
+            if kType ~= 'string' and kType ~= 'number' then
+                visited[val] = nil
+                return false, 'invalid_key_type'
+            end
+            if kType == 'string' and #k > 128 then
+                visited[val] = nil
+                return false, 'key_too_long'
+            end
+            local okVal, copiedVal = ValidateAndCopyMetadataValue(v, depth + 1, visited)
+            if not okVal then
+                visited[val] = nil
+                return false, copiedVal
+            end
+            copy[k] = copiedVal
+        end
+
+        visited[val] = nil
+        return true, copy
+    else
+        return false, 'unsupported_type_' .. valType
+    end
 end
 
 local function NowMs()
@@ -384,14 +456,7 @@ local function SetWantedStars(src, stars)
     data.wantedStarChangedAt = GetGameTimer()
     MarkDirty(data)
     PushUpdate(src, 'wantedStars', stars)
-    local persisted, persistError = pcall(function()
-        MySQL.update.await('UPDATE characters SET metadata = ? WHERE id = ?', {
-            EncodeJson(data.metadata), data.charId
-        })
-    end)
-    if not persisted then
-        Log('error', 'Wanted state persistence failed', { src = src, error = tostring(persistError) })
-    end
+    SavePlayerData(src, 'wanted_stars')
     pcall(function() exports['cm-police']:SyncWantedStars(data.charId, stars) end)
     -- Auto-generated arrest warrant the moment max wanted is first reached
     -- (not on every subsequent tick while already at max). pcall-guarded,
@@ -402,65 +467,194 @@ local function SetWantedStars(src, stars)
     end
 end
 
-local function EnsureSchema()
-    local alters = {
-        "ALTER TABLE characters ADD COLUMN IF NOT EXISTS health INT DEFAULT 200",
-        "ALTER TABLE characters ADD COLUMN IF NOT EXISTS armor INT DEFAULT 0",
-        "ALTER TABLE characters ADD COLUMN IF NOT EXISTS is_dead TINYINT(1) DEFAULT 0",
-        "ALTER TABLE characters ADD COLUMN IF NOT EXISTS death_count INT DEFAULT 0",
-        "ALTER TABLE characters ADD COLUMN IF NOT EXISTS death_deadline_at BIGINT NULL",
-        "ALTER TABLE characters ADD COLUMN IF NOT EXISTS death_location LONGTEXT NULL",
-        "ALTER TABLE characters ADD COLUMN IF NOT EXISTS ambulance_called TINYINT(1) DEFAULT 0",
-        "ALTER TABLE characters ADD COLUMN IF NOT EXISTS death_reason VARCHAR(100) NULL",
-        "ALTER TABLE characters ADD COLUMN IF NOT EXISTS last_position LONGTEXT NULL",
-        "ALTER TABLE characters ADD COLUMN IF NOT EXISTS metadata LONGTEXT NULL"
-    }
+local MigrationsReady = false
 
-    for _, sql in ipairs(alters) do
-        pcall(function()
-            MySQL.query.await(sql)
-        end)
+local Migrations = {
+    {
+        version = 1,
+        name = '001_base_character_columns',
+        run = function()
+            local alters = {
+                "ALTER TABLE characters ADD COLUMN IF NOT EXISTS health INT DEFAULT 200",
+                "ALTER TABLE characters ADD COLUMN IF NOT EXISTS armor INT DEFAULT 0",
+                "ALTER TABLE characters ADD COLUMN IF NOT EXISTS is_dead TINYINT(1) DEFAULT 0",
+                "ALTER TABLE characters ADD COLUMN IF NOT EXISTS death_count INT DEFAULT 0",
+                "ALTER TABLE characters ADD COLUMN IF NOT EXISTS death_deadline_at BIGINT NULL",
+                "ALTER TABLE characters ADD COLUMN IF NOT EXISTS death_location LONGTEXT NULL",
+                "ALTER TABLE characters ADD COLUMN IF NOT EXISTS ambulance_called TINYINT(1) DEFAULT 0",
+                "ALTER TABLE characters ADD COLUMN IF NOT EXISTS death_reason VARCHAR(100) NULL",
+                "ALTER TABLE characters ADD COLUMN IF NOT EXISTS last_position LONGTEXT NULL",
+                "ALTER TABLE characters ADD COLUMN IF NOT EXISTS metadata LONGTEXT NULL"
+            }
+            for _, sql in ipairs(alters) do
+                MySQL.query.await(sql)
+            end
+            return true
+        end
+    },
+    {
+        version = 2,
+        name = '002_playerdata_audit_table',
+        run = function()
+            MySQL.query.await([[
+                CREATE TABLE IF NOT EXISTS playerdata_audit (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    character_id VARCHAR(64) NULL,
+                    action VARCHAR(64) NOT NULL,
+                    data LONGTEXT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_character_id (character_id),
+                    INDEX idx_action (action)
+                )
+            ]])
+            return true
+        end
+    },
+    {
+        version = 3,
+        name = '003_economy_transactions_table',
+        run = function()
+            MySQL.query.await([[
+                CREATE TABLE IF NOT EXISTS economy_transactions (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    character_id INT NULL,
+                    account_type VARCHAR(30) NOT NULL,
+                    amount BIGINT NOT NULL,
+                    action VARCHAR(30) NOT NULL,
+                    reason VARCHAR(100) NOT NULL,
+                    resource_name VARCHAR(100) NULL,
+                    balance_before BIGINT NOT NULL DEFAULT 0,
+                    balance_after BIGINT NOT NULL DEFAULT 0,
+                    metadata LONGTEXT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_character_account (character_id, account_type),
+                    INDEX idx_reason (reason),
+                    INDEX idx_created_at (created_at)
+                )
+            ]])
+            return true
+        end
+    },
+    {
+        version = 4,
+        name = '004_known_identities_table',
+        run = function()
+            MySQL.query.await([[
+                CREATE TABLE IF NOT EXISTS cm_known_identities (
+                    owner_character_id BIGINT NOT NULL,
+                    known_character_id BIGINT NOT NULL,
+                    reason VARCHAR(32) NOT NULL DEFAULT 'met',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (owner_character_id, known_character_id),
+                    INDEX idx_owner (owner_character_id)
+                )
+            ]])
+            return true
+        end
+    },
+    {
+        version = 5,
+        name = '005_migrate_metadata_known_identities',
+        run = function()
+            local rows = MySQL.query.await([[
+                SELECT id, metadata FROM characters
+                WHERE metadata LIKE '%knownIdentities%' OR metadata LIKE '%knownPlayers%'
+            ]]) or {}
+
+            for _, r in ipairs(rows) do
+                local charId = tonumber(r.id)
+                local meta = DecodeJson(r.metadata)
+                if charId and type(meta) == 'table' then
+                    local legacy = meta.knownIdentities or meta.knownPlayers
+                    if type(legacy) == 'table' then
+                        for k, v in pairs(legacy) do
+                            local knownId = tonumber(type(v) == 'table' and (v.characterId or v.charId) or k)
+                            local reason = type(v) == 'table' and v.reason or 'met'
+                            if knownId and knownId ~= charId then
+                                MySQL.query.await([[
+                                    INSERT INTO cm_known_identities (owner_character_id, known_character_id, reason)
+                                    VALUES (?, ?, ?)
+                                    ON DUPLICATE KEY UPDATE reason = VALUES(reason)
+                                ]], { charId, knownId, tostring(reason or 'met'):sub(1, 32) })
+                            end
+                        end
+                    end
+                    meta.knownIdentities = nil
+                    meta.knownPlayers = nil
+                    MySQL.update.await('UPDATE characters SET metadata = ? WHERE id = ?', {
+                        EncodeJson(meta), charId
+                    })
+                end
+            end
+            return true
+        end
+    }
+}
+
+local function RunMigrations()
+    local okTable, errTable = pcall(function()
+        MySQL.query.await([[
+            CREATE TABLE IF NOT EXISTS cm_playerdata_migrations (
+                version INT NOT NULL PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ]])
+    end)
+
+    if not okTable then
+        Log('error', 'CRITICAL: Failed to initialize cm_playerdata_migrations table', { error = tostring(errTable) })
+        MigrationsReady = false
+        return false
     end
 
-    pcall(function()
-        MySQL.query.await([[
-            CREATE TABLE IF NOT EXISTS playerdata_audit (
-                id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                character_id VARCHAR(64) NULL,
-                action VARCHAR(64) NOT NULL,
-                data LONGTEXT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_character_id (character_id),
-                INDEX idx_action (action)
-            )
-        ]])
+    local applied = {}
+    local okSelect, rows = pcall(function()
+        return MySQL.query.await('SELECT version FROM cm_playerdata_migrations')
     end)
+    if not okSelect or type(rows) ~= 'table' then
+        Log('error', 'CRITICAL: Failed to query cm_playerdata_migrations', { error = tostring(rows) })
+        MigrationsReady = false
+        return false
+    end
 
-    -- Transaction log for cash/bank changes. cm-playerdata owns balances;
-    -- cm-economy decides prices/payouts and calls these exports.
-    pcall(function()
-        MySQL.query.await([[
-            CREATE TABLE IF NOT EXISTS economy_transactions (
-                id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                character_id INT NULL,
-                account_type VARCHAR(30) NOT NULL,
-                amount BIGINT NOT NULL,
-                action VARCHAR(30) NOT NULL,
-                reason VARCHAR(100) NOT NULL,
-                resource_name VARCHAR(100) NULL,
-                balance_before BIGINT NOT NULL DEFAULT 0,
-                balance_after BIGINT NOT NULL DEFAULT 0,
-                metadata LONGTEXT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_character_account (character_id, account_type),
-                INDEX idx_reason (reason),
-                INDEX idx_created_at (created_at)
-            )
-        ]])
-    end)
+    for _, r in ipairs(rows) do
+        applied[tonumber(r.version)] = true
+    end
 
-    Debug('Schema checked')
+    for _, m in ipairs(Migrations) do
+        if not applied[m.version] then
+            print(('[CM-PLAYERDATA] Running migration %03d: %s...'):format(m.version, m.name))
+            local okRun, runErr = pcall(m.run)
+            if not okRun then
+                Log('error', ('CRITICAL: Migration %03d (%s) failed!'):format(m.version, m.name), { error = tostring(runErr) })
+                MigrationsReady = false
+                return false
+            end
+
+            local okRecord, recErr = pcall(function()
+                MySQL.insert.await('INSERT INTO cm_playerdata_migrations (version, name) VALUES (?, ?)', { m.version, m.name })
+            end)
+            if not okRecord then
+                Log('error', ('CRITICAL: Failed to record migration %03d (%s)'):format(m.version, m.name), { error = tostring(recErr) })
+                MigrationsReady = false
+                return false
+            end
+            print(('[CM-PLAYERDATA] Migration %03d (%s) applied successfully.'):format(m.version, m.name))
+        end
+    end
+
+    MigrationsReady = true
+    Debug('Database migrations verified and up to date')
+    return true
 end
+
+CreateThread(function()
+    while GetResourceState('oxmysql') ~= 'started' do
+        Wait(100)
+    end
+    RunMigrations()
+end)
 
 local function Audit(src, action, data)
     local charId = GetCharId(src)
@@ -631,7 +825,35 @@ end
 
 local SaveWaiters = {} -- charId -> array of promise objects
 
-local function SavePlayerData(src, reason)
+local function CharacterRowExists(charId)
+    local ok, value = pcall(function()
+        return MySQL.scalar.await(
+            'SELECT id FROM characters WHERE id = ? LIMIT 1',
+            { tostring(charId) }
+        )
+    end)
+
+    if not ok then
+        return nil, 'query_failed'
+    end
+
+    return value ~= nil, nil
+end
+
+local function FinishSave(charId, success)
+    ActiveSaves[charId] = nil
+
+    local waiters = SaveWaiters[charId]
+    SaveWaiters[charId] = nil
+
+    if waiters then
+        for _, waiter in ipairs(waiters) do
+            waiter:resolve(success == true)
+        end
+    end
+end
+
+SavePlayerData = function(src, reason)
     src = tonumber(src)
     local data = src and PlayerData[src] or nil
     if not data or not data.loaded or not data.charId then return false end
@@ -656,12 +878,11 @@ local function SavePlayerData(src, reason)
     -- Fail closed if JSON encoding of required tables fails; never silently persist corrupted/null state.
     local metadataJson = EncodeJson(data.metadata or {})
     if data.metadata ~= nil and not metadataJson then
-        ActiveSaves[charId] = nil
+        FinishSave(charId, false)
         Log('error', 'Save aborted: metadata JSON encoding failed', { src = src, charId = charId })
-        data.dirty = true
-        local waiters = SaveWaiters[charId]
-        SaveWaiters[charId] = nil
-        if waiters then for _, w in ipairs(waiters) do w:resolve(false) end end
+        if PlayerData[src] == expectedData and tostring(PlayerData[src].charId or '') == charId then
+            PlayerData[src].dirty = true
+        end
         return false
     end
 
@@ -669,12 +890,11 @@ local function SavePlayerData(src, reason)
     if data.deathLocation ~= nil then
         deathLocationJson = EncodeJson(data.deathLocation)
         if not deathLocationJson then
-            ActiveSaves[charId] = nil
+            FinishSave(charId, false)
             Log('error', 'Save aborted: deathLocation JSON encoding failed', { src = src, charId = charId })
-            data.dirty = true
-            local waiters = SaveWaiters[charId]
-            SaveWaiters[charId] = nil
-            if waiters then for _, w in ipairs(waiters) do w:resolve(false) end end
+            if PlayerData[src] == expectedData and tostring(PlayerData[src].charId or '') == charId then
+                PlayerData[src].dirty = true
+            end
             return false
         end
     end
@@ -683,12 +903,11 @@ local function SavePlayerData(src, reason)
     if data.lastPosition ~= nil then
         lastPositionJson = EncodeJson(data.lastPosition)
         if not lastPositionJson then
-            ActiveSaves[charId] = nil
+            FinishSave(charId, false)
             Log('error', 'Save aborted: lastPosition JSON encoding failed', { src = src, charId = charId })
-            data.dirty = true
-            local waiters = SaveWaiters[charId]
-            SaveWaiters[charId] = nil
-            if waiters then for _, w in ipairs(waiters) do w:resolve(false) end end
+            if PlayerData[src] == expectedData and tostring(PlayerData[src].charId or '') == charId then
+                PlayerData[src].dirty = true
+            end
             return false
         end
     end
@@ -790,24 +1009,18 @@ local function SavePlayerData(src, reason)
         if rowsAffected == 1 then
             saveSuccess = true
         elseif rowsAffected == 0 then
-            local exists = MySQL.scalar.await('SELECT id FROM characters WHERE id = ? LIMIT 1', { charId })
-            if exists and tostring(exists) == charId then
+            local exists, err = CharacterRowExists(charId)
+            if exists == true then
                 saveSuccess = true
-            else
+            elseif exists == false then
                 Log('error', 'SavePlayerData failed: character row missing in database', { src = src, charId = charId })
+            else
+                Log('error', 'SavePlayerData failed: database verification query failed', { src = src, charId = charId, error = tostring(err) })
             end
         end
     end
 
-    ActiveSaves[charId] = nil
-
-    local waiters = SaveWaiters[charId]
-    SaveWaiters[charId] = nil
-    if waiters then
-        for _, p in ipairs(waiters) do
-            p:resolve(saveSuccess)
-        end
-    end
+    FinishSave(charId, saveSuccess)
 
     if not saveSuccess then
         Log('error', 'SavePlayerData failed or affected row count mismatch', {
@@ -885,11 +1098,13 @@ local function SavePositionOnly(src)
         if rowsAffected == 1 then
             positionSuccess = true
         elseif rowsAffected == 0 then
-            local exists = MySQL.scalar.await('SELECT id FROM characters WHERE id = ? LIMIT 1', { charId })
-            if exists and tostring(exists) == charId then
+            local exists, err = CharacterRowExists(charId)
+            if exists == true then
                 positionSuccess = true
-            else
+            elseif exists == false then
                 Log('error', 'SavePositionOnly failed: character row missing in database', { src = src, charId = charId })
+            else
+                Log('error', 'SavePositionOnly failed: database verification query failed', { src = src, charId = charId, error = tostring(err) })
             end
         end
     end
@@ -955,6 +1170,9 @@ end
 local function ClearPlayerData(src)
     local oldData = PlayerData[src]
     if oldData then
+        if oldData.charId then
+            ClearIdentityCache(oldData.charId)
+        end
         local safeData = ClonePlayerData(oldData)
         TriggerEvent('cm-playerdata:server:characterUnloaded', src, safeData)
         TriggerClientEvent('cm-playerdata:client:characterUnloaded', src, safeData)
@@ -986,6 +1204,16 @@ end
 local function LoadPlayerData(src, explicitCharId)
     src = tonumber(src)
     if not src or src <= 0 then return false end
+
+    local waitCount = 0
+    while not MigrationsReady and waitCount < 50 do
+        Wait(100)
+        waitCount = waitCount + 1
+    end
+    if not MigrationsReady then
+        Log('error', 'LoadPlayerData rejected: database migrations not ready', { src = src })
+        return false, 'database_not_ready'
+    end
 
     if LoadLocks[src] then
         Debug(('Load already in progress for src=%s'):format(src))
@@ -1165,6 +1393,7 @@ local function LoadPlayerData(src, explicitCharId)
         src, charId, PlayerData[src].health, PlayerData[src].armor, tostring(PlayerData[src].isDead)
     ))
 
+    WarmIdentityCache(charId)
     NotifyLoaded(src)
     pcall(function() exports['cm-police']:SyncWantedStars(charId, wantedStars) end)
 
@@ -1670,7 +1899,7 @@ end
 AddEventHandler('onResourceStart', function(resourceName)
     if resourceName ~= GetCurrentResourceName() then return end
     Wait(500)
-    EnsureSchema()
+    RunMigrations()
     Log('info', 'CM PlayerData v1.8.5 started')
 
     -- Restart resilience: if this resource was live-restarted with players
@@ -2002,11 +2231,8 @@ local function GetKilledByInfo(victimSrc, killerSrc)
     if not privacyMode then
         label = ('%s %s'):format(killerData.firstName or '', killerData.lastName or '')
     else
-        victimData.metadata = victimData.metadata or {}
-        local known = victimData.metadata.knownIdentities or {}
-        local entry = known[tostring(killerData.charId)]
-        if entry and entry.name then
-            label = entry.name
+        if IsKnownByMemory(victimData, killerData) then
+            label = ('%s %s'):format(killerData.firstName or '', killerData.lastName or '')
         end
     end
 
@@ -2413,40 +2639,95 @@ local function GetGangTag(src)
     return type(gang) == 'table' and CleanTag(gang.gangId) or nil
 end
 
-local function IsKnownByMemory(viewerData, targetData)
-    if not viewerData or not targetData then return false end
-    local metadata = viewerData.metadata or {}
-    local known = metadata.knownIdentities or metadata.knownPlayers or {}
-    local targetCharId = tostring(targetData.charId or '')
-    if targetCharId == '' then return false end
-    return known[targetCharId] ~= nil or known[tonumber(targetCharId)] ~= nil
+local function WarmIdentityCache(charId)
+    charId = tonumber(charId)
+    if not charId then return end
+    local cache = {}
+    local ok, rows = pcall(function()
+        return MySQL.query.await('SELECT known_character_id FROM cm_known_identities WHERE owner_character_id = ?', { charId })
+    end)
+    if ok and type(rows) == 'table' then
+        for _, row in ipairs(rows) do
+            local targetId = tonumber(row.known_character_id)
+            if targetId then
+                cache[targetId] = true
+            end
+        end
+    end
+    KnownIdentityCache[charId] = cache
 end
 
-local function EnsureKnownTable(data)
-    data.metadata = data.metadata or {}
-    data.metadata.knownIdentities = data.metadata.knownIdentities or {}
-    return data.metadata.knownIdentities
+local function ClearIdentityCache(charId)
+    charId = tonumber(charId)
+    if charId then
+        KnownIdentityCache[charId] = nil
+    end
+end
+
+local function PersistKnownIdentityRelation(ownerCharId, knownCharId, reason)
+    ownerCharId = tonumber(ownerCharId)
+    knownCharId = tonumber(knownCharId)
+    if not ownerCharId or not knownCharId or ownerCharId == knownCharId then
+        return false, 'invalid_ids'
+    end
+
+    local ok, err = pcall(function()
+        return MySQL.query.await([[
+            INSERT INTO cm_known_identities (owner_character_id, known_character_id, reason)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE reason = VALUES(reason)
+        ]], { ownerCharId, knownCharId, tostring(reason or 'met'):sub(1, 32) })
+    end)
+
+    if not ok then
+        Log('error', 'Failed to persist known identity relation', {
+            owner = ownerCharId, known = knownCharId, error = tostring(err)
+        })
+        return false, 'database_error'
+    end
+
+    if not KnownIdentityCache[ownerCharId] then
+        KnownIdentityCache[ownerCharId] = {}
+    end
+    KnownIdentityCache[ownerCharId][knownCharId] = true
+
+    return true, nil
+end
+
+local function IsKnownByMemory(viewerData, targetData)
+    if not viewerData or not targetData then return false end
+    local viewerCharId = tonumber(viewerData.charId)
+    local targetCharId = tonumber(targetData.charId)
+    if not viewerCharId or not targetCharId then return false end
+
+    local cache = KnownIdentityCache[viewerCharId]
+    if cache and cache[targetCharId] == true then
+        return true
+    end
+    return false
 end
 
 local function MarkIdentityKnown(viewerSrc, targetSrc, reason)
     viewerSrc = tonumber(viewerSrc)
     targetSrc = tonumber(targetSrc)
-    if not viewerSrc or not targetSrc then return false end
+    if not viewerSrc or not targetSrc then return false, 'invalid_sources' end
 
     local viewerData = PlayerData[viewerSrc]
     local targetData = PlayerData[targetSrc]
-    if not CanMutate(viewerData) or not targetData then return false end
+    if not CanMutate(viewerData) or not targetData then
+        return false, 'invalid_state'
+    end
 
-    local known = EnsureKnownTable(viewerData)
-    known[tostring(targetData.charId)] = {
-        characterId = tonumber(targetData.charId),
-        name = GetFullName(targetData),
-        reason = reason or 'known',
-        time = os.time()
-    }
+    local ownerCharId = tonumber(viewerData.charId)
+    local knownCharId = tonumber(targetData.charId)
+    if not ownerCharId or not knownCharId then return false, 'missing_char_id' end
 
-    MarkDirty(viewerData)
-    return true
+    local success, err = PersistKnownIdentityRelation(ownerCharId, knownCharId, reason)
+    if not success then
+        return false, err
+    end
+
+    return true, nil
 end
 
 local function BuildIdentityForViewer(viewerSrc, targetSrc)
@@ -2993,12 +3274,10 @@ RegisterNetEvent('cm-playerdata:server:handshakeResponse', function(accepted)
         return
     end
 
-    MarkIdentityKnown(src, from, 'handshake')
-    MarkIdentityKnown(from, src, 'handshake')
-    SavePlayerData(src, 'identity_handshake')
-    SavePlayerData(from, 'identity_handshake')
-    PushIdentityUpdate(src, from)
-    PushIdentityUpdate(from, src)
+    local ok1 = MarkIdentityKnown(src, from, 'handshake')
+    local ok2 = MarkIdentityKnown(from, src, 'handshake')
+    if ok1 then PushIdentityUpdate(src, from) end
+    if ok2 then PushIdentityUpdate(from, src) end
     NotifyPlayer(src, ('You shook hands with %s. Their name is now visible to you.'):format(GetFullName(PlayerData[from])), 'success')
     NotifyPlayer(from, ('You shook hands with %s. Their name is now visible to you.'):format(GetFullName(PlayerData[src])), 'success')
     -- Paired handshake emote, each facing the other.
@@ -3008,12 +3287,49 @@ RegisterNetEvent('cm-playerdata:server:handshakeResponse', function(accepted)
 end)
 
 exports('KnowPlayerIdentity', function(viewerSrc, targetSrc, reason)
-    local ok = MarkIdentityKnown(viewerSrc, targetSrc, reason or 'export')
+    local ok, err = MarkIdentityKnown(viewerSrc, targetSrc, reason or 'export')
     if ok then
-        SavePlayerData(viewerSrc, 'identity_export')
         PushIdentityUpdate(viewerSrc, targetSrc)
     end
-    return ok
+    return ok == true
+end)
+
+exports('KnowPlayerIdentityPersistent', function(viewerSrc, targetSrc, reason)
+    local ok, err = MarkIdentityKnown(viewerSrc, targetSrc, reason or 'export')
+    if ok then
+        PushIdentityUpdate(viewerSrc, targetSrc)
+    end
+    return ok == true, err
+end)
+
+exports('PersistKnownIdentity', function(ownerCharId, knownCharId, reason)
+    return PersistKnownIdentityRelation(ownerCharId, knownCharId, reason)
+end)
+
+exports('GetKnownIdentities', function(srcOrCharId)
+    local charId = tonumber(srcOrCharId)
+    if not charId then
+        local data = PlayerData[tonumber(srcOrCharId)]
+        charId = data and tonumber(data.charId)
+    end
+    if not charId then return {} end
+    local cache = KnownIdentityCache[charId]
+    if cache then
+        local copy = {}
+        for k, v in pairs(cache) do copy[k] = v end
+        return copy
+    end
+    local ok, rows = pcall(function()
+        return MySQL.query.await('SELECT known_character_id FROM cm_known_identities WHERE owner_character_id = ?', { charId })
+    end)
+    local result = {}
+    if ok and type(rows) == 'table' then
+        for _, r in ipairs(rows) do
+            local id = tonumber(r.known_character_id)
+            if id then result[id] = true end
+        end
+    end
+    return result
 end)
 
 exports('SetOrganization', function(src, orgId, orgName)
@@ -3064,8 +3380,8 @@ exports('GetCharacterData', function(src)
 end)
 
 exports('GetRawPlayerData', function(src)
-    -- Internal/server-only compatibility export. Prefer GetPlayerData/GetCharacterData.
-    return PlayerData[tonumber(src)]
+    -- Defensive clone to prevent external mutation of live PlayerData
+    return ClonePlayerData(PlayerData[tonumber(src)])
 end)
 
 exports('GetCharId', function(src)
@@ -3227,20 +3543,52 @@ exports('RemoveBank', function(src, amount, reason)
     return RemoveMoney(src, 'bank', amount, reason or 'remove_bank')
 end)
 
-exports('SetMetadata', function(src, key, value)
-    local data = PlayerData[src]
-    if not CanMutate(data) then return false end
-    data.metadata = data.metadata or {}
-    data.metadata[key] = value
+local function SetMetadataInternal(src, key, value)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    if not CanMutate(data) then
+        return false, 'cannot_mutate'
+    end
+
+    if type(key) ~= 'string' or key == '' or #key > 128 then
+        return false, 'invalid_key'
+    end
+
+    local okVal, cleanedValue = ValidateAndCopyMetadataValue(value, 1, {})
+    if not okVal then
+        return false, cleanedValue
+    end
+
+    local tempMeta = DeepCopy(data.metadata or {})
+    tempMeta[key] = cleanedValue
+    local serialized = EncodeJson(tempMeta)
+    local maxBytes = (Config.Metadata and Config.Metadata.MaxSerializedBytes) or 65536
+    if not serialized or #serialized > maxBytes then
+        return false, 'max_bytes_exceeded'
+    end
+
+    data.metadata = tempMeta
     MarkDirty(data)
-    return true
+    return true, nil
+end
+
+exports('SetMetadata', function(src, key, value)
+    local ok = SetMetadataInternal(src, key, value)
+    return ok == true
+end)
+
+exports('SetMetadataDetailed', function(src, key, value)
+    return SetMetadataInternal(src, key, value)
 end)
 
 exports('GetMetadata', function(src, key)
-    local data = PlayerData[src]
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
     if not data or not data.metadata then return nil end
-    if key == nil then return data.metadata end
-    return data.metadata[key]
+    if key == nil then
+        return DeepCopy(data.metadata)
+    end
+    return DeepCopy(data.metadata[key])
 end)
 
 exports('IsDead', function(src)
