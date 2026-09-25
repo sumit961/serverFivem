@@ -258,6 +258,10 @@ local function MarkDirty(data)
     return data.revision
 end
 
+local function CanMutate(data)
+    return data ~= nil and data.loaded == true and data.switching ~= true
+end
+
 local function ValidateCharacterOwnership(src, charId)
     src = tonumber(src)
     charId = tostring(charId or '')
@@ -338,7 +342,7 @@ end
 -- none of those call sites can drift out of sync with each other.
 local function SetWantedStars(src, stars)
     local data = PlayerData[src]
-    if not data then return end
+    if not CanMutate(data) then return end
     local maxStars = (Config.WantedStars and Config.WantedStars.Max) or 6
     stars = math.max(0, math.min(maxStars, math.floor(tonumber(stars) or 0)))
     if data.wantedStars == stars then return end
@@ -684,10 +688,10 @@ local function SavePlayerData(src, reason)
     -- Ordinary full SavePlayerData EXCLUDES cash and bank to guarantee a long-running
     -- full save can NEVER overwrite a newer balance updated during MySQL yield.
     local immediateMoney = (Config.Money and Config.Money.ImmediateSave) ~= false
-    local ok, err
+    local ok, updateResult
 
     if immediateMoney then
-        ok, err = pcall(function()
+        ok, updateResult = pcall(function()
             return MySQL.update.await([[
                 UPDATE characters SET
                     health = ?,
@@ -716,7 +720,7 @@ local function SavePlayerData(src, reason)
             })
         end)
     else
-        ok, err = pcall(function()
+        ok, updateResult = pcall(function()
             return MySQL.update.await([[
                 UPDATE characters SET
                     cash = ?,
@@ -750,18 +754,30 @@ local function SavePlayerData(src, reason)
         end)
     end
 
+    local rowsAffected = ok and tonumber(updateResult) or 0
+    local saveSuccess = (ok == true and rowsAffected == 1)
+
     ActiveSaves[charId] = nil
 
     local waiters = SaveWaiters[charId]
     SaveWaiters[charId] = nil
     if waiters then
         for _, p in ipairs(waiters) do
-            p:resolve(ok == true)
+            p:resolve(saveSuccess)
         end
     end
 
-    if not ok then
-        Log('error', 'Save failed', { src = src, charId = charId, reason = reason, error = tostring(err) })
+    if not saveSuccess then
+        Log('error', 'SavePlayerData failed or affected row count mismatch', {
+            src = src,
+            charId = charId,
+            reason = reason,
+            ok = ok,
+            affectedRows = tostring(updateResult)
+        })
+        if PlayerData[src] and tostring(PlayerData[src].charId or '') == charId then
+            PlayerData[src].dirty = true
+        end
         return false
     end
 
@@ -769,6 +785,7 @@ local function SavePlayerData(src, reason)
     local current = PlayerData[src]
     if current and tostring(current.charId or '') == charId and GetPlayerPing(src) > 0 then
         current.persistedPosition = snapshot.lastPosition
+        current.persistedRevision = savedRevision
         if current.revision == savedRevision and not current.saveQueued then
             current.dirty = false
         else
@@ -813,20 +830,69 @@ local function SavePositionOnly(src)
     end
 
     local charId = tostring(data.charId)
-    local ok, err = pcall(function()
-        MySQL.update.await(
+    local ok, affected = pcall(function()
+        return MySQL.update.await(
             'UPDATE characters SET last_position = ? WHERE id = ?',
             { EncodeJson(current), charId }
         )
     end)
 
-    if ok then
+    if ok and tonumber(affected) == 1 then
         data.persistedPosition = current
         return true
     else
-        Log('error', 'Position save failed', { src = src, charId = charId, error = tostring(err) })
+        Log('error', 'Position save failed or affected rows mismatch', {
+            src = src, charId = charId, ok = ok, affectedRows = tostring(affected)
+        })
         return false
     end
+end
+
+local function FlushPlayerData(src, reason)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    if not data or not data.loaded or not data.charId then return true end
+
+    local charId = tostring(data.charId)
+    local maxRetries = 20
+    local retries = 0
+
+    while retries < maxRetries do
+        if not ActiveSaves[charId] and not data.dirty and (tonumber(data.persistedRevision) == tonumber(data.revision)) then
+            return true
+        end
+
+        if ActiveSaves[charId] then
+            local p = promise.new()
+            SaveWaiters[charId] = SaveWaiters[charId] or {}
+            table.insert(SaveWaiters[charId], p)
+            local ok = Citizen.Await(p)
+            if not ok and (not ActiveSaves[charId] and data.dirty) then
+                Citizen.Wait(100)
+            end
+        else
+            local saved = SavePlayerData(src, reason or 'flush')
+            if not saved then
+                Citizen.Wait(100)
+            end
+        end
+
+        retries = retries + 1
+    end
+
+    local flushed = (not ActiveSaves[charId] and not data.dirty and (tonumber(data.persistedRevision) == tonumber(data.revision)))
+    if not flushed then
+        Log('error', 'FlushPlayerData timeout / incomplete flush', {
+            src = src,
+            charId = charId,
+            reason = reason,
+            dirty = data.dirty,
+            activeSave = ActiveSaves[charId] == true,
+            revision = data.revision,
+            persistedRevision = data.persistedRevision
+        })
+    end
+    return flushed
 end
 
 local function ClearPlayerData(src)
@@ -900,24 +966,19 @@ local function LoadPlayerData(src, explicitCharId)
             local oldData = PlayerData[src]
             oldData.switching = true -- block concurrent mutations for old character
 
-            -- Await any in-flight save on old character
-            while ActiveSaves[oldCharId] do
-                local p = promise.new()
-                SaveWaiters[oldCharId] = SaveWaiters[oldCharId] or {}
-                table.insert(SaveWaiters[oldCharId], p)
-                Citizen.Await(p)
-            end
+            -- Authoritatively flush old character to DB
+            local flushOk = FlushPlayerData(src, 'character_switch')
 
-            -- Force final persistence of old character
-            local saveSuccess = true
-            if oldData.dirty or (oldData.revision and oldData.revision > 1) then
-                saveSuccess = SavePlayerData(src, 'character_switch')
-            end
-
-            if not saveSuccess or oldData.dirty then
+            if not flushOk or oldData.dirty or (tonumber(oldData.persistedRevision) ~= tonumber(oldData.revision)) then
                 -- CRITICAL: Fail closed! Do NOT discard old character if persistence failed.
-                Log('error', 'Character switch ABORTED: failed to save character A', {
-                    src = src, oldCharId = oldCharId, newCharId = charId, saveSuccess = saveSuccess, dirty = oldData.dirty
+                Log('error', 'Character switch ABORTED: failed to flush character A', {
+                    src = src,
+                    oldCharId = oldCharId,
+                    newCharId = charId,
+                    flushOk = flushOk,
+                    dirty = oldData.dirty,
+                    revision = oldData.revision,
+                    persistedRevision = oldData.persistedRevision
                 })
                 oldData.switching = nil
                 CharacterSwitchLocks[src] = nil
@@ -1031,7 +1092,8 @@ local function LoadPlayerData(src, explicitCharId)
 
         loaded = true,
         dirty = dirtyAfterLoad,
-        revision = 1,
+        revision = dirtyAfterLoad and 2 or 1,
+        persistedRevision = 1,
         lastVitalsSync = GetGameTimer(),
         armorGuardUntil = GetGameTimer() + 5000
     }
@@ -1075,6 +1137,9 @@ local function TransferMoneyBetweenPlayersAuthoritative(fromSrc, toSrc, account,
     if not fromData or not fromData.loaded or not toData or not toData.loaded then
         return false, 'player_not_loaded'
     end
+    if not CanMutate(fromData) or not CanMutate(toData) then
+        return false, 'character_switching'
+    end
 
     local fromCharId = tostring(fromData.charId or '')
     local toCharId = tostring(toData.charId or '')
@@ -1116,21 +1181,22 @@ local function TransferMoneyBetweenPlayersAuthoritative(fromSrc, toSrc, account,
 
     -- Single atomic self-join UPDATE query:
     -- In MySQL/MariaDB, updating joined rows in a single statement guarantees atomicity.
-    -- If fromChar has insufficient funds, 0 rows match the WHERE clause.
-    -- If either character row is missing, 0 rows match the join.
-    -- If and ONLY IF both exist and fromChar has enough balance, affectedRows is EXACTLY 2.
-    local query = ('UPDATE characters c1 JOIN characters c2 ON c2.id = ? SET c1.%s = c1.%s - ?, c2.%s = c2.%s + ? WHERE c1.id = ? AND c1.%s >= ?'):format(account, account, account, account, account)
+    -- We verify BOTH sender and recipient database balances equal expected runtime balances.
+    -- If either sender or recipient balance is stale in the DB, 0 rows match the join/where condition.
+    -- If and ONLY IF both exist and both DB balances match expected runtime balances, affectedRows is EXACTLY 2.
+    local query = ('UPDATE characters c1 JOIN characters c2 ON c2.id = ? AND c2.%s = ? SET c1.%s = ?, c2.%s = ? WHERE c1.id = ? AND c1.%s = ?'):format(account, account, account, account)
     local updateOk, affectedRows = pcall(function()
-        return MySQL.update.await(query, { toCharId, amount, amount, fromCharId, amount })
+        return MySQL.update.await(query, { toCharId, toBefore, fromAfter, toAfter, fromCharId, fromBefore })
     end)
 
     if not updateOk or tonumber(affectedRows) ~= 2 then
         releaseLocks()
-        Log('error', 'Authoritative P2P money transfer failed: affected rows mismatch or SQL error', {
+        Log('error', 'Authoritative P2P money transfer failed: balance mismatch, missing row, or SQL error', {
             from = fromCharId, to = toCharId, account = account, amount = amount,
+            fromBefore = fromBefore, toBefore = toBefore,
             updateOk = updateOk, affectedRows = tostring(affectedRows)
         })
-        return false, 'persistence_failed_or_stale_balance'
+        return false, 'stale_balance'
     end
 
     -- Atomic persistence proven! Update in-memory balances and revision tracking:
@@ -1156,7 +1222,7 @@ local function TransferMoneyBetweenPlayersAuthoritative(fromSrc, toSrc, account,
     toMeta.counterparty_character_id = fromCharId
     toMeta.counterparty_source = fromSrc
 
-    pcall(function()
+    local auditOk, auditErr = pcall(function()
         MySQL.insert.await([[
             INSERT INTO economy_transactions
                 (character_id, account_type, amount, action, reason, resource_name, balance_before, balance_after, metadata)
@@ -1176,6 +1242,11 @@ local function TransferMoneyBetweenPlayersAuthoritative(fromSrc, toSrc, account,
             callingResource, toBefore, toAfter, EncodeJson(toMeta)
         })
     end)
+    if not auditOk then
+        Log('error', 'CRITICAL AUDIT FAILURE: money transferred but audit record failed', {
+            from = fromCharId, to = toCharId, account = account, amount = amount, error = tostring(auditErr)
+        })
+    end
 
     TriggerEvent('cm-playerdata:server:moneyChanged', fromSrc, account, fromBefore, fromAfter, reason or 'p2p_transfer_out')
     TriggerClientEvent('cm-playerdata:client:moneyChanged', fromSrc, account, fromBefore, fromAfter, reason or 'p2p_transfer_out')
@@ -1192,7 +1263,7 @@ local function SetMoney(src, account, value, reason, metadata)
     src = tonumber(src)
     local data = src and PlayerData[src] or nil
     account = NormalizeAccount(account)
-    if not data or not data.loaded or not account or MoneyMutationLocks[src] then return false end
+    if not CanMutate(data) or not account or MoneyMutationLocks[src] then return false end
 
     local before = tonumber(data[account]) or 0
     local after = math.max(0, math.floor(tonumber(value) or 0))
@@ -1255,7 +1326,7 @@ local function AddMoney(src, account, amount, reason, metadata)
     local data = src and PlayerData[src] or nil
     account = NormalizeAccount(account)
     amount = NormalizeAmount(amount)
-    if not data or not data.loaded or not account or not amount or MoneyMutationLocks[src] then return false end
+    if not CanMutate(data) or not account or not amount or MoneyMutationLocks[src] then return false end
 
     local before = tonumber(data[account]) or 0
     local after = before + amount
@@ -1316,7 +1387,7 @@ local function RemoveMoney(src, account, amount, reason, metadata)
     local data = src and PlayerData[src] or nil
     account = NormalizeAccount(account)
     amount = NormalizeAmount(amount)
-    if not data or not data.loaded or not account or not amount or MoneyMutationLocks[src] then return false end
+    if not CanMutate(data) or not account or not amount or MoneyMutationLocks[src] then return false end
 
     local before = tonumber(data[account]) or 0
     if before < amount then return false end
@@ -1390,7 +1461,7 @@ local function TransferMoney(src, fromAccount, toAccount, amount, reason, metada
     if not src or not fromAccount or not toAccount or not amount or fromAccount == toAccount then return false end
 
     local data = PlayerData[src]
-    if not data or not data.loaded then return false end
+    if not CanMutate(data) then return false end
 
     if MoneyMutationLocks[src] then return false end
     MoneyMutationLocks[src] = true
@@ -1494,7 +1565,7 @@ end
 
 local function SetDead(src, isDead, reason)
     local data = PlayerData[src]
-    if not data then return false end
+    if not CanMutate(data) then return false end
 
     local wasDead = data.isDead == true
     data.isDead = isDead == true
@@ -1661,8 +1732,12 @@ end)
 
 AddEventHandler('playerDropped', function()
     local src = source
-    local data=PlayerData[src];if data and data.charId then SupplyWarDeathContexts[tostring(data.charId)]=nil end
-    SavePlayerData(src, 'drop')
+    local data = PlayerData[src]
+    if data and data.charId then
+        SupplyWarDeathContexts[tostring(data.charId)] = nil
+        data.switching = true
+        FlushPlayerData(src, 'drop')
+    end
     ClearPlayerData(src)
     PendingHandshakes[src] = nil
     PendingTreatments[src] = nil
@@ -1679,7 +1754,7 @@ RegisterNetEvent('cm-playerdata:server:updatePosition', function(coords)
     local src = source
     if not RateLimit(src, 'position', 1000) then return end
     local data = PlayerData[src]
-    if not data or not data.loaded or data.isDead == true then return end
+    if not CanMutate(data) or data.isDead == true then return end
 
     -- Routing bucket check: ignore updates while in isolated dimensions (e.g. selector bucket)
     local bucket = GetPlayerRoutingBucket(src)
@@ -1763,7 +1838,7 @@ RegisterNetEvent('cm-playerdata:server:syncVitals', function(clientHealth, clien
     local src = source
     if not RateLimit(src, 'vitals', 1000) then return end
     local data = PlayerData[src]
-    if not data or not data.loaded or data.isDead then return end
+    if not CanMutate(data) or data.isDead then return end
 
     local previousHealth = tonumber(data.health) or Config.Vitals.MaxHealth
     local previousArmor = tonumber(data.armor) or 0
@@ -1910,7 +1985,7 @@ RegisterNetEvent('cm-playerdata:server:playerDied', function(killerSrc, weaponHa
     if not RateLimit(src, 'death', 1000) then return end
 
     local data = PlayerData[src]
-    if not data or not data.loaded or data.isDead then return end
+    if not CanMutate(data) or data.isDead then return end
 
     local serverHealth = GetServerPedHealth(src)
     local reportedHealth = tonumber(data.health) or Config.Vitals.MaxHealth
@@ -2010,7 +2085,7 @@ local function RequestAmbulance(src, reason, metadata)
     if not RateLimit(src, 'ambulance', 2000) then return false, 'rate_limited' end
 
     local data = PlayerData[src]
-    if not data or not data.isDead or not data.deathDeadline then return false, 'not_dead' end
+    if not CanMutate(data) or not data.isDead or not data.deathDeadline then return false, 'not_dead' end
     if data.ambulanceCalled then return false, 'already_called' end
 
     data.ambulanceCalled = true
@@ -2050,7 +2125,7 @@ local function ProtectDeathTimer(src, minimumRemainingMs, etaMs, label, token)
     minimumRemainingMs = math.max(0, math.floor(tonumber(minimumRemainingMs) or 0))
     etaMs = math.max(0, math.floor(tonumber(etaMs) or 0))
     local data = src and PlayerData[src] or nil
-    if not data or not data.loaded or not data.isDead or not data.deathDeadline then
+    if not CanMutate(data) or not data.isDead or not data.deathDeadline then
         return false, 'not_dead'
     end
 
@@ -2083,7 +2158,7 @@ end
 local function ReleaseDeathTimerProtection(src, token, label)
     src = tonumber(src)
     local data = src and PlayerData[src] or nil
-    if not data or not data.emsProtection then return false end
+    if not CanMutate(data) or not data.emsProtection then return false end
     if token and tostring(token) ~= tostring(data.emsProtection.token) then return false end
     data.emsProtection = nil
     ApplyState(src)
@@ -2122,7 +2197,7 @@ RegisterNetEvent('cm-playerdata:server:chooseDie', function()
     if not RateLimit(src, 'choose_die', 2000) then return end
 
     local data = PlayerData[src]
-    if not data or not data.isDead then return end
+    if not CanMutate(data) or not data.isDead then return end
 
     -- Per design: no time change, the death screen stays until bleed-out ends.
     data.dieChosen = true
@@ -2135,7 +2210,7 @@ RegisterNetEvent('cm-playerdata:server:requestRespawn', function()
     local src = source
     if not RateLimit(src, 'respawn', 2000) then return end
     local data = PlayerData[src]
-    if not data or not data.isDead then return end
+    if not CanMutate(data) or not data.isDead then return end
 
     -- Client can request respawn when its UI reaches 00:00, but the server
     -- remains authoritative. Ignore early client-triggered respawn attempts.
@@ -2152,7 +2227,7 @@ RegisterNetEvent('cm-playerdata:server:finishedOff', function()
     local src = source
     if not RateLimit(src, 'finished_off', 1000) then return end
     local data = PlayerData[src]
-    if not data or not data.isDead then return end
+    if not CanMutate(data) or not data.isDead then return end
 
     data.deathDeadline = nil
     data.deathDeadlineAt = nil
@@ -2306,7 +2381,7 @@ local function MarkIdentityKnown(viewerSrc, targetSrc, reason)
 
     local viewerData = PlayerData[viewerSrc]
     local targetData = PlayerData[targetSrc]
-    if not viewerData or not targetData then return false end
+    if not CanMutate(viewerData) or not targetData then return false end
 
     local known = EnsureKnownTable(viewerData)
     known[tostring(targetData.charId)] = {
@@ -2427,8 +2502,8 @@ local function ValidatePlayerInteraction(src, targetSrc, rateKey, rateMs, allowV
         return false, targetSrc, 'Please slow down.'
     end
 
-    if not PlayerData[src] or not PlayerData[src].loaded then
-        return false, targetSrc, 'Your player data is not loaded yet.'
+    if not CanMutate(PlayerData[src]) then
+        return false, targetSrc, 'Your player data is not available.'
     end
 
     if PlayerData[src].isDead then
@@ -2439,8 +2514,8 @@ local function ValidatePlayerInteraction(src, targetSrc, rateKey, rateMs, allowV
         return false, targetSrc, 'Target player is no longer online.'
     end
 
-    if not PlayerData[targetSrc] or not PlayerData[targetSrc].loaded then
-        return false, targetSrc, 'Target player data is not loaded yet.'
+    if not CanMutate(PlayerData[targetSrc]) then
+        return false, targetSrc, 'Target player data is not available.'
     end
 
     local dist = GetPlayerDistance(src, targetSrc)
@@ -2726,7 +2801,7 @@ RegisterNetEvent('cm-playerdata:server:treatmentResponse', function(accepted)
     PendingTreatmentOffers[target] = nil
     if not offer or GetGameTimer() >= offer.expires then return end
     local src = tonumber(offer.from)
-    if not src or not GetPlayerName(src) or not PlayerData[src] or not PlayerData[target] then return end
+    if not src or not GetPlayerName(src) or not CanMutate(PlayerData[src]) or not CanMutate(PlayerData[target]) then return end
     if accepted ~= true then return NotifyPlayer(src, ('%s declined your treatment request.'):format(GetPublicPlayerLabel(target)), 'error') end
     local dist = GetPlayerDistance(src, target)
     local maxDistance = ((Config.Interactions and Config.Interactions.ServerMaxDistance) or 5.0) + 2.0
@@ -2763,7 +2838,7 @@ RegisterNetEvent('cm-playerdata:server:treatComplete', function(finished)
 
     local target = pending.target
     local targetData = PlayerData[target]
-    if not targetData or not targetData.loaded then
+    if not CanMutate(targetData) or not CanMutate(PlayerData[src]) then
         NotifyPlayer(src, 'They no longer need treatment.', 'error')
         return
     end
@@ -2845,7 +2920,7 @@ RegisterNetEvent('cm-playerdata:server:handshakeResponse', function(accepted)
     end
 
     local from = pending.from
-    if not GetPlayerName(from) or not PlayerData[from] or not PlayerData[from].loaded then
+    if not GetPlayerName(from) or not CanMutate(PlayerData[from]) or not CanMutate(PlayerData[src]) then
         NotifyPlayer(src, 'That player is no longer online.', 'error')
         return
     end
@@ -2889,7 +2964,7 @@ end)
 
 exports('SetOrganization', function(src, orgId, orgName)
     local data = PlayerData[src]
-    if not data then return false end
+    if not CanMutate(data) then return false end
     data.metadata = data.metadata or {}
     data.metadata.organization_id = orgId
     data.metadata.organization = orgName or orgId
@@ -2900,7 +2975,7 @@ end)
 exports('SetFamily', function(src, familyId, familyName, identity)
     src = tonumber(src)
     local data = src and PlayerData[src] or nil
-    if not data then return false end
+    if not CanMutate(data) then return false end
     data.metadata = data.metadata or {}
     data.metadata.family_id = familyId
     data.metadata.family = familyName or familyId
@@ -2923,6 +2998,8 @@ exports('Load', LoadPlayerData)
 exports('Save', SavePlayerData)
 exports('SavePlayerData', SavePlayerData)
 exports('SavePlayer', SavePlayerData)
+exports('FlushPlayerData', FlushPlayerData)
+exports('Flush', FlushPlayerData)
 
 exports('GetPlayerData', function(src)
     return ClonePlayerData(PlayerData[tonumber(src)])
@@ -3040,7 +3117,7 @@ RegisterNetEvent('cm-playerdata:server:aiWantedChaseEscaped', function()
     local src = source
     local data = PlayerData[src]
     local minimumMs = (Config.WantedStars and Config.WantedStars.AiEscapeMinimumMs) or 120000
-    if not data or (data.wantedStars or 0) ~= ((Config.WantedStars and Config.WantedStars.Max) or 6) then return end
+    if not CanMutate(data) or (data.wantedStars or 0) ~= ((Config.WantedStars and Config.WantedStars.Max) or 6) then return end
     if GetGameTimer() - (data.wantedStarChangedAt or GetGameTimer()) < minimumMs then return end
     SetWantedStars(src, data.wantedStars - 1)
 end)
@@ -3098,7 +3175,7 @@ end)
 
 exports('SetMetadata', function(src, key, value)
     local data = PlayerData[src]
-    if not data then return false end
+    if not CanMutate(data) then return false end
     data.metadata = data.metadata or {}
     data.metadata[key] = value
     MarkDirty(data)
@@ -3173,7 +3250,7 @@ exports('SetDead', SetDead)
 exports('SetHealth', function(src, health, reason)
     src = tonumber(src)
     local data = src and PlayerData[src] or nil
-    if not data or not data.loaded then return false end
+    if not CanMutate(data) then return false end
     data.health = Clamp(health or Config.Vitals.MaxHealth, 0, Config.Vitals.MaxHealth)
     MarkDirty(data)
     SetState(src, 'health', data.health)
@@ -3185,7 +3262,7 @@ end)
 local function SetArmor(src, armor, reason)
     src = tonumber(src)
     local data = src and PlayerData[src] or nil
-    if not data or not data.loaded then return false end
+    if not CanMutate(data) then return false end
     data.armor = Clamp(armor or 0, 0, Config.Vitals.MaxArmor)
     MarkDirty(data)
     data.armorGuardUntil = GetGameTimer() + 4500
@@ -3201,7 +3278,7 @@ exports('SetArmor', SetArmor)
 exports('Heal', function(src, amountOrPercent, reason)
     src = tonumber(src)
     local data = src and PlayerData[src] or nil
-    if not data or not data.loaded then return false end
+    if not CanMutate(data) then return false end
 
     local amount = tonumber(amountOrPercent) or 0
     local targetHealth
@@ -3252,7 +3329,7 @@ end)
 exports('RevivePartial', function(src, percent, reason)
     src = tonumber(src)
     local data = src and PlayerData[src] or nil
-    if not data or not data.loaded then return false end
+    if not CanMutate(data) then return false end
 
     local health = GetHealthFromPercent(percent or (Config.Medical and Config.Medical.StreetPatchHealthPercent) or 30)
     ResolveAmbulanceRequest(src, data, reason or 'revived_partial')
@@ -3277,7 +3354,7 @@ end)
 
 exports('Revive', function(src)
     local data = PlayerData[src]
-    if not data then return false end
+    if not CanMutate(data) then return false end
 
     ResolveAmbulanceRequest(src, data, 'revived')
     data.isDead = false
@@ -3300,7 +3377,7 @@ end)
 
 exports('Respawn', function(src, spawnCoords, cost)
     local data = PlayerData[src]
-    if not data then return false end
+    if not CanMutate(data) then return false end
 
     local hospitalReservation
     if not spawnCoords and GetResourceState('cm-doctor') == 'started' then

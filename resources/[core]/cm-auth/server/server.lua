@@ -322,8 +322,7 @@ end)
 
 RegisterNetEvent('cm-auth:server:previewToken', function(payload)
     local src = source
-    local guardOk, alreadyIn = pcall(function() return Player(src).state.isLoggedIn or Player(src).state.accountId end)
-    if guardOk and alreadyIn then return end
+    if Identity.isLoggedIn(src) then return end
 
     local token, email = readTokenPayload(payload)
     local ok, e = pcall(function()
@@ -354,7 +353,7 @@ RegisterNetEvent('cm-auth:server:loginWithToken', function(payload)
 
     local token, email = readTokenPayload(payload)
     local ok, err = pcall(function()
-        if Player(src).state.isLoggedIn or Player(src).state.accountId then return end
+        if Identity.isLoggedIn(src) then return end
 
         local security = Identity.getSecurity(src)
         local lockout = Sec.activeLockout(nil, security.ip)
@@ -381,17 +380,17 @@ end)
 
 RegisterNetEvent('cm-auth:server:requestOpen', function()
     local src = source
-    if Player(src).state.isLoggedIn or Player(src).state.accountId then return end
+    if Identity.isLoggedIn(src) then return end
     TriggerClientEvent('cm-auth:client:openLogin', src)
 end)
 
 RegisterNetEvent('cm-auth:server:logout', function()
     local src = source
     local session = Identity.getSession(src)
-    local accountId = session and session.accountId or Player(src).state.accountId
     Identity.clearSession(src)
-    if accountId then
-        Util.query('UPDATE accounts SET auth_token = NULL, auth_token_created_at = NULL WHERE id = ?', { tostring(accountId) })
+    -- Authoritative security check: only revoke token if a server-authenticated session existed
+    if session and session.accountId then
+        Util.query('UPDATE accounts SET auth_token = NULL, auth_token_created_at = NULL WHERE id = ?', { tostring(session.accountId) })
     end
     Player(src).state:set('accountId', nil, true)
     Player(src).state:set('accountEmail', nil, true)
@@ -407,7 +406,7 @@ AddEventHandler('playerDropped', function()
     Sec.clearPlayer(src)
 end)
 
--- ---- Boot: schema + hashing self-test --------------------------------------
+-- ---- Boot: schema + hashing self-test + recovery ---------------------------
 
 CreateThread(function()
     DB.ensureSchema()
@@ -424,5 +423,20 @@ CreateThread(function()
         end
     else
         print(('[CM-AUTH] WARNING: password hashing unavailable. Register/login will fail. %s'):format(tostring(hashErr)))
+    end
+
+    -- Resource restart recovery:
+    -- If cm-auth started while players are connected, clear any stale replicated auth flags
+    -- and require them to re-authenticate cleanly via token or login without trusting state bags.
+    local players = GetPlayers()
+    for _, playerStr in ipairs(players) do
+        local pSrc = tonumber(playerStr)
+        if pSrc and pSrc > 0 and not Identity.isLoggedIn(pSrc) then
+            Player(pSrc).state:set('accountId', nil, true)
+            Player(pSrc).state:set('accountEmail', nil, true)
+            Player(pSrc).state:set('isLoggedIn', false, true)
+            Player(pSrc).state:set('authLoggedIn', false, true)
+            TriggerClientEvent('cm-auth:client:openLogin', pSrc)
+        end
     end
 end)
