@@ -1703,11 +1703,13 @@ exports('SaveOrganizationFleetMods', function(src, vehicleId, organizationId, mo
     model = tostring(model or ''):lower()
     if not vehicleId or vehicleId <= 0 or organizationId == '' or model == '' then return false, 'invalid_request' end
     local row = CMVehicles.Server.GetVehicleById(vehicleId)
-    if not row or tostring(row.owner_class or ''):lower() ~= organizationId
+    if not row or tostring(row.owner_type or ''):lower() ~= 'organization'
+        or tostring(row.owner_id or ''):lower() ~= organizationId
         or tostring(row.model or ''):lower() ~= model then return false, 'vehicle_identity_mismatch' end
     local clean = sanitizeMods(mods)
     if not clean then return false, 'invalid_modifications' end
-    local changed = MySQL.update.await('UPDATE cm_owned_vehicles SET mods = ? WHERE id = ? AND owner_class = ? AND model = ?',
+    local changed = MySQL.update.await([[UPDATE cm_owned_vehicles SET mods = ?
+        WHERE id = ? AND owner_type = 'organization' AND owner_id = ? AND model = ?]],
         { U.Encode(clean), vehicleId, organizationId, model })
     if tonumber(changed) ~= 1 then return false, 'vehicle_modifications_not_saved' end
     CMVehicles.Server.Audit(CMVehicles.Server.GetCharacterId(src), row.plate, 'organization_fleet_mods_saved', { organization = organizationId })
@@ -1940,8 +1942,30 @@ AddEventHandler('onResourceStop', function(resource)
     end
     if not Config.Rules.DeleteSpawnedVehiclesOnRestart then return end
     local registry = CMVehicles.Server.SpawnedById or CMVehicles.Server.Spawned
-    for _, data in pairs(registry) do
-        if data.entity and DoesEntityExist(data.entity) then DeleteEntity(data.entity) end
+    local handledEntities = {}
+    for vehicleKey, data in pairs(registry) do
+        local vehicleId = tonumber(type(data) == 'table' and (data.vehicleId or vehicleKey))
+        local entity = tonumber(type(data) == 'table' and data.entity) or 0
+        if entity ~= 0 and not handledEntities[entity] then
+            handledEntities[entity] = true
+            local okState, stateVehicleId, isLawFleet = pcall(function()
+                if not DoesEntityExist(entity) then return nil, false end
+                local state = Entity(entity).state
+                local stateVehicleId = tonumber(state.cmVehicleId)
+                local legal = type(state.cmLegalFleet) == 'table'
+                    and tonumber(state.cmLegalFleet.vehicleId) == vehicleId
+                local police = type(state.cmPoliceFleet) == 'table'
+                    and tonumber(state.cmPoliceFleet.vehicleId) == vehicleId
+                return stateVehicleId, legal or police
+            end)
+            -- Law fleet vehicles are authoritative persistent world entities.
+            -- Keep them across a cm-vehicles resource restart so registry
+            -- reconciliation can adopt the existing network entity by ID.
+            if okState and stateVehicleId == vehicleId and not isLawFleet then
+                local okDelete, exists = pcall(DoesEntityExist, entity)
+                if okDelete and exists then pcall(DeleteEntity, entity) end
+            end
+        end
     end
 end)
 

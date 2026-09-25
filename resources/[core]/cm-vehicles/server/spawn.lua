@@ -13,6 +13,10 @@ CMVehicles.Server.PlateToVehicleId = CMVehicles.Server.PlateToVehicleId or {}
 -- validates and registers the returned entity before cm-house can use it.
 local PendingGarageCreates = {}
 local GarageCreateById = {}
+local PersistentWorldCreateById = {}
+local PersistentWorldRecoveryById = {}
+local PersistentWorldRecoveryStates = {}
+local PersistentWorldFailureLogAt = {}
 local garageCreateSequence = 0
 local garageReleaseSequence = 0
 local finishGarageCreate
@@ -492,27 +496,56 @@ RegisterNetEvent('cm-vehicles:server:garageVehicleCreated', function(token, netI
     finishGarageCreate(token, { ok = true, entity = entity, netId = netId })
 end)
 
-local function tryServerGarageSetter(src, row, modelHash, spawn, context)
-    if type(CreateVehicleServerSetter) ~= 'function' then return nil end
-
-    local vehicleType = tostring(context.vehicleType or row.vehicle_type or 'automobile'):lower()
-    local allowedTypes = {
-        automobile = true, bike = true, boat = true, heli = true,
-        plane = true, submarine = true, trailer = true, train = true,
+local function resolveServerSetterType(row, suppliedType)
+    local candidate = tostring(suppliedType or row.vehicle_type or ''):lower()
+    local direct = {
+        automobile = 'automobile', car = 'automobile', bike = 'bike', motorcycle = 'bike',
+        bicycle = 'bike', boat = 'boat', heli = 'heli', helicopter = 'heli',
+        plane = 'plane', submarine = 'submarine', trailer = 'trailer', train = 'train',
     }
-    if not allowedTypes[vehicleType] then vehicleType = 'automobile' end
+    if direct[candidate] then return direct[candidate] end
 
-    local okCreate, entity = pcall(CreateVehicleServerSetter,
-        modelHash, vehicleType,
-        spawn.x + 0.0, spawn.y + 0.0, spawn.z + 0.0, spawn.h + 0.0)
-    entity = okCreate and tonumber(entity) or 0
-    if entity == 0 or not waitForEntity(entity, 7000) then
-        if entity ~= 0 and DoesEntityExist(entity) then pcall(DeleteEntity, entity) end
-        return nil
+    -- The shop catalog stores broad land/boat/air families. Resolve land and
+    -- air subtypes from the actual model class so aircraft do not fall through
+    -- to CreateVehicleServerSetter's automobile path.
+    local model = tostring(row.model or ''):lower()
+    if GetResourceState('rn-vehicleshop') == 'started' and model ~= '' then
+        local ok, catalog = pcall(function()
+            return MySQL.single.await('SELECT vehicle_type FROM cm_vehicle_catalog WHERE model = ? LIMIT 1', { model })
+        end)
+        if ok and type(catalog) == 'table' then candidate = tostring(catalog.vehicle_type or candidate):lower() end
     end
 
-    SetEntityRoutingBucket(entity, tonumber(context.bucket) or GetPlayerRoutingBucket(src))
-    if SetEntityOrphanMode then pcall(SetEntityOrphanMode, entity, 2) end
+    local okClass, classId = pcall(GetVehicleClassFromName, type(row.model) == 'number' and row.model or joaat(model))
+    classId = okClass and tonumber(classId) or nil
+    if candidate == 'boat' or classId == 14 then return 'boat' end
+    if classId == 15 then return 'heli' end
+    if classId == 16 then return 'plane' end
+    if classId == 21 then return 'train' end
+    if classId == 8 or classId == 13 then return 'bike' end
+    if candidate == 'air' then return 'plane' end
+    return 'automobile'
+end
+
+-- Shared low-level CreateVehicleServerSetter path. It deliberately performs no
+-- database writes or registry changes; callers decide the authoritative
+-- context and must register the returned entity before exposing it.
+local function tryServerGarageSetter(row, modelHash, spawn, vehicleType, bucket)
+    if type(CreateVehicleServerSetter) ~= 'function' then return nil, 'server_setter_unavailable' end
+    local okCreate, entity = pcall(CreateVehicleServerSetter,
+        modelHash, vehicleType, spawn.x + 0.0, spawn.y + 0.0, spawn.z + 0.0, spawn.h + 0.0)
+    entity = okCreate and tonumber(entity) or 0
+    if entity == 0 or not waitForEntity(entity, 7000) then
+        if entity ~= 0 then pcall(function() if DoesEntityExist(entity) then DeleteEntity(entity) end end) end
+        return nil, 'server_setter_failed'
+    end
+
+    local okBucket = pcall(SetEntityRoutingBucket, entity, tonumber(bucket) or 0)
+    if not okBucket then
+        pcall(function() if DoesEntityExist(entity) then DeleteEntity(entity) end end)
+        return nil, 'routing_bucket_failed'
+    end
+    if type(SetEntityOrphanMode) == 'function' then pcall(SetEntityOrphanMode, entity, 2) end
 
     local netId = 0
     local deadline = GetGameTimer() + 7000
@@ -522,22 +555,352 @@ local function tryServerGarageSetter(src, row, modelHash, spawn, context)
         if netId <= 0 then Wait(0) end
     end
     if netId <= 0 then
-        if DoesEntityExist(entity) then pcall(DeleteEntity, entity) end
-        return nil
+        pcall(function() if DoesEntityExist(entity) then DeleteEntity(entity) end end)
+        return nil, 'network_id_unavailable'
+    end
+    return { entity = entity, netId = netId }
+end
+
+local function validWorldSpawn(spawn)
+    if type(spawn) ~= 'table' then return nil end
+    local x, y, z = tonumber(spawn.x), tonumber(spawn.y), tonumber(spawn.z)
+    local h = tonumber(spawn.h or spawn.heading or spawn.w) or 0.0
+    if not x or not y or not z or x ~= x or y ~= y or z ~= z or h ~= h
+        or math.abs(x) > 20000 or math.abs(y) > 20000 or z < -500 or z > 5000
+        or math.abs(h) > 100000 then return nil end
+    h = h % 360.0
+    return { x = x, y = y, z = z, h = h }
+end
+
+local function findWorldEntityByVehicleId(vehicleId)
+    local active = CMVehicles.Server.SpawnedById[vehicleId]
+    local entity = activeEntity(active)
+    if entity ~= 0 then
+        local houseDisplay = tostring(active.context or '') == 'house_garage'
+        local okState, stateDisplay = pcall(function()
+            return Entity(entity).state.cmHouseGarageDisplay == true
+        end)
+        if houseDisplay or (okState and stateDisplay) then
+            return 0, nil, 'house_garage_display_present'
+        end
+        return entity, active, 'registry'
     end
 
-    if not CMVehicles.Spawn.RegisterEntity(src, row, netId, {
-        persistent = true,
-        context = 'house_garage',
-        houseId = context.houseId,
-        slotIndex = context.slotIndex,
-        locked = false,
-    }) then
-        if DoesEntityExist(entity) then pcall(DeleteEntity, entity) end
-        return nil
+    local ok, vehicles = pcall(GetAllVehicles)
+    if not ok or type(vehicles) ~= 'table' then return 0, nil, 'enumeration_unavailable' end
+    for _, candidate in ipairs(vehicles) do
+        if candidate and candidate ~= 0 then
+            local foundId, garage
+            local okState = pcall(function()
+                if not DoesEntityExist(candidate) then return end
+                local state = Entity(candidate).state
+                foundId = tonumber(state.cmVehicleId)
+                garage = state.cmHouseGarageDisplay == true
+            end)
+            if okState and foundId == vehicleId and garage ~= true then
+                return candidate, nil, 'orphan'
+            elseif okState and foundId == vehicleId and garage == true then
+                return 0, nil, 'house_garage_display_present'
+            end
+        end
+    end
+    return 0, nil, 'missing'
+end
+
+local function isVehicleSpawnBlocked(spawn)
+    local ok, vehicles = pcall(GetAllVehicles)
+    if not ok or type(vehicles) ~= 'table' then return false end
+    for _, entity in ipairs(vehicles) do
+        if entity and entity ~= 0 then
+            local exists, coords = pcall(function()
+                if not DoesEntityExist(entity) then return nil end
+                return GetEntityCoords(entity)
+            end)
+            if exists and coords then
+                local dx, dy, dz = coords.x - spawn.x, coords.y - spawn.y, coords.z - spawn.z
+                if (dx * dx + dy * dy + dz * dz) < (2.75 * 2.75) then return true end
+            end
+        end
+    end
+    return false
+end
+
+local function persistentFinalizePayload(row, netId)
+    local metadata = type(row.metadata) == 'table' and row.metadata or U.Decode(row.metadata)
+    local health = U.NormalizeSavedHealth or U.NormalizeHealth
+    return {
+        netId = netId, id = tonumber(row.id), model = row.model, label = row.label,
+        plate = U.NormalizePlate(row.plate), licenseNumber = row.license_number,
+        fuel = tonumber(row.fuel) or 100.0,
+        engineHealth = health(row.engine_health, 1000.0),
+        bodyHealth = health(row.body_health, 1000.0),
+        tankHealth = health(row.tank_health, 1000.0),
+        dirtLevel = tonumber(row.dirt_level) or 0.0,
+        locked = row.is_locked == true or row.is_locked == 1,
+        warp = false, engineOn = false, repairFirst = false,
+        metadata = metadata,
+        mods = type(row.mods) == 'table' and row.mods or U.Decode(row.mods),
+        conditionState = type(row.conditionState) == 'table' and row.conditionState or U.Decode(row.condition_state),
+    }
+end
+
+local function createPersistentWorldVehicleLocked(vehicleId, spawn, organizationId)
+    local row = CMVehicles.Server.GetVehicleById(vehicleId)
+    if not row then return false, 'vehicle_not_found' end
+    if tostring(row.owner_type or ''):lower() ~= 'organization'
+        or tostring(row.owner_id or ''):lower() ~= organizationId then
+        return false, 'organization_ownership_mismatch'
     end
 
-    return { ok = true, entity = entity, netId = netId }
+    local existing, active, source = findWorldEntityByVehicleId(vehicleId)
+    if source == 'enumeration_unavailable' then return false, 'entity_enumeration_unavailable' end
+    if source == 'house_garage_display_present' then return false, 'vehicle_in_house_garage' end
+    if existing ~= 0 then
+        local currentlyReady = false
+        local okReady = pcall(function() currentlyReady = Entity(existing).state.cmConditionReady == true end)
+        local netOk, netId = pcall(NetworkGetNetworkIdFromEntity, existing)
+        netId = netOk and tonumber(netId) or 0
+        local registerCall, registered = false, false
+        if netId > 0 then
+            registerCall, registered = pcall(CMVehicles.Spawn.RegisterEntity, 0, row, netId, {
+                persistent = true, context = 'world', locked = row.is_locked,
+                requiresFinalize = not (okReady and currentlyReady),
+            })
+        end
+        if not registerCall or registered ~= true then
+            return false, 'existing_entity_register_failed'
+        end
+        if not (okReady and currentlyReady) then
+            local stateOk = pcall(function()
+                local state = Entity(existing).state
+                state:set('cmConditionReady', false, true)
+                state:set('cmPendingFinalize', persistentFinalizePayload(row, netId), true)
+            end)
+            if not stateOk then return false, 'existing_entity_finalize_state_failed' end
+        end
+        return true, {
+            entity = existing, netId = netId, vehicleId = vehicleId, reused = true,
+            pendingFinalize = not (okReady and currentlyReady),
+        }
+    end
+
+    if isVehicleSpawnBlocked(spawn) then return false, 'spawn_point_blocked' end
+
+    row = resolvePendingModelReplacementForSpawn(row)
+    local modelName = tostring(row.model or ''):lower()
+    local modelHash = type(row.model) == 'number' and row.model or (modelName ~= '' and joaat(modelName) or 0)
+    if not modelHash or modelHash == 0 then return false, 'model_unavailable' end
+    local vehicleType = resolveServerSetterType(row, nil)
+    local created, createReason = tryServerGarageSetter(row, modelHash, spawn, vehicleType, 0)
+
+    if not created and createReason == 'server_setter_failed' then
+        local fallbackRow = applyMissingModelFallbackForSpawn(row, 'server_create_failed')
+        if fallbackRow then
+            row = fallbackRow
+            modelName = tostring(row.model or ''):lower()
+            modelHash = type(row.model) == 'number' and row.model or (modelName ~= '' and joaat(modelName) or 0)
+            if modelHash and modelHash ~= 0 then
+                vehicleType = resolveServerSetterType(row, nil)
+                created, createReason = tryServerGarageSetter(row, modelHash, spawn, vehicleType, 0)
+            end
+        end
+    end
+    if not created then return false, createReason or 'server_setter_failed' end
+
+    local entity = tonumber(created.entity) or 0
+    if entity == 0 then return false, 'server_setter_failed' end
+    local normalize = U.NormalizeSavedHealth or U.NormalizeHealth
+    local engine = normalize(row.engine_health, 1000.0)
+    local body = normalize(row.body_health, 1000.0)
+    local tank = normalize(row.tank_health, 1000.0)
+    pcall(SetVehicleNumberPlateText, entity, row.license_number or '        ')
+    pcall(SetVehicleEngineHealth, entity, engine)
+    pcall(SetVehicleBodyHealth, entity, body)
+    pcall(SetVehiclePetrolTankHealth, entity, tank)
+    pcall(SetVehicleFuelLevel, entity, tonumber(row.fuel) or 100.0)
+    pcall(SetVehicleDirtLevel, entity, tonumber(row.dirt_level) or 0.0)
+    pcall(SetVehicleDoorsLocked, entity, row.is_locked and 2 or 1)
+
+    local registerCall, registered = pcall(CMVehicles.Spawn.RegisterEntity, 0, row, created.netId, {
+        persistent = true, context = 'world', locked = row.is_locked, requiresFinalize = true,
+    })
+    if not registerCall or registered ~= true then
+        pcall(function() if DoesEntityExist(entity) then DeleteEntity(entity) end end)
+        return false, 'duplicate_cleanup_or_registration_failed'
+    end
+
+    local stateOk = pcall(function()
+        local state = Entity(entity).state
+        state:set('cmConditionReady', false, true)
+        local payload = persistentFinalizePayload(row, created.netId)
+        state:set('cmPendingFinalize', payload, true)
+    end)
+    if not stateOk then
+        CMVehicles.Spawn.DeleteVehicle(vehicleId)
+        return false, 'persistent_state_initialization_failed'
+    end
+    return true, { entity = entity, netId = created.netId, vehicleId = vehicleId, reused = false, pendingFinalize = true }
+end
+
+function CMVehicles.Spawn.CreatePersistentWorldVehicle(vehicleId, spawn, context)
+    if GetInvokingResource() ~= 'cm-law' then return false, 'untrusted_caller' end
+    vehicleId = tonumber(vehicleId)
+    context = type(context) == 'table' and context or {}
+    local organizationId = tostring(context.organizationId or ''):lower()
+    local validOrg = { police = true, sahp = true, sheriff = true, fib = true, army = true }
+    if not vehicleId or vehicleId <= 0 or not validOrg[organizationId] then return false, 'invalid_request' end
+    spawn = validWorldSpawn(spawn)
+    if not spawn then return false, 'invalid_spawn' end
+    if PersistentWorldCreateById[vehicleId] then return false, 'recovery_in_progress' end
+    PersistentWorldCreateById[vehicleId] = true
+    local ok, result, detail = pcall(createPersistentWorldVehicleLocked, vehicleId, spawn, organizationId)
+    PersistentWorldCreateById[vehicleId] = nil
+    if not ok then return false, 'server_spawn_failed' end
+    return result == true, detail
+end
+
+local function logPersistentWorldFailure(vehicleId, reason)
+    local key = ('%s:%s'):format(tostring(vehicleId or 0), tostring(reason or 'unknown'))
+    local now = os.time()
+    if PersistentWorldFailureLogAt[key] and now - PersistentWorldFailureLogAt[key] < 300 then return end
+    PersistentWorldFailureLogAt[key] = now
+    print(('[cm-vehicles] persistent recovery vehicle_id %s: %s')
+        :format(tostring(vehicleId or 'unknown'), tostring(reason or 'unknown')))
+end
+
+local function recoverPersistentWorldVehicleLocked(src, vehicleId, spawn, organizationId)
+    PersistentWorldRecoveryStates[vehicleId] = { state = 'recovering_server', updatedAt = os.time() }
+    local callOk, spawned, result = pcall(createPersistentWorldVehicleLocked, vehicleId, spawn, organizationId)
+    if callOk and spawned == true and type(result) == 'table' then
+        PersistentWorldRecoveryStates[vehicleId] = {
+            state = result.pendingFinalize == true and 'active_pending_finalize' or 'active',
+            updatedAt = os.time(),
+        }
+        return true, result, result.reused == true and 'existing' or 'server'
+    end
+
+    local reason = callOk and tostring(result or 'server_spawn_failed') or 'server_spawn_failed'
+    if reason == 'organization_ownership_mismatch' or reason == 'vehicle_not_found'
+        or reason == 'invalid_spawn' or reason == 'untrusted_caller'
+        or reason == 'vehicle_in_house_garage' then
+        PersistentWorldRecoveryStates[vehicleId] = { state = 'disabled', reason = reason, updatedAt = os.time() }
+        logPersistentWorldFailure(vehicleId, reason)
+        return false, reason
+    end
+    if reason == 'spawn_point_blocked' then
+        PersistentWorldRecoveryStates[vehicleId] = { state = 'recovering_server', reason = reason, updatedAt = os.time() }
+        logPersistentWorldFailure(vehicleId, reason)
+        return false, reason
+    end
+
+    local clientFallbackAllowed = reason == 'server_setter_unavailable'
+        or reason == 'server_setter_failed' or reason == 'model_unavailable'
+    if not clientFallbackAllowed then
+        PersistentWorldRecoveryStates[vehicleId] = { state = 'recovering_server', reason = reason, updatedAt = os.time() }
+        logPersistentWorldFailure(vehicleId, reason)
+        return false, reason
+    end
+
+    local suitableClient = src and src > 0 and GetPlayerName(src) ~= nil
+    if suitableClient then
+        local okBucket, bucket = pcall(GetPlayerRoutingBucket, src)
+        suitableClient = okBucket and tonumber(bucket) == 0
+    end
+    if not suitableClient then
+        PersistentWorldRecoveryStates[vehicleId] = {
+            state = 'waiting_for_client', reason = reason, updatedAt = os.time(),
+        }
+        return false, 'waiting_for_client'
+    end
+
+    local row = CMVehicles.Server.GetVehicleById(vehicleId)
+    if not row then
+        PersistentWorldRecoveryStates[vehicleId] = { state = 'disabled', reason = 'vehicle_not_found', updatedAt = os.time() }
+        return false, 'vehicle_not_found'
+    end
+    if tostring(row.owner_type or ''):lower() ~= 'organization'
+        or tostring(row.owner_id or ''):lower() ~= organizationId then
+        PersistentWorldRecoveryStates[vehicleId] = {
+            state = 'disabled', reason = 'organization_ownership_mismatch', updatedAt = os.time(),
+        }
+        logPersistentWorldFailure(vehicleId, 'organization_ownership_mismatch')
+        return false, 'organization_ownership_mismatch'
+    end
+
+    local createCall, created, createResult = pcall(function()
+        return CMVehicles.Spawn.CreateGarageVehicle(src, row, spawn, { bucket = 0 })
+    end)
+    if not createCall or created ~= true or type(createResult) ~= 'table' then
+        local fallbackReason = tostring(not createCall and 'client_spawn_call_failed'
+            or (type(createResult) == 'table' and createResult.error or createResult or 'client_spawn_failed'))
+        PersistentWorldRecoveryStates[vehicleId] = {
+            state = 'waiting_for_client', reason = fallbackReason, updatedAt = os.time(),
+        }
+        logPersistentWorldFailure(vehicleId, fallbackReason)
+        return false, fallbackReason
+    end
+
+    local promoteCall, promoted, promoteResult = pcall(function()
+        return CMVehicles.Spawn.PromoteHouseGarageVehicle(vehicleId, src, spawn)
+    end)
+    if not promoteCall or promoted ~= true then
+        pcall(CMVehicles.Spawn.DeleteVehicle, vehicleId)
+        local fallbackReason = tostring(not promoteCall and 'client_spawn_promote_call_failed'
+            or promoteResult or 'client_spawn_promote_failed')
+        PersistentWorldRecoveryStates[vehicleId] = {
+            state = 'waiting_for_client', reason = fallbackReason, updatedAt = os.time(),
+        }
+        logPersistentWorldFailure(vehicleId, fallbackReason)
+        return false, fallbackReason
+    end
+
+    local active, info = CMVehicles.Spawn.GetSpawnedVehicleInfo(vehicleId)
+    if active ~= true or type(info) ~= 'table' then
+        PersistentWorldRecoveryStates[vehicleId] = {
+            state = 'waiting_for_client', reason = 'client_entity_not_registered', updatedAt = os.time(),
+        }
+        logPersistentWorldFailure(vehicleId, 'client_entity_not_registered')
+        return false, 'client_entity_not_registered'
+    end
+    PersistentWorldRecoveryStates[vehicleId] = { state = 'active_pending_finalize', updatedAt = os.time() }
+    return true, {
+        entity = tonumber(info.entity), netId = tonumber(info.netId), vehicleId = vehicleId,
+        reused = false, pendingFinalize = true,
+    }, 'client'
+end
+
+function CMVehicles.Spawn.RecoverPersistentWorldVehicle(src, vehicleId, spawn, context)
+    if GetInvokingResource() ~= 'cm-law' then return { ok = false, error = 'untrusted_caller' } end
+    vehicleId, src = tonumber(vehicleId), tonumber(src)
+    context = type(context) == 'table' and context or {}
+    local organizationId = tostring(context.organizationId or ''):lower()
+    local validOrg = { police = true, sahp = true, sheriff = true, fib = true, army = true }
+    if not vehicleId or vehicleId <= 0 or not validOrg[organizationId] then
+        return { ok = false, error = 'invalid_request' }
+    end
+    spawn = validWorldSpawn(spawn)
+    if not spawn then return { ok = false, error = 'invalid_spawn' } end
+    if PersistentWorldRecoveryById[vehicleId] or PersistentWorldCreateById[vehicleId] then
+        return { ok = false, error = 'recovery_in_progress' }
+    end
+
+    PersistentWorldRecoveryById[vehicleId] = true
+    PersistentWorldCreateById[vehicleId] = true
+    local results = table.pack(pcall(recoverPersistentWorldVehicleLocked, src, vehicleId, spawn, organizationId))
+    PersistentWorldCreateById[vehicleId] = nil
+    PersistentWorldRecoveryById[vehicleId] = nil
+    if not results[1] then
+        PersistentWorldRecoveryStates[vehicleId] = {
+            state = 'recovering_server', reason = 'recovery_exception', updatedAt = os.time(),
+        }
+        logPersistentWorldFailure(vehicleId, 'recovery_exception')
+        return { ok = false, error = 'recovery_exception' }
+    end
+    local recovered, result, mode = table.unpack(results, 2, results.n)
+    if recovered ~= true or type(result) ~= 'table' then
+        return { ok = false, error = tostring(result or 'recovery_failed') }
+    end
+    return { ok = true, vehicle = result, mode = mode, reused = result.reused == true }
 end
 
 --- Creates one registered network vehicle for a house garage slot.
@@ -1582,6 +1945,8 @@ end)
 
 exports('SpawnVehicleFromParking', CMVehicles.Spawn.SpawnFromParking)
 exports('CreateGarageVehicle', CMVehicles.Spawn.CreateGarageVehicle)
+exports('CreatePersistentWorldVehicle', CMVehicles.Spawn.CreatePersistentWorldVehicle)
+exports('RecoverPersistentWorldVehicle', CMVehicles.Spawn.RecoverPersistentWorldVehicle)
 exports('GetSpawnedVehicleInfo', CMVehicles.Spawn.GetSpawnedVehicleInfo)
 exports('ConfigureHouseGarageVehicle', CMVehicles.Spawn.ConfigureHouseGarageVehicle)
 exports('GetSpawnedVehicleCondition', CMVehicles.Spawn.GetSpawnedVehicleCondition)

@@ -189,6 +189,21 @@ function A.CanUseVehicle(src, identity, action)
     action = tostring(action or 'vehicle.drive')
     local row = resolve(identity)
     if not row then return false, 'vehicle_not_found' end
+    if tostring(row.owner_type or ''):lower() == 'organization'
+        and CMVehicles.Spawn and CMVehicles.Spawn.GetSpawnedVehicleInfo then
+        local infoOk, active, info = pcall(CMVehicles.Spawn.GetSpawnedVehicleInfo, row.id)
+        if not infoOk then return false, 'vehicle_state_unavailable', row end
+        if active == true and type(info) == 'table' and tonumber(info.entity) then
+            local ready = false
+            local stateOk = pcall(function()
+                local entity = tonumber(info.entity)
+                if entity ~= 0 and DoesEntityExist(entity) then
+                    ready = Entity(entity).state.cmConditionReady == true
+                end
+            end)
+            if not stateOk or not ready then return false, 'vehicle_condition_pending', row end
+        end
+    end
     local charId = CMVehicles.Server.GetCharacterId(src)
     if not charId then return false, 'character_not_loaded' end
     local orgAllowed, orgReason, orgContext = organizationDecision(src, row, action)
@@ -286,6 +301,7 @@ function A.GetIntegrationContract()
             },
             spawn = {
                 'CreateVehicleForPlayer', 'SpawnVehicleFromParking', 'CreateGarageVehicle',
+                'CreatePersistentWorldVehicle', 'RecoverPersistentWorldVehicle',
                 'DeleteSpawnedVehicle', 'GetSpawnedVehicleInfo', 'GetSpawnedVehicleCondition',
                 'ConfigureHouseGarageVehicle', 'SetSpawnContext',
                 'PromoteHouseGarageVehicle', 'RecallWorldVehicle', 'ReturnHouseGarageVehicle',
@@ -347,21 +363,46 @@ CreateThread(function()
         Wait(1000)
         for _, rawSrc in ipairs(GetPlayers()) do
             local src = tonumber(rawSrc)
-            local ped = src and GetPlayerPed(src) or 0
-            local vehicle = ped ~= 0 and GetVehiclePedIsIn(ped, false) or 0
-            if vehicle ~= 0 and DoesEntityExist(vehicle) and GetPedInVehicleSeat(vehicle, -1) == ped then
-                local state = Entity(vehicle).state
-                local vehicleId = tonumber(state.cmVehicleId)
+            local ped = 0
+            if src then
+                local okPed, value = pcall(GetPlayerPed, src)
+                ped = okPed and tonumber(value) or 0
+            end
+            local vehicle = 0
+            if ped ~= 0 then
+                local okVehicle, value = pcall(GetVehiclePedIsIn, ped, false)
+                vehicle = okVehicle and tonumber(value) or 0
+            end
+            local validEntity = false
+            if vehicle ~= 0 then
+                local okExists, exists = pcall(DoesEntityExist, vehicle)
+                validEntity = okExists and exists == true
+            end
+            local driver = 0
+            if validEntity then
+                local okDriver, value = pcall(GetPedInVehicleSeat, vehicle, -1)
+                driver = okDriver and tonumber(value) or 0
+            end
+            if validEntity and driver == ped then
+                local vehicleId
+                local okState = pcall(function() vehicleId = tonumber(Entity(vehicle).state.cmVehicleId) end)
+                vehicleId = okState and vehicleId or nil
                 if vehicleId then
                     local row = CMVehicles.Server.GetVehicleById(vehicleId)
-                    local ownerClass = row and tostring(row.owner_class or ''):lower() or ''
-                    if ownerClass == 'police' or ownerClass == 'ems' or ownerClass == 'sahp'
-                        or ownerClass == 'sheriff' or ownerClass == 'fib' or ownerClass == 'army' then
+                    local ownerType = row and tostring(row.owner_type or ''):lower() or ''
+                    local ownerId = row and tostring(row.owner_id or ''):lower() or ''
+                    local organizationVehicle = ownerType == 'organization' and (
+                        ownerId == 'police' or ownerId == 'ems' or ownerId == 'sahp'
+                        or ownerId == 'sheriff' or ownerId == 'fib' or ownerId == 'army')
+                    if organizationVehicle then
                         local allowed, why = A.CanUseVehicle(src, vehicleId, 'vehicle.drive')
                         if allowed ~= true then
                             pcall(SetVehicleEngineOn, vehicle, false, true, true)
-                            TriggerClientEvent('cm-vehicles:client:forceOrganizationVehicleExit', src,
-                                NetworkGetNetworkIdFromEntity(vehicle), tostring(why or 'organization_access_denied'))
+                            local okNet, netId = pcall(NetworkGetNetworkIdFromEntity, vehicle)
+                            if okNet and tonumber(netId) and tonumber(netId) > 0 then
+                                TriggerClientEvent('cm-vehicles:client:forceOrganizationVehicleExit', src,
+                                    tonumber(netId), tostring(why or 'organization_access_denied'))
+                            end
                         end
                     end
                 end

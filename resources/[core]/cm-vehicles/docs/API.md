@@ -361,3 +361,9 @@ bag, set server-side. Pass a `netId` and let `ResolvePlate` do the work.
 
 **Keeping your own copy of `is_stored`.**
 See the warning above. Store the slot; never store the state.
+
+### `RecoverPersistentWorldVehicle(source, vehicleId, spawn, context)`
+
+A trusted server recovery path for existing organization vehicles. Only `cm-law` may invoke it. It validates the existing `cm_owned_vehicles` row and organization owner, reuses an existing world entity by `vehicle_id`, then attempts `CreateVehicleServerSetter`. If a supported server creation failure prevents that path, it queues recovery until a connected bucket-0 client can use the existing garage creator and promote that same vehicle ID. It does not create a database row.
+
+Returns one table so FiveM's export bridge preserves the result: `{ ok = true, vehicle = result, mode = "existing" | "server" | "client" }` on success, or `{ ok = false, error = reason }` on failure or while waiting for a client. The recovery operation is serialized by `vehicle_id`.

@@ -331,6 +331,48 @@ end)
 -- FleetLocationBusy lock) -- removed rather than left as dead, divergent
 -- code a future change could mistakenly call again.
 
+local FleetRecoveryLocks, FleetRecoveryFailureLogAt = {}, {}
+
+local function isSuitableFleetRecoveryClient(src)
+    src = tonumber(src)
+    if not src or src <= 0 then return false end
+    local okName, playerName = pcall(GetPlayerName, src)
+    if not okName or not playerName then return false end
+    local okBucket, bucket = pcall(GetPlayerRoutingBucket, src)
+    return okBucket and tonumber(bucket) == 0
+end
+
+local function logFleetRecoveryFailure(vehicleId, reason)
+    local key = ('%s:%s'):format(tostring(vehicleId or 0), tostring(reason or 'unknown'))
+    local now = os.time()
+    if FleetRecoveryFailureLogAt[key] and now - FleetRecoveryFailureLogAt[key] < 300 then return end
+    FleetRecoveryFailureLogAt[key] = now
+    print(('[cm-law:fleet] vehicle_id %s recovery: %s'):format(tostring(vehicleId or 'unknown'), tostring(reason or 'unknown')))
+end
+
+local function withFleetRecoveryLock(vehicleId, callback)
+    vehicleId = tonumber(vehicleId)
+    if not vehicleId or vehicleId <= 0 or type(callback) ~= 'function' then return false, 'invalid_vehicle_id' end
+    if FleetRecoveryLocks[vehicleId] then return false, 'recovery_in_progress' end
+    FleetRecoveryLocks[vehicleId] = true
+    local results = table.pack(pcall(callback))
+    FleetRecoveryLocks[vehicleId] = nil
+    if not results[1] then
+        logFleetRecoveryFailure(vehicleId, 'recovery_exception')
+        return false, 'recovery_exception'
+    end
+    return table.unpack(results, 2, results.n)
+end
+
+local function recoverPersistentFleetVehicle(src, vehicleId, spawn)
+    local response = exports[VEHICLES_RESOURCE]:RecoverPersistentWorldVehicle(src, vehicleId, spawn, {
+        organizationId = 'police',
+    })
+    if type(response) ~= 'table' then return false, 'recovery_response_invalid' end
+    if response.ok ~= true then return false, tostring(response.error or 'recovery_failed') end
+    return true, response.vehicle, response.mode
+end
+
 local fleetOperationBusy = false
 
 local function persistentFleetRow(model)
@@ -339,7 +381,9 @@ end
 
 vehicleHasOccupant = function(entity)
     entity = tonumber(entity) or 0
-    if entity == 0 or not DoesEntityExist(entity) then return false end
+    if entity == 0 then return false end
+    local okExists, exists = pcall(DoesEntityExist, entity)
+    if not okExists or not exists then return false end
     local seats = 0
     pcall(function() seats = tonumber(GetVehicleMaxNumberOfPassengers(entity)) or 0 end)
     for seat = -1, seats - 1 do
@@ -361,11 +405,8 @@ end
 -- is the caller's job). Used both by player-initiated spawn/recall callbacks
 -- and by the unattended startup auto-respawn below, which has no "actor" to
 -- check a rank against.
-local function recallFleetVehicleCore(src, actorCid, model, settings, repair)
+local function recallPoliceFleetVehicleUnlocked(src, actorCid, model, settings, repair)
     local vehicleId = tonumber(settings.vehicle_id)
-    if exports[VEHICLES_RESOURCE]:EnsureOrganizationOwnership(vehicleId, 'police') ~= true then
-        return false, 'The vehicle could not be assigned to Police ownership.'
-    end
     local servicePatch = {
         fuel = 100, engineHealth = 1000, bodyHealth = 1000,
         tankHealth = 1000, dirtLevel = 0,
@@ -373,31 +414,18 @@ local function recallFleetVehicleCore(src, actorCid, model, settings, repair)
     }
     local row = exports[VEHICLES_RESOURCE]:GetVehicleById(vehicleId)
     if not row then return false, 'The persistent Police vehicle record is missing. Use recovery before recreating it.' end
+    if tostring(row.owner_type or ''):lower() ~= 'organization'
+        or tostring(row.owner_id or ''):lower() ~= 'police' then
+        return false, 'The persistent vehicle is not owned by Police.'
+    end
     local spawn = { x = tonumber(settings.spawn_x), y = tonumber(settings.spawn_y), z = tonumber(settings.spawn_z), h = tonumber(settings.spawn_h) or 0 }
     local active, activeInfo = exports[VEHICLES_RESOURCE]:GetSpawnedVehicleInfo(vehicleId)
     if active == true and vehicleHasOccupant(activeInfo and activeInfo.entity) then
         return false, 'Vehicle is currently occupied.'
     end
 
-    -- Recover vehicles left quarantined by the old server-created path.
-    -- House garages do the same thing when their registered display entity is
-    -- unusable: remove only the physical copy, retain the database vehicle ID,
-    -- and rebuild it through the client-assisted garage creator below.
-    if active == true then
-        local gotCondition, condition = exports[VEHICLES_RESOURCE]:GetSpawnedVehicleCondition(vehicleId, row)
-        if gotCondition == true and type(condition) == 'table' and condition.conditionReady ~= true then
-            if vehicleHasOccupant(activeInfo and activeInfo.entity) then
-                return false, 'That Police vehicle is occupied and cannot be recovered yet.'
-            end
-            local deleted, deleteWhy = exports[VEHICLES_RESOURCE]:DeleteSpawnedVehicle(vehicleId)
-            if deleted ~= true then return false, tostring(deleteWhy or 'The protected Police vehicle could not be cleared.') end
-            active, activeInfo = false, nil
-        end
-    end
-
     if active ~= true then
-        -- The house-style creator reads its bootstrap condition from this row,
-        -- so persist and reload the clean Police baseline before creating it.
+        -- Manual recall repairs and refuels; startup recovery preserves state.
         if exports[VEHICLES_RESOURCE]:ServiceVehicle(row.plate, servicePatch, src) ~= true then
             return false, 'The Police vehicle could not be serviced before recall.'
         end
@@ -413,17 +441,10 @@ local function recallFleetVehicleCore(src, actorCid, model, settings, repair)
         -- garage recall when its vehicle is already active.
         ok, result = exports[VEHICLES_RESOURCE]:RecallWorldVehicle(vehicleId, src, spawn)
     else
-        -- Match cm-house for a missing persistent entity: let the requesting
-        -- client create and verify the network vehicle, then promote that SAME
-        -- registered entity from its protected garage bootstrap into the world.
-        local created, createResult = exports[VEHICLES_RESOURCE]:CreateGarageVehicle(src, row, spawn, {
-            bucket = GetPlayerRoutingBucket(src),
-        })
-        if created == true and type(createResult) == 'table' then
-            ok, result = exports[VEHICLES_RESOURCE]:PromoteHouseGarageVehicle(vehicleId, src, spawn)
-            if ok ~= true then exports[VEHICLES_RESOURCE]:DeleteSpawnedVehicle(vehicleId) end
-        else
-            ok, result = false, createResult
+        local createMode
+        ok, result, createMode = recoverPersistentFleetVehicle(src, vehicleId, spawn)
+        if ok and type(result) == 'table' and result.reused == true then
+            ok, result = exports[VEHICLES_RESOURCE]:RecallWorldVehicle(vehicleId, src, spawn)
         end
     end
     if ok ~= true then return false, tostring(result or 'Police vehicle could not be recalled.') end
@@ -438,20 +459,28 @@ local function recallFleetVehicleCore(src, actorCid, model, settings, repair)
     end
     exports[VEHICLES_RESOURCE]:TransitionVehicleLocation(tonumber(settings.vehicle_id), 'JOB_GARAGE', { ref = 'police', reason = repair and 'police_recall_all' or 'police_vehicle_call', actorCharacterId = actorCid })
     local _, info = exports[VEHICLES_RESOURCE]:GetSpawnedVehicleInfo(tonumber(settings.vehicle_id))
-    if type(info) == 'table' and tonumber(info.entity) and DoesEntityExist(tonumber(info.entity)) then
+    if type(info) == 'table' and tonumber(info.entity) then
         local entity = tonumber(info.entity)
-        local state = Entity(entity).state
-        state:set('cmPoliceFleet', { model = model, vehicleId = vehicleId, minTier = tonumber(settings.min_tier) or 0, ready = false }, true)
-        local deadline = GetGameTimer() + 15000
-        while DoesEntityExist(entity) and state.cmConditionReady ~= true and GetGameTimer() < deadline do Wait(200) end
-        if not DoesEntityExist(entity) or state.cmConditionReady ~= true then
-            return false, 'The Police vehicle was recalled but its repaired condition did not finish loading.'
-        end
-        state:set('cmPoliceFleet', { model = model, vehicleId = vehicleId, minTier = tonumber(settings.min_tier) or 0, ready = true }, true)
+        pcall(function()
+            if DoesEntityExist(entity) then
+                local state = Entity(entity).state
+                state:set('cmPoliceFleet', {
+                    model = model, vehicleId = vehicleId,
+                    minTier = tonumber(settings.min_tier) or 0,
+                    ready = state.cmConditionReady == true,
+                }, true)
+            end
+        end)
     end
     local catalogRow = resolveCatalogRow(model)
     if type(info) == 'table' and catalogRow then TriggerClientEvent('cm-police:client:applyFleetMods', src, info.netId, decode(catalogRow.mods)) end
     return true, ('%s recalled (vehicle #%d).'):format(row.label or model, tonumber(settings.vehicle_id))
+end
+
+local function recallFleetVehicleCore(src, actorCid, model, settings, repair)
+    return withFleetRecoveryLock(tonumber(settings and settings.vehicle_id), function()
+        return recallPoliceFleetVehicleUnlocked(src, actorCid, model, settings, repair)
+    end)
 end
 
 local function spawnPersistent(src, actor, actorCid, model, repair)
@@ -468,7 +497,9 @@ end)
 
 lib.callback.register('cm-police:server:recallAllFleetVehicles', function(src)
     local actor, actorCid, err = actorFor(src)
-    if not actor or not has(actor, 'police.manage_vehicles') then return false, err or 'Your rank cannot recall the Police fleet.' end
+    if not actor or not (PoliceLegacyDbBoolean(actor.is_leader) or has(actor, 'police.manage_vehicles')) then
+        return false, err or 'Your rank cannot recall the Police fleet.'
+    end
     if fleetOperationBusy then return false, 'Another fleet recall is running.' end
     fleetOperationBusy = true
     local rows = MySQL.query.await('SELECT model FROM cm_police_fleet_vehicles WHERE enabled = 1 AND vehicle_id IS NOT NULL ORDER BY model') or {}
@@ -635,60 +666,125 @@ exports('PoliceLegacyAdminResetFleetLocation', function(src, _, model)
 end)
 
 -- ── Auto-respawn on server (re)start ─────────────────────────────────────
--- A resource restart wipes cm-vehicles' in-memory spawn registry, so every
--- configured fleet vehicle looks "not active" again even though its
--- persistent vehicle_id record is untouched. Rather than leaving the fleet
--- empty until a Police manager remembers to open the menu and click Recall,
--- bring it back automatically the moment there is a real connected player
--- whose client can do the client-assisted creation. Runs once per resource
--- lifetime; not gated by rank/tier/on-duty since nobody is "requesting" this,
--- the server is just restoring its own fleet.
+-- A resource restart wipes cm-vehicles' in-memory spawn registry, so each
+-- enabled persistent fleet entry is reconciled automatically without requiring
+-- a connected player. Unsupported streamed models wait for a suitable bucket-0
+-- client. This is server restoration, not a rank/tier/on-duty-gated action.
 local fleetAutoRespawnRunning = false
+local queuedFleetRecoverySource = nil
 
-local function fleetRecoverySource(preferred)
-    preferred = tonumber(preferred)
-    if preferred and GetPlayerName(preferred) and GetPlayerRoutingBucket(preferred) == 0 then return preferred end
-    for _, rawSrc in ipairs(GetPlayers() or {}) do
-        local src = tonumber(rawSrc)
-        if src and GetPlayerRoutingBucket(src) == 0 then return src end
-    end
+local function stampPoliceFleet(vehicleId, model, settings)
+    local okInfo, active, info = pcall(function()
+        return exports[VEHICLES_RESOURCE]:GetSpawnedVehicleInfo(vehicleId)
+    end)
+    if not okInfo or active ~= true or type(info) ~= 'table' then return false end
+    local entity = tonumber(info.entity) or 0
+    if entity == 0 then return false end
+    local okState, exists, ready = pcall(function()
+        if not DoesEntityExist(entity) then return false, false end
+        local state = Entity(entity).state
+        local conditionReady = state.cmConditionReady == true
+        state:set('cmPoliceFleet', {
+            model = model, vehicleId = vehicleId,
+            minTier = tonumber(settings.min_tier) or 0,
+            ready = conditionReady,
+        }, true)
+        return true, conditionReady
+    end)
+    return okState and exists == true, ready == true
 end
 
-local function autoRespawnFleet(triggerSrc)
-    if fleetAutoRespawnRunning then return end
-    triggerSrc = fleetRecoverySource(triggerSrc)
-    if not triggerSrc or triggerSrc <= 0 or not GetPlayerName(triggerSrc) then return end
+local function reconcilePoliceFleetRow(src, model, settings)
+    local vehicleId = tonumber(settings and settings.vehicle_id)
+    if not vehicleId then return false, 'unconfigured' end
+    local ok, result, mode = withFleetRecoveryLock(vehicleId, function()
+        local latest = persistentFleetRow(model)
+        if not latest or not PoliceLegacyDbBoolean(latest.enabled)
+            or not PoliceLegacyDbBoolean(latest.location_configured)
+            or tonumber(latest.vehicle_id) ~= vehicleId then return false, 'configuration_changed' end
+        local row = exports[VEHICLES_RESOURCE]:GetVehicleById(vehicleId)
+        if not row then return false, 'vehicle_not_found' end
+        if tostring(row.owner_type or ''):lower() ~= 'organization'
+            or tostring(row.owner_id or ''):lower() ~= 'police' then
+            logFleetRecoveryFailure(vehicleId, 'organization_ownership_mismatch')
+            return false, 'organization_ownership_mismatch'
+        end
+
+        local active, info = exports[VEHICLES_RESOURCE]:GetSpawnedVehicleInfo(vehicleId)
+        if active == true and type(info) == 'table' then
+            local stamped, ready = stampPoliceFleet(vehicleId, model, latest)
+            return true, 'existing'
+        end
+
+        local spawn = {
+            x = tonumber(latest.spawn_x), y = tonumber(latest.spawn_y),
+            z = tonumber(latest.spawn_z), h = tonumber(latest.spawn_h) or 0,
+        }
+        local spawned, details, spawnMode = recoverPersistentFleetVehicle(src, vehicleId, spawn)
+        if spawned then
+            stampPoliceFleet(vehicleId, model, latest)
+            return true, spawnMode or 'server'
+        end
+        return false, details
+    end)
+    return ok == true, result, mode
+end
+
+local function autoRespawnFleet(triggerSrc, reportSummary)
+    triggerSrc = isSuitableFleetRecoveryClient(triggerSrc) and tonumber(triggerSrc) or nil
+    if fleetAutoRespawnRunning then
+        if triggerSrc then queuedFleetRecoverySource = triggerSrc end
+        return
+    end
     fleetAutoRespawnRunning = true
 
     CreateThread(function()
         local deadline = GetGameTimer() + 30000
-        while GetResourceState(VEHICLES_RESOURCE) ~= 'started' and GetGameTimer() < deadline do Wait(500) end
-        if GetResourceState(VEHICLES_RESOURCE) ~= 'started' then fleetAutoRespawnRunning = false; return end
-        Wait(2000) -- let cm-vehicles rebuild its vehicle_id registry before recovery
-        if fleetOperationBusy then fleetAutoRespawnRunning = false; return end
-        fleetOperationBusy = true
-        local rows = MySQL.query.await('SELECT model FROM cm_police_fleet_vehicles WHERE enabled = 1 AND location_configured = 1 AND vehicle_id IS NOT NULL ORDER BY model') or {}
-        local respawned, skipped = 0, 0
+        local function dependenciesReady()
+            if GetResourceState(VEHICLES_RESOURCE) ~= 'started' then return false end
+            if type(PoliceDatabaseReady) ~= 'function' then return false end
+            local ok, ready = pcall(PoliceDatabaseReady)
+            return ok and ready == true
+        end
+        while not dependenciesReady() and GetGameTimer() < deadline do Wait(500) end
+        if not dependenciesReady() then
+            fleetAutoRespawnRunning = false
+            logFleetRecoveryFailure(0, 'police_fleet_dependencies_not_ready')
+            return
+        end
+        -- cm-vehicles owns its one-time registry reconciliation. Both Law
+        -- fleet scripts scanning globally here would race DeleteEntity during
+        -- duplicate cleanup; per-vehicle recovery below also scans by ID.
+        Wait(2000)
+        local rows = MySQL.query.await([[SELECT model FROM cm_police_fleet_vehicles
+            WHERE enabled = 1 AND location_configured = 1 AND vehicle_id IS NOT NULL ORDER BY model]]) or {}
+        local existing, serverSpawned, clientSpawned, waiting, failed = 0, 0, 0, 0, 0
         for _, row in ipairs(rows) do
             local settings = persistentFleetRow(row.model)
-            local vehicleId = settings and tonumber(settings.vehicle_id)
-            local alreadyActive = vehicleId and exports[VEHICLES_RESOURCE]:GetSpawnedVehicleInfo(vehicleId)
-            if settings and not alreadyActive then
-                local ok = recallFleetVehicleCore(triggerSrc, nil, row.model, settings, true)
-                if ok then respawned = respawned + 1 else skipped = skipped + 1 end
+            if settings then
+                local ok, result = reconcilePoliceFleetRow(triggerSrc, row.model, settings)
+                if ok then
+                    if result == 'existing' then existing = existing + 1
+                    elseif result == 'client' then clientSpawned = clientSpawned + 1
+                    else serverSpawned = serverSpawned + 1 end
+                elseif result == 'waiting_for_client' then waiting = waiting + 1
+                elseif result ~= 'recovery_in_progress' and result ~= 'configuration_changed' then failed = failed + 1 end
             end
             Wait(0)
         end
-        if respawned > 0 or skipped > 0 then
-            log(nil, 'fleet_auto_respawned', { respawned = respawned, skipped = skipped })
+        if reportSummary then
+            print(('[cm-law:fleet] recovery complete police: %d existing, %d server-spawned, %d client-spawned, %d waiting, %d failed')
+                :format(existing, serverSpawned, clientSpawned, waiting, failed))
         end
-        fleetOperationBusy = false
         fleetAutoRespawnRunning = false
+        local queued = queuedFleetRecoverySource
+        queuedFleetRecoverySource = nil
+        if queued then autoRespawnFleet(queued, false) end
     end)
 end
 
 AddEventHandler('cm-playerdata:server:characterLoaded', function(src)
-    autoRespawnFleet(src)
+    autoRespawnFleet(src, false)
 end)
 
 exports('PoliceLegacyAdminRecallFleetVehicle', function(src, _, model)
@@ -734,15 +830,13 @@ AddEventHandler('onResourceStart', function(resource)
     if resource ~= GetCurrentResourceName() and resource ~= VEHICLES_RESOURCE then return end
     CreateThread(function()
         Wait(2500)
-        local players = GetPlayers()
-        if players and players[1] then autoRespawnFleet() end
+        autoRespawnFleet(nil, true)
     end)
 end)
 
 CreateThread(function()
     while true do
         Wait(60000)
-        local players = GetPlayers()
-        if players and players[1] then autoRespawnFleet() end
+        autoRespawnFleet(nil, false)
     end
 end)

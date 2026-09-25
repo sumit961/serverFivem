@@ -5,7 +5,7 @@ lua54 'yes'
 name 'cm-law'
 author 'CM Framework'
 description 'CM legal organizations and embedded Los Santos Police operations'
-version '3.3.0'
+version '3.3.1'
 
 shared_scripts {
     '@ox_lib/init.lua',
