@@ -158,18 +158,14 @@ function openRankEditor(rank = null) {
 // rn-vehicleshop's "Police fleet vehicle" catalog status -- there is no
 // editor for colors/livery/etc here; that lives entirely in /vehicleadmin.
 //
-// cm-police only adds: minimum rank tier (edited inline below) and a Spawn
-// button. Spawn location is never set from the NUI -- it's set/updated
-// in-game by driving the vehicle and pressing H (client/vehicles.lua), and
-// "Spawn" always recalls/replaces any existing live instance instead of
-// piling up duplicates.
+// Police fleet vehicles are persistent world entities. This panel shows
+// status and management actions; officers collect the already parked cars.
 let fleetVehicles = [];
 
 function renderFleetList() {
   const manage = can('police.manage_vehicles');
   const rows = fleetVehicles;
   document.getElementById('fleetList').innerHTML = rows.map((v) => {
-    const canSpawnThis = manage || (v.configured && v.enabled);
     return `
     <article class="fleet-row${v.configured && !v.enabled ? ' disabled' : ''}">
       ${v.image ? `<img class="fleet-thumb" src="${esc(v.image)}" alt="">` : '<div class="fleet-thumb fleet-thumb--empty">NO IMAGE</div>'}
@@ -181,10 +177,10 @@ function renderFleetList() {
         ${manage ? `
         <div class="fleet-tier-ctl">
           <label>Minimum rank tier</label>
-          <input class="fleet-tier-input" type="number" min="0" max="100" value="${v.minTier}" data-fleet-tier="${esc(v.model)}"${v.configured ? '' : ' disabled title="Spawn it and press H to give it a location first"'}>
+          <input class="fleet-tier-input" type="number" min="0" max="100" value="${v.minTier}" data-fleet-tier="${esc(v.model)}"${v.configured ? '' : ' disabled title="Link a persistent organization vehicle first"'}>
         </div>` : ''}
         ${manage ? `<button class="mini" data-fleet-location="${esc(v.model)}">Set location</button>` : ''}
-        ${canSpawnThis ? `<button class="mini" data-fleet-spawn="${esc(v.model)}"${v.status === 'occupied' ? ' disabled' : ''}>${v.status === 'occupied' ? 'Occupied' : v.status === 'deployed' ? 'Return & call here' : 'Call vehicle'}</button>` : ''}
+        ${manage && v.configured ? `<button class="mini" data-fleet-recall="${esc(v.model)}"${v.status === 'in_use' ? ' disabled' : ''}>${v.status === 'in_use' ? 'In use' : 'Recall'}</button>` : ''}
       </div>
     </article>`;
   }).join('') || `<article class="card">${manage ? 'No vehicles are tagged &quot;Police fleet vehicle&quot; in /vehicleadmin yet.' : 'No Police fleet vehicles are available to your rank yet.'}</article>`;
@@ -196,9 +192,12 @@ async function loadFleet() {
   renderFleetList();
 }
 
-document.getElementById('fleetList').addEventListener('click', (event) => {
-  const spawn = event.target.closest('[data-fleet-spawn]');
-  if (spawn) post('spawnFleetVehicle', { model: spawn.dataset.fleetSpawn });
+document.getElementById('fleetList').addEventListener('click', async (event) => {
+  const recall = event.target.closest('[data-fleet-recall]');
+  if (recall && await showConfirmOverlay('RECALL FLEET VEHICLE', `Return ${recall.dataset.fleetRecall} to its saved parking location? Occupied vehicles cannot be recalled.`, 'RECALL', 'CANCEL')) {
+    await post('recallFleetVehicle', { model: recall.dataset.fleetRecall });
+    await loadFleet();
+  }
   const location = event.target.closest('[data-fleet-location]');
   if (location) post('setFleetVehicleLocation', { model: location.dataset.fleetLocation }).then(() => loadFleet());
 });

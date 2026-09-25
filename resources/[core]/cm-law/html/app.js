@@ -401,7 +401,7 @@ function renderFleetList(){
     <div class="actions">
       ${manage ? `<input type="number" min="0" max="100" value="${v.minTier}" data-fleet-tier="${esc(v.model)}"${v.configured ? '' : ' disabled title="Set a location first"'}>` : ''}
       ${manage ? `<button data-fleet-location="${esc(v.model)}">Set location</button>` : ''}
-      ${canSpawnThis ? `<button data-fleet-spawn="${esc(v.model)}"${v.status === 'occupied' ? ' disabled' : ''}>${v.status === 'occupied' ? 'Occupied' : v.status === 'deployed' ? 'Return & call here' : 'Call vehicle'}</button>` : ''}
+      ${manage && v.configured ? `<button data-fleet-recall="${esc(v.model)}"${v.status === 'in_use' ? ' disabled' : ''}>${v.status === 'in_use' ? 'In use' : 'Recall'}</button>` : ''}
     </div>
   </article>`;
   }).join('') || `<p>${manage ? 'No vehicles have been added to this organization\'s fleet yet.' : 'No fleet vehicles are available to your rank yet.'}</p>`;
@@ -410,8 +410,8 @@ async function loadFleet(){const r=await post('fleetCatalog');fleetVehicles=r?.v
 document.querySelectorAll('#orgFleetRoster,#fleetRoster').forEach(node=>node.addEventListener('click',async e=>{
   const location=e.target.closest('[data-fleet-location]');
   if(location){const r=await post('setFleetVehicleLocation',{model:location.dataset.fleetLocation});notice(r.message||r.error,r.ok?'success':'error')}
-  const spawn=e.target.closest('[data-fleet-spawn]');
-  if(spawn){const r=await post('spawnFleetVehicle',{model:spawn.dataset.fleetSpawn});notice(r.message||r.error,r.ok?'success':'error');loadFleet()}
+  const recall=e.target.closest('[data-fleet-recall]');
+  if(recall){if(!(await showConfirmOverlay('Recall fleet vehicle',`Return ${recall.dataset.fleetRecall} to its saved parking location? Occupied vehicles cannot be recalled.`,'Recall','Cancel')))return;const r=await post('recallFleetVehicle',{model:recall.dataset.fleetRecall});notice(r.message||r.error,r.ok?'success':'error');loadFleet()}
 }));
 document.querySelectorAll('#orgFleetRoster,#fleetRoster').forEach(node=>node.addEventListener('change',async e=>{
   const tierInput=e.target.closest('[data-fleet-tier]');

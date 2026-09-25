@@ -312,7 +312,7 @@ function A.GetIntegrationContract()
             },
             serviceAndKeys = {
                 'ServiceVehicle', 'GetLentKeys', 'HasRacingHarness',
-                'InstallRacingHarness', 'SaveVehicleModsAuthorized',
+                'InstallRacingHarness', 'SaveVehicleModsAuthorized', 'SaveOrganizationFleetMods',
             },
             adminVehicles = {
                 'SpawnAdminVehicle', 'DeleteAdminVehicle', 'DeleteAllAdminVehicles',

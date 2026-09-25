@@ -51,14 +51,8 @@ end)
 RegisterNUICallback('police_setFleetVehicleLocation', function(data, cb)
     data = type(data) == 'table' and data or {}
     local ok, result = lib.callback.await('cm-police:server:beginFleetLocationEdit', false, data.model)
-    if not ok or type(result) ~= 'table' then notify(result or 'Could not start location edit.', 'error'); cb({ ok = false, error = result }); return end
-    TriggerEvent('cm-police:client:closeMenu')
-    local vehicle = waitForVehicle(tonumber(result.netId), 10000)
-    if not vehicle then notify('The Police location dummy did not appear.', 'error'); cb({ ok = false }); return end
-    TaskWarpPedIntoVehicle(PlayerPedId(), vehicle, -1)
-    fleetPlacementActive = true
-    notify(result.message or 'Drive to the location. Press H to save or Backspace to cancel.', 'inform')
-    cb({ ok = true })
+    notify(result or 'Could not save the Police fleet location.', ok and 'success' or 'error')
+    cb({ ok = ok == true, message = ok and result or nil, error = ok and nil or result })
 end)
 
 RegisterNetEvent('cm-police:client:adminFleetPlacement', function(result)
@@ -90,6 +84,13 @@ RegisterNUICallback('police_recallAllFleetVehicles', function(_, cb)
     cb({ ok = ok == true, error = message })
 end)
 
+RegisterNUICallback('police_recallFleetVehicle', function(data, cb)
+    data = type(data) == 'table' and data or {}
+    local ok, message = lib.callback.await('cm-police:server:recallFleetVehicle', false, data.model)
+    notify(message, ok and 'success' or 'error')
+    cb({ ok = ok == true, error = message })
+end)
+
 RegisterNetEvent('cm-police:client:applyFleetMods', function(netId, mods)
     CreateThread(function()
         local vehicle = waitForVehicle(netId)
@@ -107,12 +108,9 @@ RegisterCommand('policesavevehicle', function()
     if GetPedInVehicleSeat(vehicle, -1) ~= ped then return end -- driver only
 
     local fleet = Entity(vehicle).state.cmPoliceFleet
-    if type(fleet) ~= 'table' or not fleet.model then return end -- not a Police fleet vehicle
+    if type(fleet) ~= 'table' or not fleet.model or fleet.placement then return end
 
-    local class = GetVehicleClassFromName(GetEntityModel(vehicle))
-    local kind = class == 15 and 'helicopter' or 'car' -- 15 = GTA's Helicopters class
-
-    local ok, message = lib.callback.await('cm-police:server:saveFleetVehicleLocation', false, fleet.model, kind)
+    local ok, message = lib.callback.await('cm-police:server:beginFleetLocationEdit', false, fleet.model)
     if ok then fleetPlacementActive = false end
     notify(message, ok and 'success' or 'error')
 end, false)

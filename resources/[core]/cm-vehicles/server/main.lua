@@ -1693,6 +1693,27 @@ function CMVehicles.Server.SaveVehicleModsAuthorized(src, plate, netId, mods)
 end
 exports('SaveVehicleModsAuthorized', CMVehicles.Server.SaveVehicleModsAuthorized)
 
+-- Trusted cm-law bridge for catalog appearance edits made through the
+-- existing rn-vehicleshop admin editor. The owner remains cm-vehicles; the
+-- caller can only update an exact organization-owned persistent vehicle ID.
+exports('SaveOrganizationFleetMods', function(src, vehicleId, organizationId, model, mods)
+    if GetInvokingResource() ~= 'cm-law' then return false, 'untrusted_caller' end
+    src, vehicleId = tonumber(src), tonumber(vehicleId)
+    organizationId = tostring(organizationId or ''):lower()
+    model = tostring(model or ''):lower()
+    if not vehicleId or vehicleId <= 0 or organizationId == '' or model == '' then return false, 'invalid_request' end
+    local row = CMVehicles.Server.GetVehicleById(vehicleId)
+    if not row or tostring(row.owner_class or ''):lower() ~= organizationId
+        or tostring(row.model or ''):lower() ~= model then return false, 'vehicle_identity_mismatch' end
+    local clean = sanitizeMods(mods)
+    if not clean then return false, 'invalid_modifications' end
+    local changed = MySQL.update.await('UPDATE cm_owned_vehicles SET mods = ? WHERE id = ? AND owner_class = ? AND model = ?',
+        { U.Encode(clean), vehicleId, organizationId, model })
+    if tonumber(changed) ~= 1 then return false, 'vehicle_modifications_not_saved' end
+    CMVehicles.Server.Audit(CMVehicles.Server.GetCharacterId(src), row.plate, 'organization_fleet_mods_saved', { organization = organizationId })
+    return true
+end)
+
 RegisterNetEvent('cm-vehicles:server:saveMods', function()
     U.Notify(source, 'Modification saving requires server-authorized tuning.', 'error')
 end)

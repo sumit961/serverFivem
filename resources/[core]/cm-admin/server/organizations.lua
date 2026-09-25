@@ -350,7 +350,7 @@ function CMOrganizations.getFleet(src, orgId)
     if not hasPerm(src, 'orgs.manage') then return { ok = false, error = 'No permission: orgs.manage' } end
     local org = organizations[tostring(orgId or '')]
     if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return { ok = false, error = 'Fleet configuration is unavailable.' } end
-    local ok, result = pcall(function() return exports[org.resource]:AdminGetFleet(src, org.id) end)
+    local ok, result = pcall(function() return exports[org.resource][organizationExport(org, 'getFleet', 'AdminGetFleet')](src, org.id) end)
     return ok and type(result) == 'table' and result or { ok = false, error = 'Fleet configuration failed safely.' }
 end
 
@@ -358,7 +358,7 @@ function CMOrganizations.configureFleet(src, orgId, data)
     if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
     local org = organizations[tostring(orgId or '')]
     if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
-    local ok, result, message = pcall(function() return exports[org.resource]:AdminConfigureFleetVehicle(src, org.id, data) end)
+    local ok, result, message = pcall(function() return exports[org.resource][organizationExport(org, 'configureFleet', 'AdminConfigureFleetVehicle')](src, org.id, data) end)
     return ok and result == true, ok and message or 'Fleet configuration failed safely.'
 end
 
@@ -366,7 +366,7 @@ function CMOrganizations.resetFleet(src, orgId, model)
     if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
     local org = organizations[tostring(orgId or '')]
     if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
-    local ok, result, message = pcall(function() return exports[org.resource]:AdminResetFleetLocation(src, org.id, model) end)
+    local ok, result, message = pcall(function() return exports[org.resource][organizationExport(org, 'resetFleet', 'AdminResetFleetLocation')](src, org.id, model) end)
     return ok and result == true, ok and message or 'Fleet reset failed safely.'
 end
 
@@ -374,10 +374,40 @@ function CMOrganizations.beginFleetPlacement(src, orgId, model)
     if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
     local org = organizations[tostring(orgId or '')]
     if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
-    local ok, result, message = pcall(function() return exports[org.resource]:AdminBeginFleetPlacement(src, org.id, model) end)
+    local ok, result, message = pcall(function() return exports[org.resource][organizationExport(org, 'beginFleetPlacement', 'AdminBeginFleetPlacement')](src, org.id, model) end)
     if not ok then return false, 'Fleet placement failed safely.' end
-    if result == true then log(src, 'org_fleet_placement_started', { orgId = org.id, model = tostring(model or '') }) end
+    if result == true then log(src, 'org_fleet_location_saved', { orgId = org.id, model = tostring(model or '') }) end
     return result == true, message
+end
+
+function CMOrganizations.recallFleetVehicle(src, orgId, model)
+    if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
+    local org = organizations[tostring(orgId or '')]
+    if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
+    local ok, result, message = pcall(function()
+        return exports[org.resource][organizationExport(org, 'recallFleetVehicle', 'AdminRecallFleetVehicle')](src, org.id, model)
+    end)
+    return ok and result == true, ok and message or 'Fleet recall failed safely.'
+end
+
+function CMOrganizations.recallAllFleetVehicles(src, orgId)
+    if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
+    local org = organizations[tostring(orgId or '')]
+    if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
+    local ok, result, message = pcall(function()
+        return exports[org.resource][organizationExport(org, 'recallAllFleetVehicles', 'AdminRecallAllFleetVehicles')](src, org.id)
+    end)
+    return ok and result == true, ok and message or 'Fleet recall failed safely.'
+end
+
+function CMOrganizations.tuneFleetVehicle(src, orgId, model)
+    if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
+    local org = organizations[tostring(orgId or '')]
+    if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
+    local ok, result, message = pcall(function()
+        return exports[org.resource][organizationExport(org, 'tuneFleetVehicle', 'AdminTuneFleetVehicle')](src, org.id, model)
+    end)
+    return ok and result == true, ok and message or 'Vehicle tuning could not be opened safely.'
 end
 
 function CMOrganizations.removeLeader(src, orgId)

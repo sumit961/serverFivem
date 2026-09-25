@@ -693,9 +693,8 @@ local function ensureSchema()
     -- Added after the table above already shipped on some installs -- a
     -- persistent, garage-quality cm-vehicles record per configured fleet
     -- vehicle (condition/fuel/damage survive between recalls), same as
-    -- cm-police's cm_police_fleet_vehicles.vehicle_id. NULL until a manager
-    -- drives the location-setting dummy and presses H (server/vehicles.lua's
-    -- saveFleetVehicleLocation), which is also what creates this row.
+    -- cm-police's cm_police_fleet_vehicles.vehicle_id. New entries are linked
+    -- through Manage Vehicle; Law stores only organization-specific settings.
     pcall(function() MySQL.query.await('ALTER TABLE cm_legal_fleet_vehicles ADD COLUMN vehicle_id BIGINT UNSIGNED NULL') end)
     pcall(function() MySQL.query.await('ALTER TABLE cm_legal_fleet_vehicles ADD COLUMN location_configured TINYINT(1) NOT NULL DEFAULT 1 AFTER enabled') end)
     -- Minimal custody tracking (server/cuffs.lua) -- enough to restore a

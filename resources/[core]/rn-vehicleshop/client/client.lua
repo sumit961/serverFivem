@@ -1522,10 +1522,12 @@ RegisterNUICallback('deletevehicle', function(_, cb)
 end)
 
 local activeAdminMode = 'manage'
+local activeAdminFleetModel = nil
 
-RegisterNetEvent('rn-vehicleshop:client:requestAdmin', function(mode)
+RegisterNetEvent('rn-vehicleshop:client:requestAdmin', function(mode, fleetModel)
     activeAdminMode = mode == 'capture' and 'capture' or 'manage'
-    TriggerServerEvent('rn-vehicleshop:server:openAdmin', activeAdminMode)
+    activeAdminFleetModel = tostring(fleetModel or ''):lower()
+    TriggerServerEvent('rn-vehicleshop:server:openAdmin', activeAdminMode, activeAdminFleetModel)
 end)
 
 local vehicleClassLabels = {
@@ -1590,7 +1592,7 @@ local function sendRuntimeVehicleModels()
     end)
 end
 
-RegisterNetEvent('rn-vehicleshop:client:openAdmin', function(sourceList, catalog, discoveryInfo, mode)
+RegisterNetEvent('rn-vehicleshop:client:openAdmin', function(sourceList, catalog, discoveryInfo, mode, fleetModel)
     -- Put the admin into the showroom camera view so the Capture Image button
     -- always has a cleanly framed car against the backdrop, even when /vehicleadmin
     -- is run from elsewhere on the map.
@@ -1598,7 +1600,8 @@ RegisterNetEvent('rn-vehicleshop:client:openAdmin', function(sourceList, catalog
     SetNuiFocus(true, true)
     beginHudStoreLock('vehicle_admin')
     activeAdminMode = mode == 'capture' and 'capture' or 'manage'
-    SendNUIMessage({ action = 'adminOpen', sourceVehicles = enrichAdminSourceVehicles(sourceList), catalog = catalog or {}, discovery = discoveryInfo or {}, mode = activeAdminMode })
+    activeAdminFleetModel = tostring(fleetModel or ''):lower()
+    SendNUIMessage({ action = 'adminOpen', sourceVehicles = enrichAdminSourceVehicles(sourceList), catalog = catalog or {}, discovery = discoveryInfo or {}, mode = activeAdminMode, fleetModel = activeAdminFleetModel })
     sendRuntimeVehicleModels()
 end)
 

@@ -1934,15 +1934,17 @@ RegisterNetEvent('rn-vehicleshop:server:testDriveStartFailed', function(token, r
     structuredAdminLog('test_drive', 'start_failed', src, { reason = reason, refunded = refunded }, 'error')
 end)
 
-RegisterNetEvent('rn-vehicleshop:server:openAdmin', function(requestedMode)
+RegisterNetEvent('rn-vehicleshop:server:openAdmin', function(requestedMode, requestedFleetModel)
     local src = source
     if not isAdmin(src) then return notify(src, 'You do not have vehicle admin permission.', 'error') end
     if not checkRateLimit(src, 'openAdmin', tonumber(hardeningCfg().AdminOpenCooldownMs) or 750) then return end
     local mode = requestedMode == 'capture' and 'capture' or 'manage'
+    local fleetModel = normalizeModel(requestedFleetModel)
+    if mode ~= 'manage' or not isKnownOrAllowedModel(fleetModel, true) then fleetModel = nil end
     AdminModes[src] = mode
     enterShopBucket(src, 'admin')
     local sourceList = flattenSourceVehicles(false)
-    TriggerClientEvent('rn-vehicleshop:client:openAdmin', src, sourceList, getCatalog(true), adminMeta(), mode)
+    TriggerClientEvent('rn-vehicleshop:client:openAdmin', src, sourceList, getCatalog(true), adminMeta(), mode, fleetModel)
 end)
 
 RegisterNetEvent('rn-vehicleshop:server:rescanVehicles', function()
@@ -2150,6 +2152,12 @@ RegisterNetEvent('rn-vehicleshop:server:saveAdminVehicle', function(data)
 
     invalidateCatalogCache()
     if GetResourceState('cm-gang')=='started' then pcall(function() exports['cm-gang']:AssignCatalogVehicle(src,model,gangId) end) end
+    if fleetAppearanceEnabled and tostring(data.fleetTuneModel or ''):lower() == model and GetResourceState('cm-law') == 'started' then
+        local synced, syncOk, syncMessage = pcall(function() return exports['cm-law']:SyncFleetCatalogMods(src, model, vehicleMods) end)
+        if not synced or syncOk ~= true then
+            structuredAdminLog('organization_vehicle', 'fleet_mod_sync_failed', src, { model = model, reason = tostring(syncMessage or syncOk) }, 'error')
+        end
+    end
     local successMessage = ('Saved %s.'):format(label)
     notify(src, successMessage, 'success')
     sendAdminActionResult(src, 'save', requestId, true, successMessage, { model=model })

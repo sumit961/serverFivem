@@ -29,7 +29,6 @@ local SHOP_RESOURCE = 'rn-vehicleshop'
 local ActiveFleetVehicles = {}
 local FleetPlacementBySource = {}
 local FleetLocationBusy = {}
-local FleetAssignments = {} -- [model] = { characterId, name }
 local vehicleHasOccupant
 
 local function actorFor(src)
@@ -127,17 +126,17 @@ local function mergedRow(catalogRow, settingsRow)
         label = catalogRow.label,
         category = catalogRow.category,
         image = catalogRow.image,
+        vehicleId = settingsRow and tonumber(settingsRow.vehicle_id) or nil,
         minTier = settingsRow and math.floor(tonumber(settingsRow.min_tier) or 0) or 0,
         enabled = settingsRow and PoliceLegacyDbBoolean(settingsRow.enabled) or false,
         configured = settingsRow ~= nil and PoliceLegacyDbBoolean(settingsRow.location_configured),
-        assignedOfficer = FleetAssignments[tostring(catalogRow.model):lower()] and FleetAssignments[tostring(catalogRow.model):lower()].name or nil,
     }
     local vehicleId = settingsRow and tonumber(settingsRow.vehicle_id)
     local active, info = vehicleId and exports[VEHICLES_RESOURCE]:GetSpawnedVehicleInfo(vehicleId) or false, nil
     if vehicleId then active, info = exports[VEHICLES_RESOURCE]:GetSpawnedVehicleInfo(vehicleId) end
     local entity = active == true and type(info) == 'table' and tonumber(info.entity) or 0
     if entity ~= 0 and DoesEntityExist(entity) then
-        merged.status = vehicleHasOccupant and vehicleHasOccupant(entity) and 'occupied' or 'deployed'
+        merged.status = vehicleHasOccupant and vehicleHasOccupant(entity) and 'in_use' or 'available'
         merged.engineHealth = math.floor(math.max(0, GetVehicleEngineHealth(entity)))
         merged.bodyHealth = math.floor(math.max(0, GetVehicleBodyHealth(entity)))
         local fuelOk, fuelLevel = pcall(GetVehicleFuelLevel, entity) -- server-side native availability is build-dependent; never let a read crash the listing
@@ -145,7 +144,7 @@ local function mergedRow(catalogRow, settingsRow)
         local coords = GetEntityCoords(entity)
         merged.location = { x = math.floor(coords.x), y = math.floor(coords.y), z = math.floor(coords.z) }
     else
-        merged.status = merged.configured and 'available' or 'not_configured'
+        merged.status = not merged.enabled and 'disabled' or (merged.configured and 'recovering' or 'not_configured')
     end
     return merged
 end
@@ -207,37 +206,40 @@ lib.callback.register('cm-police:server:setFleetVehicleMinTier', function(src, m
     minTier = math.max(0, math.min(100, math.floor(tonumber(minTier) or 0)))
     local changed = MySQL.update.await('UPDATE cm_police_fleet_vehicles SET min_tier = ? WHERE model = ?', { minTier, model })
     if not tonumber(changed) or tonumber(changed) <= 0 then
-        return false, 'Spawn this vehicle and press H inside it first, to give it a location.'
+        return false, 'Link this persistent vehicle through Manage Vehicle before setting its location.'
     end
     log(actorCid, 'fleet_vehicle_min_tier_set', { model = model, minTier = minTier })
     return true
 end)
 
 local function beginFleetLocationEdit(src, model, adminStarted)
-    local actor, _, err = actorFor(src)
+    local actor, actorCid, err = actorFor(src)
     local admin = false
     if adminStarted == true then pcall(function() admin = exports[PoliceConfig.AdminResource]:HasPermission(src, PoliceConfig.AdminPermission) == true end) end
     if not admin and (not actor or not has(actor, 'police.manage_vehicles')) then return false, err or 'Your rank cannot manage Police vehicles.' end
-    if not PoliceLegacyRateLimit(src, 'police_fleet_edit', 1500) then return false, 'Please wait.' end
+    if admin then actorCid = cid(src) end
     model = tostring(model or ''):lower()
     local catalogRow = resolveCatalogRow(model)
-    if not catalogRow then return false, 'Unknown vehicle model.' end
-    local previous = FleetPlacementBySource[src]
-    if previous then pcall(function() exports[VEHICLES_RESOURCE]:DeleteAdminVehicle(previous.plate) end) end
-    FleetPlacementBySource[src] = nil
+    local settings = MySQL.single.await('SELECT vehicle_id FROM cm_police_fleet_vehicles WHERE model = ? AND enabled = 1 AND location_configured = 1 LIMIT 1', { model })
+    local vehicleId = settings and tonumber(settings.vehicle_id)
+    if not catalogRow or not vehicleId then return false, 'Link this persistent vehicle through Manage Vehicle first.' end
     local ped = GetPlayerPed(src)
-    if not ped or ped == 0 then return false, 'Character is not loaded.' end
-    local coords, heading = GetEntityCoords(ped), GetEntityHeading(ped)
-    local okClass, classId = pcall(GetVehicleClassFromName, GetHashKey(model))
-    local kind = okClass and classId == 15 and 'helicopter' or 'car'
-    local x, y, z = offsetSpawnCoords(coords.x, coords.y, coords.z, heading, kind)
-    local result = exports[VEHICLES_RESOURCE]:SpawnAdminVehicle(src, model, { x = x, y = y, z = z, h = heading }, {
-        label = ('Police location dummy: %s'):format(catalogRow.label), placementKind = kind, engineOn = true,
-    })
-    if type(result) ~= 'table' or result.ok ~= true then return false, tostring(result and result.error or 'Could not create the location dummy.') end
-    FleetPlacementBySource[src] = { model = model, kind = kind, plate = result.plate, netId = result.netId, entity = result.entity, admin = admin, expiresAt = os.time() + 300 }
-    if result.entity and DoesEntityExist(result.entity) then Entity(result.entity).state:set('cmPoliceFleet', { model = model, placement = true }, true) end
-    return true, { netId = result.netId, model = model, message = 'Drive to the location. Press H to save or Backspace to cancel.' }
+    local vehicle = ped and ped ~= 0 and GetVehiclePedIsIn(ped, false) or 0
+    if vehicle == 0 or not DoesEntityExist(vehicle) or GetPedInVehicleSeat(vehicle, -1) ~= ped then return false, 'Sit in the configured Police vehicle as its driver first.' end
+    if GetHashKey(catalogRow.model) ~= GetEntityModel(vehicle) or tonumber(Entity(vehicle).state.cmVehicleId) ~= vehicleId then return false, 'This is not the configured persistent Police vehicle.' end
+    local active, info = exports[VEHICLES_RESOURCE]:GetSpawnedVehicleInfo(vehicleId)
+    if active ~= true or type(info) ~= 'table' or tonumber(info.entity) ~= tonumber(vehicle) then return false, 'The persistent vehicle registry does not match this entity.' end
+    if GetEntityRoutingBucket(vehicle) ~= GetPlayerRoutingBucket(src) then return false, 'Vehicle routing context does not match.' end
+    if not PoliceLegacyRateLimit(src, 'police_fleet_edit', 1500) then return false, 'Please wait.' end
+    local coords, heading = GetEntityCoords(vehicle), GetEntityHeading(vehicle)
+    if math.abs(coords.x) > 20000 or math.abs(coords.y) > 20000 or coords.z < -500 or coords.z > 5000 or heading < 0 or heading >= 360 then return false, 'Vehicle location is outside supported world bounds.' end
+    local kind = GetVehicleClass(vehicle) == 15 and 'helicopter' or 'car'
+    local changed = MySQL.update.await([[UPDATE cm_police_fleet_vehicles SET kind=?,spawn_x=?,spawn_y=?,spawn_z=?,spawn_h=?,updated_by=?
+        WHERE model=? AND vehicle_id=? AND enabled=1 AND location_configured=1]],
+        { kind, coords.x, coords.y, coords.z, heading, actorCid, model, vehicleId })
+    if not tonumber(changed) or tonumber(changed) <= 0 then return false, 'Fleet configuration changed; location was not saved.' end
+    log(actorCid, 'fleet_vehicle_location_saved', { model = model, label = catalogRow.label, vehicleId = vehicleId })
+    return true, ('%s location saved for permanent vehicle #%d.'):format(catalogRow.label, vehicleId)
 end
 lib.callback.register('cm-police:server:beginFleetLocationEdit', function(src, model) return beginFleetLocationEdit(src, model, false) end)
 
@@ -373,6 +375,9 @@ local function recallFleetVehicleCore(src, actorCid, model, settings, repair)
     if not row then return false, 'The persistent Police vehicle record is missing. Use recovery before recreating it.' end
     local spawn = { x = tonumber(settings.spawn_x), y = tonumber(settings.spawn_y), z = tonumber(settings.spawn_z), h = tonumber(settings.spawn_h) or 0 }
     local active, activeInfo = exports[VEHICLES_RESOURCE]:GetSpawnedVehicleInfo(vehicleId)
+    if active == true and vehicleHasOccupant(activeInfo and activeInfo.entity) then
+        return false, 'Vehicle is currently occupied.'
+    end
 
     -- Recover vehicles left quarantined by the old server-created path.
     -- House garages do the same thing when their registered display entity is
@@ -454,30 +459,11 @@ local function spawnPersistent(src, actor, actorCid, model, repair)
     if not settings or not tonumber(settings.vehicle_id) then return false, 'Set this vehicle location first.' end
     if not PoliceLegacyDbBoolean(settings.enabled) then return false, 'That Police vehicle is disabled.' end
     if not PoliceLegacyDbBoolean(actor.is_leader) and (tonumber(actor.tier) or 0) < (tonumber(settings.min_tier) or 0) then return false, 'Your rank cannot use this vehicle.' end
-    local ok, message = recallFleetVehicleCore(src, actorCid, model, settings, repair)
-    if ok and actorCid and not repair then FleetAssignments[model] = { characterId = tostring(actorCid), name = PoliceLegacyNameFor(actorCid) } end
-    if ok and repair then FleetAssignments[model] = nil end
-    return ok, message
+    return recallFleetVehicleCore(src, actorCid, model, settings, repair)
 end
 
-AddEventHandler('cm-police:server:memberWentOffDuty', function(src, characterId)
-    src, characterId = tonumber(src), tostring(characterId or '')
-    if not src or not GetPlayerName(src) then src = tonumber((GetPlayers() or {})[1]) end
-    for model, assignment in pairs(FleetAssignments) do
-        if assignment.characterId == characterId then
-            local settings = persistentFleetRow(model)
-            if src and GetPlayerName(src) and settings then recallFleetVehicleCore(src, characterId, model, settings, true) end
-            FleetAssignments[model] = nil
-        end
-    end
-end)
-
 lib.callback.register('cm-police:server:spawnFleetVehicle', function(src, model)
-    local actor, actorCid, err = actorFor(src)
-    if not actor then return false, err end
-    if not has(actor, 'police.manage_vehicles') and not has(actor, 'police.spawn_vehicles') then return false, 'Your rank cannot call Police vehicles.' end
-    if not PoliceLegacyDbBoolean(actor.on_duty) then return false, 'Go on duty first.' end
-    return spawnPersistent(src, actor, actorCid, tostring(model or ''):lower(), false)
+    return false, 'Police fleet vehicles are already parked at their configured locations.'
 end)
 
 lib.callback.register('cm-police:server:recallAllFleetVehicles', function(src)
@@ -495,6 +481,20 @@ lib.callback.register('cm-police:server:recallAllFleetVehicles', function(src)
     fleetOperationBusy = false
     log(actorCid, 'fleet_recalled_all', { recalled = recalled, failed = failed })
     return failed == 0, ('Recalled %d persistent Police vehicles clean, fully repaired and refuelled; %d failed safely.'):format(recalled, failed)
+end)
+
+lib.callback.register('cm-police:server:recallFleetVehicle', function(src, model)
+    local actor, actorCid, err = actorFor(src)
+    if not actor or not has(actor, 'police.manage_vehicles') then return false, err or 'Your rank cannot recall Police fleet vehicles.' end
+    model = tostring(model or ''):lower()
+    local settings = model ~= '' and persistentFleetRow(model) or nil
+    if not settings or not PoliceLegacyDbBoolean(settings.enabled) or not tonumber(settings.vehicle_id) then return false, 'Police fleet vehicle is not enabled or configured.' end
+    if fleetOperationBusy then return false, 'Another Police fleet recall is running.' end
+    fleetOperationBusy = true
+    local ok, message = recallFleetVehicleCore(src, actorCid, model, settings, true)
+    fleetOperationBusy = false
+    if ok then log(actorCid, 'fleet_vehicle_recalled', { model = model, vehicleId = tonumber(settings.vehicle_id) }) end
+    return ok, message
 end)
 
 AddEventHandler('playerDropped', function()
@@ -550,8 +550,16 @@ exports('PoliceLegacyAdminConfigureFleetVehicle', function(src, _, data)
     if not policeAdmin(src) then return false, 'Permission denied.' end
     local model = tostring(data.model or ''):lower()
     if not resolveCatalogRow(model) then return false, 'Unknown vehicle model.' end
-    local row = MySQL.single.await('SELECT model,location_configured FROM cm_police_fleet_vehicles WHERE model = ? LIMIT 1', { model })
+    local row = MySQL.single.await('SELECT model,vehicle_id,location_configured FROM cm_police_fleet_vehicles WHERE model = ? LIMIT 1', { model })
     if not row or not PoliceLegacyDbBoolean(row.location_configured) then return false, 'Set this vehicle location before enabling it.' end
+    if data.enabled ~= true and tonumber(row.vehicle_id) then
+        local active, info = exports[VEHICLES_RESOURCE]:GetSpawnedVehicleInfo(tonumber(row.vehicle_id))
+        if active and vehicleHasOccupant(info and info.entity) then return false, 'Vehicle is currently occupied.' end
+        if active then
+            local removed, why = exports[VEHICLES_RESOURCE]:DeleteSpawnedVehicle(tonumber(row.vehicle_id))
+            if removed ~= true then return false, tostring(why or 'Could not safely disable the Police vehicle.') end
+        end
+    end
     local tier = math.max(0, math.min(100, math.floor(tonumber(data.minTier) or 0)))
     MySQL.update.await('UPDATE cm_police_fleet_vehicles SET enabled = ?, min_tier = ?, updated_by = ? WHERE model = ?',
         { data.enabled == true and 1 or 0, tier, tostring(cid(src) or 'admin'), model })
@@ -614,8 +622,7 @@ end)
 
 exports('PoliceLegacyAdminBeginFleetPlacement', function(src, _, model)
     local ok, result = beginFleetLocationEdit(tonumber(src), model, true)
-    if ok and type(result) == 'table' then TriggerClientEvent('cm-police:client:adminFleetPlacement', tonumber(src), result) end
-    return ok, type(result) == 'table' and result.message or result
+    return ok, result
 end)
 
 exports('PoliceLegacyAdminResetFleetLocation', function(src, _, model)
@@ -636,18 +643,31 @@ end)
 -- whose client can do the client-assisted creation. Runs once per resource
 -- lifetime; not gated by rank/tier/on-duty since nobody is "requesting" this,
 -- the server is just restoring its own fleet.
-local fleetAutoRespawnStarted = false
+local fleetAutoRespawnRunning = false
+
+local function fleetRecoverySource(preferred)
+    preferred = tonumber(preferred)
+    if preferred and GetPlayerName(preferred) and GetPlayerRoutingBucket(preferred) == 0 then return preferred end
+    for _, rawSrc in ipairs(GetPlayers() or {}) do
+        local src = tonumber(rawSrc)
+        if src and GetPlayerRoutingBucket(src) == 0 then return src end
+    end
+end
 
 local function autoRespawnFleet(triggerSrc)
-    if fleetAutoRespawnStarted then return end
-    triggerSrc = tonumber(triggerSrc)
+    if fleetAutoRespawnRunning then return end
+    triggerSrc = fleetRecoverySource(triggerSrc)
     if not triggerSrc or triggerSrc <= 0 or not GetPlayerName(triggerSrc) then return end
-    fleetAutoRespawnStarted = true
+    fleetAutoRespawnRunning = true
 
     CreateThread(function()
-        if fleetOperationBusy then return end
+        local deadline = GetGameTimer() + 30000
+        while GetResourceState(VEHICLES_RESOURCE) ~= 'started' and GetGameTimer() < deadline do Wait(500) end
+        if GetResourceState(VEHICLES_RESOURCE) ~= 'started' then fleetAutoRespawnRunning = false; return end
+        Wait(2000) -- let cm-vehicles rebuild its vehicle_id registry before recovery
+        if fleetOperationBusy then fleetAutoRespawnRunning = false; return end
         fleetOperationBusy = true
-        local rows = MySQL.query.await('SELECT model FROM cm_police_fleet_vehicles WHERE enabled = 1 AND vehicle_id IS NOT NULL ORDER BY model') or {}
+        local rows = MySQL.query.await('SELECT model FROM cm_police_fleet_vehicles WHERE enabled = 1 AND location_configured = 1 AND vehicle_id IS NOT NULL ORDER BY model') or {}
         local respawned, skipped = 0, 0
         for _, row in ipairs(rows) do
             local settings = persistentFleetRow(row.model)
@@ -659,13 +679,70 @@ local function autoRespawnFleet(triggerSrc)
             end
             Wait(0)
         end
-        fleetOperationBusy = false
         if respawned > 0 or skipped > 0 then
             log(nil, 'fleet_auto_respawned', { respawned = respawned, skipped = skipped })
         end
+        fleetOperationBusy = false
+        fleetAutoRespawnRunning = false
     end)
 end
 
 AddEventHandler('cm-playerdata:server:characterLoaded', function(src)
     autoRespawnFleet(src)
+end)
+
+exports('PoliceLegacyAdminRecallFleetVehicle', function(src, _, model)
+    src, model = tonumber(src), tostring(model or ''):lower()
+    if not policeAdmin(src) then return false, 'Permission denied.' end
+    local settings = persistentFleetRow(model)
+    if not settings or not PoliceLegacyDbBoolean(settings.enabled) or not tonumber(settings.vehicle_id) then return false, 'Police fleet vehicle is not enabled or configured.' end
+    if fleetOperationBusy then return false, 'Another Police fleet recall is running.' end
+    fleetOperationBusy = true
+    local ok, message = recallFleetVehicleCore(src, tostring(cid(src) or 'admin'), model, settings, true)
+    fleetOperationBusy = false
+    return ok, message
+end)
+
+exports('PoliceLegacyAdminRecallAllFleetVehicles', function(src, _)
+    src = tonumber(src)
+    if not policeAdmin(src) then return false, 'Permission denied.' end
+    if fleetOperationBusy then return false, 'Another Police fleet recall is running.' end
+    fleetOperationBusy = true
+    local rows = MySQL.query.await('SELECT model FROM cm_police_fleet_vehicles WHERE enabled=1 AND location_configured=1 AND vehicle_id IS NOT NULL ORDER BY model') or {}
+    local recalled, failed = 0, 0
+    for _, row in ipairs(rows) do
+        local settings = persistentFleetRow(row.model)
+        local ok = settings and recallFleetVehicleCore(src, tostring(cid(src) or 'admin'), row.model, settings, true)
+        if ok then recalled = recalled + 1 else failed = failed + 1 end
+        Wait(0)
+    end
+    fleetOperationBusy = false
+    return failed == 0, ('Recalled %d Police vehicles; %d could not be moved safely.'):format(recalled, failed)
+end)
+
+exports('PoliceLegacyAdminTuneFleetVehicle', function(src, _, model)
+    src, model = tonumber(src), tostring(model or ''):lower()
+    if not policeAdmin(src) then return false, 'Permission denied.' end
+    local settings = persistentFleetRow(model)
+    if not settings or not PoliceLegacyDbBoolean(settings.enabled) or not tonumber(settings.vehicle_id) then return false, 'Police fleet vehicle is not enabled or configured.' end
+    if GetResourceState(SHOP_RESOURCE) ~= 'started' then return false, 'Manage Vehicle is unavailable.' end
+    TriggerClientEvent('rn-vehicleshop:client:requestAdmin', src, 'manage', model)
+    return true, 'Manage Vehicle opened for this Police fleet model. Saved appearance changes will update its persistent fleet record.'
+end)
+
+AddEventHandler('onResourceStart', function(resource)
+    if resource ~= GetCurrentResourceName() and resource ~= VEHICLES_RESOURCE then return end
+    CreateThread(function()
+        Wait(2500)
+        local players = GetPlayers()
+        if players and players[1] then autoRespawnFleet() end
+    end)
+end)
+
+CreateThread(function()
+    while true do
+        Wait(60000)
+        local players = GetPlayers()
+        if players and players[1] then autoRespawnFleet() end
+    end
 end)

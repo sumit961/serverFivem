@@ -1341,6 +1341,18 @@ RegisterNetEvent('cm-admin:server:nuiAction', function(payload)
         local ok,message=CMOrganizations.beginFleetPlacement(src,data.orgId,data.model)
         notify(src,message or 'Fleet placement failed.',ok and 'success' or 'error'); return
     end
+    if action == 'orgsRecallFleetVehicle' then
+        local ok,message=CMOrganizations.recallFleetVehicle(src,data.orgId,data.model)
+        notify(src,message or 'Fleet recall failed.',ok and 'success' or 'error'); return
+    end
+    if action == 'orgsRecallAllFleetVehicles' then
+        local ok,message=CMOrganizations.recallAllFleetVehicles(src,data.orgId)
+        notify(src,message or 'Fleet recall failed.',ok and 'success' or 'error'); return
+    end
+    if action == 'orgsTuneFleetVehicle' then
+        local ok,message=CMOrganizations.tuneFleetVehicle(src,data.orgId,data.model)
+        notify(src,message or 'Vehicle tuning could not be opened.',ok and 'success' or 'error'); return
+    end
     if action == 'orgsConfigureFleet' then
         local ok,message=CMOrganizations.configureFleet(src,data.orgId,data)
         notify(src,message or 'Fleet update failed.',ok and 'success' or 'error'); return

@@ -91,14 +91,8 @@ end)
 RegisterNUICallback('setFleetVehicleLocation', function(data, cb)
     data = type(data) == 'table' and data or {}
     local ok, result = lib.callback.await('cm-law:server:beginFleetLocationEdit', false, data.model)
-    if not ok or type(result) ~= 'table' then notify(result or 'Could not start location edit.', 'error'); cb({ ok = false, error = result }); return end
-    CmLawCloseMenu()
-    local vehicle = waitForVehicle(tonumber(result.netId), 10000)
-    if not vehicle then notify('The fleet location dummy did not appear.', 'error'); cb({ ok = false }); return end
-    TaskWarpPedIntoVehicle(PlayerPedId(), vehicle, -1)
-    fleetPlacementActive = true
-    notify(result.message or 'Drive to the location. Press H to save or Backspace to cancel.', 'inform')
-    cb({ ok = true })
+    notify(result or 'Could not save the fleet location.', ok and 'success' or 'error')
+    cb({ ok = ok == true, message = ok and result or nil, error = ok and nil or result })
 end)
 
 RegisterNetEvent('cm-law:client:adminFleetPlacement', function(result)
@@ -130,6 +124,13 @@ RegisterNUICallback('recallAllFleetVehicles', function(_, cb)
     cb({ ok = ok == true, error = message })
 end)
 
+RegisterNUICallback('recallFleetVehicle', function(data, cb)
+    data = type(data) == 'table' and data or {}
+    local ok, message = lib.callback.await('cm-law:server:recallFleetVehicle', false, data.model)
+    notify(message, ok and 'success' or 'error')
+    cb({ ok = ok == true, error = message })
+end)
+
 RegisterNetEvent('cm-law:client:applyFleetMods', function(netId, mods)
     CreateThread(function()
         local vehicle = waitForVehicle(netId)
@@ -147,12 +148,9 @@ RegisterCommand('lawsavevehicle', function()
     if GetPedInVehicleSeat(vehicle, -1) ~= ped then return end -- driver only
 
     local fleet = Entity(vehicle).state.cmLegalFleet
-    if type(fleet) ~= 'table' or not fleet.model or not fleet.placement then return end -- not a location dummy
+    if type(fleet) ~= 'table' or not fleet.model or fleet.placement then return end
 
-    local class = GetVehicleClassFromName(GetEntityModel(vehicle))
-    local kind = class == 15 and 'helicopter' or 'car' -- 15 = GTA's Helicopters class
-
-    local ok, message = lib.callback.await('cm-law:server:saveFleetVehicleLocation', false, fleet.model, kind)
+    local ok, message = lib.callback.await('cm-law:server:beginFleetLocationEdit', false, fleet.model)
     if ok then fleetPlacementActive = false end
     notify(message, ok and 'success' or 'error')
 end, false)

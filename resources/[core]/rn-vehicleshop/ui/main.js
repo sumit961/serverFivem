@@ -25,6 +25,7 @@ let adminRenderedVehicles = [];
 let adminPreviewedModel = '';
 let adminDiscoveryInfo = {};
 let adminSelectedModel = null;
+let adminFleetTuneModel = null;
 let visualCatalog = {}; // cm-tuning's paint/livery/wheel/tyre/neon option catalog
 let legalOrganizations = []; // cm-law's org list ({id,label}[]), for the admin-status-mode dropdown's legal:<id> options
 let gangOrganizations = [];
@@ -516,6 +517,8 @@ addEventListener('message', (e) => {
     renderLegalOrgOptions();
     renderGrantOrgOptions();
     adminMode = msg.mode === 'capture' ? 'capture' : 'manage';
+    adminFleetTuneModel = modelKey(msg.fleetModel || '') || null;
+    adminSelectedModel = adminFleetTuneModel;
     adminPreviewedModel = '';
     openAdminPanel();
   } else if(msg.action === 'adminData'){
@@ -2039,7 +2042,8 @@ $(document).on('click', '#admin-save', function(){
     replacementNotice: String($('#admin-replacement-notice').val() || '').trim(),
     testDriveEnabled: $('#admin-test-enabled').is(':checked'),
     testDriveTimer: Number($('#admin-test-duration').val() || DEFAULT_TEST_DRIVE_SECONDS),
-    testDriveCost: Number($('#admin-test-cost').val() || 0), requestId
+    testDriveCost: Number($('#admin-test-cost').val() || 0), requestId,
+    fleetTuneModel: adminFleetTuneModel === modelKey($('#admin-model').val()) ? adminFleetTuneModel : null
   };
   // The actual mods payload is attached server-side by client.lua's
   // adminSaveVehicle NUI callback (currentAdminMods, kept in sync via

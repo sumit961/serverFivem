@@ -1706,6 +1706,13 @@ CreateThread(function()
                 summary = 'PoliceLegacyGetOrganizationSummary',
                 assignLeader = 'PoliceCentralAdminAssignLeader',
                 removeLeader = 'PoliceCentralAdminRemoveLeader',
+                getFleet = 'PoliceLegacyAdminGetFleet',
+                configureFleet = 'PoliceLegacyAdminConfigureFleetVehicle',
+                resetFleet = 'PoliceLegacyAdminResetFleetLocation',
+                beginFleetPlacement = 'PoliceLegacyAdminBeginFleetPlacement',
+                recallFleetVehicle = 'PoliceLegacyAdminRecallFleetVehicle',
+                recallAllFleetVehicles = 'PoliceLegacyAdminRecallAllFleetVehicles',
+                tuneFleetVehicle = 'PoliceLegacyAdminTuneFleetVehicle',
             },
             facilityTypes = {
                 { id = 'front_desk', label = 'Front desk NPC' },
