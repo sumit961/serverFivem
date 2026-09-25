@@ -51,13 +51,8 @@ local watchers = {}
 
 RegisterNetEvent('cm-law:server:toggleMemberMap', function(watching)
     local src = source
-    local characterId = characterIdFor(src)
+    local member, characterId = activeMemberForSource(src)
     if not characterId then return end
-    local orgRow = MySQL.single.await([[
-        SELECT m.organization_id FROM cm_legal_members m
-        WHERE m.character_id = ? ORDER BY m.on_duty DESC LIMIT 1
-    ]], { tostring(characterId) })
-    local member = orgRow and memberFor(characterId, orgRow.organization_id)
     if not permitted(member, 'law.view_member_map') then
         watchers[src] = nil
         return
@@ -97,13 +92,8 @@ end)
 
 lib.callback.register('cm-law:server:setMeetingPoint', function(src, payload)
     payload = type(payload) == 'table' and payload or {}
-    local characterId = characterIdFor(src)
+    local member, characterId = activeMemberForSource(src)
     if not characterId then return false, 'Character not found.' end
-    local orgRow = MySQL.single.await([[
-        SELECT m.organization_id FROM cm_legal_members m
-        WHERE m.character_id = ? ORDER BY m.on_duty DESC LIMIT 1
-    ]], { tostring(characterId) })
-    local member = orgRow and memberFor(characterId, orgRow.organization_id)
     if not permitted(member, 'law.set_meeting') then
         return false, 'Your rank cannot set meeting points.'
     end

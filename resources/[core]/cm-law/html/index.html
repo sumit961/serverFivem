@@ -155,8 +155,11 @@
       } else if (payload.action === 'escape' && ready[name]) {
         surfaces[name].contentWindow.cmHandleEscape?.();
       } else {
-        if (payload.action === 'open' && name !== 'police') {
-          forward(name === 'law' ? 'tools' : 'law', { action: 'close' });
+        if (payload.action === 'open') {
+          // Every open owns the whole NUI surface. Close all other iframes so
+          // a Police utility cannot leave Operations or the Hub interactive
+          // underneath it (and vice versa).
+          Object.keys(surfaces).forEach(other => { if (other !== name) forward(other, { action: 'close' }); });
           // MDT, Dispatch and Fleet are separate tools, with no route back to
           // the retired F6 navigation or dashboard.
           if (name === 'tools') payload.standaloneMode = true;

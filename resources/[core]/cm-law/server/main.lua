@@ -323,6 +323,8 @@ function activeMemberForSource(src)
             permissions['law.wardrobe']         = permissions['police.manage_outfits'] == true
             permissions['law.view_members']     = permissions['police.view_members'] == true
             permissions['law.view_logs']        = permissions['police.view_logs'] == true
+            permissions['law.view_member_map'] = permissions['police.view_member_map'] == true
+            permissions['law.set_meeting']     = permissions['police.set_meeting'] == true
             permissions['law.manage_members']   = (permissions['police.invite'] == true or permissions['police.kick'] == true or permissions['police.promote'] == true)
             permissions['law.manage_ranks']     = permissions['police.manage_ranks'] == true
             permissions['law.manage_permissions'] = permissions['police.manage_permissions'] == true

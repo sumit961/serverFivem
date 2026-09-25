@@ -24,7 +24,19 @@ end
 
 local function state()
     local value = LocalPlayer.state.cmLegalOrg
-    return type(value) == 'table' and value or nil
+    if type(value) == 'table' then return value end
+    local police = LocalPlayer.state.cmPolice
+    if type(police) ~= 'table' then return nil end
+    local permissions = type(police.permissions) == 'table' and police.permissions or {}
+    return {
+        isLeader = police.isLeader == true,
+        onDuty = police.onDuty == true,
+        suspended = police.suspended == true,
+        permissions = {
+            ['law.view_member_map'] = permissions['police.view_member_map'] == true,
+            ['law.set_meeting'] = permissions['police.set_meeting'] == true,
+        },
+    }
 end
 
 local function canViewMap()

@@ -198,6 +198,8 @@ function NormalizePoliceDashboard(data)
         canDispatch = allowed('police.receive_dispatch'),
         canMdt = allowed('police.mdt'),
         canCustody = allowed('police.book'),
+        canViewMemberMap = allowed('police.view_member_map'),
+        canSetMeeting = allowed('police.set_meeting'),
         canFleetManage = capabilities.manageVehicles == true,
         canFleetSpawn = allowed('police.spawn_vehicles'),
         logisticsVisible = false,
