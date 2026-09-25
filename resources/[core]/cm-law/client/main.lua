@@ -87,6 +87,10 @@ local function openMenu(initialTab)
         or data.member.onDuty ~= true or data.canDispatch ~= true) then
         return
     end
+    -- F6 is the single shared entry point. Close any legacy Police surface
+    -- first so a stale command/key mapping cannot leave its iframe focused
+    -- underneath the approved Organization Hub.
+    TriggerEvent('cm-police:client:closeMenu')
     open = true
     SetNuiFocus(true, true)
     SendNUIMessage({ cmInterface = "law", action = 'open', data = data, initialTab = initialTab,

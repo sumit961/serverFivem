@@ -79,6 +79,7 @@ end
 local function closeMenu()
     open = false
     sharedDashboardOpen = false
+    adminMode = false
     SetNuiFocus(false, false)
     SendNUIMessage({ cmInterface = "police", action = 'close' })
 end
@@ -247,7 +248,8 @@ RegisterNetEvent('cm-police:client:openArmory', function()
 end)
 
 RegisterCommand(PoliceConfig.MenuCommand, function()
-    TriggerEvent('cm-police:client:openDashboard')
+    adminMode = false
+    TriggerEvent('cm-law:client:openDashboard')
 end, false)
 
 RegisterNetEvent('cm-police:client:openDashboard', function()
@@ -256,10 +258,8 @@ RegisterNetEvent('cm-police:client:openDashboard', function()
         TriggerEvent('cm-law:client:closeDashboard')
         return
     end
-    if GetResourceState('cm-police') == 'started' then
-        notify('Duplicate Police resource detected. Remove ensure cm-police; the embedded cm-law dashboard is opening underneath it.', 'error')
-    end
-    TriggerEvent('cm-police:client:open', false)
+    adminMode = false
+    TriggerEvent('cm-law:client:openDashboard')
 end)
 
 RegisterNetEvent('cm-police:client:openDispatch', function()
