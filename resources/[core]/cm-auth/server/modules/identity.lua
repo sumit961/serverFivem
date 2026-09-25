@@ -49,18 +49,41 @@ function Identity.validatePassword(password, confirm)
     return true
 end
 
--- ---- Session state ----------------------------------------------------------
+-- ---- Server-only Authenticated Session store --------------------------------
+local AuthSessions = {}
+
+function Identity.setSession(src, session)
+    src = tonumber(src)
+    if not src or src <= 0 then return end
+    AuthSessions[src] = session
+end
+
+function Identity.clearSession(src)
+    src = tonumber(src)
+    if not src or src <= 0 then return end
+    AuthSessions[src] = nil
+end
+
+function Identity.getSession(src)
+    src = tonumber(src)
+    if not src or src <= 0 then return nil end
+    return AuthSessions[src]
+end
 
 function Identity.isLoggedIn(src)
-    if not src or src == 0 then return false end
-    local ok, value = pcall(function() return Player(src).state.isLoggedIn == true end)
-    return ok and value == true
+    src = tonumber(src)
+    if not src or src <= 0 then return false end
+    local session = AuthSessions[src]
+    return session ~= nil and session.authenticated == true
 end
 
 function Identity.getAccountId(src)
-    if not src or src == 0 then return nil end
-    local ok, value = pcall(function() return Player(src).state.accountId end)
-    if ok and value then return tostring(value) end
+    src = tonumber(src)
+    if not src or src <= 0 then return nil end
+    local session = AuthSessions[src]
+    if session and session.authenticated == true and session.accountId then
+        return tostring(session.accountId)
+    end
     return nil
 end
 

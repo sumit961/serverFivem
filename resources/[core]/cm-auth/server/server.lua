@@ -25,6 +25,9 @@ end
 -- Exports consumed by other resources.
 exports('IsLoggedIn', Identity.isLoggedIn)
 exports('GetAccountId', Identity.getAccountId)
+exports('IsAuthenticated', Identity.isLoggedIn)
+exports('GetAuthenticatedAccountId', Identity.getAccountId)
+exports('GetAuthenticatedSession', Identity.getSession)
 
 -- ---- Shared login finalization ---------------------------------------------
 
@@ -32,6 +35,17 @@ local function finishLogin(src, account, token, mode)
     local accountIdStr = tostring(account.id)
     local email = tostring(account.email or ''):lower()
 
+    -- Server-only trusted session record
+    Identity.setSession(src, {
+        accountId = accountIdStr,
+        email = email,
+        username = account.username or email,
+        authenticated = true,
+        loginTime = os.time(),
+        mode = mode or 'password'
+    })
+
+    -- Mirrored state bag values for UI / client display integration
     Player(src).state:set('accountId', accountIdStr, true)
     Player(src).state:set('accountEmail', email, true)
     Player(src).state:set('isLoggedIn', true, true)
@@ -373,7 +387,9 @@ end)
 
 RegisterNetEvent('cm-auth:server:logout', function()
     local src = source
-    local accountId = Player(src).state.accountId
+    local session = Identity.getSession(src)
+    local accountId = session and session.accountId or Player(src).state.accountId
+    Identity.clearSession(src)
     if accountId then
         Util.query('UPDATE accounts SET auth_token = NULL, auth_token_created_at = NULL WHERE id = ?', { tostring(accountId) })
     end
@@ -386,7 +402,9 @@ RegisterNetEvent('cm-auth:server:logout', function()
 end)
 
 AddEventHandler('playerDropped', function()
-    Sec.clearPlayer(source)
+    local src = source
+    Identity.clearSession(src)
+    Sec.clearPlayer(src)
 end)
 
 -- ---- Boot: schema + hashing self-test --------------------------------------

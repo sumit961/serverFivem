@@ -87,10 +87,24 @@ end
 function CMCharacters.GetAccountId(src)
     src = tonumber(src)
     if not src or src <= 0 then return nil end
-    local state = Player(src).state
-    local accountId = state and state.accountId or nil
-    if accountId == nil or tostring(accountId) == '' then return nil end
-    return tostring(accountId)
+
+    -- Authoritative server-memory lookup via cm-auth
+    if GetResourceState('cm-auth') == 'started' then
+        local ok, accId = pcall(function()
+            if exports['cm-auth'].GetAuthenticatedAccountId then
+                return exports['cm-auth']:GetAuthenticatedAccountId(src)
+            end
+            return exports['cm-auth']:GetAccountId(src)
+        end)
+        if ok and accId and tostring(accId) ~= '' then
+            return tostring(accId)
+        end
+        -- Fail closed! Never trust client state bags for authentication authority.
+        return nil
+    end
+
+    -- cm-auth is not running. Fail closed.
+    return nil
 end
 
 function CMCharacters.RequireAccount(src)

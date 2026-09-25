@@ -260,6 +260,20 @@ local function takeCharacterMoney(src, method, amount)
   amount = math.floor(tonumber(amount) or 0)
   if amount <= 0 then return true, { method = method, characterId = getStateCharacterId(src) } end
 
+  -- Preferred: Authoritative runtime balance ownership via cm-playerdata
+  if GetResourceState('cm-playerdata') == 'started' then
+    local ok, success = pcall(function()
+      return exports['cm-playerdata']:RemoveMoney(src, method, amount, 'clothing_purchase')
+    end)
+    if ok and success == true then
+      local cash = tonumber(exports['cm-playerdata']:GetCash(src)) or 0
+      local bank = tonumber(exports['cm-playerdata']:GetBank(src)) or 0
+      return true, { method = method, characterId = getStateCharacterId(src), cash = cash, bank = bank }
+    elseif ok and success == false then
+      return false, ('Not enough %s for purchase.'):format(method)
+    end
+  end
+
   local money, err = getCharacterMoney(src)
   if not money then
     -- Safe fallback for older test servers, but normal CM uses characters.cash/bank above.
@@ -288,6 +302,13 @@ local function refundCharacterMoney(src, payment, amount)
   amount = math.floor(tonumber(amount) or 0)
   if not payment or amount <= 0 then return false end
   local method = payment.method == 'cash' and 'cash' or 'bank'
+
+  if GetResourceState('cm-playerdata') == 'started' then
+    local ok, success = pcall(function()
+      return exports['cm-playerdata']:AddMoney(src, method, amount, 'clothing_refund')
+    end)
+    if ok and success == true then return true end
+  end
 
   if payment.fallback then
     local ok = pcall(function() return exports['cm-core']:AddMoney(src, method, amount) end)

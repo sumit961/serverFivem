@@ -62,26 +62,8 @@ end
 
 -- Returns ok(boolean), errorMessage(string|nil).
 -- Routes through the authoritative, atomic MySQL transaction implementation in main.lua.
-local function transferBetweenPlayers(fromSrc, toSrc, account, amount, reason, metadata)
-    local ok, res, err = pcall(function()
-        return exports[RESOURCE]:TransferMoneyBetweenAuthoritative(fromSrc, toSrc, account, amount, reason, metadata)
-    end)
-    if ok then
-        return res, err
-    end
-    return false, 'transfer_unavailable'
-end
-
--- Public export. Other resources (give-cash interaction, trade, shops) call this.
-exports('TransferMoneyBetween', function(fromSrc, toSrc, account, amount, reason, metadata)
-    local ok = transferBetweenPlayers(fromSrc, toSrc, account, amount, reason, metadata)
-    return ok
-end)
-
--- Verbose variant returning the error code, for callers that want to message the user.
-exports('TransferMoneyBetweenDetailed', function(fromSrc, toSrc, account, amount, reason, metadata)
-    return transferBetweenPlayers(fromSrc, toSrc, account, amount, reason, metadata)
-end)
+-- Note: TransferMoneyBetween and TransferMoneyBetweenDetailed authoritative exports
+-- are defined in main.lua. Duplicate registration removed to eliminate dual export ownership.
 
 -- =============================================================================
 -- 2. PERSISTENT IDENTITY MEMORY  (cm_known_identities)

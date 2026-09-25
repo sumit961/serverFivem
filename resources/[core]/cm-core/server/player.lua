@@ -80,22 +80,24 @@ local function makePlayer(src, charData, extra)
     end
 
     function PlayerObject.Functions.Save()
-        -- Core no longer owns full character saving. Delegate to cm-playerdata if available.
+        -- Core does not own character saving or balances. Delegate to cm-playerdata when available.
         if GetResourceState('cm-playerdata') == 'started' then
             local ok, result = pcall(function()
-                if exports['cm-playerdata'].SavePlayer then
+                if exports['cm-playerdata'].Save then
+                    return exports['cm-playerdata']:Save(src)
+                elseif exports['cm-playerdata'].SavePlayerData then
+                    return exports['cm-playerdata']:SavePlayerData(src)
+                elseif exports['cm-playerdata'].SavePlayer then
                     return exports['cm-playerdata']:SavePlayer(src)
                 end
             end)
             if ok and result ~= nil then return result end
         end
 
-        -- Legacy fallback: save only common cash/bank/job columns if the old characters table exists.
+        -- Legacy fallback (only when cm-playerdata is not present): save job and timestamp without overwriting balances.
         if not PlayerObject.CharacterId then return false, 'no_character_id' end
         local ok = pcall(function()
-            exports['cm-core']:Update('UPDATE characters SET cash = ?, bank = ?, job = ?, job_grade = ?, last_played = NOW() WHERE id = ?', {
-                tonumber(PlayerObject.Character.cash) or 0,
-                tonumber(PlayerObject.Character.bank) or 0,
+            exports['cm-core']:Update('UPDATE characters SET job = ?, job_grade = ?, last_played = NOW() WHERE id = ?', {
                 PlayerObject.Character.job or 'unemployed',
                 tonumber(PlayerObject.Character.job_grade) or 0,
                 PlayerObject.CharacterId
