@@ -80,11 +80,11 @@ local function openMenu(initialTab)
         return
     end
     if initialTab == 'mdt' and (type(data.member) ~= 'table'
-        or data.member.onDuty ~= true or (data.canMdt ~= true and type(LocalPlayer.state.cmPolice) ~= 'table')) then
+        or data.member.onDuty ~= true or data.canMdt ~= true) then
         return
     end
     if initialTab == 'dispatch' and (type(data.member) ~= 'table'
-        or data.member.onDuty ~= true or (data.canDispatch ~= true and type(LocalPlayer.state.cmPolice) ~= 'table')) then
+        or data.member.onDuty ~= true or data.canDispatch ~= true) then
         return
     end
     open = true
@@ -263,6 +263,9 @@ end)
 
 RegisterNUICallback('activityLog', function(_, cb)
     cb({ list = lib.callback.await('cm-law:server:activityLog', false) or {} })
+end)
+RegisterNUICallback('custody', function(_, cb)
+    cb(lib.callback.await('cm-law:server:custody', false) or { ok = false, error = 'Custody data unavailable.' })
 end)
 
 RegisterNUICallback('lawMdtSearchCitizens', function(data, cb)
