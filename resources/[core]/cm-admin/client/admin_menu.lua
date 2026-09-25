@@ -44,6 +44,10 @@ RegisterNetEvent('cm-admin:client:updateMenu', function(payload)
     SendNUIMessage({ action = 'update', data = payload or {} })
 end)
 
+RegisterNetEvent('cm-admin:client:orgActionResult', function(payload)
+    SendNUIMessage({ action = 'orgActionResult', data = payload or {} })
+end)
+
 RegisterNetEvent('cm-admin:client:detailResult', function(payload)
     SendNUIMessage({ action = 'detailResult', data = payload or {} })
 end)

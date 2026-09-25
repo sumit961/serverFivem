@@ -19,6 +19,8 @@ const state = {
   detail: null,
 };
 
+const pendingOrgLeaderActions = new Map();
+
 function resourceName() {
   try { return GetParentResourceName(); } catch (e) { return 'cm-admin'; }
 }
@@ -397,7 +399,7 @@ function orgsPage() {
             <td>${o.leaderCid ? `${esc(o.leaderName || 'Unknown')} (CID ${esc(o.leaderCid)})` : 'Not assigned'}</td>
             <td>${Number(o.memberCount || 0)}</td>
             <td>${Number(o.onDutyCount || 0)}</td>
-            <td>${canManage && o.running ? `<div class="form" style="gap:8px"><input id="orgLeaderCid_${esc(o.id)}" class="input" placeholder="Character ID" style="width:120px" /><button class="btn small primary" onclick="cmAssignOrgLeader('${esc(o.id)}')">Assign</button>${o.leaderCid && o.canRemoveLeader ? `<button class="btn small danger" onclick="cmRemoveOrgLeader('${esc(o.id)}')">Remove current</button>` : ''}</div>` : '-'}</td>
+            <td>${canManage && o.running ? `<div class="form" style="gap:8px"><input id="orgLeaderCid_${esc(o.id)}" class="input" placeholder="Character ID" style="width:120px" /><button id="orgAssign_${esc(o.id)}" data-org-label="${esc(o.label)}" class="btn small primary" onclick="cmAssignOrgLeader('${esc(o.id)}')">Assign</button>${o.leaderCid && o.canRemoveLeader ? `<button class="btn small danger" onclick="cmRemoveOrgLeader('${esc(o.id)}')">Remove current</button>` : ''}</div>` : '-'}</td>
             <td>${canManage&&o.running?`<div class="form" style="gap:8px">${o.canManageFacilities&&Array.isArray(o.facilityTypes)&&o.facilityTypes.length?`<select id="orgFacility_${esc(o.id)}" class="select">${o.facilityTypes.map(f=>`<option value="${esc(f.id)}">${esc(f.label)}</option>`).join('')}</select><button class="btn small primary" onclick="cmSetOrgFacility('${esc(o.id)}',false)">Set here</button><button class="btn small danger" onclick="cmSetOrgFacility('${esc(o.id)}',true)">Reset</button>`:''}${o.canManageNpcs?`<button class="btn small" onclick="cmOpenOrgNpcs('${esc(o.id)}')">NPCs</button>`:''}${o.canManageAlpr?`<button class="btn small" onclick="cmOpenOrgAlpr('${esc(o.id)}')">ALPR</button>`:''}${o.canManageBarricades?`<button class="btn small" onclick="cmOpenOrgBarricades('${esc(o.id)}')">Barricades</button>`:''}${o.canManageArmory?`<button class="btn small" onclick="cmOpenOrgArmory('${esc(o.id)}')">Equipment</button>`:''}${o.canManageCapabilities?`<button class="btn small" onclick="cmOpenOrgCapabilities('${esc(o.id)}')">Capabilities</button>`:''}${o.canManageFleet?`<button class="btn small" onclick="cmOpenOrgFleet('${esc(o.id)}')">Fleet</button>`:''}</div>`:'-'}</td>
           </tr>`).join('') || `<tr><td colspan="7">No organizations have registered yet.</td></tr>`}
         </tbody></table>
@@ -414,12 +416,69 @@ function orgsPage() {
     </div>`;
 }
 
-window.cmAssignOrgLeader = function(orgId) {
+function adminUiFeedback(message, type) {
+  if (window.CMUI && typeof window.CMUI.toast === 'function') {
+    window.CMUI.toast(message, type || 'info');
+  }
+}
+
+window.addEventListener('message', (event) => {
+  if (event.data?.action !== 'orgActionResult') return;
+  const result = event.data.data || {};
+  const pending = pendingOrgLeaderActions.get(String(result.requestId || ''));
+  if (!pending) return;
+  pendingOrgLeaderActions.delete(String(result.requestId));
+  clearTimeout(pending.timeout);
+  pending.button.disabled = false;
+  pending.button.textContent = 'Assign';
+  adminUiFeedback(result.message || (result.ok ? 'Leader assigned.' : 'Leader assignment failed.'), result.ok ? 'success' : 'error');
+  if (result.ok) action('refresh');
+});
+
+window.cmAssignOrgLeader = async function(orgId) {
   const input = document.getElementById(`orgLeaderCid_${orgId}`);
-  const characterId = input ? input.value : '';
-  if (!characterId) return;
-  action('orgsAssignLeader', { orgId, characterId });
+  const button = document.getElementById(`orgAssign_${orgId}`);
+  const characterId = input ? input.value.trim() : '';
+  if (!characterId) {
+    adminUiFeedback('Enter a Character ID.', 'error');
+    input?.focus();
+    return;
+  }
+  if (button?.disabled) return;
+
+  const confirmed = window.CMUI && typeof window.CMUI.confirm === 'function'
+    ? await window.CMUI.confirm({
+      title: 'ASSIGN ORGANIZATION LEADER?',
+      message: `Character #${characterId} will become the leader of ${button?.dataset.orgLabel || orgId}.\n\nThe current leader may be replaced.`,
+      confirmText: 'ASSIGN',
+      cancelText: 'CANCEL',
+      dismissOnBackdrop: false,
+    })
+    : true;
+  if (!confirmed) return;
+
+  if (button) { button.disabled = true; button.textContent = 'Assigning…'; }
+  const requestId = `org-leader-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const timeout = setTimeout(() => {
+    const pending = pendingOrgLeaderActions.get(requestId);
+    if (!pending) return;
+    pendingOrgLeaderActions.delete(requestId);
+    pending.button.disabled = false;
+    pending.button.textContent = 'Assign';
+    adminUiFeedback('No response from the organization service.', 'error');
+  }, 10000);
+  pendingOrgLeaderActions.set(requestId, { button, timeout });
+  action('orgsAssignLeader', { orgId, characterId, requestId });
 };
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter') return;
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || !input.id.startsWith('orgLeaderCid_')) return;
+  event.preventDefault();
+  window.cmAssignOrgLeader(input.id.slice('orgLeaderCid_'.length));
+});
+
 window.cmRemoveOrgLeader = function(orgId) {
   if (confirm('Remove the current organization leader? Their organization membership will also be removed and the organization will remain without a leader.')) {
     action('orgsRemoveLeader', { orgId });

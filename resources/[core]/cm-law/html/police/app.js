@@ -1168,6 +1168,22 @@ document.getElementById('ranks').onclick = async (event) => {
 // this file's own destructive-action buttons below (showConfirmOverlay is
 // the one shared implementation for both paths).
 const policeToasts = document.getElementById('policeToasts');
+function updateUtilityOnly() {
+  const appVisible = !document.getElementById('app').hidden;
+  const fullSurfaceVisible = [
+    document.getElementById('policeQuickMenu'),
+    document.getElementById('policeConfirm'),
+    document.getElementById('wardrobeRoom'),
+    document.getElementById('impoundRelease'),
+    document.getElementById('npcDialogue'),
+    document.getElementById('policeCinematic'),
+    document.getElementById('cinematicAccessibility'),
+  ].some((element) => element && !element.hidden);
+  const passiveVisible = !document.getElementById('policeHint').hidden
+    || policeToasts.children.length > 0
+    || !document.getElementById('npcInteraction').hidden;
+  document.body.classList.toggle('utility-only', !appVisible && !fullSurfaceVisible && passiveVisible);
+}
 function showToast(title, description, type = 'inform') {
   const colors = { success: '#2effa5', error: '#ff5b5b', warning: '#ffc02e', inform: '#31e6ff' };
   const item = document.createElement('div');
@@ -1175,18 +1191,19 @@ function showToast(title, description, type = 'inform') {
   item.style.setProperty('--pt-color', colors[type] || colors.inform);
   item.innerHTML = `<div class="police-toast-bar"></div><div class="police-toast-body"><div class="police-toast-title">${esc(title || 'Police')}</div><div class="police-toast-text">${esc(description || '')}</div></div>`;
   policeToasts.appendChild(item);
+  updateUtilityOnly();
   requestAnimationFrame(() => item.classList.add('show'));
   setTimeout(() => {
     item.classList.remove('show');
     item.classList.add('hide');
-    setTimeout(() => item.remove(), 220);
+    setTimeout(() => { item.remove(); updateUtilityOnly(); }, 220);
   }, 4000);
 }
 
 const policeHint = document.getElementById('policeHint');
 const policeHintText = document.getElementById('policeHintText');
-function showHint(text) { policeHintText.textContent = text || ''; policeHint.hidden = false; }
-function hideHint() { policeHint.hidden = true; }
+function showHint(text) { policeHintText.textContent = text || ''; policeHint.hidden = false; updateUtilityOnly(); }
+function hideHint() { policeHint.hidden = true; updateUtilityOnly(); }
 
 const policeConfirmOverlay = document.getElementById('policeConfirm');
 // #policeConfirm is one shared DOM node used by every confirm call site in
@@ -1218,11 +1235,13 @@ function showConfirmOverlay(title, message, yesLabel = 'Confirm', noLabel = 'Can
     noBtn.textContent = noLabel;
     policeConfirmOverlay.classList.toggle('impound-confirm', !impoundRelease.hidden);
     policeConfirmOverlay.hidden = false;
+    updateUtilityOnly();
     const cleanup = (result) => {
       policeConfirmOverlay.hidden = true;
       policeConfirmOverlay.classList.remove('impound-confirm');
       yesBtn.onclick = null;
       noBtn.onclick = null;
+      updateUtilityOnly();
       resolve(result);
     };
     yesBtn.onclick = () => cleanup(true);
@@ -1249,6 +1268,7 @@ function showPromptOverlay(title, message, placeholder = '') {
     yesBtn.textContent = 'Confirm';
     noBtn.textContent = 'Cancel';
     policeConfirmOverlay.hidden = false;
+    updateUtilityOnly();
     setTimeout(() => input.focus(), 0);
     const cleanup = (result) => {
       policeConfirmOverlay.hidden = true;
@@ -1256,6 +1276,7 @@ function showPromptOverlay(title, message, placeholder = '') {
       input.onkeydown = null;
       yesBtn.onclick = null;
       noBtn.onclick = null;
+      updateUtilityOnly();
       resolve(result);
     };
     yesBtn.onclick = () => cleanup(input.value.trim() || null);
@@ -1276,8 +1297,9 @@ function openQuickMenu(title, items) {
   document.getElementById('policeQuickMenuTitle').textContent = title || 'Menu';
   policeQuickMenuItems.innerHTML = (items || []).map((item, index) => `<button class="police-quick-menu-item" data-quick-menu-index="${index + 1}"><span class="quick-action-number">${String(index+1).padStart(2,'0')}</span><span class="police-quick-menu-item-text"><span class="police-quick-menu-item-title">${esc(item.title || '')}</span>${item.description ? `<span class="police-quick-menu-item-desc">${esc(item.description)}</span>` : ''}</span></button>`).join('');
   policeQuickMenuOverlay.hidden = false;
+  updateUtilityOnly();
 }
-function closeQuickMenuOverlay() { policeQuickMenuOverlay.hidden = true; }
+function closeQuickMenuOverlay() { policeQuickMenuOverlay.hidden = true; updateUtilityOnly(); }
 policeQuickMenuItems.addEventListener('click', (event) => {
   const button = event.target.closest('[data-quick-menu-index]');
   if (!button) return;
@@ -1286,13 +1308,14 @@ policeQuickMenuItems.addEventListener('click', (event) => {
 });
 
 window.addEventListener('message', (event) => {
-  if (event.data.action === 'open') { state = event.data.data; armoryStandalone = event.data.armoryStandalone === true; fleetStandalone = event.data.fleetStandalone === true; dispatchStandalone = event.data.dispatchStandalone === true; fleetVehicles = []; mdtResults = []; mdtProfile = null; mdtVehicleResult = null; wardrobeItems = []; wardrobeCategories = []; wardrobeCategory = null; page = event.data.initialPage || 'overview'; document.body.classList.toggle('armory-standalone', armoryStandalone); document.body.classList.toggle('dispatch-standalone', dispatchStandalone); app.hidden = false; closeRankEditor(); render(); }
+  if (event.data.action === 'open') { state = event.data.data; armoryStandalone = event.data.armoryStandalone === true; fleetStandalone = event.data.fleetStandalone === true; dispatchStandalone = event.data.dispatchStandalone === true; fleetVehicles = []; mdtResults = []; mdtProfile = null; mdtVehicleResult = null; wardrobeItems = []; wardrobeCategories = []; wardrobeCategory = null; page = event.data.initialPage || 'overview'; document.body.classList.toggle('armory-standalone', armoryStandalone); document.body.classList.toggle('dispatch-standalone', dispatchStandalone); app.hidden = false; closeRankEditor(); render(); updateUtilityOnly(); }
   else if (event.data.action === 'close') {
     document.body.classList.remove('armory-standalone');
     document.body.classList.remove('dispatch-standalone');
     app.hidden = true; state = null; closeRankEditor();
     if (!document.getElementById('wardrobeRoom').hidden) { document.getElementById('wardrobeRoom').hidden = true; post('closeWardrobeDressingRoom'); }
     policeConfirmOverlay.hidden = true;
+    updateUtilityOnly();
   }
   else if (event.data.action === 'notify') { showToast(event.data.title, event.data.description, event.data.type); }
   else if (event.data.action === 'showHint') { showHint(event.data.text); }
@@ -1302,8 +1325,9 @@ window.addEventListener('message', (event) => {
     document.getElementById('npcInteractionLabel').textContent = event.data.label || 'INTERACTION';
     document.getElementById('npcInteractionIdentity').textContent = [event.data.name, event.data.role].filter(Boolean).join(' · ');
     document.getElementById('npcInteraction').hidden = false;
+    updateUtilityOnly();
   }
-  else if (event.data.action === 'npcInteraction:hide') { document.getElementById('npcInteraction').hidden = true; }
+  else if (event.data.action === 'npcInteraction:hide') { document.getElementById('npcInteraction').hidden = true; updateUtilityOnly(); }
   else if (event.data.action === 'npcDialogue:open') {
     npcDialogue.className = 'npc-dialogue';
     document.getElementById('npcInteraction').hidden = true;
@@ -1320,6 +1344,7 @@ window.addEventListener('message', (event) => {
     document.getElementById('npcDialogueContinue').hidden = choices.length > 0 && !deferredChoices;
     document.getElementById('npcDialogueContinue').dataset.revealChoices = deferredChoices ? 'true' : 'false';
     npcDialogue.hidden = false;
+    updateUtilityOnly();
   }
   else if (event.data.action === 'npcDialogue:response') {
     npcDialogue.className = `npc-dialogue npc-dialogue--response npc-dialogue--${event.data.tone || 'inform'}`;
@@ -1331,19 +1356,19 @@ window.addEventListener('message', (event) => {
     document.getElementById('npcDialogueClose').hidden = false;
     document.getElementById('npcDialogueQuote').textContent = 'Please choose the Police service you need.';
   }
-  else if (event.data.action === 'npcDialogue:close') { npcDialogue.hidden = true; }
-  else if (event.data.action === 'policeCloset:open') { openWardrobeRoom('npc'); }
+  else if (event.data.action === 'npcDialogue:close') { npcDialogue.hidden = true; updateUtilityOnly(); }
+  else if (event.data.action === 'policeCloset:open') { openWardrobeRoom('npc'); updateUtilityOnly(); }
   else if (event.data.action === 'confirmOpen') {
     showConfirmOverlay(event.data.title, event.data.message, event.data.yesLabel, event.data.noLabel)
       .then((confirmed) => post('confirmResponse', { confirmed }));
   }
-  else if (event.data.action === 'confirmClose') { policeConfirmOverlay.hidden = true; policeConfirmOverlay.classList.remove('impound-confirm'); }
+  else if (event.data.action === 'confirmClose') { policeConfirmOverlay.hidden = true; policeConfirmOverlay.classList.remove('impound-confirm'); updateUtilityOnly(); }
   else if (event.data.action === 'quickMenuOpen') { openQuickMenu(event.data.title, event.data.items); }
   else if (event.data.action === 'quickMenuClose') { closeQuickMenuOverlay(); }
   else if (event.data.action === 'impoundCamera:show') { document.getElementById('impoundCamera').hidden = false; }
   else if (event.data.action === 'impoundCamera:hide') { document.getElementById('impoundCamera').hidden = true; }
-  else if (event.data.action === 'impoundRelease:open') { renderImpoundRelease(event.data.vehicles); impoundRelease.hidden = false; }
-  else if (event.data.action === 'impoundRelease:close') { impoundRelease.hidden = true; }
+  else if (event.data.action === 'impoundRelease:open') { renderImpoundRelease(event.data.vehicles); impoundRelease.hidden = false; updateUtilityOnly(); }
+  else if (event.data.action === 'impoundRelease:close') { impoundRelease.hidden = true; updateUtilityOnly(); }
   else if (event.data.action === 'policeCinematic:show' || event.data.action === 'policeCinematic:update') {
     const cinematic = document.getElementById('policeCinematic');
     cinematic.className = `police-cinematic police-cinematic--${event.data.mode || 'booking'}`;
@@ -1355,11 +1380,11 @@ window.addEventListener('message', (event) => {
     photo.hidden = !event.data.imageUrl;
     if (event.data.imageUrl) document.getElementById('policeCinematicImage').src = event.data.imageUrl;
     document.getElementById('policeCinematicDetails').innerHTML = [event.data.suspect ? `SUSPECT <b>${esc(event.data.suspect)}</b>` : '', event.data.characterId ? `CHARACTER ID <b>${esc(event.data.characterId)}</b>` : '', event.data.minutes ? `SENTENCE <b>${Number(event.data.minutes)} MINUTES</b>` : '', event.data.plate ? `VEHICLE <b>${esc(event.data.plate)}</b>` : '', event.data.model ? `MODEL <b>${esc(event.data.model)}</b>` : '', event.data.owner ? `OWNER <b>${esc(event.data.owner)}</b>` : '', event.data.officer ? `OFFICER <b>${esc(event.data.officer)}</b>` : '', event.data.completedAt ? `COMPLETED <b>${esc(event.data.completedAt)}</b>` : '', event.data.fee ? `RELEASE FEE <b>$${Number(event.data.fee).toLocaleString()}</b>` : ''].filter(Boolean).join('<br>');
-    document.getElementById('policeCinematicStamp').hidden = true; cinematic.hidden = false;
+    document.getElementById('policeCinematicStamp').hidden = true; cinematic.hidden = false; updateUtilityOnly();
   }
   else if (event.data.action === 'policeCinematic:stamp') { const stamp = document.getElementById('policeCinematicStamp'); stamp.textContent = event.data.label || 'COMPLETE'; stamp.hidden = false; }
   else if (event.data.action === 'policeCinematic:flash') { const flash = document.getElementById('policeCinematicFlash'); flash.classList.remove('active'); void flash.offsetWidth; flash.classList.add('active'); }
-  else if (event.data.action === 'policeCinematic:hide') { document.getElementById('policeCinematic').hidden = true; }
+  else if (event.data.action === 'policeCinematic:hide') { document.getElementById('policeCinematic').hidden = true; updateUtilityOnly(); }
   else if (event.data.action === 'cinematicAccessibility:open') {
     const value = event.data.preferences || {};
     document.getElementById('accessCinematicMode').value = value.mode || 'full';
@@ -1367,9 +1392,9 @@ window.addEventListener('message', (event) => {
     document.getElementById('accessSoundVolume').value = Number(value.soundVolume ?? 1);
     document.getElementById('accessReducedFlash').checked = value.reducedFlash === true;
     document.getElementById('accessSkipSeen').checked = value.skipSeen === true;
-    document.getElementById('cinematicAccessibility').hidden = false;
+    document.getElementById('cinematicAccessibility').hidden = false; updateUtilityOnly();
   }
-  else if (event.data.action === 'cinematicAccessibility:close') { document.getElementById('cinematicAccessibility').hidden = true; }
+  else if (event.data.action === 'cinematicAccessibility:close') { document.getElementById('cinematicAccessibility').hidden = true; updateUtilityOnly(); }
   else if (event.data.action === 'cinematicAccessibility:apply') { document.documentElement.style.setProperty('--cinematic-subtitle-scale', String(event.data.subtitleScale || 1)); }
   else if (event.data.action === 'dispatchRefresh') {
     if (!app.hidden && page === 'dispatch') loadDispatchActiveCalls();
@@ -1382,6 +1407,14 @@ window.addEventListener('keydown', (event) => {
     if (key === 's') { event.preventDefault(); moveWardrobeOption(-1); return; }
     if (key === 'a') { event.preventDefault(); post('rotateWardrobePed', { delta: -12 }); return; }
     if (key === 'd') { event.preventDefault(); post('rotateWardrobePed', { delta: 12 }); return; }
+  }
+  if (!policeQuickMenuOverlay.hidden && /^[1-9]$/.test(event.key) && !event.repeat) {
+    const button = policeQuickMenuItems.querySelector(`[data-quick-menu-index="${event.key}"]`);
+    if (button) {
+      event.preventDefault();
+      button.click();
+      return;
+    }
   }
   if (event.key !== 'Escape' && event.key !== 'Esc' && event.keyCode !== 27) return;
   event.preventDefault();

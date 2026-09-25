@@ -579,7 +579,7 @@ body {
 
 .police-confirm-overlay,
 .police-quick-menu-overlay {
-  background: rgba(3, 8, 18, .78) !important;
+  background: transparent !important;
 }
 
 .police-confirm-card,
@@ -592,6 +592,65 @@ body {
 .police-quick-menu-title {
   color: var(--law-text) !important;
   font-family: var(--cm-font-display) !important;
+}
+
+/* The quick menu is a compact gameplay HUD. Keep the world visible around
+   the card and use the same slate/cyan language as the frozen Vehicle G menu. */
+.police-quick-menu-overlay {
+  pointer-events: none !important;
+}
+.police-quick-menu-card {
+  width: min(500px, 92vw) !important;
+  max-height: min(76vh, 680px) !important;
+  padding: 18px !important;
+  border: 1px solid #213B4A !important;
+  border-radius: 8px !important;
+  background: rgba(18, 36, 47, .94) !important;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .42) !important;
+  pointer-events: auto !important;
+}
+.police-quick-menu-title {
+  margin: 0 4px 14px !important;
+  color: #FFFFFF !important;
+  font-size: 18px !important;
+  letter-spacing: .08em !important;
+}
+.police-quick-menu-item {
+  min-height: 58px !important;
+  margin-bottom: 8px !important;
+  padding: 12px 14px !important;
+  border: 1px solid #213B4A !important;
+  border-radius: 6px !important;
+  background: #0B171E !important;
+  color: #FFFFFF !important;
+}
+.police-quick-menu-item:hover,
+.police-quick-menu-item:focus-visible {
+  border-color: #00E5FF !important;
+  background: rgba(0, 229, 255, .10) !important;
+}
+.police-quick-menu-item .quick-action-number {
+  width: 32px !important;
+  height: 32px !important;
+  border: 1px solid #00E5FF !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  color: #00E5FF !important;
+}
+.police-quick-menu-item-title { color: #FFFFFF !important; font-size: 14px !important; }
+.police-quick-menu-item-desc { color: #829DAE !important; font-size: 12px !important; }
+
+/* Dashboard paint is allowed only while the main app is visible. Passive
+   hints, toasts and NPC prompts must leave the game world untouched. */
+html,
+body,
+body.utility-only {
+  background: transparent !important;
+  background-image: none !important;
+}
+body.utility-only #app[hidden] {
+  display: none !important;
+  background: transparent !important;
 }
 
 .police-confirm-message,

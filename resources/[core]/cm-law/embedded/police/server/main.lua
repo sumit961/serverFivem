@@ -1704,8 +1704,8 @@ CreateThread(function()
             canManageBarricades = true,
             api = {
                 summary = 'PoliceLegacyGetOrganizationSummary',
-                assignLeader = 'PoliceLegacyAdminAssignLeader',
-                removeLeader = 'PoliceLegacyAdminRemoveLeader',
+                assignLeader = 'PoliceCentralAdminAssignLeader',
+                removeLeader = 'PoliceCentralAdminRemoveLeader',
             },
             facilityTypes = {
                 { id = 'front_desk', label = 'Front desk NPC' },
@@ -1761,12 +1761,12 @@ exports('PoliceLegacyGetOrganizationSummary', function()
     }
 end)
 
--- Shared by both cm-police's own admin dashboard (via the lib.callback below,
--- used by its client NUI) and cm-admin's centralized Organizations tab (via
--- the plain export below, called server-side with no client round-trip) --
--- one leader-assignment transaction, two callers.
-function doAssignLeader(src, targetCid)
-    if not exports[PoliceConfig.AdminResource]:HasPermission(src, PoliceConfig.AdminPermission) then return false, 'Permission denied.' end
+-- One internal leader-assignment transaction is shared by the Police-specific
+-- admin workspace and CM Admin's central Organizations tab. The wrappers keep
+-- their authority boundaries separate: direct Police administration requires
+-- police.admin.manage, while central organization management requires
+-- orgs.manage.
+local function assignPoliceLeaderInternal(src, targetCid)
     if leaderAssignmentBusy then return false, 'Another Police leader assignment is already running.' end
     targetCid = tostring(targetCid or '')
     if targetCid == '' or not MySQL.scalar.await('SELECT id FROM characters WHERE id = ? LIMIT 1', { targetCid }) then return false, 'Character ID does not exist.' end
@@ -1800,11 +1800,30 @@ function doAssignLeader(src, targetCid)
     return true, ('%s is now the Police leader.'):format(PoliceLegacyNameFor(targetCid))
 end
 
+local function policePermission(src, permission)
+    local ok, allowed = pcall(function()
+        return exports[PoliceConfig.AdminResource]:HasPermission(src, permission)
+    end)
+    return ok and allowed == true
+end
+
+local function doAssignLeader(src, targetCid)
+    if not policePermission(src, PoliceConfig.AdminPermission) then return false, 'Permission denied.' end
+    return assignPoliceLeaderInternal(src, targetCid)
+end
+
 lib.callback.register('cm-police:server:adminAssignLeader', doAssignLeader)
 exports('PoliceLegacyAdminAssignLeader', doAssignLeader)
 
-local function doRemoveLeader(src)
-    if not exports[PoliceConfig.AdminResource]:HasPermission(src, PoliceConfig.AdminPermission) then return false, 'Permission denied.' end
+local function doCentralAdminAssignLeader(src, targetCid, orgId)
+    if tostring(orgId or '') ~= tostring(PoliceConfig.OrganizationId or 'police') then return false, 'Unknown Police organization.' end
+    if not policePermission(src, 'orgs.manage') then return false, 'Permission denied: orgs.manage' end
+    return assignPoliceLeaderInternal(src, targetCid)
+end
+
+exports('PoliceCentralAdminAssignLeader', doCentralAdminAssignLeader)
+
+local function removePoliceLeaderInternal(src)
     if leaderAssignmentBusy then return false, 'Another Police leader change is already running.' end
     local org = MySQL.single.await('SELECT leader_cid FROM cm_police_organization WHERE id = 1') or {}
     local leaderCid = org.leader_cid and tostring(org.leader_cid) or nil
@@ -1825,7 +1844,20 @@ local function doRemoveLeader(src)
     return true, ('Removed %s as Police leader.'):format(PoliceLegacyNameFor(leaderCid) or leaderCid)
 end
 
+local function doRemoveLeader(src)
+    if not policePermission(src, PoliceConfig.AdminPermission) then return false, 'Permission denied.' end
+    return removePoliceLeaderInternal(src)
+end
+
 exports('PoliceLegacyAdminRemoveLeader', doRemoveLeader)
+
+local function doCentralAdminRemoveLeader(src, orgId)
+    if tostring(orgId or '') ~= tostring(PoliceConfig.OrganizationId or 'police') then return false, 'Unknown Police organization.' end
+    if not policePermission(src, 'orgs.manage') then return false, 'Permission denied: orgs.manage' end
+    return removePoliceLeaderInternal(src)
+end
+
+exports('PoliceCentralAdminRemoveLeader', doCentralAdminRemoveLeader)
 
 local function isPoliceAdmin(src)
     local ok, allowed = pcall(function() return exports[PoliceConfig.AdminResource]:HasPermission(src, PoliceConfig.AdminPermission) end)

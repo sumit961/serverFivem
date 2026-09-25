@@ -14,9 +14,53 @@
 local placing = false
 local previewObject = nil
 local previewModel = nil
+local placementAnimation = nil
 
 function PoliceIsPlacing()
     return placing
+end
+
+local function loadAnimationDictionary(dictionary, timeoutMs)
+    RequestAnimDict(dictionary)
+    local deadline = GetGameTimer() + (timeoutMs or 1500)
+    while not HasAnimDictLoaded(dictionary) and GetGameTimer() < deadline do Wait(0) end
+    return HasAnimDictLoaded(dictionary)
+end
+
+function StartScenePlacementAnimation(kind)
+    local ped = PlayerPedId()
+    if not DoesEntityExist(ped) then return false end
+    StopScenePlacementAnimation()
+    -- Base-game handling animation; upper-body playback keeps movement and
+    -- camera controls available while the preview follows the camera.
+    local dictionary, clip = 'anim@heists@box_carry@', 'idle'
+    if kind == 'spike' or kind == 'barricade' then
+        dictionary, clip = 'anim@heists@box_carry@', 'idle'
+    end
+    if not loadAnimationDictionary(dictionary) then return false end
+    TaskPlayAnim(ped, dictionary, clip, 4.0, -4.0, -1, 49, 0.0, false, false, false)
+    placementAnimation = { ped = ped, dictionary = dictionary, clip = clip }
+    return true
+end
+
+function StopScenePlacementAnimation()
+    if placementAnimation then
+        local ped = placementAnimation.ped
+        if DoesEntityExist(ped) then
+            StopAnimTask(ped, placementAnimation.dictionary, placementAnimation.clip, 2.0)
+            ClearPedSecondaryTask(ped)
+        end
+        placementAnimation = nil
+    end
+end
+
+local function playScenePlacementConfirmAnimation()
+    local ped = PlayerPedId()
+    StopScenePlacementAnimation()
+    local dictionary, clip = 'pickup_object', 'pickup_low'
+    if not loadAnimationDictionary(dictionary, 1200) then return 0 end
+    TaskPlayAnim(ped, dictionary, clip, 4.0, -4.0, 900, 0, 0.0, false, false, false)
+    return 700
 end
 
 -- Point at `distance` along the camera's current yaw from the ped's own
@@ -34,6 +78,7 @@ end
 
 local function endPlacement()
     placing = false
+    StopScenePlacementAnimation()
     if previewObject and DoesEntityExist(previewObject) then DeleteEntity(previewObject) end
     previewObject = nil
     releaseCurrentModel()
@@ -63,6 +108,7 @@ function PoliceBeginObjectPlacement(opts)
     end
 
     placing = true
+    StartScenePlacementAnimation(opts.animationKind or (#models > 1 and 'barricade' or 'spike'))
     previewModel = model
     local minDist = opts.minDistance or PoliceConfig.Placement.MinDistance or 1.0
     local maxDist = opts.maxDistance or PoliceConfig.Placement.MaxDistance or 5.0
@@ -108,8 +154,15 @@ function PoliceBeginObjectPlacement(opts)
     CreateThread(function()
         while placing do
             Wait(0)
+            local activePed = PlayerPedId()
+            if IsEntityDead(activePed) then
+                endPlacement()
+                if opts.onCancel then opts.onCancel('cancelled') end
+                break
+            end
             if not previewObject or not DoesEntityExist(previewObject) then
                 placing = false
+                StopScenePlacementAnimation()
                 break
             end
             if GetGameTimer() >= timeoutAt then
@@ -130,6 +183,10 @@ function PoliceBeginObjectPlacement(opts)
                 DisableControlAction(0, 1, true) -- INPUT_LOOK_LR
                 DisableControlAction(0, 2, true) -- INPUT_LOOK_UD
                 DisableControlAction(0, 24, true) -- INPUT_ATTACK
+                DisableControlAction(0, 25, true) -- INPUT_AIM
+                DisableControlAction(0, 140, true) -- INPUT_MELEE_ATTACK_LIGHT
+                DisableControlAction(0, 141, true) -- INPUT_MELEE_ATTACK_HEAVY
+                DisableControlAction(0, 142, true) -- INPUT_MELEE_ATTACK_ALTERNATE
                 -- Once a control is disabled for this frame, its value must
                 -- be read back via GetDisabledControlNormal -- GetControlNormal
                 -- reflects the (just-suppressed) enabled state and would
@@ -149,7 +206,7 @@ function PoliceBeginObjectPlacement(opts)
                 if IsControlJustPressed(0, 44) then swapModel(-1) end -- Q: previous type
             end
 
-            PoliceShowHint(opts.hintText or (('[Mouse] Move  ·  [Hold Click] Rotate  ·  [Scroll] Distance%s  ·  [Enter] Confirm  ·  [Backspace] Cancel'):format(#models > 1 and '  ·  [E/Q] Change type' or '')))
+            PoliceShowHint(opts.hintText or (('SCENE PLACEMENT  ·  Mouse Position  ·  Hold LMB Rotate  ·  Scroll Distance%s  ·  ENTER Place  ·  BACKSPACE Cancel'):format(#models > 1 and '  ·  E/Q Type' or '')))
 
             if IsControlJustPressed(0, 18) then -- INPUT_ENTER
                 local finalCoords = GetEntityCoords(previewObject)
@@ -163,7 +220,10 @@ function PoliceBeginObjectPlacement(opts)
                 if previewObject and DoesEntityExist(previewObject) then DeleteEntity(previewObject) end
                 previewObject = nil
                 PoliceHideHint()
+                local confirmWait = playScenePlacementConfirmAnimation()
+                if confirmWait > 0 then Wait(confirmWait) end
                 if opts.onConfirm then opts.onConfirm(finalCoords, finalHeading, finalModelName) end
+                StopScenePlacementAnimation()
                 releaseCurrentModel()
                 break
             elseif IsControlJustPressed(0, 194) then -- INPUT_FRONTEND_DELETE / Backspace

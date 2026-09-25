@@ -1207,6 +1207,17 @@ local function onActionCooldown(src, key, ms)
     return false
 end
 
+local function sendOrgActionResult(src, actionName, requestId, ok, message)
+    requestId = tostring(requestId or '')
+    if requestId == '' then return end
+    TriggerClientEvent('cm-admin:client:orgActionResult', src, {
+        action = tostring(actionName or ''),
+        requestId = requestId,
+        ok = ok == true,
+        message = tostring(message or (ok and 'Operation completed.' or 'Operation failed.')),
+    })
+end
+
 AddEventHandler('playerDropped', function()
     ActionCooldowns[source] = nil
 end)
@@ -1247,9 +1258,13 @@ RegisterNetEvent('cm-admin:server:nuiAction', function(payload)
     end
 
     if action == 'orgsAssignLeader' then
-        if not CMOrganizations then return notify(src, 'Organizations registry is unavailable.', 'error') end
+        if not CMOrganizations then
+            sendOrgActionResult(src, action, data.requestId, false, 'Organizations registry is unavailable.')
+            return notify(src, 'Organizations registry is unavailable.', 'error')
+        end
         local ok, message = CMOrganizations.assignLeader(src, data.orgId, data.characterId)
         notify(src, message or (ok and 'Leader assigned.' or 'Assignment failed.'), ok and 'success' or 'error')
+        sendOrgActionResult(src, action, data.requestId, ok, message)
         if ok then refreshMenu(src) end
         return
     end
