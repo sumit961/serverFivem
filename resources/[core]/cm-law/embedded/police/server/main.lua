@@ -339,7 +339,7 @@ local function setupDatabase()
         -- (GetPoliceCatalog export) -- this table only owns what's
         -- Police-specific: where a vehicle spawns, whether it's a car or
         -- helicopter (for cm-vehicles' trusted-placement path), the minimum
-        -- rank tier required to spawn it, and whether it's currently enabled.
+        -- rank tier required to use it, and whether it's currently enabled.
         [[CREATE TABLE IF NOT EXISTS cm_police_fleet_vehicles (model VARCHAR(64) NOT NULL, vehicle_id BIGINT UNSIGNED NULL, kind ENUM('car','helicopter') NOT NULL DEFAULT 'car', min_tier SMALLINT UNSIGNED NOT NULL DEFAULT 0, enabled TINYINT(1) NOT NULL DEFAULT 1, location_configured TINYINT(1) NOT NULL DEFAULT 1, spawn_x FLOAT NOT NULL, spawn_y FLOAT NOT NULL, spawn_z FLOAT NOT NULL, spawn_h FLOAT NOT NULL DEFAULT 0, updated_by VARCHAR(64) NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (model), UNIQUE KEY uniq_cm_police_fleet_vehicle_id (vehicle_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]],
         -- Reserved for future rank/permission migrations as new features are
         -- added (same convention cm-ems uses) -- empty on a fresh install.
@@ -802,8 +802,9 @@ local function dashboard(src, adminMode, requestedSex)
             manageRanks = isAdmin or has(activeMember, 'police.manage_ranks'),
             managePermissions = isAdmin or has(activeMember, 'police.manage_permissions'),
             manageOutfits = isAdmin or has(activeMember, 'police.manage_outfits'),
-            manageVehicles = isAdmin or has(activeMember, 'police.manage_vehicles'),
-            spawnVehicles = isAdmin or has(activeMember, 'police.spawn_vehicles'),
+            manageVehicles = isAdmin or PoliceLegacyDbBoolean(activeMember and activeMember.is_leader) or has(activeMember, 'police.manage_vehicles'),
+            useVehicles = isAdmin or PoliceLegacyDbBoolean(activeMember and activeMember.is_leader) or has(activeMember, 'police.spawn_vehicles'),
+            spawnVehicles = isAdmin or PoliceLegacyDbBoolean(activeMember and activeMember.is_leader) or has(activeMember, 'police.spawn_vehicles'), -- compatibility alias
             viewMemberMap = has(activeMember, 'police.view_member_map'),
             setMeeting = has(activeMember, 'police.set_meeting'),
             suspendMembers = isAdmin or has(activeMember, 'police.suspend_members'),

@@ -1,8 +1,8 @@
 /* Police Fleet tab. Row layout mirrors cm-ems's own Fleet tab (thumbnail +
    title/subtext + inline rank control), same dark/cyan palette.
    Appearance configuration (colors/livery/etc) lives entirely in
-   rn-vehicleshop's /vehicleadmin now -- this tab only lists + spawns +
-   sets the minimum rank tier per vehicle. */
+   rn-vehicleshop's /vehicleadmin now -- this tab lists fleet access and
+   manager controls for required rank and parking. */
 
 .fleet-row {
   display: flex;
@@ -70,3 +70,4 @@
 }
 .fleet-tier-input:focus { border-color: #5b86ff; }
 .fleet-tier-input:disabled { opacity: .45; cursor: not-allowed; }
+.fleet-tier-ctl{color:#C2D2DC;font-size:12px}.fleet-tier-ctl select{min-height:36px;padding:7px 10px;border:1px solid #213B4A;border-radius:8px;background:#10222B;color:#fff}.fleet-row__actions button:disabled{opacity:.55;cursor:wait}

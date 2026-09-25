@@ -122,7 +122,7 @@ function NormalizePoliceDashboard(data)
         capabilities = {
             dispatch = capabilities.receiveDispatch == true,
             mdt = capabilities.useMdt == true,
-            fleet = capabilities.spawnVehicles == true or capabilities.manageVehicles == true,
+            fleet = capabilities.useVehicles == true or capabilities.spawnVehicles == true or capabilities.manageVehicles == true,
             armory = capabilities.useArmory == true,
             citations = true,
             impound = capabilities.manageImpound == true,
@@ -202,7 +202,8 @@ function NormalizePoliceDashboard(data)
         canViewMemberMap = allowed('police.view_member_map'),
         canSetMeeting = allowed('police.set_meeting'),
         canFleetManage = capabilities.manageVehicles == true,
-        canFleetSpawn = allowed('police.spawn_vehicles'),
+        canFleetUse = allowed('police.spawn_vehicles'),
+        canFleetSpawn = allowed('police.spawn_vehicles'), -- compatibility alias
         logisticsVisible = false,
         canManageCharges = false,
         prison = { ready = false, configured = false, intakeConfigured = false, releaseConfigured = false, spawnCount = 0, capacity = 0, activeCount = 0 },

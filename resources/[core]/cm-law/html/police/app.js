@@ -161,52 +161,57 @@ function openRankEditor(rank = null) {
 // Police fleet vehicles are persistent world entities. This panel shows
 // status and management actions; officers collect the already parked cars.
 let fleetVehicles = [];
+let fleetRanks = [];
+const fleetPending = new Set();
+async function postFleetAction(name,data={}){let timer;try{return await Promise.race([post(name,data),new Promise(resolve=>{timer=setTimeout(()=>resolve({ok:false,error:'Fleet request timed out. Try again.'}),12000)})])}finally{clearTimeout(timer)}}
 
 function renderFleetList() {
   const manage = can('police.manage_vehicles');
   const rows = fleetVehicles;
   document.getElementById('fleetList').innerHTML = rows.map((v) => {
+    const status = v.status === 'in_use' ? 'IN USE' : v.status === 'recovering' ? 'RECOVERING' : !v.configured ? 'NOT CONFIGURED' : !v.enabled ? 'DISABLED' : 'AVAILABLE';
+    const selected = String(v.minTier);
+    const disabled = !v.configured || !v.enabled;
+    const pending = (action) => fleetPending.has(`${v.model}:${action}`);
     return `
     <article class="fleet-row${v.configured && !v.enabled ? ' disabled' : ''}">
       ${v.image ? `<img class="fleet-thumb" src="${esc(v.image)}" alt="">` : '<div class="fleet-thumb fleet-thumb--empty">NO IMAGE</div>'}
       <div class="fleet-row__main">
-        <div class="fleet-row__title">${esc(v.label)}${v.configured ? '' : ' <span class="fleet-badge">Not configured</span>'}</div>
-        <div class="fleet-row__sub">${esc(v.model)} · ${esc(v.category || 'Custom')} · ${esc(String(v.status || 'available').replaceAll('_', ' '))}${v.assignedOfficer ? ` · Assigned: ${esc(v.assignedOfficer)}` : ''}${v.engineHealth != null ? ` · Engine ${Math.round(Number(v.engineHealth) / 10)}% · Body ${Math.round(Number(v.bodyHealth) / 10)}% · Fuel ${Math.round(Number(v.fuel || 0))}%` : ''}${v.location ? ` · ${v.location.x}, ${v.location.y}` : ''}${v.configured ? '' : ' · Set its location first'}</div>
+        <div class="fleet-row__title">${esc(v.label)}</div>
+        <div class="fleet-row__sub">Required: ${esc(v.minRankName || `Tier ${v.minTier}`)}+ · ${status}</div>
       </div>
       <div class="fleet-row__actions">
-        ${manage ? `
-        <div class="fleet-tier-ctl">
-          <label>Minimum rank tier</label>
-          <input class="fleet-tier-input" type="number" min="0" max="100" value="${v.minTier}" data-fleet-tier="${esc(v.model)}"${v.configured ? '' : ' disabled title="Link a persistent organization vehicle first"'}>
-        </div>` : ''}
-        ${manage ? `<button class="mini" data-fleet-location="${esc(v.model)}">Set location</button>` : ''}
-        ${manage && v.configured ? `<button class="mini" data-fleet-recall="${esc(v.model)}"${v.status === 'in_use' ? ' disabled' : ''}>${v.status === 'in_use' ? 'In use' : 'Recall'}</button>` : ''}
+        ${manage ? `<label class="fleet-tier-ctl">Required Rank${pending('rank') ? ' · Saving…' : ''}<select data-fleet-tier="${esc(v.model)}"${disabled || pending('rank') ? ' disabled' : ''}>${fleetRanks.map(rank => `<option value="${Number(rank.tier)}"${String(rank.tier) === selected ? ' selected' : ''}>${esc(rank.name)}</option>`).join('')}${fleetRanks.some(rank => String(rank.tier) === selected) ? '' : `<option value="${esc(selected)}" selected disabled>${esc(v.minRankName || `Tier ${selected}`)} (saved)</option>`}</select></label>
+        <button class="mini" data-fleet-location="${esc(v.model)}"${pending('location') ? ' disabled' : ''}>${pending('location') ? 'Saving…' : 'Set Location'}</button>
+        ${v.configured ? `<button class="mini" data-fleet-recall="${esc(v.model)}"${v.status === 'in_use' || pending('recall') ? ' disabled' : ''}>${pending('recall') ? 'Recalling…' : 'Recall'}</button>` : ''}` : ''}
       </div>
     </article>`;
   }).join('') || `<article class="card">${manage ? 'No vehicles are tagged &quot;Police fleet vehicle&quot; in /vehicleadmin yet.' : 'No Police fleet vehicles are available to your rank yet.'}</article>`;
 }
 
 async function loadFleet() {
-  const result = await post('fleetCatalog');
+  const result = await postFleetAction('fleetCatalog');
   fleetVehicles = result?.vehicles || [];
+  fleetRanks = result?.ranks || [];
   renderFleetList();
 }
 
 document.getElementById('fleetList').addEventListener('click', async (event) => {
   const recall = event.target.closest('[data-fleet-recall]');
-  if (recall && await showConfirmOverlay('RECALL FLEET VEHICLE', `Return ${recall.dataset.fleetRecall} to its saved parking location? Occupied vehicles cannot be recalled.`, 'RECALL', 'CANCEL')) {
-    await post('recallFleetVehicle', { model: recall.dataset.fleetRecall });
-    await loadFleet();
+  if (recall && await showConfirmOverlay('RECALL FLEET VEHICLE', `Return ${recall.closest('.fleet-row')?.querySelector('.fleet-row__title')?.textContent || 'this vehicle'} to its saved parking location? Occupied vehicles cannot be recalled.`, 'RECALL', 'CANCEL')) {
+    const model = recall.dataset.fleetRecall; fleetPending.add(`${model}:recall`); renderFleetList();
+    const result = await postFleetAction('recallFleetVehicle', { model }); notice(result.message || result.error, result.ok ? 'success' : 'error');
+    await loadFleet(); fleetPending.delete(`${model}:recall`); renderFleetList();
   }
   const location = event.target.closest('[data-fleet-location]');
-  if (location) post('setFleetVehicleLocation', { model: location.dataset.fleetLocation }).then(() => loadFleet());
+  if (location) { const model = location.dataset.fleetLocation; fleetPending.add(`${model}:location`); renderFleetList(); const result = await postFleetAction('setFleetVehicleLocation', { model }); notice(result.message || result.error, result.ok ? 'success' : 'error'); await loadFleet(); fleetPending.delete(`${model}:location`); renderFleetList(); }
 });
-document.getElementById('fleetList').addEventListener('change', (event) => {
+document.getElementById('fleetList').addEventListener('change', async (event) => {
   const tierInput = event.target.closest('[data-fleet-tier]');
   if (!tierInput) return;
-  post('setFleetVehicleMinTier', { model: tierInput.dataset.fleetTier, minTier: Number(tierInput.value || 0) }).then((result) => {
-    if (!result?.ok) loadFleet();
-  });
+  const model = tierInput.dataset.fleetTier; fleetPending.add(`${model}:rank`); renderFleetList();
+  const result = await postFleetAction('setFleetVehicleMinTier', { model, minTier: Number(tierInput.value) }); notice(result.message || result.error, result.ok ? 'success' : 'error');
+  await loadFleet(); fleetPending.delete(`${model}:rank`); renderFleetList();
 });
 
 // ── 911 dispatch ─────────────────────────────────────────────────────────
@@ -817,7 +822,9 @@ function render() {
   if (page === 'logs' && state.canViewLogs !== true) page = 'overview';
   if (page === 'stats' && state.canViewLogs !== true) page = 'overview';
   if (page === 'stats') loadOfficerStats();
-  const canFleet = capabilities.manageVehicles === true || capabilities.spawnVehicles === true;
+  const canFleet = capabilities.manageVehicles === true || capabilities.useVehicles === true || capabilities.spawnVehicles === true || can('police.manage_vehicles') || can('police.spawn_vehicles');
+  const recallAllFleet = document.getElementById('recallFleet');
+  if (recallAllFleet) recallAllFleet.hidden = !can('police.manage_vehicles');
   document.querySelectorAll('.fleet-only').forEach((item) => { item.hidden = !canFleet || !fleetStandalone; });
   if (page === 'fleet' && !canFleet) page = 'overview';
   document.querySelectorAll('.mdt-only').forEach((item) => { item.hidden = capabilities.useMdt !== true; });
@@ -877,7 +884,7 @@ function render() {
   if (capabilities.cuff === true || capabilities.arrest === true) featureCaps.arrest = true;
   if (capabilities.search === true) featureCaps.search = true;
   if (capabilities.useArmory === true) featureCaps.armory = true;
-  if (capabilities.spawnVehicles === true || capabilities.manageVehicles === true) featureCaps.fleet = true;
+  if (capabilities.useVehicles === true || capabilities.spawnVehicles === true || capabilities.manageVehicles === true || can('police.spawn_vehicles') || can('police.manage_vehicles')) featureCaps.fleet = true;
   if (capabilities.evidence === true) featureCaps.evidence = true;
   const enabledFeatures = Object.entries(featureCaps).filter(([,enabled]) => enabled === true);
   document.getElementById('policeCapabilityCount').textContent = `${enabledFeatures.length} SYSTEMS ONLINE`;
@@ -1002,8 +1009,10 @@ document.getElementById('resetImpoundKiosks').onclick = async () => {
 };
 document.getElementById('setWardrobeNpc').onclick = () => post('action', { action: 'set_wardrobe_npc', payload: {} });
 document.getElementById('recallFleet').onclick = async () => {
-  if (!(await showConfirmOverlay('Recall Fleet', 'Recall every free Police fleet vehicle back to its spawn point?', 'Recall', 'Cancel'))) return;
-  post('recallAllFleetVehicles', {});
+  if (!(await showConfirmOverlay('Recall Fleet', 'Return every unoccupied Police fleet vehicle to its assigned parking space?', 'Recall', 'Cancel'))) return;
+  const button = document.getElementById('recallFleet'); button.disabled = true; button.textContent = 'Recalling Fleet…';
+  const result = await postFleetAction('recallAllFleetVehicles', {}); notice(result.message || result.error, result.ok ? 'success' : 'error');
+  await loadFleet(); button.disabled = false; button.textContent = 'Recall All';
 };
 document.getElementById('assignLeader').onclick = async () => {
   const characterId = document.getElementById('leaderCid').value;
@@ -1307,11 +1316,11 @@ policeQuickMenuItems.addEventListener('click', (event) => {
 });
 
 window.addEventListener('message', (event) => {
-  if (event.data.action === 'open') { state = event.data.data; armoryStandalone = event.data.armoryStandalone === true; fleetStandalone = event.data.fleetStandalone === true; dispatchStandalone = event.data.dispatchStandalone === true; fleetVehicles = []; mdtResults = []; mdtProfile = null; mdtVehicleResult = null; wardrobeItems = []; wardrobeCategories = []; wardrobeCategory = null; page = event.data.initialPage || 'overview'; document.body.classList.toggle('armory-standalone', armoryStandalone); document.body.classList.toggle('dispatch-standalone', dispatchStandalone); app.hidden = false; closeRankEditor(); render(); updateUtilityOnly(); }
+  if (event.data.action === 'open') { state = event.data.data; armoryStandalone = event.data.armoryStandalone === true; fleetStandalone = event.data.fleetStandalone === true; dispatchStandalone = event.data.dispatchStandalone === true; fleetVehicles = []; fleetRanks = []; fleetPending.clear(); mdtResults = []; mdtProfile = null; mdtVehicleResult = null; wardrobeItems = []; wardrobeCategories = []; wardrobeCategory = null; page = event.data.initialPage || 'overview'; document.body.classList.toggle('armory-standalone', armoryStandalone); document.body.classList.toggle('dispatch-standalone', dispatchStandalone); app.hidden = false; closeRankEditor(); render(); updateUtilityOnly(); }
   else if (event.data.action === 'close') {
     document.body.classList.remove('armory-standalone');
     document.body.classList.remove('dispatch-standalone');
-    app.hidden = true; state = null; closeRankEditor();
+    app.hidden = true; state = null; fleetPending.clear(); closeRankEditor();
     if (!document.getElementById('wardrobeRoom').hidden) { document.getElementById('wardrobeRoom').hidden = true; post('closeWardrobeDressingRoom'); }
     policeConfirmOverlay.hidden = true;
     updateUtilityOnly();

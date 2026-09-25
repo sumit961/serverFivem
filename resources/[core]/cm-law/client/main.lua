@@ -352,8 +352,8 @@ RegisterNUICallback('lawDeleteCharge', function(data, cb)
 end)
 
 -- Fleet tab (html/app.js) NUI relays live in client/vehicles.lua now
--- (fleetCatalog/setFleetVehicleMinTier/spawnFleetVehicle/
--- setFleetVehicleLocation/recallAllFleetVehicles) -- persistent recall/spawn
+-- (fleetCatalog/setFleetVehicleMinTier/setFleetVehicleLocation/
+-- recallAllFleetVehicles) -- persistent vehicle management
 -- needs more client-side plumbing (warping into the location dummy, the H
 -- keybind) than fits alongside this file's other NUI relays.
 

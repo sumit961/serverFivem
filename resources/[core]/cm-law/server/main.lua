@@ -545,7 +545,8 @@ local function dashboardFor(src)
         canCustody = canCustody,
         canMdt = member.onDuty and not member.suspended and (member.isLeader or member.permissions['law.mdt'] == true),
         canFleetManage = not member.suspended and (member.isLeader or member.permissions['law.fleet'] == true),
-        canFleetSpawn = not member.suspended and (member.isLeader or member.permissions['law.vehicle'] == true),
+        canFleetUse = not member.suspended and (member.isLeader or member.permissions['law.vehicle'] == true),
+        canFleetSpawn = not member.suspended and (member.isLeader or member.permissions['law.vehicle'] == true), -- compatibility alias
         logistics = {
             canRequest = member.isLeader or member.permissions['law.logistics.request'] == true,
             canAccept = member.organizationId == Config.Logistics.SourceOrganization and (member.isLeader or member.permissions['law.logistics.accept'] == true),
@@ -677,7 +678,7 @@ local function ensureSchema()
         PRIMARY KEY (organization_id, character_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]])
     -- What each org's Fleet facility offers: model, whether it's a car or
-    -- helicopter, minimum rank tier to spawn it, and whether it's currently
+    -- helicopter, minimum rank tier to use it, and whether it's currently
     -- enabled. Appearance/label/image come live from rn-vehicleshop's
     -- GetOrgCatalog export (see server/vehicles.lua) -- never duplicated here.
     MySQL.query.await([[CREATE TABLE IF NOT EXISTS cm_legal_fleet_vehicles (

@@ -101,7 +101,7 @@ function render(data){
   const logsAllowed = data.canManage || data.canViewActivity === true;
   const logsTab=document.querySelector('#logsTab'); if(logsTab) logsTab.classList.toggle('hidden',!logsAllowed);
   const custodyTab=document.querySelector('#custodyTab'); if(custodyTab) custodyTab.classList.toggle('hidden',data.canCustody!==true);
-  const fleetTab=document.querySelector('#fleetTab'); if(fleetTab) fleetTab.classList.toggle('hidden',data.canFleetSpawn!==true && data.canFleetManage!==true);
+  const fleetTab=document.querySelector('#fleetTab'); if(fleetTab) fleetTab.classList.toggle('hidden',data.canFleetUse!==true && data.canFleetSpawn!==true && data.canFleetManage!==true);
   const logisticsTab=document.querySelector('#logisticsTab'); if(logisticsTab) logisticsTab.classList.toggle('hidden',data.logisticsVisible!==true);
   const chargesTab=document.querySelector('#chargesTab'); if(chargesTab) chargesTab.classList.toggle('hidden',data.canManageCharges!==true);
   const ranks=(data.ranks||[]).filter(r=>!r.is_leader&&Number(r.tier)<Number(m.tier||0));
@@ -388,41 +388,54 @@ setInterval(()=>document.querySelectorAll('[data-custody-release]').forEach(node
 // admin's org-tagged catalog -- there is no separate "add to fleet" step;
 // every tagged vehicle shows up here, unconfigured ones just need a
 // location set first (Set location, drive it, press H).
-let fleetVehicles = [], fleetCanManage = false;
+let fleetVehicles = [], fleetRanks = [], fleetCanManage = false;
+const fleetPending = new Set();
+async function postFleetAction(name,data={}){let timer;try{return await Promise.race([post(name,data),new Promise(resolve=>{timer=setTimeout(()=>resolve({ok:false,error:'Fleet request timed out. Try again.'}),12000)})])}finally{clearTimeout(timer)}}
 const fleetRosterNode=()=>document.querySelector('#fleetView:not(.hidden) #orgFleetRoster')||document.querySelector('#fleetRoster');
 const fleetRecallNode=()=>document.querySelector('#fleetView:not(.hidden) #orgFleetRecallAll')||document.querySelector('#fleetRecallAll');
-function renderFleetList(){
+function renderFleetList(npcMode = !legalFleet.classList.contains('hidden')){
   const manage = fleetCanManage;
   const rosterNode=fleetRosterNode(); if(!rosterNode)return;
+  if(!npcMode){
+    rosterNode.innerHTML = fleetVehicles.map(v => `<article class="fleet-row${v.configured && !v.enabled ? ' disabled' : ''}">
+      <div class="fleet-row__main"><strong>${esc(v.label)}</strong><small>${esc(v.category || 'Vehicle')} · Parking: ${v.configured ? `${v.location?.x ?? 'saved'}, ${v.location?.y ?? 'saved'}` : 'not configured'} · Required rank ${esc(v.minRankName || `Tier ${v.minTier}`)}${v.enabled ? '' : ' · Disabled'} · ${esc(String(v.status || 'available').replaceAll('_', ' '))}</small></div>
+      <div class="actions">${manage ? `<select data-fleet-tier="${esc(v.model)}"${v.configured ? '' : ' disabled title="Set a location first"'}>${fleetRanks.map(rank => `<option value="${Number(rank.tier)}"${String(rank.tier) === String(v.minTier) ? ' selected' : ''}>${esc(rank.name)}</option>`).join('')}${fleetRanks.some(rank => String(rank.tier) === String(v.minTier)) ? '' : `<option value="${Number(v.minTier)}" selected disabled>${esc(v.minRankName || `Tier ${v.minTier}`)} (saved)</option>`}</select><button data-fleet-location="${esc(v.model)}">Set location</button>${v.configured ? `<button data-fleet-recall="${esc(v.model)}"${v.status === 'in_use' ? ' disabled' : ''}>${v.status === 'in_use' ? 'In use' : 'Recall'}</button>` : ''}` : ''}</div>
+    </article>`).join('') || `<p>${manage ? 'No vehicles have been added to this organization\'s fleet yet.' : 'No fleet vehicles are available to your rank yet.'}</p>`;
+    return;
+  }
   rosterNode.innerHTML = fleetVehicles.map(v => {
-    const canSpawnThis = manage || (v.configured && v.enabled);
-    return `<article class="fleet-row${v.configured && !v.enabled ? ' disabled' : ''}">
-    <div class="fleet-row__main"><strong>${esc(v.label)}</strong><small>${esc(v.category || 'Vehicle')} · Parking: ${v.configured ? `${v.location?.x ?? 'saved'}, ${v.location?.y ?? 'saved'}` : 'not configured'} · Minimum rank tier ${v.minTier}${v.enabled ? '' : ' · Disabled'} · ${esc(String(v.status || 'available').replaceAll('_', ' '))}${v.assignedOfficer ? ` · Assigned: ${esc(v.assignedOfficer)}` : ''}${v.engineHealth != null ? ` · Engine ${Math.round(Number(v.engineHealth) / 10)}% · Body ${Math.round(Number(v.bodyHealth) / 10)}% · Fuel ${Math.round(Number(v.fuel || 0))}%` : ''}</small></div>
-    <div class="actions">
-      ${manage ? `<input type="number" min="0" max="100" value="${v.minTier}" data-fleet-tier="${esc(v.model)}"${v.configured ? '' : ' disabled title="Set a location first"'}>` : ''}
-      ${manage ? `<button data-fleet-location="${esc(v.model)}">Set location</button>` : ''}
-      ${manage && v.configured ? `<button data-fleet-recall="${esc(v.model)}"${v.status === 'in_use' ? ' disabled' : ''}>${v.status === 'in_use' ? 'In use' : 'Recall'}</button>` : ''}
-    </div>
-  </article>`;
+    const status = v.status === 'in_use' ? 'IN USE' : v.status === 'recovering' ? 'RECOVERING' : !v.configured ? 'NOT CONFIGURED' : !v.enabled ? 'DISABLED' : 'AVAILABLE';
+    const selected = String(v.minTier);
+    const disabled = !v.configured || !v.enabled;
+    const pending = (action) => fleetPending.has(`${v.model}:${action}`);
+    return `<article class="fleet-row${disabled ? ' disabled' : ''}">
+      ${v.image ? `<img class="fleet-thumb" src="${esc(v.image)}" alt="">` : '<div class="fleet-thumb fleet-thumb--empty" aria-hidden="true">VEHICLE</div>'}
+      <div class="fleet-row__main"><strong>${esc(v.label)}</strong><small>Required: ${esc(v.minRankName || `Tier ${v.minTier}`)}+ · ${status}</small>
+      ${manage ? `<div class="actions"><label>Required Rank${pending('rank') ? ' · Saving…' : ''} <select data-fleet-tier="${esc(v.model)}"${disabled || pending('rank') ? ' disabled' : ''}>${fleetRanks.map(rank => `<option value="${Number(rank.tier)}"${String(rank.tier) === selected ? ' selected' : ''}>${esc(rank.name)}</option>`).join('')}${fleetRanks.some(rank => String(rank.tier) === selected) ? '' : `<option value="${esc(selected)}" selected disabled>${esc(v.minRankName || `Tier ${selected}`)} (saved)</option>`}</select></label>
+      <button data-fleet-location="${esc(v.model)}"${pending('location') ? ' disabled' : ''}>${pending('location') ? 'Saving…' : 'Set Location'}</button>
+      ${v.configured ? `<button data-fleet-recall="${esc(v.model)}"${v.status === 'in_use' || pending('recall') ? ' disabled' : ''}>${pending('recall') ? 'Recalling…' : 'Recall'}</button>` : ''}</div>` : ''}
+      </div>
+    </article>`;
   }).join('') || `<p>${manage ? 'No vehicles have been added to this organization\'s fleet yet.' : 'No fleet vehicles are available to your rank yet.'}</p>`;
 }
-async function loadFleet(){const r=await post('fleetCatalog');fleetVehicles=r?.vehicles||[];fleetCanManage=r?.canManage===true;renderFleetList();const fleetRecall=fleetRecallNode();if(fleetRecall)fleetRecall.classList.toggle('hidden',!fleetCanManage)}
+async function loadFleet(){const r=await postFleetAction('fleetCatalog');fleetVehicles=r?.vehicles||[];fleetRanks=r?.ranks||[];fleetCanManage=r?.canManage===true;renderFleetList();const fleetRecall=fleetRecallNode();if(fleetRecall)fleetRecall.classList.toggle('hidden',!fleetCanManage)}
 document.querySelectorAll('#orgFleetRoster,#fleetRoster').forEach(node=>node.addEventListener('click',async e=>{
   const location=e.target.closest('[data-fleet-location]');
-  if(location){const r=await post('setFleetVehicleLocation',{model:location.dataset.fleetLocation});notice(r.message||r.error,r.ok?'success':'error')}
+  if(location){const model=location.dataset.fleetLocation;fleetPending.add(`${model}:location`);renderFleetList();const r=await postFleetAction('setFleetVehicleLocation',{model});notice(r.message||r.error,r.ok?'success':'error');await loadFleet();fleetPending.delete(`${model}:location`);renderFleetList()}
   const recall=e.target.closest('[data-fleet-recall]');
-  if(recall){if(!(await showConfirmOverlay('Recall fleet vehicle',`Return ${recall.dataset.fleetRecall} to its saved parking location? Occupied vehicles cannot be recalled.`,'Recall','Cancel')))return;const r=await post('recallFleetVehicle',{model:recall.dataset.fleetRecall});notice(r.message||r.error,r.ok?'success':'error');loadFleet()}
+  if(recall){const model=recall.dataset.fleetRecall;if(!(await showConfirmOverlay('Recall fleet vehicle',`Return ${recall.closest('.fleet-row')?.querySelector('strong')?.textContent||'this vehicle'} to its saved parking location? Occupied vehicles cannot be recalled.`,'Recall','Cancel')))return;fleetPending.add(`${model}:recall`);renderFleetList();const r=await postFleetAction('recallFleetVehicle',{model});notice(r.message||r.error,r.ok?'success':'error');await loadFleet();fleetPending.delete(`${model}:recall`);renderFleetList()}
 }));
 document.querySelectorAll('#orgFleetRoster,#fleetRoster').forEach(node=>node.addEventListener('change',async e=>{
   const tierInput=e.target.closest('[data-fleet-tier]');
   if(!tierInput)return;
-  const r=await post('setFleetVehicleMinTier',{model:tierInput.dataset.fleetTier,minTier:Number(tierInput.value||0)});
-  if(!r?.ok)loadFleet();
+  const model=tierInput.dataset.fleetTier;fleetPending.add(`${model}:rank`);renderFleetList();const r=await postFleetAction('setFleetVehicleMinTier',{model,minTier:Number(tierInput.value)});notice(r.message||r.error,r.ok?'success':'error');await loadFleet();fleetPending.delete(`${model}:rank`);renderFleetList();
 }));
 document.querySelectorAll('#orgFleetRecallAll,#fleetRecallAll').forEach(node=>node.addEventListener('click',async()=>{
   if(!(await showConfirmOverlay('Recall fleet','Recall every enabled fleet vehicle back to its saved location?','Recall','Cancel')))return;
-  const r=await post('recallAllFleetVehicles');
+  node.disabled=true;node.textContent='Recalling Fleet…';
+  const r=await postFleetAction('recallAllFleetVehicles');
   notice(r.message||r.error,r.ok?'success':'error');
+  await loadFleet();node.disabled=false;node.textContent='Recall All to Parking';
 }));
 // Standalone Motor Pool panel (opened only from the Fleet facility NPC --
 // never through the F6 dashboard). Reuses the fleet list/actions above,
@@ -430,7 +443,7 @@ document.querySelectorAll('#orgFleetRecallAll,#fleetRecallAll').forEach(node=>no
 // full dashboard's `state`, since this panel can open without ever loading
 // the dashboard.
 const legalFleet=document.querySelector('#legalFleet');
-window.addEventListener('message',e=>{const d=e.data||{};if(d.action==='legalFleetOpen'){app.classList.add('hidden');facilityDialogue.classList.add('hidden');facilityPrompt.classList.add('hidden');const label=d.label||'LEGAL ORGANIZATION';document.querySelector('#fleetOrg').textContent=label;fleetVehicles=d.vehicles||[];fleetCanManage=d.canManage===true;renderFleetList();document.querySelector('#fleetRecallAll').classList.toggle('hidden',!fleetCanManage);legalFleet.classList.remove('hidden')}if(d.action==='legalFleetClose'){legalFleet.classList.add('hidden')}});
+window.addEventListener('message',e=>{const d=e.data||{};if(d.action==='legalFleetOpen'){app.classList.add('hidden');facilityDialogue.classList.add('hidden');facilityPrompt.classList.add('hidden');document.querySelector('#fleetOrg').textContent=d.label||'LEGAL ORGANIZATION';fleetVehicles=d.vehicles||[];fleetRanks=d.ranks||[];fleetCanManage=d.canManage===true;legalFleet.classList.remove('hidden');renderFleetList(true);document.querySelector('#fleetRecallAll').classList.toggle('hidden',!fleetCanManage)}if(d.action==='legalFleetClose'){legalFleet.classList.add('hidden');fleetPending.clear()}});
 document.querySelector('#fleetClose').onclick=()=>post('legalFleetClose');
 // ── Dispatch (911 calls) ──────────────────────────────────────────────────
 let dispatchActiveCalls = [], dispatchHistory = [];
@@ -526,7 +539,7 @@ function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&l
 // (no items, or access restricted). Pairs with the .cm-empty-state rules in
 // command-ui-v3.0.css and the .is-empty modifier toggled on the list container.
 function cmEmptyState(icon,label){return `<div class="cm-empty-state"><i class="cm-empty-state__icon cm-empty-state__icon--${icon}"></i><span>${esc(label)}</span></div>`}
-window.addEventListener('message',e=>{const {action,data,kind,message,initialTab}=e.data||{};if(action==='bookingOpen'){renderBooking(data);return}if(action==='bookingResult'){bookingBusy=false;bookingPanel?.classList.remove('is-busy');if(!data?.ok&&bookingPanel)document.querySelector('#bookingStatus').textContent=data?.error||'Booking failed.';return}if(action==='open'){facilityOnly=e.data?.facilityOnly===true;const standalone=e.data?.standaloneMode===true;app.classList.toggle('standalone-interface',standalone);app.classList.toggle('standalone-dispatch',standalone&&initialTab==='dispatch');app.classList.toggle('standalone-mdt',standalone&&initialTab==='mdt');app.classList.remove('hidden');render(data);if(standalone&&initialTab){document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));document.querySelector(`#${initialTab}View`)?.classList.remove('hidden');document.querySelector('#pageTitle').textContent=pageTitles[initialTab]||initialTab;if(initialTab==='dispatch'){loadDispatchActiveCalls();loadDispatchHistory()}if(initialTab==='mdt')loadMdtDashboard()}else{const requested=initialTab&&document.querySelector(`[data-tab="${initialTab}"]`);const tab=requested&&!requested.classList.contains('hidden')?requested:document.querySelector('[data-tab="overview"]');if(tab)tab.click()}}if(action==='dashboard')render(data);if(action==='close'){closeBooking();app.classList.add('hidden');app.classList.remove('standalone-interface','standalone-dispatch','standalone-mdt');document.getElementById('lawConfirmNo').click()}if(action==='notice')notice(message,kind);if(action==='dispatchRefresh'&&!app.classList.contains('hidden')&&!document.querySelector('#dispatchView').classList.contains('hidden'))loadDispatchActiveCalls()});
+window.addEventListener('message',e=>{const {action,data,kind,message,initialTab}=e.data||{};if(action==='bookingOpen'){renderBooking(data);return}if(action==='bookingResult'){bookingBusy=false;bookingPanel?.classList.remove('is-busy');if(!data?.ok&&bookingPanel)document.querySelector('#bookingStatus').textContent=data?.error||'Booking failed.';return}if(action==='open'){facilityOnly=e.data?.facilityOnly===true;const standalone=e.data?.standaloneMode===true;app.classList.toggle('standalone-interface',standalone);app.classList.toggle('standalone-dispatch',standalone&&initialTab==='dispatch');app.classList.toggle('standalone-mdt',standalone&&initialTab==='mdt');app.classList.remove('hidden');render(data);if(standalone&&initialTab){document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));document.querySelector(`#${initialTab}View`)?.classList.remove('hidden');document.querySelector('#pageTitle').textContent=pageTitles[initialTab]||initialTab;if(initialTab==='dispatch'){loadDispatchActiveCalls();loadDispatchHistory()}if(initialTab==='mdt')loadMdtDashboard()}else{const requested=initialTab&&document.querySelector(`[data-tab="${initialTab}"]`);const tab=requested&&!requested.classList.contains('hidden')?requested:document.querySelector('[data-tab="overview"]');if(tab)tab.click()}}if(action==='dashboard')render(data);if(action==='close'){closeBooking();fleetPending.clear();app.classList.add('hidden');app.classList.remove('standalone-interface','standalone-dispatch','standalone-mdt');document.getElementById('lawConfirmNo').click()}if(action==='notice')notice(message,kind);if(action==='dispatchRefresh'&&!app.classList.contains('hidden')&&!document.querySelector('#dispatchView').classList.contains('hidden'))loadDispatchActiveCalls()});
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>post('close'));window.cmHandleEscape=()=>{if(window.CMUI&&typeof window.CMUI.cancelAllConfirms==='function'&&document.querySelector('.cm-modal-backdrop')){window.CMUI.cancelAllConfirms();return;}if(bookingPanel&&!bookingPanel.hidden)closeBooking();else if(!document.getElementById('lawConfirm').hidden)document.getElementById('lawConfirmNo').click();else if(armoryManager&&!armoryManager.classList.contains('hidden'))document.querySelector('#armoryManagerClose')?.click();else if(!document.querySelector('#legalArmory').classList.contains('hidden'))post('legalArmoryClose');else if(!document.querySelector('#legalFleet').classList.contains('hidden'))post('legalFleetClose');else if(!document.querySelector('#wardrobeRoom').classList.contains('hidden'))post('legalWardrobeCancel');else if(!document.querySelector('#facilityDialogue').classList.contains('hidden'))post('facilityDialogueClose');else post('escape')};document.addEventListener('keydown',e=>{if(e.key==='Escape'||e.key==='Esc'||e.keyCode===27){e.preventDefault();if(!e.repeat)window.cmHandleEscape()}});
 let logisticsData={items:[],orders:[]};
 function renderLogistics(){const info=state?.logistics||{},form=document.querySelector('#logisticsOrderForm');form.classList.toggle('hidden',info.canRequest!==true);document.querySelector('#logisticsHint').textContent=info.canRequest===true?'Submit from your on-duty organization armory. Army quartermasters accept, prepare, load, and deliver orders.':'View order progress here; your rank cannot submit routine supply requests.';document.querySelector('#logisticsItem').innerHTML=(logisticsData.items||[]).map(x=>`<option value="${esc(x.itemName)}">${esc(x.label)} · ${esc(x.itemName)}</option>`).join('');document.querySelector('#logisticsOrders').innerHTML=(logisticsData.orders||[]).map(o=>{const lines=(o.lines||[]).map(l=>`${esc(l.itemName)} × ${l.quantity}`).join(', ');const buttons=Object.keys(o.actions||{}).map(a=>`<button data-logistics-action="${esc(a)}" data-order-id="${o.id}">${esc(a.replaceAll('_',' '))}</button>`).join('');return `<article class="logistics-order"><div><strong>Order #${o.id} · ${esc(o.status.replaceAll('_',' '))}</strong><small>${esc(o.requesterLabel)} · ${lines}</small>${o.shipment?`<small>Shipment ${esc(o.shipment)}</small>`:''}</div><div class="actions">${buttons}</div></article>`}).join('')||'<p>No supply orders.</p>'}

@@ -48,7 +48,7 @@ PoliceConfig.Permissions = {
     ['police.view_members'] = 'View member roster',
     ['police.view_logs'] = 'View activity logs',
     ['police.manage_vehicles'] = 'Manage Police vehicles',
-    ['police.spawn_vehicles'] = 'Spawn Police fleet vehicles',
+    ['police.spawn_vehicles'] = 'Use Police fleet vehicles',
     ['police.view_member_map'] = 'View Police members on map',
     ['police.set_meeting'] = 'Set Police meeting point',
     ['police.suspend_members'] = 'Suspend and reinstate Police members',
@@ -414,7 +414,7 @@ PoliceConfig.Wardrobe = {
     MaxQuickSlots = 5, -- personal pointers into the shared preset list
 }
 
--- Fleet vehicle configurator/spawner (PoliceConfig.Permissions.police.manage_vehicles /
+-- Fleet vehicle manager and usage permissions (PoliceConfig.Permissions.police.manage_vehicles /
 -- police.spawn_vehicles above gate who can use it). The model picker itself is
 -- populated live from rn-vehicleshop's "Police fleet vehicle" catalog status
 -- (GetPoliceCatalog export), not from a config list.

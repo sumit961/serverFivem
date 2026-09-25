@@ -1,8 +1,8 @@
 -- cm-police fleet vehicles (client):
---   - NUI relay for the Fleet tab (list, spawn, set minimum rank).
+--   - NUI relay for the Fleet tab (catalog, rank and location).
 --   - H keybind: while driving a Police fleet vehicle, saves/updates its
---     spawn location to wherever it currently is.
---   - Applies a freshly-spawned fleet vehicle's mods (from rn-vehicleshop).
+--     parking location to wherever it currently is.
+--   - Applies saved fleet mods from rn-vehicleshop.
 --   - Drive-access enforcement: locks/unlocks nearby Police fleet vehicles
 --     for the LOCAL player based on their own current Police duty/rank,
 --     using the same SetVehicleDoorsLockedForPlayer pattern cm-ems/
@@ -30,21 +30,14 @@ local function waitForVehicle(netId, timeoutMs)
 end
 
 RegisterNUICallback('police_fleetCatalog', function(_, cb)
-    local rows = lib.callback.await('cm-police:server:fleetCatalog', false)
-    cb({ ok = rows ~= nil, vehicles = rows or {} })
+    local result = lib.callback.await('cm-police:server:fleetCatalog', false)
+    cb({ ok = result ~= nil, vehicles = result and result.vehicles or {}, ranks = result and result.ranks or {}, canManage = result and result.canManage == true, useVehicles = result and result.useVehicles == true })
 end)
 
 RegisterNUICallback('police_setFleetVehicleMinTier', function(data, cb)
     data = type(data) == 'table' and data or {}
     local ok, message = lib.callback.await('cm-police:server:setFleetVehicleMinTier', false, data.model, data.minTier)
     if not ok then notify(message or 'Could not update that vehicle.', 'error') end
-    cb({ ok = ok == true, error = message })
-end)
-
-RegisterNUICallback('police_spawnFleetVehicle', function(data, cb)
-    data = type(data) == 'table' and data or {}
-    local ok, message = lib.callback.await('cm-police:server:spawnFleetVehicle', false, data.model)
-    notify(message, ok and 'success' or 'error')
     cb({ ok = ok == true, error = message })
 end)
 
@@ -99,8 +92,8 @@ RegisterNetEvent('cm-police:client:applyFleetMods', function(netId, mods)
     end)
 end)
 
--- ── H: save/update this Police vehicle's spawn location ─────────────────
-RegisterKeyMapping('policesavevehicle', 'Save/update Police fleet vehicle spawn location here', 'keyboard', 'H')
+-- ── H: save/update this Police vehicle's parking location ──────────────
+RegisterKeyMapping('policesavevehicle', 'Save/update Police fleet vehicle parking location here', 'keyboard', 'H')
 RegisterCommand('policesavevehicle', function()
     local ped = PlayerPedId()
     local vehicle = GetVehiclePedIsIn(ped, false)

@@ -1,9 +1,8 @@
 -- cm-law fleet vehicles (client). Mirrors cm-police/client/vehicles.lua:
---   - NUI relay for the F9 Fleet tab (list, spawn/recall, recall all, set
---     minimum rank, set location).
---   - H keybind: while driving a fleet vehicle, saves/updates its spawn
+--   - NUI relay for the Fleet panel (catalog, recall, rank and location).
+--   - H keybind: while driving a fleet vehicle, saves/updates its parking
 --     location to wherever it currently is.
---   - Applies a freshly-spawned fleet vehicle's mods (from rn-vehicleshop).
+--   - Applies saved fleet mods from rn-vehicleshop.
 --   - Drive-access enforcement: locks/unlocks nearby fleet vehicles for the
 --     LOCAL player based on their own current org membership/duty/rank,
 --     using the same SetVehicleDoorsLockedForPlayer pattern cm-police/
@@ -33,7 +32,7 @@ local function closeFleetPanel()
     TriggerEvent('cm-hud:client:showAfterUi', HUD_REASON)
 end
 
-RegisterNetEvent('cm-law:client:openFleetPanel', function(orgId, label)
+RegisterNetEvent('cm-law:client:openFleetPanel', function()
     if fleetPanelOpen or IsPauseMenuActive() or IsPedInAnyVehicle(PlayerPedId(), false) then return end
     local result = lib.callback.await('cm-law:server:fleetCatalog', false)
     if result == nil then
@@ -43,8 +42,8 @@ RegisterNetEvent('cm-law:client:openFleetPanel', function(orgId, label)
     fleetPanelOpen = true
     TriggerEvent('cm-hud:client:hideForUi', HUD_REASON)
     SetNuiFocus(true, true)
-    SendNUIMessage({ cmInterface = "law", action = 'legalFleetOpen', label = label,
-        vehicles = result.vehicles or {}, canManage = result.canManage == true })
+    SendNUIMessage({ cmInterface = "law", action = 'legalFleetOpen', label = result.organizationLabel,
+        vehicles = result.vehicles or {}, ranks = result.ranks or {}, canManage = result.canManage == true })
 end)
 
 RegisterNUICallback('legalFleetClose', function(_, cb) closeFleetPanel(); cb({ ok = true }) end)
@@ -71,7 +70,7 @@ end
 
 RegisterNUICallback('fleetCatalog', function(_, cb)
     local result = lib.callback.await('cm-law:server:fleetCatalog', false)
-    cb({ ok = result ~= nil, vehicles = result and result.vehicles or {}, canManage = result and result.canManage == true })
+    cb({ ok = result ~= nil, vehicles = result and result.vehicles or {}, ranks = result and result.ranks or {}, canManage = result and result.canManage == true })
 end)
 
 RegisterNUICallback('setFleetVehicleMinTier', function(data, cb)
@@ -81,17 +80,10 @@ RegisterNUICallback('setFleetVehicleMinTier', function(data, cb)
     cb({ ok = ok == true, error = message })
 end)
 
-RegisterNUICallback('spawnFleetVehicle', function(data, cb)
-    data = type(data) == 'table' and data or {}
-    local ok, message = lib.callback.await('cm-law:server:spawnFleetVehicle', false, data.model)
-    notify(message, ok and 'success' or 'error')
-    cb({ ok = ok == true, error = message })
-end)
-
 RegisterNUICallback('setFleetVehicleLocation', function(data, cb)
     data = type(data) == 'table' and data or {}
     local ok, result = lib.callback.await('cm-law:server:beginFleetLocationEdit', false, data.model)
-    notify(result or 'Could not save the fleet location.', ok and 'success' or 'error')
+    notify(result or 'Could not update the parking location.', ok and 'success' or 'error')
     cb({ ok = ok == true, message = ok and result or nil, error = ok and nil or result })
 end)
 
@@ -139,8 +131,8 @@ RegisterNetEvent('cm-law:client:applyFleetMods', function(netId, mods)
     end)
 end)
 
--- ── H: save/update this fleet vehicle's spawn location ───────────────────
-RegisterKeyMapping('lawsavevehicle', 'Legal org: Save/update fleet vehicle spawn location here', 'keyboard', 'H')
+-- ── H: save/update this fleet vehicle's parking location ────────────────
+RegisterKeyMapping('lawsavevehicle', 'Legal org: Save/update fleet vehicle parking location here', 'keyboard', 'H')
 RegisterCommand('lawsavevehicle', function()
     local ped = PlayerPedId()
     local vehicle = GetVehiclePedIsIn(ped, false)

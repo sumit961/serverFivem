@@ -1,5 +1,5 @@
 -- cm-law fleet vehicles. Mirrors cm-police/server/vehicles.lua's persistent,
--- garage-quality fleet system closely (recall/spawn one shared instance per
+-- garage-quality fleet system closely (recall one shared instance per
 -- model, fully serviced/repaired on recall, "Recall All" for managers) --
 -- generalized to whichever org the calling member actually belongs to,
 -- instead of one hardcoded organization, since cm-law covers all four.
@@ -11,14 +11,14 @@
 -- own copy, so re-customizing a vehicle there takes effect on the next
 -- spawn with no separate sync step.
 --
--- cm-law only owns what's org-specific: where each vehicle spawns, whether
+-- cm-law only owns what's org-specific: each vehicle's saved parking place, whether
 -- it's a car or helicopter (auto-detected, not admin-picked), the minimum
--- rank tier required to spawn/drive it, and whether it's enabled.
+-- rank tier required to use it, and whether it's enabled.
 --
 -- Reuses (never duplicates), same pattern as cm-police/cm-ems:
 --   rn-vehicleshop  GetOrgCatalog(organizationId) -- the org-tagged catalog.
 --   cm-vehicles     SpawnAdminVehicle/DeleteAdminVehicle -- for the
---                   throwaway location-setting dummy only.
+--                   separate administrator setup placement flow only.
 --   cm-vehicles     CreateOwnedVehicle/EnsureOrganizationOwnership/
 --                   GetVehicleById/RecallWorldVehicle/CreateGarageVehicle/
 --                   PromoteHouseGarageVehicle/TransitionVehicleLocation/
@@ -91,6 +91,31 @@ local function actorFor(src)
     if member.suspended then return nil, characterId, 'Your organization access is suspended.' end
     if not LawCapabilityEnabled(member.organizationId, 'fleet') then return nil, characterId, 'Fleet is disabled for this organization.' end
     return member, characterId, nil
+end
+
+local function canManageFleet(member)
+    return member ~= nil and (member.isLeader == true or member.permissions['law.fleet'] == true)
+end
+
+local function canUseFleet(member)
+    return member ~= nil and (member.isLeader == true or member.permissions['law.vehicle'] == true)
+end
+
+local function fleetRanks(orgId)
+    local rows = MySQL.query.await('SELECT id, name, tier FROM cm_legal_ranks WHERE organization_id = ? ORDER BY tier ASC', { orgId }) or {}
+    local ranks = {}
+    for _, row in ipairs(rows) do
+        ranks[#ranks + 1] = { id = tonumber(row.id), name = tostring(row.name or ''), tier = tonumber(row.tier) or 0 }
+    end
+    return ranks
+end
+
+local function rankLabelForTier(ranks, tier)
+    tier = tonumber(tier) or 0
+    for _, rank in ipairs(ranks or {}) do
+        if tonumber(rank.tier) == tier then return rank.name end
+    end
+    return ('Tier %d'):format(math.floor(tier))
 end
 
 -- Spawning a car exactly at the manager's own coordinates places it inside
@@ -336,21 +361,24 @@ end)
 lib.callback.register('cm-law:server:fleetCatalog', function(src)
     local actor = select(1, actorFor(src))
     if not actor then return nil end
-    local manage = actor.isLeader or actor.permissions['law.fleet'] == true
-    local spawn = actor.isLeader or actor.permissions['law.vehicle'] == true
-    if not manage and not spawn then return { vehicles = {}, canManage = false } end
+    local manage = canManageFleet(actor)
+    local use = canUseFleet(actor)
+    if not manage and not use then return { vehicles = {}, ranks = {}, canManage = false, canFleetUse = false } end
 
     local catalog = getOrgCatalog(actor.organizationId)
     local settings = fleetSettingsByModel(actor.organizationId)
     local tier = math.floor(tonumber(actor.tier) or 0)
+    local ranks = fleetRanks(actor.organizationId)
 
     local out = {}
     local seen = {}
     local function consider(catalogRow, settingsRow)
         local merged = mergedRow(catalogRow, settingsRow)
+        merged.minRankName = rankLabelForTier(ranks, merged.minTier)
+        merged.vehicleId, merged.engineHealth, merged.bodyHealth, merged.fuel, merged.location = nil, nil, nil, nil, nil
         if manage then
             out[#out + 1] = merged
-        elseif merged.configured and merged.enabled and (actor.isLeader or tier >= merged.minTier) then
+        elseif use and merged.configured and merged.enabled and (actor.isLeader or tier >= merged.minTier) then
             out[#out + 1] = merged
         end
     end
@@ -369,32 +397,50 @@ lib.callback.register('cm-law:server:fleetCatalog', function(src)
         end
     end
     table.sort(out, function(a, b) return a.label < b.label end)
-    return { vehicles = out, canManage = manage }
+    local organization = Config.Organizations[actor.organizationId]
+    return { vehicles = out, ranks = ranks, canManage = manage, canFleetUse = use, canFleetSpawn = use,
+        organizationLabel = organization and organization.shortLabel or actor.organizationId }
 end)
 
--- Rank gate only -- never touches location/kind. Bound to the inline number
--- input in the NUI, separate from the H-key location save below.
-lib.callback.register('cm-law:server:setFleetVehicleMinTier', function(src, model, minTier)
+-- Rank gate only -- stores the tier from the actor organization's authoritative rank table.
+lib.callback.register('cm-law:server:setFleetVehicleMinTier', function(src, model, selectedTier)
     local actor, actorCid = actorFor(src)
-    if not actor or not (actor.isLeader or actor.permissions['law.fleet'] == true) then
+    if not canManageFleet(actor) then
         return false, 'Your rank cannot manage this organization\'s fleet.'
     end
     model = tostring(model or ''):lower()
     if model == '' then return false, 'Invalid model.' end
-    minTier = math.max(0, math.min(100, math.floor(tonumber(minTier) or 0)))
+    local rankTier = tonumber(selectedTier)
+    if not rankTier or rankTier % 1 ~= 0 then return false, 'Select a valid organization rank.' end
+    local rank = MySQL.single.await('SELECT id, name, tier FROM cm_legal_ranks WHERE organization_id = ? AND tier = ? LIMIT 1', { actor.organizationId, rankTier })
+    if not rank or tonumber(rank.tier) ~= rankTier then return false, 'That rank does not belong to your organization.' end
+    local catalogRow = resolveCatalogRow(actor.organizationId, model)
+    local configured = MySQL.single.await('SELECT vehicle_id FROM cm_legal_fleet_vehicles WHERE organization_id = ? AND model = ? AND location_configured = 1 LIMIT 1', { actor.organizationId, model })
+    if not catalogRow or not configured or not tonumber(configured.vehicle_id) then return false, 'Set this vehicle location first.' end
+    local minTier = tonumber(rank.tier)
     local changed = MySQL.update.await('UPDATE cm_legal_fleet_vehicles SET min_tier = ? WHERE organization_id = ? AND model = ?', { minTier, actor.organizationId, model })
     if not tonumber(changed) or tonumber(changed) <= 0 then
-        return false, 'Set this vehicle\'s location first (Set location, then drive it and press H).'
+        return false, 'Could not update this vehicle\'s required rank.'
+    end
+    local active, info = exports[VEHICLES_RESOURCE]:GetSpawnedVehicleInfo(tonumber(configured.vehicle_id))
+    if active == true and type(info) == 'table' and tonumber(info.entity) and DoesEntityExist(tonumber(info.entity)) then
+        pcall(function()
+            local state = Entity(tonumber(info.entity)).state
+            local fleet = state.cmLegalFleet
+            if type(fleet) ~= 'table' then fleet = { model = model, organizationId = actor.organizationId, vehicleId = tonumber(configured.vehicle_id) } end
+            fleet.minTier = minTier
+            state:set('cmLegalFleet', fleet, true)
+        end)
     end
     logActivity(actor.organizationId, actorCid, 'fleet_vehicle_min_tier_set', { model = model, minTier = minTier })
-    return true
+    return true, ('Required rank updated to %s.'):format(tostring(rank.name))
 end)
 
 local function beginFleetLocationEdit(src, model, adminOrgId)
     local actor, actorCid, err = actorFor(src)
     local admin = adminOrgId ~= nil and adminAllowed(src)
     if admin then actor = { organizationId = validOrgId(adminOrgId), isLeader = true, permissions = {} }; actorCid = characterIdFor(src) end
-    if not actor or not actor.organizationId or not (actor.isLeader or actor.permissions['law.fleet'] == true) then return false, err or 'Your rank cannot manage this organization\'s fleet.' end
+    if not actor or not actor.organizationId or not canManageFleet(actor) then return false, err or 'Your rank cannot manage this organization\'s fleet.' end
     model = tostring(model or ''):lower()
     local catalogRow = resolveCatalogRow(actor.organizationId, model)
     local settings = MySQL.single.await('SELECT vehicle_id FROM cm_legal_fleet_vehicles WHERE organization_id = ? AND model = ? AND enabled = 1 AND location_configured = 1 LIMIT 1', { actor.organizationId, model })
@@ -415,7 +461,7 @@ local function beginFleetLocationEdit(src, model, adminOrgId)
         { coords.x, coords.y, coords.z, heading, actorCid, actor.organizationId, model, vehicleId })
     if not tonumber(changed) or tonumber(changed) <= 0 then return false, 'Fleet configuration changed; location was not saved.' end
     logActivity(actor.organizationId, actorCid, 'fleet_vehicle_location_saved', { model = model, label = catalogRow.label, vehicleId = vehicleId })
-    return true, ('%s location saved for permanent vehicle #%d.'):format(catalogRow.label, vehicleId)
+    return true, ('%s parking location updated.'):format(catalogRow.label)
 end
 
 lib.callback.register('cm-law:server:beginFleetLocationEdit', function(src, model)
@@ -438,7 +484,7 @@ lib.callback.register('cm-law:server:cancelFleetLocationEdit', function(src)
     return true, 'Fleet placement cancelled.'
 end)
 
--- Location save/update: the player must be DRIVING the exact dummy being
+-- Location save/update: the player must be DRIVING the exact setup vehicle being
 -- saved, so the location that gets stored is always where the car genuinely
 -- is right now (triggered by the H keybind, never by the NUI, and
 -- coordinates always come from the server's own view of the vehicle).
@@ -454,7 +500,7 @@ lib.callback.register('cm-law:server:saveFleetVehicleLocation', function(src, mo
         actor = { organizationId = validOrgId(placement.organizationId), isLeader = true, permissions = {} }
         actorCid = characterIdFor(src)
     end
-    if not actor or not (actor.isLeader or actor.permissions['law.fleet'] == true) then
+    if not canManageFleet(actor) then
         return false, err or 'Your rank cannot manage this organization\'s fleet.'
     end
     if not rateLimit(src, 'law_fleet_save', 2000) then return false, 'Please wait.' end
@@ -471,7 +517,7 @@ lib.callback.register('cm-law:server:saveFleetVehicleLocation', function(src, mo
     if GetHashKey(catalogRow.model) ~= GetEntityModel(vehicle) then return false, 'You are not driving that vehicle.' end
     placement = FleetPlacementBySource[src]
     if not placement or placement.model ~= model or placement.organizationId ~= actor.organizationId or tonumber(placement.entity) ~= tonumber(vehicle) then
-        return false, 'This is not your active fleet location dummy.'
+    return false, 'This is not your active fleet setup vehicle.'
     end
 
     local coords = GetEntityCoords(vehicle)
@@ -517,11 +563,11 @@ lib.callback.register('cm-law:server:saveFleetVehicleLocation', function(src, mo
     ]], { actor.organizationId, model, vehicleId, kind, coords.x, coords.y, coords.z, heading, actorCid })
     if heldLocationLock then FleetLocationBusy[lockKey] = nil end
 
-    exports[VEHICLES_RESOURCE]:TransitionVehicleLocation(vehicleId, 'JOB_GARAGE', { ref = 'law', reason = 'law_dummy_location_saved', actorCharacterId = actorCid })
+    exports[VEHICLES_RESOURCE]:TransitionVehicleLocation(vehicleId, 'JOB_GARAGE', { ref = 'law', reason = 'law_fleet_location_saved', actorCharacterId = actorCid })
     FleetPlacementBySource[src] = nil
     pcall(function() exports[VEHICLES_RESOURCE]:DeleteAdminVehicle(placement.plate) end)
     logActivity(actor.organizationId, actorCid, 'fleet_vehicle_location_saved', { model = model, label = catalogRow.label, kind = kind, vehicleId = vehicleId })
-    return true, ('%s location saved for permanent vehicle #%d. The dummy was removed.'):format(catalogRow.label, vehicleId)
+    return true, ('%s parking location updated.'):format(catalogRow.label)
 end)
 
 local fleetOperationBusy = {} -- [orgId] = true
@@ -546,7 +592,7 @@ vehicleHasOccupant = function(entity)
 end
 
 -- The recall/create/service mechanics themselves (no rank/tier gating -- that
--- is the caller's job). Used both by player-initiated spawn/recall callbacks
+-- is the caller's job). Used by player-initiated recall callbacks
 -- and by the unattended startup auto-respawn below, which has no "actor" to
 -- check a rank against.
 local function recallFleetVehicleUnlocked(src, actorCid, orgId, model, settings, repair)
@@ -622,7 +668,7 @@ local function recallFleetVehicleUnlocked(src, actorCid, orgId, model, settings,
     end
     local catalogRow = resolveCatalogRow(orgId, model)
     if type(info) == 'table' and catalogRow then TriggerClientEvent('cm-law:client:applyFleetMods', src, info.netId, catalogRow.mods) end
-    return true, ('%s recalled (vehicle #%d).'):format(row.label or model, vehicleId)
+    return true, ('%s returned to its assigned parking space.'):format(row.label or model)
 end
 
 recallFleetVehicleCore = function(src, actorCid, orgId, model, settings, repair)
@@ -706,28 +752,33 @@ end)
 
 lib.callback.register('cm-law:server:recallAllFleetVehicles', function(src)
     local actor, actorCid, err = actorFor(src)
-    if not actor or not (actor.isLeader or actor.permissions['law.fleet'] == true) then
+    if not canManageFleet(actor) then
         return false, err or 'Your rank cannot recall this organization\'s fleet.'
     end
     local orgId = actor.organizationId
     if fleetOperationBusy[orgId] then return false, 'Another fleet recall is already running.' end
     fleetOperationBusy[orgId] = true
     local rows = MySQL.query.await('SELECT model FROM cm_legal_fleet_vehicles WHERE organization_id = ? AND enabled = 1 AND vehicle_id IS NOT NULL ORDER BY model', { orgId }) or {}
-    local recalled, failed = 0, 0
+    local recalled, occupied, failed = 0, 0, 0
     for _, row in ipairs(rows) do
         local settings = persistentFleetRow(orgId, row.model)
-        local ok = settings and recallFleetVehicleCore(src, actorCid, orgId, row.model, settings, true)
-        if ok then recalled = recalled + 1 else failed = failed + 1 end
+        local ok, message = false, nil
+        if settings then ok, message = recallFleetVehicleCore(src, actorCid, orgId, row.model, settings, true) end
+        if ok then recalled = recalled + 1
+        elseif tostring(message or ''):lower():find('occupied', 1, true) then occupied = occupied + 1
+        else failed = failed + 1 end
         Wait(0)
     end
     fleetOperationBusy[orgId] = nil
-    logActivity(orgId, actorCid, 'fleet_recalled_all', { recalled = recalled, failed = failed })
-    return failed == 0, ('Recalled %d fleet vehicles clean, fully repaired and refuelled; %d failed safely.'):format(recalled, failed)
+    logActivity(orgId, actorCid, 'fleet_recalled_all', { recalled = recalled, occupied = occupied, failed = failed })
+    local summary = ('%d vehicles returned. %d occupied vehicles skipped.'):format(recalled, occupied)
+    if failed > 0 then summary = summary .. (' %d could not be returned.'):format(failed) end
+    return failed == 0, summary
 end)
 
 lib.callback.register('cm-law:server:recallFleetVehicle', function(src, model)
     local actor, actorCid, err = actorFor(src)
-    if not actor or not (actor.isLeader or actor.permissions['law.fleet'] == true) then
+    if not canManageFleet(actor) then
         return false, err or 'Your rank cannot recall this organization\'s fleet.'
     end
     model = tostring(model or ''):lower()

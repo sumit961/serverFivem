@@ -6,9 +6,9 @@
 -- cm-police never stores its own copy, so re-customizing a vehicle there
 -- takes effect on the next spawn with no separate sync step.
 --
--- cm-police only owns what's Police-specific: where each vehicle spawns,
+-- cm-police only owns what's Police-specific: each vehicle's saved parking place,
 -- whether it's a car or helicopter (auto-detected, not admin-picked), the
--- minimum Police rank tier required to spawn/drive it, and whether it's
+-- minimum Police rank tier required to use it, and whether it's
 -- enabled.
 --
 -- Reuses (never duplicates), same pattern as cm-ems:
@@ -42,6 +42,31 @@ local function actorFor(src)
         return nil, characterId, 'You are not a Police member.'
     end
     return member, characterId, nil
+end
+
+local function canManagePoliceFleet(actor)
+    return actor ~= nil and (PoliceLegacyDbBoolean(actor.is_leader) or has(actor, 'police.manage_vehicles'))
+end
+
+local function canUsePoliceFleet(actor)
+    return actor ~= nil and (PoliceLegacyDbBoolean(actor.is_leader) or has(actor, 'police.spawn_vehicles'))
+end
+
+local function policeFleetRanks()
+    local rows = MySQL.query.await('SELECT id, name, tier FROM cm_police_ranks ORDER BY tier ASC') or {}
+    local ranks = {}
+    for _, row in ipairs(rows) do
+        ranks[#ranks + 1] = { id = tonumber(row.id), name = tostring(row.name or ''), tier = tonumber(row.tier) or 0 }
+    end
+    return ranks
+end
+
+local function rankLabelForTier(ranks, tier)
+    tier = tonumber(tier) or 0
+    for _, rank in ipairs(ranks or {}) do
+        if tonumber(rank.tier) == tier then return rank.name end
+    end
+    return ('Tier %d'):format(math.floor(tier))
 end
 
 -- Spawning a car exactly at the admin's own coordinates places it inside
@@ -159,22 +184,25 @@ end
 lib.callback.register('cm-police:server:fleetCatalog', function(src)
     local actor = select(1, actorFor(src))
     if not actor then return nil end
-    local manage = has(actor, 'police.manage_vehicles')
-    local spawn = has(actor, 'police.spawn_vehicles')
-    if not manage and not spawn then return {} end
+    local manage = canManagePoliceFleet(actor)
+    local use = canUsePoliceFleet(actor)
+    if not manage and not use then return { vehicles = {}, ranks = {}, canManage = false, useVehicles = false } end
 
     local catalog = getPoliceCatalog()
     local settings = fleetSettingsByModel()
     local tier = math.floor(tonumber(actor.tier) or 0)
     local isLeader = PoliceLegacyDbBoolean(actor.is_leader)
+    local ranks = policeFleetRanks()
 
     local out = {}
     local seen = {}
     local function consider(catalogRow, settingsRow)
         local merged = mergedRow(catalogRow, settingsRow)
+        merged.minRankName = rankLabelForTier(ranks, merged.minTier)
+        merged.vehicleId, merged.engineHealth, merged.bodyHealth, merged.fuel, merged.location = nil, nil, nil, nil, nil
         if manage then
             out[#out + 1] = merged
-        elseif merged.configured and merged.enabled and (isLeader or tier >= merged.minTier) then
+        elseif use and merged.configured and merged.enabled and (isLeader or tier >= merged.minTier) then
             out[#out + 1] = merged
         end
     end
@@ -193,30 +221,46 @@ lib.callback.register('cm-police:server:fleetCatalog', function(src)
         end
     end
     table.sort(out, function(a, b) return a.label < b.label end)
-    return out
+    return { vehicles = out, ranks = ranks, canManage = manage, useVehicles = use, spawnVehicles = use }
 end)
 
--- Rank gate only -- never touches location/kind. Bound to the inline number
--- input in the NUI, separate from the H-key location save below.
-lib.callback.register('cm-police:server:setFleetVehicleMinTier', function(src, model, minTier)
+-- Rank gate only -- stores a tier from the authoritative Police rank table.
+lib.callback.register('cm-police:server:setFleetVehicleMinTier', function(src, model, selectedTier)
     local actor, actorCid = actorFor(src)
-    if not actor or not has(actor, 'police.manage_vehicles') then return false, 'Your rank cannot manage Police vehicles.' end
+    if not canManagePoliceFleet(actor) then return false, 'Your rank cannot manage Police vehicles.' end
     model = tostring(model or ''):lower()
     if model == '' then return false, 'Invalid model.' end
-    minTier = math.max(0, math.min(100, math.floor(tonumber(minTier) or 0)))
+    local rankTier = tonumber(selectedTier)
+    if not rankTier or rankTier % 1 ~= 0 then return false, 'Select a valid Police rank.' end
+    local rank = MySQL.single.await('SELECT id, name, tier FROM cm_police_ranks WHERE tier = ? LIMIT 1', { rankTier })
+    if not rank or tonumber(rank.tier) ~= rankTier then return false, 'That rank does not belong to Police.' end
+    local catalogRow = resolveCatalogRow(model)
+    local configured = MySQL.single.await('SELECT vehicle_id FROM cm_police_fleet_vehicles WHERE model = ? AND location_configured = 1 LIMIT 1', { model })
+    if not catalogRow or not configured or not tonumber(configured.vehicle_id) then return false, 'Set this vehicle location first.' end
+    local minTier = tonumber(rank.tier)
     local changed = MySQL.update.await('UPDATE cm_police_fleet_vehicles SET min_tier = ? WHERE model = ?', { minTier, model })
     if not tonumber(changed) or tonumber(changed) <= 0 then
         return false, 'Link this persistent vehicle through Manage Vehicle before setting its location.'
     end
+    local active, info = exports[VEHICLES_RESOURCE]:GetSpawnedVehicleInfo(tonumber(configured.vehicle_id))
+    if active == true and type(info) == 'table' and tonumber(info.entity) and DoesEntityExist(tonumber(info.entity)) then
+        pcall(function()
+            local state = Entity(tonumber(info.entity)).state
+            local fleet = state.cmPoliceFleet
+            if type(fleet) ~= 'table' then fleet = { model = model, vehicleId = tonumber(configured.vehicle_id) } end
+            fleet.minTier = minTier
+            state:set('cmPoliceFleet', fleet, true)
+        end)
+    end
     log(actorCid, 'fleet_vehicle_min_tier_set', { model = model, minTier = minTier })
-    return true
+    return true, ('Required rank updated to %s.'):format(tostring(rank.name))
 end)
 
 local function beginFleetLocationEdit(src, model, adminStarted)
     local actor, actorCid, err = actorFor(src)
     local admin = false
     if adminStarted == true then pcall(function() admin = exports[PoliceConfig.AdminResource]:HasPermission(src, PoliceConfig.AdminPermission) == true end) end
-    if not admin and (not actor or not has(actor, 'police.manage_vehicles')) then return false, err or 'Your rank cannot manage Police vehicles.' end
+    if not admin and not canManagePoliceFleet(actor) then return false, err or 'Your rank cannot manage Police vehicles.' end
     if admin then actorCid = cid(src) end
     model = tostring(model or ''):lower()
     local catalogRow = resolveCatalogRow(model)
@@ -239,7 +283,7 @@ local function beginFleetLocationEdit(src, model, adminStarted)
         { kind, coords.x, coords.y, coords.z, heading, actorCid, model, vehicleId })
     if not tonumber(changed) or tonumber(changed) <= 0 then return false, 'Fleet configuration changed; location was not saved.' end
     log(actorCid, 'fleet_vehicle_location_saved', { model = model, label = catalogRow.label, vehicleId = vehicleId })
-    return true, ('%s location saved for permanent vehicle #%d.'):format(catalogRow.label, vehicleId)
+    return true, ('%s parking location updated.'):format(catalogRow.label)
 end
 lib.callback.register('cm-police:server:beginFleetLocationEdit', function(src, model) return beginFleetLocationEdit(src, model, false) end)
 
@@ -265,7 +309,7 @@ lib.callback.register('cm-police:server:saveFleetVehicleLocation', function(src,
         return false, 'That Police fleet placement expired. Start it again.'
     end
     local admin = placement and placement.admin == true and exports[PoliceConfig.AdminResource]:HasPermission(src, PoliceConfig.AdminPermission) == true
-    if not admin and (not actor or not has(actor, 'police.manage_vehicles')) then return false, err or 'Your rank cannot manage Police vehicles.' end
+    if not admin and not canManagePoliceFleet(actor) then return false, err or 'Your rank cannot manage Police vehicles.' end
     if not PoliceLegacyRateLimit(src, 'police_fleet_save', 2000) then return false, 'Please wait.' end
 
     model = tostring(model or ''):lower()
@@ -474,7 +518,7 @@ local function recallPoliceFleetVehicleUnlocked(src, actorCid, model, settings, 
     end
     local catalogRow = resolveCatalogRow(model)
     if type(info) == 'table' and catalogRow then TriggerClientEvent('cm-police:client:applyFleetMods', src, info.netId, decode(catalogRow.mods)) end
-    return true, ('%s recalled (vehicle #%d).'):format(row.label or model, tonumber(settings.vehicle_id))
+    return true, ('%s returned to its assigned parking space.'):format(row.label or model)
 end
 
 local function recallFleetVehicleCore(src, actorCid, model, settings, repair)
@@ -497,26 +541,30 @@ end)
 
 lib.callback.register('cm-police:server:recallAllFleetVehicles', function(src)
     local actor, actorCid, err = actorFor(src)
-    if not actor or not (PoliceLegacyDbBoolean(actor.is_leader) or has(actor, 'police.manage_vehicles')) then
+    if not canManagePoliceFleet(actor) then
         return false, err or 'Your rank cannot recall the Police fleet.'
     end
     if fleetOperationBusy then return false, 'Another fleet recall is running.' end
     fleetOperationBusy = true
     local rows = MySQL.query.await('SELECT model FROM cm_police_fleet_vehicles WHERE enabled = 1 AND vehicle_id IS NOT NULL ORDER BY model') or {}
-    local recalled, failed = 0, 0
+    local recalled, occupied, failed = 0, 0, 0
     for _, row in ipairs(rows) do
-        local ok = spawnPersistent(src, actor, actorCid, row.model, true)
-        if ok then recalled = recalled + 1 else failed = failed + 1 end
+        local ok, message = spawnPersistent(src, actor, actorCid, row.model, true)
+        if ok then recalled = recalled + 1
+        elseif tostring(message or ''):lower():find('occupied', 1, true) then occupied = occupied + 1
+        else failed = failed + 1 end
         Wait(0)
     end
     fleetOperationBusy = false
-    log(actorCid, 'fleet_recalled_all', { recalled = recalled, failed = failed })
-    return failed == 0, ('Recalled %d persistent Police vehicles clean, fully repaired and refuelled; %d failed safely.'):format(recalled, failed)
+    log(actorCid, 'fleet_recalled_all', { recalled = recalled, occupied = occupied, failed = failed })
+    local summary = ('%d vehicles returned. %d occupied vehicles skipped.'):format(recalled, occupied)
+    if failed > 0 then summary = summary .. (' %d could not be returned.'):format(failed) end
+    return failed == 0, summary
 end)
 
 lib.callback.register('cm-police:server:recallFleetVehicle', function(src, model)
     local actor, actorCid, err = actorFor(src)
-    if not actor or not has(actor, 'police.manage_vehicles') then return false, err or 'Your rank cannot recall Police fleet vehicles.' end
+    if not canManagePoliceFleet(actor) then return false, err or 'Your rank cannot recall Police fleet vehicles.' end
     model = tostring(model or ''):lower()
     local settings = model ~= '' and persistentFleetRow(model) or nil
     if not settings or not PoliceLegacyDbBoolean(settings.enabled) or not tonumber(settings.vehicle_id) then return false, 'Police fleet vehicle is not enabled or configured.' end
