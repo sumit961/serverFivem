@@ -259,7 +259,34 @@ local function MarkDirty(data)
 end
 
 local function CanMutate(data)
-    return data ~= nil and data.loaded == true and data.switching ~= true
+    if not data or data.loaded ~= true or data.switching == true then
+        return false
+    end
+
+    local src = tonumber(data.src)
+    if not src then return false end
+
+    -- Fail closed if cm-auth is not started
+    if GetResourceState('cm-auth') ~= 'started' then
+        return false
+    end
+
+    local authenticatedAccountId = nil
+    local ok, authId = pcall(function()
+        if exports['cm-auth'].GetAuthenticatedAccountId then
+            return exports['cm-auth']:GetAuthenticatedAccountId(src)
+        end
+        return exports['cm-auth']:GetAccountId(src)
+    end)
+    if ok and authId then
+        authenticatedAccountId = tostring(authId)
+    end
+
+    if not authenticatedAccountId or authenticatedAccountId == '' then
+        return false
+    end
+
+    return tostring(authenticatedAccountId) == tostring(data.accountId or '')
 end
 
 local function ValidateCharacterOwnership(src, charId)
@@ -276,7 +303,8 @@ local function ValidateCharacterOwnership(src, charId)
         end)
         if ok then
             if char and tostring(char.id) == charId then
-                return true, char
+                local resolvedAccountId = accountId or (char and char.account_id)
+                return true, char, resolvedAccountId and tostring(resolvedAccountId) or nil
             end
             return false, err or 'not_owned'
         end
@@ -313,7 +341,7 @@ local function ValidateCharacterOwnership(src, charId)
         return false, 'account_mismatch'
     end
 
-    return true, row
+    return true, row, tostring(accountId)
 end
 
 local function SetState(src, key, value, replicated)
@@ -608,7 +636,9 @@ local function SavePlayerData(src, reason)
     local data = src and PlayerData[src] or nil
     if not data or not data.loaded or not data.charId then return false end
 
-    local charId = tostring(data.charId)
+    local expectedData = data
+    local expectedCharId = tostring(data.charId)
+    local charId = expectedCharId
 
     -- If a save is already in progress for this character, await that save's completion
     if ActiveSaves[charId] then
@@ -755,7 +785,19 @@ local function SavePlayerData(src, reason)
     end
 
     local rowsAffected = ok and tonumber(updateResult) or 0
-    local saveSuccess = (ok == true and rowsAffected == 1)
+    local saveSuccess = false
+    if ok == true then
+        if rowsAffected == 1 then
+            saveSuccess = true
+        elseif rowsAffected == 0 then
+            local exists = MySQL.scalar.await('SELECT id FROM characters WHERE id = ? LIMIT 1', { charId })
+            if exists and tostring(exists) == charId then
+                saveSuccess = true
+            else
+                Log('error', 'SavePlayerData failed: character row missing in database', { src = src, charId = charId })
+            end
+        end
+    end
 
     ActiveSaves[charId] = nil
 
@@ -775,7 +817,7 @@ local function SavePlayerData(src, reason)
             ok = ok,
             affectedRows = tostring(updateResult)
         })
-        if PlayerData[src] and tostring(PlayerData[src].charId or '') == charId then
+        if PlayerData[src] == expectedData and tostring(PlayerData[src].charId or '') == charId then
             PlayerData[src].dirty = true
         end
         return false
@@ -783,7 +825,7 @@ local function SavePlayerData(src, reason)
 
     -- Confirm character and source reuse safety before mutating runtime state
     local current = PlayerData[src]
-    if current and tostring(current.charId or '') == charId and GetPlayerPing(src) > 0 then
+    if current == expectedData and tostring(current.charId or '') == expectedCharId then
         current.persistedPosition = snapshot.lastPosition
         current.persistedRevision = savedRevision
         if current.revision == savedRevision and not current.saveQueued then
@@ -793,7 +835,7 @@ local function SavePlayerData(src, reason)
             if current.saveQueued then
                 current.saveQueued = nil
                 SetTimeout(50, function()
-                    if PlayerData[src] and PlayerData[src].loaded and tostring(PlayerData[src].charId) == charId and PlayerData[src].dirty then
+                    if PlayerData[src] == expectedData and PlayerData[src].loaded and tostring(PlayerData[src].charId) == expectedCharId and PlayerData[src].dirty then
                         SavePlayerData(src, 'queued_save')
                     end
                 end)
@@ -837,7 +879,22 @@ local function SavePositionOnly(src)
         )
     end)
 
-    if ok and tonumber(affected) == 1 then
+    local rowsAffected = ok and tonumber(affected) or 0
+    local positionSuccess = false
+    if ok == true then
+        if rowsAffected == 1 then
+            positionSuccess = true
+        elseif rowsAffected == 0 then
+            local exists = MySQL.scalar.await('SELECT id FROM characters WHERE id = ? LIMIT 1', { charId })
+            if exists and tostring(exists) == charId then
+                positionSuccess = true
+            else
+                Log('error', 'SavePositionOnly failed: character row missing in database', { src = src, charId = charId })
+            end
+        end
+    end
+
+    if positionSuccess then
         data.persistedPosition = current
         return true
     else
@@ -948,7 +1005,7 @@ local function LoadPlayerData(src, explicitCharId)
     end
 
     -- Authoritative ownership check: playerdata must never load an arbitrary character
-    local valid, ownerOrErr = ValidateCharacterOwnership(src, charId)
+    local valid, ownerOrErr, validatedAccountId = ValidateCharacterOwnership(src, charId)
     if not valid then
         Log('warn', 'Character load rejected: ownership validation failed', { src = src, charId = charId, reason = tostring(ownerOrErr) })
         Audit(src, 'character_load_denied', { charId = charId, reason = tostring(ownerOrErr) })
@@ -1067,6 +1124,7 @@ local function LoadPlayerData(src, explicitCharId)
     PlayerData[src] = {
         src = src,
         charId = charId,
+        accountId = tostring(validatedAccountId or ''),
         firstName = row.first_name or '',
         lastName = row.last_name or '',
 
@@ -1223,20 +1281,16 @@ local function TransferMoneyBetweenPlayersAuthoritative(fromSrc, toSrc, account,
     toMeta.counterparty_source = fromSrc
 
     local auditOk, auditErr = pcall(function()
-        MySQL.insert.await([[
+        MySQL.query.await([[
             INSERT INTO economy_transactions
                 (character_id, account_type, amount, action, reason, resource_name, balance_before, balance_after, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?),
+                (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ]], {
             fromCharId, account, -amount, 'transfer_out',
             tostring(reason or 'p2p_transfer_out'):sub(1, 100),
-            callingResource, fromBefore, fromAfter, EncodeJson(fromMeta)
-        })
-        MySQL.insert.await([[
-            INSERT INTO economy_transactions
-                (character_id, account_type, amount, action, reason, resource_name, balance_before, balance_after, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ]], {
+            callingResource, fromBefore, fromAfter, EncodeJson(fromMeta),
             toCharId, account, amount, 'transfer_in',
             tostring(reason or 'p2p_transfer_in'):sub(1, 100),
             callingResource, toBefore, toAfter, EncodeJson(toMeta)
@@ -1638,7 +1692,7 @@ AddEventHandler('onResourceStop', function(resourceName)
 
     for src, data in pairs(PlayerData) do
         if data and data.loaded then
-            SavePlayerData(src, 'resource_stop')
+            FlushPlayerData(src, 'resource_stop')
         end
     end
 end)
