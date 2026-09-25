@@ -51,8 +51,19 @@ function CmLawCloseMenu()
     closeMenu()
 end
 
+local function fetchDashboardData()
+    if type(LocalPlayer.state.cmPolice) == 'table' and type(NormalizePoliceDashboard) == 'function' then
+        local policeData, reason = lib.callback.await('cm-police:server:dashboard', false, false, type(sex) == 'function' and sex() or 'male')
+        if not policeData then
+            return { ok = false, error = reason or 'Police organization access is no longer available.' }
+        end
+        return NormalizePoliceDashboard(policeData)
+    end
+    return lib.callback.await('cm-law:server:dashboard', false)
+end
+
 local function refresh()
-    local data = lib.callback.await('cm-law:server:dashboard', false)
+    local data = fetchDashboardData()
     if not data or data.ok ~= true then
         closeMenu()
         TriggerEvent('cm-hud:client:notify', data and data.error or 'Organization access is no longer available.', 'error')
@@ -64,23 +75,20 @@ end
 
 local function openMenu(initialTab)
     if open or IsPauseMenuActive() or IsPedInAnyVehicle(PlayerPedId(), false) then return end
-    local data = lib.callback.await('cm-law:server:dashboard', false)
+    local data = fetchDashboardData()
     if not data or data.ok ~= true then
         return
     end
     if initialTab == 'mdt' and (type(data.member) ~= 'table'
-        or data.member.onDuty ~= true or data.canMdt ~= true) then
+        or data.member.onDuty ~= true or (data.canMdt ~= true and type(LocalPlayer.state.cmPolice) ~= 'table')) then
         return
     end
     if initialTab == 'dispatch' and (type(data.member) ~= 'table'
-        or data.member.onDuty ~= true or data.canDispatch ~= true) then
+        or data.member.onDuty ~= true or (data.canDispatch ~= true and type(LocalPlayer.state.cmPolice) ~= 'table')) then
         return
     end
     open = true
     SetNuiFocus(true, true)
-    -- MDT opens inside the normal tabbed shell (sidebar + record rail visible,
-    -- other tabs still reachable) rather than fullscreen standalone mode --
-    -- only Dispatch keeps the fullscreen CAD-board treatment.
     SendNUIMessage({ cmInterface = "law", action = 'open', data = data, initialTab = initialTab,
         standaloneMode = initialTab == 'dispatch',
         facilityOnly = initialTab == 'fleet' })
@@ -145,17 +153,18 @@ RegisterNetEvent('cm-law:client:openDashboard', function() openMenu('overview') 
 RegisterNetEvent('cm-law:client:closeDashboard', function() closeMenu() end)
 
 RegisterNetEvent('cm-law:client:openMdt', function()
-    local state = LocalPlayer.state.cmLegalOrg
-    if type(state) ~= 'table' or state.onDuty ~= true or state.suspended or (state.capabilities and state.capabilities.mdt == false) then return end
-    -- openMenu performs the authoritative dashboard/member check. Failed
-    -- membership, duty and permission checks are intentionally silent for the
-    -- shared Tab key.
+    local legal, police = LocalPlayer.state.cmLegalOrg, LocalPlayer.state.cmPolice
+    local onDuty = (type(legal) == 'table' and legal.onDuty == true and not legal.suspended and (not legal.capabilities or legal.capabilities.mdt ~= false))
+        or (type(police) == 'table' and police.onDuty == true and not police.suspended)
+    if not onDuty then return end
     openMenu('mdt')
 end)
 
 RegisterNetEvent('cm-law:client:openDispatch', function()
-    local state = LocalPlayer.state.cmLegalOrg
-    if type(state) ~= 'table' or state.onDuty ~= true or state.suspended or (state.capabilities and state.capabilities.dispatch == false) then return end
+    local legal, police = LocalPlayer.state.cmLegalOrg, LocalPlayer.state.cmPolice
+    local onDuty = (type(legal) == 'table' and legal.onDuty == true and not legal.suspended and (not legal.capabilities or legal.capabilities.dispatch ~= false))
+        or (type(police) == 'table' and police.onDuty == true and not police.suspended)
+    if not onDuty then return end
     openMenu('dispatch')
 end)
 
@@ -210,12 +219,24 @@ RegisterNUICallback('hubInvite', function(data, cb)
 end)
 -- Ranks & Access page (html/app.js).
 RegisterNUICallback('saveRank', function(data, cb)
-    local result = lib.callback.await('cm-law:server:saveRank', false, data)
+    local isPolice = type(LocalPlayer.state.cmPolice) == 'table'
+    local result
+    if isPolice then
+        result = lib.callback.await('cm-police:server:action', false, 'save_rank', data)
+    else
+        result = lib.callback.await('cm-law:server:saveRank', false, data)
+    end
     cb(result or { ok = false, error = 'No response from server.' })
     if result and result.ok then refresh() end
 end)
 RegisterNUICallback('deleteRank', function(data, cb)
-    local result = lib.callback.await('cm-law:server:deleteRank', false, data and data.rankId)
+    local isPolice = type(LocalPlayer.state.cmPolice) == 'table'
+    local result
+    if isPolice then
+        result = lib.callback.await('cm-police:server:action', false, 'delete_rank', data)
+    else
+        result = lib.callback.await('cm-law:server:deleteRank', false, data and data.rankId)
+    end
     cb(result or { ok = false, error = 'No response from server.' })
     if result and result.ok then refresh() end
 end)

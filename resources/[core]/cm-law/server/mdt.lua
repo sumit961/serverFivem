@@ -269,7 +269,11 @@ lib.callback.register('cm-law:server:mdtLinkReportOfficer', function(src, report
     reportId = tonumber(reportId)
     officerCid = clean(officerCid, 64)
     if officerCid == '' then return { ok = false, error = 'Enter an officer character ID.' } end
-    if not MySQL.scalar.await('SELECT character_id FROM cm_legal_members WHERE character_id=? LIMIT 1', { officerCid }) then
+    local isMember = MySQL.scalar.await('SELECT character_id FROM cm_legal_members WHERE character_id=? LIMIT 1', { officerCid })
+    if not isMember then
+        isMember = MySQL.scalar.await('SELECT character_id FROM cm_police_members WHERE character_id=? LIMIT 1', { officerCid })
+    end
+    if not isMember then
         return { ok = false, error = 'That character is not a member of a legal organization.' }
     end
     local row, accessError = reportId and reportCaseAccess(reportId, member, actorCid)

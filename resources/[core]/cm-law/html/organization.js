@@ -53,7 +53,7 @@
     const details = org.hub || {}, leader = members.find(member => member.is_leader);
     $('org-subtitle').textContent = `${org.label || 'Organization'} • Personnel Portal`;
     $('org-name').textContent = org.label || 'Organization';
-    $('org-tagline').textContent = details.tagline || 'Law Enforcement & Tactical Response Command';
+    $('org-tagline').textContent = details.tagline || org.jurisdiction || 'Law Enforcement & Tactical Response Command';
     $('total-count').textContent = `${Number(summary.memberCount ?? members.length)} Members`;
     const online = summary.onlineCount ?? (data.canViewMembers ? members.filter(member => member.online === true).length : null);
     $('active-count').textContent = online == null ? 'Restricted' : `${online} Online`;
@@ -162,6 +162,11 @@
     $('save-rank-button').disabled = actionPending || !(editingRank === 'new'
       ? state?.canManageRanks && !state?.member?.suspended
       : rankEditable(target));
+    const deleteBtn = $('delete-rank-button');
+    if (deleteBtn) {
+      deleteBtn.hidden = editingRank === 'new' || !target || target.is_leader;
+      deleteBtn.disabled = actionPending || !rankEditable(target);
+    }
     bindPermissionDnD();
   }
   function openRankEditor() {
@@ -337,6 +342,21 @@
     });
     if (success) closeRankEditor();
   }
+  async function deleteRankEditor() {
+    if (!editingRank || editingRank === 'new' || actionPending) return;
+    const rank = ranks().find(row => String(row.id) === String(editingRank));
+    if (!rank || !rankEditable(rank) || rank.is_leader) return;
+    const success = await CMUI.confirmOrganizationAction({
+      title: 'DELETE RANK',
+      message: `Permanently delete ${rank.name}?`,
+      consequence: 'Any members assigned to this rank must be reassigned first.',
+      danger: true,
+      submit: () => isPolice()
+        ? mutate('police_action', { action: 'delete_rank', payload: { rankId: rank.id } })
+        : mutate('deleteRank', { rankId: rank.id }),
+    });
+    if (success) closeRankEditor();
+  }
   function hide() {
     epoch++;
     document.body.hidden = true;
@@ -354,7 +374,7 @@
     hide(); post('close');
   }
   window.cmHandleEscape = handleEscape;
-  Object.assign(window, { switchTab, filterRoster: renderRoster, closeModal, openEditModal, saveMemberEdit, kickMember, openInviteModal, confirmRecruit, openRankEditor, newRank, closeRankEditor, saveRankEditor });
+  Object.assign(window, { switchTab, filterRoster: renderRoster, closeModal, openEditModal, saveMemberEdit, kickMember, openInviteModal, confirmRecruit, openRankEditor, newRank, closeRankEditor, saveRankEditor, deleteRankEditor });
   $('roster-table-body').addEventListener('click', event => {
     const button = event.target.closest('[data-edit-member]');
     if (button) openEditModal(button.dataset.editMember);

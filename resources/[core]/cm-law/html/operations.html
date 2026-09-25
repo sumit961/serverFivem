@@ -57,14 +57,14 @@
             <article class="org-identity-card">
               <div class="org-identity-photo"><img id="overviewMemberPhoto" src="" alt="" style="visibility:hidden"><button id="overviewCapturePhoto" type="button">Update duty photo</button></div>
               <div class="org-tier-ring"><strong id="overviewTier">0</strong><small>TIER</small></div>
-              <div class="org-identity-copy"><small class="identity-kicker">COMMANDING OFFICER</small><h2 id="overviewMemberName">MEMBER</h2><div><span id="overviewRank">â€”</span><span id="overviewCharacterId" class="sr-only">CID â€”</span><span id="overviewDutyBadge" class="status-pill">OFF DUTY</span></div></div>
+              <div class="org-identity-copy"><small class="identity-kicker">COMMANDING OFFICER</small><h2 id="overviewMemberName">MEMBER</h2><div><span id="overviewRank">—</span><span id="overviewCharacterId" class="sr-only">CID —</span><span id="overviewDutyBadge" class="status-pill">OFF DUTY</span></div></div>
               <span class="overview-authorized">AUTHORIZED</span><span id="overviewShortLabel" class="sr-only">LEGAL ORGANIZATION</span><span id="overviewOrgName" class="sr-only">Organization</span><span id="overviewJurisdiction" class="sr-only">Authorized jurisdiction</span>
             </article>
             <div id="overviewStats" class="stats command-stats"></div>
             <article class="org-readiness-strip"><div><strong>AGENCY READINESS</strong><span id="overviewReadinessMeta">0 / 0</span><i><b id="overviewReadinessBar"></b></i></div><div><small>ON DUTY NOW</small><strong id="overviewReadinessTotal">0 units</strong></div></article>
             <article class="prison-status-card" id="overviewPrisonStatus">
               <div class="prison-status-card__icon" aria-hidden="true">CI</div>
-              <div class="prison-status-card__copy"><small>SHARED CUSTODY</small><h3>Central prison intake</h3><p id="overviewPrisonMeta">Checking prison configurationâ€¦</p></div>
+              <div class="prison-status-card__copy"><small>SHARED CUSTODY</small><h3>Central prison intake</h3><p id="overviewPrisonMeta">Checking prison configuration…</p></div>
               <div class="prison-status-card__stats"><span><b id="overviewPrisonCells">0 / 0</b><small>cells occupied</small></span><span><b id="overviewPrisonSpawns">0</b><small>spawn points</small></span></div>
               <span class="prison-status-card__state" id="overviewPrisonState">OFFLINE</span>
             </article>
@@ -103,7 +103,7 @@
           <section id="logsView" class="view hidden"><div id="activityLogList" class="log-list"></div></section>
           <section id="custodyView" class="view hidden">
             <div class="section-head"><div><small>SHARED CUSTODY</small><h3>Current prisoners</h3><p class="hint">Live sentence information from the central prison. All law organizations use the same custody list.</p></div><button id="custodyRefresh" type="button">Refresh</button></div>
-            <article class="custody-summary"><div><strong id="custodyCount">0</strong><span>active prisoners</span></div><div><strong id="custodyUpdated">â€”</strong><span>last refreshed</span></div><span class="custody-live"><i></i>SERVER VERIFIED</span></article>
+            <article class="custody-summary"><div><strong id="custodyCount">0</strong><span>active prisoners</span></div><div><strong id="custodyUpdated">—</strong><span>last refreshed</span></div><span class="custody-live"><i></i>SERVER VERIFIED</span></article>
             <div id="custodyList" class="custody-list"><p class="hint">Open Custody to load current prisoners.</p></div>
           </section>
           <section id="logisticsView" class="view hidden">
@@ -126,10 +126,10 @@
               <label>Fine<input id="chargeNewFine" type="number" min="0" max="100000" value="0"></label>
               <button type="submit">Add charge</button>
             </form>
-            <div id="chargesList" class="charges-list"><p class="hint">Loading Criminal Codeâ€¦</p></div>
+            <div id="chargesList" class="charges-list"><p class="hint">Loading Criminal Code…</p></div>
           </section>
             <section id="dispatchView" class="view hidden law-dispatch-board">
-              <aside class="law-dispatch-summary"><small>CM LAW ENFORCEMENT</small><h2>EMERGENCY<br>CALLS</h2><p>One live feed shared by Police, Sheriff, FIB, Army, and authorized legal units.</p><div class="law-dispatch-counts"><div><span>ACTIVE CALLS</span><strong id="lawDispatchActiveCount">0</strong></div><div><span>ASSIGNED</span><strong id="lawDispatchAssignedCount">0</strong></div></div><div class="law-dispatch-mark"><span>â˜Ž</span><b>LAW<br>DISPATCH</b></div></aside>
+              <aside class="law-dispatch-summary"><small>CM LAW ENFORCEMENT</small><h2>EMERGENCY<br>CALLS</h2><p>One live feed shared by Police, Sheriff, FIB, Army, and authorized legal units.</p><div class="law-dispatch-counts"><div><span>ACTIVE CALLS</span><strong id="lawDispatchActiveCount">0</strong></div><div><span>ASSIGNED</span><strong id="lawDispatchAssignedCount">0</strong></div></div><div class="law-dispatch-mark"><span>&#9742;</span><b>LAW<br>DISPATCH</b></div></aside>
               <main class="law-dispatch-main"><div class="dispatch-toolbar"><div><small>LIVE OPERATIONS</small><h3>Law enforcement requests</h3></div><div class="actions"><button id="dispatchBackup">Request backup</button><button id="dispatchPanic" class="danger">Panic button</button></div></div><div class="liveops-commandbar"><label>CALLSIGN<input id="liveOpsCallsign" maxlength="12" autocomplete="off"><button id="liveOpsCallsignSave">SET</button></label><label>UNIT STATUS<select id="liveOpsStatus"><option value="available">Available</option><option value="busy">Busy</option><option value="unavailable">Unavailable</option><option value="en_route" disabled>En Route</option><option value="on_scene" disabled>On Scene</option></select></label><span id="liveOpsRefreshed">LIVE LINK</span></div><div class="liveops-grid"><section class="liveops-map-panel"><div class="liveops-panel-head"><div><small>TACTICAL MAP</small><h3>Active unit positions</h3></div><span><i></i> SERVER VERIFIED</span></div><div id="liveOpsMap" class="liveops-map"><div class="liveops-map-grid"></div></div></section><section class="liveops-units-panel"><div class="liveops-panel-head"><div><small>UNIT BOARD</small><h3>On-duty units</h3></div><strong id="liveOpsUnitCount">0</strong></div><div id="liveOpsUnits" class="liveops-units"></div></section></div><div id="liveOpsAssignment" class="liveops-assignment hidden"><div><small>INCIDENT COMMAND</small><strong>Prioritize, assign, release, or close an active call</strong></div><select id="liveOpsCallSelect"></select><select id="liveOpsPriority"><option value="1">P1 Routine</option><option value="2">P2 Urgent</option><option value="3">P3 Critical</option></select><button id="liveOpsSetPriority">SET PRIORITY</button><select id="liveOpsUnitSelect"></select><button id="liveOpsAssign">ASSIGN UNIT</button><button id="liveOpsCloseCall" class="danger">COMMAND CLOSE</button></div><div class="law-dispatch-columns"><span>CALLER / LOCATION</span><span>STATUS / UNITS</span><span>ACTION</span></div><div id="dispatchActiveList" class="dispatch-list"></div><h3 class="dispatch-heading">Recent history</h3><div id="dispatchHistoryList" class="dispatch-list"></div></main>
             </section>
           <section id="mdtView" class="view hidden">
@@ -158,11 +158,11 @@
     <div id="toast" role="status"></div>
     <section id="bookingPanel" class="booking-panel" hidden aria-modal="true" role="dialog" aria-labelledby="bookingTitle">
       <div class="booking-panel__card">
-        <header class="booking-panel__head"><div><small>SHARED PRISON INTAKE</small><h2 id="bookingTitle">Booking review</h2><p id="bookingSuspectMeta">Suspect Â· CID â€”</p></div><button type="button" class="icon" id="bookingClose" aria-label="Close">Ã—</button></header>
+        <header class="booking-panel__head"><div><small>SHARED PRISON INTAKE</small><h2 id="bookingTitle">Booking review</h2><p id="bookingSuspectMeta">Suspect · CID —</p></div><button type="button" class="icon" id="bookingClose" aria-label="Close">×</button></header>
         <div class="booking-panel__body">
           <div class="booking-panel__charges"><div class="panel-title"><div><small>CHARGES</small><h3>Select violations</h3></div><span id="bookingChargeCount">0 / 10</span></div><p class="booking-panel__hint">Choose the charges that match the arrest. Sentence time is calculated by the server.</p><div id="bookingCharges" class="booking-charges"></div></div>
           <div class="booking-panel__summary"><small>SENTENCE PREVIEW</small><strong id="bookingMinutes">0 min</strong><span id="bookingSummaryText">Select at least one charge.</span></div>
-          <label class="booking-panel__reason"><span>ARREST REASON</span><textarea id="bookingReason" maxlength="500" rows="4" placeholder="Briefly explain the circumstances of this arrestâ€¦"></textarea><small><span id="bookingReasonCount">0</span> / 500</small></label>
+          <label class="booking-panel__reason"><span>ARREST REASON</span><textarea id="bookingReason" maxlength="500" rows="4" placeholder="Briefly explain the circumstances of this arrest…"></textarea><small><span id="bookingReasonCount">0</span> / 500</small></label>
         </div>
         <footer class="booking-panel__foot"><span id="bookingStatus" role="status"></span><button type="button" id="bookingCancel">Cancel</button><button type="button" class="primary" id="bookingSubmit">Confirm booking</button></footer>
       </div>

@@ -3,7 +3,7 @@ local SearchResult, SearchTarget
 
 local function registerPage()
     if GetResourceState(PoliceConfig.PlayerDataResource) ~= 'started' then return end
-    exports[PoliceConfig.PlayerDataResource]:RegisterInteractionPage({ id = PAGE, label = 'Organization', icon = 'shield', order = 35, emptyLabel = 'No Police actions available' })
+    exports[PoliceConfig.PlayerDataResource]:RegisterInteractionPage({ id = PAGE, label = 'Organization', icon = 'shield', order = 35, layout = 'vehicle', emptyLabel = 'No Police actions available' })
 end
 
 local function add(id, label, order)

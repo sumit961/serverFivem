@@ -11,7 +11,7 @@ local function registerPage()
     if GetResourceState(Config.PlayerDataResource) ~= 'started' then return end
     -- cm-playerdata owns the single shared G-menu presentation. This page
     -- only contributes server-validated Legal organization actions.
-    exports[Config.PlayerDataResource]:RegisterInteractionPage({ id = PAGE, label = 'Organization', icon = 'shield', order = 35, emptyLabel = 'No organization actions available' })
+    exports[Config.PlayerDataResource]:RegisterInteractionPage({ id = PAGE, label = 'Organization', icon = 'shield', order = 35, layout = 'vehicle', emptyLabel = 'No organization actions available' })
 end
 
 local function add(id, label, order)

@@ -124,8 +124,8 @@ button{cursor:pointer;border:1px solid #3b7790;border-radius:9px;background:#173
 .law-mdt-license-compose select{border:1px solid var(--line);border-radius:9px;background:#0b1521;color:#eefbff;padding:11px}
 
 /* F10/Tab standalone workspaces. Dispatch and MDT stay out of the F7 nav. */
-/* â”€â”€ Confirm dialog (native window.confirm() does not render in FiveM's NUI
-   CEF, so every destructive action needs this instead) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ---------------- Confirm dialog (native window.confirm() does not render in FiveM's NUI
+   CEF, so every destructive action needs this instead) ---------------- */
 .law-confirm-overlay{position:fixed;inset:0;z-index:11000;display:flex;align-items:center;justify-content:center;background:rgba(10,11,20,.55)}
 .law-confirm-overlay[hidden]{display:none!important}
 .law-confirm-card{width:380px;max-width:90vw;padding:22px;border-radius:12px;border:1px solid rgba(82,220,233,.32);background:linear-gradient(155deg,#182226,#101a1d);box-shadow:0 20px 50px rgba(0,0,0,.45)}

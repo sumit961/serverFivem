@@ -304,10 +304,33 @@ function activeMemberForSource(src)
                 permissions['police.manage_alpr'] = has(police, 'police.manage_alpr')
                 permissions['police.set_meeting'] = has(police, 'police.set_meeting')
             end
+            if type(PoliceConfig) == 'table' and type(PoliceConfig.Permissions) == 'table' then
+                for perm, _ in pairs(PoliceConfig.Permissions) do
+                    permissions[perm] = has(police, perm)
+                end
+            end
             permissions['law.receive_dispatch'] = permissions['police.receive_dispatch'] == true
-            permissions['law.impound'] = permissions['police.impound'] == true
-            permissions['law.alpr'] = permissions['police.manage_alpr'] == true
-            permissions['law.manage_dispatch'] = permissions['police.set_meeting'] == true
+            permissions['law.manage_dispatch']  = permissions['police.set_meeting'] == true
+            permissions['law.impound']          = permissions['police.impound'] == true
+            permissions['law.alpr']             = permissions['police.manage_alpr'] == true
+            permissions['law.mdt']              = permissions['police.mdt'] == true
+            permissions['law.cuff']             = permissions['police.cuff'] == true
+            permissions['law.book']             = permissions['police.book'] == true
+            permissions['law.cite']             = permissions['police.cite'] == true
+            permissions['law.vehicle']          = permissions['police.spawn_vehicles'] == true
+            permissions['law.fleet']            = permissions['police.manage_vehicles'] == true
+            permissions['law.armory']           = permissions['police.manage_armory'] == true
+            permissions['law.wardrobe']         = permissions['police.manage_outfits'] == true
+            permissions['law.view_members']     = permissions['police.view_members'] == true
+            permissions['law.view_logs']        = permissions['police.view_logs'] == true
+            permissions['law.manage_members']   = (permissions['police.invite'] == true or permissions['police.kick'] == true or permissions['police.promote'] == true)
+            permissions['law.manage_ranks']     = permissions['police.manage_ranks'] == true
+            permissions['law.manage_permissions'] = permissions['police.manage_permissions'] == true
+            permissions['law.barricade']        = permissions['police.barricade'] == true
+            permissions['law.spike']            = permissions['police.spike'] == true
+            permissions['law.k9']               = permissions['police.k9'] == true
+            permissions['law.radar']            = permissions['police.radar'] == true
+            permissions['law.clamp']            = permissions['police.clamp'] == true
             return {
                 organizationId = 'police', characterId = tostring(characterId),
                 rankId = tonumber(police.rank_id), rankName = police.rank_name,
@@ -370,6 +393,18 @@ local function dashboardFor(src)
     local member = activeMemberForSource(src)
     if not member then return { ok = false, error = 'You are not a member of a legal organization.' } end
     local org = Config.Organizations[member.organizationId]
+    if not org and member.organizationId == 'police' then
+        org = {
+            id = 'police',
+            label = 'Police Department',
+            shortLabel = 'LSPD',
+            color = '#38bdf8',
+            jurisdiction = 'City of Los Santos',
+            radioChannel = 1,
+            chatChannel = 'police',
+        }
+    end
+    if not org then return { ok = false, error = 'Organization configuration not found.' } end
     local canViewMembers = member.isLeader or (not member.suspended and member.permissions['law.view_members'] == true)
     local canManageRanks = not member.suspended and (member.isLeader or member.permissions['law.manage_ranks'] == true)
     local canManagePermissions = not member.suspended and (member.isLeader or member.permissions['law.manage_permissions'] == true)
@@ -995,7 +1030,7 @@ lib.callback.register('cm-law:server:staffAction', function(src, action, payload
     else
         return { ok = false, error = 'Unknown staffing action.' }
     end
-    logActivity(actor.organizationId, actorCid, 'member_' .. action, { targetCid = targetCid, rankId = tonumber(payload.rankId) })
+    logActivity(actor.organizationId, actorCid, 'member_' .. action, { targetCid = targetCid, targetName = nameFor(targetCid), rankId = tonumber(payload.rankId) })
     TriggerEvent('cm-admin:server:addLog', src, 'legal_org_member_' .. action, { category = 'orgs', organizationId = actor.organizationId, characterId = targetCid })
     syncCharacter(targetCid)
     return { ok = true, message = 'Organization roster updated.' }
@@ -1126,6 +1161,9 @@ lib.callback.register('cm-law:server:saveRank', function(src, payload)
         end
         permissionsJson = json.encode(granted)
     end
+
+    local nameConflict = MySQL.scalar.await('SELECT id FROM cm_legal_ranks WHERE organization_id = ? AND LOWER(name) = LOWER(?) AND id != ?', { orgId, name, rankId or 0 })
+    if nameConflict then return { ok = false, error = 'A rank with that name already exists.' } end
 
     -- cm_legal_ranks has a UNIQUE(organization_id, tier) constraint --
     -- checked explicitly (rather than letting the UPDATE/INSERT hit it) so

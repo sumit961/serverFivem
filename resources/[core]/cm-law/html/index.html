@@ -70,10 +70,15 @@
     });
     const childState = name => {
       const doc = surfaces[name].contentDocument;
-      if (!doc) return { interactive: false, passive: false };
-      const selectors = name === 'law'
-        ? { interactive: ['#app'], passive: [] }
-        : name === 'police'
+      if (!doc || !doc.body) return { interactive: false, passive: false };
+      if (name === 'law') {
+        const bodyVisible = !doc.body.hidden && doc.body.style.display !== 'none';
+        return {
+          interactive: bodyVisible && hasVisible(doc, ['#app']),
+          passive: false,
+        };
+      }
+      const selectors = name === 'police'
         ? { interactive: policeInteractiveSelectors, passive: policePassiveSelectors }
         : { interactive: lawInteractiveSelectors, passive: lawPassiveSelectors };
       return {
