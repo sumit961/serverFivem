@@ -391,6 +391,23 @@ function LawFacilityLocation(orgId, facilityType)
     return facilityRows(orgId)[tostring(facilityType or '')]
 end
 
+local function leaderForOrganization(orgId)
+    orgId = tostring(orgId or '')
+    local org = MySQL.single.await('SELECT leader_cid FROM cm_legal_organizations WHERE organization_id = ? LIMIT 1', { orgId }) or {}
+    local leaderCid = org.leader_cid and tostring(org.leader_cid) or nil
+    if leaderCid and leaderCid ~= '' then return leaderCid end
+
+    -- Older legal records may have assigned the leader rank before the
+    -- organization leader_cid column was populated. Treat that authoritative
+    -- rank assignment as the read-side fallback so Admin and F6 agree.
+    local legacy = MySQL.single.await([[SELECT m.character_id
+        FROM cm_legal_members m
+        JOIN cm_legal_ranks r ON r.id = m.rank_id AND r.organization_id = m.organization_id
+        WHERE m.organization_id = ? AND r.is_leader = 1
+        ORDER BY m.on_duty DESC, m.character_id ASC LIMIT 1]], { orgId })
+    return legacy and legacy.character_id and tostring(legacy.character_id) or nil
+end
+
 local function dashboardFor(src)
     local member = activeMemberForSource(src)
     if not member then return { ok = false, error = 'You are not a member of a legal organization.' } end
@@ -444,8 +461,7 @@ local function dashboardFor(src)
                SUM(CASE WHEN on_duty = 1 AND suspended_until IS NULL THEN 1 ELSE 0 END) AS on_duty_count
         FROM cm_legal_members WHERE organization_id = ?
     ]], { member.organizationId }) or {}
-    local orgRow = MySQL.single.await('SELECT leader_cid FROM cm_legal_organizations WHERE organization_id = ? LIMIT 1', { member.organizationId }) or {}
-    local leaderCid = orgRow.leader_cid and tostring(orgRow.leader_cid) or nil
+    local leaderCid = leaderForOrganization(member.organizationId)
     local fleetSummary = MySQL.single.await([[
         SELECT
             SUM(CASE WHEN enabled = 1 AND location_configured = 1 THEN 1 ELSE 0 END) AS configured_count,
@@ -744,10 +760,10 @@ end
 local function summary(orgId)
     orgId = validOrgId(orgId)
     if not ready or not orgId then return {} end
-    local org = MySQL.single.await('SELECT leader_cid FROM cm_legal_organizations WHERE organization_id = ? LIMIT 1', { orgId }) or {}
+    local leaderCid = leaderForOrganization(orgId)
     return {
-        leaderCid = org.leader_cid and tostring(org.leader_cid) or nil,
-        leaderName = org.leader_cid and nameFor(org.leader_cid) or nil,
+        leaderCid = leaderCid,
+        leaderName = leaderCid and nameFor(leaderCid) or nil,
         memberCount = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM cm_legal_members WHERE organization_id = ?', { orgId })) or 0,
         onDutyCount = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM cm_legal_members WHERE organization_id = ? AND on_duty = 1', { orgId })) or 0,
     }
@@ -796,9 +812,7 @@ local function removeLeader(src, orgId)
     if not adminAllowed(tonumber(src)) then return false, 'Permission denied.' end
     if leaderLocks[orgId] then return false, 'Another leader change is already running.' end
 
-    local current = MySQL.single.await(
-        'SELECT leader_cid FROM cm_legal_organizations WHERE organization_id = ? LIMIT 1', { orgId })
-    local leaderCid = current and current.leader_cid and tostring(current.leader_cid) or nil
+    local leaderCid = leaderForOrganization(orgId)
     if not leaderCid then return false, 'This organization does not have a leader.' end
 
     leaderLocks[orgId] = true
