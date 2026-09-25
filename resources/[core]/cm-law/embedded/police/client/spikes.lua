@@ -9,19 +9,8 @@ local function notify(message, kind)
     PoliceNotify(message, kind)
 end
 
-local OwnedSceneEquipment = {} -- [deploymentId] = authoritative server registration payload
-
-local function localCharacterId()
-    local police = LocalPlayer.state.cmPolice
-    if type(police) == 'table' and police.characterId then return tostring(police.characterId) end
-    local legal = LocalPlayer.state.cmLegalOrg
-    if type(legal) == 'table' and legal.characterId then return tostring(legal.characterId) end
-    return nil
-end
-
 RegisterNetEvent('cm-law:client:sceneEquipmentRegistered', function(payload)
     if type(payload) ~= 'table' or not payload.deploymentId or not payload.networkId then return end
-    OwnedSceneEquipment[tonumber(payload.deploymentId)] = payload
 
     -- CREATE_OBJECT_NO_OFFSET is a server setter: the entity can be registered
     -- before this client owns/streams it. Once it resolves locally, apply the
@@ -67,7 +56,7 @@ end
 function PoliceDeploySpike()
     if PoliceIsPlacing() then return end
     if not canUseSpike() then return notify('You must be an on-duty officer with spike strip permission.', 'error') end
-    local ok, result = lib.callback.await('cm-police:server:deploySpikeStrip', false)
+    local ok, result = lib.callback.await('cm-law:server:deploySpikeStrip', false)
     if not ok then return notify(result or 'Could not deploy spike strip.', 'error') end
     local stripId = result
 
@@ -85,17 +74,16 @@ function PoliceDeploySpike()
         startDistance = PoliceConfig.SpikeStrips.DeployDistance or 3.0,
         timeoutMs = PoliceConfig.SpikeStrips.PlacementTimeoutMs or 45000,
         onConfirm = function(finalCoords, finalHeading)
-            local confirmed, payload = lib.callback.await('cm-police:server:confirmSpikeStrip', false, stripId,
+            local confirmed, payload = lib.callback.await('cm-law:server:confirmSpikeStrip', false, stripId,
                 finalCoords.x, finalCoords.y, finalCoords.z, finalHeading)
             if confirmed and type(payload) == 'table' then
-                OwnedSceneEquipment[tonumber(payload.deploymentId)] = payload
                 notify('Spike strip deployed.', 'success')
             else
                 notify(tostring(payload or 'Spike strip deployment was not registered by the server.'), 'error')
             end
         end,
         onCancel = function(reason)
-            TriggerServerEvent('cm-police:server:cancelSpikeStrip', stripId)
+            TriggerServerEvent('cm-law:server:cancelSpikeStrip', stripId)
             if reason == 'timeout' then notify('Spike strip placement timed out.', 'error')
             elseif reason == 'model_failed' then notify('Spike strip model failed to load.', 'error')
             else notify('Spike strip placement cancelled.', 'inform') end
@@ -104,18 +92,11 @@ function PoliceDeploySpike()
 end
 
 function PoliceRecallSpikes()
-    local removed, failed = lib.callback.await('cm-police:server:recallSpikeStrips', false)
+    local removed, failed = lib.callback.await('cm-law:server:recallSpikeStrips', false)
     removed, failed = tonumber(removed) or 0, tonumber(failed) or 0
     if failed > 0 then
         notify(('Removed %d spike strip(s); %d could not be removed yet. Try again while near the strip.'):format(removed, failed), 'error')
         return
-    end
-    if removed == 0 and PoliceRecoverOwnedSceneEquipment then
-        local recovered = PoliceRecoverOwnedSceneEquipment('spike')
-        if recovered > 0 then
-            notify(('Recovered and removed %d tracked spike strip(s).'):format(recovered), 'success')
-            return
-        end
     end
     notify(('Recalled %d spike strip(s).'):format(removed), removed > 0 and 'success' or 'inform')
 end
@@ -124,7 +105,7 @@ RegisterCommand('policespike', PoliceDeploySpike, false)
 RegisterCommand('recallspikes', PoliceRecallSpikes, false)
 
 RegisterCommand('cmsceneversion', function()
-    local state = lib.callback.await('cm-police:server:sceneEquipmentState', false)
+    local state = lib.callback.await('cm-law:server:sceneEquipmentState', false)
     if type(state) ~= 'table' then
         print('[cm-scene] cm-law scene equipment authority did not answer.')
         return
@@ -187,31 +168,7 @@ local function deleteNetworkObject(netId, payload, stateKey)
     return not DoesEntityExist(object)
 end
 
--- Recovery path for a scene object whose in-memory server registry was lost.
--- It can ONLY touch replicated objects whose owner CID matches this character;
--- model-only world deletion is deliberately forbidden.
-function PoliceRecoverOwnedSceneEquipment(kind)
-    local cid = localCharacterId()
-    if not cid then return 0 end
-    local removed = 0
-    local stateKey = kind == 'barricade' and 'cmBarricade' or 'cmSpikeStrip'
-    for _, object in ipairs(GetGamePool('CObject')) do
-        if DoesEntityExist(object) then
-            local state = Entity(object).state
-            if state[stateKey] == true
-                and tostring(state.cmLawSceneOwnerCid or '') == cid
-                and tostring(state.cmLawSceneType or kind) == kind then
-                local netId = NetworkGetNetworkIdFromEntity(object)
-                if netId and netId > 0 and deleteNetworkObject(netId, nil, stateKey) then
-                    removed = removed + 1
-                end
-            end
-        end
-    end
-    return removed
-end
-
-RegisterNetEvent('cm-police:client:removeSpikeStrip', function(netId)
+RegisterNetEvent('cm-law:client:removeSpikeStrip', function(netId)
     deleteNetworkObject(netId, nil, 'cmSpikeStrip')
 end)
 

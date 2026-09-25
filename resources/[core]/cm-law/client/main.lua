@@ -22,6 +22,7 @@ end
 
 local function closeMenu()
     open = false
+    if type(StopLawTablet) == 'function' then StopLawTablet() end
     SendNUIMessage({ cmInterface = "law", action = 'close' })
     -- The embedded Police backend can open this same shared surface. Clear
     -- its companion state whenever the shared Law close path wins ESC,
@@ -93,6 +94,9 @@ local function openMenu(initialTab)
     TriggerEvent('cm-police:client:closeMenu')
     open = true
     SetNuiFocus(true, true)
+    if (initialTab == 'mdt' or initialTab == 'dispatch') and type(StartLawTablet) == 'function' then
+        StartLawTablet()
+    end
     SendNUIMessage({ cmInterface = "law", action = 'open', data = data, initialTab = initialTab,
         standaloneMode = initialTab == 'dispatch',
         facilityOnly = initialTab == 'fleet' })

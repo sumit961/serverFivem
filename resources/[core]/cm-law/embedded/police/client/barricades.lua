@@ -46,7 +46,7 @@ function PoliceDeployBarricade()
     if not canUseBarricade() then return notify('You must be an on-duty officer with barricade permission.', 'error') end
     local modelNames = catalogModelNames()
     if #modelNames == 0 then return notify('An admin has not added any barricade models yet.', 'error') end
-    local ok, result = lib.callback.await('cm-police:server:deployBarricade', false)
+    local ok, result = lib.callback.await('cm-law:server:deployBarricade', false)
     if not ok then return notify(result or 'Could not deploy barricade.', 'error') end
     local barricadeId = result
 
@@ -55,7 +55,7 @@ function PoliceDeployBarricade()
         startDistance = PoliceConfig.Barricades.DeployDistance or 3.0,
         timeoutMs = PoliceConfig.Barricades.PlacementTimeoutMs or 45000,
         onConfirm = function(finalCoords, finalHeading, finalModelName)
-            local confirmed, payload = lib.callback.await('cm-police:server:confirmBarricade', false, barricadeId,
+            local confirmed, payload = lib.callback.await('cm-law:server:confirmBarricade', false, barricadeId,
                 finalCoords.x, finalCoords.y, finalCoords.z, finalHeading, finalModelName)
             if confirmed and type(payload) == 'table' then
                 notify('Barricade deployed.', 'success')
@@ -64,7 +64,7 @@ function PoliceDeployBarricade()
             end
         end,
         onCancel = function(reason)
-            TriggerServerEvent('cm-police:server:cancelBarricade', barricadeId)
+            TriggerServerEvent('cm-law:server:cancelBarricade', barricadeId)
             if reason == 'timeout' then notify('Barricade placement timed out.', 'error')
             elseif reason == 'model_failed' then notify('Barricade model failed to load.', 'error')
             else notify('Barricade placement cancelled.', 'inform') end
@@ -73,18 +73,11 @@ function PoliceDeployBarricade()
 end
 
 function PoliceRecallBarricades()
-    local removed, failed = lib.callback.await('cm-police:server:recallBarricades', false)
+    local removed, failed = lib.callback.await('cm-law:server:recallBarricades', false)
     removed, failed = tonumber(removed) or 0, tonumber(failed) or 0
     if failed > 0 then
         notify(('Removed %d barricade(s); %d could not be removed yet. Try again while near the barricade.'):format(removed, failed), 'error')
         return
-    end
-    if removed == 0 and PoliceRecoverOwnedSceneEquipment then
-        local recovered = PoliceRecoverOwnedSceneEquipment('barricade')
-        if recovered > 0 then
-            notify(('Recovered and removed %d tracked barricade(s).'):format(recovered), 'success')
-            return
-        end
     end
     notify(('Recalled %d barricade(s).'):format(removed), removed > 0 and 'success' or 'inform')
 end
@@ -143,7 +136,7 @@ local function deleteBarricadeNetworkObject(netId, payload)
     return not DoesEntityExist(object)
 end
 
-RegisterNetEvent('cm-police:client:removeBarricade', function(netId)
+RegisterNetEvent('cm-law:client:removeBarricade', function(netId)
     deleteBarricadeNetworkObject(netId, nil)
 end)
 

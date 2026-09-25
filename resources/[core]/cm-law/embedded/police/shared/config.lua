@@ -17,10 +17,9 @@ PoliceConfig.MenuKey = 'F6'
 -- the admin workspace can be opened.
 PoliceConfig.AdminMenuCommand = 'policeadmin'
 -- The embedded Police workspace remains the authority for cm_police_* data.
--- cm-law already owns the generic cm-admin export names, so registering a
--- second organization against those names would route Police admin actions
--- into cm_legal_* tables. Keep the dedicated /policeadmin workspace enabled.
-PoliceConfig.RegisterCentralAdmin = false
+-- Central cm-admin registration uses the explicit API export names below so
+-- it cannot accidentally route Police actions into cm_legal_* tables.
+PoliceConfig.RegisterCentralAdmin = true
 PoliceConfig.InviteSeconds = 60
 -- Default key for the cuff/uncuff bind. cm-law and cm-police both ship 'X',
 -- which gives players two entries on the same key in the keybind settings.

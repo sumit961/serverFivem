@@ -5,7 +5,7 @@ lua54 'yes'
 name 'cm-law'
 author 'CM Framework'
 description 'CM legal organizations and embedded Los Santos Police operations'
-version '3.2.1'
+version '3.2.2'
 
 shared_scripts {
     '@ox_lib/init.lua',
@@ -32,6 +32,7 @@ client_scripts {
     'client/vehicle_scanner.lua',
     'client/photo_capture.lua',
     'client/tracking.lua',
+    'client/operational_tablet.lua',
     'embedded/police/client/ui.lua',
     'embedded/police/client/npc_dialogue.lua',
     'embedded/police/client/cinematics.lua',

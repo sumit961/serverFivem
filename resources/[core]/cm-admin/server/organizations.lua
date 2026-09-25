@@ -172,6 +172,11 @@ local function registerOrganization(org)
     end
     organizations[org.id] = {
         id = org.id, label = org.label, resource = org.resource, icon = org.icon,
+        api = {
+            summary = type(org.api) == 'table' and tostring(org.api.summary or '') or '',
+            assignLeader = type(org.api) == 'table' and tostring(org.api.assignLeader or '') or '',
+            removeLeader = type(org.api) == 'table' and tostring(org.api.removeLeader or '') or '',
+        },
         canRemoveLeader = org.canRemoveLeader == true,
         canManageFacilities = org.canManageFacilities == true,
         canManageArmory = org.canManageArmory == true,
@@ -190,6 +195,11 @@ end
 local function unregisterOrganization(id)
     organizations[id] = nil
     orgOwner[id] = nil
+end
+
+local function organizationExport(org, operation, fallback)
+    local api = type(org.api) == 'table' and org.api[operation] or nil
+    return type(api) == 'string' and api ~= '' and api or fallback
 end
 
 exports('RegisterOrganization', registerOrganization)
@@ -211,7 +221,9 @@ function CMOrganizations.forAdminPayload(src)
         local running = GetResourceState(org.resource) == 'started'
         local summary = {}
         if running then
-            local ok, result = pcall(function() return exports[org.resource]:GetOrganizationSummary(org.id) end)
+            local ok, result = pcall(function()
+                return exports[org.resource][organizationExport(org, 'summary', 'GetOrganizationSummary')](org.id)
+            end)
             if ok and type(result) == 'table' then summary = result end
         end
         out[#out + 1] = {
@@ -376,7 +388,7 @@ function CMOrganizations.removeLeader(src, orgId)
     if GetResourceState(org.resource) ~= 'started' then return false, ('%s is not running.'):format(org.resource) end
 
     local ok, result, message = pcall(function()
-        return exports[org.resource]:AdminRemoveLeader(src, org.id)
+        return exports[org.resource][organizationExport(org, 'removeLeader', 'AdminRemoveLeader')](src, org.id)
     end)
     if not ok then return false, 'Leader removal failed safely.' end
     if result == true then log(src, 'org_leader_removed', { orgId = org.id }) end
@@ -411,7 +423,9 @@ function CMOrganizations.assignLeader(src, orgId, targetCid)
     if GetResourceState(org.resource) ~= 'started' then return false, ('%s is not running.'):format(org.resource) end
     targetCid = tostring(targetCid or '')
     if targetCid == '' then return false, 'Character ID is required.' end
-    local ok, result, message = pcall(function() return exports[org.resource]:AdminAssignLeader(src, targetCid, org.id) end)
+    local ok, result, message = pcall(function()
+        return exports[org.resource][organizationExport(org, 'assignLeader', 'AdminAssignLeader')](src, targetCid, org.id)
+    end)
     if not ok then return false, 'Leader assignment failed safely.' end
     if result == true then
         log(src, 'org_leader_assigned', { orgId = org.id, targetCid = targetCid })

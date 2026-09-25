@@ -1702,6 +1702,11 @@ CreateThread(function()
             canManageFacilities = true,
             canManageNpcs = true, canManageFleet = true, canManageCapabilities = true, canManageArmory = true, canManageAlpr = true,
             canManageBarricades = true,
+            api = {
+                summary = 'PoliceLegacyGetOrganizationSummary',
+                assignLeader = 'PoliceLegacyAdminAssignLeader',
+                removeLeader = 'PoliceLegacyAdminRemoveLeader',
+            },
             facilityTypes = {
                 { id = 'front_desk', label = 'Front desk NPC' },
                 { id = 'armory', label = 'Armory NPC' },

@@ -80,6 +80,7 @@ local function closeMenu()
     open = false
     sharedDashboardOpen = false
     adminMode = false
+    if type(StopLawTablet) == 'function' then StopLawTablet() end
     SetNuiFocus(false, false)
     SendNUIMessage({ cmInterface = "police", action = 'close' })
 end
@@ -216,9 +217,15 @@ local function loadDashboard(initialPage, options)
     if not data then notify(reason or 'Unable to open Police.', 'error'); return false end
     if not adminMode and not (options and options.utility == true) then
         sharedDashboardOpen = true
+        if (initialPage == 'mdt' or initialPage == 'dispatch') and type(StartLawTablet) == 'function' then
+            StartLawTablet()
+        end
         SendNUIMessage({ cmInterface = "law", action = 'open', data = NormalizePoliceDashboard(data), initialTab = initialPage,
             standaloneMode = initialPage == 'dispatch' })
         return true
+    end
+    if (initialPage == 'mdt' or initialPage == 'dispatch') and type(StartLawTablet) == 'function' then
+        StartLawTablet()
     end
     SendNUIMessage({ cmInterface = "police", action = 'open', data = data, initialPage = initialPage,
         armoryStandalone = options and options.armoryStandalone == true,

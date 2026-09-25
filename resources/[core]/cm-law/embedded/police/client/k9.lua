@@ -1,5 +1,6 @@
 -- Server-owned Police K9 with server-authorized target commands.
 local dogPed, followThread, dogMode = nil, false, 'heel'
+local heelBand, lastHeelDistance, lastHeelProgress = nil, nil, 0
 local scentBlip, scentToken = nil, 0
 
 local function notify(message, kind) PoliceNotify(message, kind) end
@@ -38,8 +39,9 @@ end
 local function heel()
     if not controlDog() then return end
     dogMode = 'heel'
+    heelBand, lastHeelDistance, lastHeelProgress = nil, nil, GetGameTimer()
     ClearPedTasks(dogPed)
-    TaskFollowToOffsetOfEntity(dogPed, PlayerPedId(), 0.6, -1.15, 0.0, 1.35, -1, 1.2, true)
+    TaskFollowToOffsetOfEntity(dogPed, PlayerPedId(), 0.6, -1.15, 0.0, 1.35, -1, 1.35, true)
 end
 
 local function startFollow()
@@ -48,9 +50,53 @@ local function startFollow()
     CreateThread(function()
         while dogPed and DoesEntityExist(dogPed) do
             if dogMode == 'heel' then
-                TaskFollowToOffsetOfEntity(dogPed, PlayerPedId(), 0.6, -1.15, 0.0, 1.35, -1, 1.2, true)
+                local handler = PlayerPedId()
+                local distance = #(GetEntityCoords(dogPed) - GetEntityCoords(handler))
+                local band, speed
+                if distance <= 2.0 then
+                    band, speed = 'heel', 1.35
+                elseif distance <= 6.0 then
+                    band, speed = 'follow', 2.2
+                elseif distance <= 20.0 then
+                    band, speed = 'catchup', 3.5
+                else
+                    band, speed = 'urgent', 5.0
+                end
+
+                local now = GetGameTimer()
+                if not lastHeelDistance or distance < lastHeelDistance - 0.25 then
+                    lastHeelDistance, lastHeelProgress = distance, now
+                elseif distance > 6.0 and now - (lastHeelProgress or now) >= 4000 then
+                    -- Retask only after a real lack of progress, rather than
+                    -- clearing the K9 task on every polling interval.
+                    ClearPedTasks(dogPed)
+                    heelBand, lastHeelProgress = nil, now
+                end
+
+                if distance >= 40.0 and controlDog() then
+                    -- Heel is the only mode allowed to recover an unreachable
+                    -- dog. Attack, chase, suspect-follow, hold and search
+                    -- states never reposition the animal.
+                    local handlerCoords = GetEntityCoords(handler)
+                    local heading = math.rad(GetEntityHeading(handler))
+                    local x = handlerCoords.x - math.sin(heading) * 2.0
+                    local y = handlerCoords.y + math.cos(heading) * 2.0
+                    local z = handlerCoords.z
+                    local foundGround, groundZ = GetGroundZFor_3dCoord(x, y, z + 2.0, false)
+                    if foundGround then z = groundZ end
+                    SetEntityCoordsNoOffset(dogPed, x, y, z, false, false, false)
+                    distance, band, speed = 2.0, 'heel', 1.35
+                    heelBand, lastHeelDistance, lastHeelProgress = nil, distance, now
+                end
+
+                -- A band change adapts speed; the stuck timer above is the
+                -- only other path that resets an already-running follow task.
+                if band ~= heelBand then
+                    TaskFollowToOffsetOfEntity(dogPed, handler, 0.6, -1.15, 0.0, speed, -1, 1.35, true)
+                    heelBand = band
+                end
             end
-            Wait(1500)
+            Wait(500)
         end
         followThread = false
     end)

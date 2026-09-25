@@ -1,5 +1,5 @@
--- Generic law scene equipment authority. Police-specific scene contracts
--- remain in cm-police until the shared equipment migration is complete.
+-- Generic Law scene-equipment authority. Police clients use these callbacks
+-- directly; the legacy cm-police server modules are intentionally not loaded.
 --
 -- IMPORTANT: all final props are server-created. We therefore keep BOTH the
 -- server entity handle and the network id for the lifetime of each deployment.
@@ -433,7 +433,6 @@ local function confirm(src, id, kind, x, y, z, heading, model)
     local state = Entity(entity).state
     state:set(cfg.state, true, true)
     state:set('cmLawSceneEquipment', entry.deploymentId, true)
-    state:set('cmLawSceneOwnerCid', tostring(entry.officerCid), true)
     state:set('cmLawSceneOrganization', tostring(entry.organizationId), true)
     state:set('cmLawSceneType', kind, true)
     state:set('cmLawSceneVersion', SCENE_VERSION, true)
@@ -462,7 +461,6 @@ local function confirm(src, id, kind, x, y, z, heading, model)
         equipmentType = kind,
         networkId = netId,
         organizationId = entry.organizationId,
-        officerCid = entry.officerCid,
         modelHash = entry.modelHash,
         routingBucket = entry.routingBucket,
         version = SCENE_VERSION,
@@ -507,9 +505,8 @@ lib.callback.register('cm-law:server:deployBarricade', function(src)
     return reserve(src, 'barricade')
 end)
 
--- New clients confirm synchronously so a visible object can never be mistaken
--- for an untracked deployment. The legacy events below remain as compatibility
--- adapters for any older Police callers.
+-- Clients confirm synchronously so a visible object can never be mistaken for
+-- an untracked deployment. These are the only active spike/barricade callbacks.
 lib.callback.register('cm-law:server:confirmSpikeStrip', function(src, id, x, y, z, h)
     return confirm(src, id, 'spike', x, y, z, h)
 end)
@@ -574,6 +571,10 @@ local function cleanupOfficer(characterId)
 end
 
 AddEventHandler('cm-law:server:memberWentOffDuty', function(_, cid)
+    cleanupOfficer(cid)
+end)
+
+AddEventHandler('cm-police:server:memberWentOffDuty', function(_, cid)
     cleanupOfficer(cid)
 end)
 
