@@ -1260,10 +1260,9 @@ RegisterNetEvent('cm-admin:server:nuiAction', function(payload)
     if action == 'orgsAssignLeader' then
         if not CMOrganizations then
             sendOrgActionResult(src, action, data.requestId, false, 'Organizations registry is unavailable.')
-            return notify(src, 'Organizations registry is unavailable.', 'error')
+            return
         end
         local ok, message = CMOrganizations.assignLeader(src, data.orgId, data.characterId)
-        notify(src, message or (ok and 'Leader assigned.' or 'Assignment failed.'), ok and 'success' or 'error')
         sendOrgActionResult(src, action, data.requestId, ok, message)
         if ok then refreshMenu(src) end
         return

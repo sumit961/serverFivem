@@ -24,4 +24,4 @@ client_scripts {
     'client/tasks.lua',
 }
 
-dependencies { 'ox_lib', 'oxmysql', 'cm-playerdata', 'cm-items', 'cm-weapons', 'cm-inventory', 'cm-admin' }
+dependencies { 'ox_lib', 'oxmysql', 'cm-playerdata', 'cm-items', 'cm-weapons', 'cm-inventory' }

@@ -30,6 +30,12 @@
 
 local organizations = {}   -- [id] = { id, label, resource, icon }
 local orgOwner = {}        -- [id] = owning resource name
+local ORGANIZATION_NOT_REGISTERED = 'Organization is not currently registered. Refresh CM Admin and try again.'
+
+local function normalizeOrgId(orgId)
+    return tostring(orgId or ''):match('^%s*(.-)%s*$'):lower()
+end
+
 local PolicyCache = {}
 local PolicyDefaults = {
     allowMultiOrgMembership = false,
@@ -126,7 +132,7 @@ exports('GetOrgPolicySetting', getOrgPolicySetting)
 -- role), or nil if the character isn't in any other org.
 local function findRivalMembership(requestingOrgId, characterId)
     if getOrgPolicySetting('allowMultiOrgMembership') == true then return nil end
-    requestingOrgId = tostring(requestingOrgId or '')
+    requestingOrgId = normalizeOrgId(requestingOrgId)
     characterId = tostring(characterId or '')
     if characterId == '' then return nil end
     for id, org in pairs(organizations) do
@@ -170,8 +176,10 @@ local function registerOrganization(org)
             end
         end
     end
-    organizations[org.id] = {
-        id = org.id, label = org.label, resource = org.resource, icon = org.icon,
+    local orgId = normalizeOrgId(org.id)
+    if orgId == '' then return false end
+    organizations[orgId] = {
+        id = orgId, label = org.label, resource = org.resource, icon = org.icon,
         api = {
             summary = type(org.api) == 'table' and tostring(org.api.summary or '') or '',
             assignLeader = type(org.api) == 'table' and tostring(org.api.assignLeader or '') or '',
@@ -187,12 +195,13 @@ local function registerOrganization(org)
         canManageBarricades = org.canManageBarricades == true,
         facilityTypes = facilityTypes,
     }
-    orgOwner[org.id] = GetInvokingResource() or GetCurrentResourceName()
-    if Config.QuietConsoleLogs ~= true then print(('[CM-ADMIN:ORGS] Registered organization "%s" (%s) from %s'):format(org.label, org.id, orgOwner[org.id])) end
+    orgOwner[orgId] = GetInvokingResource() or GetCurrentResourceName()
+    if Config.QuietConsoleLogs ~= true then print(('[CM-ADMIN:ORGS] Registered organization "%s" (%s) from %s'):format(org.label, orgId, orgOwner[orgId])) end
     return true
 end
 
 local function unregisterOrganization(id)
+    id = normalizeOrgId(id)
     organizations[id] = nil
     orgOwner[id] = nil
 end
@@ -204,6 +213,14 @@ end
 
 exports('RegisterOrganization', registerOrganization)
 exports('UnregisterOrganization', unregisterOrganization)
+exports('GetRegisteredOrganizations', function()
+    local out = {}
+    for id, org in pairs(organizations) do
+        out[#out + 1] = { id = id, label = org.label, resource = org.resource }
+    end
+    table.sort(out, function(a, b) return a.id < b.id end)
+    return out
+end)
 
 -- Organizations vanish with their resource: no stale rows, no admin edits.
 AddEventHandler('onResourceStop', function(resourceName)
@@ -253,8 +270,9 @@ end
 
 function CMOrganizations.getNpcs(src, orgId)
     if not hasPerm(src, 'orgs.manage') then return { ok = false, error = 'No permission: orgs.manage' } end
-    local org = organizations[tostring(orgId or '')]
-    if not org or not org.canManageNpcs then return { ok = false, error = 'This organization does not support NPC configuration.' } end
+    local org = organizations[normalizeOrgId(orgId)]
+    if not org then return { ok = false, error = ORGANIZATION_NOT_REGISTERED } end
+    if not org.canManageNpcs then return { ok = false, error = 'This organization does not support NPC configuration.' } end
     if GetResourceState(org.resource) ~= 'started' then return { ok = false, error = org.resource .. ' is not running.' } end
     local ok, result = pcall(function() return exports[org.resource]:AdminGetNpcs(src, org.id) end)
     return ok and type(result) == 'table' and result or { ok = false, error = 'NPC configuration failed safely.' }
@@ -262,8 +280,9 @@ end
 
 function CMOrganizations.configureNpc(src, orgId, data)
     if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
-    local org = organizations[tostring(orgId or '')]
-    if not org or not org.canManageNpcs then return false, 'This organization does not support NPC configuration.' end
+    local org = organizations[normalizeOrgId(orgId)]
+    if not org then return false, ORGANIZATION_NOT_REGISTERED end
+    if not org.canManageNpcs then return false, 'This organization does not support NPC configuration.' end
     if GetResourceState(org.resource) ~= 'started' then return false, org.resource .. ' is not running.' end
     local ok, result, message = pcall(function() return exports[org.resource]:AdminConfigureNpc(src, org.id, data) end)
     if not ok then return false, 'NPC configuration failed safely.' end
@@ -273,15 +292,17 @@ end
 
 function CMOrganizations.getAlpr(src,orgId)
     if not hasPerm(src,'orgs.manage') then return {ok=false,error='No permission: orgs.manage'} end
-    local org=organizations[tostring(orgId or '')]
-    if not org or not org.canManageAlpr or GetResourceState(org.resource)~='started' then return {ok=false,error='ALPR configuration is unavailable.'} end
+    local org=organizations[normalizeOrgId(orgId)]
+    if not org then return {ok=false,error=ORGANIZATION_NOT_REGISTERED} end
+    if not org.canManageAlpr or GetResourceState(org.resource)~='started' then return {ok=false,error='ALPR configuration is unavailable.'} end
     local ok,result=pcall(function() return exports[org.resource]:AdminGetAlpr(src,org.id) end)
     return ok and type(result)=='table' and result or {ok=false,error='ALPR configuration failed safely.'}
 end
 function CMOrganizations.configureAlpr(src,orgId,data)
     if not hasPerm(src,'orgs.manage') then return false,'No permission: orgs.manage' end
-    local org=organizations[tostring(orgId or '')]
-    if not org or not org.canManageAlpr or GetResourceState(org.resource)~='started' then return false,'ALPR configuration is unavailable.' end
+    local org=organizations[normalizeOrgId(orgId)]
+    if not org then return false,ORGANIZATION_NOT_REGISTERED end
+    if not org.canManageAlpr or GetResourceState(org.resource)~='started' then return false,'ALPR configuration is unavailable.' end
     local ok,result,message=pcall(function() return exports[org.resource]:AdminConfigureAlpr(src,org.id,data) end)
     if ok and result==true then log(src,'org_alpr_configured',{orgId=org.id,operation=data and data.operation,cameraId=data and data.cameraId}) end
     return ok and result==true,ok and message or 'ALPR configuration failed safely.'
@@ -289,16 +310,18 @@ end
 
 function CMOrganizations.getBarricades(src,orgId)
     if not hasPerm(src,'orgs.manage') then return {ok=false,error='No permission: orgs.manage'} end
-    local org=organizations[tostring(orgId or '')]
-    if not org or not org.canManageBarricades or GetResourceState(org.resource)~='started' then return {ok=false,error='Barricade configuration is unavailable.'} end
+    local org=organizations[normalizeOrgId(orgId)]
+    if not org then return {ok=false,error=ORGANIZATION_NOT_REGISTERED} end
+    if not org.canManageBarricades or GetResourceState(org.resource)~='started' then return {ok=false,error='Barricade configuration is unavailable.'} end
     local ok,result=pcall(function() return exports[org.resource]:AdminGetBarricades(src,org.id) end)
     return ok and type(result)=='table' and result or {ok=false,error='Barricade configuration failed safely.'}
 end
 
 function CMOrganizations.configureBarricade(src,orgId,data)
     if not hasPerm(src,'orgs.manage') then return false,'No permission: orgs.manage' end
-    local org=organizations[tostring(orgId or '')]
-    if not org or not org.canManageBarricades or GetResourceState(org.resource)~='started' then return false,'Barricade configuration is unavailable.' end
+    local org=organizations[normalizeOrgId(orgId)]
+    if not org then return false,ORGANIZATION_NOT_REGISTERED end
+    if not org.canManageBarricades or GetResourceState(org.resource)~='started' then return false,'Barricade configuration is unavailable.' end
     local ok,result,message=pcall(function() return exports[org.resource]:AdminConfigureBarricade(src,org.id,data) end)
     if ok and result==true then log(src,'org_barricade_configured',{orgId=org.id,operation=data and data.operation}) end
     return ok and result==true,ok and message or 'Barricade configuration failed safely.'
@@ -306,8 +329,9 @@ end
 
 function CMOrganizations.getArmory(src, orgId)
     if not hasPerm(src, 'orgs.manage') then return { ok = false, error = 'No permission: orgs.manage' } end
-    local org = organizations[tostring(orgId or '')]
-    if not org or not org.canManageArmory then return { ok = false, error = 'This organization does not support armory configuration.' } end
+    local org = organizations[normalizeOrgId(orgId)]
+    if not org then return { ok = false, error = ORGANIZATION_NOT_REGISTERED } end
+    if not org.canManageArmory then return { ok = false, error = 'This organization does not support armory configuration.' } end
     if GetResourceState(org.resource) ~= 'started' then return { ok = false, error = org.resource .. ' is not running.' } end
     local ok, result = pcall(function() return exports[org.resource]:AdminGetArmory(src, org.id) end)
     return ok and type(result) == 'table' and result or { ok = false, error = 'Armory configuration failed safely.' }
@@ -315,8 +339,9 @@ end
 
 function CMOrganizations.configureArmory(src, orgId, data)
     if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
-    local org = organizations[tostring(orgId or '')]
-    if not org or not org.canManageArmory then return false, 'This organization does not support armory configuration.' end
+    local org = organizations[normalizeOrgId(orgId)]
+    if not org then return false, ORGANIZATION_NOT_REGISTERED end
+    if not org.canManageArmory then return false, 'This organization does not support armory configuration.' end
     if GetResourceState(org.resource) ~= 'started' then return false, org.resource .. ' is not running.' end
     local ok, result, message = pcall(function() return exports[org.resource]:AdminConfigureArmory(src, org.id, data) end)
     if not ok then return false, 'Armory configuration failed safely.' end
@@ -326,8 +351,9 @@ end
 
 function CMOrganizations.getCapabilities(src, orgId)
     if not hasPerm(src, 'orgs.manage') then return { ok = false, error = 'No permission: orgs.manage' } end
-    local org = organizations[tostring(orgId or '')]
-    if not org or not org.canManageCapabilities then return { ok = false, error = 'This organization does not support capability configuration.' } end
+    local org = organizations[normalizeOrgId(orgId)]
+    if not org then return { ok = false, error = ORGANIZATION_NOT_REGISTERED } end
+    if not org.canManageCapabilities then return { ok = false, error = 'This organization does not support capability configuration.' } end
     if GetResourceState(org.resource) ~= 'started' then return { ok = false, error = org.resource .. ' is not running.' } end
     local ok, result = pcall(function() return exports[org.resource]:AdminGetCapabilities(src, org.id) end)
     return ok and type(result) == 'table' and result or { ok = false, error = 'Capability configuration failed safely.' }
@@ -335,8 +361,9 @@ end
 
 function CMOrganizations.configureCapability(src, orgId, capability, enabled)
     if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
-    local org = organizations[tostring(orgId or '')]
-    if not org or not org.canManageCapabilities then return false, 'This organization does not support capability configuration.' end
+    local org = organizations[normalizeOrgId(orgId)]
+    if not org then return false, ORGANIZATION_NOT_REGISTERED end
+    if not org.canManageCapabilities then return false, 'This organization does not support capability configuration.' end
     if GetResourceState(org.resource) ~= 'started' then return false, org.resource .. ' is not running.' end
     local ok, result, message = pcall(function()
         return exports[org.resource]:AdminConfigureCapability(src, org.id, capability, enabled == true)
@@ -348,32 +375,36 @@ end
 
 function CMOrganizations.getFleet(src, orgId)
     if not hasPerm(src, 'orgs.manage') then return { ok = false, error = 'No permission: orgs.manage' } end
-    local org = organizations[tostring(orgId or '')]
-    if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return { ok = false, error = 'Fleet configuration is unavailable.' } end
+    local org = organizations[normalizeOrgId(orgId)]
+    if not org then return { ok = false, error = ORGANIZATION_NOT_REGISTERED } end
+    if not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return { ok = false, error = 'Fleet configuration is unavailable.' } end
     local ok, result = pcall(function() return exports[org.resource][organizationExport(org, 'getFleet', 'AdminGetFleet')](src, org.id) end)
     return ok and type(result) == 'table' and result or { ok = false, error = 'Fleet configuration failed safely.' }
 end
 
 function CMOrganizations.configureFleet(src, orgId, data)
     if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
-    local org = organizations[tostring(orgId or '')]
-    if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
+    local org = organizations[normalizeOrgId(orgId)]
+    if not org then return false, ORGANIZATION_NOT_REGISTERED end
+    if not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
     local ok, result, message = pcall(function() return exports[org.resource][organizationExport(org, 'configureFleet', 'AdminConfigureFleetVehicle')](src, org.id, data) end)
     return ok and result == true, ok and message or 'Fleet configuration failed safely.'
 end
 
 function CMOrganizations.resetFleet(src, orgId, model)
     if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
-    local org = organizations[tostring(orgId or '')]
-    if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
+    local org = organizations[normalizeOrgId(orgId)]
+    if not org then return false, ORGANIZATION_NOT_REGISTERED end
+    if not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
     local ok, result, message = pcall(function() return exports[org.resource][organizationExport(org, 'resetFleet', 'AdminResetFleetLocation')](src, org.id, model) end)
     return ok and result == true, ok and message or 'Fleet reset failed safely.'
 end
 
 function CMOrganizations.beginFleetPlacement(src, orgId, model)
     if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
-    local org = organizations[tostring(orgId or '')]
-    if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
+    local org = organizations[normalizeOrgId(orgId)]
+    if not org then return false, ORGANIZATION_NOT_REGISTERED end
+    if not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
     local ok, result, message = pcall(function() return exports[org.resource][organizationExport(org, 'beginFleetPlacement', 'AdminBeginFleetPlacement')](src, org.id, model) end)
     if not ok then return false, 'Fleet placement failed safely.' end
     if result == true then log(src, 'org_fleet_location_saved', { orgId = org.id, model = tostring(model or '') }) end
@@ -382,8 +413,9 @@ end
 
 function CMOrganizations.recallFleetVehicle(src, orgId, model)
     if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
-    local org = organizations[tostring(orgId or '')]
-    if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
+    local org = organizations[normalizeOrgId(orgId)]
+    if not org then return false, ORGANIZATION_NOT_REGISTERED end
+    if not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
     local ok, result, message = pcall(function()
         return exports[org.resource][organizationExport(org, 'recallFleetVehicle', 'AdminRecallFleetVehicle')](src, org.id, model)
     end)
@@ -392,8 +424,9 @@ end
 
 function CMOrganizations.recallAllFleetVehicles(src, orgId)
     if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
-    local org = organizations[tostring(orgId or '')]
-    if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
+    local org = organizations[normalizeOrgId(orgId)]
+    if not org then return false, ORGANIZATION_NOT_REGISTERED end
+    if not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
     local ok, result, message = pcall(function()
         return exports[org.resource][organizationExport(org, 'recallAllFleetVehicles', 'AdminRecallAllFleetVehicles')](src, org.id)
     end)
@@ -402,8 +435,9 @@ end
 
 function CMOrganizations.tuneFleetVehicle(src, orgId, model)
     if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
-    local org = organizations[tostring(orgId or '')]
-    if not org or not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
+    local org = organizations[normalizeOrgId(orgId)]
+    if not org then return false, ORGANIZATION_NOT_REGISTERED end
+    if not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
     local ok, result, message = pcall(function()
         return exports[org.resource][organizationExport(org, 'tuneFleetVehicle', 'AdminTuneFleetVehicle')](src, org.id, model)
     end)
@@ -412,8 +446,8 @@ end
 
 function CMOrganizations.removeLeader(src, orgId)
     if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
-    local org = organizations[tostring(orgId or '')]
-    if not org then return false, 'Unknown organization.' end
+    local org = organizations[normalizeOrgId(orgId)]
+    if not org then return false, ORGANIZATION_NOT_REGISTERED end
     if not org.canRemoveLeader then return false, 'This organization does not support leader removal.' end
     if GetResourceState(org.resource) ~= 'started' then return false, ('%s is not running.'):format(org.resource) end
 
@@ -427,8 +461,8 @@ end
 
 function CMOrganizations.setFacility(src, orgId, facilityType, reset)
     if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
-    local org = organizations[tostring(orgId or '')]
-    if not org then return false, 'Unknown organization.' end
+    local org = organizations[normalizeOrgId(orgId)]
+    if not org then return false, ORGANIZATION_NOT_REGISTERED end
     if not org.canManageFacilities then return false, 'This organization does not support facility configuration.' end
     local supported = false
     for _, facility in ipairs(org.facilityTypes or {}) do
@@ -448,8 +482,8 @@ end
 
 function CMOrganizations.assignLeader(src, orgId, targetCid)
     if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
-    local org = organizations[tostring(orgId or '')]
-    if not org then return false, 'Unknown organization.' end
+    local org = organizations[normalizeOrgId(orgId)]
+    if not org then return false, ORGANIZATION_NOT_REGISTERED end
     if GetResourceState(org.resource) ~= 'started' then return false, ('%s is not running.'):format(org.resource) end
     targetCid = tostring(targetCid or '')
     if targetCid == '' then return false, 'Character ID is required.' end

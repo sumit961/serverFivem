@@ -412,6 +412,14 @@ local function leaderForOrganization(orgId)
     return legacy and legacy.character_id and tostring(legacy.character_id) or nil
 end
 
+local function findAdminRivalMembership(orgId, characterId)
+    if GetResourceState(Config.AdminResource) ~= 'started' then return nil, false end
+    local ok, rival = pcall(function()
+        return exports[Config.AdminResource]:FindRivalMembership(orgId, characterId)
+    end)
+    return ok and rival or nil, ok
+end
+
 local function dashboardFor(src)
     local member = activeMemberForSource(src)
     if not member then return { ok = false, error = 'You are not a member of a legal organization.' } end
@@ -782,9 +790,13 @@ local function assignLeader(src, targetCid, orgId)
     if targetCid == '' or not MySQL.scalar.await('SELECT id FROM characters WHERE id = ? LIMIT 1', { targetCid }) then
         return false, 'Character ID does not exist.'
     end
-    local rival = exports[Config.AdminResource]:FindRivalMembership(orgId, targetCid)
+    local rival, registryAvailable = findAdminRivalMembership(orgId, targetCid)
+    if not registryAvailable then return false, 'Organization membership service is unavailable.' end
     if rival then
-        local allowSameLeader = exports[Config.AdminResource]:GetOrgPolicySetting('allowSameLeaderAcrossOrgs') == true
+        local policyOk, allowSameLeader = pcall(function()
+            return exports[Config.AdminResource]:GetOrgPolicySetting('allowSameLeaderAcrossOrgs') == true
+        end)
+        allowSameLeader = policyOk and allowSameLeader == true
         if not (allowSameLeader and rival.isLeader) then
             return false, ('That character is already a member of %s.'):format(rival.orgLabel)
         end
@@ -1716,7 +1728,8 @@ local function sendOrganizationInvite(src, targetSrc, actor, actorCid, targetCid
     if inviteThrottled(actorCid, targetCid) then return false, 'Please wait before inviting that player again.' end
     local orgId = actor.organizationId
     if memberFor(targetCid, orgId) then return false, 'That character is already a member.' end
-    local rival = exports[Config.AdminResource]:FindRivalMembership(orgId, targetCid)
+    local rival, registryAvailable = findAdminRivalMembership(orgId, targetCid)
+    if not registryAvailable then return false, 'Organization membership service is unavailable.' end
     if rival then return false, ('That character already belongs to %s.'):format(rival.orgLabel) end
     local rank = MySQL.single.await('SELECT id, name FROM cm_legal_ranks WHERE organization_id = ? AND is_leader = 0 ORDER BY tier ASC LIMIT 1', { orgId })
     if not rank then return false, 'No recruit rank is configured.' end
@@ -1785,7 +1798,8 @@ lib.callback.register('cm-law:server:respondInvite', function(src, orgId, accept
     end
     if not invitePlayersNearby(inviterSrc, src) then return false, 'Return to the inviting member before accepting.' end
     if memberFor(characterId, orgId) then return false, 'You are already a member of that organization.' end
-    local rival = exports[Config.AdminResource]:FindRivalMembership(orgId, characterId)
+    local rival, registryAvailable = findAdminRivalMembership(orgId, characterId)
+    if not registryAvailable then return false, 'Organization membership service is unavailable.' end
     if rival then return false, ('You already belong to %s.'):format(rival.orgLabel) end
     local rank = MySQL.single.await([[SELECT id, name FROM cm_legal_ranks
         WHERE organization_id = ? AND is_leader = 0 ORDER BY tier ASC LIMIT 1]], { orgId })
@@ -1801,8 +1815,52 @@ lib.callback.register('cm-law:server:respondInvite', function(src, orgId, accept
     return true, ('You joined %s as %s.'):format(Config.Organizations[orgId].label, rank.name)
 end)
 
+local function registerCentralOrganizations()
+    if not ready then return false, 'cm-law schema is not ready' end
+    if GetResourceState(Config.AdminResource) ~= 'started' then return false, 'cm-admin is not started' end
+
+    local registered, failures = 0, {}
+    for orgId, org in pairs(Config.Organizations) do
+        local ok, result = pcall(function()
+            return exports[Config.AdminResource]:RegisterOrganization({
+                id = orgId, label = org.label, resource = RESOURCE, icon = org.icon,
+                canRemoveLeader = true, canManageFacilities = true, canManageArmory = true,
+                canManageCapabilities = true, canManageNpcs = true,
+                canManageFleet = true,
+                facilityTypes = {
+                    { id = 'front_desk', label = 'Front desk NPC' },
+                    { id = 'wardrobe', label = 'Wardrobe' },
+                    { id = 'armory', label = 'Armory' },
+                    { id = 'storage', label = 'Storage' },
+                    { id = 'evidence', label = 'Evidence' },
+                    { id = 'fleet', label = 'Fleet' },
+                    { id = 'jail_spawn', label = 'Shared jail: add spawn' },
+                    { id = 'jail_release', label = 'Shared jail: release point' },
+                    { id = 'jail_spawns', label = 'Shared jail: all spawns' },
+                },
+            })
+        end)
+        if ok and result == true then
+            registered = registered + 1
+        else
+            failures[#failures + 1] = ('%s (%s)'):format(orgId, ok and 'registration rejected' or tostring(result))
+        end
+    end
+
+    if #failures > 0 then
+        local reason = table.concat(failures, ', ')
+        print(('[cm-law] CM Admin organization registration failed: %s'):format(reason))
+        return false, reason
+    end
+    print(('[cm-law] registered %d legal organizations with cm-admin'):format(registered))
+    return true, registered
+end
+
 AddEventHandler('onResourceStart', function(resource)
     if resource == Config.PlayerDataResource then Wait(500); registerGMenu() end
+    if resource == Config.AdminResource then
+        SetTimeout(250, registerCentralOrganizations)
+    end
 end)
 
 CreateThread(function()
@@ -1818,25 +1876,7 @@ CreateThread(function()
         LEFT JOIN cm_legal_members m ON m.organization_id = a.organization_id AND m.character_id = a.character_id
         WHERE m.character_id IS NULL OR m.on_duty = 0 OR m.suspended_until IS NOT NULL]])
     registerGMenu()
-    for orgId, org in pairs(Config.Organizations) do
-        exports[Config.AdminResource]:RegisterOrganization({
-            id = orgId, label = org.label, resource = RESOURCE, icon = org.icon,
-            canRemoveLeader = true, canManageFacilities = true, canManageArmory = true,
-            canManageCapabilities = true, canManageNpcs = true,
-            canManageFleet = true,
-            facilityTypes = {
-                { id = 'front_desk', label = 'Front desk NPC' },
-                { id = 'wardrobe', label = 'Wardrobe' },
-                { id = 'armory', label = 'Armory' },
-                { id = 'storage', label = 'Storage' },
-                { id = 'evidence', label = 'Evidence' },
-                { id = 'fleet', label = 'Fleet' },
-                { id = 'jail_spawn', label = 'Shared jail: add spawn' },
-                { id = 'jail_release', label = 'Shared jail: release point' },
-                { id = 'jail_spawns', label = 'Shared jail: all spawns' },
-            },
-        })
-    end
+    registerCentralOrganizations()
     print('[cm-law] SAHP, Sheriff, FIB, and Army organization foundations are ready')
     for _, src in ipairs(GetPlayers()) do
         local characterId = characterIdFor(src)

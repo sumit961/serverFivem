@@ -5,7 +5,7 @@ lua54 'yes'
 name 'cm-law'
 author 'CM Framework'
 description 'CM legal organizations and embedded Los Santos Police operations'
-version '3.5.0'
+version '3.5.1'
 
 shared_scripts {
     '@ox_lib/init.lua',
@@ -109,7 +109,6 @@ server_scripts {
 dependencies {
     'ox_lib',
     'oxmysql',
-    'cm-admin',
     'cm-ui',
     'cm-hud',
     'cm-playerdata',

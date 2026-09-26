@@ -61,13 +61,24 @@ end
 -- already belongs to a DIFFERENT registered organization. cm-admin owns the
 -- cross-org policy (allowMultiOrgMembership) and honors it internally, so
 -- this always returns nil once an admin has turned that setting on.
--- pcall-guarded so this degrades gracefully if cm-admin somehow isn't up.
+-- Fail closed while cm-admin is stopped; the Law resource intentionally stays
+-- running across a CM Admin restart so its onResourceStart handler can restore
+-- the central organization registry.
 function rivalMember(characterId)
+    if GetResourceState(PoliceConfig.AdminResource) ~= 'started' then return nil, false end
     local ok, rival = pcall(function()
         return exports[PoliceConfig.AdminResource]:FindRivalMembership(PoliceConfig.OrganizationId, characterId)
     end)
-    if not ok or type(rival) ~= 'table' then return nil end
-    return rival
+    if not ok then return nil, false end
+    return type(rival) == 'table' and rival or nil, true
+end
+
+local function policeAdminAllowed(src, permission)
+    if GetResourceState(PoliceConfig.AdminResource) ~= 'started' then return false end
+    local ok, allowed = pcall(function()
+        return exports[PoliceConfig.AdminResource]:HasPermission(src, permission or PoliceConfig.AdminPermission)
+    end)
+    return ok and allowed == true
 end
 
 local function sanitizeOutfit(raw)
@@ -715,7 +726,7 @@ local function dashboard(src, adminMode, requestedSex)
     if not ready then return nil, 'Police database is not ready.' end
     local characterId = cid(src)
     local member = characterId and PoliceLegacyMemberFor(characterId)
-    local isAdmin = adminMode == true and exports[PoliceConfig.AdminResource]:HasPermission(src, PoliceConfig.AdminPermission)
+    local isAdmin = adminMode == true and policeAdminAllowed(src, PoliceConfig.AdminPermission)
     if not member and not isAdmin then return nil, 'You are not a Police member.' end
     -- Repair a missing/stale replicated membership state whenever a valid
     -- organization member opens the dashboard.
@@ -995,6 +1006,9 @@ AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end
     for src in pairs(PoliceK9BySource) do removePoliceK9(src) end
 end)
+
+local registerPoliceAdminTool
+local registerPoliceCentralOrganization
 
 CreateThread(function()
     while true do
@@ -1324,7 +1338,7 @@ lib.callback.register('cm-police:server:action', function(src, action, payload)
     local actorCid = cid(src)
     if not actorCid then return false, 'Character is not loaded.' end
     local actor = PoliceLegacyMemberFor(actorCid)
-    local isAdmin = exports[PoliceConfig.AdminResource]:HasPermission(src, PoliceConfig.AdminPermission) == true
+    local isAdmin = policeAdminAllowed(src, PoliceConfig.AdminPermission)
     if not actor and isAdmin then actor = { tier = 101, is_leader = 1, permissions = '{}' } end
     if not actor then return false, 'You are not a Police member.' end
     if not isAdmin and PoliceLegacyDbBoolean(actor.is_suspended) then
@@ -1551,7 +1565,8 @@ local function sendPoliceInvite(src, targetSrc, actor, actorCid, targetCid)
     if cid(src) ~= actorCid or cid(targetSrc) ~= targetCid or not invitePlayersNearby(src, targetSrc) then return false, 'That player is no longer nearby.' end
     if inviteThrottled(actorCid, targetCid) then return false, 'Please wait before inviting that player again.' end
     if PoliceLegacyMemberFor(targetCid) then return false, 'That character is already in Police.' end
-    local rival = rivalMember(targetCid)
+    local rival, registryAvailable = rivalMember(targetCid)
+    if not registryAvailable then return false, 'Organization membership service is unavailable.' end
     if rival then return false, ('That character is already a member of %s.'):format(rival.orgLabel) end
     local recruit = MySQL.single.await('SELECT name FROM cm_police_ranks WHERE is_leader = 0 ORDER BY tier ASC LIMIT 1')
     if not recruit then return false, 'Police has no entry rank configured.' end
@@ -1611,7 +1626,8 @@ lib.callback.register('cm-police:server:respondInvite', function(src, accept)
     end
     if not invitePlayersNearby(inviterSrc, src) then return false, 'Return to the inviting officer before accepting.' end
     if PoliceLegacyMemberFor(characterId) then return false, 'You are already a Police member.' end
-    local rival = rivalMember(characterId)
+    local rival, registryAvailable = rivalMember(characterId)
+    if not registryAvailable then return false, 'Organization membership service is unavailable.' end
     if rival then return false, ('You are already a member of %s. Leave that organization before joining Police.'):format(rival.orgLabel) end
     local recruit = MySQL.single.await('SELECT id, name FROM cm_police_ranks WHERE is_leader = 0 ORDER BY tier ASC LIMIT 1')
     if not recruit then return false, 'Police has no entry rank configured.' end
@@ -1646,7 +1662,7 @@ AddEventHandler('playerDropped', function()
 end)
 
 AddEventHandler('cm-police:dev:openAdmin', function(src)
-    if exports[PoliceConfig.AdminResource]:HasPermission(src, PoliceConfig.AdminPermission) then
+    if policeAdminAllowed(src, PoliceConfig.AdminPermission) then
         TriggerClientEvent('cm-police:client:open', src, true)
     end
 end)
@@ -1691,15 +1707,34 @@ CreateThread(function()
     end
     print('[cm-police] all Police schemas ready')
     registerGMenu()
-    while GetResourceState(PoliceConfig.AdminResource) ~= 'started' do Wait(2000) end
-    exports[PoliceConfig.AdminResource]:RegisterDevTool({
-        id = 'police', label = 'Police Administration', category = 'Organizations', icon = 'shield-alt', permission = PoliceConfig.AdminPermission,
-        actions = {{ id = 'open', label = 'Open Police Administration', type = 'launcher', realm = 'server', event = 'cm-police:dev:openAdmin', hint = 'Open the dedicated Police management workspace.' }},
-    })
-    if PoliceConfig.RegisterCentralAdmin == true then pcall(function()
-        exports[PoliceConfig.AdminResource]:RegisterOrganization({
+    registerPoliceAdminTool()
+    registerPoliceCentralOrganization()
+end)
+
+local function adminRegistrationFailure(message)
+    print(('[cm-law] CM Admin organization registration failed: %s'):format(tostring(message or 'unknown error')))
+end
+
+registerPoliceAdminTool = function()
+    if not ready or GetResourceState(PoliceConfig.AdminResource) ~= 'started' then return false end
+    local ok, result = pcall(function()
+        return exports[PoliceConfig.AdminResource]:RegisterDevTool({
+            id = 'police', label = 'Police Administration', category = 'Organizations', icon = 'shield-alt', permission = PoliceConfig.AdminPermission,
+            actions = {{ id = 'open', label = 'Open Police Administration', type = 'launcher', realm = 'server', event = 'cm-police:dev:openAdmin', hint = 'Open the dedicated Police management workspace.' }},
+        })
+    end)
+    if not ok then print(('[cm-law] CM Admin Police tool registration failed: %s'):format(tostring(result))); return false end
+    return true
+end
+
+registerPoliceCentralOrganization = function()
+    if PoliceConfig.RegisterCentralAdmin ~= true or not ready then return false end
+    if GetResourceState(PoliceConfig.AdminResource) ~= 'started' then return false end
+
+    local ok, registered = pcall(function()
+        return exports[PoliceConfig.AdminResource]:RegisterOrganization({
             id = PoliceConfig.OrganizationId, label = 'Police Department',
-            resource = GetCurrentResourceName(), icon = 'shield-alt', canRemoveLeader = true,
+            resource = RESOURCE, icon = 'shield-alt', canRemoveLeader = true,
             canManageFacilities = true,
             canManageNpcs = true, canManageFleet = true, canManageCapabilities = true, canManageArmory = true, canManageAlpr = true,
             canManageBarricades = true,
@@ -1722,11 +1757,23 @@ CreateThread(function()
                 { id = 'intake', label = 'Prison intake NPC' },
             },
         })
-    end) end
-end)
+    end)
+    if not ok or registered ~= true then
+        adminRegistrationFailure(ok and 'Police registration was rejected' or registered)
+        return false
+    end
+    print('[cm-law] registered Police with cm-admin')
+    return true
+end
 
 AddEventHandler('onResourceStart', function(resource)
     if resource == PoliceConfig.PlayerDataResource then Wait(500); registerGMenu() end
+    if resource == PoliceConfig.AdminResource then
+        SetTimeout(250, function()
+            registerPoliceAdminTool()
+            registerPoliceCentralOrganization()
+        end)
+    end
 end)
 AddEventHandler('onResourceStop', function(resource)
     if resource ~= RESOURCE then return end
@@ -1778,7 +1825,8 @@ local function assignPoliceLeaderInternal(src, targetCid)
     if leaderAssignmentBusy then return false, 'Another Police leader assignment is already running.' end
     targetCid = tostring(targetCid or '')
     if targetCid == '' or not MySQL.scalar.await('SELECT id FROM characters WHERE id = ? LIMIT 1', { targetCid }) then return false, 'Character ID does not exist.' end
-    local rival = rivalMember(targetCid)
+    local rival, registryAvailable = rivalMember(targetCid)
+    if not registryAvailable then return false, 'Organization membership service is unavailable.' end
     if rival then
         local allowSameLeader = false
         pcall(function() allowSameLeader = exports[PoliceConfig.AdminResource]:GetOrgPolicySetting('allowSameLeaderAcrossOrgs') == true end)
@@ -1809,10 +1857,7 @@ local function assignPoliceLeaderInternal(src, targetCid)
 end
 
 local function policePermission(src, permission)
-    local ok, allowed = pcall(function()
-        return exports[PoliceConfig.AdminResource]:HasPermission(src, permission)
-    end)
-    return ok and allowed == true
+    return policeAdminAllowed(src, permission)
 end
 
 local function doAssignLeader(src, targetCid)
@@ -1883,7 +1928,8 @@ lib.callback.register('cm-police:server:adminStaffAction', function(src, action,
     local target = PoliceLegacyMemberFor(targetCid)
     if action == 'hire' then
         if target then return false, 'That character is already a Police member.' end
-        local rival = rivalMember(targetCid)
+        local rival, registryAvailable = rivalMember(targetCid)
+        if not registryAvailable then return false, 'Organization membership service is unavailable.' end
         if rival then return false, ('That character is already a member of %s.'):format(rival.orgLabel) end
         local rankId = tonumber(payload.rankId)
         local rank = rankId and MySQL.single.await('SELECT id, name FROM cm_police_ranks WHERE id = ? AND is_leader = 0 LIMIT 1', { rankId })
