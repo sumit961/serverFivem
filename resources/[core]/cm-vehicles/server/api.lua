@@ -295,7 +295,7 @@ function A.GetIntegrationContract()
         },
         serverExports = {
             records = {
-                'CreateOwnedVehicle', 'GetVehicleById', 'GetVehicleByPlate',
+                'CreateOwnedVehicle', 'GetVehicleById', 'GetVehicleByPlate', 'GetVehicleByLicenseNumber',
                 'GetVehiclesByOwner', 'GetCharacterId', 'PlayerOwnsVehicle',
                 'HasVehicleAccess', 'CanUseVehicle', 'GetFamilyVehicleContext', 'GrantFamilySessionKey', 'GetVehicleIntegrationContract',
             },
@@ -348,6 +348,7 @@ function A.GetIntegrationContract()
 end
 
 exports('GetVehicleById', CMVehicles.Server.GetVehicleById)
+exports('GetVehicleByLicenseNumber', CMVehicles.Server.GetVehicleByLicenseNumber)
 exports('GetVehiclesByOwner', A.GetVehiclesByOwner)
 exports('CanUseVehicle', A.CanUseVehicle)
 exports('GetFamilyVehicleContext', A.GetFamilyVehicleContext)

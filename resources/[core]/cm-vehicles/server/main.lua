@@ -479,6 +479,23 @@ function CMVehicles.Server.GetVehicleByPlate(plate)
     return row
 end
 
+-- Resolve the public rendered registration without conflating it with the
+-- persistent internal plate. Enforcement lookups use the returned vehicle id
+-- for all later persistence and ownership operations.
+function CMVehicles.Server.GetVehicleByLicenseNumber(licenseNumber)
+    licenseNumber = tostring(licenseNumber or ''):upper():gsub('%s+', '')
+    if licenseNumber == '' or #licenseNumber > 20 or licenseNumber:find('[^%w%-]') then return nil end
+    local row = MySQL.single.await('SELECT * FROM cm_owned_vehicles WHERE license_number = ? LIMIT 1', { licenseNumber })
+    if row then
+        row.plate = U.NormalizePlate(row.plate)
+        row.trunk_level = tonumber(row.trunk_level) or 0
+        row.is_locked = U.Truthy(row.is_locked)
+        row.is_stored = U.Truthy(row.is_stored)
+        row.metadata = U.Decode(row.metadata)
+    end
+    return row
+end
+
 -- Police-issued vehicle registration number (cm-police MDT). Rejects if
 -- already registered; otherwise generates a unique number via a retry-loop
 -- UPDATE, pcall-guarded so a UNIQUE KEY collision (another vehicle already

@@ -63,6 +63,7 @@ PoliceConfig.Permissions = {
     ['police.receive_dispatch'] = 'Receive 911 dispatch calls',
     ['police.manage_armory'] = 'Manage armory weapons, ammunition, and vests',
     ['police.manage_alpr'] = 'Manage ALPR camera locations',
+    ['police.alpr'] = 'Use patrol vehicle plate scanning and receive ALPR hits',
     ['police.k9'] = 'Deploy and command a K9 unit',
     ['police.sign_off_cadets'] = 'Sign off cadets from FTO restrictions',
     ['police.manage_impound'] = 'Configure Impound Operator locations',
@@ -81,14 +82,14 @@ PoliceConfig.Ranks = {
         'police.manage_outfits', 'police.manage_ranks', 'police.manage_permissions',
         'police.view_members', 'police.view_logs', 'police.manage_vehicles',
         'police.spawn_vehicles', 'police.view_member_map', 'police.set_meeting',
-        'police.suspend_members', 'police.cuff', 'police.book', 'police.manage_booking', 'police.cite', 'police.impound', 'police.radar', 'police.spike', 'police.mdt', 'police.receive_dispatch', 'police.manage_armory', 'police.manage_alpr', 'police.k9', 'police.sign_off_cadets', 'police.manage_impound', 'police.barricade', 'police.manage_barricades', 'police.clamp',
+        'police.suspend_members', 'police.cuff', 'police.book', 'police.manage_booking', 'police.cite', 'police.impound', 'police.radar', 'police.spike', 'police.mdt', 'police.receive_dispatch', 'police.manage_armory', 'police.manage_alpr', 'police.alpr', 'police.k9', 'police.sign_off_cadets', 'police.manage_impound', 'police.barricade', 'police.manage_barricades', 'police.clamp',
     } },
     { tier = 6, name = 'Sergeant', permissions = {
         'police.invite', 'police.view_members', 'police.view_logs',
-        'police.spawn_vehicles', 'police.view_member_map', 'police.set_meeting', 'police.cuff', 'police.book', 'police.cite', 'police.impound', 'police.radar', 'police.spike', 'police.mdt', 'police.receive_dispatch', 'police.k9', 'police.barricade', 'police.clamp',
+        'police.spawn_vehicles', 'police.view_member_map', 'police.set_meeting', 'police.cuff', 'police.book', 'police.cite', 'police.impound', 'police.radar', 'police.spike', 'police.mdt', 'police.receive_dispatch', 'police.alpr', 'police.k9', 'police.barricade', 'police.clamp',
     } },
-    { tier = 3, name = 'Officer', permissions = { 'police.view_members', 'police.spawn_vehicles', 'police.cuff', 'police.book', 'police.cite', 'police.impound', 'police.radar', 'police.spike', 'police.mdt', 'police.receive_dispatch', 'police.k9', 'police.barricade', 'police.clamp' } },
-    { tier = 1, name = 'Cadet', permissions = { 'police.view_members', 'police.cuff', 'police.book', 'police.cite', 'police.impound', 'police.radar', 'police.spike', 'police.mdt', 'police.receive_dispatch', 'police.k9', 'police.barricade', 'police.clamp' } },
+    { tier = 3, name = 'Officer', permissions = { 'police.view_members', 'police.spawn_vehicles', 'police.cuff', 'police.book', 'police.cite', 'police.impound', 'police.radar', 'police.spike', 'police.mdt', 'police.receive_dispatch', 'police.alpr', 'police.k9', 'police.barricade', 'police.clamp' } },
+    { tier = 1, name = 'Cadet', permissions = { 'police.view_members', 'police.cuff', 'police.book', 'police.cite', 'police.impound', 'police.radar', 'police.spike', 'police.mdt', 'police.receive_dispatch', 'police.alpr', 'police.k9', 'police.barricade', 'police.clamp' } },
 }
 
 -- Booking / holding cell (PoliceConfig.Permissions.police.book gates who can use

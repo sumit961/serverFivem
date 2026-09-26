@@ -16,8 +16,14 @@ end)
 
 local alprBlips = {}
 
-RegisterNetEvent('cm-police:client:alprHit', function(plate, cameraLabel, coords)
-    PoliceNotify(('ALPR HIT: %s near %s'):format(tostring(plate or ''), tostring(cameraLabel or 'a camera')), 'error', 'Dispatch')
+RegisterNetEvent('cm-police:client:alprHit', function(plate, cameraLabel, coords, matches)
+    local first = type(matches) == 'table' and matches[1] or nil
+    local organization = first and tostring(first.organizationLabel or first.organizationId or 'Law') or 'Law'
+    local reason = first and tostring(first.reason or first.description or '') or ''
+    local count = type(matches) == 'table' and #matches or 0
+    local suffix = count > 1 and (' · %d active Law BOLOs'):format(count) or (' · Active %s BOLO'):format(organization)
+    if reason ~= '' then suffix = suffix .. (' · %s'):format(reason) end
+    PoliceNotify(('ALPR HIT: %s — %s near %s'):format(tostring(plate or ''), suffix, tostring(cameraLabel or 'a camera')), 'error', 'Dispatch')
     local blip = AddBlipForCoord(coords.x, coords.y, coords.z)
     SetBlipSprite(blip, 161)
     SetBlipColour(blip, 1)

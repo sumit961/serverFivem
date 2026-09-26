@@ -643,15 +643,18 @@ end)
 lib.callback.register('cm-police:server:mdtVehicleSearch', function(src, plate)
     local authorized, actorCid = authorizedForMdt(src)
     if not authorized or not PoliceLegacyRateLimit(src, 'police_mdt_vehicle', 600) then return nil end
-    plate = tostring(plate or ''):gsub('%s+', ''):upper()
-    if plate == '' then return nil end
+    plate = LawNormalizePlate(tostring(plate or ''))
+    if not plate then return nil end
     local row
-    pcall(function() row = exports[PoliceConfig.VehiclesResource]:GetVehicleByPlate(plate) end)
+    pcall(function() row = exports[PoliceConfig.VehiclesResource]:GetVehicleByLicenseNumber(plate) end)
+    if not row then pcall(function() row = exports[PoliceConfig.VehiclesResource]:GetVehicleByPlate(plate) end) end
     if not row then return nil end
     local ownerCid = row.owner_character_id and tostring(row.owner_character_id) or nil
     local impound = MySQL.single.await('SELECT fee, organization_id, impounded_at FROM cm_police_impounds WHERE vehicle_id = ? AND released_at IS NULL ORDER BY id DESC LIMIT 1', { row.id })
     local impoundEvidence = MySQL.single.await([[SELECT image_url, message, officer_cid, captured_at, used_at
         FROM cm_police_impound_evidence WHERE vehicle_id = ? ORDER BY id DESC LIMIT 1]], { row.id })
+    local registration = LawNormalizePlate(row.license_number)
+    local bolos = registration and LawGetActiveBoloMatches(registration) or {}
     return {
         plate = row.plate,
         model = tostring(row.model or ''),
@@ -662,10 +665,14 @@ lib.callback.register('cm-police:server:mdtVehicleSearch', function(src, plate)
         -- where a car is currently parked/stored. Impound status stays --
         -- that's an active police process (release fee owed), not a
         -- location leak.
-        licenseNumber = (row.license_number and tostring(row.license_number) ~= '') and tostring(row.license_number) or nil,
+        licenseNumber = registration,
+        registrationNumber = registration,
+        bolo = bolos[1],
+        bolos = bolos,
         impound = impound and { fee = tonumber(impound.fee), organizationId = tostring(impound.organization_id or 'police'),
             organization = tostring(impound.organization_id or 'police') == 'police' and 'Police Department'
                 or ((Config.Organizations[tostring(impound.organization_id)] or {}).label or tostring(impound.organization_id)),
+            reason = tostring(impoundEvidence and impoundEvidence.message or ''),
             impoundedAt = tostring(impound.impounded_at or '') } or nil,
         impoundEvidence = impoundEvidence and {
             imageUrl = tostring(impoundEvidence.image_url or ''),
@@ -798,11 +805,13 @@ lib.callback.register('cm-police:server:mdtIssueBolo', function(src, description
     if not PoliceLegacyRateLimit(src, 'police_mdt_bolo', 1500) then return false, 'Please wait.' end
     local clean = tostring(description or ''):gsub('[%c]', ' '):gsub('^%s+', ''):gsub('%s+$', ''):sub(1, 200)
     if clean == '' then return false, 'Enter a description.' end
-    local cleanPlate = tostring(plate or ''):gsub('%s+', ''):upper():sub(1, 16)
-    local boloId = MySQL.insert.await('INSERT INTO cm_police_bolos (description, plate, officer_cid) VALUES (?, ?, ?)', { clean, cleanPlate ~= '' and cleanPlate or nil, actorCid })
+    local inputPlate = tostring(plate or '')
+    local cleanPlate = LawNormalizePlate(inputPlate)
+    if inputPlate:gsub('%s+', '') ~= '' and not cleanPlate then return false, 'Enter a valid plate.' end
+    local boloId = MySQL.insert.await('INSERT INTO cm_police_bolos (description, plate, officer_cid) VALUES (?, ?, ?)', { clean, cleanPlate, actorCid })
     PoliceAlprRefreshBolos()
     log(actorCid, 'bolo_issued', { boloId = boloId, description = clean, plate = cleanPlate ~= '' and cleanPlate or nil })
-    local alertText = cleanPlate ~= '' and ('%s (Plate: %s)'):format(clean, cleanPlate) or clean
+    local alertText = cleanPlate and ('%s (Plate: %s)'):format(clean, cleanPlate) or clean
     for _, targetSrc in ipairs(recipients('police.receive_dispatch')) do
         TriggerClientEvent('cm-police:client:boloIssued', targetSrc, alertText)
     end

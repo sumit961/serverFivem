@@ -10,10 +10,10 @@ end
 
 local function canUseClamp()
     local state = LocalPlayer.state.cmPolice
-    if type(state) == 'table' and state.onDuty == true then
+    if type(state) == 'table' and state.onDuty == true and state.suspended ~= true then
         if type(PoliceCapabilityClientEnabled)=='function' and not PoliceCapabilityClientEnabled('clamp') then return false end
         local permissions = state.permissions or {}
-        return state.isLeader == true or permissions['police.clamp'] == true, 'cm-police:server:toggleClamp'
+        return state.isLeader == true or permissions['police.clamp'] == true, 'cm-law:server:toggleClamp'
     end
     state = LocalPlayer.state.cmLegalOrg
     if type(state) ~= 'table' or state.onDuty ~= true or state.suspended
@@ -54,20 +54,23 @@ local function attachClampProp(vehicle, netId)
 
     local coords = GetEntityCoords(vehicle)
     local prop = CreateObject(hash, coords.x, coords.y, coords.z, false, false, false)
+    if not prop or prop == 0 or not DoesEntityExist(prop) then SetModelAsNoLongerNeeded(hash); return end
     local boneIndex = GetEntityBoneIndexByName(vehicle, cfg.Bone or 'wheel_lf')
     local offset, rotation = cfg.Offset or vector3(0.0, 0.0, 0.0), cfg.Rotation or vector3(0.0, 0.0, 0.0)
     AttachEntityToEntity(prop, vehicle, boneIndex, offset.x, offset.y, offset.z, rotation.x, rotation.y, rotation.z, true, true, false, false, 2, true)
     SetEntityAsMissionEntity(prop, true, true)
     FreezeEntityPosition(prop, true)
     SetModelAsNoLongerNeeded(hash)
-    clampProps[netId] = prop
+    clampProps[netId] = { prop = prop, vehicle = vehicle }
 
     SetVehicleHandbrake(vehicle, true)
     SetVehicleDoorsLockedForAllPlayers(vehicle, true)
 end
 
 local function removeClampProp(vehicle, netId)
-    local prop = clampProps[netId]
+    local record = clampProps[netId]
+    if not record then return end
+    local prop = record and record.prop
     if prop and DoesEntityExist(prop) then DeleteEntity(prop) end
     clampProps[netId] = nil
     if vehicle and DoesEntityExist(vehicle) then
@@ -94,10 +97,10 @@ end)
 CreateThread(function()
     while true do
         Wait(10000)
-        for netId, prop in pairs(clampProps) do
+        for netId, record in pairs(clampProps) do
             local vehicle = NetworkGetEntityFromNetworkId(netId)
-            if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then
-                if DoesEntityExist(prop) then DeleteEntity(prop) end
+            if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) or vehicle ~= record.vehicle then
+                if DoesEntityExist(record.prop) then DeleteEntity(record.prop) end
                 clampProps[netId] = nil
             end
         end
@@ -106,7 +109,7 @@ end)
 
 AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end
-    for _, prop in pairs(clampProps) do
-        if DoesEntityExist(prop) then DeleteEntity(prop) end
+    for _, record in pairs(clampProps) do
+        if DoesEntityExist(record.prop) then DeleteEntity(record.prop) end
     end
 end)

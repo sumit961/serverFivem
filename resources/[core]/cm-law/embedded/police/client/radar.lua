@@ -9,6 +9,7 @@
 
 local active = false
 local handProp = nil
+local requestPending = false
 
 local function notify(message, kind)
     PoliceNotify(message, kind)
@@ -42,7 +43,7 @@ end
 
 local function canUseRadar()
     local state = LocalPlayer.state.cmPolice
-    if type(state) == 'table' and state.onDuty == true then
+    if type(state) == 'table' and state.onDuty == true and state.suspended ~= true then
         if type(PoliceCapabilityClientEnabled)=='function' and not PoliceCapabilityClientEnabled('radar') then return false end
         local permissions = state.permissions or {}
         return state.isLeader == true or permissions['police.radar'] == true
@@ -79,11 +80,11 @@ end
 local function readingFor(vehicle)
     local multiplier = PoliceConfig.Radar.Unit == 'MPH' and 2.236936 or 3.6
     local speed = math.floor(GetEntitySpeed(vehicle) * multiplier + 0.5)
-    return ('%d %s'):format(speed, PoliceConfig.Radar.Unit)
+    local plate = LawNormalizePlate(GetVehicleNumberPlateText(vehicle)) or 'UNREGISTERED'
+    return ('SPEED RADAR\n%d %s\nPLATE: %s'):format(speed, PoliceConfig.Radar.Unit, plate)
 end
 
 local function stopRadar()
-    if not active then return end
     active = false
     PoliceHideHint()
     detachHandProp()
@@ -95,7 +96,7 @@ local function startRadar()
     CreateThread(function()
         while active do
             Wait(PoliceConfig.Radar.UpdateIntervalMs or 200)
-            if not canUseRadar() then
+            if not canUseRadar() or IsEntityDead(PlayerPedId()) then
                 notify('Radar disabled -- you are off duty.', 'error')
                 return stopRadar()
             end
@@ -113,9 +114,18 @@ end
 -- without duplicating this logic -- the /policeradar command below is just
 -- a thin wrapper around the same function.
 function PoliceToggleRadar()
-    if active then return stopRadar() end
-    if not canUseRadar() then return notify('You must be an on-duty officer with radar permission.', 'error') end
-    startRadar()
+    if active then stopRadar(); notify('Radar disabled.', 'inform'); return end
+    if requestPending then return end
+    if not canUseRadar() then return notify('You must be on duty with radar permission.', 'error') end
+    requestPending = true
+    CreateThread(function()
+        local ok = lib.callback.await('cm-law:server:authorizeRadar', false)
+        requestPending = false
+        if not ok then return notify('You are not authorized to use radar.', 'error') end
+        if not canUseRadar() then return end
+        startRadar()
+        notify('Radar enabled.', 'success')
+    end)
 end
 
 function IsPoliceRadarActive()
@@ -126,4 +136,14 @@ RegisterCommand('policeradar', PoliceToggleRadar, false)
 
 AddEventHandler('onResourceStop', function(resource)
     if resource == GetCurrentResourceName() then stopRadar() end
+end)
+
+RegisterNetEvent('cm-law:client:forceDutyCleanup', stopRadar)
+RegisterNetEvent('cm-police:client:forceDutyCleanup', stopRadar)
+RegisterNetEvent('cm-playerdata:client:characterUnloaded', stopRadar)
+AddStateBagChangeHandler('cmPolice', nil, function(bagName, _, value)
+    if bagName == ('player:%s'):format(GetPlayerServerId(PlayerId())) and (type(value) ~= 'table' or value.onDuty ~= true or value.suspended == true) then stopRadar() end
+end)
+AddStateBagChangeHandler('cmLegalOrg', nil, function(bagName, _, value)
+    if bagName == ('player:%s'):format(GetPlayerServerId(PlayerId())) and (type(value) ~= 'table' or value.onDuty ~= true or value.suspended == true) then stopRadar() end
 end)

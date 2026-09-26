@@ -63,6 +63,11 @@ if v and not v.__admin then
 end
 ```
 
+### `GetVehicleByLicenseNumber(licenseNumber) → table|nil`
+Resolves the public registration/license number rendered on a registered
+vehicle. The returned row retains its internal plate and persistent `id`;
+callers must continue to use that `id` as vehicle identity.
+
 ### `PlayerOwnsVehicle(src, plate) → boolean`
 Strict ownership. Temporary keys do **not** count.
 

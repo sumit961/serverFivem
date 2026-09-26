@@ -312,7 +312,11 @@ function activeMemberForSource(src)
             permissions['law.receive_dispatch'] = permissions['police.receive_dispatch'] == true
             permissions['law.manage_dispatch']  = permissions['police.set_meeting'] == true
             permissions['law.impound']          = permissions['police.impound'] == true
-            permissions['law.alpr']             = permissions['police.manage_alpr'] == true
+            -- Existing Police dispatch readers retain scanner access after
+            -- upgrade; the dedicated police.alpr permission can narrow this
+            -- later without conflating use with camera management.
+            permissions['law.alpr']             = permissions['police.alpr'] == true
+                or permissions['police.receive_dispatch'] == true
             permissions['law.mdt']              = permissions['police.mdt'] == true
             permissions['law.cuff']             = permissions['police.cuff'] == true
             permissions['law.book']             = permissions['police.book'] == true

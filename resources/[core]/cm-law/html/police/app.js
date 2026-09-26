@@ -764,11 +764,14 @@ function renderMdtVehicleResult() {
   const el = document.getElementById('mdtVehicleResult');
   if (!mdtVehicleResult) { el.innerHTML = '<article class="card">No vehicle found for that plate.</article>'; return; }
   const v = mdtVehicleResult;
+  const bolos = Array.isArray(v.bolos) ? v.bolos : (v.bolo ? [v.bolo] : []);
   el.innerHTML = `<article class="mdt-vehicle-card">
-    <strong>${esc(v.plate)}</strong> · ${esc(v.model)}
+    ${bolos.map(b => `<span class="impound-tag">ACTIVE BOLO · ${esc(b.organizationLabel || b.organizationId || 'Law')} · ${esc(b.reason || b.description || 'Active vehicle BOLO')}</span>`).join('')}
+    <strong>${esc(v.licenseNumber || v.plate)}</strong> · ${esc(v.model)}
+    <small>Registration: ${esc(v.licenseNumber || 'UNLICENSED')}</small>
     <small>Owner: ${esc(v.ownerName)}${v.ownerCid ? ` (CID ${esc(v.ownerCid)})` : ''}</small>
     <small>Status: ${esc(v.locationState)}</small>
-    ${v.impound ? `<span class="impound-tag">Impounded by ${esc(v.impound.organization || 'Law')} · $${esc(v.impound.fee)} fee · ${esc(v.impound.impoundedAt)}${v.impound.reason ? ` · ${esc(v.impound.reason)}` : ''}</span>` : ''}
+    ${v.impound ? `<span class="impound-tag">Impounded by ${esc(v.impound.organization || 'Law')} · $${esc(v.impound.fee)} fee · ${esc(v.impound.impoundedAt)}${v.impound.reason ? ` · ${esc(v.impound.reason)}` : ''}</span>` : 'Not impounded'}
   </article>`;
 }
 

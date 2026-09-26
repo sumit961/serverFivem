@@ -2,6 +2,7 @@
 -- cm-police; its compatibility adapters call the same authorization model.
 
 local citationLocks, K9, K9Threats, K9Targets = {}, {}, {}, {}
+local clampStates = {}
 local violations = {}
 for _, row in ipairs((Config.Enforcement or {}).Violations or {}) do violations[row.id] = row end
 
@@ -15,6 +16,12 @@ end)
 local function authorize(src, capability, permission)
     return LawAuthorizeEnforcement(tonumber(src), capability, permission)
 end
+
+lib.callback.register('cm-law:server:authorizeRadar', function(src)
+    local context = authorize(src, 'radar', 'law.radar')
+    if not context then return false end
+    return rateLimit(src, 'law_radar_authorize', 500)
+end)
 
 local function target(src, targetSrc, distance)
     targetSrc = tonumber(targetSrc)
@@ -75,7 +82,7 @@ lib.callback.register('cm-law:server:issueCitation', function(src, targetSrc, vi
     return true, ('Issued a $%d citation for %s.'):format(violation.fine, violation.label)
 end)
 
-lib.callback.register('cm-law:server:toggleClamp', function(src, netId)
+function LawToggleClamp(src, netId)
     local context, failure = authorize(src, 'clamp', 'law.clamp')
     if not context then return false, failure end
     if not rateLimit(src, 'law_clamp', 1000) then return false, 'Please wait.' end
@@ -84,8 +91,28 @@ lib.callback.register('cm-law:server:toggleClamp', function(src, netId)
     local ped = GetPlayerPed(src)
     if ped == 0 or GetEntityRoutingBucket(ped) ~= GetEntityRoutingBucket(vehicle) then return false, 'Vehicle is in another routing instance.' end
     if #(GetEntityCoords(ped) - GetEntityCoords(vehicle)) > ((Config.Enforcement or {}).ClampDistance or 3.0) then return false, 'Vehicle is too far away.' end
-    local state, clamped = Entity(vehicle).state, Entity(vehicle).state.cmWheelClamped == true
+    local state = Entity(vehicle).state
     local persistentId = tonumber(state.cmVehicleId)
+    if not persistentId or type(state.cmLegalFleet) == 'table' or type(state.cmPoliceFleet) == 'table'
+        or type(state.cmEmsFleet) == 'table' then return false, 'This vehicle cannot be clamped.' end
+    local rowOk, row = pcall(function() return exports['cm-vehicles']:GetVehicleById(persistentId) end)
+    if not rowOk or type(row) ~= 'table' or tonumber(row.id) ~= persistentId
+        or tostring(row.owner_type or '') ~= 'character' then
+        return false, 'This vehicle cannot be clamped.'
+    end
+    local activeOk, active, vehicleInfo = pcall(function()
+        return exports['cm-vehicles']:GetSpawnedVehicleInfo(persistentId)
+    end)
+    if not activeOk or active ~= true or type(vehicleInfo) ~= 'table'
+        or tonumber(vehicleInfo.entity) ~= vehicle or tostring(vehicleInfo.context or '') ~= 'world' then
+        return false, 'This vehicle cannot be clamped.'
+    end
+    for seat = -1, GetVehicleModelNumberOfSeats(GetEntityModel(vehicle)) - 2 do
+        local occupant = GetPedInVehicleSeat(vehicle, seat)
+        if occupant and occupant ~= 0 and DoesEntityExist(occupant) then return false, 'Vehicle must be empty.' end
+    end
+    local clamped = clampStates[persistentId] == true
+    clampStates[persistentId] = not clamped
     state:set('cmWheelClamped', not clamped, true)
     state:set('cmWheelClampAuthority', not clamped and {
         organizationId = context.organizationId, officerCid = context.characterId,
@@ -93,6 +120,44 @@ lib.callback.register('cm-law:server:toggleClamp', function(src, netId)
     } or false, true)
     logActivity(context.organizationId, context.characterId, clamped and 'vehicle_unclamped' or 'vehicle_clamped', { vehicleId = persistentId })
     return true, clamped and 'Wheel clamp removed.' or 'Wheel clamp applied.'
+end
+
+lib.callback.register('cm-law:server:toggleClamp', LawToggleClamp)
+
+AddEventHandler('onResourceStop', function(resource)
+    if resource ~= GetCurrentResourceName() then return end
+    for _, vehicle in ipairs(GetAllVehicles()) do
+        if DoesEntityExist(vehicle) then
+            local state = Entity(vehicle).state
+            if state.cmWheelClamped == true then
+                local vehicleId = tonumber(state.cmVehicleId)
+                if vehicleId then clampStates[vehicleId] = nil end
+                state:set('cmWheelClamped', false, true)
+                state:set('cmWheelClampAuthority', false, true)
+            end
+        end
+    end
+end)
+
+-- The server registry is authoritative. If an entity owner writes this
+-- replicated state key from a modified client, restore the server value.
+AddStateBagChangeHandler('cmWheelClamped', nil, function(bagName, _, value)
+    local vehicle = GetEntityFromStateBagName(bagName)
+    if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then return end
+    local vehicleId = tonumber(Entity(vehicle).state.cmVehicleId)
+    if not vehicleId then return end
+    local expected = clampStates[vehicleId] == true
+    if value ~= expected then
+        SetTimeout(0, function()
+            if DoesEntityExist(vehicle) then Entity(vehicle).state:set('cmWheelClamped', expected, true) end
+        end)
+    end
+end)
+
+AddEventHandler('entityRemoved', function(entity)
+    if not entity then return end
+    local ok, vehicleId = pcall(function() return tonumber(Entity(entity).state.cmVehicleId) end)
+    if ok and vehicleId then clampStates[vehicleId] = nil end
 end)
 
 local function removeK9(src)

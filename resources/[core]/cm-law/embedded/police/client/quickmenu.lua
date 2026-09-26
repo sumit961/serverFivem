@@ -25,9 +25,15 @@ RegisterCommand('policequickmenu', function()
     local state = LocalPlayer.state.cmPolice
     local permissions = state.permissions or {}
     local onDuty = state.onDuty == true
-    local canRadarOrSpike = onDuty and (state.isLeader == true or permissions['police.radar'] == true or permissions['police.spike'] == true)
+    local canRadar = onDuty and state.suspended ~= true and (state.isLeader == true or permissions['police.radar'] == true)
+        and (type(PoliceCapabilityClientEnabled) ~= 'function' or PoliceCapabilityClientEnabled('radar'))
+    local canSpike = onDuty and (state.isLeader == true or permissions['police.spike'] == true)
     local canBarricade = onDuty and (state.isLeader == true or permissions['police.barricade'] == true)
-    local canClamp = onDuty and (state.isLeader == true or permissions['police.clamp'] == true)
+    local canClamp = onDuty and state.suspended ~= true and (state.isLeader == true or permissions['police.clamp'] == true)
+        and (type(PoliceCapabilityClientEnabled) ~= 'function' or PoliceCapabilityClientEnabled('clamp'))
+    local canScanner = onDuty and state.suspended ~= true and (state.isLeader == true
+        or permissions['police.alpr'] == true or permissions['police.receive_dispatch'] == true)
+        and (type(PoliceCapabilityClientEnabled) ~= 'function' or PoliceCapabilityClientEnabled('alpr'))
     local canK9 = onDuty and (state.isLeader == true or permissions['police.k9'] == true)
 
     local options = {}
@@ -81,13 +87,16 @@ RegisterCommand('policequickmenu', function()
         return notify('Wear a complete Police outfit at the wardrobe to start duty.', 'inform')
     end
 
-    if canRadarOrSpike then
+    if canRadar then
         options[#options + 1] = {
             title = IsPoliceRadarActive() and 'Speed Radar: ON' or 'Speed Radar: OFF',
             description = 'Toggle the handheld speed radar',
             icon = 'gauge-high',
             onSelect = function() PoliceToggleRadar() end,
         }
+    end
+
+    if canSpike then
         options[#options + 1] = {
             title = 'Deploy Spike Strip',
             description = 'Preview a placement, then press E to drop it',
@@ -106,6 +115,15 @@ RegisterCommand('policequickmenu', function()
                     PoliceRecallSpikes()
                 end
             end,
+        }
+    end
+
+    if canScanner then
+        options[#options + 1] = {
+            title = LawIsPlateScannerActive() and 'Plate Scanner: ON' or 'Plate Scanner: OFF',
+            description = 'Toggle scanning from an authorized Police fleet vehicle',
+            icon = 'tower-broadcast',
+            onSelect = LawTogglePlateScanner,
         }
     end
 
@@ -214,6 +232,10 @@ local function openLawQuickMenu(state)
     end
     if capabilities.radar ~= false and (leader or permissions['law.radar'] == true) then
         enforcement[#enforcement + 1] = { title = 'Speed Radar', icon = 'gauge-high', onSelect = PoliceToggleRadar }
+    end
+    if capabilities.alpr ~= false and (leader or permissions['law.alpr'] == true) then
+        enforcement[#enforcement + 1] = { title = LawIsPlateScannerActive() and 'Plate Scanner: ON' or 'Plate Scanner: OFF',
+            description = 'Scan from an authorized organization fleet vehicle', icon = 'tower-broadcast', onSelect = LawTogglePlateScanner }
     end
     if capabilities.clamp ~= false and (leader or permissions['law.clamp'] == true) then
         enforcement[#enforcement + 1] = { title = 'Wheel Clamp', icon = 'lock', onSelect = PoliceToggleClamp }

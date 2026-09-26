@@ -17,21 +17,8 @@ local function reloadCameras()
 end
 
 function PoliceAlprRefreshBolos()
-    local rows = MySQL.query.await("SELECT plate FROM cm_police_bolos WHERE status = 'active' AND plate IS NOT NULL AND plate <> ''") or {}
-    local nextCache = {}
-    for _, row in ipairs(rows) do nextCache[tostring(row.plate):gsub('%s+', ''):upper()] = true end
-    -- Fixed ALPR cameras already notify cm-law's own dispatch-eligible
-    -- members below (EnforcementRecipients), but were never actually
-    -- cross-referencing SAHP/Sheriff/FIB/Army's own shared BOLO board
-    -- (cm_legal_bolos) -- only the legacy Police one. Union both so a BOLO
-    -- issued by any organization can trigger these cameras.
-    local ok, lawRows = pcall(function()
-        return MySQL.query.await("SELECT plate FROM cm_legal_bolos WHERE status = 'active' AND plate IS NOT NULL AND plate <> ''") or {}
-    end)
-    if ok then
-        for _, row in ipairs(lawRows) do nextCache[tostring(row.plate):gsub('%s+', ''):upper()] = true end
-    end
-    BoloPlateCache = nextCache
+    if type(LawRefreshActiveBoloCache) == 'function' then LawRefreshActiveBoloCache() end
+    if type(LawGetActiveBoloPlateCache) == 'function' then BoloPlateCache = LawGetActiveBoloPlateCache() end
 end
 
 local function authorizedManager(src)
@@ -105,37 +92,50 @@ end)
 -- same acceptable tradeoff spike strips'/dispatch's own transient state
 -- already accepts.
 local RecentHits = {}
+local lastCooldownPrune = 0
 
 CreateThread(function()
     while true do
         Wait(PoliceConfig.Alpr.CheckIntervalMs or 3000)
         if PoliceDatabaseReady() and #CameraCache > 0 and (type(PoliceCapabilityEnabled)~='function' or PoliceCapabilityEnabled('alpr')) then
+            local pruneNow = os.time()
+            if pruneNow - lastCooldownPrune >= 300 then
+                local retainAfter = pruneNow - math.max(600, math.floor((PoliceConfig.Alpr.AlertCooldownMs or 300000) / 1000) * 2)
+                for key, timestamp in pairs(RecentHits) do if timestamp < retainAfter then RecentHits[key] = nil end end
+                lastCooldownPrune = pruneNow
+            end
             if next(BoloPlateCache) then
                 local now = os.time()
                 for _, vehicle in ipairs(GetAllVehicles()) do
                     if DoesEntityExist(vehicle) then
-                        local plate = tostring(GetVehicleNumberPlateText(vehicle) or ''):gsub('%s+', ''):upper()
-                        if plate ~= '' and BoloPlateCache[plate] then
+                        local plate = LawNormalizePlate(GetVehicleNumberPlateText(vehicle))
+                        local matches = plate and BoloPlateCache[plate] or nil
+                        if matches and #matches > 0 then
                             local vCoords = GetEntityCoords(vehicle)
                             for _, camera in ipairs(CameraCache) do
                                 local dist = #(vCoords - vector3(camera.x, camera.y, camera.z))
                                 if dist <= (PoliceConfig.Alpr.DetectionRadius or 20.0) then
-                                    local key = tostring(camera.id) .. '|' .. plate
+                                    local boloKeyParts = {}
+                                    for _, bolo in ipairs(matches) do boloKeyParts[#boloKeyParts + 1] = bolo.organizationId .. ':' .. bolo.reason end
+                                    table.sort(boloKeyParts)
+                                    local key = tostring(camera.id) .. '|' .. plate .. '|' .. table.concat(boloKeyParts, ',')
                                     if not RecentHits[key] or now - RecentHits[key] >= math.floor((PoliceConfig.Alpr.AlertCooldownMs or 300000) / 1000) then
                                         RecentHits[key] = now
                                         log(nil, 'alpr_hit', { cameraId = tonumber(camera.id), cameraLabel = camera.label, plate = plate })
-                                        for _, targetSrc in ipairs(recipients('police.receive_dispatch')) do
-                                            TriggerClientEvent('cm-police:client:alprHit', targetSrc, plate, camera.label, { x = camera.x, y = camera.y, z = camera.z })
-                                        end
+                                        local targets = {}
+                                        for _, targetSrc in ipairs(recipients('police.receive_dispatch')) do targets[tonumber(targetSrc)] = true end
                                         if GetResourceState('cm-law') == 'started' then
                                             local ok, lawRecipients = pcall(function()
                                                 return exports['cm-law']:EnforcementRecipients('alpr', 'law.alpr')
                                             end)
                                             if ok then
-                                                for _, targetSrc in ipairs(lawRecipients or {}) do
-                                                    TriggerClientEvent('cm-police:client:alprHit', targetSrc, plate, camera.label,
-                                                        { x = camera.x, y = camera.y, z = camera.z })
-                                                end
+                                                for _, targetSrc in ipairs(lawRecipients or {}) do targets[tonumber(targetSrc)] = true end
+                                            end
+                                        end
+                                        for targetSrc in pairs(targets) do
+                                            if targetSrc then
+                                                TriggerClientEvent('cm-police:client:alprHit', targetSrc, plate, camera.label,
+                                                    { x = camera.x, y = camera.y, z = camera.z }, matches)
                                             end
                                         end
                                     end

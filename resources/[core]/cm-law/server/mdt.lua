@@ -122,25 +122,28 @@ lib.callback.register('cm-law:server:mdtVehicleSearch', function(src, plate)
     local member, _, reason = authorized(src)
     if not member then return { ok = false, error = reason } end
     if not rateLimit(src, 'law_mdt_vehicle', 500) then return { ok = false, error = 'Please wait.' } end
-    plate = clean(plate, 16):gsub('%s+', ''):upper()
-    if plate == '' then return { ok = false, error = 'Enter a plate.' } end
+    plate = LawNormalizePlate(clean(plate, 20))
+    if not plate then return { ok = false, error = 'Enter a valid plate or registration.' } end
     local row
-    pcall(function() row = exports['cm-vehicles']:GetVehicleByPlate(plate) end)
+    pcall(function() row = exports['cm-vehicles']:GetVehicleByLicenseNumber(plate) end)
+    if not row then pcall(function() row = exports['cm-vehicles']:GetVehicleByPlate(plate) end) end
     if not row then return { ok = false, error = 'Vehicle not found.' } end
     local ownerCid = row.owner_character_id and tostring(row.owner_character_id) or nil
     local impound = safeRows([[SELECT i.fee, i.organization_id, i.impounded_at, e.message AS reason
         FROM cm_police_impounds i LEFT JOIN cm_police_impound_evidence e ON e.impound_id = i.id
         WHERE i.vehicle_id=? AND i.released_at IS NULL ORDER BY i.id DESC, e.id DESC LIMIT 1]], { row.id })[1]
-    local bolo = type(LawActiveBoloForPlate) == 'function' and LawActiveBoloForPlate(row.plate or plate) or nil
+    local registration = LawNormalizePlate(row.license_number)
+    local bolos = registration and LawGetActiveBoloMatches(registration) or {}
     return { ok = true, vehicle = { vehicleId = tonumber(row.id), plate = tostring(row.plate or plate),
         model = tostring(row.model or ''), label = tostring(row.label or row.model or ''),
         ownerCid = ownerCid, ownerName = ownerCid and nameFor(ownerCid) or 'Unknown',
-        licenseNumber = row.license_number and tostring(row.license_number) or nil,
+        licenseNumber = registration,
+        registrationNumber = registration,
         impound = impound and { fee = tonumber(impound.fee) or 0, reason = tostring(impound.reason or ''),
             organizationId = tostring(impound.organization_id or ''),
             organization = (Config.Organizations[tostring(impound.organization_id or '')] or {}).label or tostring(impound.organization_id or 'Law'),
             impoundedAt = tostring(impound.impounded_at or '') } or nil,
-        bolo = bolo } }
+        bolo = bolos[1], bolos = bolos } }
 end)
 
 -- License status was previously police-only write access (cm_police_licenses,
