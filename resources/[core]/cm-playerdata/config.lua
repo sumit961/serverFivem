@@ -96,7 +96,8 @@ CMPlayerData.Config = {
     Metadata = {
         MaxDepth = 8,
         MaxStringLength = 4096,
-        MaxSerializedBytes = 65536
+        MaxSerializedBytes = 65536,
+        MaxNodes = 2048
     },
 
     Gameplay = {

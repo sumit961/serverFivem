@@ -169,9 +169,16 @@ local function DeepCopy(val, visited)
     return copy
 end
 
-local function ValidateAndCopyMetadataValue(val, depth, visited)
+local function ValidateAndCopyMetadataValue(val, depth, visited, nodeState)
     depth = depth or 1
     visited = visited or {}
+    nodeState = nodeState or { count = 0 }
+
+    nodeState.count = nodeState.count + 1
+    local maxNodes = (Config.Metadata and Config.Metadata.MaxNodes) or 2048
+    if nodeState.count > maxNodes then
+        return false, 'max_nodes_exceeded'
+    end
 
     if val == nil then
         return true, nil
@@ -212,7 +219,7 @@ local function ValidateAndCopyMetadataValue(val, depth, visited)
                 visited[val] = nil
                 return false, 'key_too_long'
             end
-            local okVal, copiedVal = ValidateAndCopyMetadataValue(v, depth + 1, visited)
+            local okVal, copiedVal = ValidateAndCopyMetadataValue(v, depth + 1, visited, nodeState)
             if not okVal then
                 visited[val] = nil
                 return false, copiedVal
@@ -468,6 +475,7 @@ local function SetWantedStars(src, stars)
 end
 
 local MigrationsReady = false
+local MigrationPromise = nil
 
 local Migrations = {
     {
@@ -588,10 +596,92 @@ local Migrations = {
             end
             return true
         end
+    },
+    {
+        version = 6,
+        name = '006_reconcile_legacy_known_players',
+        run = function()
+            local rows = MySQL.query.await([[
+                SELECT id, metadata FROM characters
+                WHERE metadata LIKE '%knownIdentities%' OR metadata LIKE '%knownPlayers%'
+            ]]) or {}
+
+            for _, r in ipairs(rows) do
+                local charId = tonumber(r.id)
+                local meta = DecodeJson(r.metadata)
+                if charId and type(meta) == 'table' then
+                    local edges = {}
+
+                    local function extractEdges(legacyTable)
+                        if type(legacyTable) == 'table' then
+                            for k, v in pairs(legacyTable) do
+                                local knownId = tonumber(type(v) == 'table' and (v.characterId or v.charId) or k)
+                                local reason = type(v) == 'table' and v.reason or 'met'
+                                if knownId and knownId ~= charId then
+                                    edges[knownId] = tostring(reason or 'met'):sub(1, 32)
+                                end
+                            end
+                        end
+                    end
+
+                    -- Reconcile BOTH legacy metadata tables independently! Never 'or'!
+                    extractEdges(meta.knownIdentities)
+                    extractEdges(meta.knownPlayers)
+
+                    local allSaved = true
+                    for knownId, reason in pairs(edges) do
+                        local okInsert = pcall(function()
+                            MySQL.query.await([[
+                                INSERT INTO cm_known_identities (owner_character_id, known_character_id, reason)
+                                VALUES (?, ?, ?)
+                                ON DUPLICATE KEY UPDATE reason = VALUES(reason)
+                            ]], { charId, knownId, reason })
+                        end)
+                        if not okInsert then
+                            allSaved = false
+                            Log('error', 'Migration 006 failed to persist edge', { owner = charId, known = knownId })
+                            break
+                        end
+                    end
+
+                    -- Only remove legacy keys if all valid edges were successfully persisted!
+                    if allSaved then
+                        if meta.knownIdentities ~= nil or meta.knownPlayers ~= nil then
+                            meta.knownIdentities = nil
+                            meta.knownPlayers = nil
+                            local okUpdate = pcall(function()
+                                MySQL.update.await('UPDATE characters SET metadata = ? WHERE id = ?', {
+                                    EncodeJson(meta), charId
+                                })
+                            end)
+                            if not okUpdate then
+                                Log('error', 'Migration 006 failed to update cleaned metadata', { charId = charId })
+                            end
+                        end
+                    end
+                end
+            end
+            return true
+        end
     }
 }
 
 local function RunMigrations()
+    if MigrationsReady then return true end
+    if MigrationPromise then
+        return Citizen.Await(MigrationPromise)
+    end
+
+    MigrationPromise = promise.new()
+
+    local function fail(err)
+        MigrationsReady = false
+        local p = MigrationPromise
+        MigrationPromise = nil
+        p:resolve(false)
+        return false
+    end
+
     local okTable, errTable = pcall(function()
         MySQL.query.await([[
             CREATE TABLE IF NOT EXISTS cm_playerdata_migrations (
@@ -604,8 +694,7 @@ local function RunMigrations()
 
     if not okTable then
         Log('error', 'CRITICAL: Failed to initialize cm_playerdata_migrations table', { error = tostring(errTable) })
-        MigrationsReady = false
-        return false
+        return fail('table_init')
     end
 
     local applied = {}
@@ -614,8 +703,7 @@ local function RunMigrations()
     end)
     if not okSelect or type(rows) ~= 'table' then
         Log('error', 'CRITICAL: Failed to query cm_playerdata_migrations', { error = tostring(rows) })
-        MigrationsReady = false
-        return false
+        return fail('query_applied')
     end
 
     for _, r in ipairs(rows) do
@@ -626,10 +714,9 @@ local function RunMigrations()
         if not applied[m.version] then
             print(('[CM-PLAYERDATA] Running migration %03d: %s...'):format(m.version, m.name))
             local okRun, runErr = pcall(m.run)
-            if not okRun then
+            if not okRun or runErr == false then
                 Log('error', ('CRITICAL: Migration %03d (%s) failed!'):format(m.version, m.name), { error = tostring(runErr) })
-                MigrationsReady = false
-                return false
+                return fail('migration_run_' .. tostring(m.version))
             end
 
             local okRecord, recErr = pcall(function()
@@ -637,15 +724,23 @@ local function RunMigrations()
             end)
             if not okRecord then
                 Log('error', ('CRITICAL: Failed to record migration %03d (%s)'):format(m.version, m.name), { error = tostring(recErr) })
-                MigrationsReady = false
-                return false
+                return fail('migration_record_' .. tostring(m.version))
             end
             print(('[CM-PLAYERDATA] Migration %03d (%s) applied successfully.'):format(m.version, m.name))
         end
     end
 
+    pcall(function()
+        local legacyCount = MySQL.scalar.await("SELECT COUNT(*) FROM characters WHERE metadata LIKE '%knownIdentities%' OR metadata LIKE '%knownPlayers%'") or 0
+        local relationCount = MySQL.scalar.await("SELECT COUNT(*) FROM cm_known_identities") or 0
+        print(('[CM-PLAYERDATA] DB counts: legacy metadata rows remaining=%s, relational identity rows=%s'):format(legacyCount, relationCount))
+    end)
+
     MigrationsReady = true
     Debug('Database migrations verified and up to date')
+    local p = MigrationPromise
+    MigrationPromise = nil
+    p:resolve(true)
     return true
 end
 
@@ -773,9 +868,9 @@ local function ClonePlayerData(data)
         emsProtected = data.emsProtection ~= nil,
         emsEtaMs = data.emsProtection and math.max(0, (data.emsProtection.etaDeadline or GetGameTimer()) - GetGameTimer()) or nil,
         deathReason = data.deathReason,
-        deathLocation = DecodeJson(EncodeJson(data.deathLocation)) or data.deathLocation,
-        lastPosition = DecodeJson(EncodeJson(data.lastPosition)) or data.lastPosition,
-        metadata = DecodeJson(EncodeJson(data.metadata)) or data.metadata,
+        deathLocation = DeepCopy(data.deathLocation),
+        lastPosition = DeepCopy(data.lastPosition),
+        metadata = DeepCopy(data.metadata),
         loaded = data.loaded == true
     }
 end
@@ -1393,7 +1488,33 @@ local function LoadPlayerData(src, explicitCharId)
         src, charId, PlayerData[src].health, PlayerData[src].armor, tostring(PlayerData[src].isDead)
     ))
 
-    WarmIdentityCache(charId)
+    local okWarm = WarmIdentityCache(charId)
+    if not okWarm then
+        local expectedSrc = src
+        local expectedCharId = tostring(charId)
+        CreateThread(function()
+            local attempts = 0
+            local maxAttempts = 3
+            while attempts < maxAttempts do
+                Wait(2000 * (attempts + 1))
+                local curData = PlayerData[expectedSrc]
+                if not curData or tostring(curData.charId or '') ~= expectedCharId or not curData.loaded then
+                    break
+                end
+                local okRetry = WarmIdentityCache(expectedCharId)
+                if okRetry then
+                    Debug(('Identity cache successfully hydrated on retry %d for src=%s char=%s'):format(attempts + 1, expectedSrc, expectedCharId))
+                    for otherSrc, otherData in pairs(PlayerData) do
+                        if otherData.loaded and otherSrc ~= expectedSrc then
+                            PushIdentityUpdate(expectedSrc, otherSrc)
+                        end
+                    end
+                    break
+                end
+                attempts = attempts + 1
+            end
+        end)
+    end
     NotifyLoaded(src)
     pcall(function() exports['cm-police']:SyncWantedStars(charId, wantedStars) end)
 
@@ -1899,7 +2020,11 @@ end
 AddEventHandler('onResourceStart', function(resourceName)
     if resourceName ~= GetCurrentResourceName() then return end
     Wait(500)
-    RunMigrations()
+    local ok = RunMigrations()
+    if not ok or not MigrationsReady then
+        Log('error', 'CRITICAL: cm-playerdata startup aborted - database migrations failed')
+        return
+    end
     Log('info', 'CM PlayerData v1.8.5 started')
 
     -- Restart resilience: if this resource was live-restarted with players
@@ -1908,7 +2033,7 @@ AddEventHandler('onResourceStart', function(resourceName)
         local src = tonumber(playerSrc)
         if src then
             SetTimeout(750, function()
-                if GetPlayerName(src) then
+                if GetPlayerName(src) and MigrationsReady then
                     LoadPlayerData(src)
                 end
             end)
@@ -2641,20 +2766,25 @@ end
 
 local function WarmIdentityCache(charId)
     charId = tonumber(charId)
-    if not charId then return end
-    local cache = {}
+    if not charId then return false, 'invalid_char_id' end
+
     local ok, rows = pcall(function()
         return MySQL.query.await('SELECT known_character_id FROM cm_known_identities WHERE owner_character_id = ?', { charId })
     end)
-    if ok and type(rows) == 'table' then
-        for _, row in ipairs(rows) do
-            local targetId = tonumber(row.known_character_id)
-            if targetId then
-                cache[targetId] = true
-            end
+    if not ok or type(rows) ~= 'table' then
+        Log('warn', 'Failed to warm identity cache from database', { charId = charId, error = tostring(rows) })
+        return false, 'query_failed'
+    end
+
+    local cache = {}
+    for _, row in ipairs(rows) do
+        local targetId = tonumber(row.known_character_id)
+        if targetId then
+            cache[targetId] = true
         end
     end
     KnownIdentityCache[charId] = cache
+    return true, nil
 end
 
 local function ClearIdentityCache(charId)
@@ -2690,6 +2820,37 @@ local function PersistKnownIdentityRelation(ownerCharId, knownCharId, reason)
         KnownIdentityCache[ownerCharId] = {}
     end
     KnownIdentityCache[ownerCharId][knownCharId] = true
+
+    return true, nil
+end
+
+local function PersistMutualIdentityRelation(charA, charB, reason)
+    charA = tonumber(charA)
+    charB = tonumber(charB)
+    if not charA or not charB or charA == charB then
+        return false, 'invalid_character_ids'
+    end
+
+    local cleanReason = tostring(reason or 'handshake'):sub(1, 32)
+    local ok, err = pcall(function()
+        return MySQL.query.await([[
+            INSERT INTO cm_known_identities (owner_character_id, known_character_id, reason)
+            VALUES (?, ?, ?), (?, ?, ?)
+            ON DUPLICATE KEY UPDATE reason = VALUES(reason)
+        ]], { charA, charB, cleanReason, charB, charA, cleanReason })
+    end)
+
+    if not ok then
+        Log('error', 'Failed to persist mutual identity relation', {
+            charA = charA, charB = charB, error = tostring(err)
+        })
+        return false, 'database_error'
+    end
+
+    if not KnownIdentityCache[charA] then KnownIdentityCache[charA] = {} end
+    if not KnownIdentityCache[charB] then KnownIdentityCache[charB] = {} end
+    KnownIdentityCache[charA][charB] = true
+    KnownIdentityCache[charB][charA] = true
 
     return true, nil
 end
@@ -3085,10 +3246,27 @@ RegisterNetEvent('cm-playerdata:server:playerInteraction', function(targetSrc, a
             GetPublicPlayerLabel(src),
             (Config.Interactions and Config.Interactions.HandshakeTimeout) or 15000)
     elseif action == 'share_id' then
-        MarkIdentityKnown(target, src, 'shared_id')
-        SavePlayerData(target, 'identity_shared_id')
+        local knownOk, knownErr = MarkIdentityKnown(target, src, 'shared_id')
+
+        if not knownOk then
+            Log('error', 'Share ID identity persistence failed', {
+                from = src,
+                target = target,
+                reason = tostring(knownErr)
+            })
+
+            NotifyPlayer(src, 'Unable to share your ID right now.', 'error')
+            NotifyPlayer(target, 'Unable to save that identity right now.', 'error')
+            return
+        end
+
         PushIdentityUpdate(target, src)
-        NotifyPlayer(src, ('You showed your ID to %s.'):format(GetPublicPlayerLabel(target)), 'success')
+
+        NotifyPlayer(
+            src,
+            ('You showed your ID to %s.'):format(GetPublicPlayerLabel(target)),
+            'success'
+        )
 
         -- Passport-style ID card on the target's screen. DOB/licenses read from
         -- metadata when present (cm-characters can set these later).
@@ -3274,12 +3452,25 @@ RegisterNetEvent('cm-playerdata:server:handshakeResponse', function(accepted)
         return
     end
 
-    local ok1 = MarkIdentityKnown(src, from, 'handshake')
-    local ok2 = MarkIdentityKnown(from, src, 'handshake')
-    if ok1 then PushIdentityUpdate(src, from) end
-    if ok2 then PushIdentityUpdate(from, src) end
-    NotifyPlayer(src, ('You shook hands with %s. Their name is now visible to you.'):format(GetFullName(PlayerData[from])), 'success')
-    NotifyPlayer(from, ('You shook hands with %s. Their name is now visible to you.'):format(GetFullName(PlayerData[src])), 'success')
+    local fromData = PlayerData[from]
+    local srcData = PlayerData[src]
+    local charFrom = tonumber(fromData.charId)
+    local charSrc = tonumber(srcData.charId)
+
+    local okPersist, errPersist = PersistMutualIdentityRelation(charSrc, charFrom, 'handshake')
+    if not okPersist then
+        Log('error', 'Handshake mutual persistence failed', {
+            src = src, from = from, error = tostring(errPersist)
+        })
+        NotifyPlayer(src, 'Unable to complete handshake at this time.', 'error')
+        NotifyPlayer(from, 'Unable to complete handshake at this time.', 'error')
+        return
+    end
+
+    PushIdentityUpdate(src, from)
+    PushIdentityUpdate(from, src)
+    NotifyPlayer(src, ('You shook hands with %s. Their name is now visible to you.'):format(GetFullName(fromData)), 'success')
+    NotifyPlayer(from, ('You shook hands with %s. Their name is now visible to you.'):format(GetFullName(srcData)), 'success')
     -- Paired handshake emote, each facing the other.
     TriggerClientEvent('cm-playerdata:client:interactionAnim', from, 'handshake', src)
     TriggerClientEvent('cm-playerdata:client:interactionAnim', src, 'handshake_b', from)
@@ -3306,12 +3497,8 @@ exports('PersistKnownIdentity', function(ownerCharId, knownCharId, reason)
     return PersistKnownIdentityRelation(ownerCharId, knownCharId, reason)
 end)
 
-exports('GetKnownIdentities', function(srcOrCharId)
-    local charId = tonumber(srcOrCharId)
-    if not charId then
-        local data = PlayerData[tonumber(srcOrCharId)]
-        charId = data and tonumber(data.charId)
-    end
+exports('GetKnownIdentities', function(characterId)
+    local charId = tonumber(characterId)
     if not charId then return {} end
     local cache = KnownIdentityCache[charId]
     if cache then
@@ -3330,6 +3517,14 @@ exports('GetKnownIdentities', function(srcOrCharId)
         end
     end
     return result
+end)
+
+exports('GetKnownIdentitiesForSource', function(src)
+    src = tonumber(src)
+    local data = src and PlayerData[src]
+    local charId = data and tonumber(data.charId)
+    if not charId then return {} end
+    return exports['cm-playerdata']:GetKnownIdentities(charId)
 end)
 
 exports('SetOrganization', function(src, orgId, orgName)
