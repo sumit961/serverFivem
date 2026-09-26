@@ -9,6 +9,7 @@ POLICE_CONFIG = ROOT / 'resources/[core]/cm-law/embedded/police/shared/config.lu
 ADMIN_ORGS = ROOT / 'resources/[core]/cm-admin/server/organizations.lua'
 ADMIN_MAIN = ROOT / 'resources/[core]/cm-admin/server/main.lua'
 ADMIN_UI = ROOT / 'resources/[core]/cm-admin/ui/main.js'
+ADMIN_CONFIG = ROOT / 'resources/[core]/cm-admin/config.lua'
 
 
 class AdminOrganizationRegistrationContractTests(unittest.TestCase):
@@ -21,6 +22,7 @@ class AdminOrganizationRegistrationContractTests(unittest.TestCase):
         cls.admin_orgs = ADMIN_ORGS.read_text(encoding='utf-8')
         cls.admin_main = ADMIN_MAIN.read_text(encoding='utf-8')
         cls.admin_ui = ADMIN_UI.read_text(encoding='utf-8')
+        cls.admin_config = ADMIN_CONFIG.read_text(encoding='utf-8')
 
     def test_generic_law_registers_when_ready_and_when_admin_starts(self):
         helper = self.law.split('local function registerCentralOrganizations()', 1)[1]
@@ -119,6 +121,30 @@ class AdminOrganizationRegistrationContractTests(unittest.TestCase):
         self.assertIn("cm-admin:server:organizationRegistryReady", self.law)
         self.assertIn("cm-admin:server:organizationRegistryReady", self.police)
         self.assertIn("cm-admin:server:organizationRegistryReady", self.admin_main)
+
+    def test_admin_rank_permissions_reconcile_additively_and_preserve_wildcard(self):
+        self.assertIn('mergeConfiguredPermissions', self.admin_main)
+        self.assertIn('reconcileDefaultRankPermissions()', self.admin_main)
+        self.assertIn('UPDATE cm_admin_ranks SET permissions_json = ?', self.admin_main)
+        self.assertIn("permissions = { '*' }", self.admin_config)
+        self.assertIn("'orgs.view', 'orgs.manage'", self.admin_config)
+        self.assertIn('if p == \'*\' or p == permission then return true end', self.admin_main)
+        self.assertIn('Your admin rank does not have orgs.manage.', self.admin_orgs)
+
+    def test_summary_failure_is_healthful_and_not_rendered_as_zero(self):
+        self.assertIn('resourceExports[exportName](resourceExports, ...)', self.admin_orgs)
+        self.assertIn('summaryAvailable = summaryAvailable', self.admin_orgs)
+        self.assertIn('summary failed for %s via %s:%s', self.admin_orgs)
+        self.assertIn("o.summaryAvailable === false ? 'Unavailable'", self.admin_ui)
+        self.assertIn("o.summaryAvailable === false ? 'Unavailable' : Number(o.memberCount || 0)", self.admin_ui)
+        self.assertIn("o.summaryAvailable === false ? 'Unavailable' : Number(o.onDutyCount || 0)", self.admin_ui)
+
+    def test_default_rank_reconciliation_keeps_custom_permissions_and_normal_admin_scope(self):
+        self.assertIn('existingCount = type(existing) == \'table\' and #existing or 0', self.admin_main)
+        self.assertIn('for key, value in pairs(existing) do', self.admin_main)
+        self.assertIn("'orgs.view', 'orgs.manage'", self.admin_config)
+        admin_block = self.admin_config.split('admin = {', 1)[1].split('senior_mod = {', 1)[0]
+        self.assertNotIn("'orgs.manage'", admin_block)
 
     def test_generic_and_police_assignment_argument_order_and_permissions(self):
         assign = self.admin_orgs.split('function CMOrganizations.assignLeader(src, orgId, targetCid)', 1)[1]

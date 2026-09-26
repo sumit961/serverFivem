@@ -30,6 +30,7 @@
 
 local organizations = {}   -- [id] = { id, label, resource, icon }
 local orgOwner = {}        -- [id] = owning resource name
+local summaryFailureLogs = {}
 local ORGANIZATION_NOT_REGISTERED = 'Organization is not currently registered. Refresh CM Admin and try again.'
 
 local function normalizeOrgId(orgId)
@@ -218,6 +219,16 @@ local function organizationExport(org, operation, fallback)
     return type(api) == 'string' and api ~= '' and api or fallback
 end
 
+local function callOrganizationExport(org, exportName, ...)
+    local resourceExports = exports[org.resource]
+    return resourceExports[exportName](resourceExports, ...)
+end
+
+local function safeSummaryError(value)
+    local message = tostring(value or 'summary export returned no data'):gsub('[\r\n]+', ' ')
+    return message:sub(1, 240)
+end
+
 exports('RegisterOrganization', registerOrganization)
 exports('UnregisterOrganization', unregisterOrganization)
 exports('GetRegisteredOrganizations', function()
@@ -249,14 +260,29 @@ function CMOrganizations.forAdminPayload(src)
         end
         local running = GetResourceState(org.resource) == 'started'
         local summary = {}
+        local summaryAvailable = false
+        local summaryError = nil
         if running then
+            local summaryName = organizationExport(org, 'summary', 'GetOrganizationSummary')
             local ok, result = pcall(function()
-                return exports[org.resource][organizationExport(org, 'summary', 'GetOrganizationSummary')](canonicalId)
+                return callOrganizationExport(org, summaryName, canonicalId)
             end)
-            if ok and type(result) == 'table' then summary = result end
+            if ok and type(result) == 'table' and result.memberCount ~= nil then
+                summary = result
+                summaryAvailable = true
+            else
+                summaryError = safeSummaryError(ok and 'summary export returned no data' or result)
+                local failureKey = canonicalId .. ':' .. org.resource .. ':' .. summaryName .. ':' .. summaryError
+                if not summaryFailureLogs[failureKey] then
+                    summaryFailureLogs[failureKey] = true
+                    print(('[CM-ADMIN:ORGS] summary failed for %s via %s:%s: %s'):format(canonicalId, org.resource, summaryName, summaryError))
+                end
+            end
         end
         out[#out + 1] = {
             id = canonicalId, label = org.label, icon = org.icon, resource = org.resource, running = running,
+            summaryAvailable = summaryAvailable,
+            summaryError = summaryAvailable and nil or summaryError,
             leaderCid = summary.leaderCid, leaderName = summary.leaderName,
             memberCount = tonumber(summary.memberCount) or 0, onDutyCount = tonumber(summary.onDutyCount) or 0,
             canRemoveLeader = org.canRemoveLeader == true,
@@ -391,7 +417,7 @@ function CMOrganizations.getFleet(src, orgId)
     local org = organizations[normalizeOrgId(orgId)]
     if not org then return { ok = false, error = ORGANIZATION_NOT_REGISTERED } end
     if not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return { ok = false, error = 'Fleet configuration is unavailable.' } end
-    local ok, result = pcall(function() return exports[org.resource][organizationExport(org, 'getFleet', 'AdminGetFleet')](src, org.id) end)
+    local ok, result = pcall(function() return callOrganizationExport(org, organizationExport(org, 'getFleet', 'AdminGetFleet'), src, org.id) end)
     return ok and type(result) == 'table' and result or { ok = false, error = 'Fleet configuration failed safely.' }
 end
 
@@ -400,7 +426,7 @@ function CMOrganizations.configureFleet(src, orgId, data)
     local org = organizations[normalizeOrgId(orgId)]
     if not org then return false, ORGANIZATION_NOT_REGISTERED end
     if not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
-    local ok, result, message = pcall(function() return exports[org.resource][organizationExport(org, 'configureFleet', 'AdminConfigureFleetVehicle')](src, org.id, data) end)
+    local ok, result, message = pcall(function() return callOrganizationExport(org, organizationExport(org, 'configureFleet', 'AdminConfigureFleetVehicle'), src, org.id, data) end)
     return ok and result == true, ok and message or 'Fleet configuration failed safely.'
 end
 
@@ -409,7 +435,7 @@ function CMOrganizations.resetFleet(src, orgId, model)
     local org = organizations[normalizeOrgId(orgId)]
     if not org then return false, ORGANIZATION_NOT_REGISTERED end
     if not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
-    local ok, result, message = pcall(function() return exports[org.resource][organizationExport(org, 'resetFleet', 'AdminResetFleetLocation')](src, org.id, model) end)
+    local ok, result, message = pcall(function() return callOrganizationExport(org, organizationExport(org, 'resetFleet', 'AdminResetFleetLocation'), src, org.id, model) end)
     return ok and result == true, ok and message or 'Fleet reset failed safely.'
 end
 
@@ -418,7 +444,7 @@ function CMOrganizations.beginFleetPlacement(src, orgId, model)
     local org = organizations[normalizeOrgId(orgId)]
     if not org then return false, ORGANIZATION_NOT_REGISTERED end
     if not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
-    local ok, result, message = pcall(function() return exports[org.resource][organizationExport(org, 'beginFleetPlacement', 'AdminBeginFleetPlacement')](src, org.id, model) end)
+    local ok, result, message = pcall(function() return callOrganizationExport(org, organizationExport(org, 'beginFleetPlacement', 'AdminBeginFleetPlacement'), src, org.id, model) end)
     if not ok then return false, 'Fleet placement failed safely.' end
     if result == true then log(src, 'org_fleet_location_saved', { orgId = org.id, model = tostring(model or '') }) end
     return result == true, message
@@ -430,7 +456,7 @@ function CMOrganizations.recallFleetVehicle(src, orgId, model)
     if not org then return false, ORGANIZATION_NOT_REGISTERED end
     if not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
     local ok, result, message = pcall(function()
-        return exports[org.resource][organizationExport(org, 'recallFleetVehicle', 'AdminRecallFleetVehicle')](src, org.id, model)
+        return callOrganizationExport(org, organizationExport(org, 'recallFleetVehicle', 'AdminRecallFleetVehicle'), src, org.id, model)
     end)
     return ok and result == true, ok and message or 'Fleet recall failed safely.'
 end
@@ -441,7 +467,7 @@ function CMOrganizations.recallAllFleetVehicles(src, orgId)
     if not org then return false, ORGANIZATION_NOT_REGISTERED end
     if not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
     local ok, result, message = pcall(function()
-        return exports[org.resource][organizationExport(org, 'recallAllFleetVehicles', 'AdminRecallAllFleetVehicles')](src, org.id)
+        return callOrganizationExport(org, organizationExport(org, 'recallAllFleetVehicles', 'AdminRecallAllFleetVehicles'), src, org.id)
     end)
     return ok and result == true, ok and message or 'Fleet recall failed safely.'
 end
@@ -452,7 +478,7 @@ function CMOrganizations.tuneFleetVehicle(src, orgId, model)
     if not org then return false, ORGANIZATION_NOT_REGISTERED end
     if not org.canManageFleet or GetResourceState(org.resource) ~= 'started' then return false, 'Fleet configuration is unavailable.' end
     local ok, result, message = pcall(function()
-        return exports[org.resource][organizationExport(org, 'tuneFleetVehicle', 'AdminTuneFleetVehicle')](src, org.id, model)
+        return callOrganizationExport(org, organizationExport(org, 'tuneFleetVehicle', 'AdminTuneFleetVehicle'), src, org.id, model)
     end)
     return ok and result == true, ok and message or 'Vehicle tuning could not be opened safely.'
 end
@@ -465,7 +491,7 @@ function CMOrganizations.removeLeader(src, orgId)
     if GetResourceState(org.resource) ~= 'started' then return false, ('%s is not running.'):format(org.resource) end
 
     local ok, result, message = pcall(function()
-        return exports[org.resource][organizationExport(org, 'removeLeader', 'AdminRemoveLeader')](src, org.id)
+        return callOrganizationExport(org, organizationExport(org, 'removeLeader', 'AdminRemoveLeader'), src, org.id)
     end)
     if not ok then return false, 'Leader removal failed safely.' end
     if result == true then log(src, 'org_leader_removed', { orgId = org.id }) end
@@ -494,7 +520,7 @@ function CMOrganizations.setFacility(src, orgId, facilityType, reset)
 end
 
 function CMOrganizations.assignLeader(src, orgId, targetCid)
-    if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
+    if not hasPerm(src, 'orgs.manage') then return false, 'Your admin rank does not have orgs.manage.' end
     local requestedId = normalizeOrgId(orgId)
     local org = organizations[requestedId]
     if not org then return false, ORGANIZATION_NOT_REGISTERED end
@@ -507,7 +533,7 @@ function CMOrganizations.assignLeader(src, orgId, targetCid)
     targetCid = tostring(targetCid or '')
     if targetCid == '' then return false, 'Character ID is required.' end
     local ok, result, message = pcall(function()
-        return exports[org.resource][organizationExport(org, 'assignLeader', 'AdminAssignLeader')](src, targetCid, canonicalId)
+        return callOrganizationExport(org, organizationExport(org, 'assignLeader', 'AdminAssignLeader'), src, targetCid, canonicalId)
     end)
     if not ok then return false, 'Leader assignment failed safely.' end
     if result == true then

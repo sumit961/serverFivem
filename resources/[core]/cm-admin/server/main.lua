@@ -190,15 +190,47 @@ local function safeUpdate(sql, params)
     return true, result
 end
 
+local function mergeConfiguredPermissions(existing, configured)
+    local merged, seen = {}, {}
+    local function add(permission)
+        permission = tostring(permission or '')
+        if permission ~= '' and not seen[permission] then
+            seen[permission] = true
+            merged[#merged + 1] = permission
+        end
+    end
+    if type(existing) == 'table' then
+        for _, value in ipairs(existing) do add(value) end
+        for key, value in pairs(existing) do
+            if type(key) ~= 'number' and value == true then
+                add(key)
+            end
+        end
+    end
+    if type(configured) == 'table' then
+        for _, permission in ipairs(configured) do add(permission) end
+    end
+    local existingCount = type(existing) == 'table' and #existing or 0
+    local changed = #merged ~= existingCount
+    if not changed and type(existing) == 'table' then
+        for index, permission in ipairs(existing) do
+            if merged[index] ~= tostring(permission) then changed = true; break end
+        end
+    end
+    return merged, changed
+end
+
 local function getRank(rankName)
     rankName = tostring(rankName or 'moderator'):lower()
     local ok, row = safeSingle('SELECT rank_name, label, level, permissions_json FROM cm_admin_ranks WHERE rank_name = ? LIMIT 1', { rankName })
     if ok and row then
+        local configured = Config.DefaultRanks and Config.DefaultRanks[rankName]
+        local permissions = mergeConfiguredPermissions(jdec(row.permissions_json, {}), configured and configured.permissions or nil)
         return {
             name = row.rank_name,
             label = row.label,
             level = tonumber(row.level) or 0,
-            permissions = jdec(row.permissions_json, {})
+            permissions = permissions
         }
     end
 
@@ -213,6 +245,19 @@ local function getRank(rankName)
     end
 
     return nil
+end
+
+local function reconcileDefaultRankPermissions()
+    for rankName, rank in pairs(Config.DefaultRanks or {}) do
+        local canonicalName = tostring(rankName):lower()
+        local ok, row = safeSingle('SELECT permissions_json FROM cm_admin_ranks WHERE rank_name = ? LIMIT 1', { canonicalName })
+        if ok and row then
+            local permissions, changed = mergeConfiguredPermissions(jdec(row.permissions_json, {}), rank.permissions)
+            if changed then
+                safeUpdate('UPDATE cm_admin_ranks SET permissions_json = ? WHERE rank_name = ?', { jenc(permissions), canonicalName })
+            end
+        end
+    end
 end
 
 local function activeBool(value)
@@ -461,6 +506,7 @@ local function ensureSchema()
             jenc(rank.permissions or {})
         })
     end
+    reconcileDefaultRankPermissions()
 
     for _, ownerCharId in ipairs(Config.OwnerCharacterIds or {}) do
         local charId = normalizeCharacterId(ownerCharId)
