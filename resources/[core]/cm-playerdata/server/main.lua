@@ -10,6 +10,7 @@ local LoadLocks = {}
 local ActiveSaves = {}
 local CharacterSwitchLocks = {}
 local SavePlayerData -- pre-declared for forward references
+local WarmIdentityCache, PushIdentityUpdate -- pre-declared for forward references
 local KnownIdentityCache = {} -- [ownerCharId] = { [knownCharId] = true }
 local PendingHandshakes = {} -- [targetSrc] = { from = src, expires = ms }
 local PendingTreatments = {} -- [treaterSrc] = { target = src, startedAt = ms, duration = ms }
@@ -368,6 +369,58 @@ local function CanMutate(data)
     return tostring(authenticatedAccountId) == tostring(data.accountId or '')
 end
 
+local function ApplyMetadataPatch(data, patch)
+    if not CanMutate(data) then
+        return false, 'cannot_mutate'
+    end
+    if type(patch) ~= 'table' then
+        return false, 'invalid_patch'
+    end
+
+    local tempMeta = DeepCopy(data.metadata or {})
+    local nodeState = { count = 0 }
+
+    local entries = {}
+    if #patch > 0 then
+        for _, entry in ipairs(patch) do
+            if type(entry) == 'table' and entry.key ~= nil then
+                table.insert(entries, entry)
+            end
+        end
+    else
+        for k, v in pairs(patch) do
+            table.insert(entries, { key = k, value = v })
+        end
+    end
+
+    for _, entry in ipairs(entries) do
+        local k = entry.key
+        local v = entry.value
+        if type(k) ~= 'string' or k == '' or #k > 128 then
+            return false, 'invalid_key'
+        end
+        if v == nil then
+            tempMeta[k] = nil
+        else
+            local okVal, cleanedValue = ValidateAndCopyMetadataValue(v, 1, {}, nodeState)
+            if not okVal then
+                return false, cleanedValue
+            end
+            tempMeta[k] = cleanedValue
+        end
+    end
+
+    local serialized = EncodeJson(tempMeta)
+    local maxBytes = (Config.Metadata and Config.Metadata.MaxSerializedBytes) or 65536
+    if not serialized or #serialized > maxBytes then
+        return false, 'max_bytes_exceeded'
+    end
+
+    data.metadata = tempMeta
+    MarkDirty(data)
+    return true, tempMeta
+end
+
 local function ValidateCharacterOwnership(src, charId)
     src = tonumber(src)
     charId = tostring(charId or '')
@@ -663,6 +716,106 @@ local Migrations = {
             end
             return true
         end
+    },
+    {
+        version = 7,
+        name = '007_identity_reconciliation_integrity',
+        run = function()
+            local okSelect, rows = pcall(function()
+                return MySQL.query.await([[
+                    SELECT id, metadata FROM characters
+                    WHERE metadata LIKE '%knownIdentities%' OR metadata LIKE '%knownPlayers%'
+                ]])
+            end)
+            if not okSelect or type(rows) ~= 'table' then
+                Log('error', 'Migration 007 failed to query characters table', { error = tostring(rows) })
+                return false
+            end
+
+            for _, r in ipairs(rows) do
+                local charId = tonumber(r.id)
+                local meta = DecodeJson(r.metadata)
+                if charId and type(meta) == 'table' then
+                    local edges = {}
+
+                    local function extractEdges(legacyTable)
+                        if type(legacyTable) == 'table' then
+                            for k, v in pairs(legacyTable) do
+                                local knownId = tonumber(type(v) == 'table' and (v.characterId or v.charId) or k)
+                                local reason = type(v) == 'table' and v.reason or (type(v) == 'string' and v ~= '' and v or 'met')
+                                if knownId and knownId ~= charId then
+                                    edges[knownId] = tostring(reason or 'met'):sub(1, 32)
+                                end
+                            end
+                        end
+                    end
+
+                    -- Reconcile BOTH legacy metadata tables independently!
+                    extractEdges(meta.knownIdentities)
+                    extractEdges(meta.knownPlayers)
+
+                    local edgeList = {}
+                    for knownId, reason in pairs(edges) do
+                        table.insert(edgeList, { knownId = knownId, reason = reason })
+                    end
+
+                    if #edgeList > 0 then
+                        local batchSize = 50
+                        for i = 1, #edgeList, batchSize do
+                            local placeholders = {}
+                            local params = {}
+                            for j = i, math.min(i + batchSize - 1, #edgeList) do
+                                local item = edgeList[j]
+                                table.insert(placeholders, '(?, ?, ?)')
+                                table.insert(params, charId)
+                                table.insert(params, item.knownId)
+                                table.insert(params, item.reason)
+                            end
+
+                            local sql = ([[
+                                INSERT INTO cm_known_identities (owner_character_id, known_character_id, reason)
+                                VALUES %s
+                                ON DUPLICATE KEY UPDATE reason = VALUES(reason)
+                            ]]):format(table.concat(placeholders, ', '))
+
+                            local okInsert, insertErr = pcall(function()
+                                return MySQL.query.await(sql, params)
+                            end)
+
+                            if not okInsert then
+                                Log('error', 'Migration 007 failed to persist relational edges', {
+                                    charId = charId,
+                                    error = tostring(insertErr)
+                                })
+                                return false
+                            end
+                        end
+                    end
+
+                    -- Only after destination persistence succeeds, remove legacy keys
+                    if meta.knownIdentities ~= nil or meta.knownPlayers ~= nil then
+                        meta.knownIdentities = nil
+                        meta.knownPlayers = nil
+
+                        local okUpdate, updateErr = pcall(function()
+                            return MySQL.update.await('UPDATE characters SET metadata = ? WHERE id = ?', {
+                                EncodeJson(meta), charId
+                            })
+                        end)
+
+                        if not okUpdate or updateErr == nil then
+                            Log('error', 'Migration 007 failed to update cleaned metadata', {
+                                charId = charId,
+                                error = tostring(updateErr)
+                            })
+                            return false
+                        end
+                    end
+                end
+            end
+
+            return true
+        end
     }
 }
 
@@ -714,7 +867,7 @@ local function RunMigrations()
         if not applied[m.version] then
             print(('[CM-PLAYERDATA] Running migration %03d: %s...'):format(m.version, m.name))
             local okRun, runErr = pcall(m.run)
-            if not okRun or runErr == false then
+            if not okRun or runErr ~= true then
                 Log('error', ('CRITICAL: Migration %03d (%s) failed!'):format(m.version, m.name), { error = tostring(runErr) })
                 return fail('migration_run_' .. tostring(m.version))
             end
@@ -1492,13 +1645,14 @@ local function LoadPlayerData(src, explicitCharId)
     if not okWarm then
         local expectedSrc = src
         local expectedCharId = tostring(charId)
+        local expectedData = PlayerData[src]
         CreateThread(function()
             local attempts = 0
             local maxAttempts = 3
             while attempts < maxAttempts do
                 Wait(2000 * (attempts + 1))
                 local curData = PlayerData[expectedSrc]
-                if not curData or tostring(curData.charId or '') ~= expectedCharId or not curData.loaded then
+                if not curData or curData ~= expectedData or tostring(curData.charId or '') ~= expectedCharId or not curData.loaded then
                     break
                 end
                 local okRetry = WarmIdentityCache(expectedCharId)
@@ -2764,7 +2918,7 @@ local function GetGangTag(src)
     return type(gang) == 'table' and CleanTag(gang.gangId) or nil
 end
 
-local function WarmIdentityCache(charId)
+WarmIdentityCache = function(charId)
     charId = tonumber(charId)
     if not charId then return false, 'invalid_char_id' end
 
@@ -2960,7 +3114,7 @@ local function BuildIdentityForViewer(viewerSrc, targetSrc)
     }
 end
 
-local function PushIdentityUpdate(viewerSrc, targetSrc)
+PushIdentityUpdate = function(viewerSrc, targetSrc)
     TriggerClientEvent('cm-playerdata:client:identityUpdate', viewerSrc, BuildIdentityForViewer(viewerSrc, targetSrc))
 end
 
@@ -3528,12 +3682,17 @@ exports('GetKnownIdentitiesForSource', function(src)
 end)
 
 exports('SetOrganization', function(src, orgId, orgName)
-    local data = PlayerData[src]
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
     if not CanMutate(data) then return false end
-    data.metadata = data.metadata or {}
-    data.metadata.organization_id = orgId
-    data.metadata.organization = orgName or orgId
-    MarkDirty(data)
+
+    local patch = {
+        { key = 'organization_id', value = orgId },
+        { key = 'organization', value = orgName or orgId }
+    }
+
+    local okPatch = ApplyMetadataPatch(data, patch)
+    if not okPatch then return false end
     return true
 end)
 
@@ -3541,15 +3700,25 @@ exports('SetFamily', function(src, familyId, familyName, identity)
     src = tonumber(src)
     local data = src and PlayerData[src] or nil
     if not CanMutate(data) then return false end
-    data.metadata = data.metadata or {}
-    data.metadata.family_id = familyId
-    data.metadata.family = familyName or familyId
-    data.metadata.family_identity = type(identity) == 'table' and identity or nil
-    MarkDirty(data)
+
+    local cleanFamilyId = familyId ~= nil and familyId or nil
+    local cleanFamilyName = familyName or familyId
+    local cleanIdentity = type(identity) == 'table' and identity or nil
+
+    local patch = {
+        { key = 'family_id', value = cleanFamilyId },
+        { key = 'family', value = cleanFamilyName },
+        { key = 'family_identity', value = cleanIdentity }
+    }
+
+    local okPatch, updatedMeta = ApplyMetadataPatch(data, patch)
+    if not okPatch then
+        return false
+    end
 
     -- cm-family is authoritative, but playerdata mirrors the sanitized identity
     -- in a replicated state bag so overhead labels and the G menu need no DB polling.
-    local replicated = type(identity) == 'table' and identity or false
+    local replicated = (updatedMeta and updatedMeta.family_identity) or false
     Player(src).state:set('cmFamily', replicated, true)
     TriggerClientEvent('cm-playerdata:client:familyIdentityChanged', src)
     return true
@@ -3749,21 +3918,10 @@ local function SetMetadataInternal(src, key, value)
         return false, 'invalid_key'
     end
 
-    local okVal, cleanedValue = ValidateAndCopyMetadataValue(value, 1, {})
-    if not okVal then
-        return false, cleanedValue
+    local ok, res = ApplyMetadataPatch(data, { { key = key, value = value } })
+    if not ok then
+        return false, res
     end
-
-    local tempMeta = DeepCopy(data.metadata or {})
-    tempMeta[key] = cleanedValue
-    local serialized = EncodeJson(tempMeta)
-    local maxBytes = (Config.Metadata and Config.Metadata.MaxSerializedBytes) or 65536
-    if not serialized or #serialized > maxBytes then
-        return false, 'max_bytes_exceeded'
-    end
-
-    data.metadata = tempMeta
-    MarkDirty(data)
     return true, nil
 end
 
