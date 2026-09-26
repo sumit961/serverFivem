@@ -4,6 +4,7 @@ local leaderLocks = {}
 local useLocks = {}
 local stockLocks = {}
 local inviteCooldowns = {}
+local invalidOrgIdLogs = {}
 
 
 local function warnStandalonePoliceConflict()
@@ -63,9 +64,19 @@ end
 -- Bare globals below (not local): server/vehicles.lua is a separate
 -- server_scripts chunk and needs these same membership/facility helpers
 -- rather than duplicating them.
+function normalizeLegalOrgId(value)
+    return tostring(value or ''):match('^%s*(.-)%s*$'):lower()
+end
+
 function validOrgId(value)
-    value = tostring(value or ''):lower()
-    return Config.Organizations[value] and value or nil
+    local raw = tostring(value or '')
+    local normalized = normalizeLegalOrgId(raw)
+    if Config.Organizations[normalized] then return normalized end
+    if raw ~= '' and not invalidOrgIdLogs[raw .. '\0' .. normalized] then
+        invalidOrgIdLogs[raw .. '\0' .. normalized] = true
+        print(('[cm-law] invalid central-admin organization id: raw="%s" normalized="%s"'):format(raw, normalized))
+    end
+    return nil
 end
 
 function nameFor(characterId)
@@ -396,20 +407,27 @@ function LawFacilityLocation(orgId, facilityType)
 end
 
 local function leaderForOrganization(orgId)
-    orgId = tostring(orgId or '')
+    orgId = validOrgId(orgId)
+    if not orgId then return nil end
     local org = MySQL.single.await('SELECT leader_cid FROM cm_legal_organizations WHERE organization_id = ? LIMIT 1', { orgId }) or {}
-    local leaderCid = org.leader_cid and tostring(org.leader_cid) or nil
-    if leaderCid and leaderCid ~= '' then return leaderCid end
-
-    -- Older legal records may have assigned the leader rank before the
-    -- organization leader_cid column was populated. Treat that authoritative
-    -- rank assignment as the read-side fallback so Admin and F6 agree.
-    local legacy = MySQL.single.await([[SELECT m.character_id
+    local storedLeaderCid = tostring(org.leader_cid or '')
+    if storedLeaderCid == '' or storedLeaderCid == '0' then storedLeaderCid = nil end
+    -- F6 grants leadership from the authoritative leader rank. Resolve that
+    -- member first, then repair the denormalized leader_cid projection.
+    local rankedLeader = MySQL.single.await([[SELECT m.character_id
         FROM cm_legal_members m
         JOIN cm_legal_ranks r ON r.id = m.rank_id AND r.organization_id = m.organization_id
         WHERE m.organization_id = ? AND r.is_leader = 1
-        ORDER BY m.on_duty DESC, m.character_id ASC LIMIT 1]], { orgId })
-    return legacy and legacy.character_id and tostring(legacy.character_id) or nil
+        ORDER BY (m.character_id = ?) DESC, m.on_duty DESC, m.character_id ASC LIMIT 1]], { orgId, storedLeaderCid or '' })
+    local leaderCid = rankedLeader and rankedLeader.character_id and tostring(rankedLeader.character_id) or nil
+    if leaderCid ~= storedLeaderCid then
+        if leaderCid then
+            MySQL.update.await('UPDATE cm_legal_organizations SET leader_cid = ? WHERE organization_id = ?', { leaderCid, orgId })
+        else
+            MySQL.update.await('UPDATE cm_legal_organizations SET leader_cid = NULL WHERE organization_id = ?', { orgId })
+        end
+    end
+    return leaderCid
 end
 
 local function findAdminRivalMembership(orgId, characterId)
@@ -789,6 +807,9 @@ local function assignLeader(src, targetCid, orgId)
     targetCid = tostring(targetCid or '')
     if targetCid == '' or not MySQL.scalar.await('SELECT id FROM characters WHERE id = ? LIMIT 1', { targetCid }) then
         return false, 'Character ID does not exist.'
+    end
+    if leaderForOrganization(orgId) == targetCid then
+        return true, ('%s is already the leader of %s.'):format(nameFor(targetCid) or targetCid, Config.Organizations[orgId].label)
     end
     local rival, registryAvailable = findAdminRivalMembership(orgId, targetCid)
     if not registryAvailable then return false, 'Organization membership service is unavailable.' end
@@ -1815,7 +1836,24 @@ lib.callback.register('cm-law:server:respondInvite', function(src, orgId, accept
     return true, ('You joined %s as %s.'):format(Config.Organizations[orgId].label, rank.name)
 end)
 
-local function registerCentralOrganizations()
+local function centralOrganizationsPresent()
+    local ok, rows = pcall(function()
+        return exports[Config.AdminResource]:GetRegisteredOrganizations()
+    end)
+    if not ok or type(rows) ~= 'table' then return false end
+    local present = {}
+    for _, row in ipairs(rows) do
+        local id = normalizeLegalOrgId(row.id)
+        if id ~= '' then present[id] = row.resource end
+    end
+    for orgId in pairs(Config.Organizations) do
+        if present[orgId] ~= RESOURCE then return false end
+    end
+    return true
+end
+
+local function registerCentralOrganizations(attempt)
+    attempt = tonumber(attempt) or 1
     if not ready then return false, 'cm-law schema is not ready' end
     if GetResourceState(Config.AdminResource) ~= 'started' then return false, 'cm-admin is not started' end
 
@@ -1852,9 +1890,22 @@ local function registerCentralOrganizations()
         print(('[cm-law] CM Admin organization registration failed: %s'):format(reason))
         return false, reason
     end
+    if not centralOrganizationsPresent() then
+        if attempt < 3 then
+            local delay = attempt == 1 and 250 or 750
+            SetTimeout(delay, function() registerCentralOrganizations(attempt + 1) end)
+        else
+            print('[cm-law] CM Admin organization registry verification failed after 3 attempts')
+        end
+        return false, 'CM Admin organization registry verification failed'
+    end
     print(('[cm-law] registered %d legal organizations with cm-admin'):format(registered))
     return true, registered
 end
+
+AddEventHandler('cm-admin:server:organizationRegistryReady', function()
+    SetTimeout(0, function() registerCentralOrganizations() end)
+end)
 
 AddEventHandler('onResourceStart', function(resource)
     if resource == Config.PlayerDataResource then Wait(500); registerGMenu() end

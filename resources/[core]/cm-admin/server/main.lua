@@ -1792,3 +1792,9 @@ end)
 AddEventHandler('cm-admin:server:addLog', function(src, action, data, targetIdentifier, targetName)
     logAction(tonumber(src) or 0, tostring(action or 'external_log'), type(data) == 'table' and data or {}, targetIdentifier, targetName)
 end)
+
+CreateThread(function()
+    Wait(0)
+    TriggerEvent('cm-admin:server:organizationRegistryReady')
+    if Config.QuietConsoleLogs ~= true then print('[CM-ADMIN:ORGS] organization registry ready') end
+end)

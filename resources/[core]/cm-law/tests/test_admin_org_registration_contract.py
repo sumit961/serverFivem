@@ -85,6 +85,41 @@ class AdminOrganizationRegistrationContractTests(unittest.TestCase):
         self.assertNotIn("organizations[tostring(orgId or '')]", self.admin_orgs)
         self.assertIn("if owner == resourceName then unregisterOrganization(id) end", self.admin_orgs)
 
+    def test_admin_summary_and_assignment_share_the_canonical_registry_id(self):
+        payload = self.admin_orgs.split('function CMOrganizations.forAdminPayload(src)', 1)[1]
+        payload = payload.split('\nend', 1)[0]
+        self.assertIn('local canonicalId = normalizeOrgId(org.id)', payload)
+        self.assertIn('](canonicalId)', payload)
+        self.assertIn('id = canonicalId', payload)
+        assignment = self.admin_orgs.split('function CMOrganizations.assignLeader(src, orgId, targetCid)', 1)[1]
+        assignment = assignment.split('\nend', 1)[0]
+        self.assertIn('local requestedId = normalizeOrgId(orgId)', assignment)
+        self.assertIn('local canonicalId = normalizeOrgId(org.id)', assignment)
+        self.assertIn('](src, targetCid, canonicalId)', assignment)
+        self.assertIn('registry key/id mismatch', self.admin_orgs)
+
+    def test_generic_law_normalizes_ids_and_repairs_leader_projection(self):
+        self.assertIn('function normalizeLegalOrgId(value)', self.law)
+        self.assertIn("return tostring(value or ''):match('^%s*(.-)%s*$'):lower()", self.law)
+        self.assertIn('value = normalizeLegalOrgId(raw)', self.law)
+        leader = self.law.split('local function leaderForOrganization(orgId)', 1)[1]
+        leader = leader.split('\nend', 1)[0]
+        self.assertIn('orgId = validOrgId(orgId)', leader)
+        self.assertIn('r.is_leader = 1', leader)
+        self.assertIn('UPDATE cm_legal_organizations SET leader_cid = ?', leader)
+        self.assertIn('SET leader_cid = NULL', leader)
+        self.assertIn("storedLeaderCid == '' or storedLeaderCid == '0'", leader)
+        self.assertIn('leaderForOrganization(orgId) == targetCid', self.law)
+        self.assertIn('exports(\'AdminAssignLeader\', assignLeader)', self.law)
+
+    def test_generic_registration_verifies_runtime_registry_and_handshake(self):
+        self.assertIn('GetRegisteredOrganizations', self.law)
+        self.assertIn('centralOrganizationsPresent()', self.law)
+        self.assertIn('attempt < 3', self.law)
+        self.assertIn("cm-admin:server:organizationRegistryReady", self.law)
+        self.assertIn("cm-admin:server:organizationRegistryReady", self.police)
+        self.assertIn("cm-admin:server:organizationRegistryReady", self.admin_main)
+
     def test_generic_and_police_assignment_argument_order_and_permissions(self):
         assign = self.admin_orgs.split('function CMOrganizations.assignLeader(src, orgId, targetCid)', 1)[1]
         assign = assign.split('\nend', 1)[0]

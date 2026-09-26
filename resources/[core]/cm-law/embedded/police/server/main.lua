@@ -1766,6 +1766,10 @@ registerPoliceCentralOrganization = function()
     return true
 end
 
+AddEventHandler('cm-admin:server:organizationRegistryReady', function()
+    SetTimeout(0, registerPoliceCentralOrganization)
+end)
+
 AddEventHandler('onResourceStart', function(resource)
     if resource == PoliceConfig.PlayerDataResource then Wait(500); registerGMenu() end
     if resource == PoliceConfig.AdminResource then

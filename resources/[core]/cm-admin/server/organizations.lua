@@ -176,10 +176,10 @@ local function registerOrganization(org)
             end
         end
     end
-    local orgId = normalizeOrgId(org.id)
-    if orgId == '' then return false end
-    organizations[orgId] = {
-        id = orgId, label = org.label, resource = org.resource, icon = org.icon,
+    local canonicalId = normalizeOrgId(org.id)
+    if canonicalId == '' then return false end
+    organizations[canonicalId] = {
+        id = canonicalId, label = org.label, resource = org.resource, icon = org.icon,
         api = {
             summary = type(org.api) == 'table' and tostring(org.api.summary or '') or '',
             assignLeader = type(org.api) == 'table' and tostring(org.api.assignLeader or '') or '',
@@ -195,8 +195,15 @@ local function registerOrganization(org)
         canManageBarricades = org.canManageBarricades == true,
         facilityTypes = facilityTypes,
     }
-    orgOwner[orgId] = GetInvokingResource() or GetCurrentResourceName()
-    if Config.QuietConsoleLogs ~= true then print(('[CM-ADMIN:ORGS] Registered organization "%s" (%s) from %s'):format(org.label, orgId, orgOwner[orgId])) end
+    if organizations[canonicalId].id ~= canonicalId then
+        organizations[canonicalId] = nil
+        if Config.QuietConsoleLogs ~= true then
+            print(('[CM-ADMIN:ORGS] Rejected organization registration: registry key/id mismatch (%s)'):format(canonicalId))
+        end
+        return false
+    end
+    orgOwner[canonicalId] = GetInvokingResource() or GetCurrentResourceName()
+    if Config.QuietConsoleLogs ~= true then print(('[CM-ADMIN:ORGS] Registered organization "%s" (%s) from %s'):format(org.label, canonicalId, orgOwner[canonicalId])) end
     return true
 end
 
@@ -235,16 +242,21 @@ function CMOrganizations.forAdminPayload(src)
     if not hasPerm(src, 'orgs.view') then return nil end
     local out = {}
     for id, org in pairs(organizations) do
+        local canonicalId = normalizeOrgId(org.id)
+        if canonicalId ~= id then
+            print(('[CM-ADMIN:ORGS] Invalid registry entry: key=%s id=%s'):format(tostring(id), tostring(org.id)))
+            goto continue
+        end
         local running = GetResourceState(org.resource) == 'started'
         local summary = {}
         if running then
             local ok, result = pcall(function()
-                return exports[org.resource][organizationExport(org, 'summary', 'GetOrganizationSummary')](org.id)
+                return exports[org.resource][organizationExport(org, 'summary', 'GetOrganizationSummary')](canonicalId)
             end)
             if ok and type(result) == 'table' then summary = result end
         end
         out[#out + 1] = {
-            id = id, label = org.label, icon = org.icon, resource = org.resource, running = running,
+            id = canonicalId, label = org.label, icon = org.icon, resource = org.resource, running = running,
             leaderCid = summary.leaderCid, leaderName = summary.leaderName,
             memberCount = tonumber(summary.memberCount) or 0, onDutyCount = tonumber(summary.onDutyCount) or 0,
             canRemoveLeader = org.canRemoveLeader == true,
@@ -257,6 +269,7 @@ function CMOrganizations.forAdminPayload(src)
             canManageBarricades = org.canManageBarricades == true,
             facilityTypes = org.facilityTypes,
         }
+        ::continue::
     end
     table.sort(out, function(a, b) return a.label < b.label end)
     return {
@@ -482,13 +495,19 @@ end
 
 function CMOrganizations.assignLeader(src, orgId, targetCid)
     if not hasPerm(src, 'orgs.manage') then return false, 'No permission: orgs.manage' end
-    local org = organizations[normalizeOrgId(orgId)]
+    local requestedId = normalizeOrgId(orgId)
+    local org = organizations[requestedId]
     if not org then return false, ORGANIZATION_NOT_REGISTERED end
+    local canonicalId = normalizeOrgId(org.id)
+    if canonicalId ~= requestedId then
+        print(('[CM-ADMIN:ORGS] Invalid assignment registry entry: key=%s id=%s'):format(requestedId, tostring(org.id)))
+        return false, ORGANIZATION_NOT_REGISTERED
+    end
     if GetResourceState(org.resource) ~= 'started' then return false, ('%s is not running.'):format(org.resource) end
     targetCid = tostring(targetCid or '')
     if targetCid == '' then return false, 'Character ID is required.' end
     local ok, result, message = pcall(function()
-        return exports[org.resource][organizationExport(org, 'assignLeader', 'AdminAssignLeader')](src, targetCid, org.id)
+        return exports[org.resource][organizationExport(org, 'assignLeader', 'AdminAssignLeader')](src, targetCid, canonicalId)
     end)
     if not ok then return false, 'Leader assignment failed safely.' end
     if result == true then
