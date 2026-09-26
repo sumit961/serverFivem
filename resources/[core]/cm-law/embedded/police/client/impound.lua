@@ -13,6 +13,19 @@ local TowTruck, TowTarget
 local KioskLocations = {}
 local OperatorPeds, OperatorBlips = {}, {}
 local impoundReleaseOpen = false
+local towPromptVisible = false
+
+local function showTowPrompt()
+    if towPromptVisible or impoundReleaseOpen then return end
+    towPromptVisible = true
+    exports['cm-ui']:ShowInteract({ key = 'E', label = 'DELIVER VEHICLE TO IMPOUND', name = 'Impound', role = 'LAW' })
+end
+
+local function hideTowPrompt()
+    if not towPromptVisible then return end
+    towPromptVisible = false
+    exports['cm-ui']:HideInteract()
+end
 
 function PoliceIsImpoundOpen()
     return impoundReleaseOpen
@@ -67,9 +80,12 @@ local function hookedTowTarget(towTruck)
     end
 end
 
-RegisterCommand('policetow', function()
+function PoliceToggleTow()
     if TowTarget and DoesEntityExist(TowTarget) then
+        local ok, message = lib.callback.await('cm-police:server:cancelTow', false)
+        if not ok then return notify(message or 'Tow detach was rejected.', 'error') end
         DetachVehicleFromTowTruck(TowTruck, TowTarget)
+        TowTarget, TowTruck = nil, nil
         return notify('Vehicle detached. Take it to the impound drop-off and press E.', 'inform')
     end
     local ped = PlayerPedId()
@@ -89,9 +105,20 @@ RegisterCommand('policetow', function()
     TowTruck, TowTarget = towTruck, target
     if KioskLocations[1] then SetNewWaypoint(KioskLocations[1].x + 0.0, KioskLocations[1].y + 0.0) end
     notify('Vehicle attached. Drive it to the impound drop-off.', 'success')
-end, false)
+end
+RegisterCommand('policetow', PoliceToggleTow, false)
 
-RegisterCommand('policeimpound', function()
+RegisterNetEvent('cm-law:client:impoundSessionEnded', function(message)
+    if TowTarget and TowTruck and DoesEntityExist(TowTarget) and DoesEntityExist(TowTruck) then
+        DetachVehicleFromTowTruck(TowTruck, TowTarget)
+    end
+    TowTarget, TowTruck = nil, nil
+    PoliceHideHint()
+    notify(message or 'Tow authorization ended.', 'error')
+end)
+
+function PoliceDeliverImpound()
+    hideTowPrompt()
     if not TowTarget or not DoesEntityExist(TowTarget) then return notify('Bring a hooked vehicle into an authorized impound drop-off first.', 'error') end
     local target, truck = TowTarget, TowTruck
     local netId = NetworkGetNetworkIdFromEntity(target)
@@ -102,11 +129,13 @@ RegisterCommand('policeimpound', function()
         PolicePlayImpoundCompletion(truck, summary)
     else PoliceCancelCinematic() end
     notify(message or (ok and 'Done.' or 'Impound failed.'), ok and 'success' or 'error')
-end, false)
+end
+RegisterCommand('policeimpound', PoliceDeliverImpound, false)
 
 -- Shared between /impoundlot and every Impound Operator NPC. The server
 -- rejects release unless the owner is physically near any configured operator.
 local function openImpoundMenu()
+    hideTowPrompt()
     local vehicles = lib.callback.await('cm-police:server:listImpoundedVehicles', false)
     if not vehicles or #vehicles == 0 then return notify('You have no impounded vehicles.', 'inform') end
     impoundReleaseOpen = true
@@ -170,17 +199,19 @@ local function refreshOperators()
     local deadline = GetGameTimer() + 5000
     while not HasModelLoaded(model) and GetGameTimer() < deadline do Wait(50) end
     for index, location in ipairs(KioskLocations) do
-        if HasModelLoaded(model) and not location.organizationId then
+        if location.policeOperator == true and HasModelLoaded(model) then
             local ped = CreatePed(4, model, location.x, location.y, location.z - 1.0, location.heading or 0.0, false, true)
             if ped ~= 0 then
                 FreezeEntityPosition(ped, true); SetEntityInvincible(ped, true); SetBlockingOfNonTemporaryEvents(ped, true)
                 OperatorPeds[index] = ped
             end
         end
-        local blip = AddBlipForCoord(location.x, location.y, location.z)
-        SetBlipSprite(blip, PoliceConfig.Impound.KioskBlipSprite or 68); SetBlipColour(blip, PoliceConfig.Impound.KioskBlipColour or 5); SetBlipAsShortRange(blip, true)
-        BeginTextCommandSetBlipName('STRING'); AddTextComponentSubstringPlayerName('Impound Operator'); EndTextCommandSetBlipName(blip)
-        OperatorBlips[index] = blip
+        if location.policeOperator == true then
+            local blip = AddBlipForCoord(location.x, location.y, location.z)
+            SetBlipSprite(blip, PoliceConfig.Impound.KioskBlipSprite or 68); SetBlipColour(blip, PoliceConfig.Impound.KioskBlipColour or 5); SetBlipAsShortRange(blip, true)
+            BeginTextCommandSetBlipName('STRING'); AddTextComponentSubstringPlayerName('Impound Operator'); EndTextCommandSetBlipName(blip)
+            OperatorBlips[index] = blip
+        end
     end
     SetModelAsNoLongerNeeded(model)
 end
@@ -228,14 +259,17 @@ CreateThread(function()
         if TowTarget and DoesEntityExist(TowTarget) and #KioskLocations > 0 then
             if nearOperator(TowTarget, PoliceConfig.Impound.DropoffRadius or 18.0) then
                 wait = 0
-                PoliceShowHint('[E] Deliver to Police Impound')
+                showTowPrompt()
                 if IsControlJustPressed(0, PoliceConfig.Impound.KioskInteractKey or 38) then
-                    ExecuteCommand('policeimpound')
+                        PoliceDeliverImpound()
                 end
-            else PoliceHideHint() end
+            else hideTowPrompt() end
         elseif TowTarget then
+            pcall(function() lib.callback.await('cm-police:server:cancelTow', false) end)
             TowTarget, TowTruck = nil, nil
-            PoliceHideHint()
+            hideTowPrompt()
+        else
+            hideTowPrompt()
         end
         Wait(wait)
     end
@@ -245,12 +279,14 @@ CreateThread(function()
     local promptIndex
     while true do
         local wait = 1000
-        if #KioskLocations > 0 and not IsPedInAnyVehicle(PlayerPedId(), false) then
+        if not impoundReleaseOpen and #KioskLocations > 0 and not IsPedInAnyVehicle(PlayerPedId(), false) then
             local coords = GetEntityCoords(PlayerPedId())
             local nearest, nearestDistance
             for index, location in ipairs(KioskLocations) do
-                local distance = #(coords - vector3(location.x, location.y, location.z))
-                if not nearestDistance or distance < nearestDistance then nearest, nearestDistance = index, distance end
+                if location.policeOperator == true then
+                    local distance = #(coords - vector3(location.x, location.y, location.z))
+                    if not nearestDistance or distance < nearestDistance then nearest, nearestDistance = index, distance end
+                end
             end
             if nearest and nearestDistance <= (PoliceConfig.Impound.OperatorDrawDistance or 7.0) then
                 wait = 0; local location, ped = KioskLocations[nearest], OperatorPeds[nearest]
@@ -278,6 +314,11 @@ end)
 
 AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end
+    if TowTarget and TowTruck and DoesEntityExist(TowTarget) and DoesEntityExist(TowTruck) then
+        DetachVehicleFromTowTruck(TowTruck, TowTarget)
+    end
+    PoliceHideHint()
+    hideTowPrompt()
     for _, ped in pairs(OperatorPeds) do if DoesEntityExist(ped) then DeleteEntity(ped) end end
     for _, blip in pairs(OperatorBlips) do if DoesBlipExist(blip) then RemoveBlip(blip) end end
     if impoundReleaseOpen then SetNuiFocus(false, false) end

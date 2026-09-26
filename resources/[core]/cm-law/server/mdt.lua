@@ -128,14 +128,17 @@ lib.callback.register('cm-law:server:mdtVehicleSearch', function(src, plate)
     pcall(function() row = exports['cm-vehicles']:GetVehicleByPlate(plate) end)
     if not row then return { ok = false, error = 'Vehicle not found.' } end
     local ownerCid = row.owner_character_id and tostring(row.owner_character_id) or nil
-    local impound = safeRows([[SELECT fee,reason,impounded_at FROM cm_police_impounds
-        WHERE vehicle_id=? AND released_at IS NULL ORDER BY id DESC LIMIT 1]], { row.id })[1]
+    local impound = safeRows([[SELECT i.fee, i.organization_id, i.impounded_at, e.message AS reason
+        FROM cm_police_impounds i LEFT JOIN cm_police_impound_evidence e ON e.impound_id = i.id
+        WHERE i.vehicle_id=? AND i.released_at IS NULL ORDER BY i.id DESC, e.id DESC LIMIT 1]], { row.id })[1]
     local bolo = type(LawActiveBoloForPlate) == 'function' and LawActiveBoloForPlate(row.plate or plate) or nil
     return { ok = true, vehicle = { vehicleId = tonumber(row.id), plate = tostring(row.plate or plate),
         model = tostring(row.model or ''), label = tostring(row.label or row.model or ''),
         ownerCid = ownerCid, ownerName = ownerCid and nameFor(ownerCid) or 'Unknown',
         licenseNumber = row.license_number and tostring(row.license_number) or nil,
         impound = impound and { fee = tonumber(impound.fee) or 0, reason = tostring(impound.reason or ''),
+            organizationId = tostring(impound.organization_id or ''),
+            organization = (Config.Organizations[tostring(impound.organization_id or '')] or {}).label or tostring(impound.organization_id or 'Law'),
             impoundedAt = tostring(impound.impounded_at or '') } or nil,
         bolo = bolo } }
 end)

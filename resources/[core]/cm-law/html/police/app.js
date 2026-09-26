@@ -38,7 +38,7 @@ function renderImpoundRelease(vehicles) {
   impoundReleaseList.innerHTML = `<article class="impound-cinematic">
     <section class="impound-cinematic__copy">
       <div class="impound-cinematic__selector"><button data-impound-direction="-1" ${impoundReleaseVehicles.length < 2 ? 'disabled' : ''}>⌃</button><i></i><button data-impound-direction="1" ${impoundReleaseVehicles.length < 2 ? 'disabled' : ''}>⌄</button></div>
-      <div class="impound-cinematic__heading"><small>VEHICLE IMPOUND NOTICE</small><h1>THE CAR<br>IMPOUNDED</h1><h3>${esc(vehicle.model || 'UNKNOWN VEHICLE')}</h3><p>POLICE OFFICER <b>${esc(vehicle.officerName)}</b></p></div>
+      <div class="impound-cinematic__heading"><small>VEHICLE IMPOUND NOTICE · ${esc(vehicle.organization || 'LAW')}</small><h1>THE CAR<br>IMPOUNDED</h1><h3>${esc(vehicle.model || 'UNKNOWN VEHICLE')}</h3><p>LAW OFFICER <b>${esc(vehicle.officerName)}</b></p></div>
       <blockquote>${esc(vehicle.reason)}</blockquote>
       <div class="impound-cinematic__counter"><strong>${impoundReleaseIndex + 1}</strong><span>/ ${impoundReleaseVehicles.length}</span></div>
       <div class="impound-cinematic__penalty"><small>RELEASE PENALTY</small><b>$${Number(vehicle.fee || 0).toLocaleString()}</b></div>
@@ -47,9 +47,9 @@ function renderImpoundRelease(vehicles) {
       <div class="impound-file impound-file--back"></div><div class="impound-file">
         <div class="impound-file__photo">${vehicle.imageUrl ? `<img src="${esc(vehicle.imageUrl)}" alt="Police evidence for ${esc(vehicle.plate)}">` : '<div>NO EVIDENCE IMAGE</div>'}<span>IMPOUNDED</span></div>
         <p>Vehicle <b>${esc(vehicle.plate)}</b> was impounded on ${esc(vehicle.impoundedAt)}.</p>
-        <div class="impound-file__seal">★<small>CM POLICE</small></div>
+        <div class="impound-file__seal">★<small>CM LAW</small></div>
       </div>
-      <div class="impound-cinematic__badge">★<span>POLICE<br>DEPARTMENT</span></div>
+      <div class="impound-cinematic__badge">★<span>${esc(vehicle.organization || 'LAW')}</span></div>
     </section>
     <footer class="impound-cinematic__actions"><button class="secondary" id="impoundLotClose">⌖&nbsp;&nbsp; IMPOUND LOT</button><button class="primary" data-impound-pay="${Number(vehicle.vehicleId)}" data-impound-fee="${Number(vehicle.fee || 0)}" data-impound-plate="${esc(vehicle.plate)}">▣&nbsp;&nbsp; PAY &amp; RELEASE VEHICLE</button></footer>
   </article>`;
@@ -705,7 +705,7 @@ function renderMdtProfile() {
   // Report titles and metadata only -- the narrative body deliberately never
   // leaves the issuing agency's own MDT.
   document.getElementById('mdtReports').innerHTML = (mdtProfile.legalReports || []).map((r) => `<article class="mdt-record-row"><strong>${esc(r.title)}</strong>${agencyTag(r)}<small>${esc(r.status === 'open' ? 'Open' : 'Closed')} · Filed by ${esc(r.authorName)} · ${esc(r.createdAt)}</small></article>`).join('') || '<article class="mdt-record-row">No reports.</article>';
-  document.getElementById('mdtImpounds').innerHTML = (mdtProfile.impounds || []).map((i) => `<article class="mdt-record-row"><strong>${esc(i.plate)}</strong> · $${esc(i.fee)}<small>${i.releasedAt ? `Released` : 'Still impounded'} · ${esc(i.impoundedAt)}</small></article>`).join('') || '<article class="mdt-record-row">No impound history.</article>';
+  document.getElementById('mdtImpounds').innerHTML = (mdtProfile.impounds || []).map((i) => `<article class="mdt-record-row"><strong>${esc(i.plate)}</strong> · $${esc(i.fee)}<small>${esc(i.organization || 'Law')} · ${i.releasedAt ? `Released` : 'Still impounded'} · ${esc(i.impoundedAt)}${i.reason ? ` · ${esc(i.reason)}` : ''}</small></article>`).join('') || '<article class="mdt-record-row">No impound history.</article>';
   document.getElementById('mdtVehicles').innerHTML = (mdtProfile.vehicles || []).map((v) => `<article class="mdt-record-row"><strong>${esc(v.plate)}</strong> · ${esc(v.model)}<small>${esc(v.locationState)}</small></article>`).join('') || '<article class="mdt-record-row">No registered vehicles.</article>';
   document.getElementById('mdtNotes').innerHTML = (mdtProfile.notes || []).map((n) => {
     const mine = n.authorCid && state?.self?.characterId && n.authorCid === state.self.characterId;
@@ -768,7 +768,7 @@ function renderMdtVehicleResult() {
     <strong>${esc(v.plate)}</strong> · ${esc(v.model)}
     <small>Owner: ${esc(v.ownerName)}${v.ownerCid ? ` (CID ${esc(v.ownerCid)})` : ''}</small>
     <small>Status: ${esc(v.locationState)}</small>
-    ${v.impound ? `<span class="impound-tag">Impounded · $${esc(v.impound.fee)} fee · ${esc(v.impound.impoundedAt)}</span>` : ''}
+    ${v.impound ? `<span class="impound-tag">Impounded by ${esc(v.impound.organization || 'Law')} · $${esc(v.impound.fee)} fee · ${esc(v.impound.impoundedAt)}${v.impound.reason ? ` · ${esc(v.impound.reason)}` : ''}</span>` : ''}
   </article>`;
 }
 

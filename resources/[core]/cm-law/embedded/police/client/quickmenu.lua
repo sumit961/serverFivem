@@ -222,7 +222,7 @@ local function openLawQuickMenu(state)
         enforcement[#enforcement + 1] = { title = 'Start Vehicle Impound', description = 'Document and photograph the nearest vehicle before towing', icon = 'truck-ramp-box',
             onSelect = function() TriggerEvent('cm-police:client:startSharedImpound') end }
         enforcement[#enforcement + 1] = { title = 'Attach / Detach Tow', description = 'Operate the current organization tow truck', icon = 'truck-tow',
-            onSelect = function() ExecuteCommand('policetow') end }
+            onSelect = PoliceToggleTow }
     end
     if #enforcement > 0 then
         options[#options + 1] = { title = 'Enforcement', description = 'Citations, radar, and vehicle clamp', icon = 'scale-balanced',

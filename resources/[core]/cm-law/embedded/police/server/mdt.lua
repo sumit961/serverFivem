@@ -296,7 +296,7 @@ lib.callback.register('cm-police:server:mdtCitizenProfile', function(src, charac
         table.sort(bookings, function(a, b) return tostring(a.bookedAt or '') > tostring(b.bookedAt or '') end)
     end
 
-    local impounds = MySQL.query.await([[SELECT i.id, i.plate, i.fee, i.impounded_at, i.released_at,
+    local impounds = MySQL.query.await([[SELECT i.id, i.plate, i.fee, i.organization_id, i.impounded_at, i.released_at,
         i.cinematic_status, i.completed_at, i.officer_cid, e.locked_at, e.image_url, e.message
         FROM cm_police_impounds i LEFT JOIN cm_police_impound_evidence e ON e.impound_id = i.id
         WHERE i.owner_cid = ? ORDER BY i.id DESC LIMIT 50]], { characterId }) or {}
@@ -310,8 +310,11 @@ lib.callback.register('cm-police:server:mdtCitizenProfile', function(src, charac
         row.imageUrl = row.image_url and tostring(row.image_url) or nil
         row.reason = row.message and tostring(row.message) or nil
         row.officerName = row.officer_cid and PoliceLegacyNameFor(tostring(row.officer_cid)) or 'Police Department'
+        row.organizationId = tostring(row.organization_id or 'police')
+        row.organization = row.organizationId == 'police' and 'Police Department'
+            or ((Config.Organizations[row.organizationId] or {}).label or row.organizationId)
         row.impounded_at, row.released_at, row.cinematic_status, row.completed_at = nil, nil, nil, nil
-        row.locked_at, row.image_url, row.message, row.officer_cid = nil, nil, nil, nil
+        row.locked_at, row.image_url, row.message, row.officer_cid, row.organization_id = nil, nil, nil, nil, nil
     end
 
     local vehicles = {}
@@ -646,7 +649,7 @@ lib.callback.register('cm-police:server:mdtVehicleSearch', function(src, plate)
     pcall(function() row = exports[PoliceConfig.VehiclesResource]:GetVehicleByPlate(plate) end)
     if not row then return nil end
     local ownerCid = row.owner_character_id and tostring(row.owner_character_id) or nil
-    local impound = MySQL.single.await('SELECT fee, impounded_at FROM cm_police_impounds WHERE vehicle_id = ? AND released_at IS NULL ORDER BY id DESC LIMIT 1', { row.id })
+    local impound = MySQL.single.await('SELECT fee, organization_id, impounded_at FROM cm_police_impounds WHERE vehicle_id = ? AND released_at IS NULL ORDER BY id DESC LIMIT 1', { row.id })
     local impoundEvidence = MySQL.single.await([[SELECT image_url, message, officer_cid, captured_at, used_at
         FROM cm_police_impound_evidence WHERE vehicle_id = ? ORDER BY id DESC LIMIT 1]], { row.id })
     return {
@@ -660,7 +663,10 @@ lib.callback.register('cm-police:server:mdtVehicleSearch', function(src, plate)
         -- that's an active police process (release fee owed), not a
         -- location leak.
         licenseNumber = (row.license_number and tostring(row.license_number) ~= '') and tostring(row.license_number) or nil,
-        impound = impound and { fee = tonumber(impound.fee), impoundedAt = tostring(impound.impounded_at or '') } or nil,
+        impound = impound and { fee = tonumber(impound.fee), organizationId = tostring(impound.organization_id or 'police'),
+            organization = tostring(impound.organization_id or 'police') == 'police' and 'Police Department'
+                or ((Config.Organizations[tostring(impound.organization_id)] or {}).label or tostring(impound.organization_id)),
+            impoundedAt = tostring(impound.impounded_at or '') } or nil,
         impoundEvidence = impoundEvidence and {
             imageUrl = tostring(impoundEvidence.image_url or ''),
             message = tostring(impoundEvidence.message or ''),
