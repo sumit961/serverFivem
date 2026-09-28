@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>CM Law Interface</title>
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-interact.css">
   <style>
     html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
     .surface { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: transparent; visibility: hidden; pointer-events: none; }
@@ -17,6 +19,14 @@
   <iframe id="law" class="surface" src="law.html?v=8" title="Organization Hub"></iframe>
   <iframe id="tools" class="surface" src="operations.html?v=1" title="Law gameplay tools"></iframe>
   <iframe id="police" class="surface" loading="lazy" src="police/index.html?v=4" title="Police gameplay utilities"></iframe>
+  <!-- Police NPC proximity hotfix: the passive "[E] INTERACTION" prompt is
+       rendered here by the shared cm-ui CMUI.showInteract()/.cm-interact
+       widget instead of inside the Police iframe. FiveM CEF was compositing
+       the full-size Police iframe as an opaque dark-blue surface even though
+       its own DOM/CSS reported fully transparent -- so the iframe must stay
+       hidden for a passive prompt and only become visible for a real
+       interactive surface (npcDialogue, quick menu, confirm, etc). -->
+  <script src="nui://cm-ui/web/cm-ui.js"></script>
   <script>
     const surfaces = { law: document.getElementById('law'), tools: document.getElementById('tools'), police: document.getElementById('police') };
     const ready = { law: false, tools: false, police: false };
@@ -51,7 +61,11 @@
       '#cinematicAccessibility:not([hidden])', '#policeCinematic:not([hidden])', '#impoundCamera:not([hidden])'
     ];
     const policePassiveSelectors = [
-      '#npcInteraction:not([hidden])', '#policeHint:not([hidden])', '#policeToasts > *',
+      // #npcInteraction intentionally excluded: the passive NPC prompt is
+      // now owned by this root document (window.CMUI.showInteract/hideInteract
+      // in the message handler below) so the full-size Police iframe never
+      // has to become visible just to show it.
+      '#policeHint:not([hidden])', '#policeToasts > *',
       '.cm-interact:not([hidden])', '.cm-dialogue:not([hidden])', '.cm-toast-stack .cm-toast'
     ];
     let visibleSurface = null;
@@ -148,6 +162,20 @@
     window.addEventListener('message', event => {
       if (Object.values(surfaces).some(frame => event.source === frame.contentWindow)) return;
       const payload = event.data && typeof event.data === 'object' ? event.data : {};
+      // Police NPC proximity hotfix: handle the passive prompt here, before
+      // it ever reaches targetFor/forward, so it never makes the Police
+      // iframe visible. Real interactive surfaces (npcDialogue, quick menu,
+      // confirm, wardrobe, impound, cinematic) are unaffected and still
+      // route to the Police iframe as before.
+      if (payload.cmInterface === 'police' && payload.action === 'npcInteraction:show') {
+        window.CMUI?.showInteract({ key: payload.key, label: payload.label, name: payload.name, role: payload.role });
+        return;
+      }
+      if (payload.cmInterface === 'police' && payload.action === 'npcInteraction:hide') {
+        window.CMUI?.hideInteract();
+        return;
+      }
+      if (utilityOpenActions.has(payload.action)) window.CMUI?.hideInteract();
       const name = targetFor(payload);
       if (nuiDebug) console.info('[cm-law nui event]', { action: payload.action, cmInterface: payload.cmInterface, target: name });
       if (payload.action === 'close' && payload.cmInterface !== 'police') {
