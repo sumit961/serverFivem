@@ -11,6 +11,47 @@
     .surface { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: transparent; visibility: hidden; pointer-events: none; }
     .surface.visible { visibility: visible; }
     .surface.interactive { pointer-events: auto; }
+
+    /* Police root NPC dialogue + confirm (see AGENTS.md "police NPC dialogue"
+       hotfix): rendered directly in this root document, never inside the
+       Police iframe, so FiveM CEF never has to composite that iframe as a
+       full-size opaque surface just to show a dialogue line or a confirm. */
+    .police-root-dialogue, .police-root-confirm { position: fixed; inset: 0; background: transparent; pointer-events: none; }
+    .police-root-dialogue[hidden], .police-root-confirm[hidden] { display: none !important; }
+    .police-root-dialogue { z-index: 20; }
+    .police-root-dialogue__identity { position: absolute; top: 9vh; left: 7vw; max-width: 60vw; }
+    .police-root-dialogue__role { display: block; color: var(--cm-primary, #31e6ff); font-size: 12px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; text-shadow: 0 2px 6px rgba(0,0,0,.65); }
+    .police-root-dialogue__name { margin: 4px 0 0; font-size: clamp(24px, 3vw, 40px); font-weight: 800; color: #eaf7ff; text-shadow: 0 3px 10px rgba(0,0,0,.75); letter-spacing: -.01em; }
+    .police-root-dialogue__panel { position: absolute; right: clamp(24px, 8vw, 9vw); bottom: clamp(32px, 10vh, 12vh); width: min(430px, 90vw); pointer-events: auto; display: flex; flex-direction: column; gap: 10px; }
+    .police-root-dialogue__quote { padding: 14px 16px; border-radius: 6px; border-left: 3px solid var(--cm-primary, #31e6ff); background: rgba(8, 20, 30, 0.86); box-shadow: 0 12px 28px rgba(0,0,0,.4); }
+    .police-root-dialogue__text { margin: 0; color: #eaf7ff; font-size: 14px; line-height: 1.5; white-space: pre-line; }
+    .police-root-dialogue__signature { display: block; margin-top: 8px; text-align: right; font-size: 11px; color: rgba(49,230,255,.8); }
+    .police-root-dialogue--response .police-root-dialogue__options,
+    .police-root-dialogue--response .police-root-dialogue__actions { display: none !important; }
+    .police-root-dialogue--success .police-root-dialogue__quote { border-color: #2effa5; }
+    .police-root-dialogue--error .police-root-dialogue__quote { border-color: #ff5b5b; }
+    .police-root-dialogue__options { display: grid; gap: 8px; }
+    .police-root-dialogue__options[hidden] { display: none; }
+    .police-root-dialogue__option { padding: 10px 14px; border-radius: 6px; border: 1px solid rgba(49,230,255,.3); background: rgba(8,20,30,.78); color: #eaf7ff; text-align: left; cursor: pointer; font-family: inherit; }
+    .police-root-dialogue__option:hover, .police-root-dialogue__option:focus { border-color: var(--cm-primary, #31e6ff); background: rgba(49,230,255,.16); outline: none; }
+    .police-root-dialogue__option:disabled { opacity: .5; cursor: not-allowed; }
+    .police-root-dialogue__option b { display: block; font-size: 13px; }
+    .police-root-dialogue__option small { display: block; margin-top: 3px; color: rgba(234,247,255,.65); font-size: 10px; }
+    .police-root-dialogue__actions { display: flex; gap: 8px; }
+    .police-root-dialogue__btn { flex: 1; padding: 11px 14px; border-radius: 6px; border: 1px solid rgba(49,230,255,.3); background: rgba(8,20,30,.78); color: #eaf7ff; font-weight: 700; font-size: 12px; cursor: pointer; font-family: inherit; }
+    .police-root-dialogue__btn--primary { background: var(--cm-primary, #31e6ff); border-color: var(--cm-primary, #31e6ff); color: #04121a; }
+    .police-root-dialogue__btn--primary:hover { background: #7aeaff; }
+    .police-root-dialogue__btn:hover:not(.police-root-dialogue__btn--primary) { border-color: var(--cm-primary, #31e6ff); background: rgba(49,230,255,.12); }
+
+    .police-root-confirm { z-index: 21; display: flex; align-items: center; justify-content: center; }
+    .police-root-confirm__card { pointer-events: auto; width: min(380px, 88vw); padding: 20px 22px; border-radius: 8px; background: rgba(8,20,30,0.92); border: 1px solid rgba(49,230,255,.35); box-shadow: 0 20px 50px rgba(0,0,0,.55); }
+    .police-root-confirm__title { margin: 0 0 8px; font-size: 15px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: #eaf7ff; }
+    .police-root-confirm__message { margin: 0 0 16px; font-size: 13px; line-height: 1.5; color: rgba(234,247,255,.85); white-space: pre-line; }
+    .police-root-confirm__actions { display: flex; gap: 10px; }
+    .police-root-confirm__btn { flex: 1; padding: 10px 14px; border-radius: 6px; border: 1px solid rgba(49,230,255,.3); background: rgba(8,20,30,.6); color: #eaf7ff; font-weight: 700; font-size: 12px; cursor: pointer; font-family: inherit; }
+    .police-root-confirm__btn--primary { background: var(--cm-primary, #31e6ff); border-color: var(--cm-primary, #31e6ff); color: #04121a; }
+    .police-root-confirm__btn--primary:hover { background: #7aeaff; }
+    .police-root-confirm__btn--secondary:hover { border-color: var(--cm-primary, #31e6ff); background: rgba(49,230,255,.12); }
   </style>
 </head>
 <body>
@@ -24,18 +65,54 @@
        widget instead of inside the Police iframe. FiveM CEF was compositing
        the full-size Police iframe as an opaque dark-blue surface even though
        its own DOM/CSS reported fully transparent -- so the iframe must stay
-       hidden for a passive prompt and only become visible for a real
-       interactive surface (npcDialogue, quick menu, confirm, etc). -->
+       hidden for a passive prompt. The interactive NPC dialogue (npcDialogue)
+       and the shared PoliceConfirm() modal (confirmOpen/confirmClose) hit the
+       SAME full-iframe paint bug the moment the iframe became visible, so
+       they are also rendered below (#policeRootDialogue/#policeRootConfirm)
+       instead of inside the Police iframe. The iframe now stays reserved for
+       real full Police applications (dashboard, wardrobe, impound release,
+       quick menu, cinematic booking, etc). -->
+  <section id="policeRootDialogue" class="police-root-dialogue" hidden>
+    <div class="police-root-dialogue__identity">
+      <small class="police-root-dialogue__role"></small>
+      <h1 class="police-root-dialogue__name"></h1>
+    </div>
+    <div class="police-root-dialogue__panel">
+      <div class="police-root-dialogue__quote">
+        <p class="police-root-dialogue__text"></p>
+        <span class="police-root-dialogue__signature"></span>
+      </div>
+      <div class="police-root-dialogue__options" hidden></div>
+      <div class="police-root-dialogue__actions">
+        <button type="button" class="police-root-dialogue__btn police-root-dialogue__btn--primary police-root-dialogue__continue">Continue</button>
+        <button type="button" class="police-root-dialogue__btn police-root-dialogue__close">I&rsquo;m not interested right now</button>
+      </div>
+    </div>
+  </section>
+  <section id="policeRootConfirm" class="police-root-confirm" hidden>
+    <div class="police-root-confirm__card" role="dialog" aria-modal="true">
+      <h2 class="police-root-confirm__title"></h2>
+      <p class="police-root-confirm__message"></p>
+      <div class="police-root-confirm__actions">
+        <button type="button" class="police-root-confirm__btn police-root-confirm__btn--secondary police-root-confirm__no"></button>
+        <button type="button" class="police-root-confirm__btn police-root-confirm__btn--primary police-root-confirm__yes"></button>
+      </div>
+    </div>
+  </section>
   <script src="nui://cm-ui/web/cm-ui.js"></script>
   <script>
+    const res = typeof GetParentResourceName === 'function' ? GetParentResourceName() : 'cm-law';
     const surfaces = { law: document.getElementById('law'), tools: document.getElementById('tools'), police: document.getElementById('police') };
     const ready = { law: false, tools: false, police: false };
     const queued = { law: [], tools: [], police: [] };
     const hubTabs = new Set(['overview', 'dashboard', 'roster', 'ranks', 'logs']);
     let dashboardSurface = 'law';
     const utilityOpenActions = new Set([
-      'policeCloset:open', 'quickMenuOpen', 'confirmOpen', 'impoundRelease:open',
-      'impoundCamera:show', 'npcDialogue:open', 'policeCinematic:show',
+      // npcDialogue:open and confirmOpen intentionally excluded: both are now
+      // root-owned surfaces (#policeRootDialogue/#policeRootConfirm below)
+      // and never make the Police iframe visible.
+      'policeCloset:open', 'quickMenuOpen', 'impoundRelease:open',
+      'impoundCamera:show', 'policeCinematic:show',
       'cinematicAccessibility:open'
     ]);
     const passiveActions = new Set([
@@ -68,6 +145,120 @@
       '#policeHint:not([hidden])', '#policeToasts > *',
       '.cm-interact:not([hidden])', '.cm-dialogue:not([hidden])', '.cm-toast-stack .cm-toast'
     ];
+    // ── Police root NPC dialogue + confirm (see AGENTS.md "police NPC
+    // dialogue" hotfix) ──────────────────────────────────────────────────
+    // npcDialogue:open/response/restoreChoices/close and confirmOpen/close
+    // still arrive with cmInterface: 'police' (npc_dialogue.lua/ui.lua's
+    // existing contract, unchanged) but are intercepted and rendered here at
+    // root instead of being forwarded into the Police iframe. Buttons call
+    // the exact same police_-namespaced NUI callbacks the Police iframe used
+    // to call, so no Lua rewrite is required.
+    const policePost = (name, data) => fetch(`https://${res}/police_${name}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data || {}),
+    }).then(response => response.ok ? response.json() : { ok: false }).catch(() => ({ ok: false }));
+    const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, character => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
+    })[character]);
+
+    const rootDialogue = document.getElementById('policeRootDialogue');
+    const rootDialogueRole = rootDialogue.querySelector('.police-root-dialogue__role');
+    const rootDialogueName = rootDialogue.querySelector('.police-root-dialogue__name');
+    const rootDialogueText = rootDialogue.querySelector('.police-root-dialogue__text');
+    const rootDialogueSignature = rootDialogue.querySelector('.police-root-dialogue__signature');
+    const rootDialogueOptions = rootDialogue.querySelector('.police-root-dialogue__options');
+    const rootDialogueContinue = rootDialogue.querySelector('.police-root-dialogue__continue');
+    const rootDialogueClose = rootDialogue.querySelector('.police-root-dialogue__close');
+    let rootDialogueState = { deferChoices: false };
+    let rootDialogueBusy = false;
+
+    const openRootDialogue = data => {
+      rootDialogue.className = 'police-root-dialogue';
+      rootDialogueRole.textContent = data.role || 'CM POLICE';
+      rootDialogueName.textContent = data.name || 'Police Officer';
+      rootDialogueText.textContent = data.quote || 'How can I help you?';
+      rootDialogueSignature.textContent = `— ${data.name || 'Police Officer'}`;
+      rootDialogueContinue.textContent = data.continueLabel || 'Continue';
+      const choices = Array.isArray(data.choices) ? data.choices : [];
+      const deferChoices = choices.length > 0 && data.deferChoices === true;
+      rootDialogueState = { deferChoices };
+      rootDialogueBusy = false;
+      rootDialogueOptions.innerHTML = choices.map((choice, index) =>
+        `<button type="button" class="police-root-dialogue__option${index === 0 ? ' police-root-dialogue__option--primary' : ''}" data-npc-dialogue-choice="${escapeHtml(choice.id)}"><b>${escapeHtml(choice.label)}</b>${choice.description ? `<small>${escapeHtml(choice.description)}</small>` : ''}</button>`
+      ).join('');
+      rootDialogueOptions.hidden = choices.length === 0 || deferChoices;
+      rootDialogueContinue.hidden = choices.length > 0 && !deferChoices;
+      rootDialogueClose.hidden = false;
+      window.CMUI?.hideInteract();
+      rootDialogue.hidden = false;
+    };
+    const rootDialogueResponse = data => {
+      rootDialogue.className = `police-root-dialogue police-root-dialogue--response police-root-dialogue--${data.tone || 'inform'}`;
+      rootDialogueText.textContent = data.message || '';
+    };
+    const rootDialogueRestoreChoices = () => {
+      rootDialogue.className = 'police-root-dialogue';
+      rootDialogueOptions.hidden = false;
+      rootDialogueClose.hidden = false;
+      rootDialogueText.textContent = 'Please choose the Police service you need.';
+    };
+    const closeRootDialogue = () => { rootDialogue.hidden = true; };
+
+    rootDialogueContinue.addEventListener('click', () => {
+      if (rootDialogueState.deferChoices && rootDialogueOptions.hidden) {
+        rootDialogueOptions.hidden = false;
+        rootDialogueText.textContent = 'Please choose the Police service you need.';
+        policePost('npcDialogueStage', { stage: 'services' });
+        return;
+      }
+      policePost('npcDialogueContinue');
+    });
+    rootDialogueClose.addEventListener('click', () => policePost('npcDialogueClose'));
+    rootDialogueOptions.addEventListener('click', async event => {
+      const button = event.target.closest('[data-npc-dialogue-choice]');
+      if (!button || rootDialogueBusy) return;
+      rootDialogueBusy = true;
+      const buttons = Array.from(rootDialogueOptions.querySelectorAll('[data-npc-dialogue-choice]'));
+      buttons.forEach(b => { b.disabled = true; });
+      const result = await policePost('npcDialogueChoice', { choice: button.dataset.npcDialogueChoice });
+      rootDialogueBusy = false;
+      if (!result || result.ok !== true) {
+        buttons.forEach(b => { b.disabled = false; });
+        rootDialogueText.textContent = (result && result.error) || 'This service is unavailable. Please try again.';
+      }
+    });
+
+    // PoliceConfirm() (client/ui.lua) is used both mid-dialogue (Voluntary
+    // Surrender, Surrender Illegal Weapons) and standalone (K9, dispatch,
+    // wardrobe, Police invitations) -- routing confirmOpen/confirmClose
+    // through the Police iframe reproduces the same full-iframe paint bug,
+    // so it is rendered here at root for every caller, one clean authority.
+    const rootConfirm = document.getElementById('policeRootConfirm');
+    const rootConfirmTitle = rootConfirm.querySelector('.police-root-confirm__title');
+    const rootConfirmMessage = rootConfirm.querySelector('.police-root-confirm__message');
+    const rootConfirmYes = rootConfirm.querySelector('.police-root-confirm__yes');
+    const rootConfirmNo = rootConfirm.querySelector('.police-root-confirm__no');
+    const openRootConfirm = data => {
+      rootConfirmTitle.textContent = data.title || 'Confirm';
+      rootConfirmMessage.textContent = data.message || 'Are you sure?';
+      rootConfirmYes.textContent = data.yesLabel || 'Confirm';
+      rootConfirmNo.textContent = data.noLabel || 'Cancel';
+      rootConfirm.hidden = false;
+    };
+    const closeRootConfirm = () => { rootConfirm.hidden = true; };
+    rootConfirmYes.addEventListener('click', () => { closeRootConfirm(); policePost('confirmResponse', { confirmed: true }); });
+    rootConfirmNo.addEventListener('click', () => { closeRootConfirm(); policePost('confirmResponse', { confirmed: false }); });
+
+    const rootDialogueSnapshot = () => {
+      const rect = rootDialogue.getBoundingClientRect();
+      const style = getComputedStyle(rootDialogue);
+      return { hidden: rootDialogue.hidden, display: style.display, rect: { width: rect.width, height: rect.height }, background: style.background };
+    };
+    const rootConfirmSnapshot = () => {
+      const rect = rootConfirm.getBoundingClientRect();
+      const style = getComputedStyle(rootConfirm);
+      return { hidden: rootConfirm.hidden, display: style.display, rect: { width: rect.width, height: rect.height }, background: style.background };
+    };
+
     let visibleSurface = null;
     let interactiveSurface = null;
     let focusTarget = null;
@@ -82,6 +273,52 @@
     const hasVisible = (doc, selectors) => selectors.some(selector => {
       try { return Array.from(doc.querySelectorAll(selector)).some(isVisible); } catch (_) { return false; }
     });
+    // Diagnostic-only (see AGENTS.md "police NPC proximity" hotfix): finds
+    // any visible element covering most of the viewport, regardless of
+    // which stylesheet/selector produced it, so a future full-screen paint
+    // regression can be pinpointed without guessing which CSS rule did it.
+    const fullscreenElements = (doc, minCoverage = 0.7) => {
+      if (!doc) return [];
+      const vw = innerWidth, vh = innerHeight;
+      return Array.from(doc.querySelectorAll('*')).filter(node => {
+        if (!isVisible(node)) return false;
+        const style = getComputedStyle(node);
+        if (style.position !== 'fixed' && style.position !== 'absolute') return false;
+        const rect = node.getBoundingClientRect();
+        return rect.width >= vw * minCoverage && rect.height >= vh * minCoverage;
+      }).map(node => ({
+        id: node.id, classes: node.className, tag: node.tagName,
+        position: getComputedStyle(node).position, display: getComputedStyle(node).display,
+        background: getComputedStyle(node).background, zIndex: getComputedStyle(node).zIndex,
+      }));
+    };
+    const paintedFullscreenElements = (doc, minCoverage = 0.7) => {
+      if (!doc) return [];
+      const vw = innerWidth, vh = innerHeight;
+      return Array.from(doc.querySelectorAll('*')).filter(node => {
+        if (!isVisible(node)) return false;
+        const style = getComputedStyle(node);
+        const bg = style.backgroundColor;
+        const bgImage = style.backgroundImage;
+        const isTransparent = !bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)';
+        if (isTransparent && (!bgImage || bgImage === 'none')) return false;
+        const rect = node.getBoundingClientRect();
+        return rect.width >= vw * minCoverage && rect.height >= vh * minCoverage;
+      }).map(node => ({
+        id: node.id, classes: node.className, tag: node.tagName,
+        background: getComputedStyle(node).background, backgroundImage: getComputedStyle(node).backgroundImage,
+      }));
+    };
+    const npcPromptSnapshot = doc => {
+      const el = doc?.getElementById('npcInteraction');
+      if (!el) return { exists: false };
+      const rect = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return {
+        exists: true, hidden: el.hidden, display: style.display, position: style.position,
+        background: style.background, width: rect.width, height: rect.height,
+      };
+    };
     const childState = name => {
       const doc = surfaces[name].contentDocument;
       if (!doc || !doc.body) return { interactive: false, passive: false };
@@ -107,13 +344,37 @@
       const appNode = doc?.getElementById('app');
       return {
         frame: { id: frame.id, className: frame.className, visibility: getComputedStyle(frame).visibility, display: getComputedStyle(frame).display, pointerEvents: getComputedStyle(frame).pointerEvents },
-        child: doc ? { htmlBackground: getComputedStyle(doc.documentElement).background, bodyBackground: getComputedStyle(doc.body).background, bodyClassName: doc.body.className } : null,
+        child: doc ? { htmlClassName: doc.documentElement.className, htmlBackground: getComputedStyle(doc.documentElement).background, bodyBackground: getComputedStyle(doc.body).background, bodyClassName: doc.body.className } : null,
         dashboard: appNode ? { exists: true, hidden: appNode.hidden || appNode.classList.contains('hidden'), className: appNode.className, display: getComputedStyle(appNode).display, visibility: getComputedStyle(appNode).visibility, background: getComputedStyle(appNode).background, width: appNode.getBoundingClientRect().width, height: appNode.getBoundingClientRect().height } : { exists: false },
+        npcInteraction: npcPromptSnapshot(doc),
         state,
-        overlays: doc ? Array.from(doc.querySelectorAll('*')).filter(node => { const style = getComputedStyle(node); const rect = node.getBoundingClientRect(); return style.position === 'fixed' && rect.width >= innerWidth * .8 && rect.height >= innerHeight * .8 && isVisible(node); }).map(node => ({ id: node.id, classes: node.className, display: getComputedStyle(node).display, visibility: getComputedStyle(node).visibility, background: getComputedStyle(node).background, zIndex: getComputedStyle(node).zIndex })) : [],
+        overlays: fullscreenElements(doc, .7),
+        paintedFullscreen: paintedFullscreenElements(doc, .7),
       };
     };
-    window.cmLawNuiSnapshot = () => ({ visibleSurface, interactiveSurface, law: snapshot('law'), tools: snapshot('tools'), police: snapshot('police') });
+    const rootPromptSnapshot = () => {
+      const el = document.querySelector('.cm-interact');
+      if (!el) return { exists: false };
+      const rect = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return {
+        exists: true, hidden: el.hidden, display: style.display, position: style.position,
+        background: style.background, width: rect.width, height: rect.height,
+        identity: el.querySelector('.cm-interact__identity')?.textContent,
+      };
+    };
+    window.cmLawNuiSnapshot = () => ({
+      visibleSurface, interactiveSurface,
+      rootPrompt: rootPromptSnapshot(),
+      rootDialogue: rootDialogueSnapshot(),
+      rootConfirm: rootConfirmSnapshot(),
+      parent: {
+        htmlClassName: document.documentElement.className, bodyClassName: document.body.className,
+        htmlBackground: getComputedStyle(document.documentElement).background, bodyBackground: getComputedStyle(document.body).background,
+        fullscreenElements: fullscreenElements(document, .7), paintedFullscreen: paintedFullscreenElements(document, .7),
+      },
+      law: snapshot('law'), tools: snapshot('tools'), police: snapshot('police'),
+    });
     const nuiDebug = new URLSearchParams(location.search).get('nuiDebug') === '1';
     const syncSurfaceVisibility = () => {
       syncQueued = false;
@@ -162,11 +423,20 @@
     window.addEventListener('message', event => {
       if (Object.values(surfaces).some(frame => event.source === frame.contentWindow)) return;
       const payload = event.data && typeof event.data === 'object' ? event.data : {};
+      // Diagnostic-only: dumps the current NUI visibility/paint state to the
+      // client F8 console via a NUI callback (client/nui_debug.lua), so a
+      // full-screen paint regression can be inspected without dev tools.
+      if (payload.action === 'cmNuiDebugDump') {
+        fetch(`https://${res}/cmLawNuiDebugDump`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(window.cmLawNuiSnapshot()),
+        }).catch(() => {});
+        return;
+      }
       // Police NPC proximity hotfix: handle the passive prompt here, before
       // it ever reaches targetFor/forward, so it never makes the Police
-      // iframe visible. Real interactive surfaces (npcDialogue, quick menu,
-      // confirm, wardrobe, impound, cinematic) are unaffected and still
-      // route to the Police iframe as before.
+      // iframe visible. Interactive surfaces that still legitimately live in
+      // the Police iframe (quick menu, wardrobe, impound, cinematic) are
+      // unaffected and still route there as before.
       if (payload.cmInterface === 'police' && payload.action === 'npcInteraction:show') {
         window.CMUI?.showInteract({ key: payload.key, label: payload.label, name: payload.name, role: payload.role });
         return;
@@ -174,6 +444,20 @@
       if (payload.cmInterface === 'police' && payload.action === 'npcInteraction:hide') {
         window.CMUI?.hideInteract();
         return;
+      }
+      // Police NPC dialogue + confirm hotfix: npcDialogue:* and
+      // confirmOpen/confirmClose are intercepted here too, before
+      // targetFor/forward, and rendered by the root-owned
+      // #policeRootDialogue/#policeRootConfirm surfaces instead -- the same
+      // full-iframe CEF paint bug the proximity prompt hit also occurs for
+      // these once the Police iframe becomes visible/interactive.
+      if (payload.cmInterface === 'police') {
+        if (payload.action === 'npcDialogue:open') { openRootDialogue(payload); return; }
+        if (payload.action === 'npcDialogue:response') { rootDialogueResponse(payload); return; }
+        if (payload.action === 'npcDialogue:restoreChoices') { rootDialogueRestoreChoices(); return; }
+        if (payload.action === 'npcDialogue:close') { closeRootDialogue(); return; }
+        if (payload.action === 'confirmOpen') { openRootConfirm(payload); return; }
+        if (payload.action === 'confirmClose') { closeRootConfirm(); return; }
       }
       if (utilityOpenActions.has(payload.action)) window.CMUI?.hideInteract();
       const name = targetFor(payload);
@@ -200,7 +484,13 @@
     document.addEventListener('keydown', event => {
       if (event.key !== 'Escape' && event.key !== 'Esc' && event.keyCode !== 27) return;
       event.preventDefault();
-      if (!event.repeat && interactiveSurface && ready[interactiveSurface]) surfaces[interactiveSurface].contentWindow.cmHandleEscape?.();
+      if (event.repeat) return;
+      // Root confirm, then root dialogue, then whatever the normal
+      // law/tools/police router would have closed -- never both, and never
+      // routed into a child surface while either root overlay owns focus.
+      if (!rootConfirm.hidden) { policePost('confirmResponse', { confirmed: false }); return; }
+      if (!rootDialogue.hidden) { policePost('npcDialogueClose'); return; }
+      if (interactiveSurface && ready[interactiveSurface]) surfaces[interactiveSurface].contentWindow.cmHandleEscape?.();
     });
   </script>
 </body>

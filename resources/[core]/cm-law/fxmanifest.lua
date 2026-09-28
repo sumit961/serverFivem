@@ -5,7 +5,7 @@ lua54 'yes'
 name 'cm-law'
 author 'CM Framework'
 description 'CM legal organizations and embedded Los Santos Police operations'
-version '3.5.5'
+version '3.5.6'
 
 shared_scripts {
     '@ox_lib/init.lua',
@@ -16,6 +16,7 @@ shared_scripts {
 
 client_scripts {
     'client/main.lua',
+    'client/nui_debug.lua',
     'client/daily_desk.lua',
     'client/wardrobe.lua',
     'client/armory.lua',
