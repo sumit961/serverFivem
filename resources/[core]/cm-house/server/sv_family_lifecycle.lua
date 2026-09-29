@@ -237,6 +237,16 @@ function FL.TransferFamilyHouseOwnership(familyId, newOwnerCid, actorCid)
         previousOwner = previousOwner,
         newOwner = newOwnerCid,
     })
+    -- Central admin visibility for the house-ownership change itself. This is
+    -- a separate audience from cm-family's own leadership-change activity log
+    -- entry (who leads the family vs. who the house DB row now belongs to).
+    Audit(nil, 'house_ownership_transfer', {
+        houseId = houseId,
+        familyId = familyId,
+        previousOwner = previousOwner,
+        newOwner = newOwnerCid,
+        actorCid = logActor,
+    })
 
     return true, houseId
 end

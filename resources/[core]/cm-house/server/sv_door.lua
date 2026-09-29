@@ -561,6 +561,11 @@ lib.callback.register('cm-house:server:sellHouse', function(src, houseId)
         LogHouse(houseId, nil, cid, 'house_sell', {
             payout = payout,
         })
+        -- Central admin visibility, matching the existing house_purchase call.
+        -- Ownership has already been released at this point (committed == true
+        -- above); the payout attempt below can legitimately queue without
+        -- undoing the sale, so this is logged as a completed sale regardless.
+        Audit(src, 'house_sale', { houseId = houseId, cid = cid, payout = payout, account = account, label = house.label })
         TriggerClientEvent('cm-house:client:syncHouse', -1, BuildClientHouse(house))
         PushOwnership(cid)
 
