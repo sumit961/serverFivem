@@ -45,3 +45,6 @@ cm-agent-out/
 __pycache__/
 *.pyc
 .codex-backups/
+
+# Runtime audit retry queues (live server state, never source content)
+resources/\[core\]/cm-family/audit_pending.json

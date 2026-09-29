@@ -393,15 +393,6 @@ function GetRankForCid(cid)
 end
 
 
-local function permissionSnapshot(rank)
-    local out = {}
-    if not rank then return out end
-    for _, permission in ipairs(Config.Permissions or {}) do
-        out[permission.key] = rank.is_founder == true or rank.permissions[permission.key] == true
-    end
-    return out
-end
-
 function BuildFamilyMemberState(characterId)
     local membership = GetMembership(characterId)
     if not membership then return nil end
@@ -410,6 +401,18 @@ function BuildFamilyMemberState(characterId)
     local rank = effectiveRankForMember(characterId, family, resolveMembershipRank(family, membership))
     if not rank then return nil end
 
+    -- This table is replicated to EVERY connected client (SyncFamilyMemberState
+    -- sets it with a replicated state bag, and cm-playerdata mirrors the same
+    -- payload again through SetFamily/B.SetPlayerFamily). Only public identity
+    -- fields belong here -- overhead icons, chat display, and same-family/
+    -- rank-tier comparisons are the only things any other client legitimately
+    -- needs about someone else's family membership.
+    --
+    -- Never add the rank's permission map (or any other internal/management
+    -- capability data) back into this table. A member's effective permissions
+    -- are private and must only be delivered through a targeted, server-
+    -- validated path (see server/sv_gmenu.lua's owner-only "family_permissions"
+    -- action) or checked live, server-side, at the moment of the action.
     return {
         active = true,
         id = family.id,
@@ -429,7 +432,6 @@ function BuildFamilyMemberState(characterId)
         tier = rank.tier,
         isFounder = rank.is_founder == true,
         customTitle = membership.custom_title,
-        permissions = permissionSnapshot(rank),
     }
 end
 

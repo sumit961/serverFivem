@@ -600,7 +600,7 @@ function SucceedFounder(founderCid)
     fam.founder_cid = tostring(bestCid)
     local m = GetMembership(bestCid) ; if m then m.rank_id = founderRankRow.id end
     if fam.house_id then
-        B.TransferFamilyHouseOwnership(fam.id, tostring(bestCid))
+        B.TransferFamilyHouseOwnership(fam.id, tostring(bestCid), founderCid)
     end
     if CMFamilyRevokeVehicleKeysForCharacter then
         CMFamilyRevokeVehicleKeysForCharacter(bestCid, 'family-founder-changed')
@@ -673,7 +673,7 @@ function TransferLeadership(actorCid, targetCid, confirmed)
     if ma then ma.rank_id = secondRank.id end
 
     if fam.house_id then
-        B.TransferFamilyHouseOwnership(fam.id, targetCid)
+        B.TransferFamilyHouseOwnership(fam.id, targetCid, actorCid)
     end
 
     if CMFamilyRevokeVehicleKeysForCharacter then

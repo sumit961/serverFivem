@@ -43,10 +43,15 @@ local function add(id, label, icon, order)
     end)
 end
 
+-- The replicated cmFamily state bag no longer carries the rank permission map
+-- (it is broadcast to every client, so it must stay public-identity-only).
+-- This menu can therefore only pre-filter using the founder flag; a member
+-- with a specific granted permission but not the founder role will not see
+-- the shortcut here and can use the full family dashboard instead. Every one
+-- of these actions is still independently permission-checked server-side in
+-- sv_gmenu.lua, so this is a display-only limitation, not a security gate.
 local function has(state, permission)
-    return type(state) == 'table'
-        and (state.isFounder == true
-            or (type(state.permissions) == 'table' and state.permissions[permission] == true))
+    return type(state) == 'table' and state.isFounder == true
 end
 
 local function sameFamily(a, b)
