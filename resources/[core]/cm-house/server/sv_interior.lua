@@ -248,11 +248,13 @@ end)
 -- ------------------------------------------------------------
 --  Weapon storage and general storage
 --  cm-house owns authorization; cm-inventory remains the item authority.
+--
+--  cm-house:server:openWardrobe was removed: the live wardrobe flow is a
+--  purely client-local TriggerEvent into nvCloth (see cl_interior.lua),
+--  never routed through the server. This handler had no caller anywhere in
+--  the repo and performed zero validation, so it was a dormant, unvalidated
+--  entry point rather than a working feature.
 -- ------------------------------------------------------------
-RegisterNetEvent('cm-house:server:openWardrobe', function(houseId, index)
-    TriggerClientEvent('cm-house:client:openWardrobe', source, tonumber(houseId), tonumber(index))
-end)
-
 RegisterNetEvent('cm-house:server:openStash', function(houseId, index)
     local src = source
     local cid = GetCid(src)
@@ -276,6 +278,15 @@ RegisterNetEvent('cm-house:server:openStash', function(houseId, index)
     local def   = tpl and tpl.stashes[index]
     if not def then
         Notify(src, 'That storage does not exist.', 'error')
+        return
+    end
+
+    -- The house/access checks above confirm the player is allowed to use
+    -- SOME stash in this house, not that they are standing at THIS one.
+    -- Never trust client-supplied coordinates -- re-check server-side
+    -- distance against the stash's own saved position.
+    if not playerNear(src, def, math.max(4.0, tonumber(Config.Prompt and Config.Prompt.distance) or 2.0) + 2.0) then
+        Notify(src, 'Move closer to the storage.', 'error')
         return
     end
 

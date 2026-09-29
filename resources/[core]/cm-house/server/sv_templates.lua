@@ -518,6 +518,9 @@ end)
 --  Read
 -- ------------------------------------------------------------
 lib.callback.register('cm-house:server:getTemplates', function(src)
+    if not (canManageTemplate(src, 'interior') or canManageTemplate(src, 'garage')) then
+        return false, 'You cannot manage layouts.'
+    end
     local interiors, garages = {}, {}
 
     for id, t in pairs(InteriorTemplates) do

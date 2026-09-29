@@ -17,6 +17,21 @@ function PushOwnership(cid)
 end
 exports('PushOwnership', PushOwnership)
 
+-- A modified client can otherwise call buyHouse/sellHouse from anywhere on
+-- the map -- the DB reservation/journal logic keeps money safe either way,
+-- but a real purchase or sale should require standing at the property.
+-- Mirrors the tolerance sv_interior.lua's requireExteriorDoor uses.
+local function playerNearHouseDoor(src, house)
+    local doorCoords = house and (house.door_coords or house.door)
+    if type(doorCoords) ~= 'table' then return false end
+    local ped = GetPlayerPed(src)
+    if not ped or ped == 0 then return false end
+    local coords = GetEntityCoords(ped)
+    local door = vector3(tonumber(doorCoords.x) or 0.0, tonumber(doorCoords.y) or 0.0, tonumber(doorCoords.z) or 0.0)
+    local tolerance = math.max(4.0, tonumber(Config.Prompt and Config.Prompt.distance) or 2.0) + 2.0
+    return #(coords - door) <= tolerance
+end
+
 lib.callback.register('cm-house:server:startFamilyRaid', function(src, houseId)
     houseId = tonumber(houseId)
     local house = houseId and Houses[houseId]
@@ -199,6 +214,7 @@ lib.callback.register('cm-house:server:buyHouse', function(src, houseId)
     local cid   = GetCid(src)
     local house = houseId and Houses[houseId] or nil
     if not cid or not house then return false, 'That house is not registered.' end
+    if not playerNearHouseDoor(src, house) then return false, 'Move closer to the property door.' end
 
     if house.owner_cid then return false, 'Someone already owns this house.' end
     local orphanWeapons = HouseWeaponStorageCount and HouseWeaponStorageCount(houseId) or 0
@@ -416,6 +432,7 @@ lib.callback.register('cm-house:server:sellHouse', function(src, houseId)
     local cid = GetCid(src)
     local house = houseId and Houses[houseId] or nil
     if not cid or not house then return false, 'That house is not registered.' end
+    if not playerNearHouseDoor(src, house) then return false, 'Move closer to the property door.' end
     if houseSaleLocks[houseId] then return false, 'This property sale is already being processed.' end
 
     -- Fail closed if linked to a family BEFORE any mutation or journal creation

@@ -384,7 +384,7 @@ function WS.BuildPayload(src, houseId, index)
         open = true,
         weaponLimit = 1000,
         ammoLimit = 100000,
-        cooldownMinutes = 0,
+        cooldownMinutes = 1,
     }
     local family = isFamily and GetFamilyDisplay(ctx.house.family_id) or nil
     local familyName = family and tostring(family.name or family.label or '') or nil
@@ -631,12 +631,16 @@ lib.callback.register('cm-house:server:weaponStorageTransfer', function(src, hou
         open = true,
         weaponLimit = 1000,
         ammoLimit = 100000,
-        cooldownMinutes = 0,
+        cooldownMinutes = 1,
     }
-    local cooldownKey = ('%s:%s:%s'):format(tostring(ctx.cid), tostring(houseId), tostring(index))
+    -- Scoped to the house, not the individual storage point: a family house
+    -- with several weapon-storage points must not let the withdrawal cooldown
+    -- be bypassed by simply switching to a different point. Personal houses
+    -- now enforce the same per-house cooldown (they previously had none).
+    local cooldownKey = ('%s:%s'):format(tostring(ctx.cid), tostring(houseId))
     local now = GetGameTimer()
-    if direction == 'withdraw' and isFamily then
-        if settings.open ~= true then
+    if direction == 'withdraw' then
+        if isFamily and settings.open ~= true then
             return false, 'This weapon storage is closed.'
         end
         if (withdrawCooldowns[cooldownKey] or 0) > now then
@@ -679,7 +683,19 @@ lib.callback.register('cm-house:server:weaponStorageTransfer', function(src, hou
             local lockerRow = row
             if def.itemType == 'weapon' then
                 local lockerMeta = stripWeaponIdentity(meta)
-                lockerMeta.durability = REQUIRED_DURABILITY
+                if REQUIRE_FULL_DURABILITY then
+                    -- Already confirmed >= REQUIRED_DURABILITY above; store the
+                    -- exact confirmed value instead of inventing a new one.
+                    lockerMeta.durability = REQUIRED_DURABILITY
+                else
+                    -- Never silently repair a damaged weapon. Preserve the
+                    -- genuine current durability; leave it unset (not a fake
+                    -- 100%) when the weapon carries no durability metadata.
+                    local currentDurability = weaponDurability(meta, row)
+                    if currentDurability ~= nil then
+                        lockerMeta.durability = currentDurability
+                    end
+                end
                 lockerRow = {}
                 for key, value in pairs(row) do lockerRow[key] = value end
                 lockerRow.metadata = encode(lockerMeta)
@@ -796,7 +812,7 @@ lib.callback.register('cm-house:server:weaponStorageTransfer', function(src, hou
     end)
 
     if not ok then return false, reason end
-    if direction == 'withdraw' and isFamily and settings.cooldownMinutes > 0 then
+    if direction == 'withdraw' and settings.cooldownMinutes > 0 then
         withdrawCooldowns[cooldownKey] = GetGameTimer() + (settings.cooldownMinutes * 60 * 1000)
     end
     return WS.BuildPayload(src, houseId, index)
@@ -955,8 +971,22 @@ end)
 --  Admin recovery for failed weapon-storage transfers (v1.7.4).
 --  Rows are written only when a deposit removed the weapon from the player
 --  but neither the locker insert nor the automatic return succeeded.
+--
+--  Both exports below grant access to sensitive recovery data / can grant a
+--  player an inventory item, so each defends itself with the same
+--  integration allowlist every other writable export in this resource uses --
+--  never rely solely on the caller having already checked permissions.
 -- ------------------------------------------------------------
+local function requireRecoveryIntegration()
+    if integrationAllowed('recovery') or integrationAllowed('admin') then
+        return true
+    end
+    return false, 'resource_not_authorized'
+end
+
 exports('ListWeaponStorageRecovery', function(limit)
+    local allowed, reason = requireRecoveryIntegration()
+    if not allowed then return false, reason end
     limit = math.max(1, math.min(200, tonumber(limit) or 50))
     return MySQL.query.await(
         'SELECT * FROM cm_house_weapon_recovery ORDER BY created_at DESC LIMIT ?',
@@ -967,6 +997,12 @@ end)
 -- (ok, reason). The row is marked resolved only after the item is confirmed
 -- back in the player's inventory, so a failure here is safe to retry.
 exports('RestoreWeaponStorageRecovery', function(recoveryId, targetSrc)
+    local allowed, reason = requireRecoveryIntegration()
+    if not allowed then return false, reason end
+    -- Captured before any await below; the invoking-resource context must not
+    -- be sampled again after this coroutine has yielded.
+    local invokerResource = tostring(GetInvokingResource() or GetCurrentResourceName())
+
     recoveryId = tonumber(recoveryId)
     targetSrc = tonumber(targetSrc)
     if not recoveryId or not targetSrc then return false, 'invalid_arguments' end
@@ -1014,5 +1050,13 @@ exports('RestoreWeaponStorageRecovery', function(recoveryId, targetSrc)
             :format(recoveryId, tostring(targetCid)))
         return true, 'Weapon restored; journal status requires administrator review.'
     end
+
+    -- Durable, staff-only audit trail. Never surfaced to normal players.
+    LogHouse(tonumber(row.house_id), nil, targetCid, 'weapon_storage_recovery_restore', {
+        recoveryId = recoveryId,
+        item = normaliseName(row.item_name),
+        amount = tonumber(row.amount) or 1,
+        actorResource = invokerResource,
+    })
     return true, 'Weapon restored to the online character.'
 end)

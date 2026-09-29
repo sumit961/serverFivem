@@ -5,7 +5,7 @@ lua54 'yes'
 name        'cm-house'
 author      'Sumit'
 description 'CM Framework | Housing and family system'
-version     '1.8.15'
+version     '1.8.16'
 
 shared_scripts {
     '@ox_lib/init.lua',

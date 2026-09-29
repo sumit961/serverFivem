@@ -239,7 +239,15 @@ MySQL.ready(function()
     end)
 end)
 
-function FL.TransferFamilyHouseOwnership(familyId, newOwnerCid)
+-- Writable and family-scoped: matches the gate every sibling export in
+-- sv_phase2.lua uses. cm-family already validates founder/rank before
+-- calling this, but cm-house owns house state and must not trust that on
+-- faith -- fail closed for any caller outside the family integration scope.
+function FL.TransferFamilyHouseOwnership(familyId, newOwnerCid, actorCid)
+    if type(CMHouseIntegrationAllowed) == 'function' and not CMHouseIntegrationAllowed('family') then
+        return false, 'resource_not_authorized'
+    end
+
     familyId = normalizedFamilyId(familyId)
     newOwnerCid = tostring(newOwnerCid or '')
     if not familyId or newOwnerCid == '' then return false, 'invalid_arguments' end
@@ -262,6 +270,8 @@ function FL.TransferFamilyHouseOwnership(familyId, newOwnerCid)
     ]], { newOwnerCid, houseId, familyId })
 
     if not updated or updated <= 0 then
+        -- The DB update did not commit. Never mutate the in-memory ownership
+        -- cache as if the transfer succeeded.
         return false, 'house_ownership_update_failed'
     end
 
@@ -270,7 +280,44 @@ function FL.TransferFamilyHouseOwnership(familyId, newOwnerCid)
         TriggerClientEvent('cm-house:client:syncHouse', -1, BuildClientHouse(Houses[houseId]))
     end
 
-    LogHouse(houseId, familyId, newOwnerCid, 'family_house_owner_transferred', {
+    -- Keep the OwnerHouses reverse index in sync with the DB in the same
+    -- successful path, exactly like buyHouse/sellHouse do. Previously this
+    -- was left stale until the next full LoadHouses() (a server restart).
+    if OwnerHouses then
+        local previousKey = previousOwner ~= nil and tostring(previousOwner) or nil
+        if previousKey and OwnerHouses[previousKey] then
+            for i = #OwnerHouses[previousKey], 1, -1 do
+                if tonumber(OwnerHouses[previousKey][i]) == houseId then
+                    table.remove(OwnerHouses[previousKey], i)
+                end
+            end
+        end
+        -- Legacy in-memory keys may be numeric rather than string; clear both.
+        local previousNumericKey = tonumber(previousOwner)
+        if previousNumericKey and OwnerHouses[previousNumericKey] then
+            for i = #OwnerHouses[previousNumericKey], 1, -1 do
+                if tonumber(OwnerHouses[previousNumericKey][i]) == houseId then
+                    table.remove(OwnerHouses[previousNumericKey], i)
+                end
+            end
+        end
+
+        local newOwnerKey = tonumber(newOwnerCid) or newOwnerCid
+        OwnerHouses[newOwnerKey] = OwnerHouses[newOwnerKey] or {}
+        local alreadyIndexed = false
+        for _, existing in ipairs(OwnerHouses[newOwnerKey]) do
+            if tonumber(existing) == houseId then alreadyIndexed = true break end
+        end
+        if not alreadyIndexed then
+            OwnerHouses[newOwnerKey][#OwnerHouses[newOwnerKey] + 1] = houseId
+        end
+    end
+
+    -- The transfer is integration-driven (cm-family authorizes it); attribute
+    -- the log to the actor cm-family identified, not to the new owner, unless
+    -- no actor was supplied.
+    local logActor = actorCid ~= nil and tostring(actorCid) or newOwnerCid
+    LogHouse(houseId, familyId, logActor, 'family_house_owner_transferred', {
         previousOwner = previousOwner,
         newOwner = newOwnerCid,
     })
