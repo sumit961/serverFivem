@@ -75,7 +75,7 @@ local function RunFamilyHardeningTests()
         end
 
         local testsPassed = 0
-        local testsTotal = 62
+        local testsTotal = 67
 
         -- ============================================================
         -- TEST 1: Same reputation unique ID sent twice simultaneously
@@ -1716,6 +1716,183 @@ local function RunFamilyHardeningTests()
             testsPassed = testsPassed + 1
         else
             print(('^1[TEST 62 FAIL] Bank log traceability check failed: %s^7'):format(json.encode(logRow62 or {})))
+        end
+        end
+
+        -- ============================================================
+        -- TESTS 63 - 67: Family Data Ownership Cleanup Regression Coverage
+        -- Added alongside the cm-house -> cm-family cleanup-ownership
+        -- refactor (FinalizeHouseFamilyDeletion / CMFamilyDeleteFamilyRows).
+        -- ============================================================
+        do
+        -- TEST 63: Full family-domain table coverage. This registry MUST be
+        -- kept in sync with CMFamilyDeleteFamilyRows (sv_schema.lua) -- if a
+        -- new cm_family_* table is ever added to one list and not the other,
+        -- this test fails instead of silently leaving orphaned rows on the
+        -- next family deletion, which is exactly the maintenance problem
+        -- that let cm-house's old (now-removed) cleanup list go stale.
+        print('^3[TEST 63] CMFamilyDeleteFamilyRows covers every cm_family_* table...^7')
+        local famId63 = 999963
+        local uid63 = 'evt_cov63_' .. os.time()
+        MySQL.query.await(
+            "INSERT INTO cm_families (id, name, founder_cid, bank_balance) VALUES (?, 'CoverageTestFamily', 'cid_cov63', 0)",
+            { famId63 })
+        -- Ranks are created through the real insertRank/CreateDefaultRanks
+        -- path, not a raw INSERT: some installed schemas keep a legacy
+        -- `perms` column with its own CHECK constraint, and only the real
+        -- rank-insert helper writes it correctly (see sv_ranks.lua).
+        local founderRankId63 = CreateDefaultRanks(famId63)
+        if not founderRankId63 then
+            print('^1[TEST 63 FAIL] CreateDefaultRanks did not return a founder rank id -- cannot set up the coverage fixture.^7')
+        end
+        -- cm_family_members is inserted through CMFamilyInsertMember, not a
+        -- raw INSERT: some installed schemas use a non-auto-increment id
+        -- column here (see sv_schema.lua's legacy member-id compat), and
+        -- only the real helper handles that correctly.
+        CMFamilyInsertMember(famId63, 'cid_cov63', founderRankId63 or 0)
+        local coverageTables = {
+            { table = 'cm_family_ranks' },
+            { table = 'cm_family_members' },
+            { table = 'cm_family_invites', query = "INSERT INTO cm_family_invites (family_id, character_id, invited_by) VALUES (?, 'cid_cov63_invitee', 'cid_cov63')" },
+            { table = 'cm_family_vehicle_access', query = "INSERT INTO cm_family_vehicle_access (family_id, vehicle_id) VALUES (?, 999963)" },
+            { table = 'cm_family_bank_log', query = "INSERT INTO cm_family_bank_log (family_id, direction, amount, balance_after) VALUES (?, 'deposit', 1, 1)" },
+            { table = 'cm_family_log', query = "INSERT INTO cm_family_log (family_id, action) VALUES (?, 'coverage_test')" },
+            { table = 'cm_family_activity_log', query = "INSERT INTO cm_family_activity_log (event_uid, family_id, action) VALUES ('" .. uid63 .. "', ?, 'coverage_test')" },
+            { table = 'cm_family_progression', query = "INSERT INTO cm_family_progression (family_id) VALUES (?)" },
+            { table = 'cm_family_member_contributions', query = "INSERT INTO cm_family_member_contributions (family_id, character_id) VALUES (?, 'cid_cov63')" },
+            { table = 'cm_family_objective_progress', query = "INSERT INTO cm_family_objective_progress (family_id, objective_key, week_key) VALUES (?, 'coverage_obj', '2020-W01')" },
+            { table = 'cm_family_hq_upgrades', query = "INSERT INTO cm_family_hq_upgrades (family_id, upgrade_key) VALUES (?, 'coverage_upgrade')" },
+            { table = 'cm_family_reward_history', query = "INSERT INTO cm_family_reward_history (unique_id, family_id, reward_type, source) VALUES ('" .. uid63 .. "_reward', ?, 'coverage', 'test')" },
+            { table = 'cm_family_contribution_daily', query = "INSERT INTO cm_family_contribution_daily (family_id, character_id, day_key) VALUES (?, 'cid_cov63', '2020-01-01')" },
+            { table = 'cm_family_contribution_weekly', query = "INSERT INTO cm_family_contribution_weekly (family_id, character_id, week_key) VALUES (?, 'cid_cov63', '2020-W01')" },
+            { table = 'cm_family_event_participants', query = "INSERT INTO cm_family_event_participants (event_uid, family_id, character_id, status) VALUES ('" .. uid63 .. "', ?, 'cid_cov63', 'joined')" },
+        }
+        for _, row in ipairs(coverageTables) do
+            if row.query then MySQL.query.await(row.query, { famId63 }) end
+        end
+        SetFamilyEventCooldown(famId63, 'family_raid', 3600, uid63)
+
+        CMFamilyDeleteFamilyRows(famId63)
+
+        local leftover63 = {}
+        for _, row in ipairs(coverageTables) do
+            local count = tonumber(MySQL.scalar.await(
+                ('SELECT COUNT(*) FROM %s WHERE family_id = ?'):format(row.table), { famId63 })) or 0
+            if count > 0 then leftover63[#leftover63 + 1] = row.table end
+        end
+        local cooldownLeft63 = GetFamilyEventCooldown(famId63, 'family_raid')
+        local familyRowLeft63 = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM cm_families WHERE id = ?', { famId63 })) or 0
+        if #leftover63 == 0 and (not cooldownLeft63 or not cooldownLeft63.remaining or cooldownLeft63.remaining <= 0) and familyRowLeft63 == 0 then
+            print('^2[TEST 63 PASS] Every registered cm_family_* table (and the family row itself) was cleaned up.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 63 FAIL] Leftover tables: %s, cooldownLeft=%s, familyRowLeft=%d^7'):format(
+                json.encode(leftover63), json.encode(cooldownLeft63 or {}), familyRowLeft63))
+        end
+        MySQL.query.await('DELETE FROM cm_family_event_participants WHERE event_uid = ?', { uid63 })
+        MySQL.query.await('DELETE FROM cm_family_activity_log WHERE event_uid = ?', { uid63 })
+        MySQL.query.await('DELETE FROM cm_family_reward_history WHERE unique_id = ?', { uid63 .. '_reward' })
+
+        -- TEST 64: Family isolation -- deleting family A must never touch family B's rows.
+        print('^3[TEST 64] CMFamilyDeleteFamilyRows never touches another family\'s rows...^7')
+        local famA64, famB64 = 999964, 999965
+        MySQL.query.await(
+            "INSERT INTO cm_families (id, name, founder_cid, bank_balance) VALUES (?, 'IsoA', 'cid_iso_a', 0), (?, 'IsoB', 'cid_iso_b', 0)",
+            { famA64, famB64 })
+        MySQL.query.await(
+            "INSERT INTO cm_family_hq_upgrades (family_id, upgrade_key) VALUES (?, 'iso_upgrade'), (?, 'iso_upgrade')",
+            { famA64, famB64 })
+        -- This installed schema enforces a real FK from cm_family_members.rank_id
+        -- to cm_family_ranks.id, so a placeholder rank id is rejected -- create
+        -- real ranks the same way TEST 63/66 do.
+        local rankA64 = CreateDefaultRanks(famA64)
+        local rankB64 = CreateDefaultRanks(famB64)
+        -- CMFamilyInsertMember, not a raw INSERT -- see TEST 63's comment.
+        CMFamilyInsertMember(famA64, 'cid_iso_a_m', rankA64)
+        CMFamilyInsertMember(famB64, 'cid_iso_b_m', rankB64)
+
+        CMFamilyDeleteFamilyRows(famA64)
+
+        local aHqLeft64 = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM cm_family_hq_upgrades WHERE family_id = ?', { famA64 })) or 0
+        local bHqLeft64 = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM cm_family_hq_upgrades WHERE family_id = ?', { famB64 })) or 0
+        local aMemberLeft64 = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM cm_family_members WHERE family_id = ?', { famA64 })) or 0
+        local bMemberLeft64 = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM cm_family_members WHERE family_id = ?', { famB64 })) or 0
+        local aFamLeft64 = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM cm_families WHERE id = ?', { famA64 })) or 0
+        local bFamLeft64 = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM cm_families WHERE id = ?', { famB64 })) or 0
+        if aHqLeft64 == 0 and bHqLeft64 == 1 and aMemberLeft64 == 0 and bMemberLeft64 == 1 and aFamLeft64 == 0 and bFamLeft64 == 1 then
+            print('^2[TEST 64 PASS] Family A fully removed; family B rows untouched.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 64 FAIL] aHq=%d bHq=%d aMember=%d bMember=%d aFam=%d bFam=%d^7'):format(
+                aHqLeft64, bHqLeft64, aMemberLeft64, bMemberLeft64, aFamLeft64, bFamLeft64))
+        end
+        CMFamilyDeleteFamilyRows(famB64)
+
+        -- TEST 65: Idempotency -- calling cleanup twice on an already-deleted family is safe.
+        print('^3[TEST 65] CMFamilyDeleteFamilyRows is idempotent...^7')
+        local famId65 = 999966
+        MySQL.query.await(
+            "INSERT INTO cm_families (id, name, founder_cid, bank_balance) VALUES (?, 'IdemTest', 'cid_idem', 0)",
+            { famId65 })
+        local firstOk65, firstErr65 = CMFamilyDeleteFamilyRows(famId65)
+        local secondOk65, secondErr65 = CMFamilyDeleteFamilyRows(famId65)
+        if firstOk65 == true and secondOk65 == true then
+            print('^2[TEST 65 PASS] First delete succeeded; repeat delete on an already-gone family also reports success.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 65 FAIL] firstOk=%s (%s), secondOk=%s (%s)^7'):format(
+                tostring(firstOk65), tostring(firstErr65), tostring(secondOk65), tostring(secondErr65)))
+        end
+
+        -- TEST 66: FinalizeHouseFamilyDeletion end-to-end -- authoritative
+        -- delete, then runtime cache/online-state clearing, via a same-
+        -- resource export call (the "cm-family self-call -> allowed" case).
+        -- Rejecting an unrelated resource is covered by the static source
+        -- check in tools/cm-house-family-contracts/check_contracts.py --
+        -- there is no live third resource to call from inside this file.
+        print('^3[TEST 66] FinalizeHouseFamilyDeletion deletes rows and clears runtime caches...^7')
+        local famId66 = 999967
+        MySQL.query.await(
+            "INSERT INTO cm_families (id, name, founder_cid, bank_balance) VALUES (?, 'FinalizeTest', 'cid_fin66', 0)",
+            { famId66 })
+        -- Use the real rank-insert helper (see TEST 63's comment): a raw
+        -- INSERT can violate a legacy schema's `perms` CHECK constraint.
+        local founderRankId66 = CreateDefaultRanks(famId66)
+        -- CMFamilyInsertMember, not a raw INSERT -- see TEST 63's comment.
+        CMFamilyInsertMember(famId66, 'cid_fin66', founderRankId66)
+        Families[famId66] = { id = famId66, name = 'FinalizeTest', house_id = nil, ranksById = {} }
+        MemberByCid['cid_fin66'] = { family_id = famId66, rank_id = founderRankId66 }
+
+        local ok66, result66 = exports['cm-family']:FinalizeHouseFamilyDeletion(famId66, nil, 'test_cleanup', 'cid_fin66')
+
+        local rankLeft66 = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM cm_family_ranks WHERE family_id = ?', { famId66 })) or 0
+        local memberLeft66 = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM cm_family_members WHERE family_id = ?', { famId66 })) or 0
+        local familyLeft66 = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM cm_families WHERE id = ?', { famId66 })) or 0
+        if ok66 == true and rankLeft66 == 0 and memberLeft66 == 0 and familyLeft66 == 0
+            and Families[famId66] == nil and MemberByCid['cid_fin66'] == nil then
+            print('^2[TEST 66 PASS] FinalizeHouseFamilyDeletion (self-call) deleted every row and cleared runtime caches.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 66 FAIL] ok=%s (%s), rankLeft=%d, memberLeft=%d, familyLeft=%d, FamiliesCleared=%s, MemberByCidCleared=%s^7'):format(
+                tostring(ok66), tostring(result66), rankLeft66, memberLeft66, familyLeft66,
+                tostring(Families[famId66] == nil), tostring(MemberByCid['cid_fin66'] == nil)))
+        end
+        MemberByCid['cid_fin66'] = nil
+        Families[famId66] = nil
+        MySQL.query.await('DELETE FROM cm_family_ranks WHERE family_id = ?', { famId66 })
+        MySQL.query.await('DELETE FROM cm_family_members WHERE family_id = ?', { famId66 })
+        MySQL.query.await('DELETE FROM cm_families WHERE id = ?', { famId66 })
+
+        -- TEST 67: GetMemberIdentity never leaks the private permission map
+        -- as a second return value (a Lua tail-call regression class: `return
+        -- f(...)` forwards every value f returns, not just the first one).
+        print('^3[TEST 67] GetMemberIdentity export does not forward a private permissions return value...^7')
+        local pub67, leaked67 = exports['cm-family']:GetMemberIdentity(testCid1)
+        if leaked67 == nil then
+            print('^2[TEST 67 PASS] GetMemberIdentity returns exactly one value.^7')
+            testsPassed = testsPassed + 1
+        else
+            print(('^1[TEST 67 FAIL] GetMemberIdentity leaked a second return value: %s^7'):format(json.encode(leaked67)))
         end
         end
 
