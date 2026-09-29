@@ -375,6 +375,20 @@ lib.callback.register('cm-house:server:adminAction', function(src, action, house
             return false, 'Vehicle release failed: ' .. tostring(releaseInfo)
         end
 
+        -- cm-family owns every cm_family_* table and is the only resource
+        -- that deletes them. Ask it to authoritatively remove the linked
+        -- family BEFORE any cm-house table is touched, so a failure here
+        -- (including cm-family being stopped) never leaves a half-deleted
+        -- family or an orphaned house/family mismatch.
+        if familyContext then
+            local familyCleaned, familyCleanErr = CMHouseFamilyLifecycle.FinalizeDeletedFamily(
+                familyContext, houseId, 'evicted', adminCid)
+            if not familyCleaned then
+                return false, ('The linked family could not be safely removed: %s')
+                    :format(tostring(familyCleanErr))
+            end
+        end
+
         local statements = {
             {
                 query = 'DELETE FROM inventory_items WHERE owner_type = ? AND owner_id LIKE ?',
@@ -392,22 +406,30 @@ lib.callback.register('cm-house:server:adminAction', function(src, action, house
                 query = 'DELETE FROM cm_house_access WHERE house_id = ?',
                 values = { houseId },
             },
-        }
-        CMHouseFamilyLifecycle.AppendDeleteStatements(
-            statements, familyContext and familyContext.id or nil, houseId)
-        statements[#statements + 1] = {
-            query = [[
-                UPDATE cm_houses
-                SET owner_cid = NULL, family_id = NULL, for_sale = 1,
-                    paid_until = NULL, locked = 1
-                WHERE id = ?
-            ]],
-            values = { houseId },
+            {
+                -- House-owned data: stops a personal vehicle from still being
+                -- advertised as a family vehicle after the family is gone.
+                query = 'DELETE FROM cm_house_shared_vehicles WHERE house_id = ?',
+                values = { houseId },
+            },
+            {
+                query = [[
+                    UPDATE cm_houses
+                    SET owner_cid = NULL, family_id = NULL, for_sale = 1,
+                        paid_until = NULL, locked = 1
+                    WHERE id = ?
+                ]],
+                values = { houseId },
+            },
         }
 
         local committed = MySQL.transaction.await(statements)
         if committed ~= true then
-            return false, 'The eviction transaction failed. The property and family were not changed.'
+            -- The family (if any) is already gone at this point. cm-house's
+            -- own orphan-family-link reconciliation clears a dangling
+            -- house.family_id automatically on the next restart.
+            return false, 'The eviction transaction failed after the linked family was removed. ' ..
+                'The property needs administrator review before it is usable again.'
         end
 
         local oldFamily = familyContext and familyContext.id or nil
@@ -415,7 +437,6 @@ lib.callback.register('cm-house:server:adminAction', function(src, action, house
         h.for_sale, h.paid_until, h.locked = true, nil, true
         for _, set in pairs(Access) do set[houseId] = nil end
 
-        CMHouseFamilyLifecycle.FinalizeDeletedFamily(familyContext, houseId, 'evicted', adminCid)
         LogHouse(houseId, oldFamily, adminCid, 'admin_evict_family_house', {
             was = was,
             familyDeleted = oldFamily ~= nil,
@@ -453,6 +474,20 @@ lib.callback.register('cm-house:server:adminAction', function(src, action, house
             return false, 'Vehicle release failed: ' .. tostring(releaseInfo)
         end
 
+        -- cm-family owns every cm_family_* table and is the only resource
+        -- that deletes them. Ask it to authoritatively remove the linked
+        -- family BEFORE any cm-house table is touched, so a failure here
+        -- (including cm-family being stopped) never leaves a half-deleted
+        -- family or an orphaned house/family mismatch.
+        if familyContext then
+            local familyCleaned, familyCleanErr = CMHouseFamilyLifecycle.FinalizeDeletedFamily(
+                familyContext, houseId, 'deleted', adminCid)
+            if not familyCleaned then
+                return false, ('The linked family could not be safely removed: %s')
+                    :format(tostring(familyCleanErr))
+            end
+        end
+
         local statements = {
             {
                 query = 'DELETE FROM inventory_items WHERE owner_type = ? AND owner_id LIKE ?',
@@ -470,21 +505,28 @@ lib.callback.register('cm-house:server:adminAction', function(src, action, house
                 query = 'DELETE FROM cm_house_access WHERE house_id = ?',
                 values = { houseId },
             },
-        }
-        CMHouseFamilyLifecycle.AppendDeleteStatements(
-            statements, familyContext and familyContext.id or nil, houseId)
-        statements[#statements + 1] = {
-            query = 'DELETE FROM cm_houses WHERE id = ?',
-            values = { houseId },
+            {
+                -- House-owned data: stops a personal vehicle from still being
+                -- advertised as a family vehicle after the family is gone.
+                query = 'DELETE FROM cm_house_shared_vehicles WHERE house_id = ?',
+                values = { houseId },
+            },
+            {
+                query = 'DELETE FROM cm_houses WHERE id = ?',
+                values = { houseId },
+            },
         }
 
         local committed = MySQL.transaction.await(statements)
         if committed ~= true then
-            return false, 'The property deletion transaction failed. Nothing was deleted.'
+            -- The family (if any) is already gone at this point. cm-house's
+            -- own orphan-family-link reconciliation clears a dangling
+            -- house.family_id automatically on the next restart.
+            return false, 'The property deletion transaction failed after the linked family was removed. ' ..
+                'The property needs administrator review before it is usable again.'
         end
 
         local oldFamily = familyContext and familyContext.id or nil
-        CMHouseFamilyLifecycle.FinalizeDeletedFamily(familyContext, houseId, 'deleted', adminCid)
         if DeleteHousePhoto then
             local removed, photoWhy = DeleteHousePhoto(houseId)
             if not removed then

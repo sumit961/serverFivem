@@ -1,14 +1,19 @@
 -- ============================================================
--- cm-house | family-house lifecycle integration | v1.7.7
+-- cm-house | family-house lifecycle integration | v1.7.7, refactored v1.8.17
 --
 -- A linked property is the family's authoritative home. Property access stays
 -- rank-gated through CanAccessProperty. When that property is sold, evicted or
 -- deleted, the linked family must be removed with it instead of being left as
 -- an orphan with a nil house_id.
 --
--- Database deletion is intentionally child-first and is designed to work with
--- both the current FK-free cm-family schema and older installations that still
--- carry ON DELETE constraints.
+-- cm-family owns every cm_family_* table and is the only resource that
+-- deletes them. This file no longer builds DELETE statements against those
+-- tables itself -- FL.FinalizeDeletedFamily calls cm-family's single
+-- authoritative export (FinalizeHouseFamilyDeletion), which performs the
+-- transactional, idempotent row deletion AND clears cm-family's runtime
+-- caches / online members' replicated state in one call. Callers must invoke
+-- FL.FinalizeDeletedFamily and check its result BEFORE mutating any
+-- cm-house table, so a failure here never leaves a half-deleted family.
 -- ============================================================
 
 CMHouseFamilyLifecycle = CMHouseFamilyLifecycle or {}
@@ -80,114 +85,25 @@ function FL.GetContext(house, options)
     }
 end
 
--- Append every cm-family-owned row to an existing oxmysql transaction list.
--- cm_house_shared_vehicles is house-owned data and is also cleared so personal
--- vehicles stop being advertised as family vehicles after disbanding.
-function FL.AppendDeleteStatements(statements, familyId, houseId)
-    familyId = normalizedFamilyId(familyId)
-    houseId = tonumber(houseId)
-    if not familyId then return statements end
-    statements = statements or {}
-
-    -- Cancel any active event involving this family before removing data
-    pcall(function()
-        if GetResourceState('cm-family') == 'started' then
-            local activeEvt = exports['cm-family']:GetActiveFamilyEventForFamily(familyId)
-            if activeEvt and activeEvt.eventUid then
-                exports['cm-family']:CancelFamilyEvent(activeEvt.eventUid, 'family_disbanded')
-            end
-        end
-    end)
-
-    statements[#statements + 1] = {
-        query = 'DELETE FROM cm_family_event_participants WHERE family_id = ?',
-        values = { familyId },
-    }
-    statements[#statements + 1] = {
-        query = 'DELETE FROM cm_family_event_cooldowns WHERE family_id = ?',
-        values = { familyId },
-    }
-    statements[#statements + 1] = {
-        query = 'DELETE FROM cm_family_reward_history WHERE family_id = ?',
-        values = { familyId },
-    }
-    statements[#statements + 1] = {
-        query = 'DELETE FROM cm_family_hq_upgrades WHERE family_id = ?',
-        values = { familyId },
-    }
-    statements[#statements + 1] = {
-        query = 'DELETE FROM cm_family_objective_progress WHERE family_id = ?',
-        values = { familyId },
-    }
-    statements[#statements + 1] = {
-        query = 'DELETE FROM cm_family_contribution_weekly WHERE family_id = ?',
-        values = { familyId },
-    }
-    statements[#statements + 1] = {
-        query = 'DELETE FROM cm_family_contribution_daily WHERE family_id = ?',
-        values = { familyId },
-    }
-    statements[#statements + 1] = {
-        query = 'DELETE FROM cm_family_member_contributions WHERE family_id = ?',
-        values = { familyId },
-    }
-    statements[#statements + 1] = {
-        query = 'DELETE FROM cm_family_progression WHERE family_id = ?',
-        values = { familyId },
-    }
-    statements[#statements + 1] = {
-        query = 'DELETE FROM cm_family_log WHERE family_id = ?',
-        values = { familyId },
-    }
-    statements[#statements + 1] = {
-        query = 'DELETE FROM cm_family_activity_log WHERE family_id = ?',
-        values = { familyId },
-    }
-    statements[#statements + 1] = {
-        query = 'DELETE FROM cm_family_bank_log WHERE family_id = ?',
-        values = { familyId },
-    }
-    statements[#statements + 1] = {
-        query = 'DELETE FROM cm_family_vehicle_access WHERE family_id = ?',
-        values = { familyId },
-    }
-    statements[#statements + 1] = {
-        query = 'DELETE FROM cm_family_invites WHERE family_id = ?',
-        values = { familyId },
-    }
-    statements[#statements + 1] = {
-        query = 'DELETE FROM cm_family_members WHERE family_id = ?',
-        values = { familyId },
-    }
-    statements[#statements + 1] = {
-        query = 'DELETE FROM cm_family_ranks WHERE family_id = ?',
-        values = { familyId },
-    }
-    statements[#statements + 1] = {
-        query = 'DELETE FROM cm_families WHERE id = ?',
-        values = { familyId },
-    }
-    if houseId then
-        statements[#statements + 1] = {
-            query = 'DELETE FROM cm_house_shared_vehicles WHERE house_id = ?',
-            values = { houseId },
-        }
-    end
-    return statements
-end
-
--- Clear cm-family's runtime cache after the shared DB transaction commits.
--- Failure here cannot restore deleted rows, but access remains safe because the
--- house's family_id has already been cleared. cm-family also self-heals on its
--- next restart by rebuilding caches from the database.
+-- Ask cm-family to authoritatively delete every cm_family_* row for this
+-- family and clear its own runtime caches / online members' replicated
+-- state. This is the ONLY step that deletes family-domain data -- cm-house
+-- never touches a cm_family_* table directly. Callers MUST check the
+-- returned (ok, ...) and must not mutate any cm-house table if it is false:
+-- a failure here (including cm-family being stopped) fails the whole
+-- operation closed rather than falling back to a local DELETE list.
+--
+-- Idempotent: cm-family's underlying delete is transactional and safe to
+-- call twice (an already-deleted family simply deletes zero rows and still
+-- reports success), so a retried house-lifecycle action is always safe.
 function FL.FinalizeDeletedFamily(context, houseId, reason, actorCid)
     if type(context) ~= 'table' or not normalizedFamilyId(context.id) then return true end
     local familyId = normalizedFamilyId(context.id)
 
     if GetResourceState(FAMILY_RESOURCE) ~= 'started' then
-        print(('[cm-house] family %s deleted with house %s while %s was not started; cache will be clean on next start')
+        print(('[cm-house] ^1cannot finalize family %s for house %s: %s is not running^7')
             :format(tostring(familyId), tostring(houseId), FAMILY_RESOURCE))
-        return true
+        return false, 'family_resource_unavailable'
     end
 
     local ok, result, why = pcall(function()
@@ -195,7 +111,7 @@ function FL.FinalizeDeletedFamily(context, houseId, reason, actorCid)
             familyId, tonumber(houseId), tostring(reason or 'house_lifecycle'), actorCid)
     end)
     if not ok or result ~= true then
-        print(('[cm-house] ^1family cache finalization failed for family %s / house %s: %s^7')
+        print(('[cm-house] ^1family deletion failed for family %s / house %s: %s^7')
             :format(tostring(familyId), tostring(houseId), tostring(why or result)))
         return false, why or result
     end

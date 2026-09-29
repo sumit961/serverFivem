@@ -5,7 +5,7 @@ lua54 'yes'
 name        'cm-family'
 author      'Sumit'
 description 'CM Framework | Family system (ranks, vehicles, bank, family house)'
-version     '1.9.4'
+version     '1.9.5'
 
 shared_scripts {
     '@ox_lib/init.lua',

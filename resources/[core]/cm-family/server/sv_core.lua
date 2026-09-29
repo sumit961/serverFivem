@@ -776,11 +776,14 @@ end
 -- Database startup is owned by server/sv_schema.lua.
 
 -- ============================================================
--- House-authoritative lifecycle finalizer | v1.0.8
--- cm-house deletes the linked family rows inside the same DB transaction that
--- sells/evicts/deletes the property. This export then removes the corresponding
--- runtime caches and playerdata family markers without calling back into
--- cm-house (which would create a lifecycle loop).
+-- House-authoritative lifecycle finalizer | v1.0.8, extended v1.9.5
+-- The ONE authoritative entry point for a house-triggered family deletion.
+-- cm-family owns every cm_family_* table, so this export performs the actual
+-- authoritative row deletion itself (CMFamilyDeleteFamilyRows, transactional
+-- and idempotent) and then removes the corresponding runtime caches and
+-- playerdata family markers, without calling back into cm-house (which would
+-- create a lifecycle loop). cm-house must call this BEFORE mutating its own
+-- house tables -- see cm-house/server/sv_family_lifecycle.lua.
 -- ============================================================
 local function houseLifecycleInvokerAllowed()
     local invoker = GetInvokingResource()
@@ -800,6 +803,17 @@ exports('FinalizeHouseFamilyDeletion', function(familyId, houseId, reason, actor
     local family = Families[familyId]
     if family and houseId and family.house_id and tonumber(family.house_id) ~= houseId then
         return false, 'family_house_mismatch'
+    end
+
+    -- Authoritative deletion of every cm_family_* row for this family.
+    -- CMFamilyDeleteFamilyRows is transactional and idempotent: a family
+    -- already deleted (rows already gone) simply deletes zero rows and
+    -- still returns true, so calling this export twice is always safe.
+    local deleted, deleteErr = CMFamilyDeleteFamilyRows(familyId)
+    if not deleted then
+        print(('[cm-family] ^1FinalizeHouseFamilyDeletion: authoritative delete failed for family %s: %s^7')
+            :format(tostring(familyId), tostring(deleteErr)))
+        return false, deleteErr or 'family_delete_failed'
     end
 
     local removedMembers = {}
