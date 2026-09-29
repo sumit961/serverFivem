@@ -315,6 +315,97 @@ def check_admin_integration_contract(house_root: Path, admin_root: Path, errors:
                     errors.append(f"{lua_file.relative_to(admin_root)}: cm-admin now implements '{stale}' -- update docs/ADMIN_INTEGRATION_v1.7.0.md, it currently documents this as never implemented")
 
 
+def check_garage_vehicle_type_gate(house_server: Path, errors: list[str]) -> None:
+    lf = LuaFile(house_server / "sv_garage.lua")
+    if "local function isAirOrWaterVehicle(" not in lf.original:
+        errors.append("sv_garage.lua: isAirOrWaterVehicle() helper is missing -- a normal house garage could accept helicopters/boats/planes")
+        return
+    parkable_block = lf.find_block(r"lib\.callback\.register\('cm-house:server:parkable',\s*function")
+    if not parkable_block:
+        errors.append("sv_garage.lua: could not locate parkable callback to check vehicle-type gate")
+    elif "isAirOrWaterVehicle(" not in lf.slice(parkable_block):
+        errors.append("sv_garage.lua: parkable listing no longer filters air/water vehicles out of the normal house garage list")
+    for cb_name in ("storeVehicle", "callVehicleById", "assignVehicleToSlot"):
+        block = lf.find_block(rf"lib\.callback\.register\('cm-house:server:{cb_name}',\s*function")
+        if not block:
+            errors.append(f"sv_garage.lua: could not locate {cb_name} callback to check vehicle-type gate")
+            continue
+        if "isAirOrWaterVehicle(" not in lf.slice(block):
+            errors.append(f"sv_garage.lua: {cb_name} no longer calls isAirOrWaterVehicle -- a normal house garage could store/call/assign a helicopter or boat")
+
+
+def check_garage_public_parking_gate(house_server: Path, errors: list[str]) -> None:
+    lf = LuaFile(house_server / "sv_garage.lua")
+    if "local function isVehicleInPublicParking(" not in lf.original:
+        errors.append("sv_garage.lua: isVehicleInPublicParking() helper is missing -- a vehicle in public parking could be duplicated into a house/family garage")
+        return
+    parkable_block = lf.find_block(r"lib\.callback\.register\('cm-house:server:parkable',\s*function")
+    if parkable_block and "isVehicleInPublicParking(" not in lf.slice(parkable_block):
+        errors.append("sv_garage.lua: parkable listing no longer marks vehicles that are currently in public parking")
+    for cb_name in ("callVehicleById", "assignVehicleToSlot"):
+        block = lf.find_block(rf"lib\.callback\.register\('cm-house:server:{cb_name}',\s*function")
+        if not block:
+            errors.append(f"sv_garage.lua: could not locate {cb_name} callback to check public-parking guard")
+            continue
+        if "isVehicleInPublicParking(" not in lf.slice(block):
+            errors.append(f"sv_garage.lua: {cb_name} no longer checks isVehicleInPublicParking -- a vehicle stored in public parking could be duplicated into a house/family garage")
+
+
+def check_garage_family_vehicle_scope(house_server: Path, errors: list[str]) -> None:
+    lf = LuaFile(house_server / "sv_garage.lua")
+    block = lf.find_block(r"lib\.callback\.register\('cm-house:server:parkable',\s*function")
+    if not block:
+        errors.append("sv_garage.lua: could not locate parkable callback to check family-vehicle scope")
+        return
+    body = lf.slice(block)
+    if "cm_house_shared_vehicles" not in body and "owner_class = 'family'" not in body:
+        errors.append(
+            "sv_garage.lua: parkable listing lost its explicit family-vehicle scoping "
+            "(cm_house_shared_vehicles / slot owner_class = 'family') -- a family member's "
+            "personal vehicle could leak into the shared family garage list on membership alone"
+        )
+    if re.search(r"JOIN\s+cm_family_members\s+fm\s+ON\s+fm\.character_id\s*=\s*v\.owner_character_id", body, re.I):
+        errors.append(
+            "sv_garage.lua: parkable listing grants family-garage visibility via raw family "
+            "membership (cm_family_members fm) instead of explicit per-house sharing -- this is "
+            "the exact 'family vehicle becomes personal/visible-by-membership' regression"
+        )
+
+
+def check_garage_catalog_image_contract(house_server: Path, errors: list[str]) -> None:
+    lf = LuaFile(house_server / "sv_garage.lua")
+    state_block = lf.find_block(r"function GarageState\(houseId\)")
+    if not state_block:
+        errors.append("sv_garage.lua: could not locate GarageState to check catalog-image forwarding")
+    elif not re.search(r"image\s*=\s*v\.image", lf.slice(state_block)):
+        errors.append("sv_garage.lua: GarageState no longer forwards the catalog-sourced v.image field -- house garage slot vehicle images would go blank")
+    parkable_block = lf.find_block(r"lib\.callback\.register\('cm-house:server:parkable',\s*function")
+    if not parkable_block:
+        errors.append("sv_garage.lua: could not locate parkable callback to check catalog-image forwarding")
+    else:
+        body = lf.slice(parkable_block)
+        if "cm_vehicle_catalog" not in body:
+            errors.append("sv_garage.lua: parkable listing no longer joins cm_vehicle_catalog -- vehicle image/type data lost")
+        if not re.search(r"image\s*=\s*\(v\.catalog_image", body):
+            errors.append("sv_garage.lua: parkable listing no longer forwards catalog_image to its output payload")
+
+
+def check_garage_operation_lock_and_persistent_identity(house_server: Path, errors: list[str]) -> None:
+    lf = LuaFile(house_server / "sv_garage.lua")
+    if "IsVehicleOperationActive" not in lf.original:
+        errors.append("sv_garage.lua: IsVehicleOperationActive lock check appears to be missing -- concurrent garage operations could race")
+    for cb_name in ("callVehicleById", "assignVehicleToSlot", "storeVehicle"):
+        block = lf.find_block(rf"lib\.callback\.register\('cm-house:server:{cb_name}',\s*function")
+        if not block:
+            continue
+        body = lf.slice(block)
+        if re.search(r"INSERT\s+INTO\s+cm_owned_vehicles", body, re.I):
+            errors.append(f"sv_garage.lua: {cb_name} inserts a new cm_owned_vehicles row -- garage call/store/assign must reuse the existing persistent vehicle_id, never mint a new one")
+        for set_clause in re.findall(r"UPDATE\s+cm_owned_vehicles\s+SET(.*?)WHERE", body, re.S | re.I):
+            if re.search(r"\bowner_character_id\s*=", set_clause):
+                errors.append(f"sv_garage.lua: {cb_name} assigns owner_character_id in an UPDATE SET clause -- calling/storing a family vehicle must not convert it into the caller's personal vehicle")
+
+
 def check_version_changelog_consistency(resource_root: Path, name: str, errors: list[str]) -> str | None:
     manifest = (resource_root / "fxmanifest.lua").read_text(encoding="utf-8-sig", errors="replace")
     match = re.search(r"version\s+'([\d.]+)'", manifest)
@@ -355,6 +446,11 @@ def main() -> int:
     check_stash_proximity(house_root / "server", errors)
     check_buy_sell_proximity(house_root / "server", errors)
     check_owner_houses_ordering(house_root / "server", errors)
+    check_garage_vehicle_type_gate(house_root / "server", errors)
+    check_garage_public_parking_gate(house_root / "server", errors)
+    check_garage_family_vehicle_scope(house_root / "server", errors)
+    check_garage_catalog_image_contract(house_root / "server", errors)
+    check_garage_operation_lock_and_persistent_identity(house_root / "server", errors)
     check_cm_house_never_deletes_family_tables(house_root, errors)
     check_family_state_allowlist(family_root / "server", errors)
     check_finalize_family_deletion_ordering(family_root / "server", errors)
