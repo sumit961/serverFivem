@@ -177,6 +177,23 @@ function ClearFamilyEventCooldown(familyId, eventKey)
 end
 exports('ClearFamilyEventCooldown', ClearFamilyEventCooldown)
 
+-- Called by CMFamilyDeleteFamilyRows (sv_schema.lua) after the DB rows for
+-- this family are gone. CooldownCache is keyed by familyId regardless of
+-- event key, so a deleted family's cooldown(s) would otherwise keep
+-- reporting "on cooldown" from stale memory even though the DB row backing
+-- it is already deleted (harmless in production, since family ids are never
+-- reused, but wrong, and caught by the hardening test suite).
+function ClearFamilyEventCooldownCache(familyId)
+    familyId = tonumber(familyId)
+    if not familyId then return end
+    local prefix = tostring(familyId) .. ':'
+    for key in pairs(CooldownCache) do
+        if key:sub(1, #prefix) == prefix then
+            CooldownCache[key] = nil
+        end
+    end
+end
+
 function EnsureFamilyEventCooldown(familyId, eventKey, targetAvailableAt, eventUid)
     familyId = tonumber(familyId)
     targetAvailableAt = tonumber(targetAvailableAt) or 0

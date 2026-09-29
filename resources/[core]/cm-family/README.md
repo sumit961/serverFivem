@@ -1,4 +1,4 @@
-# cm-family v1.9.5
+# cm-family v1.9.6
 
 Family system for the CM Framework. Players create a family from a house they
 own, invite members, manage up to 15 ranks with granular permissions, share

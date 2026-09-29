@@ -393,6 +393,20 @@ function GetRankForCid(cid)
 end
 
 
+local function permissionSnapshot(rank)
+    local out = {}
+    if not rank then return out end
+    for _, permission in ipairs(Config.Permissions or {}) do
+        out[permission.key] = rank.is_founder == true or rank.permissions[permission.key] == true
+    end
+    return out
+end
+
+-- Returns (publicState, permissions). publicState is the ONLY table that may
+-- ever be replicated (see the allowlist note below); permissions is the
+-- caller's own effective permission map and must only ever be delivered
+-- privately to that exact character's own client -- never replicated, never
+-- forwarded for a different (target) player. See SyncFamilyMemberState.
 function BuildFamilyMemberState(characterId)
     local membership = GetMembership(characterId)
     if not membership then return nil end
@@ -403,28 +417,30 @@ function BuildFamilyMemberState(characterId)
 
     -- This table is replicated to EVERY connected client (SyncFamilyMemberState
     -- sets it with a replicated state bag, and cm-playerdata mirrors the same
-    -- payload again through SetFamily/B.SetPlayerFamily). Only public identity
-    -- fields belong here -- overhead icons, chat display, and same-family/
-    -- rank-tier comparisons are the only things any other client legitimately
-    -- needs about someone else's family membership.
+    -- payload again through SetFamily/B.SetPlayerFamily). This is an explicit
+    -- allowlist of public identity fields -- overhead icons, chat display, and
+    -- same-family/rank-tier comparisons are the only things any other client
+    -- legitimately needs about someone else's family membership. Build this by
+    -- listing exactly what belongs here, never by copying an internal member/
+    -- rank object and deleting the sensitive fields afterward -- an allowlist
+    -- cannot silently leak a new internal field the way a denylist can.
     --
     -- Never add the rank's permission map (or any other internal/management
     -- capability data) back into this table. A member's effective permissions
-    -- are private and must only be delivered through a targeted, server-
-    -- validated path (see server/sv_gmenu.lua's owner-only "family_permissions"
-    -- action) or checked live, server-side, at the moment of the action.
-    return {
+    -- are private: the owning member's own client receives them separately
+    -- (see permissionSnapshot / SyncFamilyMemberState's private push), and an
+    -- authorized founder inspecting a MEMBER's permissions uses the targeted,
+    -- server-validated path in server/sv_gmenu.lua's "family_permissions"
+    -- action. Every mutating action re-checks the real permission live and
+    -- server-side regardless of what any client believes.
+    local publicState = {
         active = true,
         id = family.id,
         name = family.name,
         tag = family.tag,
         color = family.color or '#00f0ff',
-        -- Symbol-only overhead identity. Text tag/rank/title remain available
-        -- for chat and profiles but cm-playerdata never renders them above peds.
         symbol = normalizeSymbol(family.symbol),
         symbolColor = normalizeSymbolColor(family.color),
-        -- Family membership always carries an overhead symbol. Legacy
-        -- family/member visibility fields are intentionally ignored.
         symbolVisible = true,
         tagVisible = false,
         rankId = rank.id,
@@ -433,19 +449,26 @@ function BuildFamilyMemberState(characterId)
         isFounder = rank.is_founder == true,
         customTitle = membership.custom_title,
     }
+    return publicState, permissionSnapshot(rank)
 end
 
 function SyncFamilyMemberState(characterId)
     if characterId == nil then return false end
     local src = B.GetSrcByCid(characterId)
     if not src then return false end
-    local state = BuildFamilyMemberState(characterId)
+    local state, permissions = BuildFamilyMemberState(characterId)
     Player(src).state:set('cmFamily', state or false, true)
     if state then
         B.SetPlayerFamily(src, state.id, state.name, state)
     else
         B.SetPlayerFamily(src, nil, nil, nil)
     end
+    -- Owner-only, non-replicated: a plain TriggerClientEvent reaches only this
+    -- one client, unlike a state bag (which FiveM always sends to everyone
+    -- once replicated). This is how the local player's own G-menu/UI can
+    -- gate actions on their real permissions without any client -- including
+    -- this one's own -- ever reading another player's permission map.
+    TriggerClientEvent('cm-family:client:syncLocalPermissions', src, permissions or {})
     TriggerClientEvent('cm-playerdata:client:familyIdentityChanged', src)
     TriggerEvent('cm-chat:server:refreshPlayerChannels', src)
     return true
@@ -466,13 +489,18 @@ function ClearFamilyMemberState(characterId)
     if not src then return false end
     Player(src).state:set('cmFamily', false, true)
     B.SetPlayerFamily(src, nil, nil, nil)
+    TriggerClientEvent('cm-family:client:syncLocalPermissions', src, {})
     TriggerClientEvent('cm-playerdata:client:familyIdentityChanged', src)
     TriggerEvent('cm-chat:server:refreshPlayerChannels', src)
     return true
 end
 
 exports('GetMemberIdentity', function(characterId)
-    return BuildFamilyMemberState(characterId)
+    -- Must not forward BuildFamilyMemberState's second (private permissions)
+    -- return value: `return f(...)` is a tail call in Lua and would pass
+    -- every value straight through to this export's caller.
+    local state = BuildFamilyMemberState(characterId)
+    return state
 end)
 
 exports('GetFamilyMember', function(characterId)
@@ -491,6 +519,7 @@ AddEventHandler('cm-playerdata:server:characterUnloaded', function(src, data)
     src = tonumber(src)
     if src then
         Player(src).state:set('cmFamily', false, true)
+        TriggerClientEvent('cm-family:client:syncLocalPermissions', src, {})
         TriggerEvent('cm-chat:server:refreshPlayerChannels', src)
     end
 end)

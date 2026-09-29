@@ -45,13 +45,22 @@ end
 
 -- The replicated cmFamily state bag no longer carries the rank permission map
 -- (it is broadcast to every client, so it must stay public-identity-only).
--- This menu can therefore only pre-filter using the founder flag; a member
--- with a specific granted permission but not the founder role will not see
--- the shortcut here and can use the full family dashboard instead. Every one
--- of these actions is still independently permission-checked server-side in
--- sv_gmenu.lua, so this is a display-only limitation, not a security gate.
+-- The LOCAL player's own effective permissions are delivered separately and
+-- privately (a plain TriggerClientEvent to this client only, never a
+-- replicated state bag) by cm-family:server:sv_core.lua's SyncFamilyMemberState.
+-- `state` here is always the LOCAL actor's own public identity (`mine`),
+-- used only for the founder shortcut; the permission lookup always comes from
+-- this private cache, never from any player's replicated state -- reading a
+-- TARGET's state to decide the ACTOR's authority would be exactly the bug
+-- this split avoids. The server independently re-checks every action anyway.
+local myPermissions = {}
+RegisterNetEvent('cm-family:client:syncLocalPermissions', function(permissions)
+    myPermissions = type(permissions) == 'table' and permissions or {}
+end)
+
 local function has(state, permission)
-    return type(state) == 'table' and state.isFounder == true
+    if type(state) ~= 'table' then return false end
+    return state.isFounder == true or myPermissions[permission] == true
 end
 
 local function sameFamily(a, b)

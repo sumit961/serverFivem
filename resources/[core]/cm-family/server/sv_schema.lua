@@ -1032,6 +1032,11 @@ function CMFamilyDeleteFamilyRows(familyId)
     end)
     if not ok then return false, tostring(result) end
     if result ~= true then return false, 'delete_transaction_rejected' end
+
+    -- Runtime caches are only touched after the DB transaction above commits.
+    if type(ClearFamilyEventCooldownCache) == 'function' then
+        ClearFamilyEventCooldownCache(familyId)
+    end
     return true
 end
 
