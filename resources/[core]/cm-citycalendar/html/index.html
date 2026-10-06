@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en" data-cm-ui="closed">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>City Calendar</title>
+    <style>
+        :root { color-scheme: normal !important; }
+        html, body { background: transparent !important; background-color: transparent !important; }
+        html[data-cm-ui="closed"], html:not([data-cm-ui="open"]) { display: none !important; }
+        html[data-cm-ui="closed"] { visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
+        html[data-cm-ui="closed"] body { display: none !important; visibility: hidden !important; opacity: 0 !important; }
+        html[data-cm-ui="open"] { display: block !important; visibility: visible !important; opacity: 1 !important; pointer-events: auto !important; }
+        html[data-cm-ui="open"] body { display: block !important; visibility: visible !important; opacity: 1 !important; }
+        #app[hidden] { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
+    </style>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body data-cm-ui="closed">
+    <main id="app" class="shell" hidden aria-hidden="true">
+        <section class="panel" role="dialog" aria-modal="true" aria-labelledby="title">
+            <header class="topbar">
+                <div>
+                    <p class="eyebrow">CIVIC &amp; SOCIAL EVENTS</p>
+                    <h1 id="title">City Calendar</h1>
+                </div>
+                <button id="close" class="close" type="button" aria-label="Close">×</button>
+            </header>
+            <nav class="tabs" aria-label="Event status">
+                <button class="tab active" data-filter="all" type="button">ALL</button>
+                <button class="tab" data-filter="upcoming" type="button">UPCOMING</button>
+                <button class="tab" data-filter="active" type="button">ACTIVE</button>
+                <button class="tab" data-filter="past" type="button">PAST</button>
+                <button class="tab" data-filter="cancelled" type="button">CANCELLED</button>
+            </nav>
+            <div class="filters">
+                <label for="category">CATEGORY</label>
+                <select id="category"><option value="all">All categories</option></select>
+            </div>
+            <div id="list" class="list" aria-live="polite"></div>
+            <footer><span>/events or /citycalendar</span><span>ESC to close</span></footer>
+        </section>
+    </main>
+    <script src="app.js"></script>
+</body>
+</html>

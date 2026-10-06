@@ -45,6 +45,8 @@ Constants = {
         PLAYER_DIED = 'player_died',
         ABANDONED_VEHICLE = 'abandoned_vehicle',
         ABANDONED_ROUTE = 'abandoned_route',
+        LEFT_PUBLIC_WORLD = 'left_public_world',
+        CHARACTER_CHANGED = 'character_changed',
         TIMEOUT = 'timeout',
         TOO_MANY_MISTAKES = 'too_many_mistakes',
         DISCONNECTED = 'disconnected',
@@ -65,6 +67,8 @@ Constants = {
         player_died = 'You died during the test',
         abandoned_vehicle = 'You abandoned the test vehicle',
         abandoned_route = 'You went too far from the route',
+        left_public_world = 'The license test ended outside the public world',
+        character_changed = 'The license test ended because your character changed',
         timeout = 'Test time limit exceeded',
         too_many_mistakes = 'Too many mistakes',
         disconnected = 'You were disconnected',
@@ -99,6 +103,7 @@ Constants = {
         },
         CLIENT = {
             TEST_STARTED = 'cm-license:client:testStarted',
+            PUBLIC_WORLD_CHANGED = 'cm-license:client:publicWorldChanged',
             SET_CHECKPOINT = 'cm-license:client:setCheckpoint',
             TEST_COMPLETED = 'cm-license:client:testCompleted',
             TEST_FAILED = 'cm-license:client:testFailed',
@@ -106,6 +111,11 @@ Constants = {
             COMPLETION_REJECTED = 'cm-license:client:completionRejected',
             CHECKPOINT_REJECTED = 'cm-license:client:checkpointRejected',
             TEST_RESULT = 'cm-license:client:testResult',
+            TEST_START_REJECTED = 'cm-license:client:testStartRejected',
+        },
+        LOCAL = {
+            -- Server-local only. Never register or network this event.
+            LICENSE_GRANTED = 'cm-license:server:licenseGranted',
         },
     },
 

@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS `cm_gangs` (
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`gang_id`),
-  CONSTRAINT `chk_cm_gangs_fixed_id` CHECK (`gang_id` IN ('gang_1','gang_2','gang_3','gang_4'))
+  CONSTRAINT `chk_cm_gangs_fixed_id` CHECK (`gang_id` IN ('gang_1','gang_2','gang_3','gang_4','gang_5'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `cm_gang_ranks` (
@@ -165,19 +165,20 @@ CREATE TABLE IF NOT EXISTS `cm_gang_migrations` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT IGNORE INTO `cm_gangs` (`gang_id`, `display_name`, `short_tag`, `color`, `enabled`) VALUES
-  ('gang_1', 'Gang One',   'G1', '#67e8f9', 0),
-  ('gang_2', 'Gang Two',   'G2', '#67e8f9', 0),
-  ('gang_3', 'Gang Three', 'G3', '#67e8f9', 0),
-  ('gang_4', 'Gang Four',  'G4', '#67e8f9', 0);
+  ('gang_1', 'Marabunta', 'MAR', '#2563EB', 0),
+  ('gang_2', 'Bloods',    'BLD', '#EF4444', 0),
+  ('gang_3', 'Ballas',    'BAL', '#A855F7', 0),
+  ('gang_4', 'Families',  'FAM', '#22C55E', 0),
+  ('gang_5', 'Vagos',     'VAG', '#EAB308', 0);
 
 INSERT IGNORE INTO `cm_gang_ranks` (`gang_id`, `tier`, `name`, `permissions`, `is_leader_rank`)
 SELECT g.gang_id, seed.tier, seed.name, seed.permissions, seed.is_leader_rank
 FROM `cm_gangs` g
 CROSS JOIN (
-  SELECT 100 tier, 'Leader' name, JSON_OBJECT('gang.view_members',true,'gang.manage_members',true,'gang.manage_ranks',true,'gang.manage_permissions',true,'gang.chat',true,'gang.vehicle',true,'gang.manage_vehicles',true,'gang.armory',true,'gang.manage_armory',true,'gang.stash',true,'gang.manage_stash',true,'gang.invite',true,'gang.search',true,'gang.rob_cash',true,'gang.rob_items',true,'gang.view_logs',true) permissions, 1 is_leader_rank
-  UNION ALL SELECT 80, 'Underboss', JSON_OBJECT('gang.view_members',true,'gang.manage_members',true,'gang.chat',true,'gang.vehicle',true,'gang.manage_vehicles',true,'gang.armory',true,'gang.manage_armory',true,'gang.stash',true,'gang.manage_stash',true,'gang.invite',true,'gang.search',true,'gang.rob_cash',true,'gang.rob_items',true,'gang.view_logs',true), 0
-  UNION ALL SELECT 60, 'Enforcer', JSON_OBJECT('gang.view_members',true,'gang.chat',true,'gang.vehicle',true,'gang.armory',true,'gang.stash',true,'gang.invite',true,'gang.search',true,'gang.rob_cash',true,'gang.rob_items',true), 0
-  UNION ALL SELECT 40, 'Member', JSON_OBJECT('gang.view_members',true,'gang.chat',true,'gang.vehicle',true,'gang.armory',true,'gang.stash',true,'gang.search',true), 0
+  SELECT 100 tier, 'Leader' name, JSON_OBJECT('gang.view_members',true,'gang.manage_members',true,'gang.manage_ranks',true,'gang.manage_permissions',true,'gang.chat',true,'gang.vehicle',true,'gang.manage_vehicles',true,'gang.armory',true,'gang.manage_armory',true,'gang.stash',true,'gang.manage_stash',true,'gang.invite',true,'gang.view_logs',true) permissions, 1 is_leader_rank
+  UNION ALL SELECT 80, 'Underboss', JSON_OBJECT('gang.view_members',true,'gang.manage_members',true,'gang.chat',true,'gang.vehicle',true,'gang.manage_vehicles',true,'gang.armory',true,'gang.manage_armory',true,'gang.stash',true,'gang.manage_stash',true,'gang.invite',true,'gang.view_logs',true), 0
+  UNION ALL SELECT 60, 'Enforcer', JSON_OBJECT('gang.view_members',true,'gang.chat',true,'gang.vehicle',true,'gang.armory',true,'gang.stash',true,'gang.invite',true), 0
+  UNION ALL SELECT 40, 'Member', JSON_OBJECT('gang.view_members',true,'gang.chat',true,'gang.vehicle',true,'gang.armory',true,'gang.stash',true), 0
   UNION ALL SELECT 20, 'Recruit', JSON_OBJECT('gang.view_members',true,'gang.chat',true), 0
 ) seed
 WHERE NOT EXISTS (

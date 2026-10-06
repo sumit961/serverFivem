@@ -14,9 +14,12 @@ local function dprint(message)
     end
 end
 
+-- PHASE 5: no brand string is hardcoded here. '{BRAND}' is substituted by
+-- ui/app.js from window.CMBranding (cm-ui's canonical nui://cm-ui/web/cm-branding.js),
+-- the same single source cm-auth and cm-characters read.
 local tutorialSteps = {
     {
-        title = 'Welcome to Grand RP',
+        title = 'Welcome to {BRAND}',
         text = 'This is your new city. Learn the basics, find work, and build your story.',
         duration = 8000,
         pos = vector3(-1037.0, -2737.0, 20.0)
@@ -93,12 +96,23 @@ AddEventHandler('cm-spawn:client:startTutorial', function()
     TriggerEvent('cm-core:playerSpawned')
 end)
 
-RegisterCommand('skiptutorial', function()
-    if tutorialActive then
-        tutorialActive = false
-        SendNUIMessage({ action = 'hideTutorial' })
-        RenderScriptCams(false, false, 0, true, true)
-        TriggerServerEvent('cm-spawn:server:tutorialComplete')
-        dprint('Tutorial skipped')
-    end
+-- PHASE 5 (Critical Bug 3 fix): tutorial skip now has its own dedicated path
+-- instead of reusing cm-spawn's generic (and formerly unsafe) closeSpawn NUI
+-- callback. It only acts while a tutorial is actually running on this client,
+-- and the server side (cm-spawn:server:tutorialSkip) independently refuses to
+-- write tutorial state for a player with a pending (pre-spawn) transition.
+local function skipTutorial()
+    if not tutorialActive then return end
+    tutorialActive = false
+    SendNUIMessage({ action = 'hideTutorial' })
+    RenderScriptCams(false, false, 0, true, true)
+    TriggerServerEvent('cm-spawn:server:tutorialSkip')
+    dprint('Tutorial skipped')
+end
+
+RegisterNUICallback('tutorialSkip', function(_, cb)
+    skipTutorial()
+    cb({ ok = true })
 end)
+
+RegisterCommand('skiptutorial', skipTutorial, false)

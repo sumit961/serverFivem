@@ -167,10 +167,10 @@ function B.GetFamilyVehicles(familyId)
 end
 
 
-function B.GetFamilyVehicleManagementList(familyId, ownerCid)
+function B.GetFamilyVehicleManagementList(familyId, ownerCid, includeCandidates)
     if not started(HOUSE) then return {} end
     local ok, vehicles = pcall(function()
-        return exports[HOUSE]:GetFamilyVehicleManagementList(familyId, ownerCid)
+        return exports[HOUSE]:GetFamilyVehicleManagementList(familyId, ownerCid, includeCandidates == true)
     end)
     if ok and type(vehicles) == 'table' then return vehicles end
     return {}
@@ -182,6 +182,24 @@ function B.SetVehicleFamilyShared(vehicleId, shared, actorCid)
         return exports[HOUSE]:SetVehicleFamilyShared(vehicleId, shared == true, actorCid)
     end)
     if not ok then return false, 'house_vehicle_share_error' end
+    return result == true, reason
+end
+
+function B.RegisterFamilyVehicle(vehicleId, familyId, actorCid)
+    if not started(HOUSE) then return false, 'house_not_running' end
+    local ok, result, reason = pcall(function()
+        return exports[HOUSE]:RegisterFamilyVehicle(vehicleId, familyId, actorCid)
+    end)
+    if not ok then return false, 'house_vehicle_registration_error' end
+    return result == true, reason
+end
+
+function B.UnregisterFamilyVehicle(vehicleId, familyId, actorCid)
+    if not started(HOUSE) then return false, 'house_not_running' end
+    local ok, result, reason = pcall(function()
+        return exports[HOUSE]:UnregisterFamilyVehicle(vehicleId, familyId, actorCid)
+    end)
+    if not ok then return false, 'house_vehicle_unregistration_error' end
     return result == true, reason
 end
 

@@ -84,7 +84,15 @@ RegisterCommand('policequickmenu', function()
             end,
         }
     else
-        return notify('Wear a complete Police outfit at the wardrobe to start duty.', 'inform')
+        options[#options + 1] = {
+            title = 'Go On Duty',
+            description = 'Report for active duty',
+            icon = 'shield-halved',
+            onSelect = function()
+                local ok, message = lib.callback.await('cm-police:server:toggleDuty', false)
+                notify(message, ok and 'success' or 'error')
+            end,
+        }
     end
 
     if canRadar then

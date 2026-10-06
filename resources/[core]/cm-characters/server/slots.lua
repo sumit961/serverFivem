@@ -159,9 +159,6 @@ RegisterNetEvent('cm-characters:server:selectCharacter', function(charId)
         selectionLocks[src] = nil
     end
 
-    pcall(function() SetPlayerRoutingBucket(src, 0) end)
-    pcall(function() Player(src).state:set('selectorBucket', 0, true) end)
-
     charId = tostring(charId or '')
     if charId == '' then
         done()
@@ -175,7 +172,19 @@ RegisterNetEvent('cm-characters:server:selectCharacter', function(charId)
         TriggerClientEvent('cm-characters:client:error', src, err or 'Character not found')
         return
     end
+    print('[CM-CHARACTERS SERVER] ownership validated: src=' .. tostring(src) .. ' charId=' .. tostring(char.id))
 
+    -- PHASE 5: do NOT leave the private selector bucket here. This used to
+    -- release it (SetPlayerRoutingBucket(src, 0)) the instant a valid
+    -- character selection was confirmed, exposing the player in the PUBLIC
+    -- bucket for the entire time cm-spawn resolves/loads/shows its own spawn
+    -- pipeline (cm-core:characterLoaded below), still hidden only by
+    -- client-side invisibility flags rather than true bucket isolation. The
+    -- private bucket set by cm-characters:server:enterSelectorBucket must now
+    -- persist all the way through cm-spawn's spawn selector/preparation and
+    -- is released exactly once, by cm-spawn's own handshake
+    -- (cm-spawn:server:readyForPublicWorld -> resetPlayerWorldState), only
+    -- after the real spawn destination has actually been prepared.
     CMCharacters.SetCharacterState(src, char)
     Player(src).state:set('isInCharacterSelector', false, true)
     Player(src).state:set('characterFullySpawned', false, true)

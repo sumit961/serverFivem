@@ -147,6 +147,174 @@ function CreditFamilyTreasuryAtomic(familyId, amount, opts)
 end
 exports('CreditFamilyTreasuryAtomic', CreditFamilyTreasuryAtomic)
 
+-- Trusted exact-once treasury debit (invoice refunds). Owner-local journal: cm_family_treasury_operations, UNIQUE(reference).
+-- The guarded balance UPDATE, the journal row and the bank-log row commit in ONE SQL transaction; the journal insert only happens when the
+-- balance UPDATE changed a row (ROW_COUNT() = 1) and a duplicate reference aborts the whole transaction. Correctness is therefore decided by the
+-- database, not by the in-process treasury lock (kept only to serialize in-memory cache refreshes) and not by cm_family_bank_log.
+--   same reference + same payload  -> true, { replayed = true }
+--   same reference + other payload -> false, 'idempotency_conflict'
+--   treasury short of funds        -> false, 'insufficient_funds' (nothing journaled: the same reference stays retryable)
+-- `opts.reason` is the operation reference. Only cm-billing may call the export. Returns true, { familyId, amount, balance, replayed } | false, reason
+local TREASURY_OP_SQL = {
+    read = 'SELECT reference, family_id, direction, amount, fingerprint FROM cm_family_treasury_operations WHERE reference = ? LIMIT 1',
+    debit = 'UPDATE cm_families SET bank_balance = bank_balance - ? WHERE id = ? AND bank_balance >= ?',
+    journal = [[INSERT INTO cm_family_treasury_operations (reference, family_id, direction, amount, fingerprint)
+        SELECT ?, ?, 'debit', ?, ? FROM DUAL WHERE ROW_COUNT() = 1]],
+    log = [[INSERT INTO cm_family_bank_log (family_id, character_id, direction, category, amount, balance_after, reason)
+        SELECT ?, NULL, 'withdraw', ?, ?, (SELECT bank_balance FROM cm_families WHERE id = ?), ? FROM DUAL WHERE ROW_COUNT() = 1]],
+}
+
+local function readTreasuryOp(reference)
+    local ok, row = pcall(function() return MySQL.single.await(TREASURY_OP_SQL.read, { reference }) end)
+    if not ok then return nil, 'unavailable' end
+    return row or false
+end
+
+function DebitFamilyTreasuryAtomic(familyId, amount, opts)
+    familyId = tonumber(familyId)
+    if not familyId then return false, 'invalid_family_id' end
+    amount = tonumber(amount)
+    if not amount or amount ~= math.floor(amount) or amount < 1 then return false, 'invalid_amount' end
+    opts = type(opts) == 'table' and opts or {}
+    local reference = type(opts.reason) == 'string' and opts.reason or ''
+    if reference == '' or #reference > 128 then return false, 'invalid_reason' end
+    local fingerprint = ('debit|%d|%d'):format(familyId, amount)
+
+    local function balance() return tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { familyId })) end
+    local function verdict(row, bal)
+        if row.fingerprint ~= fingerprint then return false, 'idempotency_conflict' end
+        return true, { familyId = familyId, amount = amount, balance = bal, replayed = true }
+    end
+
+    -- Process-local lock: serializes cache refresh only; the database unique key below is the authority.
+    local lockOk, lockErr = AcquireTreasuryLock(familyId)
+    if not lockOk then return false, lockErr or 'treasury_lock_timeout' end
+    local function done(ok, res)
+        ReleaseTreasuryLock(familyId)
+        return ok, res
+    end
+
+    local existing, why = readTreasuryOp(reference)
+    if existing == nil then return done(false, why) end
+    local bal = balance()
+    if not bal then return done(false, 'family_not_found') end
+    if existing then return done(verdict(existing, bal)) end
+    if bal < amount then return done(false, 'insufficient_funds') end
+
+    local okCall, txRes = pcall(function()
+        return MySQL.transaction.await({
+            { query = TREASURY_OP_SQL.debit, values = { amount, familyId, amount } },
+            { query = TREASURY_OP_SQL.journal, values = { reference, familyId, amount, fingerprint } },
+            { query = TREASURY_OP_SQL.log, values = { familyId, tostring(opts.category or 'refund'):sub(1, 32), amount, familyId, reference } },
+        })
+    end)
+    local committed = okCall and txRes == true   -- the transaction result, not just 'did not throw'
+    local row = readTreasuryOp(reference)
+    if row == nil then return done(false, 'unavailable') end
+    local after = balance()
+    if not row then return done(false, committed and 'insufficient_funds' or 'transaction_failed') end
+    if row.fingerprint ~= fingerprint then return done(false, 'idempotency_conflict') end
+
+    local fam = GetFamilyById and GetFamilyById(familyId)
+    if fam and after then fam.bank_balance = after end
+    return done(true, { familyId = familyId, amount = amount, balance = after, replayed = not committed })
+end
+exports('DebitFamilyTreasuryAtomic', function(familyId, amount, opts)
+    if GetInvokingResource() ~= 'cm-billing' then return false, 'forbidden' end
+    return DebitFamilyTreasuryAtomic(familyId, amount, opts)
+end)
+
+-- Trusted exact-once treasury CREDIT (invoice payment settlement). Same owner journal as the debit (cm_family_treasury_operations, UNIQUE(reference)).
+-- The treasury may accept less than requested (capacity): the journal row records the ACCEPTED amount (authoritative paid amount) and the fingerprint
+-- records the REQUESTED amount, so a replay returns the original accepted amount and a different request is a conflict. The guarded balance UPDATE,
+-- the journal row and the bank-log row commit in ONE transaction; correctness is decided by the database, never by the bank log.
+--   same reference + same request  -> true, { accepted, requested, balance, replayed = true }
+--   same reference + other request -> false, 'idempotency_conflict'
+--   no capacity                    -> false, 'family_bank_full' (nothing journaled: retryable)
+-- Only cm-billing may call the export. `opts.reference` is the operation reference.
+local TREASURY_CREDIT_SQL = {
+    credit = 'UPDATE cm_families SET bank_balance = bank_balance + ? WHERE id = ? AND bank_balance + ? <= ?',
+    journal = [[INSERT INTO cm_family_treasury_operations (reference, family_id, direction, amount, fingerprint)
+        SELECT ?, ?, 'credit', ?, ? FROM DUAL WHERE ROW_COUNT() = 1]],
+    log = [[INSERT INTO cm_family_bank_log (family_id, character_id, direction, category, amount, balance_after, reason)
+        SELECT ?, NULL, 'deposit', ?, ?, (SELECT bank_balance FROM cm_families WHERE id = ?), ? FROM DUAL WHERE ROW_COUNT() = 1]],
+}
+
+function CreditFamilyTreasuryOnce(familyId, amount, opts)
+    familyId = tonumber(familyId)
+    if not familyId then return false, 'invalid_family_id' end
+    amount = tonumber(amount)
+    if not amount or amount ~= math.floor(amount) or amount < 1 then return false, 'invalid_amount' end
+    opts = type(opts) == 'table' and opts or {}
+    local reference = type(opts.reference) == 'string' and opts.reference or ''
+    if reference == '' or #reference > 128 then return false, 'invalid_reason' end
+    local fingerprint = ('credit|%d|%d'):format(familyId, amount)
+
+    local function balance() return tonumber(MySQL.scalar.await('SELECT bank_balance FROM cm_families WHERE id = ?', { familyId })) end
+    local lockOk, lockErr = AcquireTreasuryLock(familyId)
+    if not lockOk then return false, lockErr or 'treasury_lock_timeout' end
+    local function done(ok, res)
+        ReleaseTreasuryLock(familyId)
+        return ok, res
+    end
+
+    local existing, why = readTreasuryOp(reference)
+    if existing == nil then return done(false, why) end
+    local bal = balance()
+    if not bal then return done(false, 'family_not_found') end
+    if existing then
+        if existing.fingerprint ~= fingerprint then return done(false, 'idempotency_conflict') end
+        return done(true, { familyId = familyId, requested = amount, accepted = tonumber(existing.amount), balance = bal, replayed = true })
+    end
+
+    local maxBal = tonumber(Config.Bank and Config.Bank.maxBalance) or 2000000000
+    local accepted = math.min(amount, math.max(0, maxBal - bal))
+    if accepted < 1 then return done(false, 'family_bank_full') end
+
+    local okCall, txRes = pcall(function()
+        return MySQL.transaction.await({
+            { query = TREASURY_CREDIT_SQL.credit, values = { accepted, familyId, accepted, maxBal } },
+            { query = TREASURY_CREDIT_SQL.journal, values = { reference, familyId, accepted, fingerprint } },
+            { query = TREASURY_CREDIT_SQL.log, values = { familyId, tostring(opts.category or 'invoice'):sub(1, 32), accepted, familyId, reference } },
+        })
+    end)
+    local committed = okCall and txRes == true   -- the transaction result, not just 'did not throw'
+    local row = readTreasuryOp(reference)
+    if row == nil then return done(false, 'unavailable') end
+    local after = balance()
+    if not row then return done(false, 'transaction_failed') end
+    if row.fingerprint ~= fingerprint then return done(false, 'idempotency_conflict') end
+
+    local fam = GetFamilyById and GetFamilyById(familyId)
+    if fam and after then fam.bank_balance = after end
+    return done(true, { familyId = familyId, requested = amount, accepted = tonumber(row.amount), balance = after, replayed = not committed })
+end
+exports('CreditFamilyTreasuryOnce', function(familyId, amount, opts)
+    if GetInvokingResource() ~= 'cm-billing' then return false, 'forbidden' end
+    return CreditFamilyTreasuryOnce(familyId, amount, opts)
+end)
+
+-- Authoritative owner status for ANY treasury operation reference: { direction, familyId, amount } | false (never applied) | error when the
+-- journal cannot answer (the caller must not assume "not applied"). `amount` is the amount the treasury actually moved. cm-billing only.
+exports('GetFamilyTreasuryOperation', function(reference)
+    if GetInvokingResource() ~= 'cm-billing' then return nil end
+    if type(reference) ~= 'string' or reference == '' or #reference > 128 then return nil end
+    local row, why = readTreasuryOp(reference)
+    if row == nil then error('treasury journal ' .. tostring(why)) end
+    if not row then return false end
+    return { direction = row.direction, familyId = tonumber(row.family_id), amount = tonumber(row.amount) }
+end)
+
+-- Authoritative owner status (journal-backed): true when a debit with this reference was committed for this family, false when it never was,
+-- error/nil when the owner database cannot answer (the caller must not assume "not applied"). cm-billing only.
+exports('HasFamilyTreasuryEntry', function(familyId, direction, reference)
+    if GetInvokingResource() ~= 'cm-billing' then return false end
+    if direction ~= 'withdraw' and direction ~= 'debit' then return false end
+    local row, why = readTreasuryOp(tostring(reference or ''))
+    if row == nil then error('treasury journal ' .. tostring(why)) end
+    return row ~= false and tonumber(row.family_id) == tonumber(familyId) and row.direction == 'debit'
+end)
+
 -- Deposit: take from player, add to family.
 -- Accurately calculates available space; charges player ONLY the accepted amount.
 -- Returns error and charges $0 if bank is full.

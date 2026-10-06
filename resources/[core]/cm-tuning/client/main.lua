@@ -7,6 +7,7 @@ local pendingOpen = false
 local currentVeh = 0
 local currentShop = nil
 local currentLiveryNative = false
+local serviceMode = false   -- mechanic-service session (server state mirrored for presentation only; the server decides what a session may do)
 local original = nil
 local originalHeading = nil
 local sessionToken = nil
@@ -618,6 +619,7 @@ local function clearState()
     currentVeh = 0
     currentShop = nil
     currentLiveryNative = false
+    serviceMode = false
     original = nil
     originalHeading = nil
     sessionToken = nil
@@ -781,6 +783,16 @@ RegisterNUICallback('purchase', function(data, cb)
     if not menuOpen or busy or not sessionToken then cb({ ok = false }) return end
     busy = true
     beginBusyTimeout('Purchase request timed out.')
+    if serviceMode then
+        SendNUIMessage({ action = 'processing', value = true, message = 'Preparing the customer quote...' })
+        TriggerServerEvent('cm-tuning:server:servicePropose', {
+            token = sessionToken,
+            changes = type(data) == 'table' and data.changes or {},
+            caps = buildCaps(currentVeh, currentShop),
+        })
+        cb({ ok = true })
+        return
+    end
     SendNUIMessage({ action = 'processing', value = true, message = 'Securing purchase...' })
     TriggerServerEvent('cm-tuning:server:purchase', {
         token = sessionToken,
@@ -857,7 +869,7 @@ RegisterNUICallback('mouseup', function(_, cb)
     cb({ ok = true })
 end)
 
-RegisterNetEvent('cm-tuning:client:open', function(payload)
+local function openWithPayload(payload)
     if not pendingOpen or currentVeh == 0 or not DoesEntityExist(currentVeh) or not currentShop then return end
     payload = type(payload) == 'table' and payload or {}
     sessionToken = tostring(payload.token or '')
@@ -895,6 +907,56 @@ RegisterNetEvent('cm-tuning:client:open', function(payload)
             closeMenu(true, true, true)
         end
     end)
+end
+
+RegisterNetEvent('cm-tuning:client:open', function(payload) openWithPayload(payload) end)
+
+-- Mechanic service: cm-mechanic's authorization (server-side) opens the existing tuning UI for the mechanic on the customer's vehicle.
+RegisterNetEvent('cm-tuning:client:openService', function(payload)
+    if menuOpen or busy or pendingOpen or type(payload) ~= 'table' then return end
+    local shop = tostring(payload.shop or '')
+    if not (Config.Shops and Config.Shops[shop]) then return end
+    local netId = tonumber(payload.netId)
+    if not netId or not NetworkDoesNetworkIdExist(netId) then notify('The customer vehicle is not here.', 'error'); return end
+    local vehicle = NetworkGetEntityFromNetworkId(netId)
+    if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then notify('The customer vehicle is not here.', 'error'); return end
+    if shop == 'livery' then
+        local native, count = liveryOptions(vehicle)
+        if count <= 0 then
+            notify('No livery is available for this vehicle.', 'error')
+            TriggerServerEvent('cm-tuning:server:cancelSession', tostring(payload.token or ''))
+            return
+        end
+        currentLiveryNative = native == true
+    else
+        currentLiveryNative = false
+    end
+    currentVeh = vehicle
+    currentShop = shop
+    serviceMode = true
+    originalHeading = GetEntityHeading(vehicle)
+    pendingOpen = true
+    hideInteraction()
+    secureVehicle(vehicle)
+    openWithPayload(payload)
+end)
+
+-- The proposal was priced and recorded server-side; the customer now approves it and pays the invoice. Nothing is installed yet.
+RegisterNetEvent('cm-tuning:client:serviceProposed', function(payload)
+    requestSerial = requestSerial + 1
+    payload = type(payload) == 'table' and payload or {}
+    if currentVeh ~= 0 and DoesEntityExist(currentVeh) then restoreOriginal() end
+    closeMenu(false, true, false)
+    notify(('Quote sent to the customer ($%d). The upgrade is installed after they approve and pay.'):format(math.max(0, math.floor(tonumber(payload.amount) or 0))), 'success')
+end)
+
+-- The paid service was committed server-side: show it on the vehicle for everyone who has it streamed in.
+RegisterNetEvent('cm-tuning:client:serviceApplied', function(netId, mods)
+    netId = tonumber(netId)
+    if not netId or type(mods) ~= 'table' or not NetworkDoesNetworkIdExist(netId) then return end
+    local vehicle = NetworkGetEntityFromNetworkId(netId)
+    if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) or vehicle == currentVeh then return end
+    applySavedMods(vehicle, mods)
 end)
 
 RegisterNetEvent('cm-tuning:client:denied', function(message)

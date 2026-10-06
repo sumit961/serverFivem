@@ -7,41 +7,48 @@
     <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
     <link rel="stylesheet" href="nui://cm-ui/web/cm-components.css">
     <link rel="stylesheet" href="nui://cm-ui/web/cm-icons.css">
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-aaa.css">
     <link rel="stylesheet" href="style.css">
+    <script src="nui://cm-ui/web/cm-branding.js"></script>
 </head>
 <body>
-    <div id="spawn-selector" class="cm-app" style="display: none;">
-        <div class="spawn-header">
-            <div class="spawn-title">
-                <div class="eyebrow">Grand RP</div>
+    <div id="spawn-selector" class="cm-app">
+        <header class="spawn-header">
+            <div class="spawn-heading">
                 <h1>SPAWN SELECTOR</h1>
-                <p>Select where your character enters the city</p>
+                <p class="spawn-subtitle" id="spawn-subtitle">Select a spawn point to enter the city.</p>
             </div>
-            <div class="player-info">
-                <div class="player-details">
-                    <div class="player-name" id="player-name">PLAYER</div>
-                    <div class="player-org" id="player-org">NO ORGANIZATION</div>
-                    <div class="player-cash" id="player-cash">$0</div>
+
+            <div class="player-summary" id="player-summary" style="display: none;">
+                <div class="player-summary-text">
+                    <span class="player-summary-name" id="player-summary-name"></span>
+                    <span class="player-summary-cash" id="player-summary-cash"></span>
                 </div>
-                <div class="player-avatar" id="player-avatar"><span class="cm-spawn-symbol">👤</span></div>
+                <div class="player-summary-avatar" id="player-summary-avatar"></div>
             </div>
-        </div>
+        </header>
 
         <div class="dead-spawn-notice" id="dead-spawn-notice" style="display: none;">
-            <span class="cm-spawn-symbol cm-spawn-symbol-danger">❤</span>
+            <span class="cm-spawn-symbol cm-spawn-symbol-danger">&#10084;</span>
             <span id="dead-spawn-text">You are still down. Any spawn choice will return you to your last body location.</span>
         </div>
 
-        <div class="spawn-grid cm-scrollbar" id="spawn-grid"></div>
+        <main class="spawn-main">
+            <div class="spawn-cards cm-scrollbar" id="spawn-cards"></div>
+        </main>
 
-        <div class="spawn-footer">
-            <span><span class="cm-dot"></span> Server-authoritative spawn validation</span>
-            <span><span class="cm-dot"></span> Organization-ready: police, army, company, gang, club, and more</span>
-        </div>
+        <footer class="spawn-footer">
+            <div class="spawn-footer-status" id="spawn-footer-status"></div>
+            <button type="button" class="cm-btn cm-action-skew cm-action-primary spawn-cta" id="spawn-cta" disabled>
+                <span class="cm-action-skew-content"><span id="spawn-cta-text">SPAWN HERE</span><span class="btn-icon">&#10148;</span></span>
+            </button>
+        </footer>
     </div>
 
     <div id="tutorial" style="display: none;">
         <div class="tutorial-overlay">
+            <div class="cm-screen-bracket cm-screen-bracket--bl"></div>
+            <div class="cm-screen-bracket cm-screen-bracket--br"></div>
             <div class="tutorial-box">
                 <div class="tutorial-step">
                     <span id="step-current">1</span> / <span id="step-total">4</span>

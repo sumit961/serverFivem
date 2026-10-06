@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CM Courier Job HUD</title>
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="courier-hud" class="courier-hud" style="display: none;">
+        <div class="hud-card">
+            <!-- Header with pulse status -->
+            <div class="hud-header">
+                <div class="brand-badge">
+                    <span class="pulse-dot"></span>
+                    <span class="brand-title">CITY COURIER SERVICE</span>
+                </div>
+                <div class="stop-step" id="stop-step">PARCELS 0 / 3</div>
+            </div>
+
+            <!-- Manifest title & recipient info -->
+            <div class="manifest-title" id="manifest-title">Downtown Commercial Express</div>
+            <div class="stop-name" id="stop-name">Depot Loading Dock</div>
+            <div class="recipient-name" id="recipient-name">Consignee: Authorized Courier Manifest</div>
+
+            <!-- Progress section -->
+            <div class="progress-section">
+                <div class="progress-labels">
+                    <span class="label-muted" id="progress-status-label">ROUTE PROGRESS</span>
+                    <span class="progress-percent" id="progress-percent">0%</span>
+                </div>
+                <div class="progress-track">
+                    <div class="progress-fill" id="progress-fill" style="width: 0%;"></div>
+                </div>
+            </div>
+
+            <!-- Ledger Payout Warning Callout -->
+            <div class="payout-badge" id="payout-badge">
+                <span class="payout-icon">ℹ</span>
+                <span class="payout-text" id="payout-text">PAYOUT HELD IN DURABLE LEDGER // CANNOT BE COLLECTED IN-GAME</span>
+            </div>
+
+            <!-- Active Objective Instruction -->
+            <div class="instruction-box" id="instruction-box">
+                <span class="instruction-tag">OBJECTIVE</span>
+                <span class="instruction-text" id="instruction-text">PROCEED TO LOADING DOCK</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+

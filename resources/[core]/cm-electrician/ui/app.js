@@ -1,7 +1,6 @@
 (function () {
   'use strict';
 
-  var interaction = document.getElementById('interaction');
   var holdRoot = document.getElementById('hold-root');
   var menuRoot = document.getElementById('menu-root');
   var jobHud = document.getElementById('job-hud');
@@ -73,6 +72,7 @@
     el('panelGoalValue').textContent = String(ctx.panelGoal || 50);
     var panelPct = level >= 2 ? 100 : clamp(((ctx.panels || 0) / (ctx.panelGoal || 50)) * 100, 0, 100);
     el('panelsFill').style.width = panelPct + '%';
+    el('panelsCompleteTag').classList.toggle('hidden', level < 2);
 
     var platesProgress = el('platesProgress');
     platesProgress.classList.toggle('hidden', level < 2);
@@ -80,6 +80,7 @@
     el('plateGoalValue').textContent = String(ctx.plateGoal || 500);
     var platePct = level >= 3 ? 100 : clamp(((ctx.plates || 0) / (ctx.plateGoal || 500)) * 100, 0, 100);
     el('platesFill').style.width = platePct + '%';
+    el('platesCompleteTag').classList.toggle('hidden', level < 3);
 
     el('perPanelValue').textContent = String(ctx.perPanel || 0);
     el('perPlateValue').textContent = String(ctx.perPlate || 0);
@@ -120,18 +121,6 @@
     setRootVisible(jobHud, true);
   }
 
-  function updateInteraction(data) {
-    if (!data.visible) {
-      setRootVisible(interaction, false);
-      return;
-    }
-    el('interactionKey').textContent = String(data.key || 'E');
-    el('interactionTitle').textContent = String(data.title || 'ELECTRICIAN').toUpperCase();
-    el('interactionLabel').textContent = String(data.label || '');
-    el('interactionHint').textContent = String(data.hint || '');
-    setRootVisible(interaction, true);
-  }
-
   el('btnToggle').addEventListener('click', function () {
     post('toggleEmployment');
   });
@@ -151,7 +140,6 @@
   window.addEventListener('message', function (event) {
     var data = event.data || {};
 
-    if (data.action === 'interaction') updateInteraction(data);
     if (data.action === 'openMenu') openMenu(data.ctx || {});
     if (data.action === 'closeMenu') closeMenu(false);
     if (data.action === 'jobHud') updateJobHud(data);
@@ -182,7 +170,6 @@
     }
   });
 
-  setRootVisible(interaction, false);
   setRootVisible(holdRoot, false);
   setRootVisible(menuRoot, false);
   setRootVisible(jobHud, false);
@@ -202,19 +189,19 @@
     if (new URLSearchParams(window.location.search).get('preview') === '1') {
       openMenu({
         title: 'Electrician',
-        description: 'Report to the power plant switchboard to start troubleshooting. Repairing panels builds your skill.',
-        requirements: ['No licence required', 'Government-inspected job site', 'Payroll paid directly in cash'],
-        employed: true,
-        level: 2,
-        panels: 50,
-        plates: 120,
+        description: 'Repair switchboard panels to build experience. At Level 2, service deposit plates using a Public Works truck. At Level 3, respond to city-wide outages.',
+        requirements: ['No licence required', 'Public Works assignment', 'Earnings through City Payroll'],
+        employed: false,
+        level: 3,
+        panels: 71,
+        plates: 10,
         panelGoal: 50,
         plateGoal: 500,
         perPanel: 30,
         perPlate: 300,
         perOutage: 1000,
       });
-      updateJobHud({ visible: true, level: 2, panels: 50, plates: 120, showPlates: true });
+      updateJobHud({ visible: false, level: 3, panels: 71, plates: 10, showPlates: true });
     }
   } catch (_) {}
 })();

@@ -211,7 +211,7 @@ RegisterNetEvent('cm-auth:server:resetPassword', function(data)
                     player_src = src, email = email, ip = security.ip
                 })
             end
-            return sendReset(src, false, 'This account is not linked to your Rockstar profile. Ask staff to reset it through cm-admin.')
+            return sendReset(src, false, 'This account cannot be reset from this Rockstar account. Contact staff for help.')
         end
 
         local newHash, hashErr = Crypto.hash(data.password)

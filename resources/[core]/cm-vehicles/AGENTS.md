@@ -60,3 +60,4 @@ After every UI migration or dependency change:
 7. Verify ESC/close behavior.
 8. Verify vehicle actions still function.
 If any visual difference is observed in the Vehicle G-menu caused by a migration: **REVERT THAT CHANGE IMMEDIATELY**.
+

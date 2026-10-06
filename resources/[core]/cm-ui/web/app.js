@@ -12,7 +12,7 @@
         if (data.action === 'cmInteract:show') {
             CMUI.showInteract(data);
         } else if (data.action === 'cmInteract:hide') {
-            CMUI.hideInteract();
+            CMUI.hideInteract(data.owner, data.force === true);
         } else if (data.action === 'cmDialogue:open') {
             CMUI.openDialogue(data);
         } else if (data.action === 'cmDialogue:response') {

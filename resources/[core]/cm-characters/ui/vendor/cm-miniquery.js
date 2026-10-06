@@ -48,7 +48,15 @@
     MiniQuery.prototype.data = function (name) {
         var node = this.nodes[0];
         if (!node || !node.dataset) return undefined;
-        return node.dataset[name];
+        // dataset keys are camelCase (data-color-id -> dataset.colorId) even
+        // though callers pass the kebab-case attribute name, exactly like
+        // real jQuery's .data(). Without this conversion, any hyphenated
+        // name (e.g. 'color-id') always misses and silently returns
+        // undefined instead of throwing, which is what made every color
+        // swatch click send `new: undefined` (dropped by JSON.stringify)
+        // instead of the clicked color id.
+        var camelName = name.replace(/-([a-z0-9])/g, function (_, c) { return c.toUpperCase(); });
+        return node.dataset[camelName];
     };
 
     MiniQuery.prototype.closest = function (selector) {

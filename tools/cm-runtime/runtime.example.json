@@ -11,5 +11,9 @@
   "startupTimeoutSeconds": 120,
   "consoleObservationSeconds": 15,
   "expectedCoreResources": ["cm-core", "cm-playerdata"],
-  "developmentOnly": true
+  "developmentOnly": true,
+  "qa": {
+    "autoPair": false,
+    "characterId": null
+  }
 }

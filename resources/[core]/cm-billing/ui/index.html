@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CM Billing</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="root" class="hidden">
+  <div class="panel" role="dialog" aria-label="Billing">
+    <header class="top">
+      <div class="title"><span class="accent">CM</span> BILLING<small id="subtitle"></small></div>
+      <div class="balances" id="balances"></div>
+      <button class="close" id="closeBtn" aria-label="Close">&times;</button>
+    </header>
+    <div class="tabs" role="tablist">
+      <button class="tab active" id="tabPending" role="tab">Outstanding <span class="count" id="pendingCount">0</span></button>
+      <button class="tab" id="tabHistory" role="tab">History</button>
+    </div>
+    <div class="cols">
+      <div class="list" id="list"></div>
+      <div class="detail" id="detail"></div>
+    </div>
+    <div id="toasts" class="toasts"></div>
+    <div id="modal" class="modal-layer hidden"></div>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

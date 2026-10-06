@@ -8,15 +8,13 @@ CMElectrician.Config = {
 
     JobTitle = 'Electrician',
 
-    Description = 'Report to the power plant switchboard to start troubleshooting. '
-        .. 'Repairing panels builds your skill -- at level 2 you can rent a service '
-        .. 'truck and repair deposit plates around the city, and at level 3 you will '
-        .. 'be dispatched to fix city-wide power outages for a large payout.',
+    Description = 'Repair switchboard panels to build experience. At Level 2, service deposit '
+        .. 'plates using a Public Works truck. At Level 3, respond to city-wide outages.',
 
     Requirements = {
         'No licence required',
-        'Government-inspected job site',
-        'Payroll paid directly in cash',
+        'Public Works assignment',
+        'Earnings through City Payroll',
     },
 
     Employment = {
@@ -117,6 +115,10 @@ CMElectrician.Config = {
         panelMs = 3000,
         plateMs = 3000,
         outageMs = 15000,
+        -- Extra time (on top of the hold duration) the server allows between
+        -- a repair token being issued and it being redeemed, to absorb
+        -- network latency without letting a token be replayed indefinitely.
+        tokenGraceMs = 6000,
     },
 
     -- How many random panel/deposit-plate targets are active at once, so

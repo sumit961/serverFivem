@@ -6,6 +6,8 @@
 let currentData = null;
 let currentConfig = null;
 let selectedJobId = 'electrician';
+let vehicleRegistryPending = null;
+let vehicleRegistryBusy = false;
 
 // Default registered civilian jobs (mirrored from Config.Jobs)
 const defaultJobs = [
@@ -72,6 +74,273 @@ function post(endpoint, data = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   }).catch(() => {});
+}
+
+function postJson(endpoint, data = {}) {
+  return fetch(`https://cm-hub/${endpoint}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  }).then((response) => response.json()).catch(() => null);
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function formatRegistryDate(value) {
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return 'NOT SET';
+  const date = new Date(timestamp * 1000);
+  if (Number.isNaN(date.getTime())) return 'NOT SET';
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function formatRegistryStatus(status) {
+  return String(status || 'UNAVAILABLE').replace(/_/g, ' ').toUpperCase();
+}
+
+function registryStatusClass(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'active') return 'registry-status-active';
+  if (normalized === 'expired') return 'registry-status-expired';
+  if (normalized === 'unregistered' || normalized === 'none') return 'registry-status-warning';
+  if (normalized === 'revoked') return 'registry-status-danger';
+  return 'registry-status-muted';
+}
+
+function registryReason(reason) {
+  const reasons = {
+    exempt: 'INELIGIBLE: this vehicle cannot use personal services.',
+    registration_required: 'Registration is required before insurance can be purchased.',
+    registration_revoked: 'Unavailable: registration has been revoked.',
+    legacy_permanent: 'Already active: this registration has no expiry.',
+    not_due: 'Already active: renewal is not available yet.',
+    unavailable: 'Unavailable for this vehicle right now.',
+    vehicle_busy: 'Unavailable while this vehicle is being sold.'
+  };
+  return reasons[reason] || (reason ? formatRegistryStatus(reason) : 'Unavailable for this vehicle right now.');
+}
+
+function serviceActionLabel(service, action) {
+  if (service === 'registration') return action === 'renew' ? 'RENEW REGISTRATION' : 'REGISTER VEHICLE';
+  return action === 'renew' ? 'RENEW INSURANCE' : 'PURCHASE INSURANCE';
+}
+
+function serviceCardMarkup(vehicle, service) {
+  const quote = vehicle && vehicle[service];
+  if (!quote || quote.available !== true || !quote.action) {
+    return `<div class="registry-service-unavailable">${escapeHtml(registryReason(quote && quote.reason))}</div>`;
+  }
+
+  const price = Math.max(0, Math.floor(Number(quote.price) || 0));
+  return `
+    <button class="registry-service-btn heading" type="button"
+      data-registry-service="${escapeHtml(service)}"
+      data-registry-action="${escapeHtml(quote.action)}"
+      data-registry-vehicle="${escapeHtml(vehicle.vehicleId)}"
+      data-registry-price="${price}">
+      <span>${escapeHtml(serviceActionLabel(service, quote.action))}</span>
+      <strong>$${price.toLocaleString()}</strong>
+    </button>`;
+}
+
+function registryErrorMessage(result) {
+  if (result && result.message) return String(result.message);
+  const messages = {
+    no_character: 'Character data is not loaded. Please try again.',
+    vehicle_services_unavailable: 'Vehicle registration services are unavailable right now.',
+    not_owner: 'This vehicle is not owned by your current character.',
+    vehicle_not_found: 'That vehicle could not be found.',
+    exempt: 'This vehicle is not eligible for personal registration or insurance.',
+    not_due: 'This service is already active and renewal is not available yet.',
+    registration_required: 'Registration is required before insurance can be purchased.',
+    price_changed: 'The price changed. Review the vehicle service and confirm again.',
+    insufficient_funds: 'You do not have enough cash for this service.',
+    payment_unavailable: 'Payment is unavailable right now.',
+    apply_failed: 'The change could not be applied. You were not charged.',
+    busy: 'This vehicle is already being processed. Please try again.',
+    unavailable: 'This service is unavailable for the vehicle right now.'
+  };
+  return messages[result && result.error] || 'Vehicle service could not be completed.';
+}
+
+function toggleVehicleRegistry(show) {
+  const modal = document.getElementById('vehicleRegistryModal');
+  if (!modal) return;
+  if (show) {
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden', 'false');
+  } else {
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+    toggleVehicleRegistryConfirm(false);
+  }
+}
+
+function toggleVehicleRegistryConfirm(show) {
+  const modal = document.getElementById('vehicleRegistryConfirm');
+  if (!modal) return;
+  if (show) {
+    modal.classList.remove('hidden');
+    const cancel = document.getElementById('btnCancelVehicleService');
+    if (cancel) cancel.focus();
+  } else {
+    modal.classList.add('hidden');
+  }
+}
+
+function setRegistryNotice(message, kind = 'info') {
+  const notice = document.getElementById('vehicleRegistryNotice');
+  if (!notice) return;
+  if (!message) {
+    notice.textContent = '';
+    notice.className = 'vehicle-registry-notice hidden';
+    return;
+  }
+  notice.textContent = message;
+  notice.className = `vehicle-registry-notice registry-notice-${kind}`;
+}
+
+function renderVehicleRegistry(result) {
+  const list = document.getElementById('vehicleRegistryList');
+  if (!list) return;
+  setRegistryNotice('', 'info');
+
+  if (!result || result.ok !== true) {
+    list.innerHTML = `<div class="vehicle-registry-empty">${escapeHtml(registryErrorMessage(result))}</div>`;
+    setRegistryNotice(registryErrorMessage(result), 'error');
+    return;
+  }
+
+  const vehicles = Array.isArray(result.vehicles) ? result.vehicles : [];
+  if (vehicles.length === 0) {
+    list.innerHTML = '<div class="vehicle-registry-empty">No eligible vehicles are registered to this character.</div>';
+    return;
+  }
+
+  list.innerHTML = vehicles.map((vehicle) => {
+    const model = vehicle.label || vehicle.model || 'VEHICLE';
+    const plate = vehicle.registrationNumber || 'UNREGISTERED';
+    return `
+      <article class="vehicle-registry-item">
+        <div class="vehicle-registry-item-head">
+          <div>
+            <div class="vehicle-registry-item-kicker heading">${escapeHtml(plate)}</div>
+            <h3>${escapeHtml(model)}</h3>
+          </div>
+          <span class="vehicle-registry-vehicle-tag heading">ELIGIBLE</span>
+        </div>
+        <div class="vehicle-registry-status-grid">
+          <div class="vehicle-registry-status-block">
+            <span class="vehicle-registry-label heading">REGISTRATION</span>
+            <strong class="${registryStatusClass(vehicle.registrationStatus)}">${escapeHtml(formatRegistryStatus(vehicle.registrationStatus))}</strong>
+            <small>EXPIRY: ${escapeHtml(formatRegistryDate(vehicle.registrationExpiresAt))}</small>
+          </div>
+          <div class="vehicle-registry-status-block">
+            <span class="vehicle-registry-label heading">INSURANCE</span>
+            <strong class="${registryStatusClass(vehicle.insuranceStatus)}">${escapeHtml(formatRegistryStatus(vehicle.insuranceStatus))}</strong>
+            <small>EXPIRY: ${escapeHtml(formatRegistryDate(vehicle.insuranceExpiresAt))}</small>
+          </div>
+        </div>
+        <div class="vehicle-registry-services">
+          <div class="vehicle-registry-service-column">
+            <span class="vehicle-registry-label heading">REGISTRATION SERVICE</span>
+            ${serviceCardMarkup(vehicle, 'registration')}
+          </div>
+          <div class="vehicle-registry-service-column">
+            <span class="vehicle-registry-label heading">INSURANCE SERVICE</span>
+            ${serviceCardMarkup(vehicle, 'insurance')}
+          </div>
+        </div>
+      </article>`;
+  }).join('');
+
+  list.querySelectorAll('[data-registry-service]').forEach((button) => {
+    button.addEventListener('click', () => {
+      openVehicleRegistryConfirm(button);
+    });
+  });
+}
+
+function renderVehicleRegistryLoading() {
+  const list = document.getElementById('vehicleRegistryList');
+  if (list) list.innerHTML = '<div class="vehicle-registry-loading">Loading vehicle records...</div>';
+  setRegistryNotice('', 'info');
+}
+
+async function openVehicleRegistry() {
+  toggleVehicleRegistry(true);
+  renderVehicleRegistryLoading();
+  const result = await postJson('get_vehicle_registry');
+  renderVehicleRegistry(result);
+}
+
+function createVehicleRequestId() {
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+  return `hub-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+}
+
+function openVehicleRegistryConfirm(button) {
+  const vehicleId = Number(button.getAttribute('data-registry-vehicle'));
+  const service = button.getAttribute('data-registry-service');
+  const action = button.getAttribute('data-registry-action');
+  const price = Math.max(0, Math.floor(Number(button.getAttribute('data-registry-price')) || 0));
+  const card = button.closest('.vehicle-registry-item');
+  const model = card ? card.querySelector('h3') : null;
+  if (!Number.isInteger(vehicleId) || vehicleId < 1 || !service) return;
+
+  vehicleRegistryPending = { vehicleId, service, action, price };
+  const title = document.getElementById('vehicleRegistryConfirmTitle');
+  const message = document.getElementById('vehicleRegistryConfirmMessage');
+  const confirm = document.getElementById('btnConfirmVehicleService');
+  if (title) title.textContent = serviceActionLabel(service, action);
+  if (message) message.textContent = `${serviceActionLabel(service, action)} for ${model ? model.textContent : 'this vehicle'} for $${price.toLocaleString()} cash?`;
+  if (confirm) {
+    confirm.disabled = false;
+    confirm.textContent = 'CONFIRM';
+  }
+  toggleVehicleRegistryConfirm(true);
+}
+
+async function confirmVehicleRegistryService() {
+  if (!vehicleRegistryPending || vehicleRegistryBusy) return;
+  vehicleRegistryBusy = true;
+  const confirm = document.getElementById('btnConfirmVehicleService');
+  const cancel = document.getElementById('btnCancelVehicleService');
+  if (confirm) {
+    confirm.disabled = true;
+    confirm.textContent = 'PROCESSING...';
+  }
+  if (cancel) cancel.disabled = true;
+
+  const pending = vehicleRegistryPending;
+  const result = await postJson('purchase_vehicle_service', {
+    vehicleId: pending.vehicleId,
+    service: pending.service,
+    expectedPrice: pending.price,
+    requestId: createVehicleRequestId()
+  });
+
+  vehicleRegistryBusy = false;
+  vehicleRegistryPending = null;
+  if (cancel) cancel.disabled = false;
+  toggleVehicleRegistryConfirm(false);
+
+  if (result && result.ok === true) {
+    await openVehicleRegistry();
+    setRegistryNotice(`${serviceActionLabel(pending.service, result.action)} completed. Charged $${Number(result.charged || 0).toLocaleString()}. Expires ${formatRegistryDate(result.expiresAt)}.`, 'success');
+    return;
+  }
+
+  setRegistryNotice(registryErrorMessage(result), 'error');
+  const refreshed = await postJson('get_vehicle_registry');
+  renderVehicleRegistry(refreshed);
 }
 
 /* --- Live Diagnostics Counter (FPS) --- */
@@ -454,12 +723,14 @@ window.addEventListener('message', (event) => {
     toggleStats(false);
     toggleJobModal(false);
     toggleSkillsModal(false);
+    toggleVehicleRegistry(false);
     document.body.classList.add('active');
   } else if (item.action === 'close') {
     document.body.classList.remove('active');
     toggleStats(false);
     toggleJobModal(false);
     toggleSkillsModal(false);
+    toggleVehicleRegistry(false);
   }
 });
 
@@ -467,6 +738,19 @@ window.addEventListener('message', (event) => {
 /* --- Keyboard Shortcuts --- */
 window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
+    const vehicleConfirm = document.getElementById('vehicleRegistryConfirm');
+    if (vehicleConfirm && !vehicleConfirm.classList.contains('hidden')) {
+      toggleVehicleRegistryConfirm(false);
+      vehicleRegistryPending = null;
+      return;
+    }
+
+    const vehicleRegistry = document.getElementById('vehicleRegistryModal');
+    if (vehicleRegistry && !vehicleRegistry.classList.contains('hidden')) {
+      toggleVehicleRegistry(false);
+      return;
+    }
+
     // 1. Close skills modal if open
     const skillsModal = document.getElementById('skillsModal');
     if (skillsModal && !skillsModal.classList.contains('hidden')) {
@@ -514,6 +798,46 @@ const closeStatsBtn = document.getElementById('btnCloseStats');
 if (closeStatsBtn) {
   closeStatsBtn.addEventListener('click', () => {
     toggleStats(false);
+  });
+}
+
+const openVehicleRegistryBtn = document.getElementById('btnOpenVehicleRegistry');
+if (openVehicleRegistryBtn) {
+  openVehicleRegistryBtn.addEventListener('click', () => {
+    openVehicleRegistry();
+  });
+}
+
+const closeVehicleRegistryBtn = document.getElementById('btnCloseVehicleRegistry');
+if (closeVehicleRegistryBtn) {
+  closeVehicleRegistryBtn.addEventListener('click', () => {
+    toggleVehicleRegistry(false);
+  });
+}
+
+const confirmVehicleServiceBtn = document.getElementById('btnConfirmVehicleService');
+if (confirmVehicleServiceBtn) {
+  confirmVehicleServiceBtn.addEventListener('click', () => {
+    confirmVehicleRegistryService();
+  });
+}
+
+const cancelVehicleServiceBtn = document.getElementById('btnCancelVehicleService');
+if (cancelVehicleServiceBtn) {
+  cancelVehicleServiceBtn.addEventListener('click', () => {
+    if (vehicleRegistryBusy) return;
+    vehicleRegistryPending = null;
+    toggleVehicleRegistryConfirm(false);
+  });
+}
+
+const vehicleRegistryModal = document.getElementById('vehicleRegistryModal');
+if (vehicleRegistryModal) {
+  vehicleRegistryModal.addEventListener('click', (event) => {
+    if (event.target === vehicleRegistryModal && !vehicleRegistryBusy) {
+      vehicleRegistryPending = null;
+      toggleVehicleRegistryConfirm(false);
+    }
   });
 }
 

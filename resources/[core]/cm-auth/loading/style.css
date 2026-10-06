@@ -1,9 +1,12 @@
-/* cm-auth loading screen skin. Shared colors/components come from cm-ui. FiveM-safe transparent rendering. */
+/* cm-auth loading screen skin — same visual family as ui/style.css (full-
+   screen art, dark left fade, left-aligned HUD panel). Shared colors,
+   components and AAA primitives come from cm-ui. */
 
 * {
     box-sizing: border-box;
     margin: 0;
     padding: 0;
+    user-select: none;
 }
 
 html,
@@ -11,12 +14,16 @@ body {
     width: 100%;
     height: 100%;
     overflow: hidden;
-    font-family: var(--cm-font, Arial, sans-serif);
-    color: var(--cm-text, #eaf7ff);
-    background: var(--cm-bg-deep, #030812);
+    font-family: var(--cm-font, 'DM Sans', Arial, sans-serif);
+    color: var(--cm-text, #FFFFFF);
+    background: var(--cm-bg, #0B171E);
 }
 
-body.skipped .loading-root {
+.hidden {
+    display: none !important;
+}
+
+body.continuing .loading-root {
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.55s ease;
@@ -27,18 +34,19 @@ body.skipped .loading-root {
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: var(--cm-bg, #07111f);
 }
 
-.slide-stack,
-.global-vignette,
-.grain,
-.scanlines {
+/* Full-screen (loading slides are environment shots, not a right-cropped
+   character, so unlike the login screen this backdrop spans 100% width). */
+.character-backdrop {
     position: absolute;
     inset: 0;
+    background: linear-gradient(160deg, var(--cm-bg-deep, #10222B) 0%, var(--cm-bg, #0B171E) 100%);
 }
 
 .slide-stack {
+    position: absolute;
+    inset: 0;
     overflow: hidden;
 }
 
@@ -46,41 +54,28 @@ body.skipped .loading-root {
     position: absolute;
     inset: 0;
     opacity: 0;
-    transition: opacity 1000ms ease;
+    transition: opacity 1200ms ease;
     background-position: center center;
     background-size: cover;
-    transform-origin: center center;
+    /* Graceful fallback until (or unless) the configured image loads. */
+    background-image: linear-gradient(135deg, var(--cm-bg-deep, #10222B), var(--cm-bg, #0B171E));
 }
 
 .slide.active {
     opacity: 1;
+    animation: cm-slide-drift 7.2s ease-in-out forwards;
 }
 
-.slide.active.animate-gta-zoom {
-    animation: gta-zoom 7.2s ease-in-out forwards;
-}
-
-@keyframes gta-zoom {
-    0% {
-        transform: scale(1) translate3d(0, 0, 0);
-    }
-    50% {
-        transform: scale(1.08) translate3d(-1.2%, -0.5%, 0);
-    }
-    100% {
-        transform: scale(1.15) translate3d(1.6%, -1.1%, 0);
-    }
-}
-
-.global-vignette {
-    background:
-        radial-gradient(circle at 50% 50%, transparent 0%, rgba(0,0,0,0.18) 54%, rgba(0,0,0,0.56) 100%),
-        linear-gradient(180deg, rgba(3,8,18,0.48), rgba(3,8,18,0.78));
-    pointer-events: none;
+/* Subtle scale only — no aggressive zoom, no translate drift. */
+@keyframes cm-slide-drift {
+    0% { transform: scale(1); }
+    100% { transform: scale(1.03); }
 }
 
 .grain {
-    opacity: 0.14;
+    position: absolute;
+    inset: 0;
+    opacity: 0.08;
     background-image:
         linear-gradient(0deg, rgba(255,255,255,0.04) 1px, transparent 1px),
         linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
@@ -89,242 +84,162 @@ body.skipped .loading-root {
     pointer-events: none;
 }
 
-.scanlines {
-    opacity: 0.08;
-    background: repeating-linear-gradient(0deg, rgba(255,255,255,0.16) 0 1px, transparent 1px 4px);
+.hud-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
     pointer-events: none;
 }
 
-.topbar,
-.hero-wrap,
-.bottom-overlay {
-    position: relative;
-    z-index: 2;
-}
-
-.topbar {
-    width: min(1320px, 94vw);
-    margin: 34px auto 0;
-    display: grid;
-    grid-template-columns: 1fr auto auto auto 1fr;
-    align-items: center;
-    gap: 18px;
-}
-
-.top-line {
-    height: 1px;
-    border-radius: 999px;
-    background: linear-gradient(90deg, rgba(var(--cm-primary-rgb, 0, 229, 255), 0.34), rgba(255,255,255,0.04));
-}
-
-.top-meta,
-.top-badge {
-    font-size: 12px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.16em;
-    color: rgba(255,255,255,0.74);
-}
-
-.top-badge {
-    color: var(--cm-primary, #00e5ff);
-}
-
-.hero-wrap {
+.ui-panel,
+.bottom-bar {
     position: absolute;
-    inset: 0;
+    z-index: 10;
+}
+
+.ui-panel {
+    top: 0;
+    left: 0;
+    width: clamp(360px, 45vw, 680px);
+    height: 100vh;
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    justify-content: center;
+    padding-left: clamp(28px, 10vw, 220px);
+    padding-right: 24px;
 }
 
-.hero-copy {
-    width: min(1320px, 94vw);
-    margin: 0 auto;
-    padding-bottom: 100px;
+.pre-title {
+    color: var(--cm-text-muted, #829DAE);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
 }
 
-.eyebrow {
-    width: fit-content;
-    padding: 10px 14px;
-    border: 1px solid rgba(255,255,255,0.14);
-    background: rgba(0,0,0,0.22);
-    font-size: 12px;
+.main-title {
+    font-family: var(--cm-font-display, var(--cm-font, Arial, sans-serif));
+    font-size: clamp(32px, 3.4vw, 46px);
     font-weight: 900;
     text-transform: uppercase;
-    letter-spacing: 0.18em;
-    color: rgba(255,255,255,0.78);
+    letter-spacing: 1px;
+    line-height: 1.05;
+    margin-bottom: 8px;
+    text-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
 }
 
-.ghost-title {
-    margin-top: 26px;
-    font-family: var(--cm-font, Arial, sans-serif);
-    font-size: clamp(98px, 16vw, 280px);
-    line-height: 0.86;
-    letter-spacing: -0.04em;
-    color: rgba(var(--cm-primary-rgb, 0, 229, 255), 0.09);
-    text-transform: uppercase;
-}
-
-h1 {
-    margin-top: -18px;
-    font-family: var(--cm-font, Arial, sans-serif);
-    font-size: clamp(56px, 7vw, 108px);
-    line-height: 0.9;
-    letter-spacing: -0.03em;
-    text-transform: uppercase;
-    max-width: 760px;
-    text-shadow: 0 12px 40px rgba(0,0,0,0.42);
-}
-
-.description {
-    max-width: 680px;
-    margin-top: 18px;
-    font-size: 18px;
-    line-height: 1.6;
-    color: rgba(255,255,255,0.78);
+.subtitle {
+    color: var(--cm-text-muted, #829DAE);
+    font-size: 13px;
+    font-weight: 400;
+    max-width: 480px;
+    margin-bottom: 28px;
 }
 
 .progress-block {
-    width: min(620px, 62vw);
-    margin-top: 34px;
+    width: 100%;
+    max-width: 450px;
 }
 
 .progress-meta {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 12px;
-    font-size: 12px;
+    margin-bottom: 10px;
+    font-size: 11px;
     font-weight: 900;
     text-transform: uppercase;
-    letter-spacing: 0.16em;
-    color: rgba(255,255,255,0.78);
+    letter-spacing: 1.5px;
+    color: rgba(255,255,255,0.72);
 }
 
 .progress-bar {
-    height: 14px;
-    padding: 2px;
-    border: 1px solid rgba(255,255,255,0.2);
-    background: rgba(0,0,0,0.22);
-    border-radius: 999px;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.14);
+    overflow: hidden;
 }
 
 .progress-fill {
     width: 0%;
     height: 100%;
-    border-radius: 999px;
-    background: linear-gradient(90deg, var(--cm-primary, #00e5ff) 0%, var(--cm-blue, #2563eb) 100%);
-    box-shadow: var(--cm-glow, 0 0 22px rgba(0,229,255,0.22));
+    background: linear-gradient(90deg, var(--cm-cyan, #00E5FF), var(--cm-primary-dark, #1E88E5));
+    box-shadow: var(--cm-glow, 0 0 16px rgba(0,229,255,0.35));
     transition: width 0.3s ease;
 }
 
-.bottom-overlay {
-    position: absolute;
-    left: 50%;
-    bottom: 30px;
-    transform: translateX(-50%);
-    width: min(1320px, 94vw);
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    align-items: center;
-    gap: 18px;
+.hint-text {
+    margin-top: 18px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: rgba(255,255,255,0.68);
+    max-width: 480px;
 }
 
-.loader-pill,
-.hint-block,
-.skip-hint {
-    min-height: 58px;
-    border: 1px solid var(--cm-border-soft, rgba(143,190,220,0.14));
-    background: var(--cm-panel, rgba(8,18,34,0.96));
+.bottom-bar {
+    left: clamp(28px, 10vw, 220px);
+    bottom: 40px;
     display: flex;
     align-items: center;
-    border-radius: 999px;
-    padding: 0 18px;
+    gap: 14px;
 }
 
-.loader-pill,
-.skip-hint {
-    white-space: nowrap;
-    font-size: 13px;
-    font-weight: 700;
-    color: rgba(255,255,255,0.78);
-}
-
-.spinner {
-    width: 18px;
-    height: 18px;
-    margin-right: 12px;
+.music-toggle {
+    width: 34px;
+    height: 34px;
+    min-height: 0;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    line-height: 1;
     border-radius: 50%;
-    border: 2px solid rgba(255,255,255,0.16);
-    border-top-color: var(--cm-primary, #00e5ff);
-    animation: spin 0.9s linear infinite;
+    color: var(--cm-cyan, #00E5FF);
 }
 
-@keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+.music-toggle[aria-pressed="true"] {
+    color: rgba(255,255,255,0.4);
 }
 
-.hint-block {
-    justify-content: flex-start;
-    gap: 12px;
-    border-radius: 20px;
+/* Hidden until real FiveM progress hits 100% (see enterReadyState() in
+   script.js). Never shown, never interactive, before that point. */
+.continue-prompt {
+    margin-top: 22px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    opacity: 1;
+    transition: opacity 0.3s ease;
 }
 
-.hint-label {
-    flex: 0 0 auto;
-    padding: 9px 10px;
-    border-radius: 999px;
+.continue-prompt.acknowledged {
+    opacity: 0.5;
+}
+
+.continue-label {
     font-size: 11px;
     font-weight: 900;
-    letter-spacing: 0.15em;
+    letter-spacing: 2px;
     text-transform: uppercase;
-    color: var(--cm-bg-deep, #030812);
-    background: var(--cm-primary, #00e5ff);
+    color: var(--cm-cyan, #00E5FF);
+    text-shadow: var(--cm-glow, 0 0 16px rgba(0,229,255,0.35));
+    animation: cm-continue-pulse 2s ease-in-out infinite;
 }
 
-.hint-text {
+@keyframes cm-continue-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+}
+
+.continue-action {
     font-size: 13px;
-    line-height: 1.4;
-    color: rgba(255,255,255,0.82);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: rgba(255,255,255,0.85);
 }
 
-.skip-hint strong {
-    color: var(--cm-primary, #00e5ff);
-}
-
-@media (max-width: 980px) {
-    .topbar {
-        grid-template-columns: 1fr;
-        justify-items: center;
-    }
-
-    .top-line { width: 100%; }
-
-    .hero-copy {
-        text-align: center;
-        padding-bottom: 148px;
-    }
-
-    .eyebrow {
-        margin: 0 auto;
-    }
-
-    .description,
-    .progress-block {
-        margin-left: auto;
-        margin-right: auto;
-        width: min(720px, 90vw);
-    }
-
-    .bottom-overlay {
-        grid-template-columns: 1fr;
-    }
-
-    .loader-pill,
-    .hint-block,
-    .skip-hint {
-        justify-content: center;
-        border-radius: 18px;
-    }
+.continue-action strong {
+    color: var(--cm-yellow, #FFC700);
 }

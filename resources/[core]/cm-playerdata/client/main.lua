@@ -10,6 +10,8 @@ local Config = CMPlayerData.Config
 local Medical = Config.Medical or {}
 local PlayerData = {}
 local isDead = false
+local deathScreenActive = false
+local lifeState = 'alive'
 local isSpawning = false
 local deathPending = false
 local ambulanceCalled = false
@@ -39,12 +41,15 @@ local deathCam = nil
 local pendingDeathData = nil
 local hasSpawnCompleted = false
 local localDeathDeadline = 0
+local deathReportPending = false
 local respawnRequestSent = false
-local finishedOffSent = false
+local lastRespawnRequestAt = 0
+local respawnRequestCount = 0
 local lastHealth = 200
 local lastArmor = 0
 local lastVitalsSync = 0
 local lastPositionSync = 0
+local BuildDeathReport -- pre-declared for forward references
 
 local function Debug(msg)
     if Config.Debug then
@@ -69,18 +74,11 @@ local function GetRespawnHealth()
     return GetHealthFromPercent(respawn.HealthPercent or 20)
 end
 
--- Health an unconscious body carries: the downed floor plus a small finishing
--- buffer (UnconsciousHealthPercent of max). Depleting the buffer = finished.
-local function GetUnconsciousHealth()
-    local threshold = Config.Vitals.DamageThreshold or 101
-    local maxHp = Config.Vitals.MaxHealth or 200
-    local pct = tonumber(Config.Vitals.UnconsciousHealthPercent) or 10
-    if pct < 0 then pct = 0 end
-    local hp = threshold + math.floor(maxHp * (pct / 100))
-    if hp > maxHp then hp = maxHp end
-    if hp < threshold then hp = threshold end
-    return hp
+-- Deprecated: GTA owns health and native death. Kept for legacy callers only.
+local function GetDownedHealth()
+    return 0
 end
+local GetUnconsciousHealth = GetDownedHealth
 
 local function SpawnUiActive()
     if not LocalPlayer or not LocalPlayer.state then return true end
@@ -121,7 +119,7 @@ local function StartDeathCam()
         local speed = Medical.DeathCamSpeed or 0.25 -- degrees per frame at 60fps
 
         local angle = 0.0
-        while deathCam and isDead do
+        while deathCam and deathScreenActive do
             Wait(0)
             local ped = PlayerPedId()
             local coords = GetEntityCoords(ped)
@@ -146,49 +144,45 @@ local function StopDeathCam()
     deathCam = nil
 end
 
--- Keep the body lying down for the whole dead period. Initial ragdoll, then a
--- looped dead pose. Calling the ambulance switches to a different pose.
-local function PlayLyingPose()
-    local ped = PlayerPedId()
-    local anim = ambulanceCalled and (Medical.AmbulancePose or 'dead_b') or (Medical.DeadPose or 'dead_a')
+BuildDeathReport = function(ped)
+    local report = { killerServerId = nil, causeHash = nil, killerType = 'unknown' }
 
-    RequestAnimDict('dead')
-    local tries = 0
-    while not HasAnimDictLoaded('dead') and tries < 100 do
-        Wait(10)
-        tries = tries + 1
-    end
+    report.causeHash = GetPedCauseOfDeath(ped)
 
-    if HasAnimDictLoaded('dead') then
-        TaskPlayAnim(ped, 'dead', anim, 8.0, -8.0, -1, 1, 0.0, false, false, false)
-    end
-end
-
-local function ManageLyingBody()
-    CreateThread(function()
-        local ped = PlayerPedId()
-        SetPedToRagdoll(ped, 4000, 4000, 0, false, false, false)
-        Wait(4200)
-
-        local lastPose = nil
-        while isDead do
-            ped = PlayerPedId()
-            local wantedPose = ambulanceCalled and 'amb' or 'norm'
-            if not IsEntityPlayingAnim(ped, 'dead', ambulanceCalled and (Medical.AmbulancePose or 'dead_b') or (Medical.DeadPose or 'dead_a'), 3)
-                or wantedPose ~= lastPose then
-                PlayLyingPose()
-                lastPose = wantedPose
-            end
-            Wait(1500)
+    local killerEntity = GetPedSourceOfDeath(ped)
+    if killerEntity and killerEntity ~= 0 and DoesEntityExist(killerEntity) then
+        if IsEntityAVehicle(killerEntity) then
+            report.killerType = 'vehicle'
+            local driver = GetPedInVehicleSeat(killerEntity, -1)
+            if driver and driver ~= 0 then killerEntity = driver end
         end
-    end)
+
+        if IsEntityAPed(killerEntity) and IsPedAPlayer(killerEntity) then
+            local killerIndex = NetworkGetPlayerIndexFromPed(killerEntity)
+            if killerIndex ~= -1 then
+                local sid = GetPlayerServerId(killerIndex)
+                if sid and sid > 0 and sid ~= GetPlayerServerId(PlayerId()) then
+                    report.killerServerId = sid
+                    report.killerType = report.killerType == 'vehicle' and 'player_vehicle' or 'player'
+                end
+            end
+        elseif IsEntityAPed(killerEntity) then
+            report.killerType = 'npc'
+        end
+    end
+
+    if not report.killerServerId and report.killerType == 'unknown' then
+        report.killerType = 'environment'
+    end
+
+    return report
 end
 
 -- ---------------------------------------------------------------------------
 -- Death state
 -- ---------------------------------------------------------------------------
 local function StartPendingDeathState()
-    if not pendingDeathData or isDead then return end
+    if not pendingDeathData or deathScreenActive then return end
     if not hasSpawnCompleted or SpawnUiActive() then return end
 
     local payload = pendingDeathData
@@ -196,57 +190,23 @@ local function StartPendingDeathState()
     EnterDeathState(payload.killedBy, payload.bleedMs, payload.ambulanceCalled)
 end
 
--- While unconscious, watch the finishing buffer. Once the body has taken enough
--- extra damage to drop back to (or below) the downed floor, the player is
--- "finished" and is sent straight to hospital respawn, skipping the bleed-out.
-local function StartDownedFinishMonitor()
-    finishedOffSent = false
-    local monitorStartedAt = GetGameTimer()
-    CreateThread(function()
-        local threshold = Config.Vitals.DamageThreshold or 101
-        -- The death-interception handler ragdolls the ped for up to 2s right as
-        -- this monitor starts (see SetPedToRagdoll in the engine-death thread
-        -- below). That settling can still burn fall/impact damage into the
-        -- unconscious buffer for a moment after entering the death state, which
-        -- must never be mistaken for another player finishing off the body.
-        local graceMs = 2500
-        local armed = false
-        while isDead do
-            Wait(50)
-            local ped = PlayerPedId()
-            local hp = GetEntityHealth(ped)
-            if not armed then
-                -- Arm only once the unconscious buffer is confirmed in place AND
-                -- the post-death ragdoll grace period has elapsed, so neither a
-                -- one-frame stale read nor settling fall damage can false-trigger.
-                if hp > threshold and GetGameTimer() - monitorStartedAt > graceMs then armed = true end
-            elseif (hp <= threshold or IsEntityDead(ped)) and not finishedOffSent and not respawnRequestSent then
-                finishedOffSent = true
-                respawnRequestSent = true
-                TriggerServerEvent('cm-playerdata:server:finishedOff')
-                break
-            end
-        end
-    end)
-end
-
 function EnterDeathState(killedBy, bleedMs, alreadyAmbulanceCalled)
-    if isDead then return end
+    if deathScreenActive then return end
+    deathScreenActive = true
 
     -- Close inventory before the death screen takes NUI focus. This also hides
-    -- drop pickup cards immediately at the unconscious transition.
+    -- drop pickup cards immediately at the death transition.
     TriggerEvent('cm-inventory:client:forceCloseForDeath')
 
     isDead = true
+    lifeState = 'dead'
     ambulanceCalled = alreadyAmbulanceCalled == true
     dieChosen = false
     respawnRequestSent = false
-    finishedOffSent = false
+    lastRespawnRequestAt = 0
+    respawnRequestCount = 0
     localDeathDeadline = GetGameTimer() + (tonumber(bleedMs) or ((Config.Respawn and Config.Respawn.BleedOutTime) or 120000))
 
-    local ped = PlayerPedId()
-    local unconsciousHealth = GetUnconsciousHealth()
-    SetEntityHealth(ped, unconsciousHealth)
     SetPlayerHealthRechargeMultiplier(PlayerId(), 0.0)
     SetPlayerHealthRechargeLimit(PlayerId(), 0.0)
 
@@ -257,8 +217,6 @@ function EnterDeathState(killedBy, bleedMs, alreadyAmbulanceCalled)
     IgnoreNextRestart(true)
     StartDeathEffect()
     StartDeathCam()
-    ManageLyingBody()
-    StartDownedFinishMonitor()
 
     SendNUIMessage({
         action = 'openDeathScreen',
@@ -271,7 +229,7 @@ function EnterDeathState(killedBy, bleedMs, alreadyAmbulanceCalled)
     SetNuiFocus(true, true)
 
     CreateThread(function()
-        while isDead do
+        while deathScreenActive do
             Wait(0)
             DisableAllControlActions(0)
             EnableControlAction(0, 245, true) -- chat stays available
@@ -283,11 +241,16 @@ function EnterDeathState(killedBy, bleedMs, alreadyAmbulanceCalled)
     -- Client-side watchdog. The server is still authoritative, but this avoids
     -- a dead UI stuck at 00:00 if a rejoin/resource restart lost a timer.
     CreateThread(function()
-        while isDead do
+        while deathScreenActive do
             Wait(1000)
-            if localDeathDeadline > 0 and GetGameTimer() >= localDeathDeadline and not respawnRequestSent then
-                respawnRequestSent = true
-                TriggerServerEvent('cm-playerdata:server:requestRespawn')
+            local now = GetGameTimer()
+            if localDeathDeadline > 0 and now >= localDeathDeadline then
+                if (now - lastRespawnRequestAt) >= 2000 and respawnRequestCount < 10 then
+                    lastRespawnRequestAt = now
+                    respawnRequestCount = respawnRequestCount + 1
+                    respawnRequestSent = true
+                    TriggerServerEvent('cm-playerdata:server:requestRespawn')
+                end
             end
         end
     end)
@@ -299,22 +262,23 @@ function EnterDeathState(killedBy, bleedMs, alreadyAmbulanceCalled)
             remainingMs = math.max(0, localDeathDeadline - GetGameTimer())
         })
     end
-
-    lastHealth = unconsciousHealth
 end
 
 local function CleanupDeathState()
+    deathScreenActive = false
     isDead = false
-    finishedOffSent = false
+    deathReportPending = false
+    pendingDeathData = nil
     ambulanceCalled = false
     dieChosen = false
     respawnRequestSent = false
+    lastRespawnRequestAt = 0
+    respawnRequestCount = 0
     localDeathDeadline = 0
     SetNuiFocus(false, false)
     StopDeathCam()
     StopDeathEffect()
     SendNUIMessage({ action = 'closeDeathScreen' })
-    ClearPedTasks(PlayerPedId())
 end
 
 function ExitDeathState()
@@ -326,6 +290,9 @@ end
 -- ---------------------------------------------------------------------------
 local function ApplyLoadedData(data)
     PlayerData = data or {}
+    lifeState = PlayerData.lifeState or (PlayerData.isDead and 'dead' or 'alive')
+    if lifeState == 'downed' then lifeState = 'dead' end
+    isDead = (lifeState ~= 'alive')
     applyNativeWantedLevel(PlayerData.wantedStars)
     lastHealth = PlayerData.health or Config.Vitals.MaxHealth
     lastArmor = PlayerData.armor or 0
@@ -334,14 +301,17 @@ local function ApplyLoadedData(data)
     SetPlayerHealthRechargeLimit(PlayerId(), 0.0)
 
     local ped = PlayerPedId()
-    if PlayerData.isDead then
-        SetEntityHealth(ped, GetUnconsciousHealth())
-    else
+    if not isDead then
         SetEntityHealth(ped, lastHealth)
+        SetPedArmour(ped, lastArmor)
+    else
+        -- Native dead: do not grant health. If ped is alive on connect while dead in DB, kill it
+        if not IsEntityDead(ped) then
+            SetEntityHealth(ped, 0)
+        end
     end
-    SetPedArmour(ped, lastArmor)
 
-    if PlayerData.isDead then
+    if isDead then
         pendingDeathData = {
             killedBy = nil,
             bleedMs = tonumber(PlayerData.deathRemainingMs) or ((Config.Respawn and Config.Respawn.BleedOutTime) or 120000),
@@ -354,11 +324,31 @@ local function ApplyLoadedData(data)
     end
 end
 
+RegisterNetEvent('cm-playerdata:client:lifeStateChanged', function(newLifeState, reason)
+    lifeState = newLifeState or 'alive'
+    if lifeState == 'downed' then lifeState = 'dead' end
+    isDead = (lifeState ~= 'alive')
+    if type(PlayerData) == 'table' then
+        PlayerData.lifeState = lifeState
+        PlayerData.isDead = isDead
+    end
+
+    if (lifeState == 'dead') then
+        EnsureDeathPresentation({
+            bleedMs = (Config.Respawn and Config.Respawn.BleedOutTime) or 120000,
+            authoritative = true
+        })
+    elseif lifeState == 'alive' and deathScreenActive then
+        ExitDeathState()
+    end
+end)
+
 RegisterNetEvent('cm-playerdata:client:loaded', ApplyLoadedData)
 RegisterNetEvent('cm-playerdata:client:characterLoaded', ApplyLoadedData)
 
 RegisterNetEvent('cm-playerdata:client:unloaded', function()
     PlayerData = {}
+    lifeState = 'alive'
     applyNativeWantedLevel(0)
     pendingDeathData = nil
     hasSpawnCompleted = false
@@ -368,6 +358,7 @@ RegisterNetEvent('cm-playerdata:client:unloaded', function()
 end)
 RegisterNetEvent('cm-playerdata:client:characterUnloaded', function()
     PlayerData = {}
+    lifeState = 'alive'
     applyNativeWantedLevel(0)
     pendingDeathData = nil
     hasSpawnCompleted = false
@@ -416,50 +407,26 @@ RegisterNetEvent('cm-playerdata:client:setArmor', function(armor)
     PlayerData.armor = armor
 end)
 
-local function BuildDeathReport(ped)
-    local report = { killerServerId = nil, causeHash = nil, killerType = 'unknown' }
-
-    report.causeHash = GetPedCauseOfDeath(ped)
-
-    local killerEntity = GetPedSourceOfDeath(ped)
-    if killerEntity and killerEntity ~= 0 and DoesEntityExist(killerEntity) then
-        if IsEntityAVehicle(killerEntity) then
-            report.killerType = 'vehicle'
-            local driver = GetPedInVehicleSeat(killerEntity, -1)
-            if driver and driver ~= 0 then killerEntity = driver end
-        end
-
-        if IsEntityAPed(killerEntity) and IsPedAPlayer(killerEntity) then
-            local killerIndex = NetworkGetPlayerIndexFromPed(killerEntity)
-            if killerIndex ~= -1 then
-                local sid = GetPlayerServerId(killerIndex)
-                if sid and sid > 0 and sid ~= GetPlayerServerId(PlayerId()) then
-                    report.killerServerId = sid
-                    report.killerType = report.killerType == 'vehicle' and 'player_vehicle' or 'player'
-                end
-            end
-        elseif IsEntityAPed(killerEntity) then
-            report.killerType = 'npc'
-        end
-    end
-
-    if not report.killerServerId and report.killerType == 'unknown' then
-        report.killerType = 'environment'
-    end
-
-    return report
+-- Server tells us we are dead, including who killed us (name only if we know them)
+-- and how long the bleed-out is. This is the authoritative confirmation.
+local function HandleDownedOrDiedEvent(killerSrc, weaponHash, killedBy, bleedMs)
+    deathReportPending = false
+    pendingDeathData = nil
+    isDead = true
+    lifeState = 'dead'
+    EnsureDeathPresentation({
+        killedBy = killedBy,
+        bleedMs = bleedMs,
+        ambulanceCalled = false,
+        authoritative = true
+    })
 end
 
--- Server tells us we are dead, including who killed us (name only if we know them)
--- and how long the bleed-out is.
-RegisterNetEvent('cm-playerdata:client:playerDied', function(killerSrc, weaponHash, killedBy, bleedMs)
-    deathPending = false
-    pendingDeathData = nil
-    EnterDeathState(killedBy, bleedMs)
-end)
+RegisterNetEvent('cm-playerdata:client:playerDowned', HandleDownedOrDiedEvent)
+RegisterNetEvent('cm-playerdata:client:playerDied', HandleDownedOrDiedEvent)
 
 RegisterNetEvent('cm-playerdata:client:restoreDeathFocus', function()
-    if not isDead then return end
+    if not deathScreenActive then return end
     if ambulanceCalled then
         SetNuiFocus(false, false)
     else
@@ -469,11 +436,54 @@ RegisterNetEvent('cm-playerdata:client:restoreDeathFocus', function()
 end)
 
 -- ---------------------------------------------------------------------------
--- Engine death interception. Massive damage (headshot/explosion) can zero the
--- ped's health between vitals checks: the ped truly dies and GTA starts its
--- native wasted sequence (grayscale wobble, slow-mo, fade) over our death flow.
--- Watcher: the instant the ped is fatally injured, resurrect them in place,
--- clamp health to the downed threshold and route into our own death state.
+-- Idempotent death presentation. Can be called multiple times safely:
+--   1. Native death detection (pending, before server confirms)
+--   2. Server death confirmation (authoritative payload with timer/killer)
+--   3. Reconnect recovery (dead in DB)
+-- Produces exactly ONE death screen.
+-- ---------------------------------------------------------------------------
+local function EnsureDeathPresentation(payload)
+    payload = payload or {}
+    local bleedMs = payload.bleedMs or ((Config.Respawn and Config.Respawn.BleedOutTime) or 120000)
+    local killedBy = payload.killedBy
+    local alreadyAmbulanceCalled = payload.ambulanceCalled == true
+
+    if deathScreenActive then
+        -- Already showing: just update timer/payload if server sent authoritative data
+        if payload.authoritative then
+            localDeathDeadline = GetGameTimer() + bleedMs
+            SendNUIMessage({
+                action = 'updateDeathTimer',
+                remainingMs = bleedMs,
+                killedBy = killedBy
+            })
+            if alreadyAmbulanceCalled and not ambulanceCalled then
+                ambulanceCalled = true
+                SetNuiFocus(false, false)
+                SendNUIMessage({
+                    action = 'ambulanceMode',
+                    remainingMs = math.max(0, localDeathDeadline - GetGameTimer())
+                })
+            end
+            Debug('DEATH_UI authoritative-update')
+        end
+        return
+    end
+
+    -- First open
+    Debug('DEATH_UI opening')
+    EnterDeathState(killedBy, bleedMs, alreadyAmbulanceCalled)
+end
+
+-- ---------------------------------------------------------------------------
+-- Native death detection.
+-- GTA/FiveM owns health, damage and native death. The watcher observes when
+-- the player ped actually dies natively (IsEntityDead or IsPedFatallyInjured)
+-- and reports to the server once. The ped remains natively dead until
+-- a trusted revive or hospital respawn occurs.
+--
+-- CRITICAL: Opens death presentation IMMEDIATELY on native death, before
+-- waiting for server confirmation. Server confirmation updates the payload.
 -- ---------------------------------------------------------------------------
 CreateThread(function()
     -- Never let the engine run its own death/arrest restart or fades.
@@ -489,28 +499,49 @@ CreateThread(function()
     while true do
         Wait(100)
 
-        if LocalPlayer.state.playerDataLoaded and not isDead and not isSpawning and not deathPending then
+        if LocalPlayer.state.playerDataLoaded and not isSpawning and not isDead and not deathReportPending and lifeState == 'alive' then
             local ped = PlayerPedId()
-            if IsPedFatallyInjured(ped) or IsEntityDead(ped) then
-                deathPending = true
+            local isPedDead = IsEntityDead(ped)
+            local isFatallyInjured = IsPedFatallyInjured(ped)
 
-                -- Read killer info BEFORE resurrecting (death source is cleared after).
+            if isPedDead or isFatallyInjured then
+                deathReportPending = true
+
+                -- 1. Capture killer info and fatal evidence
                 local report = BuildDeathReport(ped)
-                local coords = GetEntityCoords(ped)
-                local heading = GetEntityHeading(ped)
+                local hp = GetEntityHealth(ped)
 
-                NetworkResurrectLocalPlayer(coords.x, coords.y, coords.z, heading, true, false)
-                local newPed = PlayerPedId()
-                SetEntityHealth(newPed, Config.Vitals.DamageThreshold)
-                SetPedToRagdoll(newPed, 2000, 2000, 0, false, false, false)
+                local fatalEvidence = {
+                    preResurrectionHealth = hp,
+                    wasDead = isPedDead,
+                    wasFatallyInjured = isFatallyInjured,
+                    causeHash = report.causeHash,
+                    killerServerId = report.killerServerId,
+                    killerType = report.killerType,
+                    clientTime = GetGameTimer()
+                }
 
-                TriggerServerEvent('cm-playerdata:server:playerDied', report.killerServerId, report.causeHash, report.killerType)
+                Debug(('NATIVE_DEATH detected hp=%s dead=%s fatal=%s cause=%s killer=%s'):format(hp, tostring(isPedDead), tostring(isFatallyInjured), tostring(report.causeHash), tostring(report.killerServerId)))
 
-                -- Failsafe: if the server event is lost, don't stay stuck forever.
-                SetTimeout(4000, function()
-                    if deathPending and not isDead then
-                        deathPending = false
-                        EnterDeathState(nil, (Config.Respawn and Config.Respawn.BleedOutTime) or 120000)
+                -- 2. Open death presentation IMMEDIATELY in pending state
+                --    Do not wait for server round-trip. Player sees death screen now.
+                isDead = true
+                lifeState = 'dead'
+                EnsureDeathPresentation({
+                    bleedMs = (Config.Respawn and Config.Respawn.BleedOutTime) or 120000,
+                    killedBy = nil, -- server will provide killer identity
+                    ambulanceCalled = false,
+                    authoritative = false
+                })
+
+                -- 3. Notify server while ped is in genuine native fatal state
+                Debug('DEATH_EVENT sent')
+                TriggerServerEvent('cm-playerdata:server:playerDied', report.killerServerId, report.causeHash, report.killerType, fatalEvidence)
+
+                -- Failsafe: if the server event is lost, clear pending after timeout
+                SetTimeout(5000, function()
+                    if deathReportPending and not deathScreenActive then
+                        deathReportPending = false
                     end
                 end)
             end
@@ -548,6 +579,17 @@ RegisterNetEvent('cm-playerdata:client:emsProtectionUpdated', function(payload)
     })
 end)
 
+RegisterNetEvent('cm-playerdata:client:waitingForBed', function(label, retryMs)
+    SetNuiFocus(false, false)
+    SendNUIMessage({
+        action = 'emsProtection',
+        remainingMs = tonumber(retryMs) or 5000,
+        etaMs = 0,
+        label = tostring(label or 'WAITING FOR HOSPITAL BED'),
+        protected = true,
+    })
+end)
+
 RegisterNetEvent('cm-playerdata:client:canRespawn', function()
     -- kept for backward compatibility; bleed-out handles respawn now
 end)
@@ -555,7 +597,12 @@ end)
 RegisterNetEvent('cm-playerdata:client:revive', function()
     ExitDeathState()
     local ped = PlayerPedId()
+    local coords = GetEntityCoords(ped)
+    local heading = GetEntityHeading(ped)
+    NetworkResurrectLocalPlayer(coords.x, coords.y, coords.z, heading, true, false)
+    ped = PlayerPedId()
     lastHealth = Config.Vitals.MaxHealth
+    lastArmor = 0
     SetEntityHealth(ped, lastHealth)
     SetPedArmour(ped, 0)
     ClearPedBloodDamage(ped)
@@ -567,13 +614,21 @@ end)
 RegisterNetEvent('cm-playerdata:client:revivePartial', function(health)
     ExitDeathState()
     local ped = PlayerPedId()
+    local coords = GetEntityCoords(ped)
+    local heading = GetEntityHeading(ped)
+    NetworkResurrectLocalPlayer(coords.x, coords.y, coords.z, heading, true, false)
+    ped = PlayerPedId()
     health = tonumber(health) or GetHealthFromPercent(30)
-    SetEntityHealth(ped, health)
-    ClearPedTasksImmediately(ped)
     lastHealth = health
+    lastArmor = 0
+    SetEntityHealth(ped, health)
+    SetPedArmour(ped, 0)
+    ClearPedBloodDamage(ped)
+    ResetPedVisibleDamage(ped)
+    ClearPedTasksImmediately(ped)
 end)
 
-RegisterNetEvent('cm-playerdata:client:respawn', function(spawn, respawnHealth)
+RegisterNetEvent('cm-playerdata:client:respawn', function(spawn, respawnHealth, token)
     isSpawning = true
     pendingDeathData = nil
     ExitDeathState()
@@ -585,6 +640,7 @@ RegisterNetEvent('cm-playerdata:client:respawn', function(spawn, respawnHealth)
     Wait(600)
 
     NetworkResurrectLocalPlayer(spawn.x, spawn.y, spawn.z, spawn.h or 0.0, true, false)
+    ped = PlayerPedId()
     SetEntityCoordsNoOffset(ped, spawn.x, spawn.y, spawn.z, false, false, false)
     SetEntityHeading(ped, spawn.h or 0.0)
 
@@ -603,6 +659,10 @@ RegisterNetEvent('cm-playerdata:client:respawn', function(spawn, respawnHealth)
     Wait(1000)
     DoScreenFadeIn(500)
     isSpawning = false
+
+    if token then
+        TriggerServerEvent('cm-playerdata:server:respawnComplete', token)
+    end
 end)
 
 
@@ -622,24 +682,29 @@ end)
 
 -- Recovery net for players who are dead but not yet showing the death screen.
 -- After a resource/server restart, hasSpawnCompleted resets to false and the
--- spawn resource may not re-emit spawnComplete, so StartPendingDeathState keeps
--- bailing out and the player is stuck in a broken half-dead state. This thread
--- forces the layout back up. It also rebuilds pendingDeathData from the loaded
--- data if it was lost, so a dead player is always re-shown their death screen.
+-- spawn resource may not re-emit spawnComplete, so this thread forces the
+-- death UI back up. It uses EnsureDeathPresentation which is idempotent.
+-- NEVER sets health or lifeState. Presentation only.
 CreateThread(function()
     while true do
         Wait(1500)
 
-        local dataSaysDead = type(PlayerData) == 'table' and PlayerData.isDead == true
-        if not isDead and (pendingDeathData or dataSaysDead) then
+        local dataSaysDead = type(PlayerData) == 'table' and (PlayerData.lifeState == 'dead' or PlayerData.lifeState == 'downed' or (PlayerData.lifeState == nil and PlayerData.isDead == true))
+        if not deathScreenActive and not isSpawning and dataSaysDead then
             if LocalPlayer.state.playerDataLoaded == true and not SpawnUiActive() then
-                if not pendingDeathData and dataSaysDead then
-                    pendingDeathData = {
-                        killedBy = nil,
-                        bleedMs = tonumber(PlayerData.deathRemainingMs) or ((Config.Respawn and Config.Respawn.BleedOutTime) or 120000),
-                        ambulanceCalled = PlayerData.ambulanceCalled == true
-                    }
-                end
+                isDead = true
+                lifeState = 'dead'
+                hasSpawnCompleted = true
+                pendingDeathData = nil
+                Debug('DEATH_UI recovery-open')
+                EnsureDeathPresentation({
+                    bleedMs = tonumber(PlayerData.deathRemainingMs) or ((Config.Respawn and Config.Respawn.BleedOutTime) or 120000),
+                    ambulanceCalled = PlayerData.ambulanceCalled == true,
+                    authoritative = true
+                })
+            end
+        elseif not deathScreenActive and not isSpawning and pendingDeathData then
+            if LocalPlayer.state.playerDataLoaded == true and not SpawnUiActive() then
                 hasSpawnCompleted = true
                 StartPendingDeathState()
             end
@@ -724,26 +789,18 @@ CreateThread(function()
     while true do
         Wait(500)
 
-        if LocalPlayer.state.isLoggedIn and LocalPlayer.state.playerDataLoaded and not isDead and not isSpawning then
+        if LocalPlayer.state.isLoggedIn and LocalPlayer.state.playerDataLoaded and not deathScreenActive and not isSpawning and not isDead and lifeState == 'alive' then
             local ped = PlayerPedId()
             local currentHealth = GetEntityHealth(ped)
             local currentArmor = GetPedArmour(ped)
 
-            if currentHealth < lastHealth then
-                if currentHealth <= Config.Vitals.DamageThreshold then
-                    SetEntityHealth(ped, Config.Vitals.DamageThreshold)
-                    local report = BuildDeathReport(ped)
-                    TriggerServerEvent('cm-playerdata:server:playerDied', report.killerServerId, report.causeHash, report.killerType)
-                else
-                    lastHealth = currentHealth
-                end
-            elseif currentHealth > lastHealth then
-                -- Never accept GTA passive regeneration or another client-side
-                -- health increase. Legitimate healing must come through the
-                -- authoritative cm-playerdata SetHealth/Heal/revive exports,
-                -- whose client events update lastHealth before this loop runs.
-                SetEntityHealth(ped, lastHealth)
-                currentHealth = lastHealth
+            -- Observational only: GTA native health and armor are source-of-truth.
+            -- cm-playerdata mirrors native values and syncs to server.
+            if currentHealth ~= lastHealth then
+                lastHealth = currentHealth
+            end
+            if currentArmor ~= lastArmor then
+                lastArmor = currentArmor
             end
 
             local now = GetGameTimer()
@@ -776,14 +833,14 @@ end)
 
 RegisterNUICallback('deathAmbulance', function(_, cb)
     cb({})
-    if isDead and not ambulanceCalled and not dieChosen then
+    if (deathScreenActive or isDead) and not ambulanceCalled and not dieChosen then
         TriggerServerEvent('cm-playerdata:server:callAmbulance')
     end
 end)
 
 RegisterNUICallback('deathDie', function(_, cb)
     cb({})
-    if isDead and not ambulanceCalled and not dieChosen then
+    if (deathScreenActive or isDead) and not ambulanceCalled and not dieChosen then
         dieChosen = true
         TriggerServerEvent('cm-playerdata:server:chooseDie')
         SendNUIMessage({ action = 'deathChoice', choice = 'die' })
@@ -793,15 +850,20 @@ end)
 
 RegisterNUICallback('deathExpired', function(_, cb)
     cb({})
-    if isDead and not respawnRequestSent then
-        respawnRequestSent = true
-        TriggerServerEvent('cm-playerdata:server:requestRespawn')
+    if deathScreenActive or isDead then
+        local now = GetGameTimer()
+        if (now - lastRespawnRequestAt) >= 1500 and respawnRequestCount < 10 then
+            lastRespawnRequestAt = now
+            respawnRequestCount = respawnRequestCount + 1
+            respawnRequestSent = true
+            TriggerServerEvent('cm-playerdata:server:requestRespawn')
+        end
     end
 end)
 
 RegisterNUICallback('deathOpenMap', function(_, cb)
     cb({})
-    if not isDead or IsPauseMenuActive() then return end
+    if (not deathScreenActive and not isDead) or IsPauseMenuActive() then return end
     SetNuiFocus(false, false)
     SendNUIMessage({ action = 'deathMapVisibility', hidden = true })
     ActivateFrontendMenu(joaat('FE_MENU_VERSION_MP_PAUSE'), false, -1)
@@ -846,4 +908,32 @@ end)
 
 exports('IsCharacterLoaded', function()
     return LocalPlayer and LocalPlayer.state and LocalPlayer.state.playerDataLoaded == true or false
+end)
+
+exports('GetLifeState', function()
+    return lifeState or 'alive'
+end)
+
+exports('IsAlive', function()
+    return lifeState == 'alive' and not isDead
+end)
+
+exports('IsDowned', function()
+    return isDead
+end)
+
+exports('IsFullyDead', function()
+    return isDead
+end)
+
+exports('IsRespawning', function()
+    return lifeState == 'respawning'
+end)
+
+exports('IsDead', function()
+    return isDead
+end)
+
+exports('CanPlayerAct', function()
+    return not isDead and not isSpawning and hasSpawnCompleted and not SpawnUiActive()
 end)

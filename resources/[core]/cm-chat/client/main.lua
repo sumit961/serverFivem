@@ -2,6 +2,11 @@
 -- Modular RP chat UI. Messages stay visible; input/tabs/actions only show when chat is open.
 
 local chatOpen = false
+-- PHASE 6: explicit focus-ownership flag. Only setChatOpen(true) may set this
+-- true, and only code that finds it true may release NUI focus. This stops
+-- chat from ever clearing focus that now belongs to a different NUI (see the
+-- setChatOpen fix below for the bug this closes).
+local chatOwnsFocus = false
 local externalHideReasons = {}
 local loggedIn = false
 local characterId = nil
@@ -18,6 +23,17 @@ end
 
 local function isPlayerLoggedIn()
     return loggedIn or (LocalPlayer and LocalPlayer.state and LocalPlayer.state.isLoggedIn == true)
+end
+
+-- PHASE 6: gameplay-only gate. isLoggedIn becomes true right after cm-auth
+-- login, well before Character Selector/Creator/Appearance/Spawn Selector
+-- finish -- it is not sufficient on its own to decide chat may open. Chat
+-- must stay unavailable until the authoritative spawn pipeline (cm-spawn/
+-- cm-characters) has actually marked the player fully spawned.
+local function isGameplayActive()
+    if not isPlayerLoggedIn() then return false end
+    local st = LocalPlayer and LocalPlayer.state
+    return st and st.characterFullySpawned == true
 end
 
 local function cleanCharacterId(value)
@@ -93,16 +109,31 @@ local function setChatOpen(open)
 
     if open then
         if externalChatHidden() then return end
-        if not isPlayerLoggedIn() then return end
+        if not isGameplayActive() then return end
         if IsNuiFocused and IsNuiFocused() and not chatOpen then return end
         captureStateHints()
         requestUiBootstrap()
     end
 
     chatOpen = open
-    SetNuiFocus(chatOpen, chatOpen)
-    SetNuiFocusKeepInput(false)
     SendNUIMessage({ action = 'setChatOpen', open = chatOpen })
+
+    -- PHASE 6 FOCUS OWNERSHIP FIX: this used to call SetNuiFocus(false, false)
+    -- unconditionally whenever chat closed, even if chat did not currently own
+    -- focus. If another resource opened its own NUI (SetNuiFocus(true,true))
+    -- and then told chat to hide (setExternalChatHidden -> setChatOpen(false))
+    -- as a courtesy state sync, that unconditional call would steal/clear the
+    -- OTHER resource's focus a moment after it was granted. Chat may only ever
+    -- release focus it actually owns.
+    if open then
+        SetNuiFocus(true, true)
+        SetNuiFocusKeepInput(false)
+        chatOwnsFocus = true
+    elseif chatOwnsFocus then
+        SetNuiFocus(false, false)
+        SetNuiFocusKeepInput(false)
+        chatOwnsFocus = false
+    end
 end
 
 local function setExternalChatHidden(hidden, reason)

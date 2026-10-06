@@ -1,19 +1,18 @@
 const translate = {
     create_character: 'CREATE YOUR CHARACTER',
     select_category: 'SELECT CATEGORY',
-    height: 'CAMERA HEIGHT',
-    rotate: 'CAMERA ROTATE',
-    distance: 'CAMERA DISTANCE',
-    save: 'SAVE & SPAWN',
-    cancel: 'CANCEL',
+    save: 'SAVE & CONTINUE',
+    cancel: 'BACK',
 
+    // PHASE 4C: player-facing category taxonomy. Keys match the data-type
+    // values renderCategories() generates in ui/appearance/app.js — these
+    // are UI-only groupings layered over the unchanged Lua items.parents/
+    // items.face/items.hairs/items.clothes shape.
     category: {
-        parents: 'PARENTS',
         face: 'FACE',
-        clothes: 'CLOTHES',
-        clothesets: 'OUTFITS',
-        hairs: 'HAIR',
-        makeup: 'MAKEUP'
+        hair: 'HAIR',
+        eyes: 'EYES',
+        clothing: 'CLOTHING',
     },
 
     title_sex: "GENDER",
@@ -78,7 +77,7 @@ const translate = {
     sub_tshirt_1: 'Style',
     sub_tshirt_2: 'Variant',
 
-    title_torso: 'TORSO',
+    title_torso: 'TOP',
     sub_torso_1: 'Style',
     sub_torso_2: 'Variant',
 
@@ -134,9 +133,6 @@ const translate = {
     sub_ears_1: 'Style',
     sub_ears_2: 'Variant',
 
-    title_clothesets: 'OUTFITS',
-    sub_clotheset: 'Select outfit',
-
     title_hair: 'HAIR',
     sub_hair_1: 'Style',
     sub_hair_2: 'Highlight',
@@ -166,21 +162,6 @@ const translate = {
     sub_chest_1: 'Style',
     sub_chest_2: 'Opacity',
     sub_chest_3: 'Color',
-
-    title_makeup: 'MAKEUP',
-    sub_makeup_1: 'Style',
-    sub_makeup_2: 'Opacity',
-    sub_makeup_3: 'Color',
-
-    title_blush: 'BLUSH',
-    sub_blush_1: 'Style',
-    sub_blush_2: 'Opacity',
-    sub_blush_3: 'Color',
-
-    title_lipstick: 'LIPSTICK',
-    sub_lipstick_1: 'Style',
-    sub_lipstick_2: 'Opacity',
-    sub_lipstick_3: 'Color',
 
     parentsNames: {
         dad: {

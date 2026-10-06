@@ -180,6 +180,7 @@ Backed by a new `cm-vehiclekeys` export `RevokeTempKeyByChar(plate, charId)`.
 **Server exports (cm-vehicles):**
 - `ServiceVehicle(plate, { fuel?, engineHealth?, bodyHealth?, tankHealth?, dirtLevel?, conditionState?, clearVisualDamage? }, targetSource?)`
   - `targetSource` is optional and limits physical condition convergence to that online player; existing callers may omit it.
+  - Callable only by resources in `Config.Service.TrustedCallers` (each limited to specific fields); returns `true, result` or `false, reason`. Unknown keys are rejected. See [API_SERVICE.md](API_SERVICE.md).
 - `GetLentKeys(plate)` → list
 
 **Server events (cm-vehicles):**

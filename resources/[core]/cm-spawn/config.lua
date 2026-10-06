@@ -4,11 +4,17 @@
 Config = Config or {}
 
 -- Keep production quiet. Turn these on only while debugging spawn issues.
-Config.Debug = false
+Config.Debug = true -- TEMP: black-screen spawn-flow diagnosis, revert after
 Config.VerboseLogs = false
 
 -- First-time players spawn here automatically.
 Config.DefaultFirstSpawn = 'hotel'
+
+-- Generic recovery only. This is deliberately not a Hotel coordinate; the
+-- Hotel authority is cm-hotel:GetFirstSpawn(). It mirrors the existing client
+-- spawn recovery location so character creation never hard-fails if cm-hotel
+-- is unavailable or still awaiting configuration.
+Config.SafeFallbackSpawn = vector4(-1037.0, -2737.0, 13.8, 0.0)
 
 -- How long the client waits while hidden for climate/time systems to apply before reveal.
 Config.PreSpawnClimateWait = 350

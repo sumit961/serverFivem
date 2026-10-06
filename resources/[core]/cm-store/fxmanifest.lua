@@ -31,6 +31,7 @@ client_scripts {
 
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
+    '@cm-core/shared/item_purchase.lua',
     'server/main.lua'
 }
 

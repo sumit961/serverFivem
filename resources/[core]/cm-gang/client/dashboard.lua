@@ -12,7 +12,57 @@ local contactReopenAt = 0
 local refreshGeneration = 0
 local development = GetConvar('cm_environment', 'production') == 'development'
 local HUD_REASON = 'cm-gang-menu'
+local INTERACT_OWNER = 'cm-gang:headquarters'
 local function npcKey(entry) return ('%s:%s'):format(tostring(entry and entry.gangId or 'unknown'), tostring(entry and entry.kind or 'main')) end
+
+local function hideHeadquartersInteract()
+    if GetResourceState('cm-ui') == 'started' then
+        pcall(function() exports['cm-ui']:HideInteract(INTERACT_OWNER) end)
+    end
+    textUiVisible = false
+end
+
+local function cancelHeadquartersDialogue()
+    if GetResourceState('cm-ui') == 'started' then
+        pcall(function() exports['cm-ui']:CancelNpcDialogue() end)
+    end
+end
+
+local function showHeadquartersInteract(entry)
+    if GetResourceState('cm-ui') ~= 'started' or not entry or not entry.facility then return end
+    local facility = entry.facility
+    pcall(function()
+        exports['cm-ui']:ShowInteract({
+            owner = INTERACT_OWNER,
+            priority = 20,
+            key = 'E',
+            label = entry.isOwn and 'OPEN GANG HQ' or 'SPEAK TO CONTACT',
+            name = facility.displayName ~= '' and facility.displayName or entry.gangName or 'Gang Contact',
+            role = facility.roleLabel ~= '' and facility.roleLabel or 'Gang Headquarters',
+        })
+    end)
+    textUiVisible = true
+end
+
+local function drawHeadquartersMarker(entry)
+    if not entry or not entry.facility then return end
+    local facility = entry.facility
+    local presentation = Config.Headquarters or {}
+    local marker = presentation.marker or {}
+    local scale = marker.scale or {}
+    local colour = marker.colour or {}
+    local direction = marker.direction or {}
+    DrawMarker(
+        tonumber(marker.type) or 1,
+        facility.x + 0.0, facility.y + 0.0, facility.z - 0.92,
+        tonumber(direction.x) or 0.0, tonumber(direction.y) or 0.0, tonumber(direction.z) or 0.0,
+        0.0, 0.0, facility.heading + 0.0,
+        tonumber(scale.x) or 0.72, tonumber(scale.y) or 0.72, tonumber(scale.z) or 0.22,
+        tonumber(colour.r) or 49, tonumber(colour.g) or 230, tonumber(colour.b) or 255, tonumber(colour.a) or 125,
+        marker.bobUpAndDown == true, marker.faceCamera == true, 2, marker.rotate == true,
+        nil, nil, false
+    )
+end
 
 local function devLog(message)
     if development then print(('[cm-gang] %s'):format(message)) end
@@ -65,6 +115,7 @@ local function closeDashboard()
         TriggerEvent('cm-chat:client:showAfterUi', HUD_REASON)
     end
     activeContact = nil
+    hideHeadquartersInteract()
 end
 
 local function dialogueShot(kind)
@@ -124,20 +175,112 @@ end
 local function openContactServices()
     local npcPed=activeContact and npcPeds[npcKey(activeContact)]
     if not npcPed or not DoesEntityExist(npcPed) then return end
-    openDashboard('dialogue', 'dialogue')
+    local authorization = lib.callback.await('cm-gang:server:authorizeHeadquarters', false, {
+        gangId = activeContact.gangId,
+        action = 'dashboard',
+    })
+    if type(authorization) ~= 'table' or authorization.ok ~= true then
+        notify(('Gang headquarters unavailable: %s'):format(tostring(authorization and authorization.reason or 'request_failed'):gsub('_', ' ')), 'error')
+        activeContact = nil
+        return
+    end
+    hideHeadquartersInteract()
+    local ok, opened = pcall(function()
+        return exports['cm-ui']:OpenNpcDialogue(npcPed, {
+            name = activeContact.contact.name,
+            role = activeContact.facility.roleLabel ~= '' and activeContact.facility.roleLabel or 'Gang Headquarters',
+            quote = activeContact.contact.greeting or 'How can I help you today?',
+            serviceLabel = 'Choose a gang headquarters service.',
+            choiceColumns = 2,
+            choices = {
+                {
+                    id = 'dashboard', label = 'Open dashboard',
+                    description = 'View your gang, rank, members, and available actions.',
+                    event = 'cm-gang:client:hqDashboardChoice', close = false,
+                },
+                {
+                    id = 'stash', label = 'Open gang stash',
+                    description = 'Open shared storage through cm-inventory.',
+                    event = 'cm-gang:client:hqStashChoice', close = false,
+                },
+            },
+            closeEvent = 'cm-gang:client:hqDialogueDismissed',
+        })
+    end)
+    if not ok or opened ~= true then
+        activeContact = nil
+        notify('Gang headquarters dialogue is unavailable.', 'error')
+    end
 end
 
 local function openContactRefusal(entry)
     activeContact = entry
-    dashboardOpen = true
-    serviceOpen = true
-    SetNuiFocus(true, true)
-    TriggerEvent('cm-hud:client:hideForUi', HUD_REASON)
-    TriggerEvent('cm-chat:client:hideForUi', HUD_REASON)
-    SendNUIMessage({ action='gangRefusalOpen', gangName=entry.gangName, contact=entry.contact })
-    dialogueShot('wide')
-    SetTimeout(850,function() if dashboardOpen and serviceOpen then dialogueShot('close') end end)
+    hideHeadquartersInteract()
+    local npcPed=npcPeds[npcKey(entry)]
+    if not npcPed or not DoesEntityExist(npcPed) then activeContact=nil; return end
+    local ok, opened = pcall(function()
+        return exports['cm-ui']:OpenNpcDialogue(npcPed, {
+            name = entry.contact.name,
+            role = entry.facility.roleLabel ~= '' and entry.facility.roleLabel or 'Gang Headquarters',
+            quote = entry.contact.refusal or 'These services are for members only.',
+            continueLabel = 'Close',
+            continueEvent = 'cm-gang:client:hqDialogueDismissed',
+            closeEvent = 'cm-gang:client:hqDialogueDismissed',
+        })
+    end)
+    if not ok or opened ~= true then
+        activeContact = nil
+        notify('Gang contact dialogue is unavailable.', 'error')
+    end
 end
+
+local function requestGangStash()
+    local result = lib.callback.await('cm-gang:server:openStash', false) or { ok = false, reason = 'request_failed' }
+    if result.ok ~= true then
+        notify(('Stash unavailable: %s'):format(tostring(result.reason or 'request_failed'):gsub('_', ' ')), 'error')
+    end
+    return result
+end
+
+local function handleHeadquartersChoice(action)
+    local contact = activeContact
+    if not contact or contact.isOwn ~= true or contact.kind ~= 'main' then
+        cancelHeadquartersDialogue()
+        activeContact = nil
+        notify('Gang headquarters access is unavailable.', 'error')
+        return
+    end
+    local authorization = lib.callback.await('cm-gang:server:authorizeHeadquarters', false, {
+        gangId = contact.gangId,
+        action = action,
+    })
+    if type(authorization) ~= 'table' or authorization.ok ~= true then
+        cancelHeadquartersDialogue()
+        activeContact = nil
+        notify(('Gang headquarters unavailable: %s'):format(tostring(authorization and authorization.reason or 'request_failed'):gsub('_', ' ')), 'error')
+        return
+    end
+    cancelHeadquartersDialogue()
+    if action == 'dashboard' then
+        openDashboard('overview', 'services')
+    elseif action == 'stash' then
+        closeDashboard()
+        requestGangStash()
+    end
+end
+
+RegisterNetEvent('cm-gang:client:hqDashboardChoice', function()
+    handleHeadquartersChoice('dashboard')
+end)
+
+RegisterNetEvent('cm-gang:client:hqStashChoice', function()
+    handleHeadquartersChoice('stash')
+end)
+
+RegisterNetEvent('cm-gang:client:hqDialogueDismissed', function()
+    activeContact = nil
+    contactReopenAt = GetGameTimer() + 750
+end)
 
 RegisterCommand(Config.Commands.dashboard, function() openDashboard('overview') end, false)
 RegisterKeyMapping(Config.Commands.dashboard, 'Open gang dashboard', 'keyboard', Config.Keys.dashboard)
@@ -166,8 +309,7 @@ RegisterNUICallback('rankAction', function(data, cb)
 end)
 RegisterNUICallback('openStash', function(_, cb)
     closeDashboard()
-    local result = lib.callback.await('cm-gang:server:openStash', false) or { ok = false, reason = 'request_failed' }
-    if result.ok ~= true then notify(('Stash unavailable: %s'):format(tostring(result.reason or 'request_failed'):gsub('_', ' ')), 'error') end
+    local result = requestGangStash()
     cb(result)
 end)
 RegisterNUICallback('loadArmory', function(_, cb)
@@ -290,7 +432,8 @@ end
 
 local function spawnNpc(entry)
     local facility = entry and entry.facility
-    if not facility then return end
+    if not facility or not tonumber(facility.x) or not tonumber(facility.y) or not tonumber(facility.z)
+        or not tonumber(facility.heading) or not entry.contact then return end
     local candidates = entry.contact and entry.contact.modelCandidates or { facility.npcModel }
     local model, modelName
     for _, candidate in ipairs(candidates) do
@@ -360,11 +503,20 @@ end)
 
 CreateThread(function()
     while true do
+        local playerPed = PlayerPedId()
+        if IsEntityDead(playerPed) then
+            cancelHeadquartersDialogue()
+            if dashboardOpen then closeDashboard() else hideHeadquartersInteract(); activeContact=nil end
+            Wait(500)
+        else
         local wait = 1000
         local nearest, distance
-        local playerCoords=GetEntityCoords(PlayerPedId())
+        local playerCoords=GetEntityCoords(playerPed)
         for _,entry in ipairs(headquarters and headquarters.contacts or {}) do
             local f=entry.facility; local d=#(playerCoords-vector3(f.x,f.y,f.z)); local key=npcKey(entry); local ped=npcPeds[key]
+            if d <= (tonumber(Config.Headquarters and Config.Headquarters.markerDistance) or 35.0) then
+                drawHeadquartersMarker(entry); wait=0
+            end
             if (not ped or not DoesEntityExist(ped)) and d<=(Config.ContactStreaming.spawnDistance or 125.0) then spawnNpc(entry)
             elseif ped and DoesEntityExist(ped) and d>(Config.ContactStreaming.despawnDistance or 150.0) then DeleteEntity(ped); npcPeds[key]=nil end
             ped=npcPeds[key]
@@ -373,32 +525,31 @@ CreateThread(function()
         end
         if nearest then
             local facility=nearest.facility; local npcPed=npcPeds[npcKey(nearest)]
-            if dashboardOpen and serviceOpen and activeContact and #(playerCoords-vector3(activeContact.facility.x,activeContact.facility.y,activeContact.facility.z)) > (Config.ContactStreaming.interactionDistance or 2.5)+1.5 then
+            local interactionDistance = tonumber(Config.Headquarters and Config.Headquarters.interactionDistance)
+                or tonumber(Config.ContactStreaming and Config.ContactStreaming.interactionDistance) or 2.5
+            if dashboardOpen and serviceOpen and activeContact and #(playerCoords-vector3(activeContact.facility.x,activeContact.facility.y,activeContact.facility.z)) > interactionDistance + 1.5 then
                 devLog(('contact dialogue closed reason=distance gang=%s'):format(tostring(nearest.gangId)))
                 closeDashboard()
             end
             if npcPed and DoesEntityExist(npcPed) and distance < 15.0 then
                 wait = 0
-                if distance < (Config.ContactStreaming.interactionDistance or 2.5) and not dashboardOpen then
-                    if not textUiVisible then
-                        lib.showTextUI(('[E] %s — %s'):format(facility.displayName ~= '' and facility.displayName or nearest.gangName,
-                            facility.roleLabel ~= '' and facility.roleLabel or 'Gang Headquarters'))
-                        textUiVisible = true
-                    end
+                if distance < interactionDistance and not dashboardOpen then
+                    if not textUiVisible then showHeadquartersInteract(nearest) end
                     if GetGameTimer() >= contactReopenAt and IsControlJustReleased(0, 38) then
-                        lib.hideTextUI(); textUiVisible=false; activeContact=nearest
+                        hideHeadquartersInteract(); activeContact=nearest
                         if nearest.isOwn then openContactServices() else openContactRefusal(nearest) end
                     end
                 elseif textUiVisible then
-                    lib.hideTextUI(); textUiVisible = false
+                    hideHeadquartersInteract()
                 end
             elseif textUiVisible then
-                lib.hideTextUI(); textUiVisible = false
+                hideHeadquartersInteract()
             end
         elseif textUiVisible then
-            lib.hideTextUI(); textUiVisible = false
+            hideHeadquartersInteract()
         end
         Wait(wait)
+        end
     end
 end)
 
@@ -426,7 +577,7 @@ end)
 RegisterNetEvent('cm-playerdata:client:characterLoaded', function() refreshHeadquarters(8) end)
 RegisterNetEvent('cm-playerdata:client:loaded', function() refreshHeadquarters(8) end)
 RegisterNetEvent('cm-playerdata:client:characterUnloaded', function()
-    refreshGeneration=refreshGeneration+1; headquarters=nil; deleteNpc(); deleteNpcBlips(); closeDashboard()
+    refreshGeneration=refreshGeneration+1; headquarters=nil; deleteNpc(); deleteNpcBlips(); cancelHeadquartersDialogue(); closeDashboard()
 end)
 
 AddEventHandler('onClientResourceStart', function(name)
@@ -435,7 +586,8 @@ end)
 
 AddEventHandler('onResourceStop', function(name)
     if name ~= RESOURCE then return end
-    lib.hideTextUI(); textUiVisible = false
+    cancelHeadquartersDialogue()
+    hideHeadquartersInteract()
     closeDashboard()
     deleteNpc()
     deleteNpcBlips()

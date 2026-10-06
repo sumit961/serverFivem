@@ -236,91 +236,9 @@ local function getStateCharacterId(src)
   return candidates[1] and tostring(candidates[1]) or nil
 end
 
-local function setMoneyState(src, cash, bank)
-  local p = Player(src)
-  if not (p and p.state) then return end
-  if cash ~= nil then pcall(function() p.state:set('cash', tonumber(cash) or 0, true) end) end
-  if bank ~= nil then pcall(function() p.state:set('bank', tonumber(bank) or 0, true) end) end
-end
 
-local function getCharacterMoney(src)
-  local charId = getStateCharacterId(src)
-  if not charId then return nil, 'No selected character ID.' end
-  local row = dbSingle('SELECT cash, bank FROM characters WHERE id = ? LIMIT 1', { charId })
-  if not row then return nil, 'Could not read character balance.' end
-  return {
-    characterId = charId,
-    cash = tonumber(row.cash) or 0,
-    bank = tonumber(row.bank) or 0,
-  }
-end
 
-local function takeCharacterMoney(src, method, amount)
-  method = method == 'cash' and 'cash' or 'bank'
-  amount = math.floor(tonumber(amount) or 0)
-  if amount <= 0 then return true, { method = method, characterId = getStateCharacterId(src) } end
 
-  -- Preferred: Authoritative runtime balance ownership via cm-playerdata
-  if GetResourceState('cm-playerdata') == 'started' then
-    local ok, success = pcall(function()
-      return exports['cm-playerdata']:RemoveMoney(src, method, amount, 'clothing_purchase')
-    end)
-    if ok and success == true then
-      local cash = tonumber(exports['cm-playerdata']:GetCash(src)) or 0
-      local bank = tonumber(exports['cm-playerdata']:GetBank(src)) or 0
-      return true, { method = method, characterId = getStateCharacterId(src), cash = cash, bank = bank }
-    elseif ok and success == false then
-      return false, ('Not enough %s for purchase.'):format(method)
-    end
-  end
-
-  local money, err = getCharacterMoney(src)
-  if not money then
-    -- Safe fallback for older test servers, but normal CM uses characters.cash/bank above.
-    local ok, paid = pcall(function() return exports['cm-core']:RemoveMoney(src, method, amount) end)
-    if ok and paid == true then return true, { method = method, fallback = true } end
-    return false, err or 'Could not read character balance.'
-  end
-
-  local balance = tonumber(money[method]) or 0
-  if balance < amount then
-    return false, ('Not enough %s. Need $%s, you have $%s.'):format(method, amount, balance)
-  end
-
-  local query = ('UPDATE characters SET %s = GREATEST(0, COALESCE(%s, 0) - ?) WHERE id = ? AND COALESCE(%s, 0) >= ?'):format(method, method, method)
-  local ok, affected = dbUpdate(query, { amount, money.characterId, amount })
-  if not ok or (type(affected) == 'number' and affected < 1) then
-    return false, 'Payment failed. Balance changed; try again.'
-  end
-
-  money[method] = balance - amount
-  setMoneyState(src, money.cash, money.bank)
-  return true, { method = method, characterId = money.characterId, cash = money.cash, bank = money.bank }
-end
-
-local function refundCharacterMoney(src, payment, amount)
-  amount = math.floor(tonumber(amount) or 0)
-  if not payment or amount <= 0 then return false end
-  local method = payment.method == 'cash' and 'cash' or 'bank'
-
-  if GetResourceState('cm-playerdata') == 'started' then
-    local ok, success = pcall(function()
-      return exports['cm-playerdata']:AddMoney(src, method, amount, 'clothing_refund')
-    end)
-    if ok and success == true then return true end
-  end
-
-  if payment.fallback then
-    local ok = pcall(function() return exports['cm-core']:AddMoney(src, method, amount) end)
-    return ok == true
-  end
-
-  if not payment.characterId then return false end
-  local ok = dbUpdate(('UPDATE characters SET %s = COALESCE(%s, 0) + ? WHERE id = ?'):format(method, method), { amount, payment.characterId })
-  local money = getCharacterMoney(src)
-  if money then setMoneyState(src, money.cash, money.bank) end
-  return ok == true
-end
 
 local function makeReceiptId(src)
   return ('CLOTH-%s-%s-%04d'):format(os.date('!%Y%m%d%H%M%S'), tostring(src), math.random(0, 9999))
@@ -1436,28 +1354,7 @@ local function normaliseItem(raw)
 end
 
 
-local function inventorySuccess(result)
-  if result == true then return true end
-  if type(result) == 'number' then return result > 0 end
-  if type(result) == 'string' then
-    -- Some inventory builds return the slot name on success.
-    return result:find('^pocket%-') ~= nil or result:find('^backpack%-') ~= nil or result:find('^quickaccess%-') ~= nil
-  end
-  if type(result) == 'table' then
-    if result.success == true or result.ok == true or result.added == true then return true end
-    if result[1] == true then return true end
-    if type(result.slot) == 'string' or type(result.placedSlot) == 'string' then return true end
-  end
-  return false
-end
 
-local function inventoryResultSlot(result, fallback)
-  if type(result) == 'string' and result ~= '' then return result end
-  if type(result) == 'table' then
-    return result.slot or result.placedSlot or result.toSlot or fallback
-  end
-  return fallback
-end
 
 local function cloneTable(value)
   local out = {}
@@ -1474,105 +1371,11 @@ local function cloneTable(value)
   return out
 end
 
-local function addItemViaCmInventory(src, itemName, amount, metadata, reason, preferredSlot)
-  local inv = exports['cm-inventory']
-  local meta = metadata or {}
-  local attempts = {
-    -- IMPORTANT -- FXServer Lua export gotcha: exports[...][...](...) called
-    -- with a DOT never supplies the leading "self" the export proxy expects
-    -- (FXServer's own docs always show exports called with a COLON). A dot
-    -- call silently drops the first REAL argument (src) instead, shifting
-    -- itemName/amount/metadata/reason all one slot left before cm-inventory
-    -- ever sees them -- confirmed via raw argument logging that this is what
-    -- was turning correctly-built clothing metadata into an empty table.
-    -- Colon calls (inv:AddItem(...)) are the correct, reliable form and are
-    -- tried first; the old dot-call + duplicate-metadata attempts below only
-    -- "worked" by luck (the duplicate copy happened to land in whichever slot
-    -- ended up read as metadata after the shift) and are kept as last-resort
-    -- fallbacks only.
-    function() return inv:AddItem(src, itemName, amount, meta, reason, preferredSlot) end,
-    function() return inv:AddItem(src, itemName, amount, meta, reason) end,
-
-    function() return inv.AddItem(src, itemName, amount, meta, meta, preferredSlot) end,
-    function() return inv.AddItem(src, itemName, amount, meta, reason, preferredSlot) end,
-  }
-
-  -- Older resources may not support the slot parameter; keep these only as fallback.
-  if preferredSlot == nil then
-    attempts[#attempts + 1] = function() return inv.AddItem(src, itemName, amount, meta, meta, reason) end
-    attempts[#attempts + 1] = function() return inv.AddItem(src, itemName, amount, meta, reason) end
-    attempts[#attempts + 1] = function() return inv.AddItem(src, itemName, amount, meta) end
-    attempts[#attempts + 1] = function() return inv:AddItem(src, itemName, amount, meta) end
-  end
-
-  local lastErr = nil
-  for _, fn in ipairs(attempts) do
-    local ok, result, extra = pcall(fn)
-    if ok and inventorySuccess(result) then
-      return true, inventoryResultSlot(result, preferredSlot)
-    end
-    if not ok then lastErr = result else lastErr = extra or result or lastErr end
-  end
-
-  return false, tostring(lastErr or 'inventory_add_failed')
-end
 
 
-local function removeItemViaCmInventory(src, itemName, amount, metadata, reason, preferredSlot)
-  if GetResourceState('cm-inventory') ~= 'started' then return false, 'inventory_not_started' end
-  local inv = exports['cm-inventory']
-  local attempts = {
-    -- Colon calls first -- see addItemViaCmInventory above for why a dot call
-    -- silently drops the leading `src` argument on FXServer exports.
-    function() return inv:RemoveItem(src, itemName, amount, metadata, reason, preferredSlot) end,
-    function() return inv:RemoveItem(src, itemName, amount, metadata, reason) end,
-    function() return inv.RemoveItem(src, itemName, amount, metadata, reason, preferredSlot) end,
-    function() return inv.RemoveItem(src, itemName, amount, metadata, reason) end,
-    function() return inv:RemoveItem(src, itemName, amount, preferredSlot) end,
-    function() return inv.RemoveItem(src, itemName, amount, preferredSlot) end,
-  }
-  local lastErr = nil
-  for _, fn in ipairs(attempts) do
-    local ok, result = pcall(fn)
-    if ok and (result == true or result == nil or (type(result) == 'number' and result >= 0) or (type(result) == 'table' and (result.success == true or result.ok == true))) then
-      return true
-    end
-    lastErr = ok and result or result
-  end
-  return false, tostring(lastErr or 'remove_failed')
-end
 
-local function rollbackAddedClothing(src, addedRecords)
-  local okAll = true
-  for i = #addedRecords, 1, -1 do
-    local rec = addedRecords[i]
-    local ok, err = removeItemViaCmInventory(src, rec.itemName, 1, rec.metadata or {}, 'nv_cloth_purchase_rollback', rec.slot)
-    if not ok then
-      okAll = false
-      print(('[nv_cloth] Rollback RemoveItem failed src=%s item=%s slot=%s err=%s'):format(src, tostring(rec.itemName), tostring(rec.slot), tostring(err)))
-    end
-  end
-  return okAll
-end
 
-local function shouldTryNextSlot(reason)
-  reason = tostring(reason or ''):lower()
-  if reason == '' then return true end
-  return reason:find('slot') ~= nil
-      or reason:find('occupied') ~= nil
-      or reason:find('locked') ~= nil
-      or reason:find('full') ~= nil
-      or reason:find('empty') ~= nil
-      or reason:find('bag') ~= nil
-      or reason:find('capacity') ~= nil
-end
 
-local function normalInventorySlots()
-  local slots = {}
-  for i = 1, 6 do slots[#slots + 1] = ('pocket-%s'):format(i) end
-  for i = 1, 30 do slots[#slots + 1] = ('backpack-%s'):format(i) end
-  return slots
-end
 
 local function canCarryClothingItem(src, itemName, amount)
   if GetResourceState('cm-inventory') ~= 'started' then
@@ -1618,13 +1421,11 @@ local function getAvailableInventorySlots(src)
   return freeSlots
 end
 
-local function addClothingInventoryItem(src, itemName, amount, metadata)
-  if GetResourceState('cm-inventory') ~= 'started' then
-    return false, 'Inventory is not available.'
-  end
-
+-- Builds the exact inventory metadata of a purchased garment (server-side, from the authoritative catalog row). Delivery itself is
+-- the exact-once cm-inventory grant in processBuyClothes; this only shapes the payload. Returns name, metadata | nil, reason.
+local function buildClothingInventoryMetadata(itemName, metadata)
   itemName = tostring(itemName or ''):gsub('^%s+', ''):gsub('%s+$', '')
-  if itemName == '' then return false, 'Invalid clothing item name.' end
+  if itemName == '' then return nil, 'Invalid clothing item name.' end
 
   metadata = cloneTable(metadata)
   metadata.itemName = metadata.itemName or itemName
@@ -1649,32 +1450,47 @@ local function addClothingInventoryItem(src, itemName, amount, metadata)
   metadata.equipOnAdd = false
   metadata.directEquip = false
 
-  local lastErr = nil
-
-  -- First force normal storage slots only. This prevents a clothing definition with an
-  -- equipmentSlot like outerwear/pants/shoes/bag from being placed straight onto the body.
-  for _, slot in ipairs(normalInventorySlots()) do
-    local ok, resultOrErr = addItemViaCmInventory(src, itemName, amount, cloneTable(metadata), 'nv_cloth_purchase_inventory_only', slot)
-    if ok then
-      debugPrint(('[nv_cloth] Purchase added to inventory src=%s item=%s slot=%s image=%s bagLevel=%s'):format(src, itemName, tostring(resultOrErr or slot), tostring(metadata.image), tostring(metadata.bagLevel)))
-      return true, resultOrErr or slot
-    end
-    lastErr = resultOrErr or lastErr
-    if not shouldTryNextSlot(resultOrErr) then break end
-  end
-
-  -- Final compatibility fallback for older cm-inventory builds that ignore preferredSlot.
-  -- CM inventory's findEmptySlot resolves pockets first, then unlocked backpack slots.
-  local ok, resultOrErr = addItemViaCmInventory(src, itemName, amount, cloneTable(metadata), 'nv_cloth_purchase_inventory_only', nil)
-  if ok then
-    debugPrint(('[nv_cloth] Purchase added to inventory src=%s item=%s slot=%s image=%s bagLevel=%s'):format(src, itemName, tostring(resultOrErr), tostring(metadata.image), tostring(metadata.bagLevel)))
-    return true, resultOrErr
-  end
-
-  lastErr = resultOrErr or lastErr
-  print(('[nv_cloth] AddItem failed src=%s item=%s image=%s bagLevel=%s err=%s'):format(src, itemName, tostring(metadata.image), tostring(metadata.bagLevel), tostring(lastErr)))
-  return false, tostring(lastErr or 'No empty pocket/backpack slot. Equip a better bag or clear inventory space.')
+  return itemName, metadata
 end
+
+-- Purchase settlement engine (journal table nv_cloth_purchases; see cm-core/shared/item_purchase.lua).
+local PurchaseCfg = {
+  journal = 'nv_cloth_purchases', stockTable = 'cm_clothing_stores', stockKey = 'shop_id', ownerColumn = 'owner_character_id',
+  ownedOnly = false, -- clothing store stock is finite whether or not the store is owned
+  capacity = function() return math.floor(tonumber(Config.Ownership and Config.Ownership.maxStock) or 15000) end,
+}
+local purchaseEngine
+local function getPurchaseEngine()
+  if purchaseEngine then return purchaseEngine end
+  if not MySQL or not CMItemPurchase then return nil end
+  local owners = CMItemPurchase.ownerDeps(exports, GetResourceState)
+  purchaseEngine = CMItemPurchase.new({
+    db = CMItemPurchase.mysqlDb(MySQL, PurchaseCfg), money = owners.money, items = owners.items,
+    log = function(...)
+      local parts = {}
+      for i = 1, select('#', ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+      print('[nv_cloth] settlement: ' .. table.concat(parts, ' '))
+    end,
+  })
+  return purchaseEngine
+end
+
+CreateThread(function()
+  Wait(1500)
+  if MySQL and CMItemPurchase then pcall(function() MySQL.query.await(CMItemPurchase.sqlFor(PurchaseCfg).ddl) end) end
+  -- Restart/periodic recovery of charged-but-unfinished orders (no player needed).
+  Wait(20000)
+  while true do
+    local engine = getPurchaseEngine()
+    if engine then
+      local ok, report = pcall(engine.recover, 60)
+      if ok and report.examined > 0 then
+        print(('[nv_cloth] purchase recovery: examined=%d completed=%d compensated=%d pending=%d'):format(report.examined, report.completed, report.compensated, report.pending))
+      end
+    end
+    Wait(60000)
+  end
+end)
 
 local function processBuyClothes(src, method, outfit)
   if not checkRateLimit(src, 'buyClothes', 1000) then return end
@@ -1792,72 +1608,89 @@ local function processBuyClothes(src, method, outfit)
     end
   end
 
-  local receiptId = makeReceiptId(src)
-  local paid, paymentOrErr = takeCharacterMoney(src, method, total)
-  if paid ~= true then
-    notify(src, tostring(paymentOrErr or 'You do not have enough money.'), 'error')
-    savePurchaseReceipt(src, receiptId, { method = method, characterId = getStateCharacterId(src) }, total, receiptItems, 'payment_failed', tostring(paymentOrErr))
-    auditLog(src, 'purchase_payment_failed', { receiptId = receiptId, method = method, total = total, reason = tostring(paymentOrErr), items = receiptItems }, receiptId)
-    TriggerClientEvent('nvCloth:client:purchaseFailed', src, tostring(paymentOrErr or 'You do not have enough money.'))
-    return
-  end
-
-  local paymentInfo = paymentOrErr
-  local addedSlots = {}
-  local addedRecords = {}
+  -- Build the grant payload from authoritative data BEFORE any money moves, and check its shape so it can never fail after payment.
+  local grantLines = {}
   for index, meta in ipairs(metadataItems) do
     local itemName = meta.itemName or meta.item_name or meta.name
-    -- Keep itemName inside metadata too. Some inventory/itemactions builds use metadata.itemName
-    -- for label/image/action routing while the DB row uses item_name separately.
     meta.itemName = itemName
     meta.item_name = itemName
     meta.name = itemName
-
-    -- Buy-to-inventory only. Do not auto-save appearance or directly equip from the shop.
-    local added, addErr = addClothingInventoryItem(src, itemName, 1, meta)
-    if added ~= true then
-      local rolledBack = rollbackAddedClothing(src, addedRecords)
-      local refunded = refundCharacterMoney(src, paymentInfo, total)
-      local msg = ('Could not add clothing item to inventory: %s%s%s'):format(tostring(addErr or itemName), rolledBack and ' Added items rolled back.' or ' Check partial items manually.', refunded and ' Payment refunded.' or ' Refund failed; staff notified.')
-      notify(src, msg, 'error')
-      print(('[nv_cloth] AddItem failed src=%s item=%s err=%s refunded=%s'):format(src, itemName, tostring(addErr), tostring(refunded)))
-      savePurchaseReceipt(src, receiptId, paymentInfo, total, receiptItems, refunded and 'refunded_inventory_failed' or 'refund_failed_inventory_failed', tostring(addErr))
-      auditLog(src, refunded and 'purchase_refunded_inventory_failed' or 'purchase_refund_failed', {
-        receiptId = receiptId,
-        method = method,
-        total = total,
-        failedItem = itemName,
-        failedIndex = index,
-        reason = tostring(addErr),
-        rolledBack = rolledBack,
-        items = receiptItems,
-      }, receiptId)
-      TriggerClientEvent('nvCloth:client:purchaseFailed', src, msg)
+    local builtName, builtMeta = buildClothingInventoryMetadata(itemName, meta)
+    if not builtName then
+      notify(src, 'Invalid clothing item.', 'error')
+      TriggerClientEvent('nvCloth:client:purchaseFailed', src, 'Invalid clothing item.')
       return
     end
-    addedSlots[#addedSlots + 1] = addErr
-    addedRecords[#addedRecords + 1] = { itemName = itemName, metadata = cloneTable(meta), slot = addErr }
-    receiptItems[index].slot = addErr
-  end
-
-  savePurchaseReceipt(src, receiptId, paymentInfo, total, receiptItems, 'paid', nil)
-  auditLog(src, 'purchase_paid', { receiptId = receiptId, method = method, total = total, slots = addedSlots, items = receiptItems }, receiptId)
-
-  -- Deduct store stock and distribute owner revenue share (80% owner / 20% city)
-  if activeShopId and storeRow then
-    local itemCount = #metadataItems
-    if storeRow.owner_character_id and total > 0 then
-      local revPercent = tonumber(Config.Ownership and Config.Ownership.ownerRevenuePercent) or 80
-      local ownerShare = math.floor(total * (revPercent / 100))
-      MySQL.update.await([[UPDATE cm_clothing_stores
-        SET business_balance = business_balance + ?, daily_income = daily_income + ?, weekly_income = weekly_income + ?, stock = GREATEST(stock - ?, 0)
-        WHERE shop_id = ? AND owner_character_id IS NOT NULL]],
-        { ownerShare, ownerShare, ownerShare, itemCount, activeShopId })
-    else
-      MySQL.update.await('UPDATE cm_clothing_stores SET stock = GREATEST(stock - ?, 0) WHERE shop_id = ?',
-        { itemCount, activeShopId })
+    local okEncode, encoded = pcall(json.encode, builtMeta)
+    if not okEncode or #encoded > 7000 then
+      notify(src, 'This clothing item cannot be purchased right now.', 'error')
+      TriggerClientEvent('nvCloth:client:purchaseFailed', src, 'This clothing item cannot be purchased right now.')
+      return
     end
+    grantLines[index] = { item = builtName, amount = 1, metadata = builtMeta }
   end
+
+  local engine = getPurchaseEngine()
+  if not engine then
+    notify(src, 'Purchases are temporarily unavailable.', 'error')
+    TriggerClientEvent('nvCloth:client:purchaseFailed', src, 'Purchases are temporarily unavailable.')
+    return
+  end
+
+  -- Character ID is the economic identity (never the FiveM source): ask the authoritative owner, fall back to the replicated state.
+  local characterId
+  if GetResourceState('cm-playerdata') == 'started' then
+    local okId, id = pcall(function() return exports['cm-playerdata']:GetCharacterId(src) end)
+    if okId then characterId = tonumber(id) end
+  end
+  characterId = characterId or tonumber(getStateCharacterId(src))
+  if not characterId then
+    notify(src, 'Your character could not be identified.', 'error')
+    TriggerClientEvent('nvCloth:client:purchaseFailed', src, 'Your character could not be identified.')
+    return
+  end
+
+  -- Durable, character-addressed settlement (cm-core/shared/item_purchase.lua): one journal row, all cart units reserved in one
+  -- statement, journaled debit, ONE all-or-nothing cm-inventory grant for the whole cart, journaled refund, one terminal transition
+  -- that also releases undelivered stock and credits the owner share. Survives exceptions, lost responses, disconnects and restarts.
+  local receiptId = makeReceiptId(src)
+  local ownerPct = (activeShopId and storeRow and storeRow.owner_character_id) and (tonumber(Config.Ownership and Config.Ownership.ownerRevenuePercent) or 80) or 0
+  local result = engine.run({
+    reference = ('CLOTH-PUR-%d-%d-%06x'):format(characterId, os.time(), (GetGameTimer() + math.random(0, 0xffff)) % 0xffffff),
+    character_id = characterId,
+    scope_id = activeShopId or '',
+    account = method,
+    total = total,
+    units = (activeShopId and storeRow) and #metadataItems or 0,
+    owner_pct = ownerPct,
+    items = grantLines,
+  })
+
+  local function fail(message)
+    notify(src, message, 'error')
+    TriggerClientEvent('nvCloth:client:purchaseFailed', src, message)
+  end
+
+  if result.code == 'no_stock' then
+    return fail('This clothing store is out of stock. The store owner needs to order stock!')
+  elseif result.code == 'payment_failed' then
+    local message = result.reason == 'insufficient_funds' and ('Not enough %s for purchase.'):format(method) or 'Payment could not be completed.'
+    savePurchaseReceipt(src, receiptId, { method = method, characterId = characterId }, total, receiptItems, 'payment_failed', tostring(result.reason))
+    auditLog(src, 'purchase_payment_failed', { receiptId = receiptId, method = method, total = total, reason = tostring(result.reason), items = receiptItems }, receiptId)
+    return fail(message)
+  elseif result.code == 'pending' then
+    auditLog(src, 'purchase_pending_settlement', { receiptId = receiptId, method = method, total = total, reason = tostring(result.reason), items = receiptItems }, receiptId)
+    return fail('Your purchase is being finalised and will be settled automatically.')
+  elseif result.code == 'compensated' then
+    savePurchaseReceipt(src, receiptId, { method = method, characterId = characterId }, total, receiptItems, result.refunded and 'refunded_inventory_failed' or 'not_charged_inventory_failed', 'inventory grant not applied')
+    auditLog(src, result.refunded and 'purchase_refunded_inventory_failed' or 'purchase_not_charged_inventory_failed', { receiptId = receiptId, method = method, total = total, items = receiptItems }, receiptId)
+    return fail('Could not add clothing to your inventory.' .. (result.refunded and ' Payment refunded.' or ''))
+  elseif result.code ~= 'completed' then
+    return fail('The purchase could not be completed.')
+  end
+
+  savePurchaseReceipt(src, receiptId, { method = method, characterId = characterId }, total, receiptItems, 'paid', nil)
+  auditLog(src, 'purchase_paid', { receiptId = receiptId, method = method, total = total, items = receiptItems }, receiptId)
 
   notify(src, ('Clothing purchased. Receipt %s. Item added to your bag.'):format(receiptId), 'success')
   TriggerClientEvent('nvCloth:client:purchaseComplete', src, {
@@ -1865,7 +1698,7 @@ local function processBuyClothes(src, method, outfit)
     total = total,
     method = method,
     count = #metadataItems,
-    slots = addedSlots,
+    slots = {},
   })
 end
 

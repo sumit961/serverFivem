@@ -811,9 +811,21 @@ RegisterNetEvent('cm-taxi:server:finishJob', function(reqId, id)
     if not fare.playerRequested then deleteFareCustomer(fare, src) end
     local xpOk, xpError
     if GetResourceState('cm-payday') == 'started' then
-        xpOk, xpError = pcall(function() exports['cm-payday']:AddPendingXp(src, 'taxi', fare.xp) end)
+        local callOk, accepted, reason = pcall(function()
+            return exports['cm-payday']:AddPendingXp(src, 'taxi', fare.xp)
+        end)
+        xpOk, xpError = callOk and accepted == true, reason or accepted
+        if not xpOk then
+            -- The fare is already authoritative and complete; preserve XP by
+            -- applying it through the existing progression owner if payday
+            -- rejected the handoff.
+            local fallbackOk, fallbackState = pcall(CMTaxi.Server.Progression.AddXp, src, fare.xp)
+            xpOk = fallbackOk and fallbackState ~= nil
+            xpError = xpOk and nil or (xpError or fallbackState)
+        end
     else
-        xpOk, xpError = pcall(CMTaxi.Server.Progression.AddXp, src, fare.xp)
+        local fallbackOk, fallbackState = pcall(CMTaxi.Server.Progression.AddXp, src, fare.xp)
+        xpOk, xpError = fallbackOk and fallbackState ~= nil, fallbackState
     end
     if not xpOk then
         print(('[cm-taxi] fare XP award failed for fare %s: %s'):format(id, tostring(xpError)))

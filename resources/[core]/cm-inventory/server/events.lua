@@ -173,6 +173,8 @@ end)
 
 RegisterNetEvent('cm-inventory:server:devGiveTest', function(itemName, amount)
     local src = source
+    -- Dev-only: same policy as debugGiveItem (cm_environment=development + staff ACE). Fail closed otherwise.
+    if not (src and src > 0 and GetConvar('cm_environment', '') == 'development' and IsPlayerAceAllowed(src, 'command')) then return end
     local ok, message = DevGiveTestInternal(src, itemName, amount)
     if ok then
         dprint(message)
@@ -194,20 +196,21 @@ RegisterNetEvent('cm-inventory:server:clearTestReceiver', function()
     ClearTestReceiverInternal(source)
 end)
 
-RegisterCommand('giveitem', function(src, args)
+-- Renamed from 'giveitem': cm-items owns the single production /giveitem <playerId> <item> [amount].
+RegisterCommand('givemyitem', function(src, args)
     if src <= 0 then print('[CM-INVENTORY] Use invgive from server console.') return end
     local itemName = tostring(args[1] or 'water'):lower()
     local amount = tonumber(args[2]) or 1
     local ok, reason = AddItemInternal(src, itemName, amount, {}, 'command_giveitem')
     if ok then
-        dprint(('/giveitem added %sx %s to player %s'):format(amount, itemName, src))
+        dprint(('/givemyitem added %sx %s to player %s'):format(amount, itemName, src))
         notify(src, ('Added %sx %s'):format(amount, itemName), 'success')
         sendInventorySmart(src)
     else
-        dprint(('/giveitem failed for player %s item=%s reason=%s'):format(src, itemName, tostring(reason)))
+        dprint(('/givemyitem failed for player %s item=%s reason=%s'):format(src, itemName, tostring(reason)))
         notify(src, 'Failed: ' .. tostring(reason), 'error')
     end
-end, false)
+end, true) -- restricted: requires the command.givemyitem ACE (group.admin inherits `command`)
 
 RegisterCommand('invgive', function(src, args)
     if src ~= 0 then return end
@@ -241,7 +244,7 @@ RegisterCommand('givebag', function(src, args)
         print(('[CM-INVENTORY] /givebag failed player=%s item=%s level=%s reason=%s'):format(src, itemName, level, tostring(reason)))
         notify(src, 'Failed: ' .. tostring(reason), 'error')
     end
-end, false)
+end, true) -- restricted (ACE command.givebag)
 
 RegisterCommand('invgivebag', function(src, args)
     if src ~= 0 then return end

@@ -1246,7 +1246,7 @@ local function endPoliceDuty(src, characterId, reason)
     return true
 end
 
-lib.callback.register('cm-police:server:toggleDuty', function(src)
+local function handlePoliceToggleDuty(src)
     if not PoliceLegacyRateLimit(src, 'toggle_duty', 650) then return false, 'Please wait.' end
     local actorCid = cid(src)
     if not actorCid then return false, 'Character is not loaded.' end
@@ -1255,11 +1255,35 @@ lib.callback.register('cm-police:server:toggleDuty', function(src)
     if PoliceLegacyDbBoolean(actor.is_suspended) then return false, ('You are suspended until %s.'):format(tostring(actor.suspended_until or 'further notice')) end
 
     if not PoliceLegacyDbBoolean(actor.on_duty) then
-        return false, 'Wear a complete Police outfit at the wardrobe to start duty.'
+        local ped = GetPlayerPed(src)
+        local outfitSex = (ped and ped > 0 and GetEntityModel(ped) == joaat('mp_f_freemode_01')) and 'female' or 'male'
+        local outfit, presetId = resolveMemberOutfit(actorCid, outfitSex)
+        if outfit then
+            local ok, msg, clean = PoliceBeginDutyWithOutfit(actorCid, outfit, { source = 'duty_toggle', presetId = presetId })
+            if ok then
+                TriggerClientEvent('cm-police:client:applyDutyOutfit', src, clean or outfit)
+                return true, 'You are now on duty.'
+            end
+        end
+        local changed = MySQL.update.await('UPDATE cm_police_members SET on_duty = 1 WHERE character_id = ? AND on_duty = 0', { actorCid })
+        if changed and changed > 0 then
+            sync(actorCid)
+            log(actorCid, 'duty_started', { source = 'duty_toggle_direct' })
+            return true, 'You are now on duty.'
+        end
+        return false, 'Could not start duty. Please try again.'
     end
 
     endPoliceDuty(src, actorCid, 'manual')
     return true, 'You are now off duty.'
+end
+
+lib.callback.register('cm-police:server:toggleDuty', function(src)
+    return handlePoliceToggleDuty(src)
+end)
+
+exports('PoliceToggleDutyDirect', function(src)
+    return handlePoliceToggleDuty(src)
 end)
 
 RegisterNetEvent('cm-police:server:endDutyOnDeath', function()

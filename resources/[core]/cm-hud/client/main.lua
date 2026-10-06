@@ -108,10 +108,19 @@ local function clampNumber(value, minVal, maxVal, fallback)
     return n
 end
 
+-- PHASE 6 FIX: this must match ui/app.js's HUD_SPEEDO_STYLES.length exactly
+-- (currently 31 real styles, ids 1-31). It was hardcoded to 30 while the
+-- default style and the newest style are both #31 ("CM Twin Arc"), so a
+-- fresh install's default survived only because clampNumber's own fallback
+-- path never re-clamps the fallback value -- but explicitly picking style 31
+-- via /hud speedo 31 or the admin picker, then saving, silently downgraded it
+-- to #30 every time settings were re-validated (NUI save, resource restart).
+local HUD_SPEEDO_STYLE_COUNT = 31
+
 local function normaliseHudSettings(raw)
     raw = type(raw) == 'table' and raw or {}
     local out = cloneTable(HUD_DEFAULT_SETTINGS)
-    out.speedoStyle = math.floor(clampNumber(raw.speedoStyle, 1, 30, out.speedoStyle))
+    out.speedoStyle = math.floor(clampNumber(raw.speedoStyle, 1, HUD_SPEEDO_STYLE_COUNT, out.speedoStyle))
     out.speedUnit = tostring(raw.speedUnit or out.speedUnit):upper()
     if out.speedUnit ~= 'MPH' then out.speedUnit = 'KM/H' end
     out.theme = tostring(raw.theme or out.theme):lower()
@@ -208,8 +217,23 @@ RegisterCommand('hudfix', function()
     hudDebug('[CM-HUD] NUI focus cleared')
 end, false)
 
+-- PHASE 6 FIX: every call site in this file uses isPlayerLoggedIn() to mean
+-- "normal gameplay HUD may be active". The underlying isLoggedIn state (and
+-- this file's own `loggedIn` local, set true as soon as cm-playerdata:client:loaded
+-- fires) becomes true well before Character Selector/Creator/Appearance/Spawn
+-- Selector actually finish -- cm-playerdata:client:loaded's own handler below
+-- was calling setHudVisible(true) directly off of it, which could reveal the
+-- gameplay HUD (top-right money/ID, location text, radio icons) while the
+-- player was still in the private character/spawn flow. Now also require the
+-- authoritative characterFullySpawned flag (set only by cm-spawn once the real
+-- spawn reveal has actually happened), rather than inferring readiness from
+-- NUI focus/timing alone.
 local function isPlayerLoggedIn()
-    return loggedIn or (LocalPlayer and LocalPlayer.state and LocalPlayer.state.isLoggedIn == true)
+    if not (loggedIn or (LocalPlayer and LocalPlayer.state and LocalPlayer.state.isLoggedIn == true)) then
+        return false
+    end
+    local st = LocalPlayer and LocalPlayer.state
+    return st and st.characterFullySpawned == true
 end
 
 local function isVehicleShopTestDriveState()
@@ -307,7 +331,7 @@ RegisterCommand('hud', function(_, args)
     end
 
     if sub == 'speedo' or sub == 'speedometer' then
-        local id = math.floor(clampNumber(args and args[2], 1, 30, hudSettings.speedoStyle or 1))
+        local id = math.floor(clampNumber(args and args[2], 1, HUD_SPEEDO_STYLE_COUNT, hudSettings.speedoStyle or 1))
         hudSettings.speedoStyle = id
         saveHudSettings()
         sendHudSettings()
@@ -315,7 +339,7 @@ RegisterCommand('hud', function(_, args)
         return
     end
 
-    TriggerEvent('cm-hud:client:notify', 'Use /hud admin, /hud preview, /hud speedo 1-30, or /hud reset', 'info')
+    TriggerEvent('cm-hud:client:notify', ('Use /hud admin, /hud preview, /hud speedo 1-%d, or /hud reset'):format(HUD_SPEEDO_STYLE_COUNT), 'info')
 end, false)
 
 RegisterCommand('hudshowall', function()
@@ -751,14 +775,17 @@ RegisterNetEvent('cm-playerdata:client:loaded', function(data)
     currentBank = data.bank or 0
     currentWantedStars = math.max(0, math.min(6, math.floor(tonumber(data.wantedStars) or 0)))
 
-    local serverId = characterId or ''
+    -- PHASE 6: branding comes from the NUI's own window.CMBranding
+    -- (nui://cm-ui/web/cm-branding.js) now, not a hardcoded Lua string, so no
+    -- serverName is sent here. characterId is the persistent DB character id
+    -- -- never the FiveM server/source id (see AGENTS.md).
+    local hudCharacterId = characterId or ''
 
     SendNUIMessage({
         action = 'init',
         state = {
             hudSettings = hudSettings,
-            serverName = 'CM-RP',
-            serverId = serverId,
+            characterId = hudCharacterId,
             level = 1,
             onlinePlayers = #GetActivePlayers(),
             cash = currentCash,
@@ -774,7 +801,7 @@ RegisterNetEvent('cm-playerdata:client:loaded', function(data)
     captureStateCharacterHints()
     TriggerServerEvent('cm-hud:server:requestCharacterHud', characterId, characterHints)
     if characterId then TriggerServerEvent('cm-hud:server:setCharacter', characterId) end
-    hudDebug('[CM-HUD] Initialized | ID:' .. tostring(serverId))
+    hudDebug('[CM-HUD] Initialized | ID:' .. tostring(hudCharacterId))
 end)
 
 -- Recover the display if cm-hud is restarted after the character-loaded
@@ -1059,7 +1086,7 @@ CreateThread(function()
             local street = GetStreetNameFromHashKey(streetHash) or 'Unknown'
             local area = GetLabelText(GetNameOfZone(coords.x, coords.y, coords.z)) or 'Unknown'
 
-            -- Compass letter (Grand RP style: shown next to the street name).
+            -- Compass letter shown next to the street name.
             local heading = 360.0 - GetEntityHeading(ped)
             local dirs = { 'N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW', 'N' }
             local dir = dirs[math.floor(((heading % 360) + 22.5) / 45) + 1] or 'N'
@@ -1638,13 +1665,11 @@ AddEventHandler('onResourceStart', function(res)
         if isPlayerLoggedIn() then
             sendHudSettings()
             sendHudLayout()
-            local serverId = characterId or ''
             SendNUIMessage({
                 action = 'init',
                 state = {
                     hudSettings = hudSettings,
-                    serverName = 'CM-RP',
-                    serverId = serverId,
+                    characterId = characterId or '',
                     level = 1,
                     onlinePlayers = #GetActivePlayers(),
                     cash = currentCash,

@@ -1,9 +1,55 @@
 -- CM License System — Main Server Module
 
 local RequestTimes = {}
+local PublicWorldStates = {}
+
+local function isPublicWorld(src)
+    return GetPlayerRoutingBucket(tonumber(src) or 0) == 0
+end
+
+local function syncPublicWorldState(src, force, requestDefinitions)
+    src = tonumber(src)
+    if not src or src <= 0 then return false end
+
+    local publicWorld = isPublicWorld(src)
+    if force or PublicWorldStates[src] ~= publicWorld then
+        PublicWorldStates[src] = publicWorld
+        local player = Player(src)
+        if player and player.state then
+            player.state:set('cmLicensePublicWorld', publicWorld, true)
+        end
+        TriggerClientEvent(Constants.EVENTS.CLIENT.PUBLIC_WORLD_CHANGED, src, publicWorld,
+            requestDefinitions ~= false)
+    end
+    return publicWorld
+end
+
+local function rejectOutsidePublicWorld(src)
+    if src and src > 0 then
+        TriggerClientEvent('cm-license:client:notify', src,
+            'LICENSE TESTS ARE ONLY AVAILABLE IN THE PUBLIC WORLD', 'error')
+    end
+    return false
+end
 
 local function interactionDistance()
     return (tonumber(CMLicenseConfig.NPC.InteractionDistance) or 3.0) + 1.0
+end
+
+local LICENSE_ORDER = { driver = 1, boat = 2, air = 3 }
+
+local function orderedLicenseTypes()
+    local types = {}
+    for _, licenseType in ipairs(Cache.GetLicenseTypes() or {}) do
+        types[#types + 1] = licenseType
+    end
+    table.sort(types, function(left, right)
+        local leftOrder = LICENSE_ORDER[tostring(left.license_type):lower()] or 99
+        local rightOrder = LICENSE_ORDER[tostring(right.license_type):lower()] or 99
+        if leftOrder ~= rightOrder then return leftOrder < rightOrder end
+        return tostring(left.label or left.license_type) < tostring(right.label or right.license_type)
+    end)
+    return types
 end
 
 -- All player-facing text goes through one path so the client can render it
@@ -17,15 +63,16 @@ local START_ERRORS = {
     already_in_test = 'You are already taking a test.',
     already_licensed = 'You already hold that license.',
     request_in_progress = 'Hold on — your previous request is still being processed.',
-    route_not_configured = 'This test has no route configured yet.',
+    route_not_configured = 'TEST CURRENTLY UNAVAILABLE',
     license_type_not_found = 'That license test is not available.',
     character_not_loaded = 'Your character is not fully loaded yet.',
     insufficient_funds = 'You cannot afford the test fee.',
     vehicle_service_unavailable = 'The examination vehicle service is offline.',
-    vehicle_spawn_failed = 'The examination vehicle could not be prepared.',
+    vehicle_spawn_failed = 'TEST AREA BLOCKED. PLEASE WAIT.',
     temporary_key_failed = 'The examination vehicle keys could not be issued.',
     test_not_configured = 'This test is not fully configured yet.',
     database_error = 'Something went wrong. Your fee has not been taken.',
+    public_world = 'LICENSE TESTS ARE ONLY AVAILABLE IN THE PUBLIC WORLD',
 }
 
 local function startErrorMessage(reason)
@@ -123,6 +170,7 @@ AddEventHandler('playerDropped', function()
     end
 
     Admin.CancelBuilder(src)
+    PublicWorldStates[src] = nil
 end)
 
 AddEventHandler('cm-playerdata:server:characterLoaded', function(src)
@@ -176,6 +224,7 @@ end)
 RegisterNetEvent(Constants.EVENTS.SERVER.REQUEST_START_TEST, function(licenseTypeId)
     local src = source
     if not rateLimit(src, 'start_test', 1500) then return end
+    if not isPublicWorld(src) then return rejectOutsidePublicWorld(src) end
 
     local charId = exports['cm-playerdata']:GetCharacterId(src)
 
@@ -213,6 +262,7 @@ end)
 RegisterNetEvent(Constants.EVENTS.SERVER.START_TEST, function(testId, vehicleNetId)
     local src = source
     if not rateLimit(src, 'begin_test', 1000) then return end
+    if not isPublicWorld(src) then return rejectOutsidePublicWorld(src) end
 
     local charId = exports['cm-playerdata']:GetCharacterId(src)
     if not charId then return end
@@ -221,10 +271,24 @@ RegisterNetEvent(Constants.EVENTS.SERVER.START_TEST, function(testId, vehicleNet
     if ok then
         TriggerClientEvent('cm-license:client:testBegan', src, result)
     else
+        if result == 'start_too_far' then
+            TriggerClientEvent(Constants.EVENTS.CLIENT.TEST_START_REJECTED, src, {
+                message = 'Drive to the cyan start marker before beginning the test.'
+            })
+            return
+        end
+        if result == 'invalid_test_session' then return end
+
+        local session = Tests.GetActiveTest(charId)
         Tests.FailTest(charId, result)
         TriggerClientEvent(Constants.EVENTS.CLIENT.TEST_FAILED, src, {
             reason = result, message = 'The test could not be started securely.'
         })
+        if session then
+            local message = Constants.RESULT_MESSAGES[result] or 'The test could not be started securely.'
+            sendResult(src, false, { failReason = message, message = 'Speak to the instructor to try again.',
+                licenseType = session.licenseType, category = session.category })
+        end
     end
 end)
 
@@ -233,6 +297,7 @@ RegisterNetEvent(Constants.EVENTS.SERVER.CHECKPOINT_REACHED, function(checkpoint
     -- Deliberately permissive: the client retries an unacknowledged checkpoint,
     -- and two markers can legitimately be crossed in quick succession.
     if not rateLimit(src, 'checkpoint', 250) then return end
+    if not isPublicWorld(src) then return rejectOutsidePublicWorld(src) end
 
     local charId = exports['cm-playerdata']:GetCharacterId(src)
     if not charId then return end
@@ -242,10 +307,27 @@ RegisterNetEvent(Constants.EVENTS.SERVER.CHECKPOINT_REACHED, function(checkpoint
 
     local ok, checkpointError = Tests.ReportCheckpoint(charId, checkpointNumber)
     if not ok then
+        if checkpointError == Constants.FAIL_REASON.VEHICLE_DESTROYED
+            or checkpointError == Constants.FAIL_REASON.PLAYER_DIED
+            or checkpointError == 'too_many_mistakes'
+        then
+            local reason = checkpointError == 'too_many_mistakes'
+                and Constants.FAIL_REASON.TOO_MANY_MISTAKES or checkpointError
+            local message = Constants.RESULT_MESSAGES[reason] or 'Test failed'
+            Tests.FailTest(charId, reason)
+            TriggerClientEvent(Constants.EVENTS.CLIENT.TEST_FAILED, src, { reason = reason, message = message })
+            sendResult(src, false, { failReason = message, message = 'Take the test again when you are ready.',
+                licenseType = session.licenseType, category = session.category })
+            return
+        end
+
         TriggerClientEvent(Constants.EVENTS.CLIENT.CHECKPOINT_REJECTED, src, {
             reason = checkpointError,
             expected = session.currentCheckpoint + 1,
-            message = checkpointError == 'unsafe_landing' and 'Land safely and stop the helicopter.' or nil,
+            message = checkpointError == 'unsafe_landing' and 'Land safely and stop the helicopter.'
+                or checkpointError == Constants.FAIL_REASON.SPEEDING and 'Slow down before entering the checkpoint.'
+                or checkpointError == Constants.FAIL_REASON.ALTITUDE_VIOLATION and 'Return to the permitted altitude.'
+                or nil,
         })
         return
     end
@@ -260,6 +342,7 @@ end)
 RegisterNetEvent(Constants.EVENTS.SERVER.REPORT_MISTAKE, function(reason)
     local src = source
     if not rateLimit(src, 'mistake', 1000) then return end
+    if not isPublicWorld(src) then return rejectOutsidePublicWorld(src) end
 
     local charId = exports['cm-playerdata']:GetCharacterId(src)
     if not charId then return end
@@ -285,6 +368,7 @@ end)
 RegisterNetEvent(Constants.EVENTS.SERVER.FINISH_TEST, function()
     local src = source
     if not rateLimit(src, 'finish_test', 1000) then return end
+    if not isPublicWorld(src) then return rejectOutsidePublicWorld(src) end
 
     local charId = exports['cm-playerdata']:GetCharacterId(src)
     if not charId then return end
@@ -309,7 +393,7 @@ RegisterNetEvent(Constants.EVENTS.SERVER.FINISH_TEST, function()
             currentCheckpoint = session and session.currentCheckpoint or 0,
             totalCheckpoints = session and session.totalCheckpoints or 0,
         })
-    elseif result ~= 'no_active_test' then
+    elseif result ~= 'no_active_test' and result ~= 'completion_in_progress' then
         local message = Constants.RESULT_MESSAGES[result] or 'Test failed'
         TriggerClientEvent(Constants.EVENTS.CLIENT.TEST_FAILED, src, { reason = result, message = message })
         sendResult(src, false, { failReason = message })
@@ -319,6 +403,12 @@ end)
 RegisterNetEvent(Constants.EVENTS.SERVER.CANCEL_TEST, function()
     local src = source
     if not rateLimit(src, 'cancel_test', 1000) then return end
+    if not isPublicWorld(src) then
+        local charId = exports['cm-playerdata']:GetCharacterId(src)
+        local session = charId and Tests.GetActiveTest(charId)
+        if session then Tests.FailTestAndNotify(charId, Constants.FAIL_REASON.LEFT_PUBLIC_WORLD) end
+        return rejectOutsidePublicWorld(src)
+    end
 
     local charId = exports['cm-playerdata']:GetCharacterId(src)
     if not charId then return end
@@ -340,10 +430,18 @@ RegisterNetEvent(Constants.EVENTS.SERVER.TEST_FAILED, function(reason)
     local charId = exports['cm-playerdata']:GetCharacterId(src)
     if not charId then return end
 
+    if not isPublicWorld(src) then
+        local session = Tests.GetActiveTest(charId)
+        if session then Tests.FailTestAndNotify(charId, Constants.FAIL_REASON.LEFT_PUBLIC_WORLD) end
+        return rejectOutsidePublicWorld(src)
+    end
+
     local allowedReasons = {}
     for _, value in pairs(Constants.FAIL_REASON) do allowedReasons[value] = true end
     reason = tostring(reason or '')
     if not allowedReasons[reason] then reason = Constants.FAIL_REASON.INVALID_CLIENT_FAILURE end
+
+    if not Tests.ValidateClientFailure(charId, reason) then return end
 
     local failed, session = Tests.FailTest(charId, reason)
     if not failed then return end
@@ -357,6 +455,7 @@ end)
 RegisterNetEvent('cm-license:server:requestMyLicenses', function()
     local src = source
     if not rateLimit(src, 'my_licenses', 500) then return end
+    if not isPublicWorld(src) then return end
 
     local charId = exports['cm-playerdata']:GetCharacterId(src)
     if not charId then return end
@@ -367,11 +466,46 @@ end)
 RegisterNetEvent('cm-license:server:getNPCLocations', function()
     local src = source
     if not rateLimit(src, 'npc_menu', 500) then return end
+    if not isPublicWorld(src) then return end
+
+    local charId = exports['cm-playerdata']:GetCharacterId(src)
+    if not charId then return end
+
+    local owned = {}
+    for _, license in ipairs(Licenses.GetLicenses(charId) or {}) do
+        owned[license.license_type] = license
+    end
 
     local nearby = {}
-    for _, licenseType in ipairs(Cache.GetLicenseTypes() or {}) do
+    for _, licenseType in ipairs(orderedLicenseTypes()) do
         if isPlayerNearCoords(src, Utils.DecodeObject(licenseType.npc_coords), interactionDistance()) then
-            nearby[#nearby + 1] = licenseType
+            local current = owned[licenseType.license_type]
+            local available = Tests.HasUsableRoute(licenseType.id, licenseType)
+            local statusText
+            if not available then
+                statusText = 'TEST CURRENTLY UNAVAILABLE'
+            elseif current and current.isExpired then
+                statusText = ('EXPIRED • RETEST AVAILABLE • %s'):format(current.expiresAtDate or 'expired')
+            elseif current and current.status == Constants.LICENSE_STATUS.ACTIVE then
+                statusText = ('ACTIVE • EXPIRES %s'):format(current.expiresAtDate or 'unknown')
+            else
+                statusText = 'NOT HELD'
+            end
+
+            nearby[#nearby + 1] = {
+                id = tonumber(licenseType.id),
+                license_type = licenseType.license_type,
+                label = licenseType.label,
+                price = tonumber(licenseType.price) or 0,
+                valid_days = tonumber(licenseType.valid_days) or 30,
+                vehicle_model = licenseType.vehicle_model,
+                vehicle_category = licenseType.vehicle_category,
+                status = current and (current.isExpired and Constants.LICENSE_STATUS.EXPIRED or current.status) or 'not_owned',
+                expires_at = current and current.expires_at or nil,
+                expiresAtDate = current and current.expiresAtDate or nil,
+                available = available,
+                menuDescription = ('%s • %s'):format(Utils.FormatMoney(licenseType.price), statusText),
+            }
         end
     end
 
@@ -384,8 +518,13 @@ RegisterNetEvent('cm-license:server:requestNPCDefinitions', function()
     local src = source
     if not rateLimit(src, 'npc_definitions', 2000) then return end
 
+    if not syncPublicWorldState(src, true, false) then
+        TriggerClientEvent('cm-license:client:setNPCDefinitions', src, {})
+        return
+    end
+
     local definitions, seen = {}, {}
-    for _, licenseType in ipairs(Cache.GetLicenseTypes() or {}) do
+    for _, licenseType in ipairs(orderedLicenseTypes()) do
         local coords = Utils.DecodeObject(licenseType.npc_coords)
         local key = coords and ('%.3f:%.3f:%.3f:%s'):format(coords.x, coords.y, coords.z, licenseType.npc_model or '') or nil
         if key and not seen[key] and licenseType.npc_model then
@@ -398,50 +537,8 @@ RegisterNetEvent('cm-license:server:requestNPCDefinitions', function()
     TriggerClientEvent('cm-license:client:setNPCDefinitions', src, definitions)
 end)
 
--- Local-only authoritative inventory contract. The physical card and the
--- database entitlement move together: dropping the card revokes the license,
--- picking your own card back up re-activates that same license.
-
-local function onLicenseDropped(src, ownerId, itemName, amount, metadata)
-    if tonumber(amount) ~= 1 then return end
-
-    local ok = Licenses.RevokeDroppedItem(tonumber(src), tonumber(ownerId), tostring(itemName or ''), metadata)
-    if ok then
-        auditAdmin(tonumber(src), 'license_discarded', { itemName=tostring(itemName), characterId=tonumber(ownerId) })
-        notify(tonumber(src), 'You discarded your license. It is no longer valid.', 'error')
-    end
-end
-
-local PICKUP_FAILURES = {
-    item_owner_mismatch = 'This license belongs to someone else — it is worthless to you.',
-    revoked_by_authority = 'This license was revoked by the authorities. Picking it up does not restore it.',
-    expired = 'This license expired while it was out of your hands.',
-    superseded_card = 'This card was replaced by a newer license and is no longer valid.',
-    no_license_record = 'There is no record of this license.',
-}
-
-local function onLicensePickedUp(src, ownerId, itemName, amount, metadata)
-    if tonumber(amount) ~= 1 then return end
-
-    local ok, result = Licenses.RestoreDroppedItem(tonumber(src), tonumber(ownerId), tostring(itemName or ''), metadata)
-    if ok then
-        auditAdmin(tonumber(src), 'license_restored', { itemName=tostring(itemName), characterId=tonumber(ownerId) })
-        notify(tonumber(src), ('You picked your %s back up. It is valid again.')
-            :format(type(result) == 'table' and result.label or 'license'), 'success')
-        return
-    end
-
-    -- 'already_active' and 'not_license_item' are silent: nothing was wrong.
-    local message = PICKUP_FAILURES[result]
-    if message then notify(tonumber(src), message, 'error') end
-end
-
-AddEventHandler('cm-inventory:server:itemDropped', onLicenseDropped)
-AddEventHandler('cm-inventory:server:itemPickedUp', onLicensePickedUp)
-
--- Exported so cm-inventory can call the pick-up hook directly if its event is
--- named differently from the drop event this resource already listens to.
-exports('OnLicenseItemPickedUp', onLicensePickedUp)
+-- Physical transfer is intentionally inventory-only. License possession is
+-- resolved from the current holder's inventory and issuance metadata.
 
 -- ============================================================================
 -- ADMIN COMMANDS
@@ -712,7 +809,10 @@ end)
 
 RegisterNetEvent('cm-license:server:adminCancelBuilder', function()
     local src = source
-    if not Admin.ValidateAdminAction(src, Constants.PERMISSIONS.MANAGE_LICENSES) then return end
+    if not rateLimit(src, 'admin_cancel_builder', 250) then return end
+    -- Cancelling only destroys the caller's own preview vehicle/session. It is
+    -- intentionally allowed even if a permission changed while the builder
+    -- was open, so cleanup cannot strand a temporary vehicle.
     Admin.CancelBuilder(src)
     adminResult(src, 'cancelBuilder', true, { message='Route builder cancelled.' })
 end)
@@ -747,6 +847,39 @@ CreateThread(function()
     while true do
         Wait(10000)
         Tests.CleanupExpiredSessions()
+    end
+end)
+
+-- Keep the client-side public-world presentation synchronized with the
+-- authoritative server bucket, and terminate active tests that leave it.
+CreateThread(function()
+    while true do
+        local activeSources = {}
+        for _, rawSource in ipairs(GetPlayers()) do
+            local src = tonumber(rawSource)
+            if src then
+                activeSources[src] = true
+                local publicWorld = syncPublicWorldState(src, false)
+                if not publicWorld then
+                    local session = Tests.GetActiveTestBySource(src)
+                    if session then
+                        Tests.FailTestAndNotify(session.characterId, Constants.FAIL_REASON.LEFT_PUBLIC_WORLD)
+                    end
+                end
+            end
+        end
+
+        for src in pairs(PublicWorldStates) do
+            if not activeSources[src] then PublicWorldStates[src] = nil end
+        end
+        Wait(1000)
+    end
+end)
+
+CreateThread(function()
+    while true do
+        Tests.Watchdog()
+        Wait(math.max(750, tonumber(CMLicenseConfig.TestSession.WatchdogIntervalMs) or 1000))
     end
 end)
 

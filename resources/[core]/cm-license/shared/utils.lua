@@ -104,6 +104,46 @@ function Utils.TouchRadius(category)
     return touch[tostring(category or 'ground')] or touch.ground or 4.0
 end
 
+-- Radius stored with a checkpoint, constrained to the configured safe bounds.
+function Utils.CheckpointRadius(point)
+    local bounds = CMLicenseConfig and CMLicenseConfig.Checkpoint or {}
+    local minimum = tonumber(bounds.MinRadius) or 2.0
+    local maximum = tonumber(bounds.MaxRadius) or 100.0
+    local fallback = tonumber(bounds.DefaultRadius) or 20.0
+    return Utils.Clamp(tonumber(point and point.radius) or fallback, minimum, maximum)
+end
+
+-- The client-side detection radius must never be wider than the server's
+-- stored acceptance radius.
+function Utils.EffectiveTouchRadius(category, point)
+    return math.min(Utils.TouchRadius(category), Utils.CheckpointRadius(point))
+end
+
+-- Ground tests intentionally ignore the recorded Z offset for distance. The
+-- vertical value remains available for a sane anti-teleport/anti-false-hit
+-- tolerance on both client and server.
+function Utils.CheckpointDistance(coords, point, category)
+    if not coords or not point then return math.huge, math.huge end
+    local dx = coords.x - point.x
+    local dy = coords.y - point.y
+    local vertical = math.abs(coords.z - point.z)
+    if tostring(category or 'ground') == 'ground' then
+        return math.sqrt((dx * dx) + (dy * dy)), vertical
+    end
+    return math.sqrt((dx * dx) + (dy * dy) + (vertical * vertical)), vertical
+end
+
+function Utils.IsWithinCheckpoint(coords, point, category, radius)
+    local distance, vertical = Utils.CheckpointDistance(coords, point, category)
+    local limit = tonumber(radius) or Utils.CheckpointRadius(point)
+    if tostring(category or 'ground') == 'ground' then
+        local bounds = CMLicenseConfig and CMLicenseConfig.Checkpoint or {}
+        local verticalLimit = tonumber(bounds.GroundVerticalTolerance) or 5.0
+        return distance <= limit and vertical <= verticalLimit, distance, vertical, limit
+    end
+    return distance <= limit, distance, vertical, limit
+end
+
 -- Clamp number between min and max
 function Utils.Clamp(value, min, max)
     if value < min then return min end

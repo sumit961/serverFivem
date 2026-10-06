@@ -1,8 +1,8 @@
-# cm-family v1.9.6
+# cm-family v1.9.7
 
 Family system for the CM Framework. Players create a family from a house they
-own, invite members, manage up to 15 ranks with granular permissions, share
-garage vehicles gated by rank tier, run a shared family treasury, and progress
+own, invite members, manage up to 15 ranks with granular permissions, register
+family garage vehicles gated by rank tier, run a shared family treasury, and progress
 a family through weekly objectives, an HQ upgrade tree, and an inter-family
 event/reward engine — all through a full-screen `/family` menu.
 

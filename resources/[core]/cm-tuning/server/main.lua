@@ -293,6 +293,9 @@ local function validateSession(src, token, requiredShop)
         return false, 'Your tuning session expired.'
     end
     if requiredShop and session.shop ~= requiredShop then return false, 'This service is not available at this shop.' end
+    -- A mechanic-service session (opened ONLY by cm-mechanic's authorization) has no self-service purchase/charge path: the mode is
+    -- server state, never a client flag.
+    if session.mode == 'service' then return false, 'This session belongs to a mechanic service.' end
 
     local ok, vehicle, row = resolveVehicle(src, session.netId, session.plate)
     if not ok then return false, vehicle end
@@ -690,67 +693,12 @@ RegisterNetEvent('cm-tuning:server:installHarness', function(data)
     })
 end)
 
-RegisterNetEvent('cm-tuning:server:repairEngine', function(data)
-    local src = source
-    data = type(data) == 'table' and data or {}
-    local ok, session, vehicle = validateSession(src, data.token, 'chip')
-    if not ok then return sendDenied(src, 'cm-tuning:client:specialDenied', session) end
-    if session.busy then return sendDenied(src, 'cm-tuning:client:specialDenied', 'A service is already processing.') end
-    session.busy = true
-
-    local cfg = Config.EngineRepair or {}
-    if cfg.enabled == false then
-        session.busy = false
-        return sendDenied(src, 'cm-tuning:client:specialDenied', 'Engine rebuilding is disabled.')
-    end
-
-    local health = 1000.0
-    local healthOk, liveHealth = pcall(GetVehicleEngineHealth, vehicle)
-    if healthOk and type(liveHealth) == 'number' then health = liveHealth end
-    local missing = math.max(0, 1000 - math.floor(health))
-    if missing <= 0 then
-        session.busy = false
-        return sendDenied(src, 'cm-tuning:client:specialDenied', 'The engine is already in perfect condition.')
-    end
-
-    local price = math.min(
-        tonumber(cfg.maxPrice) or 25000,
-        (tonumber(cfg.basePrice) or 0) + missing * (tonumber(cfg.pricePerHealthPoint) or 0)
-    )
-    price = math.max(0, math.floor(price))
-
-    local paid, accountOrMessage = charge(src, price, data.account, 'cm_tuning_engine_rebuild')
-    if not paid then
-        session.busy = false
-        return sendDenied(src, 'cm-tuning:client:specialDenied', accountOrMessage)
-    end
-    local account = accountOrMessage
-
-    local patch = { engineHealth = 1000.0 }
-    if cfg.fullRebuild ~= false then
-        patch.bodyHealth = 1000.0
-        patch.tankHealth = 1000.0
-    end
-
-    local serviceOk, persisted = pcall(function()
-        return exports['cm-vehicles']:ServiceVehicle(session.plate, patch)
-    end)
-    if not serviceOk or persisted ~= true then
-        refund(src, price, account, 'cm_tuning_engine_refund')
-        session.busy = false
-        return sendDenied(src, 'cm-tuning:client:specialDenied', 'Engine rebuild could not be saved. Payment refunded.')
-    end
-
-    local netId = session.netId
-    releaseSession(src, 'engine_rebuild')
-    TriggerClientEvent('cm-tuning:client:engineApproved', src, {
-        netId = netId,
-        durationMs = tonumber(cfg.durationMs) or 15000,
-        full = cfg.fullRebuild ~= false,
-        price = price,
-        account = account,
-        balances = getBalances(src),
-    })
+-- Engine "rebuild" only restored engine/body/tank health to 1000 (a plain repair). Repair and
+-- restoration are owned and priced by cm-mechanic (business invoice -> cm-vehicles:ServiceVehicleById),
+-- so this duplicate, cheaper, business-less path is closed. cm-tuning is no longer a trusted
+-- ServiceVehicle caller. See docs/SERVICE_INTEGRATION.md.
+RegisterNetEvent('cm-tuning:server:repairEngine', function()
+    sendDenied(source, 'cm-tuning:client:specialDenied', 'Engine repair is handled by a mechanic.')
 end)
 
 AddEventHandler('playerDropped', function()
@@ -794,3 +742,23 @@ exports('GetVisualCatalog', function()
         headlightColors = CMTuning.Config.HeadlightColors,
     }
 end)
+
+-- Narrow internal surface for server/service.lua (same resource; NOT an export). Session/lock state stays owned by this file.
+CMTuning.Internal = {
+    normalizePlate = normalizePlate, defaultMods = defaultMods, cleanCaps = cleanCaps, calculatePurchase = calculatePurchase,
+    decodeTable = decodeTable, cooldown = cooldown, sendDenied = sendDenied, createToken = createToken, playerdata = playerdata,
+    getSession = function(src) return Sessions[src] end,
+    lockedBy = function(plate) return VehicleLocks[plate] end,
+    openServiceSession = function(src, spec)
+        releaseSession(src, 'new_service')
+        Sessions[src] = spec
+        VehicleLocks[spec.plate] = src
+    end,
+    releaseSession = releaseSession,
+    -- Vehicle-level lock shared with self-service sessions: a service apply and a player session can never edit the same vehicle at once.
+    lockPlate = function(plate)
+        if VehicleLocks[plate] then return nil end
+        VehicleLocks[plate] = 'service'
+        return function() if VehicleLocks[plate] == 'service' then VehicleLocks[plate] = nil end end
+    end,
+}

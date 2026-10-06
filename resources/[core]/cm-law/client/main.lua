@@ -209,6 +209,11 @@ RegisterNUICallback('refresh', function(_, cb)
     cb(refresh() or { ok = false })
 end)
 RegisterNUICallback('endDuty', function(_, cb)
+    if type(LocalPlayer.state.cmPolice) == 'table' then
+        local ok, message = lib.callback.await('cm-police:server:toggleDuty', false)
+        cb({ ok = ok == true, message = message, error = not ok and message or nil })
+        return
+    end
     local result = lib.callback.await('cm-law:server:setDuty', false, false)
     cb(result or { ok = false, error = 'No response from server.' })
 end)

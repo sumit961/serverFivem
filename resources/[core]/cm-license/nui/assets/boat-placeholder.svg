@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 514">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#082a3b"/><stop offset="1" stop-color="#10222b"/></linearGradient></defs>
+  <rect width="1200" height="514" fill="url(#g)"/><path d="M130 310h940l-110 100H300z" fill="#061b25" stroke="#00e5ff" stroke-opacity=".55" stroke-width="7"/><path d="M490 300V150h180l90 150M580 150V82" fill="none" stroke="#9ff6ff" stroke-opacity=".65" stroke-width="10"/><path d="M80 438h1040M220 470h760" stroke="#00e5ff" stroke-opacity=".25" stroke-width="6"/><text x="600" y="60" fill="#00e5ff" font-family="Arial,sans-serif" font-size="34" font-weight="700" text-anchor="middle" letter-spacing="8">BOAT LICENSE</text>
+</svg>

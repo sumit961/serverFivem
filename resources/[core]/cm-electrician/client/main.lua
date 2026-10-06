@@ -10,16 +10,35 @@ local holding = false
 local outageActive = false
 local jobVehicleActive = false
 local civilianOutfit = nil
+local forceCancelRepair = false
+local cancelActiveRepair -- forward-declared; defined alongside the repair session logic below
 
 local panelTargets, panelBlips = {}, {}
 local plateTargets, plateBlips = {}, {}
 
-local promptVisible = false
-local promptTitle, promptLabel, promptHint = nil, nil, nil
-local lastPromptSentAt = 0
+-- World repair prompts are shown through cm-ui's shared interact component,
+-- each with its own owner so hiding one can never hide another (see
+-- resources/[core]/cm-ui/client/interact.lua). The NPC keeps its own
+-- separate owner in client/npc.lua.
+local INTERACT_OWNER_PANEL = 'cm-electrician:panel'
+local INTERACT_OWNER_PLATE = 'cm-electrician:plate'
+local INTERACT_OWNER_OUTAGE = 'cm-electrician:outage'
+local qaInteraction = { visible = false }
+
+local function clearQaInteraction()
+    qaInteraction = { visible = false }
+end
 
 local function dbg(...)
     if Config.Debug then print('[CM-ELECTRICIAN]', ...) end
+end
+
+local function hideAllTaskPrompts()
+    clearQaInteraction()
+    if GetResourceState('cm-ui') ~= 'started' then return end
+    exports['cm-ui']:HideInteract(INTERACT_OWNER_PANEL)
+    exports['cm-ui']:HideInteract(INTERACT_OWNER_PLATE)
+    exports['cm-ui']:HideInteract(INTERACT_OWNER_OUTAGE)
 end
 
 local function notify(message, kind)
@@ -31,26 +50,6 @@ local function notify(message, kind)
     BeginTextCommandThefeedPost('STRING')
     AddTextComponentSubstringPlayerName(tostring(message or ''))
     EndTextCommandThefeedPostTicker(false, false)
-end
-
-local function sendInteraction(visible, title, label, hint, force)
-    local sameState = promptVisible == visible
-        and (not visible or (promptTitle == title and promptLabel == label and promptHint == hint))
-
-    promptVisible, promptTitle, promptLabel, promptHint = visible, visible and title or nil, visible and label or nil, visible and hint or nil
-
-    local now = GetGameTimer()
-    if sameState and force ~= true and (now - lastPromptSentAt) < 800 then return end
-    lastPromptSentAt = now
-
-    SendNUIMessage({
-        action = 'interaction',
-        visible = visible == true,
-        key = Config.interactKeyLabel or 'E',
-        title = title or Config.JobTitle,
-        label = label or '',
-        hint = hint or '',
-    })
 end
 
 local function updateJobHud()
@@ -144,14 +143,11 @@ local function returnJobVehicle()
 end
 
 -- ---------------------------------------------------------------------------
--- Random multi-target tasks. Several panel and deposit-plate locations
--- (Config.TaskCount) are active at once, each shown as its own map blip, so
--- players can pick which to head to instead of following one forced route.
--- Each is replaced one-for-one by a new random location (never one already
--- active) as it gets repaired.
+-- Panel/deposit-plate task blips. The SERVER decides which indices are
+-- active (server/main.lua) -- this file only ever renders whatever full list
+-- it is sent via cm-electrician:client:assignments. It never picks a target
+-- on its own.
 -- ---------------------------------------------------------------------------
-
-math.randomseed(GetGameTimer())
 
 local function removeTaskBlip(blip)
     if blip and DoesBlipExist(blip) then RemoveBlip(blip) end
@@ -172,23 +168,9 @@ local function createTaskBlip(coords, def)
     return blip
 end
 
-local function pickRandomAvailableIndex(list, active)
-    local activeSet = {}
-    for _, index in ipairs(active) do activeSet[index] = true end
-    if #list <= #active then return nil end
-
-    local index
-    local attempts = 0
-    repeat
-        index = math.random(1, #list)
-        attempts = attempts + 1
-    until not activeSet[index] or attempts > 50
-    return not activeSet[index] and index or nil
-end
-
 -- Numbers each active blip 1..N in its map icon so multiple simultaneous
--- panels/plates (Config.TaskCount) are distinguishable at a glance instead
--- of showing as identical unlabeled wrench icons.
+-- panels/plates are distinguishable at a glance instead of showing as
+-- identical unlabeled wrench icons.
 local function renumberBlips(targets, blips)
     for i, index in ipairs(targets) do
         local blip = blips[index]
@@ -196,26 +178,6 @@ local function renumberBlips(targets, blips)
             ShowNumberOnBlip(blip, i)
         end
     end
-end
-
-local function addTarget(targets, blips, list, def)
-    local index = pickRandomAvailableIndex(list, targets)
-    if not index then return end
-    targets[#targets + 1] = index
-    blips[index] = createTaskBlip(list[index], def)
-    renumberBlips(targets, blips)
-end
-
-local function removeTarget(targets, blips, fixedIndex)
-    for i, index in ipairs(targets) do
-        if index == fixedIndex then
-            removeTaskBlip(blips[index])
-            blips[index] = nil
-            table.remove(targets, i)
-            break
-        end
-    end
-    renumberBlips(targets, blips)
 end
 
 local function clearTargets(targets, blips)
@@ -226,41 +188,52 @@ local function clearTargets(targets, blips)
     for i = #targets, 1, -1 do targets[i] = nil end
 end
 
-local function refreshPanelTargets()
-    local wanted = math.max(1, tonumber(Config.TaskCount.panels) or 3)
-    while #panelTargets < wanted do
-        local before = #panelTargets
-        addTarget(panelTargets, panelBlips, Config.Panels, Config.TaskBlip.panel)
-        if #panelTargets == before then break end
+-- Diffs the server's authoritative index list against the blips we're
+-- currently showing: removes anything no longer assigned, adds anything new.
+local function applyTargets(list, targets, blips, def, indices)
+    local wanted = {}
+    for _, idx in ipairs(indices or {}) do wanted[tonumber(idx)] = true end
+
+    for i = #targets, 1, -1 do
+        local idx = targets[i]
+        if not wanted[idx] then
+            removeTaskBlip(blips[idx])
+            blips[idx] = nil
+            table.remove(targets, i)
+        end
     end
+
+    for idx in pairs(wanted) do
+        if not blips[idx] and list[idx] then
+            targets[#targets + 1] = idx
+            blips[idx] = createTaskBlip(list[idx], def)
+        end
+    end
+
+    renumberBlips(targets, blips)
 end
 
-local function replacePanelTarget(fixedIndex)
-    removeTarget(panelTargets, panelBlips, fixedIndex)
-    refreshPanelTargets()
+local function applyPanelTargets(indices)
+    applyTargets(Config.Panels, panelTargets, panelBlips, Config.TaskBlip.panel, indices)
+end
+
+local function applyPlateTargets(indices)
+    applyTargets(Config.Plates, plateTargets, plateBlips, Config.TaskBlip.plate, indices)
 end
 
 local function clearPanelTargets()
     clearTargets(panelTargets, panelBlips)
 end
 
-local function refreshPlateTargets()
-    local wanted = math.max(1, tonumber(Config.TaskCount.plates) or 2)
-    while #plateTargets < wanted do
-        local before = #plateTargets
-        addTarget(plateTargets, plateBlips, Config.Plates, Config.TaskBlip.plate)
-        if #plateTargets == before then break end
-    end
-end
-
-local function replacePlateTarget(fixedIndex)
-    removeTarget(plateTargets, plateBlips, fixedIndex)
-    refreshPlateTargets()
-end
-
 local function clearPlateTargets()
     clearTargets(plateTargets, plateBlips)
 end
+
+RegisterNetEvent('cm-electrician:client:assignments', function(data)
+    data = type(data) == 'table' and data or {}
+    applyPanelTargets(data.panels)
+    applyPlateTargets(data.plates)
+end)
 
 -- ---------------------------------------------------------------------------
 -- Employment menu.
@@ -268,8 +241,9 @@ end
 
 local function openMenu()
     if menuOpen then return end
+    if holding then return end -- can't fiddle with the menu mid-repair-hold
     menuOpen = true
-    sendInteraction(false, nil, nil, nil, true)
+    hideAllTaskPrompts()
 
     TriggerServerEvent('cm-electrician:server:requestStatus')
 
@@ -316,10 +290,6 @@ RegisterNetEvent('cm-electrician:client:status', function(status)
         })
     end
     updateJobHud()
-
-    if employed and level >= 2 then
-        refreshPlateTargets()
-    end
 end)
 
 RegisterNetEvent('cm-electrician:client:employedSet', function(state, reason)
@@ -328,16 +298,14 @@ RegisterNetEvent('cm-electrician:client:employedSet', function(state, reason)
 
     if employed and not wasEmployed then
         beginShift()
-        refreshPanelTargets()
-        if level >= 2 then
-            refreshPlateTargets()
-        end
         TriggerServerEvent('cm-electrician:server:requestStatus')
     elseif not employed and wasEmployed then
         endShift()
         clearPanelTargets()
         clearPlateTargets()
         returnJobVehicle()
+        cancelActiveRepair()
+        hideAllTaskPrompts()
     end
 
     SendNUIMessage({ action = 'employmentResult', employed = employed })
@@ -354,11 +322,6 @@ RegisterNetEvent('cm-electrician:client:panelResult', function(data)
     data = type(data) == 'table' and data or {}
     panelsCount = tonumber(data.panels) or panelsCount
     level = tonumber(data.level) or level
-
-    replacePanelTarget(tonumber(data.index))
-    if data.leveledUp and level >= 2 then
-        refreshPlateTargets()
-    end
     updateJobHud()
 end)
 
@@ -366,8 +329,6 @@ RegisterNetEvent('cm-electrician:client:plateResult', function(data)
     data = type(data) == 'table' and data or {}
     platesCount = tonumber(data.plates) or platesCount
     level = tonumber(data.level) or level
-
-    replacePlateTarget(tonumber(data.index))
     updateJobHud()
 end)
 
@@ -464,7 +425,8 @@ end)
 
 -- Level-1 job-area leash: wandering too far from the power plant auto-resigns
 -- the player. Level 2+ intentionally roam the city (plates/outages), so they
--- are left alone.
+-- are left alone. This is a convenience, not a security boundary -- the
+-- server independently validates distance on every repair anyway.
 CreateThread(function()
     while true do
         local wait = 3000
@@ -481,32 +443,9 @@ CreateThread(function()
     end
 end)
 
--- Dying while on duty clocks the player out automatically. Without this
--- they'd stay "employed" through death/respawn -- uniform reverted, tasks
--- cleared and the truck returned all still need to happen, and the level-1
--- leash/distance checks have no way to catch someone who respawns clear
--- across the map.
-CreateThread(function()
-    local wasDead = false
-
-    while true do
-        local wait = 2000
-
-        if employed then
-            wait = 500
-            local isDead = IsEntityDead(PlayerPedId())
-            if isDead and not wasDead then
-                TriggerServerEvent('cm-electrician:server:setEmployed', false)
-                notify('You were taken off duty after dying.', 'error')
-            end
-            wasDead = isDead
-        else
-            wasDead = false
-        end
-
-        Wait(wait)
-    end
-end)
+-- Dying while on duty is handled server-side (cm-playerdata's death event
+-- ends the shift authoritatively and pushes employedSet(false) back down),
+-- so there is no client-side death polling here any more.
 
 -- The service truck itself is spawned server-side through cm-vehicles'
 -- trusted placement bridge, so it comes out owned by the player's own
@@ -527,12 +466,48 @@ local function requestTruck(wantVehicle)
     TriggerServerEvent('cm-electrician:server:requestServiceTruck', wantVehicle == true)
 end
 
--- shockChance (0-1) is rolled once per hold; if it hits, the shock fires at a
--- random point during the hold instead of always right at the start, so an
--- unlucky attempt doesn't just read as an instant, guaranteed-early bail.
-local function performHold(durationMs, shockChance)
+-- ---------------------------------------------------------------------------
+-- Repair session: BEGIN/COMPLETE/CANCEL round trip with the server. The
+-- server decides shock, verifies minimum hold duration, and is the only
+-- thing that can grant a reward -- this file just plays the visuals and
+-- reports what happened (held to completion, released early, or shocked).
+-- ---------------------------------------------------------------------------
+
+local awaitingRepairBegin = false
+local activeRepair = nil
+
+-- Sent once per E press (IsControlJustPressed at the call site, not a
+-- continuous poll) -- the server is the one that decides whether this
+-- becomes an authorized hold at all; nothing here runs a hold before that.
+local function requestRepair(taskType, index)
+    if holding or awaitingRepairBegin or activeRepair then return end
+    awaitingRepairBegin = true
+    dbg(('begin_repair_sent type=%s index=%s'):format(tostring(taskType), tostring(index or false)))
+    TriggerServerEvent('cm-electrician:server:beginRepair', taskType, index or false)
+
+    -- If the server silently rejects the request (distance/level/cooldown
+    -- failures notify but don't send repairBegin), this clears the pending
+    -- flag so the player can try again instead of getting stuck.
+    CreateThread(function()
+        Wait(2500)
+        if awaitingRepairBegin and not activeRepair then
+            awaitingRepairBegin = false
+        end
+    end)
+end
+
+-- shockAtMs (if set by the server) is a fixed point during the hold rather
+-- than always right at the start, so an unlucky attempt doesn't just read as
+-- an instant, guaranteed-early bail. Purely cosmetic here -- the server
+-- independently rejects a shocked attempt at COMPLETE regardless of what we
+-- report.
+local function runRepairHold(data)
+    local durationMs = tonumber(data.durationMs) or 3000
+    local shockAtMs = tonumber(data.shockAtMs)
     local start = GetGameTimer()
     holding = true
+    forceCancelRepair = false
+    dbg(('hold_started token=%s'):format(tostring(data.token)))
     SendNUIMessage({ action = 'holdStart' })
 
     -- Native welding scenario (built-in sparks VFX) plays while the repair is
@@ -541,32 +516,33 @@ local function performHold(durationMs, shockChance)
     ClearPedTasks(ped)
     TaskStartScenarioInPlace(ped, 'WORLD_HUMAN_WELDING', 0, true)
 
-    local shockAtMs = (math.random() < (tonumber(shockChance) or 0)) and math.random(300, math.max(300, durationMs)) or nil
-
-    local completed = false
-    local shocked = false
+    local outcome = 'cancelled'
     while IsControlPressed(0, Config.interactKey) do
+        if forceCancelRepair then break end
         Wait(0)
         local elapsed = GetGameTimer() - start
 
         if shockAtMs and elapsed >= shockAtMs then
-            shocked = true
+            outcome = 'shocked'
             break
         end
 
         SendNUIMessage({ action = 'holdProgress', progress = math.min(100.0, (elapsed / durationMs) * 100.0) })
 
         if elapsed >= durationMs then
-            completed = true
+            outcome = 'completed'
             break
         end
     end
+
+    local wasForceCancelled = forceCancelRepair
+    forceCancelRepair = false
 
     ClearPedTasks(ped)
     holding = false
     SendNUIMessage({ action = 'holdEnd' })
 
-    if shocked then
+    if outcome == 'shocked' then
         notify('You got shocked! The repair failed.', 'error')
         ShakeGameplayCam('SMALL_EXPLOSION_SHAKE', 0.4)
         SetPedToRagdoll(ped, 1500, 1500, 0, false, false, false)
@@ -575,11 +551,49 @@ local function performHold(durationMs, shockChance)
 
     -- Require E to be released before another hold can start. Otherwise,
     -- finishing one repair while still physically holding E immediately
-    -- re-triggers a second hold on the same target before the server has
-    -- even responded and refreshed it -- one press repairing two.
-    while IsControlPressed(0, Config.interactKey) do Wait(0) end
+    -- re-triggers a second request on the same target before the server has
+    -- even responded and refreshed it -- one press repairing two. Skipped on
+    -- a forced cancel (shift ended, death, etc.) so cleanup isn't stuck
+    -- waiting on a key release that may never come from this menu/state.
+    if not wasForceCancelled then
+        while IsControlPressed(0, Config.interactKey) do Wait(0) end
+    end
 
-    return completed
+    local token = data.token
+    activeRepair = nil
+
+    dbg(('hold_completed token=%s outcome=%s'):format(tostring(token), outcome))
+
+    if outcome == 'completed' then
+        TriggerServerEvent('cm-electrician:server:completeRepair', token)
+    else
+        TriggerServerEvent('cm-electrician:server:cancelRepair', token)
+    end
+end
+
+RegisterNetEvent('cm-electrician:client:repairBegin', function(data)
+    awaitingRepairBegin = false
+    if type(data) ~= 'table' or not data.token then return end
+    dbg(('repair_authorized type=%s token=%s duration=%s shockAt=%s'):format(
+        tostring(data.type), tostring(data.token), tostring(data.durationMs), tostring(data.shockAtMs)))
+    activeRepair = data
+    runRepairHold(data)
+end)
+
+-- Forces the current hold (if any) to end as a cancel, for cleanup paths
+-- (shift end, death, character switch, resource stop) that must not leave a
+-- welding animation/hold bar running after the underlying session is gone.
+cancelActiveRepair = function()
+    if holding then
+        forceCancelRepair = true
+        return
+    end
+    if activeRepair then
+        local token = activeRepair.token
+        activeRepair = nil
+        TriggerServerEvent('cm-electrician:server:cancelRepair', token)
+    end
+    awaitingRepairBegin = false
 end
 
 -- Thin vertical beam topped with a downward chevron and a floating
@@ -649,10 +663,28 @@ local BEACON_MAX_DISTANCE = 1800.0
 -- pulling attention across the map while working elsewhere (plates/outages).
 local PANEL_NEAR_ONLY_DISTANCE = 30.0
 
--- Level 1: switchboard panel repairs (several random targets at once --
--- draws a beacon toward each in range, but only the nearest one in
--- interact range is offered for the hold).
+-- Small hysteresis on the repair prompt itself so standing right at the edge
+-- of range doesn't flicker the prompt on/off: shows at the tighter distance,
+-- only hides once past the looser one. This is purely a UI trigger -- the
+-- server independently re-validates distance with its own (larger) security
+-- radius at both begin and complete, so widening this never changes what
+-- the server will actually accept.
+local REPAIR_SHOW_DISTANCE = 1.5
+local REPAIR_HIDE_DISTANCE = 1.9
+local OUTAGE_SHOW_DISTANCE = 2.0
+local OUTAGE_HIDE_DISTANCE = 2.5
+
+-- Level 1: switchboard panel repairs (several server-assigned targets at
+-- once -- draws a beacon toward each in range, but only the nearest one in
+-- interact range is offered for the hold, through cm-ui's shared prompt).
 CreateThread(function()
+    if GetResourceState('cm-ui') ~= 'started' then
+        print('[CM-ELECTRICIAN] cm-ui is not running -- panel repair prompts need it.')
+        return
+    end
+
+    local promptShown = false
+
     while true do
         local wait = 500
 
@@ -670,29 +702,63 @@ CreateThread(function()
                     drawDestinationBeacon(point, distance)
                 end
 
-                if distance < 1.3 and (not nearestDistance or distance < nearestDistance) then
+                if not nearestDistance or distance < nearestDistance then
                     nearestIndex, nearestDistance = index, distance
                 end
             end
 
-            if nearestIndex then
-                sendInteraction(true, 'Switchboard Panel', 'Hold to repair panel', ('Panels fixed: %d'):format(panelsCount))
-                if IsControlPressed(0, Config.interactKey) then
-                    if performHold(Config.Hold.panelMs, Config.ShockChance.panel) then
-                        TriggerServerEvent('cm-electrician:server:fixPanel', nearestIndex)
-                    end
+            local threshold = promptShown and REPAIR_HIDE_DISTANCE or REPAIR_SHOW_DISTANCE
+            local inRange = nearestIndex and nearestDistance and nearestDistance < threshold
+
+            if inRange then
+                if not promptShown then
+                    dbg(('panel_candidate index=%d distance=%.2f'):format(nearestIndex, nearestDistance))
                 end
-            elseif promptTitle == 'Switchboard Panel' then
-                sendInteraction(false)
+                promptShown = true
+                exports['cm-ui']:ShowInteract({
+                    owner = INTERACT_OWNER_PANEL,
+                    priority = 20,
+                    key = Config.interactKeyLabel or 'E',
+                    label = 'HOLD TO REPAIR',
+                    name = 'Switchboard Panel',
+                    role = ('PANELS REPAIRED %d'):format(panelsCount),
+                })
+                qaInteraction = {
+                    visible = true,
+                    owner = INTERACT_OWNER_PANEL,
+                    action = 'HOLD TO REPAIR',
+                    key = Config.interactKeyLabel or 'E',
+                    index = nearestIndex,
+                }
+
+                if IsControlJustPressed(0, Config.interactKey) then
+                    dbg(('repair_input type=panel index=%d pressed=true'):format(nearestIndex))
+                    requestRepair('panel', nearestIndex)
+                end
+            elseif promptShown then
+                promptShown = false
+                clearQaInteraction()
+                exports['cm-ui']:HideInteract(INTERACT_OWNER_PANEL)
             end
+        elseif promptShown then
+            promptShown = false
+            clearQaInteraction()
+            exports['cm-ui']:HideInteract(INTERACT_OWNER_PANEL)
         end
 
         Wait(wait)
     end
 end)
 
--- Level 2: city deposit-plate repairs (several random targets at once).
+-- Level 2: city deposit-plate repairs (several server-assigned targets at once).
 CreateThread(function()
+    if GetResourceState('cm-ui') ~= 'started' then
+        print('[CM-ELECTRICIAN] cm-ui is not running -- deposit plate repair prompts need it.')
+        return
+    end
+
+    local promptShown = false
+
     while true do
         local wait = 800
 
@@ -709,21 +775,39 @@ CreateThread(function()
                     drawDestinationBeacon(point, distance)
                 end
 
-                if distance < 1.4 and (not nearestDistance or distance < nearestDistance) then
+                if not nearestDistance or distance < nearestDistance then
                     nearestIndex, nearestDistance = index, distance
                 end
             end
 
-            if nearestIndex then
-                sendInteraction(true, 'Deposit Plate', 'Hold to repair deposit plate', ('Plates fixed: %d'):format(platesCount))
-                if IsControlPressed(0, Config.interactKey) then
-                    if performHold(Config.Hold.plateMs, Config.ShockChance.plate) then
-                        TriggerServerEvent('cm-electrician:server:fixPlate', nearestIndex)
-                    end
+            local threshold = promptShown and REPAIR_HIDE_DISTANCE or REPAIR_SHOW_DISTANCE
+            local inRange = nearestIndex and nearestDistance and nearestDistance < threshold
+
+            if inRange then
+                if not promptShown then
+                    dbg(('plate_candidate index=%d distance=%.2f'):format(nearestIndex, nearestDistance))
                 end
-            elseif promptTitle == 'Deposit Plate' then
-                sendInteraction(false)
+                promptShown = true
+                exports['cm-ui']:ShowInteract({
+                    owner = INTERACT_OWNER_PLATE,
+                    priority = 20,
+                    key = Config.interactKeyLabel or 'E',
+                    label = 'HOLD TO REPAIR',
+                    name = 'Deposit Plate',
+                    role = ('PLATES REPAIRED %d'):format(platesCount),
+                })
+
+                if IsControlJustPressed(0, Config.interactKey) then
+                    dbg(('repair_input type=plate index=%d pressed=true'):format(nearestIndex))
+                    requestRepair('plate', nearestIndex)
+                end
+            elseif promptShown then
+                promptShown = false
+                exports['cm-ui']:HideInteract(INTERACT_OWNER_PLATE)
             end
+        elseif promptShown then
+            promptShown = false
+            exports['cm-ui']:HideInteract(INTERACT_OWNER_PLATE)
         end
 
         Wait(wait)
@@ -732,11 +816,17 @@ end)
 
 -- Level 3: city power-outage response.
 CreateThread(function()
+    if GetResourceState('cm-ui') ~= 'started' then
+        print('[CM-ELECTRICIAN] cm-ui is not running -- outage repair prompts need it.')
+        return
+    end
+
+    local promptShown = false
+
     while true do
         local wait = 1000
         local canRespond = outageActive and outageLocation and employed and not menuOpen and not holding
             and level >= (Config.PowerOutage.unlockLevel or 3)
-        local shown = false
 
         if canRespond then
             local coords = GetEntityCoords(PlayerPedId())
@@ -745,21 +835,36 @@ CreateThread(function()
             if distance < BEACON_MAX_DISTANCE then
                 wait = 0
                 drawDestinationBeacon(outageLocation, distance)
-
-                if distance < 2.2 then
-                    shown = true
-                    sendInteraction(true, 'Power Outage', 'Hold to fix the outage', 'City-wide power restoration')
-                    if IsControlPressed(0, Config.interactKey) then
-                        if performHold(Config.Hold.outageMs, Config.ShockChance.outage) then
-                            TriggerServerEvent('cm-electrician:server:fixOutage')
-                        end
-                    end
-                end
             end
-        end
 
-        if not shown and promptTitle == 'Power Outage' then
-            sendInteraction(false)
+            local threshold = promptShown and OUTAGE_HIDE_DISTANCE or OUTAGE_SHOW_DISTANCE
+            local inRange = distance < threshold
+
+            if inRange then
+                if not promptShown then
+                    dbg(('outage_candidate distance=%.2f'):format(distance))
+                end
+                promptShown = true
+                exports['cm-ui']:ShowInteract({
+                    owner = INTERACT_OWNER_OUTAGE,
+                    priority = 20,
+                    key = Config.interactKeyLabel or 'E',
+                    label = 'HOLD TO RESTORE POWER',
+                    name = 'Power Outage',
+                    role = 'CITY-WIDE POWER RESTORATION',
+                })
+
+                if IsControlJustPressed(0, Config.interactKey) then
+                    dbg('repair_input type=outage pressed=true')
+                    requestRepair('outage')
+                end
+            elseif promptShown then
+                promptShown = false
+                exports['cm-ui']:HideInteract(INTERACT_OWNER_OUTAGE)
+            end
+        elseif promptShown then
+            promptShown = false
+            exports['cm-ui']:HideInteract(INTERACT_OWNER_OUTAGE)
         end
 
         Wait(wait)
@@ -772,7 +877,20 @@ AddEventHandler('onResourceStop', function(resourceName)
     clearPanelTargets()
     clearPlateTargets()
     endShift()
+    cancelActiveRepair()
+    hideAllTaskPrompts()
     if lightsOff then SetArtificialLightsState(false) end
+end)
+
+exports('QaInteractionSnapshot', function()
+    if GetInvokingResource() ~= 'cm-qa' then return false, 'forbidden' end
+    return true, {
+        visible = qaInteraction.visible == true,
+        owner = qaInteraction.owner,
+        action = qaInteraction.action,
+        key = qaInteraction.key,
+        index = qaInteraction.index,
+    }
 end)
 
 -- ---------------------------------------------------------------------------

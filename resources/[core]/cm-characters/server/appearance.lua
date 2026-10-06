@@ -68,6 +68,144 @@ local function cmCopyTable(value)
     return out
 end
 
+-- ═══════════════════════════════════════════════════════════════════════
+-- Appearance sanitization boundary.
+--
+-- Before this fix, appearanceData from the NUI/client was persisted almost
+-- verbatim: saveCurrentAppearance did `for key, value in pairs(appearanceData)
+-- do merged[key] = value end` (any key, any type, straight into the row that
+-- gets json.encode'd), and saveAppearance's non-barber path did the same via
+-- a raw cmCopyTable. A client could submit non-numeric strings, oversized
+-- numbers, nested junk tables, or unknown keys and have them persisted as
+-- the character's permanent appearance_json.
+--
+-- This is the ONE place appearance data is whitelisted/clamped before it can
+-- reach persistence. Every known appearance field (see client/appearance.lua
+-- InitSkinData/GetComponentData and client/main.lua DefaultSkin — this list
+-- is the union of both) is range-checked; anything not listed here is
+-- silently dropped rather than persisted. -1 and 255 are kept as valid
+-- sentinels ("no prop"/"no overlay") because existing apply code checks for
+-- them explicitly (e.g. `b1 == 255`, `_ears < 0`).
+-- ═══════════════════════════════════════════════════════════════════════
+local CM_APPEARANCE_FIELD_RANGES = {
+    -- Head blend parents. Verified against client/appearance.lua GetMaxVals(),
+    -- which queries this live from the actual ped model — mom max is 45, dad
+    -- max is 44 (asymmetric on purpose, not a typo). No -1 "none" sentinel is
+    -- used for these; InitSkinData defaults them to 21/0, never -1.
+    mom = { 0, 45 }, dad = { 0, 44 },
+    face_md_weight = { 0, 100 }, skin_md_weight = { 0, 100 },
+
+    -- Face features. PHASE 4B CORRECTION: these were previously clamped to
+    -- {-100, 100} on the assumption of a native -1.0..1.0 range stored *10.
+    -- client/appearance.lua's GetMaxVals() — which queries the live ped
+    -- natives — shows the actual valid range this codebase uses is 0-10
+    -- (unidirectional, matching InitSkinData's default of 0 for every one of
+    -- these fields), i.e. native 0.0..1.0 after the /10.0 in apply.lua. The
+    -- old range was 10x too permissive and wrongly allowed negative values.
+    nose_1 = { 0, 10 }, nose_2 = { 0, 10 }, nose_3 = { 0, 10 },
+    nose_4 = { 0, 10 }, nose_5 = { 0, 10 }, nose_6 = { 0, 10 },
+    cheeks_1 = { 0, 10 }, cheeks_2 = { 0, 10 }, cheeks_3 = { 0, 10 },
+    lip_thickness = { 0, 10 },
+    jaw_1 = { 0, 10 }, jaw_2 = { 0, 10 },
+    chin_1 = { 0, 10 }, chin_2 = { 0, 10 }, chin_3 = { 0, 10 }, chin_4 = { 0, 10 },
+    neck_thickness = { 0, 10 },
+    eyebrows_5 = { 0, 10 }, eyebrows_6 = { 0, 10 },
+
+    -- Overlay style indices. These are deliberately generous (-1..255) rather
+    -- than the exact per-model count: GetMaxVals() computes the true ceiling
+    -- at runtime via GetPedHeadOverlayNum(n), which differs between the male
+    -- and female freemode models and cannot be hardcoded exactly here without
+    -- risking rejecting a legitimate value on the model this ceiling was NOT
+    -- measured against. Every real overlay count for these categories is
+    -- well under 100 (GTA5 freemode overlays top out around 70-80 for the
+    -- largest, makeup), so 255 never lets a genuinely out-of-range/garbage
+    -- value through while never wrongly clamping a real one — see "Do not
+    -- corrupt valid legacy characters." 255 doubles as the existing apply
+    -- code's own "none" sentinel (e.g. `b1 == 255`).
+    age_1 = { -1, 255 }, blemishes_1 = { -1, 255 }, makeup_1 = { -1, 255 },
+    blush_1 = { -1, 255 }, complexion_1 = { -1, 255 }, sun_1 = { -1, 255 },
+    lipstick_1 = { -1, 255 }, moles_1 = { -1, 255 }, beard_1 = { -1, 255 },
+    chest_1 = { -1, 255 }, eyebrows_1 = { -1, 255 },
+    -- Overlay opacity (native 0.0..1.0, stored *10 here)
+    age_2 = { 0, 10 }, blemishes_2 = { 0, 10 }, makeup_2 = { 0, 10 },
+    blush_2 = { 0, 10 }, complexion_2 = { 0, 10 }, sun_2 = { 0, 10 },
+    lipstick_2 = { 0, 10 }, moles_2 = { 0, 10 }, beard_2 = { 0, 10 },
+    chest_2 = { 0, 10 }, eyebrows_2 = { 0, 10 },
+    -- Overlay colors (GTA overlay color palette)
+    makeup_3 = { 0, 63 }, makeup_4 = { 0, 63 },
+    lipstick_3 = { 0, 63 }, lipstick_4 = { 0, 63 },
+    blush_3 = { 0, 63 }, beard_3 = { 0, 63 }, beard_4 = { 0, 63 },
+    chest_3 = { 0, 63 }, eyebrows_3 = { 0, 63 }, eyebrows_4 = { 0, 63 },
+
+    eye_color = { 0, 31 },
+
+    -- Hair
+    hair_1 = { 0, 255 }, hair_2 = { 0, 255 },
+    hair_color_1 = { 0, 63 }, hair_color_2 = { 0, 63 },
+
+    -- Props (-1 = none)
+    ears_1 = { -1, 255 }, ears_2 = { 0, 255 },
+    helmet_1 = { -1, 255 }, helmet_2 = { 0, 255 },
+    glasses_1 = { -1, 255 }, glasses_2 = { 0, 255 },
+    watches_1 = { -1, 255 }, watches_2 = { 0, 255 },
+    bracelets_1 = { -1, 255 }, bracelets_2 = { 0, 255 },
+
+    -- Clothing components (torso/pants/shoes/tshirt/arms are overwritten by
+    -- cmMakeNakedAppearance below regardless, but are still range-checked
+    -- here since barber mode and legacy readers may see this table first)
+    tshirt_1 = { -1, 255 }, tshirt_2 = { 0, 255 },
+    torso_1 = { -1, 255 }, torso_2 = { 0, 255 },
+    arms = { -1, 255 }, arms_2 = { 0, 255 },
+    decals_1 = { -1, 255 }, decals_2 = { 0, 255 },
+    pants_1 = { -1, 255 }, pants_2 = { 0, 255 },
+    shoes_1 = { -1, 255 }, shoes_2 = { 0, 255 },
+    mask_1 = { -1, 255 }, mask_2 = { 0, 255 },
+    bproof_1 = { -1, 255 }, bproof_2 = { 0, 255 },
+    chain_1 = { -1, 255 }, chain_2 = { 0, 255 },
+    bags_1 = { -1, 255 }, bags_2 = { 0, 255 },
+
+    -- Legacy/unused-by-ApplySkin fields kept for forward compatibility —
+    -- documented but dead per the appearance-system audit, never deleted
+    -- silently (see AGENTS.md: don't destructively alter stored data).
+    -- GetMaxVals() confirms eye_squint = 10 (same 0-10 family as the face
+    -- feature fields above), even though nothing currently applies it.
+    eye_squint = { 0, 10 },
+    bodyb_1 = { -1, 255 }, bodyb_2 = { 0, 10 }, bodyb_3 = { -1, 255 }, bodyb_4 = { 0, 10 },
+}
+
+local function cmSanitizeAppearance(raw)
+    raw = type(raw) == 'table' and raw or {}
+    local clean = {}
+
+    -- sex is handled separately: coerce to a strict 0/1, never trust a raw
+    -- string/number straight through. Only emitted when the caller actually
+    -- sent it — saveCurrentAppearance does a PARTIAL merge onto the existing
+    -- saved appearance, so unconditionally defaulting sex to 0/male here
+    -- would silently flip gender on every partial update that omits it.
+    -- cmMakeNakedAppearance/cmIsFemaleAppearance re-derive this authoritatively
+    -- from the character record for the full-save path regardless.
+    if raw.sex ~= nil then
+        local sexRaw = raw.sex
+        if sexRaw == 1 or sexRaw == '1' or sexRaw == 'female' or sexRaw == 'f' then
+            clean.sex = 1
+        else
+            clean.sex = 0
+        end
+    end
+
+    for field, range in pairs(CM_APPEARANCE_FIELD_RANGES) do
+        local value = tonumber(raw[field])
+        if value ~= nil then
+            value = math.floor(value + 0.5)
+            if value < range[1] then value = range[1] end
+            if value > range[2] then value = range[2] end
+            clean[field] = value
+        end
+    end
+
+    return clean
+end
+
 local function cmItemsCall(method, ...)
     if GetResourceState('cm-items') ~= 'started' then return nil end
     local args = { ... }
@@ -235,13 +373,38 @@ RegisterNetEvent('cm-characters:server:saveAppearance', function(charId, appeara
         return
     end
 
-    local char, accountId, err = CMCharacters.GetOwnedCharacter(src, charId)
-    if not char then
-        failAppearanceSave(src, err or 'Character not found')
-        return
-    end
+    -- Never trust the NUI payload directly — whitelist/clamp before any of
+    -- it is merged, copied, or persisted below.
+    appearanceData = cmSanitizeAppearance(appearanceData)
 
     local serviceMode = tostring(requestedServiceMode or '')
+
+    -- PHASE 4B lifecycle fix: for a brand-new character, no DB row exists yet
+    -- (see server/creation.lua's PendingCharacterDrafts) — this is the exact
+    -- moment it gets created, atomically, with its real appearance already
+    -- known, instead of an empty row having existed since identity was
+    -- submitted. Service modes (gender/surgery/barber) only ever operate on
+    -- an existing active character, never a pending draft.
+    local char, accountId, err
+    local pendingDraft = serviceMode == '' and CMCharacters.PendingCharacterDrafts[src]
+    if pendingDraft and tostring(pendingDraft.charId) == tostring(charId) then
+        -- Insert with the same '{}' placeholder the old immediate-insert
+        -- code always used. The unchanged logic further below (starter
+        -- clothing grant + cmMakeNakedAppearance + the final UPDATE) sets
+        -- the real appearance_json exactly once, identically to every other
+        -- save — no need to compute/write it twice.
+        char, accountId, err = CMCharacters.CommitPendingCharacterRow(src, charId, '{}')
+        if not char then
+            failAppearanceSave(src, err or 'Could not create character')
+            return
+        end
+    else
+        char, accountId, err = CMCharacters.GetOwnedCharacter(src, charId)
+        if not char then
+            failAppearanceSave(src, err or 'Character not found')
+            return
+        end
+    end
     if serviceMode ~= '' then
         if serviceMode ~= 'gender' and serviceMode ~= 'surgery' and serviceMode ~= 'barber' then
             failAppearanceSave(src, 'Invalid appearance service.')
@@ -440,6 +603,10 @@ RegisterNetEvent('cm-characters:server:saveCurrentAppearance', function(appearan
         return
     end
     if type(appearanceData) ~= 'table' then return end
+
+    -- Never trust the NUI payload directly — whitelist/clamp before merging
+    -- it into the persisted record.
+    appearanceData = cmSanitizeAppearance(appearanceData)
 
     local char, accountId, err = CMCharacters.GetOwnedCharacter(src, charId)
     if not char then

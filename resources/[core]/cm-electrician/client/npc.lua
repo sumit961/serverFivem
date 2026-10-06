@@ -9,6 +9,10 @@
 local Config = CMElectrician.Config
 CMElectrician.Client = CMElectrician.Client or {}
 
+-- Own claim key so panel/plate/outage prompts (client/main.lua, each with
+-- their own owner) can never hide or be hidden by this one.
+local INTERACT_OWNER_NPC = 'cm-electrician:npc'
+
 local npcPed = nil
 local promptVisible = false
 
@@ -86,7 +90,7 @@ local function openDialogue()
     local def = Config.NPC
     local employed = CMElectrician.Client.IsEmployed()
 
-    exports['cm-ui']:HideInteract()
+    exports['cm-ui']:HideInteract(INTERACT_OWNER_NPC)
     promptVisible = false
 
     exports['cm-ui']:OpenNpcDialogue(npcPed, {
@@ -131,6 +135,8 @@ CreateThread(function()
             if distance < (def.interactDistance or 3.0) then
                 wait = 0
                 exports['cm-ui']:ShowInteract({
+                    owner = INTERACT_OWNER_NPC,
+                    priority = 20,
                     key = Config.interactKeyLabel or 'E',
                     label = 'INTERACTION',
                     name = def.name or 'Electrician Foreman',
@@ -142,11 +148,11 @@ CreateThread(function()
                     openDialogue()
                 end
             elseif promptVisible then
-                exports['cm-ui']:HideInteract()
+                exports['cm-ui']:HideInteract(INTERACT_OWNER_NPC)
                 promptVisible = false
             end
         elseif promptVisible then
-            exports['cm-ui']:HideInteract()
+            exports['cm-ui']:HideInteract(INTERACT_OWNER_NPC)
             promptVisible = false
         end
 
@@ -157,7 +163,7 @@ end)
 AddEventHandler('onResourceStop', function(resourceName)
     if resourceName ~= GetCurrentResourceName() then return end
     if GetResourceState('cm-ui') == 'started' then
-        exports['cm-ui']:HideInteract()
+        exports['cm-ui']:HideInteract(INTERACT_OWNER_NPC)
         exports['cm-ui']:CancelNpcDialogue()
     end
     if npcPed and DoesEntityExist(npcPed) then DeleteEntity(npcPed) end

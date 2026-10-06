@@ -27,8 +27,8 @@ function HUD.StartTest(testData)
         licenseLabel = testData.licenseLabel,
         startedAt = GetGameTimer(),
         deadlineAt = GetGameTimer() + ((tonumber(testData.secondsRemaining) or tonumber(testData.timeoutSeconds) or 1200) * 1000),
-        currentCheckpoint = 0,
-        totalCheckpoints = #Checkpoints.Checkpoints,
+        currentCheckpoint = tonumber(testData.currentCheckpoint) or 1,
+        totalCheckpoints = tonumber(testData.totalCheckpoints) or #Checkpoints.Checkpoints,
         mistakes = 0,
         maxMistakes = tonumber(testData.maxMistakes) or 0,
     }
@@ -68,32 +68,39 @@ function HUD.Draw()
     local data = HUD.CurrentData
     if not data then return end
 
-    -- Positioned below the shared CM identity/money HUD in the top-right.
-    local x, y, width = 0.835, 0.185, 0.14
-    local height = data.maxMistakes > 0 and 0.100 or 0.086
+    -- Keep the exam strip top-centre, clear of cm-hud's top-right identity and
+    -- money modules. The layout is normalized, so it stays compact on common
+    -- 16:9 resolutions without introducing another NUI surface.
+    local hasMistakes = data.maxMistakes > 0
+    local width = hasMistakes and 0.36 or 0.285
+    local x, y, height = 0.5 - (width / 2), 0.028, 0.060
 
     DrawRect(x + width / 2 + 0.002, y + height / 2 + 0.003, width, height, 0, 0, 0, 55)
-    DrawRect(x + width / 2, y + height / 2, width, height, 5, 16, 24, 155)
+    DrawRect(x + width / 2, y + height / 2, width, height, 11, 23, 30, 225)
     DrawRect(x + 0.0015, y + height / 2, 0.003, height, 0, 229, 255, 235)
-    DrawRect(x + width / 2, y + 0.001, width, 0.0015, 0, 229, 255, 100)
+    DrawRect(x + width / 2, y + 0.001, width, 0.0015, 0, 229, 255, 180)
 
-    drawText('LICENSE EXAM', x + 0.010, y + 0.008, 0.29, 0, 229, 255)
+    drawText('LICENSE EXAM', x + 0.010, y + 0.011, 0.23, 0, 229, 255)
 
     local remaining = math.max(0, math.floor(((data.deadlineAt or 0) - GetGameTimer()) / 1000))
     local urgent = remaining <= 60
-    drawText(('Time Left   %02d:%02d'):format(math.floor(remaining / 60), remaining % 60),
-        x + 0.010, y + 0.030, 0.32, urgent and 255 or 255, urgent and 90 or 255, urgent and 90 or 255)
+    drawText('CHECKPOINTS LEFT', x + 0.095, y + 0.009, 0.18, 194, 210, 220)
+    local total = tonumber(data.totalCheckpoints) or 0
+    local current = tonumber(data.currentCheckpoint) or 1
+    local checkpointsLeft = math.max(0, total - current)
+    drawText(tostring(checkpointsLeft), x + 0.095, y + 0.027, 0.31, 255, 255, 255)
 
-    local total = data.totalCheckpoints or 0
-    if total > 0 then
-        drawText(('Checkpoint  %d / %d'):format(data.currentCheckpoint or 0, total),
-            x + 0.010, y + 0.052, 0.30, 210, 230, 240)
-    end
+    local timeX = x + (hasMistakes and 0.225 or 0.220)
+    drawText('TIME', timeX, y + 0.009, 0.18, 194, 210, 220)
+    drawText(('%02d:%02d'):format(math.floor(remaining / 60), remaining % 60),
+        timeX, y + 0.027, 0.31, urgent and 255 or 255, urgent and 90 or 255, urgent and 90 or 255)
 
-    if data.maxMistakes > 0 then
+    if hasMistakes then
+        local mistakesX = x + 0.300
+        drawText('MISTAKES', mistakesX, y + 0.009, 0.18, 194, 210, 220)
         local overHalf = (data.mistakes or 0) > (data.maxMistakes / 2)
-        drawText(('Mistakes    %d / %d'):format(data.mistakes or 0, data.maxMistakes),
-            x + 0.010, y + 0.074, 0.30, overHalf and 255 or 210, overHalf and 160 or 230, overHalf and 90 or 240)
+        drawText(('%d / %d'):format(data.mistakes or 0, data.maxMistakes),
+            mistakesX, y + 0.027, 0.31, overHalf and 255 or 255, overHalf and 140 or 255, overHalf and 55 or 255)
     end
 end
 

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Davis Quartz Mining Shift HUD</title>
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="mining-hud" class="mining-hud" style="display: none;">
+        <div class="hud-card">
+            <div class="hud-header">
+                <div class="brand-badge">
+                    <span class="pulse-dot"></span>
+                    <span class="brand-title">DAVIS QUARTZ EXTRACTION</span>
+                </div>
+                <div class="quarry-tag">HEAVY INDUSTRY</div>
+            </div>
+
+            <div class="shift-title">Quarry Shift Operations</div>
+
+            <div class="manifest-section">
+                <div class="manifest-row">
+                    <span class="manifest-label">RAW IRON ORE IN CART</span>
+                    <span class="manifest-val" id="cart-ore">0 / 30</span>
+                </div>
+                <div class="manifest-row">
+                    <span class="manifest-label">SMELTED IRON INGOTS</span>
+                    <span class="manifest-val highlight" id="cart-ingots">0</span>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-label">TOTAL EXTRACTED</span>
+                        <span class="stat-val" id="total-mined">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">TOTAL SMELTED</span>
+                        <span class="stat-val" id="total-smelted">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="objective-box">
+                <span class="objective-tag">OBJECTIVE</span>
+                <span class="objective-text" id="objective-text">EXTRACT RAW IRON ORE AT VEIN NODES</span>
+            </div>
+
+            <div class="custody-notice">
+                <span class="notice-icon">&#9432;</span>
+                <span class="notice-text">Material custody and payroll remain securely held in the quarry ledger pending downstream sink activation.</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+

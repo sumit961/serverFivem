@@ -1,76 +1,40 @@
-# CM FiveM Framework
+# cm-clubs
 
-CM is a complete FiveM roleplay server built from cooperating resources. Resource contracts, persistent identities, permissions, and startup order are repository-wide concerns; individual resources should not be treated as standalone scripts.
+`cm-clubs` is a standalone V1 social-club resource for administrator-created
+car, music, cultural, hobby, and community groups. It is deliberately separate
+from gangs, families, police/legal organizations, businesses, and the F6
+Organization Hub.
 
-## Repository layout
+## Setup
 
-- `resources/[core]/` — CM gameplay and framework resources.
-- `resources/[standalone]/` and Cfx default groups — third-party/runtime dependencies.
-- `resources/[mlo]/` and `resources/[clothes]/` — private assets intentionally excluded from Git.
-- `tools/cm-fivem-map/` — FiveM contract scanner.
-- `tools/cm-validate/` — static repository validator.
-- `agent-docs/` — tracked architecture documentation.
+Apply `sql/001_cm_clubs.sql` through the normal database migration process. The
+resource does not execute schema changes automatically. There are no seeded
+clubs: administrators create them through the restricted server exports in
+`server/main.lua`.
 
-## Prerequisites
+## Owner contracts
 
-- A current FiveM/FXServer artifact and valid Cfx.re license.
-- MySQL/MariaDB reachable by `oxmysql`.
-- The required private assets documented in [PRIVATE_ASSETS.md](PRIVATE_ASSETS.md).
-- Node.js only when rebuilding a resource's NUI source; built NUI files are normally loaded by FXServer.
+- `cm-playerdata:RegisterInteractionAction` exposes the nearby `Invite to club`
+  action through the existing player interaction menu.
+- `cm-chat:SetPlayerChatGroup(source, 'club', clubId, color)` is used when the
+  generic chat owner supports the club group.
+- `cm-ui:ShowInteract`, `cm-ui:HideInteract`, and `cm-ui:Confirm` are used for
+  shared interaction and confirmation presentation. Notifications use the
+  existing `ox_lib` notification convention because `cm-ui` has no notification
+  export.
+- `cm-admin:HasPermission(source, 'orgs.manage')` is checked for every
+  administrator export. `cm-clubs` does not expose those exports to clients.
 
-## Installation and startup
+`cm-admin` currently has no generic social-club CRUD callback/UI contract. The
+restricted exports are the integration point for a future admin surface:
+`AdminCreateClub`, `AdminSetClubEnabled`, `AdminAssignClubLeader`,
+`AdminUpsertClubRank`, and `AdminGetClubs`.
 
-1. Clone the repository and install the required private resources.
-2. Import the repository SQL migrations into a dedicated database. Never point a development checkout at production without a backup.
-3. Copy `server.local.example.cfg` to `server.local.cfg` and replace the placeholders locally.
-4. Keep `server.local.cfg` untracked. `server.cfg` loads it with `exec server.local.cfg`.
-5. Review the active `ensure` list and confirm every external/private resource is installed.
-6. Start FXServer using `server.cfg` (or select this recipe in txAdmin).
+## Commands and UI
 
-Do not put credentials in `server.cfg`, documentation, commits, or issue logs.
+`/club` opens the member dashboard. Dashboard data is rebuilt on the server for
+the current Character ID. Nearby invitations are only exposed through the
+shared player interaction menu; there is no dashboard recruitment path.
 
-## Resource ownership
-
-- `cm-core`: framework lifecycle and shared services.
-- `cm-playerdata`: character identity and player relationship data.
-- `cm-items`: authoritative shared item definitions.
-- `cm-inventory`: player/container inventory behavior.
-- `cm-weapons`: weapon and ammunition definitions.
-- `cm-vehicles`: persistent vehicle identity and physical vehicle state.
-- `cm-house`: properties, interiors, garages, and house access.
-- `cm-family`: family membership, ranks, and family-scoped access.
-- `cm-admin`: privileged administration and audit visibility.
-- `cm-ui`: shared UI primitives and CM design tokens.
-- `cm-law`: shared legal-organization services.
-- `cm-police`: police-specific gameplay.
-- `cm-ems`: EMS organization and medical-response gameplay.
-- `cm-doctor`: doctor/NPC medical services built on EMS contracts.
-- `cm-prison`: shared jail sentence and prison state.
-
-`cm-gunstore` owns the public weapons/armor store. Its armory catalog enrichment is an optional runtime integration for `cm-law`; weapon definitions still come from `cm-weapons`.
-
-## Validation
-
-From the repository root:
-
-```powershell
-python tools/cm-validate/validate.py
-python tools/cm-fivem-map/scan.py --root . --out cm-agent-out --check
-```
-
-Refresh generated contract intelligence with:
-
-```powershell
-python tools/cm-fivem-map/scan.py --root . --out cm-agent-out
-graphify extract . --code-only
-graphify cluster-only . --no-label --no-viz
-```
-
-Generated `cm-agent-out/` and `graphify-out/` directories are intentionally ignored.
-
-## Troubleshooting
-
-- A missing-resource/start-order error usually means an active `ensure` or hard manifest dependency is unavailable or starts too late. Run `tools/cm-validate/validate.py`.
-- Database errors should be checked against the relevant resource migration and the oxmysql connection string. Never reset production tables to silence an error.
-- Missing maps, interiors, or clothing generally indicate an unavailable private asset; see `PRIVATE_ASSETS.md`.
-- Static validation cannot prove runtime behavior. Test affected flows on a non-production FiveM server after every integration change.
+There are no physical clubhouses, club vehicles, storage, armories, rewards,
+money, XP, duty, crime, or player-created club flows in V1.

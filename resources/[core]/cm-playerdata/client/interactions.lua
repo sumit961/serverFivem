@@ -123,7 +123,9 @@ local function IsPedDowned(ped, serverId)
 
     if serverId and serverId > 0 then
         local ok, state = pcall(function() return Player(serverId).state end)
-        if ok and state and state.isDead == true then return true end
+        if ok and state then
+            if state.lifeState == 'downed' or state.isDowned == true or state.isDead == true then return true end
+        end
     end
 
     -- Hard fallback for a genuinely dead ped (0 HP) with no state bag yet.
@@ -300,7 +302,18 @@ local function GetIdentityLabel(serverId, allowLoading, ped, isTarget)
 
     local statusLine = nil
     if not isAdmin and ped and IsPedValidLabelTarget(ped) and IsPedDowned(ped, serverId) then
-        statusLine = GetCfg('DownedLabelText', 'Unconscious')
+        local isFullyDead = false
+        if serverId and serverId > 0 then
+            local ok, state = pcall(function() return Player(serverId).state end)
+            if ok and state and (state.lifeState == 'dead' or state.isFullyDead == true) then
+                isFullyDead = true
+            end
+        end
+        if isFullyDead then
+            statusLine = GetCfg('DeadLabelText', 'Dead')
+        else
+            statusLine = GetCfg('DownedLabelText', 'Unconscious')
+        end
     end
 
     local familySymbol, familyColour
@@ -992,7 +1005,8 @@ local function RegisterInteractionPage(page)
         icon = SafeString(page.icon, 'dot'),
         order = tonumber(page.order) or 50,
         emptyLabel = SafeString(page.emptyLabel, 'No actions available'),
-        showWhenEmpty = page.showWhenEmpty == true
+        showWhenEmpty = page.showWhenEmpty == true,
+        layout = SafeString(page.layout, 'player') == 'vehicle' and 'vehicle' or 'player'
     }
     extensionOptions[id] = extensionOptions[id] or {}
     return true
@@ -1113,6 +1127,7 @@ local function AppendExtensionPageEntries(options, targetDead)
                 icon = page.icon,
                 type = 'page',
                 page = 'ext:' .. id,
+                layout = page.layout,
                 order = tonumber(page.order) or 50,
                 _seq = tonumber(page.order) or 50
             }
@@ -1252,6 +1267,14 @@ local function SendMenuPage(force)
     local navigation = BuildPage('main')
 
     local nameLine, idLine = GetIdentityTitle(menuTarget.serverId, true)
+    local layout = 'player'
+    local pageLabel = nil
+    if type(currentPage) == 'string' and currentPage:sub(1, 4) == 'ext:' then
+        local pageId = NormalizeMenuId(currentPage:sub(5))
+        local pageMeta = pageId and extensionPages[pageId] or nil
+        layout = pageMeta and pageMeta.layout or 'player'
+        pageLabel = pageMeta and pageMeta.label or nil
+    end
     local signature = table.concat({
         tostring(currentPage),
         tostring(nameLine or ''),
@@ -1265,6 +1288,8 @@ local function SendMenuPage(force)
     SendNUIMessage({
         action = 'openRadial',
         page = currentPage,
+        layout = layout,
+        pageLabel = pageLabel,
         title = nameLine,
         subtitle = idLine,
         hint = 'CLICK OR 1-9 ACTION  ·  RIGHT MOUSE BACK  ·  ESC CLOSE',

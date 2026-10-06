@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CM Lift</title>
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-components.css">
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-layout.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <main id="lift-app" class="cm-app lift-app" hidden aria-hidden="true">
+        <section class="lift-window" role="dialog" aria-modal="true" aria-labelledby="lift-title">
+            <header class="lift-header">
+                <div>
+                    <p class="lift-kicker">CM LIFT</p>
+                    <h1 id="lift-title">ELEVATOR</h1>
+                    <p id="lift-subtitle" class="lift-subtitle">SELECT FLOOR</p>
+                </div>
+                <button id="close-button" class="cm-btn cm-btn-secondary cm-btn-sm" type="button" aria-label="Close elevator menu">ESC</button>
+            </header>
+            <div id="floor-list" class="floor-list" role="list"></div>
+            <footer class="lift-footer">ESC TO CLOSE</footer>
+        </section>
+    </main>
+    <script src="nui://cm-ui/web/cm-ui.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

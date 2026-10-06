@@ -218,12 +218,23 @@ end
 exports('SetPlayerChatGroup', setPlayerGroup)
 exports('SetPlayerChatGroups', setPlayerGroups)
 
-RegisterNetEvent('cm-chat:server:setChatGroup', function(groupName, groupValue, groupColor)
-    setPlayerGroup(source, groupName, groupValue, groupColor)
+-- PHASE 6 SECURITY FIX: these were RegisterNetEvent, meaning ANY connected
+-- client could call TriggerServerEvent('cm-chat:server:setChatGroup', 'org', '1')
+-- and self-assign ORG/CLUB (or any future generic group) chat access with a
+-- value of their own choosing. Family/gang/ems/police/law are unaffected by
+-- this (getGroupValue below never consults PlayerGroups for those -- it
+-- always re-derives them from the real authoritative provider), but a
+-- generic group with no such override was fully self-assignable. These are
+-- now AddEventHandler only: reachable only from trusted server-side Lua via
+-- TriggerEvent('cm-chat:server:setChatGroup', src, ...) or the exports above,
+-- never from the network. src is now an explicit argument (not the implicit
+-- `source` global) since a local TriggerEvent does not set that.
+AddEventHandler('cm-chat:server:setChatGroup', function(src, groupName, groupValue, groupColor)
+    setPlayerGroup(tonumber(src) or source, groupName, groupValue, groupColor)
 end)
 
-RegisterNetEvent('cm-chat:server:setChatGroups', function(groups)
-    setPlayerGroups(source, groups)
+AddEventHandler('cm-chat:server:setChatGroups', function(src, groups)
+    setPlayerGroups(tonumber(src) or source, groups)
 end)
 
 local function getGroupValue(src, groupName)
@@ -414,16 +425,36 @@ exports('SetPlayerCharacter', function(src, charId, name)
     return setCharacter(src, charId, name)
 end)
 
+-- PHASE 6 SECURITY FIX: this used to trust a raw client-supplied character id
+-- (hints.id/characterId/...) and a client-supplied account_id outright as a
+-- fallback whenever server state hadn't been set yet -- a modified client
+-- could send hints = { id = '<any character id>' } (or an arbitrary
+-- account_id) and impersonate any character in chat. Client hints may now
+-- only ever supply a `slot` number (meaningless without a real account id
+-- attached to it); identity itself comes exclusively from this src's own
+-- server-authoritative state or its server-resolved account id.
+local function getAuthoritativeAccountId(src)
+    local stateId = cleanCharacterId(readStateValue(src, { 'account_id', 'accountId', 'account', 'accountid' }))
+    if stateId then return stateId end
+
+    if GetResourceState('cm-auth') == 'started' then
+        local ok, id = pcall(function() return exports['cm-auth']:GetAccountId(src) end)
+        if ok and id then return cleanCharacterId(id) end
+    end
+    if GetResourceState('cm-core') == 'started' then
+        local ok, id = pcall(function() return exports['cm-core']:GetAccountId(src) end)
+        if ok and id then return cleanCharacterId(id) end
+    end
+    return nil
+end
+
 local function resolveCharacterByHints(src, hints, cb)
     hints = hints or {}
 
     local stateId = extractCharacterIdFromAny(readStateValue(src, { 'characterId', 'charId', 'charid', 'char_id', 'citizenid', 'currentCharacterId' }))
     if stateId then cb(stateId) return end
 
-    local charId = extractCharacterIdFromAny(hints.id or hints.characterId or hints.charId or hints.charid or hints.char_id or hints.citizenid)
-    if charId then cb(charId) return end
-
-    local accountId = cleanCharacterId(hints.account_id or hints.accountId or hints.account or hints.accountid) or cleanCharacterId(readStateValue(src, { 'account_id', 'accountId', 'account', 'accountid' }))
+    local accountId = getAuthoritativeAccountId(src)
     local slot = tonumber(hints.slot or hints.charSlot or hints.character_slot)
 
     if accountId and slot then
@@ -469,6 +500,18 @@ local function handleCharacterLoadedEvent(a, b, c)
     if src and charId then setCharacter(src, charId) end
 end
 
+-- PHASE 6 SECURITY FIX: these names imply a "trusted" caller (cm-characters/
+-- cm-spawn/cm-core asserting a real, server-resolved character id), but
+-- RegisterNetEvent makes ANY event name callable by a client over the network
+-- regardless of who was "meant" to call it. A modified client could have
+-- called TriggerServerEvent('cm-chat:server:setCharacter', '<victim id>') and
+-- had every subsequent chat message from that client displayed as the victim's
+-- identity. AddEventHandler (no RegisterNetEvent) keeps handleCharacterLoadedEvent
+-- reachable only via a same-process TriggerEvent(name, src, charId) from other
+-- server-side Lua -- exactly the pattern cm-chat:server:familyMessage below
+-- already uses for the same reason. No current resource in this repo actually
+-- fires cm-characters:server:characterLoaded/selectedCharacter/etc, but the
+-- names stay registered for forward compatibility, now safely.
 for _, eventName in ipairs({
     'cm-chat:server:setCharacter',
     'cm-chat:server:setTrustedCharacter',
@@ -480,7 +523,7 @@ for _, eventName in ipairs({
     'cm-spawn:characterLoaded',
     'cm-core:server:characterLoaded'
 }) do
-    RegisterNetEvent(eventName, handleCharacterLoadedEvent)
+    AddEventHandler(eventName, handleCharacterLoadedEvent)
 end
 
 local function getActiveCharacter(src, cb)
@@ -599,15 +642,23 @@ local function sendProximity(src, radius, payload)
     local srcPed = GetPlayerPed(src)
     if not srcPed or srcPed == 0 then return end
     local srcCoords = GetEntityCoords(srcPed)
+    -- PHASE 6 SECURITY FIX: proximity chat only checked distance, so a player
+    -- in the character selector/creator/spawn-selector private bucket (or any
+    -- other private/instanced bucket) could hear/be heard by a player at the
+    -- same world coordinates in the public bucket. Distance alone never
+    -- implies "in the same place" across routing buckets.
+    local srcBucket = GetPlayerRoutingBucket(src)
     radius = tonumber(radius) or Config.DefaultLocalRadius or 20.0
 
     for _, playerId in ipairs(GetPlayers()) do
         local target = tonumber(playerId)
-        local ped = GetPlayerPed(target)
-        if ped and ped ~= 0 then
-            local coords = GetEntityCoords(ped)
-            if #(srcCoords - coords) <= radius then
-                TriggerClientEvent('cm-chat:client:addMessage', target, payload)
+        if target and GetPlayerRoutingBucket(target) == srcBucket then
+            local ped = GetPlayerPed(target)
+            if ped and ped ~= 0 then
+                local coords = GetEntityCoords(ped)
+                if #(srcCoords - coords) <= radius then
+                    TriggerClientEvent('cm-chat:client:addMessage', target, payload)
+                end
             end
         end
     end
@@ -1002,9 +1053,12 @@ end)
 -- ===========================================================================
 
 -- New channels (hiddenTab = they render in chat but aren't selectable tabs).
+-- PHASE 6: default action-line color changed from pink (#ff4fd8, never a
+-- real Config.ColorPalette key -- this fallback was always used) to the CM
+-- orange already in the palette. No purple/pink in the default design system.
 registerChannel('action', 'ACTION', {
     type = 'proximity', radius = Config.ActionRadius or 20.0,
-    color = Config.ColorPalette.actionpink or '#ff4fd8',
+    color = Config.ColorPalette.orange or '#ffad4d',
     format = 'action', hiddenTab = true, always = true
 })
 registerChannel('announce', 'ADMIN', {

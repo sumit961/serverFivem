@@ -8,6 +8,16 @@ const characterList = document.getElementById('character-list');
 const characterCount = document.getElementById('character-count');
 const errorMsg = document.getElementById('error-msg');
 const creatorError = document.getElementById('creator-error');
+const creatorForm = document.getElementById('creator-form');
+const creatorContinueBtn = document.getElementById('creator-continue-btn');
+const creatorBackBtn = document.getElementById('creator-back-btn');
+const dobInput = document.getElementById('dob');
+if (dobInput) {
+    // UX only — prevents picking a future date in the native picker. The
+    // server independently re-validates age against Config.MinCharacterAge/
+    // Config.MaxCharacterAge regardless of this attribute.
+    dobInput.max = new Date().toISOString().slice(0, 10);
+}
 const playBtn = document.getElementById('play-btn');
 const musicToggle = document.getElementById('music-toggle');
 const appearanceMusicToggle = document.getElementById('appearance-music-toggle');
@@ -16,17 +26,36 @@ const creationLoading = document.getElementById('creation-loading');
 const creationLoadingText = document.getElementById('creation-loading-text');
 const creationLoadingPercent = document.getElementById('creation-loading-percent');
 const creationLoadingBar = document.getElementById('creation-loading-bar');
-let loadingTimer = null;
-let finishingTimer = null;
-let finishingTimeout = null;
+const creationLoadingBrand = document.getElementById('creation-loading-brand');
+
+// Single shared branding source (loaded from cm-auth, a hard dependency —
+// see fxmanifest.lua). Never hardcode the server name independently here.
+// Note: the visible selector screen intentionally shows NO brand/build/
+// version text anywhere (including top-right) — only the loading overlay
+// (a separate, momentary screen) uses this branding string.
+if (creationLoadingBrand) {
+    creationLoadingBrand.textContent = (window.CMBranding && window.CMBranding.serverName) || 'CM ROLEPLAY';
+}
+
+// CHARACTER CREATION REPAIR PASS: setCreationLoading is now the ONE
+// authoritative owner of the creation-loading overlay's visible/hidden state.
+// It used to gate HIDE behind a "finish the progress bar to 100%, then wait
+// 450ms" timer chain, and a new SHOW request never cancelled that chain --
+// two calls in quick succession (exactly what a Back-then-Continue produces)
+// could race and leave the overlay's actual hide fighting a stale timer.
+// Hide is now immediate and authoritative: the overlay disappears the moment
+// a caller says the real screen is ready, never after a fake animation
+// finishes. A generation counter cancels any in-flight cosmetic ramp from a
+// superseded call.
+let loadingRampInterval = null;
+let creationLoadingGeneration = 0;
 let loadingPercentValue = 0;
 let loaderHoldingSelector = false;
 let spawnFlowActive = false;
 
 function forceHideCharacterLoader() {
-    if (loadingTimer) { clearInterval(loadingTimer); loadingTimer = null; }
-    if (finishingTimer) { clearInterval(finishingTimer); finishingTimer = null; }
-    if (finishingTimeout) { clearTimeout(finishingTimeout); finishingTimeout = null; }
+    creationLoadingGeneration += 1;
+    if (loadingRampInterval) { clearInterval(loadingRampInterval); loadingRampInterval = null; }
     loadingPercentValue = 0;
     if (creationLoadingPercent) creationLoadingPercent.textContent = '0%';
     if (creationLoadingBar) creationLoadingBar.style.width = '0%';
@@ -49,12 +78,16 @@ const detailEls = {
     id: document.getElementById('details-id'),
     cash: document.getElementById('details-cash'),
     bank: document.getElementById('details-bank'),
-    level: document.getElementById('details-level'),
-    rank: document.getElementById('details-rank'),
-    gender: document.getElementById('details-gender'),
-    playtime: document.getElementById('details-playtime'),
-    created: document.getElementById('details-created')
+    rank: document.getElementById('details-rank')
 };
+
+// playBtn's label lives inside a skewed-shape wrapper (see cm-aaa.css
+// .cm-action-skew) — never set playBtn.textContent directly, that would
+// destroy the wrapper/icon markup.
+function setPlayBtnLabel(text) {
+    const label = playBtn && playBtn.querySelector('.btn-label');
+    if (label) label.textContent = text;
+}
 
 let currentSlots = {};
 let lastSlotsSignature = '';
@@ -101,7 +134,17 @@ function makeSlotsSignature(slots, max) {
 
 function setCreationLoading(show, message, targetPercent) {
     if (!creationLoading) return;
-    if (creationLoadingText && message) creationLoadingText.textContent = message;
+
+    // Every call gets its own generation. Any cosmetic ramp interval started
+    // by an OLDER call checks this and stops itself instead of continuing to
+    // write frames after a newer call has taken over -- this is what stops a
+    // stale Continue's loading-show from fighting a later Back's hide (or
+    // vice versa).
+    creationLoadingGeneration += 1;
+    const myGeneration = creationLoadingGeneration;
+
+    if (loadingRampInterval) { clearInterval(loadingRampInterval); loadingRampInterval = null; }
+    if (message && creationLoadingText) creationLoadingText.textContent = message;
 
     const setPercent = (value) => {
         loadingPercentValue = Math.max(0, Math.min(100, Math.floor(value)));
@@ -109,71 +152,54 @@ function setCreationLoading(show, message, targetPercent) {
         if (creationLoadingBar) creationLoadingBar.style.width = `${loadingPercentValue}%`;
     };
 
-    const clearLoadingTimer = () => {
-        if (loadingTimer) {
-            clearInterval(loadingTimer);
-            loadingTimer = null;
-        }
-    };
-
     if (show) {
         if (spawnFlowActive) {
             forceHideCharacterLoader();
             return;
         }
-        clearLoadingTimer();
+
         creationLoading.classList.remove('hidden', 'finishing');
         creationLoading.style.display = 'flex';
         setPercent(targetPercent || 0);
 
-        // Do not reach 100 until Lua says the preview is actually ready.
-        // This stops the loading UI from closing/breaking before the bar finishes.
-        loadingTimer = setInterval(() => {
+        // Cosmetic-only ramp toward a cap below 100 while the real screen is
+        // still being prepared. This NEVER drives visibility -- only an
+        // explicit setCreationLoading(false, ...) call (readiness, not a
+        // fake timer) hides the overlay.
+        loadingRampInterval = setInterval(() => {
+            if (myGeneration !== creationLoadingGeneration) {
+                clearInterval(loadingRampInterval);
+                loadingRampInterval = null;
+                return;
+            }
             const cap = targetPercent && targetPercent >= 100 ? 100 : 94;
             if (loadingPercentValue < cap) {
                 setPercent(loadingPercentValue + Math.max(1, Math.floor((cap - loadingPercentValue) / 10)));
             }
         }, 110);
-    } else {
-        clearLoadingTimer();
-        if (finishingTimer) { clearInterval(finishingTimer); finishingTimer = null; }
-        if (finishingTimeout) { clearTimeout(finishingTimeout); finishingTimeout = null; }
-
-        if (creationLoading.classList.contains('hidden') || creationLoading.style.display === 'none' || !creationLoading.style.display) {
-            creationLoading.classList.add('hidden');
-            creationLoading.classList.remove('finishing');
-            creationLoading.style.display = 'none';
-            setPercent(0);
-            return;
-        }
-
-        creationLoading.classList.remove('hidden');
-        creationLoading.classList.add('finishing');
-        creationLoading.style.display = 'flex';
-
-        // Always visually complete to 100 first, then close smoothly.
-        finishingTimer = setInterval(() => {
-            if (loadingPercentValue < 100) {
-                setPercent(Math.min(100, loadingPercentValue + Math.max(2, Math.floor((100 - loadingPercentValue) / 4))));
-                return;
-            }
-
-            clearInterval(finishingTimer);
-            finishingTimer = null;
-            finishingTimeout = setTimeout(() => {
-                finishingTimeout = null;
-                creationLoading.classList.add('hidden');
-                creationLoading.classList.remove('finishing');
-                creationLoading.style.display = '';
-                setPercent(0);
-
-                if (loaderHoldingSelector) {
-                    loaderHoldingSelector = false;
-                    forceSelectorVisible();
-                }
-            }, 450);
-        }, 45);
+        return;
     }
+
+    // HIDE is immediate and authoritative. The caller only reaches here once
+    // the real screen (Selector/Identity/Appearance) is actually ready, so
+    // readiness -- not a progress animation reaching 100 -- is what removes
+    // the overlay from view.
+    setPercent(100);
+    creationLoading.classList.add('hidden');
+    creationLoading.classList.remove('finishing');
+    creationLoading.style.display = 'none';
+
+    if (loaderHoldingSelector) {
+        loaderHoldingSelector = false;
+        forceSelectorVisible();
+    }
+
+    // Purely cosmetic reset for the next time the overlay shows; happens
+    // after the overlay is already hidden, so it can never delay or race the
+    // actual state change above.
+    setTimeout(() => {
+        if (myGeneration === creationLoadingGeneration) setPercent(0);
+    }, 200);
 }
 
 function forceSelectorVisible() {
@@ -194,22 +220,6 @@ function money(value) {
 function titleCase(value) {
     value = String(value || 'N/A');
     return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function formatPlaytime(minutes) {
-    const total = Number(minutes || 0);
-    if (total <= 0) return '0h';
-    const hours = Math.floor(total / 60);
-    const mins = total % 60;
-    if (hours <= 0) return `${mins}m`;
-    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
-}
-
-function formatDate(value) {
-    if (!value) return 'N/A';
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return String(value).split('T')[0];
-    return date.toLocaleDateString('en-AU', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 function slotValue(slot) {
@@ -235,9 +245,17 @@ function getFirstEmptySlot() {
 function setMusicState(muted) {
     if (!bgm) return;
     bgm.muted = muted;
-    localStorage.setItem('cm_char_music_muted', muted ? '1' : '0');
+    try {
+        localStorage.setItem('cm_char_music_muted', muted ? '1' : '0');
+    } catch (e) {
+        // Private-mode/blocked storage: remembering the mute preference is a convenience only.
+    }
     [musicToggle, appearanceMusicToggle].forEach((button) => {
-        if (button) button.textContent = muted ? 'Music: Off' : 'Music: On';
+        if (!button) return;
+        button.setAttribute('aria-pressed', muted ? 'true' : 'false');
+        button.setAttribute('aria-label', muted ? 'Unmute character music' : 'Mute character music');
+        if (button === musicToggle) button.textContent = muted ? '♯' : '♫';
+        else button.textContent = muted ? 'Music: Off' : 'Music: On';
     });
 }
 
@@ -276,7 +294,7 @@ function renderSlots(options) {
     existing.forEach(({ slot, char }) => {
         const card = document.createElement('button');
         card.type = 'button';
-        card.className = 'character-card cm-card';
+        card.className = 'character-card';
         card.dataset.slot = String(slot);
         card.dataset.charId = String(char.uniqueId || '');
 
@@ -288,24 +306,12 @@ function renderSlots(options) {
         idText.textContent = `#${char.uniqueId || 'N/A'}`;
         top.append(slotText, idText);
 
-        const badge = document.createElement('div');
-        badge.className = `avatar-badge ${String(char.gender).toLowerCase() === 'female' ? 'female' : 'male'}`;
-        badge.textContent = String(char.gender).toLowerCase() === 'female' ? 'F' : 'M';
-
         const title = document.createElement('h3');
         title.textContent = char.name || 'Unknown Character';
         const meta = document.createElement('p');
-        meta.textContent = `${titleCase(char.gender)} · Level ${char.level || 1}`;
+        meta.textContent = `${titleCase(char.gender)} · ${titleCase(char.rank || 'Civilian')}`;
 
-        const stats = document.createElement('div');
-        stats.className = 'mini-stats cm-chip-list';
-        const cash = document.createElement('span');
-        cash.textContent = money(char.cash);
-        const bank = document.createElement('span');
-        bank.textContent = `${money(char.bank)} bank`;
-        stats.append(cash, bank);
-
-        card.append(top, badge, title, meta, stats);
+        card.append(top, title, meta);
         card.addEventListener('click', () => selectCharacterCard(slot, char.uniqueId));
         characterList.appendChild(card);
     });
@@ -313,16 +319,15 @@ function renderSlots(options) {
     if (emptySlot) {
         const createCard = document.createElement('button');
         createCard.type = 'button';
-        createCard.className = 'character-card create-card cm-card';
+        createCard.className = 'character-card create-card';
         createCard.dataset.slot = String(emptySlot);
         createCard.innerHTML = `
             <div class="card-topline">
-                <span>Slot ${emptySlot}</span>
-                <strong>New</strong>
+                <span>Empty slot</span>
+                <strong>+</strong>
             </div>
-            <div class="create-plus">+</div>
-            <h3>Create Character</h3>
-            <p>Start a new story in this slot.</p>
+            <h3>New character</h3>
+            <p>Start a new story in slot ${emptySlot}.</p>
         `;
         createCard.addEventListener('click', () => openCreatorSlot(emptySlot));
         characterList.appendChild(createCard);
@@ -349,14 +354,10 @@ function clearDetails() {
     selectedCharacter = null;
     selectedSlot = null;
     detailEls.name.textContent = 'Select a character';
-    detailEls.id.textContent = 'Pick one of your saved characters to view stats.';
+    detailEls.id.textContent = 'Pick one of your saved characters to preview.';
     detailEls.cash.textContent = '$0';
     detailEls.bank.textContent = '$0';
-    detailEls.level.textContent = '1';
     detailEls.rank.textContent = 'Civilian';
-    detailEls.gender.textContent = 'N/A';
-    detailEls.playtime.textContent = '0h';
-    detailEls.created.textContent = 'N/A';
     playBtn.disabled = true;
 }
 
@@ -372,14 +373,10 @@ function selectCharacterCard(slot, charId, skipPreview) {
     });
 
     detailEls.name.textContent = char.name || 'Unknown Character';
-    detailEls.id.textContent = `Permanent ID #${char.uniqueId || 'N/A'}`;
+    detailEls.id.textContent = `Character ID: ${char.uniqueId || 'N/A'}`;
     detailEls.cash.textContent = money(char.cash);
     detailEls.bank.textContent = money(char.bank);
-    detailEls.level.textContent = String(char.level || 1);
     detailEls.rank.textContent = String(char.rank || 'Civilian');
-    detailEls.gender.textContent = titleCase(char.gender);
-    detailEls.playtime.textContent = formatPlaytime(char.playtime);
-    detailEls.created.textContent = formatDate(char.created);
     playBtn.disabled = false;
 
     if (skipPreview !== true) {
@@ -394,10 +391,10 @@ function selectCurrentCharacter() {
     }
 
     playBtn.disabled = true;
-    playBtn.textContent = 'Entering...';
+    setPlayBtnLabel('Entering...');
     post('selectSlot', { charId: selectedCharacter.uniqueId }).catch(() => {
         playBtn.disabled = false;
-        playBtn.textContent = 'Enter City';
+        setPlayBtnLabel('Enter city');
         showError('Could not select character. Try again.');
     });
 }
@@ -435,6 +432,12 @@ window.addEventListener('message', function(event) {
     }
 
     if (data.action === 'openAppearance') {
+        // FULLSCREEN LOADING SAFETY: defensive cleanup only -- the real fix is
+        // appearance.lua's own creationLoading:false message sent right after
+        // this one. If that message were ever lost/reordered, Appearance would
+        // otherwise be ready underneath a stuck full-screen loader.
+        loaderHoldingSelector = false;
+        forceHideCharacterLoader();
         startMusic();
     }
 
@@ -460,9 +463,21 @@ window.addEventListener('message', function(event) {
         // restart the loading overlay or re-render cards for a duplicate replay,
         // because renderSlots auto-selects the first character and would ask Lua
         // to spawn the preview ped again.
+        //
+        // CHARACTER CREATION REPAIR PASS: this used to return here without
+        // touching the loader/selector visibility at all. That was fine as
+        // long as something else had already revealed the selector and hidden
+        // the loader moments earlier (the normal case) -- but it violated the
+        // "visible interactive screen -> creationLoading hidden" invariant on
+        // its own, so any earlier state corruption (see the hideAll fix below)
+        // had no safety net here. Enforce the invariant unconditionally on
+        // every showSlots, including this fast/cached path.
         if (duplicateSlots) {
             currentSlots = newSlots;
             maxCharacters = newMaxCharacters;
+            loaderHoldingSelector = false;
+            forceHideCharacterLoader();
+            forceSelectorVisible();
             startMusic();
             return;
         }
@@ -474,7 +489,7 @@ window.addEventListener('message', function(event) {
             selectedCharacter = null;
             selectedSlot = null;
             if (playBtn) {
-                playBtn.textContent = 'Enter City';
+                setPlayBtnLabel('Enter city');
                 playBtn.disabled = true;
             }
         } else {
@@ -500,9 +515,32 @@ window.addEventListener('message', function(event) {
         app.classList.remove('hidden');
         slotsScreen.classList.add('hidden');
         creatorScreen.classList.remove('hidden');
+        if (creatorContinueBtn) creatorContinueBtn.disabled = false;
         selectedSlot = data.slot;
         isCreatingChar = false;
         clearCreator();
+    }
+
+    // PHASE 4C: returning from Appearance's Back button for a brand-new
+    // character. Unlike showCreator, this must NOT call clearCreator() —
+    // the player's typed name/DOB and chosen gender must survive the trip,
+    // since the already-prepared preview ped matches whatever gender is
+    // still selected in the (untouched) <select> element.
+    if (data.action === 'showCreatorAgain') {
+        // Being back on Identity means we are definitively NOT mid-spawn,
+        // even if an earlier hideAll (this transition's own) set the flag.
+        spawnFlowActive = false;
+        loaderHoldingSelector = false;
+        forceHideCharacterLoader();
+        app.style.display = 'block';
+        app.style.visibility = 'visible';
+        app.style.opacity = '1';
+        app.classList.remove('hidden');
+        slotsScreen.classList.add('hidden');
+        creatorScreen.classList.remove('hidden');
+        if (creatorContinueBtn) creatorContinueBtn.disabled = false;
+        selectedSlot = data.slot;
+        isCreatingChar = false;
     }
 
     if (data.action === 'hideCreator') {
@@ -510,10 +548,25 @@ window.addEventListener('message', function(event) {
     }
 
     if (data.action === 'hideAll') {
-        spawnFlowActive = true;
+        // CHARACTER CREATION REPAIR PASS: hideAll is sent for two very
+        // different reasons -- (a) the real hand-off to cm-spawn (gameplay is
+        // about to begin, the whole character-selection UI's cached state is
+        // now irrelevant), and (b) purely internal transitions that just need
+        // every NUI panel cleared for a moment (Appearance's Back-to-Identity,
+        // a barber/service session finishing). Only (a) may set
+        // spawnFlowActive/clear the slots cache -- doing it unconditionally
+        // used to permanently wedge spawnFlowActive=true after a single
+        // Appearance Back, silently suppressing every later creationLoading
+        // show, AND force a full "Loading character preview..." restart on a
+        // later real backout to the selector even though nothing changed
+        // (violates "do not restart selector loading unnecessarily").
+        const isRealSpawnHandoff = data.spawning === true;
+        if (isRealSpawnHandoff) {
+            spawnFlowActive = true;
+            slotsAlreadyRendered = false;
+            lastSlotsSignature = '';
+        }
         loaderHoldingSelector = false;
-        slotsAlreadyRendered = false;
-        lastSlotsSignature = '';
         forceHideCharacterLoader();
         app.classList.add('hidden');
         slotsScreen.classList.add('hidden');
@@ -524,8 +577,9 @@ window.addEventListener('message', function(event) {
     if (data.action === 'error') {
         isCreatingChar = false;
         playBtn.disabled = !selectedCharacter;
-        playBtn.textContent = 'Enter City';
+        setPlayBtnLabel('Enter city');
         if (!creatorScreen.classList.contains('hidden')) {
+            if (creatorContinueBtn) creatorContinueBtn.disabled = false;
             showCreatorError(data.message);
         } else {
             showError(data.message);
@@ -533,6 +587,10 @@ window.addEventListener('message', function(event) {
     }
 });
 
+// Client-side checks here are UX only — presence/shape, not the authoritative
+// rule. The server independently re-validates name charset/length and DOB/age
+// against Config.MinCharacterAge/MaxCharacterAge and returns a readable error
+// (shown via showCreatorError) regardless of what passes here.
 function createCharacter() {
     if (isCreatingChar) return;
 
@@ -545,10 +603,16 @@ function createCharacter() {
         showCreatorError('Enter first and last name.');
         return;
     }
+    if (!dob) {
+        showCreatorError('Select a date of birth.');
+        return;
+    }
 
     isCreatingChar = true;
+    if (creatorContinueBtn) creatorContinueBtn.disabled = true;
     post('createCharacter', { firstName, lastName, dob, gender }).catch(() => {
         isCreatingChar = false;
+        if (creatorContinueBtn) creatorContinueBtn.disabled = false;
         showCreatorError('Could not create character. Try again.');
     });
 }
@@ -603,8 +667,24 @@ window.selectSlot = function(slot) {
     if (char) selectCharacterCard(slot, char.uniqueId);
     else openCreatorSlot(slot);
 };
-window.createCharacter = createCharacter;
-window.showSlots = showSlots;
+
+if (creatorForm) {
+    creatorForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        createCharacter();
+    });
+}
+if (creatorBackBtn) creatorBackBtn.addEventListener('click', showSlots);
+
+// PHASE 4C: live gender preview. client/appearance.lua owns the actual
+// ped/model swap (token-guarded against rapid switching) — this just
+// forwards the selection every time it changes.
+const genderSelect = document.getElementById('gender');
+if (genderSelect) {
+    genderSelect.addEventListener('change', () => {
+        post('creatorGenderChanged', { gender: genderSelect.value }).catch(() => {});
+    });
+}
 
 setMusicState(localStorage.getItem('cm_char_music_muted') !== '0');
 

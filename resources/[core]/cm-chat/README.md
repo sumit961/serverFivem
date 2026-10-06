@@ -459,12 +459,17 @@ Config.EnableDatabaseLogs = false
   system. The resource that owns a family, organisation, job, or club must
   enforce its own permissions for sensitive actions.
 - The compatibility events `cm-chat:server:setChatGroup` and
-  `cm-chat:server:setChatGroups` accept values from the calling player. Do not
-  use them as proof of membership; prefer the server exports.
-- Compatibility character-resolution and character-loaded network events can
-  also receive client-provided identity hints. Use `SetPlayerCharacter` from
-  trusted server code and never treat a displayed chat identity as proof of
-  authorization.
+  `cm-chat:server:setChatGroups` are registered with `AddEventHandler`, not
+  `RegisterNetEvent` (PHASE 6) — a client can no longer reach them over the
+  network at all. Call `TriggerEvent('cm-chat:server:setChatGroup', src, ...)`
+  from trusted server-side Lua, or prefer the server exports directly.
+- The compatibility character-loaded events (`cm-chat:server:setCharacter`,
+  `cm-characters:server:characterLoaded`, etc.) are likewise `AddEventHandler`
+  only (PHASE 6). Identity resolution never trusts a client-supplied character
+  id or account id; it only ever reads this player's own server-authoritative
+  state (set by cm-playerdata) or a server-resolved account id
+  (`exports['cm-auth']:GetAccountId`). A client hint may only ever supply a
+  `slot` number, which is meaningless without a real account id attached.
 - The server strips line breaks, collapses whitespace, applies the cooldown,
   checks the blocked-word list, and limits message length. The NUI also escapes
   HTML before rendering.

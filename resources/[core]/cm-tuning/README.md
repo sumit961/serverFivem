@@ -17,7 +17,7 @@ This version is designed for `cm-vehicles` v3.1.0 or newer and uses:
 - `GetVehicleByPlate`
 - `HasVehicleAccess`
 - `SaveVehicleModsAuthorized`
-- `ServiceVehicle`
+- ~~`ServiceVehicle`~~ (no longer used or trusted: repair belongs to cm-mechanic; see docs/SERVICE_INTEGRATION.md)
 - `InstallRacingHarness`
 
 ## Main behaviour

@@ -63,6 +63,7 @@ RegisterNetEvent(Constants.EVENTS.CLIENT.TEST_STARTED, function(data)
         timeoutSeconds = tonumber(data.timeoutSeconds) or 1200,
         secondsRemaining = tonumber(data.secondsRemaining) or tonumber(data.timeoutSeconds) or 1200,
         currentCheckpoint = 0,
+        totalCheckpoints = #(data.checkpoints or {}),
         seatingGraceUntil = GetGameTimer() + ((tonumber(CMLicenseConfig.TestSession.SeatingGraceSeconds) or 8) * 1000),
     }
 
@@ -101,12 +102,52 @@ end)
 
 RegisterNetEvent('cm-license:client:testBegan', function(data)
     if not Client.ActiveTest then return end
-    HUD.SyncDeadline(data and data.secondsRemaining)
+
+    data = type(data) == 'table' and data or {}
+    local currentCheckpoint = math.max(1, tonumber(data.currentCheckpoint) or 1)
+    local totalCheckpoints = math.max(currentCheckpoint,
+        tonumber(data.totalCheckpoints) or Client.ActiveTest.totalCheckpoints or #Checkpoints.Checkpoints)
+    local alreadyMonitoring = Checkpoints.Monitoring
+
+    Test.BeginRequested = false
+    Client.ActiveTest.currentCheckpoint = currentCheckpoint
+    Client.ActiveTest.totalCheckpoints = totalCheckpoints
+    Checkpoints.CurrentCheckpoint = currentCheckpoint
+    Checkpoints.ClearAck()
+    Checkpoints.UpdateRouteBlip()
+
+    -- A duplicate ACK may resync the existing state, but never starts another
+    -- proximity thread or replays the start transition.
+    if alreadyMonitoring then
+        HUD.SyncDeadline(data.secondsRemaining)
+        HUD.UpdateCheckpoint({
+            currentCheckpoint = currentCheckpoint,
+            totalCheckpoints = totalCheckpoints,
+            secondsRemaining = data.secondsRemaining,
+        })
+        return
+    end
+
+    HUD.StartTest(Client.ActiveTest)
+    HUD.SyncDeadline(data.secondsRemaining)
+    HUD.UpdateCheckpoint({
+        currentCheckpoint = currentCheckpoint,
+        totalCheckpoints = totalCheckpoints,
+        secondsRemaining = data.secondsRemaining,
+    })
+    Checkpoints.StartMonitoring()
+    Test.LastBodyHealth = GetVehicleBodyHealth(Test.TestVehicle)
     Client.Alert('~g~Examination started. Follow the checkpoints.~s~', 3000)
 end)
 
 RegisterNetEvent(Constants.EVENTS.CLIENT.SET_CHECKPOINT, function(data)
     if not Client.ActiveTest then return end
+
+    if CMLicenseConfig.Debug then
+        print(('^3[CM-License Client]^7 checkpoint_ack_received current=%s total=%s'):format(
+            tostring(data and data.currentCheckpoint or 'unknown'),
+            tostring(data and data.totalCheckpoints or 'unknown')))
+    end
 
     Client.ActiveTest.currentCheckpoint = data.currentCheckpoint
     Checkpoints.CurrentCheckpoint = data.currentCheckpoint
@@ -129,6 +170,11 @@ end)
 RegisterNetEvent(Constants.EVENTS.CLIENT.COMPLETION_REJECTED, function(data)
     if not Client.ActiveTest then return end
     Test.ResumeAfterRejectedCompletion(data)
+end)
+
+RegisterNetEvent(Constants.EVENTS.CLIENT.TEST_START_REJECTED, function(data)
+    if not Client.ActiveTest then return end
+    Test.ResumeAfterRejectedBegin(data)
 end)
 
 RegisterNetEvent('cm-license:client:mistake', function(data)
@@ -220,7 +266,7 @@ end)
 AddEventHandler('onClientResourceStop', function(resourceName)
     if GetCurrentResourceName() ~= resourceName then return end
     Test.Cleanup()
-    if NPC.PromptVisible then pcall(function() exports['cm-ui']:HideInteract() end) end
+    if NPC.PromptVisible then pcall(function() exports['cm-ui']:HideInteract('cm-license:npc') end) end
     NPC.CloseMenu()
     NPC.DespawnAll()
     SetNuiFocus(false, false)

@@ -4,8 +4,8 @@ lua54 'yes'
 
 name 'cm-gang'
 author 'CM Development'
-description 'CM Framework | Authoritative fixed-slot gang system'
-version '0.5.0'
+description 'CM Framework | Authoritative five-gang V1 system'
+version '1.0.0'
 
 shared_scripts {
     '@ox_lib/init.lua',
@@ -17,17 +17,11 @@ server_scripts {
     'server/schema.lua',
     'server/domain.lua',
     'server/invites.lua',
-    'server/robbery.lua',
-    'server/storage.lua',
-    'server/wardrobe.lua',
+    'server/headquarters.lua',
+    'server/v1_storage.lua',
+    'server/progression.lua',
     'server/fleet.lua',
     'server/admin.lua',
-    'server/coordination.lua',
-    'server/event_manager.lua',
-    'server/supply_war.lua',
-    'server/events.lua',
-    'server/profit.lua',
-    'server/graffiti.lua',
     'server/presentation.lua',
     'server/main.lua',
 }
@@ -35,10 +29,8 @@ server_scripts {
 client_scripts {
     'client/main.lua',
     'client/dashboard.lua',
-    'client/coordination.lua',
-    'client/event_manager.lua',
+    'client/progression.lua',
     'client/fleet_placement.lua',
-    'client/graffiti.lua',
 }
 
 ui_page 'html/index.html'
@@ -73,9 +65,8 @@ dependencies {
     'cm-playerdata',
     'cm-inventory',
     'cm-ui',
-    'cm-law', -- shared armory backend (server/storage.lua); cm-law never depends on cm-gang, so this is not a cycle
 }
 
--- Optional owners remain guarded soft integrations to avoid dependency cycles:
+-- Owner integrations remain soft and guarded to avoid dependency cycles:
 -- cm-admin, cm-chat, cm-items, cm-weapons, cm-vehicles,
 -- cm-vehiclekeys and rn-vehicleshop. They must not hard-depend on cm-gang.

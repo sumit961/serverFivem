@@ -71,6 +71,10 @@ function applyOutfit(outfit)
     end
 end
 
+RegisterNetEvent('cm-police:client:applyDutyOutfit', function(outfit)
+    applyOutfit(outfit)
+end)
+
 -- Bare global (not local) -- wardrobe and duty reconciliation both need it.
 function sex()
     return GetEntityModel(PlayerPedId()) == `mp_f_freemode_01` and 'female' or 'male'

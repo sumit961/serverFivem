@@ -239,63 +239,76 @@
 <div id="garage-slot" class="screen garage-slot-screen" aria-hidden="true">
   <section class="garage-slot-card" role="dialog" aria-modal="true" aria-labelledby="gs-title">
     <header class="garage-slot-head">
-      <div class="garage-slot-symbol" id="gs-symbol" data-occupied="0">P</div>
-      <div class="garage-slot-heading">
-        <p class="garage-slot-eyebrow" id="gs-eyebrow">AVAILABLE PARKING</p>
-        <h2 id="gs-title">Parking space 1</h2>
-        <p id="gs-subtitle">Choose one of your vehicles for this space.</p>
+      <div class="garage-slot-head-left">
+        <div class="garage-slot-symbol" id="gs-symbol" data-occupied="0">P</div>
+        <div class="garage-slot-heading">
+          <p class="garage-slot-eyebrow" id="gs-eyebrow">ASSIGNMENT &amp; GARAGE MANAGEMENT</p>
+          <div class="garage-slot-title-line"><h2 id="gs-title">PARKING SPACE 1</h2><span class="garage-slot-zone" id="gs-zone">GARAGE</span></div>
+          <p id="gs-subtitle">Choose one of your vehicles for this space.</p>
+        </div>
       </div>
-      <button class="garage-slot-close" type="button" data-garage-act="close" aria-label="Close">&times;</button>
+      <div class="garage-slot-head-right">
+        <div class="garage-slot-capacity" aria-live="polite">
+          <span>SLOT CAPACITY</span>
+          <strong id="gs-capacity">0 / 0 OCCUPIED</strong>
+          <span class="garage-slot-capacity__icon" aria-hidden="true">▣</span>
+        </div>
+        <button class="garage-slot-close" type="button" data-garage-act="close" aria-label="Close">CLOSE <kbd>ESC</kbd></button>
+      </div>
     </header>
 
-    <section class="garage-current" id="gs-current" hidden>
-      <img class="garage-vehicle-image garage-vehicle-image--current" id="gs-current-image" alt="Current vehicle" hidden>
-      <div>
-        <span class="garage-current__tag">CURRENT VEHICLE</span>
-        <strong id="gs-current-name">Vehicle</strong>
-        <small id="gs-current-plate">PLATE</small>
-      </div>
-      <span class="garage-current__state" id="gs-current-state">PARKED</span>
-    </section>
-
-    <div class="garage-current-rank" id="gs-current-rank" hidden></div>
-
-    <div class="garage-slot-actions" id="gs-actions" hidden>
-      <button class="garage-slot-action garage-slot-action--cyan" type="button" data-garage-act="recall">
-        <span>Recall car</span><small>Return this car to its reserved space</small>
-      </button>
-      <button class="garage-slot-action garage-slot-action--danger" type="button" data-garage-act="remove">
-        <span>Cancel car</span><small>Remove the car and clear this parking space</small>
-      </button>
-    </div>
-
-    <div class="garage-vehicle-section" id="gs-vehicle-section">
-      <div class="garage-vehicle-section__head">
-        <div>
-          <span id="gs-list-title">YOUR ROAD VEHICLES</span>
-          <small>Choose a vehicle for this parking space</small>
+    <main class="garage-slot-main">
+      <section class="garage-vehicle-section" id="gs-vehicle-section" aria-label="Garage vehicles">
+        <div class="garage-vehicle-toolbar">
+          <div class="garage-vehicle-search">
+            <span class="garage-vehicle-search__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg></span>
+            <input id="gs-search" type="search" placeholder="Search vehicle name, model or plate..." autocomplete="off" spellcheck="false" aria-label="Search your road vehicles">
+            <button class="garage-vehicle-search__clear" id="gs-search-clear" type="button" aria-label="Clear vehicle search" title="Clear search" hidden>&times;</button>
+          </div>
+          <div class="garage-vehicle-filters" role="group" aria-label="Vehicle status filter">
+            <button type="button" class="is-active" data-garage-filter="all">ALL</button>
+            <button type="button" data-garage-filter="available">AVAILABLE</button>
+            <button type="button" data-garage-filter="assigned">ASSIGNED</button>
+          </div>
         </div>
-        <span class="garage-vehicle-count" aria-live="polite"><strong id="gs-count">0</strong> CARS</span>
-      </div>
-      <div class="garage-vehicle-toolbar">
-        <div class="garage-vehicle-search">
-          <span class="garage-vehicle-search__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg></span>
-          <input id="gs-search" type="search" placeholder="Search vehicle name, model or plate" autocomplete="off" spellcheck="false" aria-label="Search your road vehicles">
-          <button class="garage-vehicle-search__clear" id="gs-search-clear" type="button" aria-label="Clear vehicle search" title="Clear search" hidden>&times;</button>
+        <div class="garage-vehicle-section__head">
+          <div>
+            <span id="gs-list-title">YOUR ROAD VEHICLES</span>
+            <small>Eligible vehicles for this parking space</small>
+          </div>
+          <span class="garage-vehicle-count" aria-live="polite"><strong id="gs-count">0</strong> VEHICLES</span>
         </div>
-        <div class="garage-vehicle-filters" role="group" aria-label="Vehicle status filter">
-          <button type="button" class="is-active" data-garage-filter="all">All</button>
-          <button type="button" data-garage-filter="available">Available</button>
-          <button type="button" data-garage-filter="assigned">Assigned</button>
+        <div class="garage-vehicle-list" id="gs-list"></div>
+        <p class="garage-vehicle-empty" id="gs-empty" role="status" hidden>No eligible road vehicles match this view.</p>
+      </section>
+
+      <aside class="garage-slot-detail" id="gs-detail" aria-label="Selected vehicle details">
+        <div class="garage-slot-detail__head">
+          <div>
+            <span class="garage-slot-detail__eyebrow" id="gs-detail-status">SELECT A VEHICLE</span>
+            <span class="garage-slot-detail__class" id="gs-detail-class">GARAGE VEHICLE</span>
+          </div>
+          <span class="garage-slot-detail__plate" id="gs-detail-plate">—</span>
         </div>
-      </div>
-      <div class="garage-vehicle-list" id="gs-list"></div>
-      <p class="garage-vehicle-empty" id="gs-empty" role="status" hidden>No eligible road vehicles match this view.</p>
-    </div>
+        <h3 id="gs-detail-name">No vehicle selected</h3>
+        <p class="garage-slot-detail__location" id="gs-detail-location">Select a vehicle card to inspect its real garage status.</p>
+        <div class="garage-slot-detail__image-wrap">
+          <img id="gs-detail-image" class="garage-slot-detail__image" alt="Selected vehicle" hidden>
+          <span id="gs-detail-fallback" class="garage-slot-detail__fallback">CM</span>
+        </div>
+        <div class="garage-slot-detail__facts">
+          <div><span>STATUS</span><strong id="gs-detail-state">—</strong></div>
+          <div><span>LOCATION</span><strong id="gs-detail-location-state">—</strong></div>
+          <div><span>ACCESS</span><strong id="gs-detail-access">—</strong></div>
+        </div>
+        <div class="garage-slot-detail__rank" id="gs-detail-rank" hidden></div>
+        <div class="garage-slot-detail__actions" id="gs-detail-actions"></div>
+      </aside>
+    </main>
 
     <footer class="garage-slot-foot">
-      <span>CYAN = AVAILABLE &nbsp; RED = OCCUPIED</span>
-      <span><kbd>ESC</kbd> CLOSE</span>
+      <span><i class="garage-key-dot garage-key-dot--cyan"></i> CYAN = AVAILABLE <i class="garage-key-dot garage-key-dot--red"></i> RED = OCCUPIED</span>
+      <span><kbd>ESC</kbd> CLOSE <b>•</b> <kbd>ENTER</kbd> SELECT</span>
     </footer>
   </section>
 </div>
@@ -495,7 +508,7 @@
 <script src="js/ui-bridge-v1.js?v=1"></script>
 <script src="js/interaction-v203.js"></script>
 <script src="js/interior-door-v110.js"></script>
-<script src="js/garage-slot-v114.js?v=240"></script>
+<script src="js/garage-slot-v115.js?v=241"></script>
 <script src="js/helipad-picker-v100.js"></script>
 <script src="js/door-v105.js?v=195"></script>
 <script src="js/weapon-storage-v150.js?v=200"></script>

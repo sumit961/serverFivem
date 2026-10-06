@@ -189,5 +189,12 @@ local function getOwnerId(src)
 end
 
 local function getOwner(src)
+    -- Trusted server-side callers may address a character directly
+    -- ({ characterId = id }) instead of a live player source; used by
+    -- AddItemToCharacter so a restore/refund still reaches the ORIGINAL
+    -- character after their source was reassigned to someone else.
+    if type(src) == 'table' and src.characterId ~= nil then
+        return Config.OwnerType or 'character', tostring(src.characterId)
+    end
     return Config.OwnerType or 'character', getOwnerId(src)
 end

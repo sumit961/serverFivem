@@ -62,19 +62,6 @@ local selectorInitialLoadingShown = false
 local selectorInitialLoadingFinished = false
 local selectorPreviewInitialized = false
 
--- v1.2.5 fixed preview scene: flat, streamed ground location.
--- We move the hidden real player here during selection so GTA streams the world,
--- then spawn the preview ped on this same ground instead of using current/underground coords.
-local SafePreviewScene = {
-    base = vector4(927.4528, 11.8477, 113.5550, 296.7522), -- Fixed selector preview scene
-    finishOffset = 0.0,
-    startOffset = 0.0,
-    camBack = 0.0,
-    camSide = 0.0,
-    camHeight = 0.0,
-    lookHeight = 0.92
-}
-
 -- AfterLife-style character selection scenes.
 -- The linked AfterLife resource uses real map locations, scripted cameras, weather/time,
 -- and character scene configs. We keep your cm-auth/cm-core database flow, but use this
@@ -132,18 +119,21 @@ local SelectionScenes = {
 
 
 
--- Stable outdoor preview scene. We always move the hidden real player here while
+-- Stable indoor preview scene. We always move the hidden real player here while
 -- the selector is open so the map collision/ground is streamed before the
 -- preview ped is created. This avoids the camera being under terrain or inside
 -- unloaded world geometry.
+-- CHARACTER STAGE RELOCATION: derives from the one canonical
+-- Config.CharacterStage (see config.lua) instead of its own separate
+-- hardcoded coordinates.
 local FixedGroundPreview = {
     sceneId = 'fixed-night-preview',
-    stream = vector4(927.4528, 11.8477, 113.5550, 296.7522),
-    walkStart = vector4(927.4528, 11.8477, 113.5550, 296.7522),
-    walkFinish = vector4(927.4528, 11.8477, 113.5550, 296.7522),
-    camera = vector4(931.2687, 14.1728, 114.5444, 116.2193),
-    camrotation = { x = -3.8893, y = 0.0, z = 116.2193 },
-    fov = 50.0,
+    stream = Config.CharacterStage.standing,
+    walkStart = Config.CharacterStage.standing,
+    walkFinish = Config.CharacterStage.standing,
+    camera = Config.CharacterStage.camera,
+    camrotation = { x = Config.CharacterStage.camrotation.x, y = Config.CharacterStage.camrotation.y, z = Config.CharacterStage.camrotation.z },
+    fov = Config.CharacterStage.fov,
     weather = 'CLEAR',
     time = { hours = 23, minutes = 0, seconds = 0 },
     idleDict = 'anim@heists@heist_corona@team_idles@male_a',
@@ -367,13 +357,15 @@ local function getActiveSelectorSceneConfig()
 end
 
 -- Character selection fixed preview scene.
--- These are the coordinates captured in-game with /getcampos.
--- The selector uses this scene every time, in a private routing bucket.
+-- CHARACTER STAGE RELOCATION: derives from the one canonical
+-- Config.CharacterStage (see config.lua) instead of its own separate
+-- hardcoded coordinates. The selector uses this scene every time, in a
+-- private routing bucket.
 local CreationPreviewScene = {
-    ped = vector4(927.4528, 11.8477, 113.5550, 296.7522),
-    camera = vector3(931.2687, 14.1728, 114.5444),
-    camrotation = vector3(-3.8893, 0.0000, 116.2193),
-    fov = 50.0,
+    ped = Config.CharacterStage.standing,
+    camera = vector3(Config.CharacterStage.camera.x, Config.CharacterStage.camera.y, Config.CharacterStage.camera.z),
+    camrotation = Config.CharacterStage.camrotation,
+    fov = Config.CharacterStage.fov,
     weather = 'CLEAR',
     time = { hours = 23, minutes = 0, seconds = 0 }
 }
@@ -555,7 +547,17 @@ local function applySkinToPed(ped, appearance, gender)
 
     SetPedDefaultComponentVariation(ped)
 
-    pcall(function()
+    -- Head/face and hair/clothing are applied in two INDEPENDENT pcalls on
+    -- purpose. They used to share one pcall — a single bad value anywhere in
+    -- the head-blend/face-feature section (e.g. an out-of-range mom/dad
+    -- parent id from legacy/corrupted appearance data) would throw, pcall
+    -- would swallow it silently, and every line after that point — including
+    -- every hair/clothing SetPedComponentVariation call — would simply never
+    -- run. The ped then stayed on SetPedDefaultComponentVariation's
+    -- bald/shirtless default with no error ever surfacing. Splitting the two
+    -- sections means a head/face failure can no longer take clothing down
+    -- with it, and a real WARNING is logged instead of being eaten silently.
+    local headOk, headErr = pcall(function()
         local faceWeight = (n('face_md_weight', 50) / 100) + 0.0
         local skinWeight = (n('skin_md_weight', 50) / 100) + 0.0
         SetPedHeadBlendData(ped, n('mom', 21), n('dad', 0), 0, n('mom', 21), n('dad', 0), 0, faceWeight, skinWeight, 0.0, false)
@@ -590,7 +592,12 @@ local function applySkinToPed(ped, appearance, gender)
         SetPedHeadOverlay(ped, 4, 0, 0.0)
         SetPedHeadOverlay(ped, 5, 0, 0.0)
         SetPedHeadOverlay(ped, 8, 0, 0.0)
+    end)
+    if not headOk then
+        print(('[CM-CHARACTERS] WARNING applySkinToPed head/face section failed, ped=%s error=%s'):format(tostring(ped), tostring(headErr)))
+    end
 
+    local bodyOk, bodyErr = pcall(function()
         SetPedComponentVariation(ped, 2, n('hair_1'), n('hair_2'), 2)
         SetPedHairColor(ped, n('hair_color_1'), n('hair_color_2'))
         SetPedHeadOverlay(ped, 1, n('beard_1'), (n('beard_2') / 10) + 0.0)
@@ -613,6 +620,9 @@ local function applySkinToPed(ped, appearance, gender)
         if n('watches_1', -1) == -1 then ClearPedProp(ped, 6) else SetPedPropIndex(ped, 6, n('watches_1'), n('watches_2'), true) end
         if n('bracelets_1', -1) == -1 then ClearPedProp(ped, 7) else SetPedPropIndex(ped, 7, n('bracelets_1'), n('bracelets_2'), true) end
     end)
+    if not bodyOk then
+        print(('[CM-CHARACTERS] WARNING applySkinToPed hair/clothing section failed, ped=%s error=%s'):format(tostring(ped), tostring(bodyErr)))
+    end
 end
 
 
@@ -704,7 +714,8 @@ end
 local function getPreviewCenterForCleanup()
     local cfg = getActiveSelectorSceneConfig and getActiveSelectorSceneConfig() or FixedGroundPreview
     local finish = cfg and cfg.walkFinish or FixedGroundPreview.walkFinish
-    return vector3(tonumber(finish.x) or 927.4528, tonumber(finish.y) or 11.8477, tonumber(finish.z) or 113.5550)
+    local stage = Config.CharacterStage.standing
+    return vector3(tonumber(finish.x) or stage.x, tonumber(finish.y) or stage.y, tonumber(finish.z) or stage.z)
 end
 
 local function cleanupUntrackedPreviewDummies()
@@ -905,6 +916,44 @@ local function getSafeGroundZ(x, y, fallbackZ)
     return fallbackZ
 end
 
+-- CAMERA LINE OF SIGHT (interior stages only): if a wall/door sits between
+-- the authored camera position and the ped's head, shrink the camera
+-- distance toward the ped (never move the ped) until the line is clear or a
+-- bounded number of attempts is exhausted. Defensive only -- the primary fix
+-- is choosing a correct camera position in Config.CharacterStage; this just
+-- keeps a bad authored position from ever showing a wall instead of the ped.
+local function resolveCameraLineOfSight(pedPos, camPos)
+    local headPos = vector3(pedPos.x, pedPos.y, pedPos.z + 0.62)
+    local resolvedCam = camPos
+
+    local ok = pcall(function()
+        for _ = 1, 3 do
+            local handle = StartShapeTestCapsule(
+                resolvedCam.x, resolvedCam.y, resolvedCam.z,
+                headPos.x, headPos.y, headPos.z,
+                0.05, 1, PlayerPedId(), 7
+            )
+            local retval, hit = GetShapeTestResult(handle)
+            local waitTimeout = GetGameTimer() + 200
+            while retval == 0 and GetGameTimer() < waitTimeout do
+                Wait(0)
+                retval, hit = GetShapeTestResult(handle)
+            end
+            if hit ~= 1 then return end
+
+            -- Blend the camera 35% closer to the ped's head and re-test.
+            resolvedCam = vector3(
+                resolvedCam.x + (headPos.x - resolvedCam.x) * 0.35,
+                resolvedCam.y + (headPos.y - resolvedCam.y) * 0.35,
+                resolvedCam.z + (headPos.z - resolvedCam.z) * 0.35
+            )
+        end
+    end)
+
+    if not ok then return camPos end
+    return resolvedCam
+end
+
 local function buildDynamicStage(scene)
     -- v1.2.5: Fixed ground preview location.
     -- We no longer build the preview scene from the player's current position,
@@ -939,13 +988,21 @@ local function buildDynamicStage(scene)
     local cameraVec = vector3(cfg.camera.x, cfg.camera.y, cfg.camera.z)
     local faceCameraHeading = headingToCoord(finishVec, cameraVec)
 
+    -- Interior stages only (see CHARACTER STAGE RELOCATION): the authored
+    -- camera in Config.CharacterStage was computed, not visually confirmed
+    -- against this room's real geometry -- shrink it toward the ped if a
+    -- wall/door blocks the view instead of ever moving the ped.
+    if useExactCreatorZ then
+        cameraVec = resolveCameraLineOfSight(finishVec, cameraVec)
+    end
+
     dynamicStage = {
         sceneId = cfg.sceneId,
         scene = {
             weather = cfg.weather or (scene and scene.weather) or 'EXTRASUNNY',
             time = cfg.time or (scene and scene.time) or { hours = 12, minutes = 0, seconds = 0 }
         },
-        camera = vector4(cfg.camera.x, cfg.camera.y, cfg.camera.z, cfg.camera.w),
+        camera = vector4(cameraVec.x, cameraVec.y, cameraVec.z, cfg.camera.w),
         fov = cfg.fov or 34.0,
         camrotation = cfg.camrotation,
         walkStart = vector4(cfg.walkStart.x, cfg.walkStart.y, startZ, cfg.walkStart.w or faceCameraHeading),
@@ -959,13 +1016,13 @@ local function buildDynamicStage(scene)
     SetFocusPosAndVel(cfg.walkFinish.x, cfg.walkFinish.y, finishZ, 0.0, 0.0, 0.0)
     RequestCollisionAtCoord(cfg.walkStart.x, cfg.walkStart.y, startZ)
     RequestCollisionAtCoord(cfg.walkFinish.x, cfg.walkFinish.y, finishZ)
-    RequestCollisionAtCoord(cfg.camera.x, cfg.camera.y, cfg.camera.z)
+    RequestCollisionAtCoord(cameraVec.x, cameraVec.y, cameraVec.z)
 
     print(('[CM-CHARACTERS] Fixed requested preview scene: player=(%.2f %.2f %.2f) start=(%.2f %.2f %.2f) finish=(%.2f %.2f %.2f) cam=(%.2f %.2f %.2f)'):format(
         cfg.stream.x, cfg.stream.y, streamZ,
         cfg.walkStart.x, cfg.walkStart.y, startZ,
         cfg.walkFinish.x, cfg.walkFinish.y, finishZ,
-        cfg.camera.x, cfg.camera.y, cfg.camera.z
+        cameraVec.x, cameraVec.y, cameraVec.z
     ))
 
     return dynamicStage
@@ -1503,6 +1560,48 @@ local function prepareClimatimeBeforeRealSpawn()
     return true
 end
 
+-- WATCHDOG: waitingForSpawnAfterSelect used to have no timeout at all for an
+-- existing character -- if cm-playerdata's load ever silently died mid-flow
+-- (see cm-playerdata's WarmIdentityCache fix) or cm-spawn's own handoff
+-- broke anywhere before DoSpawn/openSelector, the player was left frozen,
+-- hidden, faded black, forever, with nothing logged to explain why. This
+-- only checks "did SOMETHING visible happen" (Spawn Selector opened, or the
+-- player actually finished spawning) -- once that's true it steps aside and
+-- lets cm-spawn's own openSelector-render watchdog own the rest.
+local function watchCharacterToSpawnHandoff(charId)
+    CreateThread(function()
+        local deadline = GetGameTimer() + 12000
+        while GetGameTimer() < deadline do
+            Wait(250)
+            if not waitingForSpawnAfterSelect then return end
+            local st = LocalPlayer and LocalPlayer.state or {}
+            if st.isInSpawnSelector == true or st.spawnSelectorOpen == true or st.characterFullySpawned == true then
+                return
+            end
+        end
+        if not waitingForSpawnAfterSelect then return end
+
+        local st = LocalPlayer and LocalPlayer.state or {}
+        print(('[CM-CHARACTERS] WATCHDOG: character->spawn handoff never reached Spawn Selector | charId=%s faded=%s skipPositionSave=%s isInCharacterSelector=%s isInCharacterCreation=%s isInSpawnSelector=%s'):format(
+            tostring(charId), tostring(IsScreenFadedOut() or IsScreenFadingOut()),
+            tostring(st.skipPositionSave), tostring(st.isInCharacterSelector), tostring(st.isInCharacterCreation), tostring(st.isInSpawnSelector)
+        ))
+
+        -- Recovery is deliberately minimal: fade the screen back in so the
+        -- player isn't staring at a permanent black void, and tell them
+        -- plainly what happened. Do NOT restore control/HUD or touch the
+        -- private bucket/skipPositionSave here -- we don't know the real
+        -- destination is safe, so we do not dump them into gameplay.
+        waitingForSpawnAfterSelect = false
+        if IsScreenFadedOut() or IsScreenFadingOut() then DoScreenFadeIn(350) end
+        if GetResourceState('cm-core') == 'started' then
+            pcall(function()
+                exports['cm-core']:Notify(PlayerId(), 'Character load is taking too long. Please reconnect.', 'error', 8000)
+            end)
+        end
+    end)
+end
+
 RegisterNUICallback('selectSlot', function(data, cb)
     data = type(data) == 'table' and data or {}
     print('[CM-CHARACTERS] selectSlot: ' .. json.encode(data))
@@ -1521,19 +1620,31 @@ RegisterNUICallback('selectSlot', function(data, cb)
             pendingSelectorOpen = false
             resetSelectorLoadGuards()
             waitingForSpawnAfterSelect = true
+            print('[CM-CHARACTERS] selected char submitted: charId=' .. tostring(data.charId))
+            watchCharacterToSpawnHandoff(data.charId)
             SetNuiFocus(false, false)
             SetNuiFocusKeepInput(false)
             -- No end loading screen. Close character UI/loading immediately and prepare
             -- the live world climate while the screen is black, BEFORE cm-spawn reveals
             -- the real player. This avoids the ugly sky/weather snap after spawn.
             markSpawnFlowStarted()
-            SendNUIMessage({ action = 'hideAll' })
+            -- spawning=true: real hand-off to cm-spawn for an existing
+            -- character. See ui/app.js's hideAll handler / cm-characters
+            -- appearance.lua's equivalent comment for why this flag matters.
+            SendNUIMessage({ action = 'hideAll', spawning = true })
             prepareClimatimeBeforeRealSpawn()
             -- Smooth transition: remove only the local preview dummy and camera, but keep
             -- the real player invisible/frozen until cm-spawn finishes. This removes the
             -- one-frame Michael/default ped blink before the spawn screen.
             cleanupSelectorSceneForSpawn()
-            TriggerServerEvent('cm-characters:server:leaveSelectorBucket')
+            -- PHASE 5: do NOT release the private selector bucket here. This used
+            -- to call leaveSelectorBucket the instant an existing character was
+            -- picked, an untrusted-timing release that put the player in the
+            -- public bucket 0 for the entire cm-spawn resolve/selector/preparation
+            -- window (protected only by client-side invisibility flags, not real
+            -- bucket isolation). cm-spawn's own handshake now releases the bucket
+            -- exactly once, only after a validated destination is actually
+            -- prepared (see cm-spawn:server:readyForPublicWorld).
             -- Keep skipPositionSave=true until cm-playerdata/cm-spawn finishes the real spawn.
             TriggerServerEvent('cm-characters:server:selectCharacter', data.charId)
         else
@@ -1545,7 +1656,15 @@ RegisterNUICallback('selectSlot', function(data, cb)
             LocalPlayer.state:set('isInCharacterCreation', true, true)
             deletePreviewPeds(false)
             cleanupSelectorScene(true, true)
-            TriggerServerEvent('cm-characters:server:leaveSelectorBucket')
+            -- PHASE 4B FIX: do NOT leave the private selector bucket here. This used to call
+            -- leaveSelectorBucket (SetPlayerRoutingBucket(src, 0)) the instant a new character
+            -- creation began, exposing the player in the PUBLIC bucket for the entire Basic
+            -- Identity + Appearance session (potentially minutes, at a fixed, walkable preview
+            -- location). The player must stay in the SAME private bucket established when the
+            -- selector opened (see enterSelectorBucket, bucket == their own src) all the way
+            -- through Creator -> Appearance -> Save. The bucket is released exactly once, in
+            -- the characterReady handler below, only after the new character has actually been
+            -- placed at its real starting position.
             TriggerEvent('cm-characters:client:setWorldLock', 'selector', false)
             LocalPlayer.state:set('isInCharacterSelector', false, true)
             TriggerEvent('cm-characters:client:openCreator', data.slot, currentAccountId)
@@ -2147,6 +2266,12 @@ end, false)
 
 -- cm-playerdata compatibility: selection/preview moves the hidden player to the preview scene.
 -- Keep position saving disabled during selector and only re-enable after the real character spawn is finished.
+-- PHASE 4B: this is also the ONE authoritative point where a brand-new
+-- character's private cm-characters routing bucket is released (see the
+-- selectSlot NUI callback above — the bucket is no longer released early).
+-- By the time this event fires, the real ped position has already been set
+-- to AppearanceConfig.afterSpawnCoords (see appearanceSaved handler), so
+-- releasing the bucket here can never expose a preview/creator coordinate.
 RegisterNetEvent('cm-characters:client:characterReady', function()
     selectionSubmitInProgress = false
     waitingForSpawnAfterSelect = false
@@ -2161,6 +2286,7 @@ RegisterNetEvent('cm-characters:client:characterReady', function()
     LocalPlayer.state:set('skipPositionSave', false, true)
     LocalPlayer.state:set('cmCharactersPreparingSpawnClimate', false, true)
     LocalPlayer.state:set('cmClimatimePreSpawnPreparing', false, true)
+    TriggerServerEvent('cm-characters:server:leaveSelectorBucket')
     TriggerEvent('cm-characters:client:releaseWorldLockNow')
     DisplayHud(true)
     DisplayRadar(true)

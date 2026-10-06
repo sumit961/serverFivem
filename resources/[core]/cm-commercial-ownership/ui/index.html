@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Business Staff</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="root" class="hidden">
+  <section class="panel" role="dialog" aria-label="Business staff">
+    <header class="head">
+      <div>
+        <div class="eyebrow">BUSINESS STAFF</div>
+        <h1 id="title">Business</h1>
+        <div class="sub" id="sub"></div>
+      </div>
+      <div class="head-right">
+        <div class="funds hidden" id="funds"><span class="label">BUSINESS FUNDS</span><span class="value" id="fundsValue">$0</span></div>
+        <button class="btn ghost" id="closeBtn" type="button">CLOSE <kbd>ESC</kbd></button>
+      </div>
+    </header>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="employees" type="button">EMPLOYEES</button>
+      <button class="tab" data-tab="ranks" type="button">RANKS</button>
+      <button class="tab" data-tab="orders" type="button">ORDERS</button>
+      <button class="tab" data-tab="activity" type="button">ACTIVITY</button>
+    </nav>
+    <div class="status" id="status" role="status"></div>
+    <main class="body">
+      <section id="view-employees" class="view"></section>
+      <section id="view-ranks" class="view hidden"></section>
+      <section id="view-orders" class="view hidden"></section>
+      <section id="view-activity" class="view hidden"></section>
+    </main>
+  </section>
+
+  <div class="cm-confirm-modal hidden" id="confirm" role="alertdialog" aria-modal="true">
+    <div class="cm-confirm-modal__box">
+      <div class="cm-confirm-modal__title" id="confirmTitle">CONFIRM ACTION</div>
+      <div class="cm-confirm-modal__message" id="confirmMessage"></div>
+      <div class="cm-confirm-modal__consequence" id="confirmConsequence"></div>
+      <div class="cm-confirm-modal__actions">
+        <button class="btn secondary cm-confirm-modal__cancel" id="confirmCancel" type="button">CANCEL</button>
+        <button class="btn cm-confirm-modal__confirm" id="confirmOk" type="button">CONFIRM</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="drawer hidden" id="drawer" role="dialog" aria-modal="true"></div>
+</div>
+
+<div id="invite" class="invite hidden" role="alertdialog" aria-modal="true">
+  <div class="invite-card">
+    <div class="eyebrow">JOB INVITATION</div>
+    <h2 id="inviteTitle">Join a business</h2>
+    <p id="inviteBody"></p>
+    <div class="invite-timer"><span id="inviteTimer"></span></div>
+    <div class="invite-actions">
+      <button class="btn secondary" id="inviteDecline" type="button">DECLINE</button>
+      <button class="btn" id="inviteAccept" type="button">ACCEPT</button>
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

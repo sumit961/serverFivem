@@ -26,5 +26,11 @@ files {
     'ui/fonts/PTSansNarrow-Bold.ttf'
 }
 
--- Soft integration only: restarting cm-core/cm-playerdata must never stop chat.
--- Startup order is guaranteed by server.cfg ensure order.
+-- PHASE 6: the chat UI now loads cm-ui's shared theme/components (visual
+-- consistency with the rest of the server), so cm-ui is now a real
+-- dependency. This is still a "soft integration" everywhere else: restarting
+-- cm-core/cm-playerdata must never stop chat. Startup order beyond cm-ui is
+-- guaranteed by server.cfg ensure order.
+dependencies {
+    'cm-ui'
+}

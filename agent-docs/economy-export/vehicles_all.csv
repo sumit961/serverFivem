@@ -1,0 +1,1556 @@
+id,model,label,category,price,available_store,available_server,available_ems,available_police,retired,vehicle_type
+1,vstr,Albany V-STR,Sedans,200,1,1,0,0,0,land
+2,sandking,Vapid Sandking XL,Off Road,1500,1,1,0,0,0,land
+4,buccaneer2,Albany Buccaneer Lux,Muscle,200000,0,1,0,0,0,land
+7,dominator3,Vapid Dominator GTX,Muscle,70000,1,1,0,0,0,land
+8,feltzer2,Benefactor Feltzer,Sports,140000,0,0,0,0,0,land
+15,cliffhanger,Western Cliffhanger,Motorcycles,28500,0,0,0,0,0,land
+22,dominator7,Vapid Dominator ASP,Sports,110000,0,0,0,0,0,land
+23,neo,Vysser Neo,Sports,230000,1,1,0,0,0,land
+26,windsor,Enus Windsor,Coupes,70000,1,1,0,0,0,land
+28,flashgt,Vapid Flash GT,Coupes,160000,1,1,0,0,0,land
+33,ninef2,Obey 9F Cabrio,Sports,200000,0,0,0,0,1,land
+36,dubsta2,Benefactor Dubsta,SUV,150000,1,1,0,0,0,land
+38,bf400,Nagasaki BF400,Motorcycles,22000,1,1,0,0,0,land
+40,jester,Dinka Jester,Sports,0,1,1,0,0,0,land
+45,komoda,Lampadati Komoda,Sports,202000,1,1,0,0,0,land
+47,rocoto,Obey Rocoto,SUV,130000,1,1,0,0,0,land
+49,revolter,Übermacht Revolter,Sports,300000,1,1,0,0,0,land
+51,schlagen,Benefactor Schlagen GT,Sports,260000,1,1,0,0,0,land
+53,hycignus,Hycignus,Super,0,1,1,0,0,0,land
+58,relax672,Relax 672,Super,0,0,0,0,0,1,land
+60,draftvmark,Draftvmark,Emergency,0,1,1,0,0,0,land
+62,ambulance_dodge_ram,Ambulance Dodge Ram,Emergency,0,0,0,1,0,0,land
+64,ambulance1,Ambulance 1,Emergency,0,0,0,1,0,0,land
+66,amrvan,Amrvan,Emergency,0,0,0,1,0,0,land
+68,audirs6emsfire,Audirs 6 Emsfire,Emergency,0,0,0,1,0,0,land
+70,bmw-x5_medic,Bmw X 5 Medic,Emergency,0,0,0,1,0,0,land
+72,royalg30medic,Royalg 30 Medic,Emergency,0,0,0,1,0,0,land
+74,polsilverado19,Polsilverado 19,Emergency,0,0,0,0,1,0,land
+77,stunt,Mallard,Planes,0,0,0,0,0,0,land
+78,avisa,Avisa,Boats,0,0,0,0,0,0,boat
+79,white55,white55,Commercial,95000,0,0,0,0,0,land
+80,ninef,9F,Sports,125000,0,0,0,0,0,land
+81,supervolito,SuperVolito,Helicopters,0,0,0,0,0,0,land
+82,spyker,spyker,Super,350000,0,0,0,0,0,land
+83,thrax,Thrax,Super,350000,0,0,0,0,0,land
+84,armytrailer2,Army Trailer,Utility,45000,0,0,0,0,0,land
+85,buffalo2,Buffalo S,Sports,125000,0,0,0,0,0,land
+86,riot,Police Riot,Emergency,0,0,0,0,0,0,land
+88,driftjester,Jester RR,Sports,125000,0,0,0,0,0,land
+89,claw,claw,Motorcycles,35000,0,0,0,0,0,land
+90,blazer2,Blazer Lifeguard,Off Road,65000,0,0,0,0,0,land
+92,blista,Blista,Compacts,18000,0,0,0,0,0,land
+93,furai,furai,Super,350000,0,0,0,0,0,land
+94,van_kadir,van_kadir,Muscle,70000,0,0,0,0,0,land
+95,asea,Asea,Sedans,35000,0,0,0,0,0,land
+96,tornado4,Tornado,Sports Classics,85000,0,0,0,0,0,land
+97,asea2,Asea,Sedans,35000,0,0,0,0,0,land
+98,armytanker,Army Trailer,Utility,45000,0,0,0,0,0,land
+99,esr1m,esr1m,Off Road,65000,0,0,0,0,0,land
+100,ffrs,ffrs,Sports,125000,0,0,0,0,0,land
+101,barracks3,Barracks,Military,0,0,0,0,0,0,land
+102,z190,190z,Sports Classics,85000,0,0,0,0,0,land
+103,dilettante2,Dilettante,Compacts,18000,0,0,0,0,0,land
+104,verus,Verus,Off Road,65000,0,0,0,0,0,land
+105,cogcabrio,Cognoscenti Cabrio,Coupes,60000,0,0,0,0,0,land
+106,rmodcharger69,rmodcharger69,Muscle,70000,0,0,0,0,0,land
+107,cheetah2,Cheetah Classic,Sports Classics,85000,0,0,0,0,0,land
+108,issi6,Nightmare Issi,Compacts,18000,0,0,0,0,0,land
+109,choilambo,choilambo,Super,350000,0,0,0,0,0,land
+110,turismor,Turismo R,Super,350000,0,0,0,0,0,land
+113,bus,Bus,Service,50000,0,0,0,0,0,land
+114,zm_s500,zm_s500,Emergency,0,0,0,0,0,0,land
+115,boattrailer,Boat Trailer,Utility,45000,0,0,0,0,0,land
+116,yzfr7,yzfr7,Motorcycles,35000,0,0,0,0,0,land
+117,flatbed,Flatbed,Industrial,90000,0,0,0,0,0,land
+118,ambulance,Ambulance,Emergency,0,0,0,0,0,0,land
+119,buffalo,Buffalo,Sports,125000,0,0,0,0,0,land
+120,benson,Benson,Commercial,95000,0,0,0,0,0,land
+121,hyundaiveloster,hyundaiveloster,Sports,125000,0,0,0,0,0,land
+122,armytrailer,Army Trailer,Utility,45000,0,0,0,0,0,land
+123,ikx3sf90custom,ikx3sf90custom,Super,350000,0,0,0,0,0,land
+124,freighttrailer,freighttrailer,Utility,45000,0,0,0,0,0,land
+125,bullet,Bullet,Super,350000,0,0,0,0,0,land
+126,aw139,aw139,Helicopters,0,0,0,0,0,0,land
+127,boxville2,Boxville,Vans,50000,0,0,0,0,0,land
+128,coach,Dashound,Service,50000,0,0,0,0,0,land
+129,bati,Bati 801,Motorcycles,35000,0,0,0,0,0,land
+130,blazer,Blazer,Off Road,65000,0,0,0,0,0,land
+131,boor,Boor,Off Road,65000,0,0,0,0,0,land
+132,singer,singer,Sports,125000,0,0,0,0,0,land
+133,btype3,Roosevelt Valor,Sports Classics,85000,0,0,0,0,0,land
+134,stratum,Stratum,Sedans,35000,0,0,0,0,0,land
+135,slamvan2,Lost Slamvan,Muscle,70000,0,0,0,0,0,land
+136,airbus,Airport Bus,Service,50000,0,0,0,0,0,land
+137,massacro,Massacro,Sports,125000,0,0,0,0,0,land
+138,cuban800,Cuban 800,Planes,0,0,0,0,0,0,land
+139,toro2,Toro,Boats,0,0,0,0,0,0,land
+140,burrito4,Burrito,Vans,50000,0,0,0,0,0,land
+141,novak,Novak,SUVs,55000,0,0,0,0,0,land
+142,tanker2,tanker2,Utility,45000,0,0,0,0,0,land
+143,asterope,Asterope,Sedans,35000,0,0,0,0,0,land
+144,glendale,Glendale,Sedans,35000,0,0,0,0,0,land
+145,airtug,Airtug,Utility,45000,0,0,0,0,0,land
+146,hwaybuffals2,Police Cruiser,Emergency,0,0,0,0,0,0,land
+147,mgt,mgt,Super,350000,0,0,0,0,0,land
+148,caracara2,Caracara 4x4,Off Road,65000,0,0,0,0,0,land
+149,barracks,Barracks,Military,0,0,0,0,0,0,land
+150,gresley,Gresley,SUVs,55000,0,0,0,0,0,land
+151,handler,Dock Handler,Industrial,90000,0,0,0,0,0,land
+152,cavalcade,Cavalcade,SUVs,55000,0,0,0,0,0,land
+153,towtruck2,Tow Truck,Utility,45000,0,0,0,0,0,land
+154,barracks2,Barracks Semi,Military,0,0,0,0,0,0,land
+155,romero,Romero Hearse,Sedans,35000,0,0,0,0,0,land
+156,f8kspider,f8kspider,Sports,125000,0,0,0,0,0,land
+157,innovation,Innovation,Motorcycles,35000,0,0,0,0,0,land
+158,eleanor,eleanor,Sports Classics,85000,0,0,0,0,0,land
+159,bjxl,BeeJay XL,SUVs,55000,0,0,0,0,0,land
+160,asterope2,Asterope GZ,Sedans,35000,0,0,0,0,0,land
+161,gaford30t,gaford30t,Muscle,70000,0,0,0,0,0,land
+162,rapger19,rapger19,Vans,50000,0,0,0,0,0,land
+163,baller,Baller,SUVs,55000,0,0,0,0,0,land
+164,voltic,Voltic,Super,350000,0,0,0,0,0,land
+165,pony,Pony,Vans,50000,0,0,0,0,0,land
+166,baller2,Baller,SUVs,55000,0,0,0,0,0,land
+167,docktug,Docktug,Utility,45000,0,0,0,0,0,land
+168,machewb,machewb,Sports,125000,0,0,0,0,0,land
+169,banshee,Banshee,Sports,125000,0,0,0,0,0,land
+170,van_syndicate,van_syndicate,Muscle,70000,0,0,0,0,0,land
+171,cargoplane,Cargo Plane,Planes,0,0,0,0,0,0,land
+172,winky,Winky,Off Road,65000,0,0,0,0,0,land
+173,driftremus,Remus,Sports,125000,0,0,0,0,0,land
+174,polheli,polheli,Helicopters,0,0,0,0,0,0,land
+175,brickade,Brickade,Service,50000,0,0,0,0,0,land
+176,longfin,Longfin,Boats,0,0,0,0,0,0,land
+177,van_ogs,van_ogs,Muscle,70000,0,0,0,0,0,land
+178,felon2,Felon GT,Coupes,60000,0,0,0,0,0,land
+179,bfinjection,Injection,Off Road,65000,0,0,0,0,0,land
+180,nightshark,Nightshark,Off Road,65000,0,0,0,0,0,land
+181,biff,Biff,Commercial,95000,0,0,0,0,0,land
+182,terzo,terzo,Super,350000,0,0,0,0,0,land
+183,voltic2,Rocket Voltic,Super,350000,0,0,0,0,0,land
+184,ttsto,ttsto,Super,350000,0,0,0,0,0,land
+185,blazer3,Hot Rod Blazer,Off Road,65000,0,0,0,0,0,land
+186,velum2,Velum 5-Seater,Planes,0,0,0,0,0,0,land
+187,burrito2,Bugstars Burrito,Vans,50000,0,0,0,0,0,land
+188,barrage,Barrage,Military,0,0,0,0,0,0,land
+189,godz95gsx,godz95gsx,Coupes,60000,0,0,0,0,0,land
+190,bison,Bison,Vans,50000,0,0,0,0,0,land
+191,bison2,Bison,Vans,50000,0,0,0,0,0,land
+192,passat,passat,Super,350000,0,0,0,0,0,land
+193,bison3,Bison,Vans,50000,0,0,0,0,0,land
+194,tyrant,Tyrant,Super,350000,0,0,0,0,0,land
+195,caddy2,Caddy,Utility,45000,0,0,0,0,0,land
+196,caddy,Caddy,Utility,45000,0,0,0,0,0,land
+197,rd,rd,Motorcycles,35000,0,0,0,0,0,land
+198,cavalcade2,Cavalcade,SUVs,55000,0,0,0,0,0,land
+199,trhawk,trhawk,Emergency,0,0,0,0,0,0,land
+200,boxville,Boxville,Vans,50000,0,0,0,0,0,land
+201,seminole,Seminole,SUVs,55000,0,0,0,0,0,land
+202,boxville3,Boxville,Vans,50000,0,0,0,0,0,land
+203,zeno,Zeno,Super,350000,0,0,0,0,0,land
+204,bobcatxl,Bobcat XL,Vans,50000,0,0,0,0,0,land
+205,comet2,Comet,Sports,125000,0,0,0,0,0,land
+206,bodhi2,Bodhi,Off Road,65000,0,0,0,0,0,land
+207,buccaneer,Buccaneer,Muscle,70000,0,0,0,0,0,land
+208,blimp2,Xero Blimp,Planes,0,0,0,0,0,0,land
+209,bulldozer,Dozer,Industrial,90000,0,0,0,0,0,land
+210,hauler2,Hauler Custom,Commercial,95000,0,0,0,0,0,land
+211,2022jeep,2022jeep,Off Road,65000,0,0,0,0,0,land
+212,vigilante,Vigilante,Super,350000,0,0,0,0,0,land
+213,blimp,Atomic Blimp,Planes,0,0,0,0,0,0,land
+214,zentorno,Zentorno,Super,350000,0,0,0,0,0,land
+215,burrito,Burrito,Vans,50000,0,0,0,0,0,land
+216,alpinab7,alpinab7,Sedans,35000,0,0,0,0,0,land
+217,488sp,488sp,Super,350000,0,0,0,0,0,land
+218,gt63,gt63,Sports,125000,0,0,0,0,0,land
+219,phantom4,Phantom,Commercial,95000,0,0,0,0,0,land
+220,godzmistrals,godzmistrals,Super,350000,0,0,0,0,0,land
+221,camper,Camper,Vans,50000,0,0,0,0,0,land
+222,cheetah,Cheetah,Super,350000,0,0,0,0,0,land
+223,speeder2,Speeder,Boats,0,0,0,0,0,0,land
+224,clique,Clique,Muscle,70000,0,0,0,0,0,land
+225,gjeep,gjeep,Off Road,65000,0,0,0,0,0,land
+226,burrito3,Burrito,Vans,50000,0,0,0,0,0,land
+227,wolfsbane,Wolfsbane,Motorcycles,35000,0,0,0,0,0,land
+228,dilettante,Dilettante,Compacts,18000,0,0,0,0,0,land
+229,scrap,Scrap Truck,Utility,45000,0,0,0,0,0,land
+230,exemplar,Exemplar,Coupes,60000,0,0,0,0,0,land
+231,dawnonyx,dawnonyx,Coupes,60000,0,0,0,0,0,land
+232,manana,Manana,Sports Classics,85000,0,0,0,0,0,land
+234,rmodr8alpil,rmodr8alpil,Super,350000,0,0,0,0,0,land
+235,burrito5,Burrito,Vans,50000,0,0,0,0,0,land
+236,mule3,Mule,Commercial,95000,0,0,0,0,0,land
+237,policet,Police Transporter,Emergency,0,0,0,0,0,0,land
+238,tornado,Tornado,Sports Classics,85000,0,0,0,0,0,land
+239,tyrus,Tyrus,Super,350000,0,0,0,0,0,land
+240,hexer,Hexer,Motorcycles,35000,0,0,0,0,0,land
+241,tampa3,Weaponized Tampa,Muscle,70000,0,0,0,0,0,land
+242,gburrito,Gang Burrito,Vans,50000,0,0,0,0,0,land
+243,sex6,sex6,Super,350000,0,0,0,0,0,land
+244,hpfm8,hpfm8,Sedans,35000,0,0,0,0,0,land
+245,cablecar,Cable Car,Rail,0,0,0,0,0,0,land
+246,pipistrello,Pipistrello,Super,350000,0,0,0,0,0,land
+247,ruffian,Ruffian,Motorcycles,35000,0,0,0,0,0,land
+248,carbonizzare,Carbonizzare,Sports,125000,0,0,0,0,0,land
+249,niobe,Niobe,Sports,125000,0,0,0,0,0,land
+250,fq2,FQ 2,SUVs,55000,0,0,0,0,0,land
+251,omnisegt,Omnis e-GT,Sports,125000,0,0,0,0,0,land
+252,variszupra,variszupra,Sports,125000,0,0,0,0,0,land
+253,coquette,Coquette,Sports,125000,0,0,0,0,0,land
+254,tiptruck,Tipper,Industrial,90000,0,0,0,0,0,land
+255,docktrailer,docktrailer,Utility,45000,0,0,0,0,0,land
+256,phantom,Phantom,Commercial,95000,0,0,0,0,0,land
+257,cutter,Cutter,Industrial,90000,0,0,0,0,0,land
+258,sinacp,sinacp,Super,350000,0,0,0,0,0,land
+259,futo,Futo,Sports,125000,0,0,0,0,0,land
+260,pd_escalader,pd_escalader,Emergency,0,0,0,0,0,0,land
+261,dune,Dune Buggy,Off Road,65000,0,0,0,0,0,land
+262,dune2,Space Docker,Off Road,65000,0,0,0,0,0,land
+263,faggio3,Faggio Mod,Motorcycles,35000,0,0,0,0,0,land
+264,predator,Police Predator,Boats,0,0,0,0,0,0,land
+265,fusilade,Fusilade,Sports,125000,0,0,0,0,0,land
+266,hotknife,Hotknife,Muscle,70000,0,0,0,0,0,land
+267,terminus,Terminus,Off Road,65000,0,0,0,0,0,land
+268,tribike3,Tri-Cycles Race Bike,Bicycles,1500,0,0,0,0,0,land
+269,dloader,Duneloader,Off Road,65000,0,0,0,0,0,land
+270,hustler,Hustler,Muscle,70000,0,0,0,0,0,land
+271,vigero,Vigero,Muscle,70000,0,0,0,0,0,land
+272,dubsta,Dubsta,SUVs,55000,0,0,0,0,0,land
+273,ruiner2,Ruiner 2000,Muscle,70000,0,0,0,0,0,land
+274,vigero2,Vigero ZX,Muscle,70000,0,0,0,0,0,land
+276,lbperfs,lbperfs,Super,350000,0,0,0,0,0,land
+277,slamvan3,Slamvan Custom,Muscle,70000,0,0,0,0,0,land
+278,draugur,Draugur,Off Road,65000,0,0,0,0,0,land
+279,loweyezv,loweyezv,Sports,125000,0,0,0,0,0,land
+280,dump,Dump,Industrial,90000,0,0,0,0,0,land
+281,alphaz1,Alpha-Z1,Planes,0,0,0,0,0,0,land
+282,everon2,Hotring Everon,Sports,125000,0,0,0,0,0,land
+283,rubble,Rubble,Industrial,90000,0,0,0,0,0,land
+284,slamvan6,Nightmare Slamvan,Muscle,70000,0,0,0,0,0,land
+285,dominator,Dominator,Muscle,70000,0,0,0,0,0,land
+286,fixter,Fixter,Bicycles,1500,0,0,0,0,0,land
+287,emperor,Emperor,Sedans,35000,0,0,0,0,0,land
+288,veto,Veto Classic,Sports,125000,0,0,0,0,0,land
+289,lpi80041,lpi80041,Super,350000,0,0,0,0,0,land
+290,habanero,Habanero,SUVs,55000,0,0,0,0,0,land
+291,r33ptnc,r33ptnc,Sports,125000,0,0,0,0,0,land
+292,emperor2,Emperor,Sedans,35000,0,0,0,0,0,land
+293,zl1,zl1,Sports,125000,0,0,0,0,0,land
+294,emperor3,Emperor,Sedans,35000,0,0,0,0,0,land
+295,shamal,Shamal,Planes,0,0,0,0,0,0,land
+296,brutus3,Nightmare Brutus,Off Road,65000,0,0,0,0,0,land
+297,tornado3,Tornado,Sports Classics,85000,0,0,0,0,0,land
+298,entityxf,Entity XF,Super,350000,0,0,0,0,0,land
+299,elegy2,Elegy RH8,Sports,125000,0,0,0,0,0,land
+300,tvtrailer,Trailer,Utility,45000,0,0,0,0,0,land
+301,peyote,Peyote,Sports Classics,85000,0,0,0,0,0,land
+302,lowrider_hoover,lowrider_hoover,Muscle,70000,0,0,0,0,0,land
+303,m3g80mp,m3g80mp,Sedans,35000,0,0,0,0,0,land
+304,f620,F620,Coupes,60000,0,0,0,0,0,land
+305,rt3000,RT3000,Sports,125000,0,0,0,0,0,land
+306,picador,Picador,Muscle,70000,0,0,0,0,0,land
+307,fbi,FIB,Emergency,0,0,0,0,0,0,land
+308,tampa,Tampa,Muscle,70000,0,0,0,0,0,land
+309,thrust,Thrust,Motorcycles,35000,0,0,0,0,0,land
+310,fbi2,FIB,Emergency,0,0,0,0,0,0,land
+311,mansrs6,mansrs6,Sports,125000,0,0,0,0,0,land
+312,stingergt,Stinger GT,Sports Classics,85000,0,0,0,0,0,land
+313,felon,Felon,Coupes,60000,0,0,0,0,0,land
+314,buffalo3,Sprunk Buffalo,Sports,125000,0,0,0,0,0,land
+315,seashark3,Seashark,Boats,0,0,0,0,0,0,land
+318,firetruk,Fire Truck,Emergency,0,0,0,0,0,0,land
+319,forklift,Forklift,Utility,45000,0,0,0,0,0,land
+320,topcargt63,topcargt63,Coupes,60000,0,0,0,0,0,land
+321,fugitive,Fugitive,Sedans,35000,0,0,0,0,0,land
+322,tr4,Trailer,Utility,45000,0,0,0,0,0,land
+323,212expo51,212expo51,Sports Classics,85000,0,0,0,0,0,land
+324,granger,Granger,SUVs,55000,0,0,0,0,0,land
+325,shinobi,Shinobi,Motorcycles,35000,0,0,0,0,0,land
+326,hellcatf9,hellcatf9,Sports,125000,0,0,0,0,0,land
+327,adder,Adder,Super,350000,0,0,0,0,0,land
+328,v60hr,v60hr,Super,350000,0,0,0,0,0,land
+329,gauntlet,Gauntlet,Muscle,70000,0,0,0,0,0,land
+330,corsita,Corsita,Sports,125000,0,0,0,0,0,land
+331,amgone,amgone,Sports,125000,0,0,0,0,0,land
+332,impala72b,impala72b,Coupes,60000,0,0,0,0,0,land
+333,caddy3,Caddy,Utility,45000,0,0,0,0,0,land
+334,hauler,Hauler,Commercial,95000,0,0,0,0,0,land
+335,freightcont1,Freight Train,Rail,0,0,0,0,0,0,land
+336,infernus,Infernus,Super,350000,0,0,0,0,0,land
+337,retinue2,Retinue Mk II,Sports Classics,85000,0,0,0,0,0,land
+338,haitun,haitun,Helicopters,0,0,0,0,0,0,land
+339,ingot,Ingot,Sedans,35000,0,0,0,0,0,land
+340,tr2,Trailer,Utility,45000,0,0,0,0,0,land
+341,scorcher,Scorcher,Bicycles,1500,0,0,0,0,0,land
+342,intruder,Intruder,Sedans,35000,0,0,0,0,0,land
+343,issi2,Issi,Compacts,18000,0,0,0,0,0,land
+344,porche911speedhunter,porche911speedhunter,Sports,125000,0,0,0,0,0,land
+345,surge,Surge,Sedans,35000,0,0,0,0,0,land
+346,ztype,Z-Type,Sports Classics,85000,0,0,0,0,0,land
+347,visione,Visione,Super,350000,0,0,0,0,0,land
+348,vrodwidowape,vrodwidowape,Motorcycles,35000,0,0,0,0,0,land
+349,stretch,Stretch,Sedans,35000,0,0,0,0,0,land
+350,royalcustom_rsq8_ems,royalcustom_rsq8_ems,Emergency,0,0,0,0,0,0,land
+351,jackal,Jackal,Coupes,60000,0,0,0,0,0,land
+352,evox,evox,Sports,125000,0,0,0,0,0,land
+353,panthere,Panthere,Sports,125000,0,0,0,0,0,land
+354,journey,Journey,Vans,50000,0,0,0,0,0,land
+355,gac10,gac10,Vans,50000,0,0,0,0,0,land
+356,jb700,JB 700,Sports Classics,85000,0,0,0,0,0,land
+357,carbonrs,Carbon RS,Motorcycles,35000,0,0,0,0,0,land
+358,khamelion,Khamelion,Sports,125000,0,0,0,0,0,land
+359,gaimpala59,gaimpala59,Coupes,60000,0,0,0,0,0,land
+360,jester4,Jester RR,Sports,125000,0,0,0,0,0,land
+361,phantom3,Phantom Custom,Commercial,95000,0,0,0,0,0,land
+362,issi4,Apocalypse Issi,Compacts,18000,0,0,0,0,0,land
+363,landstalker,Landstalker,SUVs,55000,0,0,0,0,0,land
+364,rmodmk7,rmodmk7,Sports,125000,0,0,0,0,0,land
+365,suntrap,Suntrap,Boats,0,0,0,0,0,0,land
+366,raiden,Raiden,Sports,125000,0,0,0,0,0,land
+367,lguard,Lifeguard,Emergency,0,0,0,0,0,0,land
+368,por911gt3,por911gt3,Sports,125000,0,0,0,0,0,land
+369,luxor,Luxor,Planes,0,0,0,0,0,0,land
+370,mesa,Mesa,SUVs,55000,0,0,0,0,0,land
+371,dawn,dawn,Sedans,35000,0,0,0,0,0,land
+372,issi5,Future Shock Issi,Compacts,18000,0,0,0,0,0,land
+373,van_triaden,van_triaden,Muscle,70000,0,0,0,0,0,land
+374,swift,Swift,Helicopters,0,0,0,0,0,0,land
+375,policet3,Burrito (Bail Enforcement),Emergency,0,0,0,0,0,0,land
+376,mesa2,Mesa,SUVs,55000,0,0,0,0,0,land
+377,mesa3,Mesa,Off Road,65000,0,0,0,0,0,land
+378,manana2,Manana Custom,Muscle,70000,0,0,0,0,0,land
+379,van_blackjackets,van_blackjackets,Muscle,70000,0,0,0,0,0,land
+380,crusader,Crusader,Military,0,0,0,0,0,0,land
+381,minivan,Minivan,Vans,50000,0,0,0,0,0,land
+382,mixer,Mixer,Industrial,90000,0,0,0,0,0,land
+383,mixer2,Mixer,Industrial,90000,0,0,0,0,0,land
+384,monroe,Monroe,Sports Classics,85000,0,0,0,0,0,land
+385,cp9a,cp9a,Compacts,18000,0,0,0,0,0,land
+386,rebel,Rusty Rebel,Off Road,65000,0,0,0,0,0,land
+387,mower,Lawn Mower,Utility,45000,0,0,0,0,0,land
+388,gtrh,gtrh,Sports,125000,0,0,0,0,0,land
+389,mule,Mule,Commercial,95000,0,0,0,0,0,land
+390,faction,Faction,Muscle,70000,0,0,0,0,0,land
+391,pounder2,Pounder Custom,Commercial,95000,0,0,0,0,0,land
+392,204spetro,204spetro,Commercial,95000,0,0,0,0,0,land
+393,rmodf40,rmodf40,Sports Classics,85000,0,0,0,0,0,land
+394,monster,Liberator,Off Road,65000,0,0,0,0,0,land
+395,mule2,Mule,Commercial,95000,0,0,0,0,0,land
+396,sanchez,Sanchez (livery),Motorcycles,35000,0,0,0,0,0,land
+397,oracle,Oracle XS,Coupes,60000,0,0,0,0,0,land
+398,rmodg65,rmodg65,SUVs,55000,0,0,0,0,0,land
+399,oracle2,Oracle,Coupes,60000,0,0,0,0,0,land
+400,hellcatmagnum21,hellcatmagnum21,Sports,125000,0,0,0,0,0,land
+401,packer,Packer,Commercial,95000,0,0,0,0,0,land
+402,blazer5,Blazer Aqua,Off Road,65000,0,0,0,0,0,land
+403,patriot,Patriot,SUVs,55000,0,0,0,0,0,land
+404,sabregt2,Sabre Turbo Custom,Muscle,70000,0,0,0,0,0,land
+405,brioso2,Brioso 300,Compacts,18000,0,0,0,0,0,land
+406,pbus,Prison Bus,Emergency,0,0,0,0,0,0,land
+407,patrolboat,Kurtz 31 Patrol Boat,Boats,0,0,0,0,0,0,land
+408,rmodr8alpilx,rmodr8alpilx,Super,350000,0,0,0,0,0,land
+409,tornado2,Tornado,Sports Classics,85000,0,0,0,0,0,land
+410,chironsupersport22,chironsupersport22,Super,350000,0,0,0,0,0,land
+411,cruiser,Cruiser,Bicycles,1500,0,0,0,0,0,land
+412,sadler2,Sadler,Utility,45000,0,0,0,0,0,land
+413,penumbra,Penumbra,Sports,125000,0,0,0,0,0,land
+414,benson2,Benson (Cluckin' Bell),Commercial,95000,0,0,0,0,0,land
+415,a45,a45,Sedans,35000,0,0,0,0,0,land
+416,phoenix,Phoenix,Muscle,70000,0,0,0,0,0,land
+417,pounder,Pounder,Commercial,95000,0,0,0,0,0,land
+418,savage,Savage,Helicopters,0,0,0,0,0,0,land
+419,freightgrain,Freight Train,Rail,0,0,0,0,0,0,land
+420,trflat,Trailer,Utility,45000,0,0,0,0,0,land
+421,verlierer2,Verlierer,Sports,125000,0,0,0,0,0,land
+422,police,Police Cruiser,Emergency,0,0,0,0,0,0,land
+423,rs6_criminals,rs6_criminals,Super,350000,0,0,0,0,0,land
+424,rs666,rs666,Sports,125000,0,0,0,0,0,land
+425,maverick,Maverick,Helicopters,0,0,0,0,0,0,land
+426,police4,Unmarked Cruiser,Emergency,0,0,0,0,0,0,land
+427,sultanrs,Sultan RS,Super,350000,0,0,0,0,0,land
+428,lowrider_mg13,lowrider_mg13,Muscle,70000,0,0,0,0,0,land
+429,police2,Police Cruiser,Emergency,0,0,0,0,0,0,land
+430,sheava,ETR1,Super,350000,0,0,0,0,0,land
+431,police3,Police Cruiser,Emergency,0,0,0,0,1,0,land
+432,policeold1,Police Rancher,Emergency,0,0,0,0,0,0,land
+433,chr20,chr20,Sports,125000,0,0,0,0,0,land
+434,torero,Torero,Sports Classics,85000,0,0,0,0,0,land
+435,policeold2,Police Roadcruiser,Emergency,0,0,0,0,0,0,land
+436,tigon,Tigon,Super,350000,0,0,0,0,0,land
+437,22m5,22m5,SUVs,55000,0,0,0,0,0,land
+438,pony2,Pony,Vans,50000,0,0,0,0,0,land
+439,prairie,Prairie,Compacts,18000,0,0,0,0,0,land
+440,urus_stretch_6,urus_stretch_6,Sedans,35000,0,0,0,0,0,land
+441,virgo3,Virgo Classic,Muscle,70000,0,0,0,0,0,land
+442,ratloader2,Rat-Truck,Muscle,70000,0,0,0,0,0,land
+443,pranger,Park Ranger,Emergency,0,0,0,0,0,0,land
+444,premier,Premier,Sedans,35000,0,0,0,0,0,land
+445,fpaceprior,fpaceprior,SUVs,55000,0,0,0,0,0,land
+446,regina,Regina,Sedans,35000,0,0,0,0,0,land
+447,seasparrow3,Sparrow,Helicopters,0,0,0,0,0,0,land
+448,ftecnica,ftecnica,Super,350000,0,0,0,0,0,land
+449,van_st187,van_st187,Muscle,70000,0,0,0,0,0,land
+450,primo,Primo,Sedans,35000,0,0,0,0,0,land
+451,nero,Nero,Super,350000,0,0,0,0,0,land
+452,fenrir,fenrir,Motorcycles,35000,0,0,0,0,0,land
+453,astro88,astro88,Vans,50000,0,0,0,0,0,land
+454,proptrailer,proptrailer,Utility,45000,0,0,0,0,0,land
+455,trailers,Trailer,Utility,45000,0,0,0,0,0,land
+456,rancherxl,Rancher XL,Off Road,65000,0,0,0,0,0,land
+457,contender,Contender,SUVs,55000,0,0,0,0,0,land
+458,18rs7,18rs7,Sports,125000,0,0,0,0,0,land
+459,rancherxl2,Rancher XL,Off Road,65000,0,0,0,0,0,land
+461,towtruck,Tow Truck,Utility,45000,0,0,0,0,0,land
+462,rapidgt,Rapid GT,Sports,125000,0,0,0,0,0,land
+463,gadbiz49,gadbiz49,Coupes,60000,0,0,0,0,0,land
+464,baletrailer,Baletrailer,Utility,45000,0,0,0,0,0,land
+465,rapidgt2,Rapid GT,Sports,125000,0,0,0,0,0,land
+466,trailerlogs,Trailer,Utility,45000,0,0,0,0,0,land
+467,gdivo,gdivo,Super,350000,0,0,0,0,0,land
+468,sw_sprinter,sw_sprinter,Emergency,0,0,0,0,0,0,land
+469,radi,Radius,SUVs,55000,0,0,0,0,0,land
+470,mxpan,mxpan,Sports,125000,0,0,0,0,0,land
+471,cargobob3,Cargobob,Helicopters,0,0,0,0,0,0,land
+472,taipan,Taipan,Super,350000,0,0,0,0,0,land
+473,deveste,Deveste Eight,Super,350000,0,0,0,0,0,land
+474,gtorino76,gtorino76,Coupes,60000,0,0,0,0,0,land
+475,newyorker75,newyorker75,Coupes,60000,0,0,0,0,0,land
+476,boss302,boss302,Muscle,70000,0,0,0,0,0,land
+477,ratloader,Rat-Loader,Muscle,70000,0,0,0,0,0,land
+478,m5e60,m5e60,Sports,125000,0,0,0,0,0,land
+479,miljet,Miljet,Planes,0,0,0,0,0,0,land
+480,rebel2,Rebel,Off Road,65000,0,0,0,0,0,land
+481,rentalbus,Rental Shuttle Bus,Service,50000,0,0,0,0,0,land
+482,ruiner,Ruiner,Muscle,70000,0,0,0,0,0,land
+483,cerberus2,Future Shock Cerberus,Commercial,95000,0,0,0,0,0,land
+484,rumpo,Rumpo,Vans,50000,0,0,0,0,0,land
+485,van_osmanen,van_osmanen,Muscle,70000,0,0,0,0,0,land
+486,rumpo2,Rumpo,Vans,50000,0,0,0,0,0,land
+487,youga2,Youga Classic,Vans,50000,0,0,0,0,0,land
+488,alpha,Alpha,Sports,125000,0,0,0,0,0,land
+489,rhino,Rhino Tank,Military,0,0,0,0,0,0,land
+490,ripley,Ripley,Utility,45000,0,0,0,0,0,land
+491,schafter4,Schafter LWB,Sports,125000,0,0,0,0,0,land
+492,gl63,gl63,SUVs,55000,0,0,0,0,0,land
+493,lightningdually22,lightningdually22,SUVs,55000,0,0,0,0,0,land
+494,voodoo2,Voodoo,Muscle,70000,0,0,0,0,0,land
+495,fxxkevo,fxxkevo,Super,350000,0,0,0,0,0,land
+497,submersible,Submersible,Boats,0,0,0,0,0,0,land
+499,skyline,skyline,Sports,125000,0,0,0,0,0,land
+500,bruiser3,Nightmare Bruiser,Off Road,65000,0,0,0,0,0,land
+501,sabregt,Sabre Turbo,Muscle,70000,0,0,0,0,0,land
+502,bmwg07,bmwg07,Sports,125000,0,0,0,0,0,land
+503,sadler,Sadler,Utility,45000,0,0,0,0,0,land
+504,cerberus3,Nightmare Cerberus,Commercial,95000,0,0,0,0,0,land
+505,sandking2,Sandking SWB,Off Road,65000,0,0,0,0,0,land
+506,freight,Freight Train,Rail,0,0,0,0,0,0,land
+507,schafter2,Schafter,Sedans,35000,0,0,0,0,0,land
+508,vagrant,Vagrant,Off Road,65000,0,0,0,0,0,land
+509,16charger,16charger,Sports,125000,0,0,0,0,0,land
+510,coquette3,Coquette BlackFin,Muscle,70000,0,0,0,0,0,land
+511,schwarzer,Schwartzer,Sports,125000,0,0,0,0,0,land
+512,lynx,Lynx,Sports,125000,0,0,0,0,0,land
+513,sentinel,Sentinel XS,Coupes,60000,0,0,0,0,0,land
+514,escaladeprime,escaladeprime,Vans,50000,0,0,0,0,0,land
+515,buzzard,Buzzard Attack Chopper,Helicopters,0,0,0,0,0,0,land
+516,van_lostmc,van_lostmc,Muscle,70000,0,0,0,0,0,land
+517,patriot3,Patriot Mil-Spec,Off Road,65000,0,0,0,0,0,land
+518,cooperworks,cooperworks,Compacts,18000,0,0,0,0,0,land
+519,sentinel2,Sentinel,Coupes,60000,0,0,0,0,0,land
+520,taxi,Taxi,Service,50000,0,0,0,0,0,land
+521,zion,Zion,Coupes,60000,0,0,0,0,0,land
+522,mercec63s,mercec63s,Coupes,60000,0,0,0,0,0,land
+523,outlaw,Outlaw,Off Road,65000,0,0,0,0,0,land
+524,police5,Stanier LE Cruiser,Emergency,0,0,0,0,0,0,land
+525,oycdefender,oycdefender,SUVs,55000,0,0,0,0,0,land
+526,tractor2,Fieldmaster,Utility,45000,0,0,0,0,0,land
+527,zion2,Zion Cabrio,Coupes,60000,0,0,0,0,0,land
+528,annihilator2,Annihilator Stealth,Helicopters,0,0,0,0,0,0,land
+529,serrano,Serrano,SUVs,55000,0,0,0,0,0,land
+530,sheriff,Sheriff Cruiser,Emergency,0,0,0,0,0,0,land
+531,sc1,SC1,Super,350000,0,0,0,0,0,land
+532,dl_rs7,dl_rs7,Emergency,0,0,0,0,0,0,land
+533,swl,swl,Sports,125000,0,0,0,0,0,land
+534,sheriff2,Sheriff SUV,Emergency,0,0,0,0,0,0,land
+535,speedo,Speedo,Vans,50000,0,0,0,0,0,land
+536,manhartx7,manhartx7,SUVs,55000,0,0,0,0,0,land
+537,comet7,Comet S2 Cabrio,Sports,125000,0,0,0,0,0,land
+538,giulia_2021,giulia_2021,Sports,125000,0,0,0,0,0,land
+539,speedo2,Clown Van,Vans,50000,0,0,0,0,0,land
+540,stanier,Stanier,Sedans,35000,0,0,0,0,0,land
+541,ferrari812super,ferrari812super,Sedans,35000,0,0,0,0,0,land
+542,freight2,Freight Train,Rail,0,0,0,0,0,0,land
+543,superd,Super Diamond,Sedans,35000,0,0,0,0,0,land
+544,stinger,Stinger,Sports Classics,85000,0,0,0,0,0,land
+545,stockade,Stockade,Commercial,95000,0,0,0,0,0,land
+546,impaler2,Apocalypse Impaler,Muscle,70000,0,0,0,0,0,land
+547,raid,raid,Super,350000,0,0,0,0,0,land
+548,rs6_kadir,rs6_kadir,Super,350000,0,0,0,0,0,land
+549,technical,Technical,Off Road,65000,0,0,0,0,0,land
+550,stockade3,Stockade,Commercial,95000,0,0,0,0,0,land
+551,tvtrailer2,Trailer,Utility,45000,0,0,0,0,0,land
+552,m3e92,m3e92,Sports,125000,0,0,0,0,0,land
+553,elegy,Elegy Retro Custom,Sports,125000,0,0,0,0,0,land
+554,sultan,Sultan,Sports,125000,0,0,0,0,0,land
+555,godz22lightningwb,godz22lightningwb,SUVs,55000,0,0,0,0,0,land
+556,gcma4sedan2021,gcma4sedan2021,Sedans,35000,0,0,0,0,0,land
+557,surano,Surano,Sports,125000,0,0,0,0,0,land
+558,surfer,Surfer,Vans,50000,0,0,0,0,0,land
+559,surfer2,Surfer,Vans,50000,0,0,0,0,0,land
+560,taco,Taco Van,Vans,50000,0,0,0,0,0,land
+561,gargoyle,Gargoyle,Motorcycles,35000,0,0,0,0,0,land
+562,tailgater,Tailgater,Sedans,35000,0,0,0,0,0,land
+563,f22thawk,f22thawk,SUVs,55000,0,0,0,0,0,land
+564,manchez2,Manchez Scout,Motorcycles,35000,0,0,0,0,0,land
+565,tr3,Trailer,Utility,45000,0,0,0,0,0,land
+566,gta5rp_veh_gle1,gta5rp_veh_gle1,SUVs,55000,0,0,0,0,0,land
+567,trash,Trashmaster,Service,50000,0,0,0,0,0,land
+568,tractor,Tractor,Utility,45000,0,0,0,0,0,land
+569,rapidgt3,Rapid GT Classic,Sports Classics,85000,0,0,0,0,0,land
+570,tractor3,Fieldmaster,Utility,45000,0,0,0,0,0,land
+571,graintrailer,graintrailer,Utility,45000,0,0,0,0,0,land
+572,tiptruck2,Tipper,Industrial,90000,0,0,0,0,0,land
+573,tulip2,Tulip M-100,Muscle,70000,0,0,0,0,0,land
+574,tourbus,Tour Bus,Service,50000,0,0,0,0,0,land
+575,polkawasaki,polkawasaki,Emergency,0,0,0,0,0,0,land
+576,oppressor,Oppressor,Motorcycles,35000,0,0,0,0,0,land
+577,utillitruck,Utility Truck,Utility,45000,0,0,0,0,0,land
+578,cx75,T20,Super,350000,0,0,0,0,0,land
+579,seashark,Seashark,Boats,0,0,0,0,0,0,land
+580,utillitruck2,Utility Truck,Utility,45000,0,0,0,0,0,land
+581,utillitruck3,Utility Truck,Utility,45000,0,0,0,0,0,land
+582,chernobog,Chernobog,Military,0,0,0,0,0,0,land
+583,slamvan,Slamvan,Muscle,70000,0,0,0,0,0,land
+584,bmx,BMX,Bicycles,1500,0,0,0,0,0,land
+585,policeb,Police Bike,Emergency,0,0,0,0,0,0,land
+586,fagaloa,Fagaloa,Sports Classics,85000,0,0,0,0,0,land
+587,washington,Washington,Sedans,35000,0,0,0,0,0,land
+588,avarus,Avarus,Motorcycles,35000,0,0,0,0,0,land
+589,youga,Youga,Vans,50000,0,0,0,0,0,land
+590,cls500w219,cls500w219,Sedans,35000,0,0,0,0,0,land
+591,panto,Panto,Compacts,18000,0,0,0,0,0,land
+592,van_gmbh,van_gmbh,Muscle,70000,0,0,0,0,0,land
+593,brutus2,Future Shock Brutus,Off Road,65000,0,0,0,0,0,land
+594,sanchez2,Sanchez,Motorcycles,35000,0,0,0,0,0,land
+595,camaro70,camaro70,Muscle,70000,0,0,0,0,0,land
+596,chino,Chino,Muscle,70000,0,0,0,0,0,land
+597,tribike,Whippet Race Bike,Bicycles,1500,0,0,0,0,0,land
+598,hydra,Hydra,Planes,0,0,0,0,0,0,land
+599,van_ballas,van_ballas,Muscle,70000,0,0,0,0,0,land
+600,cargobob4,Cargobob,Helicopters,0,0,0,0,0,0,land
+601,tribike2,Endurex Race Bike,Bicycles,1500,0,0,0,0,0,land
+602,eheli,eheli,Helicopters,0,0,0,0,0,0,land
+603,penetrator,Penetrator,Super,350000,0,0,0,0,0,land
+604,paradise,Paradise,Vans,50000,0,0,0,0,0,land
+605,vacca,Vacca,Super,350000,0,0,0,0,0,land
+606,yosemite,Yosemite,Muscle,70000,0,0,0,0,0,land
+607,gaford34,gaford34,Muscle,70000,0,0,0,0,0,land
+608,pcj,PCJ 600,Motorcycles,35000,0,0,0,0,0,land
+609,akuma,Akuma,Motorcycles,35000,0,0,0,0,0,land
+610,coureur,La Coureuse,Sports,125000,0,0,0,0,0,land
+611,bagger,Bagger,Motorcycles,35000,0,0,0,0,0,land
+612,bati2,Bati 801RR,Motorcycles,35000,0,0,0,0,0,land
+613,phantom2,Phantom Wedge,Commercial,95000,0,0,0,0,0,land
+614,daemon,Daemon,Motorcycles,35000,0,0,0,0,0,land
+615,annihilator,Annihilator,Helicopters,0,0,0,0,0,0,land
+616,tankercar,Freight Train,Rail,0,0,0,0,0,0,land
+617,double,Double-T,Motorcycles,35000,0,0,0,0,0,land
+618,vader,Vader,Motorcycles,35000,0,0,0,0,0,land
+619,trailersmall,Trailer,Utility,45000,0,0,0,0,0,land
+620,toros,Toros,SUVs,55000,0,0,0,0,0,land
+621,faggio2,Faggio,Motorcycles,35000,0,0,0,0,0,land
+622,gfuckedsupra,gfuckedsupra,Sports,125000,0,0,0,0,0,land
+623,technical3,Technical Custom,Off Road,65000,0,0,0,0,0,land
+624,t20,T20,Super,350000,0,0,0,0,0,land
+625,buzzard2,Buzzard,Helicopters,0,0,0,0,0,0,land
+626,dtdbolide,dtdbolide,Super,350000,0,0,0,0,0,land
+627,trailersmall2,Anti-Aircraft Trailer,Military,0,0,0,0,0,0,land
+628,cargobob,Cargobob,Helicopters,0,0,0,0,0,0,land
+629,dynasty,Dynasty,Sports Classics,85000,0,0,0,0,0,land
+630,cargobob2,Cargobob,Helicopters,0,0,0,0,0,0,land
+631,skylift,Skylift,Helicopters,0,0,0,0,0,0,land
+632,polmav,Police Maverick,Helicopters,0,1,1,0,0,0,land
+633,nemesis,Nemesis,Motorcycles,35000,0,0,0,0,0,land
+634,m8hc,m8hc,Sedans,35000,0,0,0,0,0,land
+635,frogger,Frogger,Helicopters,0,1,1,0,0,0,air
+636,godzrzrprolftd,godzrzrprolftd,Off Road,65000,0,0,0,0,0,land
+637,g63c,g63c,SUVs,55000,0,0,0,0,0,land
+638,dubsta3,Dubsta 6x6,Off Road,65000,0,0,0,0,0,land
+639,dinghy,Dinghy,Boats,0,0,0,0,0,0,boat
+640,jubilee,Jubilee,SUVs,55000,0,0,0,0,0,land
+641,bestiagts,Bestia GTS,Sports,125000,0,0,0,0,0,land
+642,frogger2,Frogger,Helicopters,0,0,0,0,0,0,land
+643,sultan3,Sultan RS Classic,Sports,125000,0,0,0,0,0,land
+644,rygbus,rygbus,Vans,50000,0,0,0,0,0,land
+645,huntley,Huntley S,SUVs,55000,0,0,0,0,0,land
+646,polbmwm7,polbmwm7,Emergency,0,0,0,0,0,0,land
+647,duster,Duster,Planes,0,0,0,0,0,0,land
+648,godzyamr1,godzyamr1,Motorcycles,35000,0,0,0,0,0,land
+649,mammatus,Mammatus,Planes,0,0,0,0,0,0,land
+650,jet,Jet,Planes,0,0,0,0,0,0,land
+651,yosemite3,Yosemite Rancher,Off Road,65000,0,0,0,0,0,land
+652,osiris,Osiris,Super,350000,0,0,0,0,0,land
+653,playaturbozr1,playaturbozr1,Sports,125000,0,0,0,0,0,land
+654,insurgent2,Insurgent,Off Road,65000,0,0,0,0,0,land
+655,entity3,Entity MT,Super,350000,0,0,0,0,0,land
+656,lowrider_ballas,lowrider_ballas,Muscle,70000,0,0,0,0,0,land
+657,titan,Titan,Planes,0,0,0,0,0,0,land
+658,msls,msls,Sedans,35000,0,0,0,0,0,land
+659,lazer,P-996 LAZER,Planes,0,0,0,0,0,0,land
+660,17silvk9rb,17silvk9rb,Emergency,0,0,0,0,0,0,land
+661,daemon2,Daemon,Motorcycles,35000,0,0,0,0,0,land
+662,squalo,Squalo,Boats,0,0,0,0,0,0,land
+663,marquis,Marquis,Boats,0,0,0,0,0,0,land
+664,h2m,h2m,SUVs,55000,0,0,0,0,0,land
+665,s8d4,s8d4,Sedans,35000,0,0,0,0,0,land
+666,dinghy2,Dinghy,Boats,0,0,0,0,0,0,boat
+667,c8,c8,Super,350000,0,0,0,0,0,land
+668,lurcher,Lurcher,Muscle,70000,0,0,0,0,0,land
+669,rs6abtkit,rs6abtkit,Sports,125000,0,0,0,0,0,land
+670,jetmax,Jetmax,Boats,0,0,0,0,0,0,boat
+671,rs5mans,rs5mans,Sports,125000,0,0,0,0,0,land
+672,tropic,Tropic,Boats,0,0,0,0,0,0,land
+673,driftcypher,Cypher,Sports,125000,0,0,0,0,0,land
+674,seashark2,Seashark,Boats,0,0,0,0,0,0,land
+675,youga4,Youga Custom,Vans,50000,0,0,0,0,0,land
+676,dukes2,Duke O'Death,Muscle,70000,0,0,0,0,0,land
+677,freightcar,Freight Train,Rail,0,0,0,0,0,0,land
+678,freightcont2,Freight Train,Rail,0,0,0,0,0,0,land
+679,metrotrain,Freight Train,Rail,0,0,0,0,0,0,land
+680,van_vagos,van_vagos,Muscle,70000,0,0,0,0,0,land
+681,trailers2,Trailer,Utility,45000,0,0,0,0,0,land
+682,polbike,polbike,Emergency,0,0,0,0,0,0,land
+683,bronco80,bronco80,Off Road,65000,0,0,0,0,0,land
+684,taxipolmav,taxipolmav,Helicopters,0,0,0,0,0,0,land
+685,trailers3,Trailer,Utility,45000,0,0,0,0,0,land
+686,raketrailer,Trailer,Utility,45000,0,0,0,0,0,land
+687,fcr2,FCR 1000 Custom,Motorcycles,35000,0,0,0,0,0,land
+688,fcr,FCR 1000,Motorcycles,35000,0,0,0,0,0,land
+689,rocket,rocket,Sports,125000,0,0,0,0,0,land
+690,tanker,Trailer,Utility,45000,0,0,0,0,0,land
+691,golf7,golf7,Sports,125000,0,0,0,0,0,land
+692,guardian,Guardian,Industrial,90000,0,0,0,0,0,land
+693,rs6c8,rs6c8,Sports,125000,0,0,0,0,0,land
+694,lowrider_blacklions,lowrider_blacklions,Muscle,70000,0,0,0,0,0,land
+695,velum,Velum,Planes,0,0,0,0,0,0,land
+696,rmodpagani,rmodpagani,Sports,125000,0,0,0,0,0,land
+697,italigtb2,Itali GTB Custom,Super,350000,0,0,0,0,0,land
+698,lowrider_bloods,lowrider_bloods,Muscle,70000,0,0,0,0,0,land
+699,bifta,Bifta,Off Road,65000,0,0,0,0,0,land
+700,rebla,Rebla GTS,SUVs,55000,0,0,0,0,0,land
+701,dune5,Ramp Buggy,Off Road,65000,0,0,0,0,0,land
+702,speeder,Speeder,Boats,0,0,0,0,0,0,land
+703,impaler5,Impaler SZ,Muscle,70000,0,0,0,0,0,land
+704,812mnsry,812mnsry,Sports,125000,0,0,0,0,0,land
+705,chino2,Chino Custom,Muscle,70000,0,0,0,0,0,land
+706,paragon2,Paragon R (Armored),Sports,125000,0,0,0,0,0,land
+707,warrener,Warrener,Sedans,35000,0,0,0,0,0,land
+708,teslapd,teslapd,Sedans,35000,0,0,0,0,0,land
+709,sf90,sf90,Super,350000,0,0,0,0,0,land
+710,esrmzo,esrmzo,Motorcycles,35000,0,0,0,0,0,land
+711,f-six49,f-six49,Utility,45000,0,0,0,0,0,land
+712,kalahari,Kalahari,Off Road,65000,0,0,0,0,0,land
+713,btype,Roosevelt,Sports Classics,85000,0,0,0,0,0,land
+714,slamvan5,Future Shock Slamvan,Muscle,70000,0,0,0,0,0,land
+715,rmodgt63,rmodgt63,Sports,125000,0,0,0,0,0,land
+716,hakuchou2,Hakuchou Drag,Motorcycles,35000,0,0,0,0,0,land
+717,diablous2,Diabolus Custom,Motorcycles,35000,0,0,0,0,0,land
+718,gt500,GT500,Sports Classics,85000,0,0,0,0,0,land
+719,rs7,rs7,Coupes,60000,0,0,0,0,0,land
+720,prototipo,X80 Proto,Super,350000,0,0,0,0,0,land
+721,vestra,Vestra,Planes,0,0,0,0,0,0,land
+722,rhapsody,Rhapsody,Compacts,18000,0,0,0,0,0,land
+723,blade,Blade,Muscle,70000,0,0,0,0,0,land
+724,pigalle,Pigalle,Sports Classics,85000,0,0,0,0,0,land
+725,sovereign,Sovereign,Motorcycles,35000,0,0,0,0,0,land
+726,pfister811,811,Super,350000,0,0,0,0,0,land
+727,nimbus,Nimbus,Planes,0,0,0,0,0,0,land
+728,besra,Besra,Planes,0,0,0,0,0,0,land
+729,cinquemila,Cinquemila,Sedans,35000,0,0,0,0,0,land
+730,trophytruck,Trophy Truck,Off Road,65000,0,0,0,0,0,land
+731,coquette2,Coquette Classic,Sports Classics,85000,0,0,0,0,0,land
+732,hakuchou,Hakuchou,Motorcycles,35000,0,0,0,0,0,land
+733,faggio,Faggio Sport,Motorcycles,35000,0,0,0,0,0,land
+734,van_narcos,van_narcos,Muscle,70000,0,0,0,0,0,land
+735,driftfr36,FR36,Coupes,60000,0,0,0,0,0,land
+736,furoregt,Furore GT,Sports,125000,0,0,0,0,0,land
+737,jester2,Jester (Racecar),Sports,125000,0,0,0,0,0,land
+738,massacro2,Massacro (Racecar),Sports,125000,0,0,0,0,0,land
+739,van_mg13,van_mg13,Muscle,70000,0,0,0,0,0,land
+740,torachargerlifted,torachargerlifted,Sports,125000,0,0,0,0,0,land
+741,charger,Dukes,Muscle,70000,0,0,0,0,0,land
+742,casco,Casco,Sports Classics,85000,0,0,0,0,0,land
+743,youga3,Youga Classic 4x4,Vans,50000,0,0,0,0,0,land
+744,conada,Conada,Helicopters,0,0,0,0,0,0,land
+745,boxville4,Boxville,Vans,50000,0,0,0,0,0,land
+746,22g63,22g63,Emergency,0,0,0,0,0,0,land
+747,insurgent,Insurgent Pick-Up,Off Road,65000,0,0,0,0,0,land
+748,owlbelair2,owlbelair2,Coupes,60000,0,0,0,0,0,land
+749,technical2,Technical Aqua,Off Road,65000,0,0,0,0,0,land
+750,halftrack,Half-track,Military,0,0,0,0,0,0,land
+751,gburrito2,Gang Burrito,Vans,50000,0,0,0,0,0,land
+752,hellion,Hellion,Off Road,65000,0,0,0,0,0,land
+753,m3e46,m3e46,Coupes,60000,0,0,0,0,0,land
+754,dinghy3,Dinghy,Boats,0,0,0,0,0,0,boat
+755,enduro,Enduro,Motorcycles,35000,0,0,0,0,0,land
+756,royalcustom_r34marked,royalcustom_r34marked,Emergency,0,0,0,0,0,0,land
+757,van_cali,van_cali,Muscle,70000,0,0,0,0,0,land
+758,lectro,Lectro,Motorcycles,35000,0,0,0,0,0,land
+759,champion,Champion,Super,350000,0,0,0,0,0,land
+760,kuruma,Kuruma,Sports,125000,0,0,0,0,0,land
+761,krieger,Krieger,Super,350000,0,0,0,0,0,land
+762,kuruma2,Kuruma (Armored),Sports,125000,0,0,0,0,0,land
+763,trophytruck2,Desert Raid,Off Road,65000,0,0,0,0,0,land
+764,gmcev2,gmcev2,SUVs,55000,0,0,0,0,0,land
+765,trash2,Trashmaster,Service,50000,0,0,0,0,0,land
+766,dominator6,Nightmare Dominator,Muscle,70000,0,0,0,0,0,land
+767,fnfmits,fnfmits,Sports,125000,0,0,0,0,0,land
+768,everon,Everon,Off Road,65000,0,0,0,0,0,land
+769,limo2,Turreted Limo,Sedans,35000,0,0,0,0,0,land
+770,van_lcn,van_lcn,Muscle,70000,0,0,0,0,0,land
+771,valkyrie,Valkyrie,Helicopters,0,0,0,0,0,0,land
+772,zr3803,Nightmare ZR380,Sports,125000,0,0,0,0,0,land
+773,rmodbentley1,rmodbentley1,Super,350000,0,0,0,0,0,land
+774,swift2,Swift Deluxe,Helicopters,0,0,0,0,0,0,land
+775,van_peakyblinders,van_peakyblinders,Muscle,70000,0,0,0,0,0,land
+776,luxor2,Luxor Deluxe,Planes,0,0,0,0,0,0,land
+777,w463a,w463a,SUVs,55000,0,0,0,0,0,land
+778,feltzer3,Stirling GT,Sports Classics,85000,0,0,0,0,0,land
+779,b63s,b63s,SUVs,55000,0,0,0,0,0,land
+780,boxville5,Armored Boxville,Vans,50000,0,0,0,0,0,land
+781,virgo,Virgo,Muscle,70000,0,0,0,0,0,land
+783,buffalo5,Buffalo EVX,Muscle,70000,0,0,0,0,0,land
+784,ddcemperor,ddcemperor,Coupes,60000,0,0,0,0,0,land
+785,brigham,Brigham,Muscle,70000,0,0,0,0,0,land
+786,vindicator,Vindicator,Motorcycles,35000,0,0,0,0,0,land
+788,brawler,Brawler,Off Road,65000,0,0,0,0,0,land
+789,stalion,Stallion,Muscle,70000,0,0,0,0,0,land
+790,tampa2,Drift Tampa,Sports,125000,0,0,0,0,0,land
+791,toro,Toro,Boats,0,0,0,0,0,0,land
+792,previon,Previon,Coupes,60000,0,0,0,0,0,land
+793,cayen19,cayen19,Sports,125000,0,0,0,0,0,land
+794,faction2,Faction Custom,Muscle,70000,0,0,0,0,0,land
+795,turismo3,Turismo Omaggio,Super,350000,0,0,0,0,0,land
+796,moonbeam,Moonbeam,Muscle,70000,0,0,0,0,0,land
+797,moonbeam2,Moonbeam Custom,Muscle,70000,0,0,0,0,0,land
+798,penumbra2,Penumbra FF,Sports,125000,0,0,0,0,0,land
+799,gauntlet4,Gauntlet Hellfire,Muscle,70000,0,0,0,0,0,land
+800,comet3,Comet Retro Custom,Sports,125000,0,0,0,0,0,land
+801,gta5rp_veh_c63s,gta5rp_veh_c63s,Coupes,60000,0,0,0,0,0,land
+802,primo2,Primo Custom,Sedans,35000,0,0,0,0,0,land
+803,futo2,Futo GTX,Sports,125000,0,0,0,0,0,land
+804,brickade2,Brickade 6x6,Service,50000,0,0,0,0,0,land
+805,specter2,Specter Custom,Sports,125000,0,0,0,0,0,land
+806,f450,f450,Off Road,65000,0,0,0,0,0,land
+807,s1,s1,Compacts,18000,0,0,0,0,0,land
+809,amggtbs,amggtbs,Sports,125000,0,0,0,0,0,land
+810,voodoo,Voodoo Custom,Muscle,70000,0,0,0,0,0,land
+811,huracanpriorbeast,huracanpriorbeast,Sports,125000,0,0,0,0,0,land
+812,rs7c821,rs7c821,Sports,125000,0,0,0,0,0,land
+813,trailerlarge,Mobile Operations Center,Utility,45000,0,0,0,0,0,land
+814,btype2,Fränken Stange,Sports Classics,85000,0,0,0,0,0,land
+815,cog55,Cognoscenti 55,Sedans,35000,0,0,0,0,0,land
+816,bg700w,bg700w,SUVs,55000,0,0,0,0,0,land
+817,nightshade,Nightshade,Muscle,70000,0,0,0,0,0,land
+818,seven70,Seven-70,Sports,125000,0,0,0,0,0,land
+819,broadway,Broadway,Muscle,70000,0,0,0,0,0,land
+820,mamba,Mamba,Sports Classics,85000,0,0,0,0,0,land
+821,m4speedhunter,m4speedhunter,Sports,125000,0,0,0,0,0,land
+822,rs6rabt20,rs6rabt20,Sports,125000,0,0,0,0,0,land
+823,schafter3,Schafter V12,Sports,125000,0,0,0,0,0,land
+824,aerox155,aerox155,Motorcycles,35000,0,0,0,0,0,land
+825,windsor2,Windsor Drop,Coupes,60000,0,0,0,0,0,land
+826,calico,Calico GTF,Sports,125000,0,0,0,0,0,land
+827,lbwkevo,lbwkevo,Super,350000,0,0,0,0,0,land
+828,schafter5,Schafter V12 (Armored),Sedans,35000,0,0,0,0,0,land
+829,asbo,Asbo,Compacts,18000,0,0,0,0,0,land
+830,schafter6,Schafter LWB (Armored),Sedans,35000,0,0,0,0,0,land
+831,cog552,Cognoscenti 55 (Armored),Sedans,35000,0,0,0,0,0,land
+832,cognoscenti,Cognoscenti,Sedans,35000,0,0,0,0,0,land
+833,cognoscenti2,Cognoscenti (Armored),Sedans,35000,0,0,0,0,0,land
+834,gauntlet5,Gauntlet Classic Custom,Muscle,70000,0,0,0,0,0,land
+835,esskey,Esskey,Motorcycles,35000,0,0,0,0,0,land
+836,baller3,Baller LE,SUVs,55000,0,0,0,0,0,land
+837,vectre,Vectre,Sports,125000,0,0,0,0,0,land
+838,bombushka,RM-10 Bombushka,Planes,0,0,0,0,0,0,land
+839,baller4,Baller LE LWB,SUVs,55000,0,0,0,0,0,land
+840,squaddie,Squaddie,SUVs,55000,0,0,0,0,0,land
+841,baller5,Baller LE (Armored),SUVs,55000,0,0,0,0,0,land
+842,jester3,Jester Classic,Sports,125000,0,0,0,0,0,land
+843,urusbeastedit,urusbeastedit,Sports,125000,0,0,0,0,0,land
+844,baller6,Baller LE LWB (Armored),SUVs,55000,0,0,0,0,0,land
+845,dinghy4,Dinghy,Boats,0,0,0,0,0,0,boat
+846,valor12rb,valor12rb,Emergency,0,0,0,0,0,0,land
+847,ruston,Ruston,Sports,125000,0,0,0,0,0,land
+848,tropic2,Tropic,Boats,0,0,0,0,0,0,land
+849,supervolito2,SuperVolito Carbon,Helicopters,0,0,0,0,0,0,land
+850,rmodx6,rmodx6,SUVs,55000,0,0,0,0,0,land
+851,valkyrie2,Valkyrie MOD.0,Helicopters,0,0,0,0,0,0,land
+852,banshee2,Banshee 900R,Super,350000,0,0,0,0,0,land
+853,faction3,Faction Custom Donk,Muscle,70000,0,0,0,0,0,land
+854,minivan2,Minivan Custom,Vans,50000,0,0,0,0,0,land
+855,tornado5,Tornado Custom,Sports Classics,85000,0,0,0,0,0,land
+856,virgo2,Virgo Classic Custom,Muscle,70000,0,0,0,0,0,land
+857,l35,Walton L35,Off Road,65000,0,0,0,0,0,land
+858,xls,XLS,SUVs,55000,0,0,0,0,0,land
+859,xls2,XLS (Armored),SUVs,55000,0,0,0,0,0,land
+860,fmj,FMJ,Super,350000,0,0,0,0,0,land
+861,rumpo3,Rumpo Custom,Vans,50000,0,0,0,0,0,land
+862,volatus,Volatus,Helicopters,0,0,0,0,0,0,land
+863,ellie,Ellie,Muscle,70000,0,0,0,0,0,land
+864,reaper,Reaper,Super,350000,0,0,0,0,0,land
+865,20xb7,20xb7,SUVs,55000,0,0,0,0,0,land
+866,tug,Tug,Boats,0,0,0,0,0,0,land
+867,diablous,Diabolus,Motorcycles,35000,0,0,0,0,0,land
+868,valor13rb,valor13rb,Emergency,0,0,0,0,0,0,land
+869,omnis,Omnis,Sports,125000,0,0,0,0,0,land
+870,le7b,RE-7B,Super,350000,0,0,0,0,0,land
+871,van_crips,van_crips,Muscle,70000,0,0,0,0,0,land
+872,rallytruck,Dune,Service,50000,0,0,0,0,0,land
+874,tropos,Tropos Rallye,Sports,125000,0,0,0,0,0,land
+875,brioso,Brioso R/A,Compacts,18000,0,0,0,0,0,land
+876,tornado6,Tornado Rat Rod,Sports Classics,85000,0,0,0,0,0,land
+877,bruiser2,Future Shock Bruiser,Off Road,65000,0,0,0,0,0,land
+878,g63,g63,SUVs,55000,0,0,0,0,0,land
+879,scarab2,Future Shock Scarab,Military,0,0,0,0,0,0,land
+880,chimera,Chimera,Motorcycles,35000,0,0,0,0,0,land
+881,raptor,Raptor,Sports,125000,0,0,0,0,0,land
+882,gxone,gxone,Sports,125000,0,0,0,0,0,land
+883,vortex,Vortex,Motorcycles,35000,0,0,0,0,0,land
+884,sanctus,Sanctus,Motorcycles,35000,0,0,0,0,0,land
+885,nightblade,Nightblade,Motorcycles,35000,0,0,0,0,0,land
+886,zombiea,Zombie Bobber,Motorcycles,35000,0,0,0,0,0,land
+887,zombieb,Zombie Chopper,Motorcycles,35000,0,0,0,0,0,land
+888,km1000rr,km1000rr,Motorcycles,35000,0,0,0,0,0,land
+889,defiler,Defiler,Motorcycles,35000,0,0,0,0,0,land
+890,2ncsx7,2ncsx7,Sports,125000,0,0,0,0,0,land
+891,comet6,Comet S2,Sports,125000,0,0,0,0,0,land
+892,ratbike,Rat Bike,Motorcycles,35000,0,0,0,0,0,land
+893,stafford,Stafford,Sedans,35000,0,0,0,0,0,land
+894,shotaro,Shotaro,Motorcycles,35000,0,0,0,0,0,land
+895,r300,300R,Sports,125000,0,0,0,0,0,land
+896,manchez,Manchez,Motorcycles,35000,0,0,0,0,0,land
+897,hermes,Hermes,Muscle,70000,0,0,0,0,0,land
+898,blazer4,Street Blazer,Off Road,65000,0,0,0,0,0,land
+899,cypher,Cypher,Sports,125000,0,0,0,0,0,land
+900,tempesta,Tempesta,Super,350000,0,0,0,0,0,land
+901,dinghy5,Weaponized Dinghy,Boats,0,0,0,0,0,0,land
+902,g634x4,g634x4,SUVs,55000,0,0,0,0,0,land
+903,italigtb,Itali GTB,Super,350000,0,0,0,0,0,land
+904,toragtrwbmega,toragtrwbmega,Sports,125000,0,0,0,0,0,land
+905,pizzaboy,Pizza Boy,Motorcycles,35000,0,0,0,0,0,land
+906,f-six49b,f-six49b,Utility,45000,0,0,0,0,0,land
+907,nero2,Nero Custom,Super,350000,0,0,0,0,0,land
+908,owlbelair,owlbelair,Coupes,60000,0,0,0,0,0,land
+909,specter,Specter,Sports,125000,0,0,0,0,0,land
+910,dune4,Ramp Buggy,Off Road,65000,0,0,0,0,0,land
+911,monster4,Future Shock Sasquatch,Off Road,65000,0,0,0,0,0,land
+912,wmfenyr,wmfenyr,Sports,125000,0,0,0,0,0,land
+913,wastelander,Wastelander,Service,50000,0,0,0,0,0,land
+914,ruiner3,Ruiner,Muscle,70000,0,0,0,0,0,land
+915,turismo2,Turismo Classic,Sports Classics,85000,0,0,0,0,0,land
+916,infernus2,Infernus Classic,Sports Classics,85000,0,0,0,0,0,land
+917,type263,type263,Vans,50000,0,0,0,0,0,land
+918,gp1,GP1,Super,350000,0,0,0,0,0,land
+920,trailers4,Trailer,Utility,45000,0,0,0,0,0,land
+921,van_blacklions,van_blacklions,Muscle,70000,0,0,0,0,0,land
+922,xa21,XA-21,Super,350000,0,0,0,0,0,land
+923,tenf2,10F Widebody,Sports,125000,0,0,0,0,0,land
+924,weevil2,Weevil Custom,Muscle,70000,0,0,0,0,0,land
+925,fangle450,fangle450,Sports,125000,0,0,0,0,0,land
+926,vagner,Vagner,Super,350000,0,0,0,0,0,land
+927,insurgent3,Insurgent Pick-Up Custom,Off Road,65000,0,0,0,0,0,land
+928,scarab3,Nightmare Scarab,Military,0,0,0,0,0,0,land
+929,gstbird1,gstbird1,Muscle,70000,0,0,0,0,0,land
+930,apc,APC,Military,0,0,0,0,0,0,land
+931,blista3,Go Go Monkey Blista,Sports,125000,0,0,0,0,0,land
+932,dune3,Dune FAV,Off Road,65000,0,0,0,0,0,land
+933,ardent,Ardent,Sports Classics,85000,0,0,0,0,0,land
+934,seabreeze,Seabreeze,Planes,0,0,0,0,0,0,land
+935,mteche39,mteche39,Coupes,60000,0,0,0,0,0,land
+936,tula,Tula,Planes,0,0,0,0,0,0,land
+937,viron,viron,Super,350000,0,0,0,0,0,land
+938,havok,Havok,Helicopters,0,1,1,0,0,0,land
+939,hunter,FH-1 Hunter,Helicopters,0,0,0,0,0,0,land
+940,valor3rb,valor3rb,Emergency,0,0,0,0,0,0,land
+941,hycadeevo,hycadeevo,Sports,125000,0,0,0,0,0,land
+942,microlight,Ultralight,Planes,0,0,0,0,0,0,land
+943,rmodp1gtr,rmodp1gtr,Super,350000,0,0,0,0,0,land
+944,rogue,Rogue,Planes,0,0,0,0,0,0,land
+945,gb200,GB200,Sports,125000,0,0,0,0,0,land
+946,pyro,Pyro,Planes,0,0,0,0,0,0,land
+947,vetir,Vetir,Military,0,0,0,0,0,0,land
+948,howard,Howard NX-25,Planes,0,0,0,0,0,0,land
+949,stalion2,Burger Shot Stallion,Muscle,70000,0,0,0,0,0,land
+950,mogul,Mogul,Planes,0,0,0,0,0,0,land
+951,van_anarchy,van_anarchy,Muscle,70000,0,0,0,0,0,land
+952,starling,LF-22 Starling,Planes,0,0,0,0,0,0,land
+953,nokota,P-45 Nokota,Planes,0,0,0,0,0,0,land
+954,molotok,V-65 Molotok,Planes,0,0,0,0,0,0,land
+955,jcw,jcw,Sports,125000,0,0,0,0,0,land
+956,retinue,Retinue,Sports Classics,85000,0,0,0,0,0,land
+957,cyclone,Cyclone,Super,350000,0,0,0,0,0,land
+958,gacclub49,gacclub49,Coupes,60000,0,0,0,0,0,land
+959,viseris,Viseris,Sports Classics,85000,0,0,0,0,0,land
+960,f812,f812,Super,350000,0,0,0,0,0,land
+961,comet5,Comet SR,Sports,125000,0,0,0,0,0,land
+962,godzhycader34,godzhycader34,Sports,125000,0,0,0,0,0,land
+963,riata,Riata,Off Road,65000,0,0,0,0,0,land
+964,fk8,fk8,Sports,125000,0,0,0,0,0,land
+965,autarch,Autarch,Super,350000,0,0,0,0,0,land
+966,savestra,Savestra,Sports Classics,85000,0,0,0,0,0,land
+967,comet4,Comet Safari,Sports,125000,0,0,0,0,0,land
+968,neon,Neon,Sports,125000,0,0,0,0,0,land
+969,sentinel3,Sentinel Classic,Sports,125000,0,0,0,0,0,land
+970,dzdaytona,dzdaytona,Sedans,35000,0,0,0,0,0,land
+971,khanjali,TM-02 Khanjali,Military,0,0,0,0,0,0,land
+972,volatol,Volatol,Planes,0,0,0,0,0,0,land
+973,rs615,rs615,Coupes,60000,0,0,0,0,0,land
+974,akula,Akula,Helicopters,0,0,0,0,0,0,land
+975,deluxo,Deluxo,Sports Classics,85000,0,0,0,0,0,land
+976,stromberg,Stromberg,Sports Classics,85000,0,0,0,0,0,land
+977,riot2,RCV,Emergency,0,0,0,0,0,0,land
+978,f-two49s,f-two49s,Utility,45000,0,0,0,0,0,land
+979,avenger,Avenger,Planes,0,0,0,0,0,0,land
+980,avenger2,Avenger,Planes,0,0,0,0,0,0,land
+981,thruster,Thruster,Military,0,0,0,0,0,0,land
+982,streiter,Streiter,Sports,125000,0,0,0,0,0,land
+983,polgreenwood,Greenwood Cruiser,Emergency,0,0,0,0,0,0,land
+984,deathbike3,Nightmare Deathbike,Motorcycles,35000,0,0,0,0,0,land
+985,valorharley,valorharley,Emergency,0,0,0,0,0,0,land
+986,rmodm4,rmodm4,Super,350000,0,0,0,0,0,land
+987,pariah,Pariah,Sports,125000,0,0,0,0,0,land
+988,godzvips63amg,godzvips63amg,Coupes,60000,0,0,0,0,0,land
+989,kamacho,Kamacho,Off Road,65000,0,0,0,0,0,land
+990,m5csao22,m5csao22,Sports,125000,0,0,0,0,0,land
+991,rs7mans,rs7mans,Sports,125000,0,0,0,0,0,land
+992,entity2,Entity XXR,Super,350000,0,0,0,0,0,land
+993,suv_triaden,suv_triaden,SUVs,55000,0,0,0,0,0,land
+994,remus,Remus,Sports,125000,0,0,0,0,0,land
+995,cheburek,Cheburek,Sports Classics,85000,0,0,0,0,0,land
+996,caracara,Caracara,Off Road,65000,0,0,0,0,0,land
+997,astron,Astron,SUVs,55000,0,0,0,0,0,land
+998,dl_g900,dl_g900,SUVs,55000,0,0,0,0,0,land
+999,impaler3,Future Shock Impaler,Muscle,70000,0,0,0,0,0,land
+1000,zr380,Apocalypse ZR380,Sports,125000,0,0,0,0,0,land
+1001,hotring,Hotring Sabre,Sports,125000,0,0,0,0,0,land
+1002,mh47g,mh47g,Helicopters,0,0,0,0,0,0,land
+1003,seasparrow,Sea Sparrow,Helicopters,0,0,0,0,0,0,land
+1004,michelli,Michelli GT,Sports Classics,85000,0,0,0,0,0,land
+1006,fprotozwb,fprotozwb,Off Road,65000,0,0,0,0,0,land
+1007,tezeract,Tezeract,Super,350000,0,0,0,0,0,land
+1008,issi3,Issi Classic,Compacts,18000,0,0,0,0,0,land
+1009,scramjet,Scramjet,Super,350000,0,0,0,0,0,land
+1010,deity,Deity,Sedans,35000,0,0,0,0,0,land
+1011,strikeforce,B-11 Strikeforce,Planes,0,0,0,0,0,0,land
+1012,terbyte,Terrorbyte,Commercial,95000,0,0,0,0,0,land
+1013,r8beastedit,r8beastedit,Super,350000,0,0,0,0,0,land
+1014,pbus2,Festival Bus,Service,50000,0,0,0,0,0,land
+1015,a80,a80,Sports,125000,0,0,0,0,0,land
+1016,oppressor2,Oppressor Mk II,Motorcycles,35000,0,0,0,0,0,land
+1017,towtruck3,Tow Truck,Utility,45000,0,0,0,0,0,land
+1018,speedo4,Speedo Custom,Vans,50000,0,0,0,0,0,land
+1019,freecrawler,Freecrawler,Off Road,65000,0,0,0,0,0,land
+1020,mule4,Mule Custom,Commercial,95000,0,0,0,0,0,land
+1021,monstrociti,MonstroCiti,Off Road,65000,0,0,0,0,0,land
+1022,menacer,Menacer,Off Road,65000,0,0,0,0,0,land
+1023,blimp3,Blimp,Planes,0,0,0,0,0,0,land
+1024,f-two49d,f-two49d,Utility,45000,0,0,0,0,0,land
+1025,swinger,Swinger,Sports Classics,85000,0,0,0,0,0,land
+1026,patriot2,Patriot Stretch,SUVs,55000,0,0,0,0,0,land
+1027,italigto,Itali GTO,Sports,125000,0,0,0,0,0,land
+1028,monster5,Nightmare Sasquatch,Off Road,65000,0,0,0,0,0,land
+1029,polbmwm3,polbmwm3,Emergency,0,0,0,0,0,0,land
+1030,deathbike2,Future Shock Deathbike,Motorcycles,35000,0,0,0,0,0,land
+1031,impaler4,Nightmare Impaler,Muscle,70000,0,0,0,0,0,land
+1032,ikx3abt20,ikx3abt20,Super,350000,0,0,0,0,0,land
+1033,m4cc,m4cc,Sedans,35000,0,0,0,0,0,land
+1034,slamvan4,Apocalypse Slamvan,Muscle,70000,0,0,0,0,0,land
+1035,brutus,Apocalypse Brutus,Off Road,65000,0,0,0,0,0,land
+1036,deathbike,Apocalypse Deathbike,Motorcycles,35000,0,0,0,0,0,land
+1037,dominator4,Apocalypse Dominator,Muscle,70000,0,0,0,0,0,land
+1038,dominator5,Future Shock Dominator,Muscle,70000,0,0,0,0,0,land
+1039,seminole2,Seminole Frontier,SUVs,55000,0,0,0,0,0,land
+1040,mule5,Mule,Commercial,95000,0,0,0,0,0,land
+1041,bruiser,Apocalypse Bruiser,Off Road,65000,0,0,0,0,0,land
+1042,rcbandito,RC Bandito,Off Road,65000,0,0,0,0,0,land
+1043,blista2,Blista Compact,Sports,125000,0,0,0,0,0,land
+1044,cerberus,Apocalypse Cerberus,Commercial,95000,0,0,0,0,0,land
+1045,monster3,Apocalypse Sasquatch,Off Road,65000,0,0,0,0,0,land
+1046,tulip,Tulip,Muscle,70000,0,0,0,0,0,land
+1047,zhaba,Zhaba,Off Road,65000,0,0,0,0,0,land
+1048,scarab,Apocalypse Scarab,Military,0,0,0,0,0,0,land
+1049,sjdodge,sjdodge,Sedans,35000,0,0,0,0,0,land
+1050,van_acieecorps,van_acieecorps,Muscle,70000,0,0,0,0,0,land
+1051,vamos,Vamos,Muscle,70000,0,0,0,0,0,land
+1052,imperator,Apocalypse Imperator,Muscle,70000,0,0,0,0,0,land
+1053,imperator2,Future Shock Imperator,Muscle,70000,0,0,0,0,0,land
+1054,cb650r,cb650r,Motorcycles,35000,0,0,0,0,0,land
+1055,imperator3,Nightmare Imperator,Muscle,70000,0,0,0,0,0,land
+1056,deviant,Deviant,Muscle,70000,0,0,0,0,0,land
+1057,impaler,Impaler,Muscle,70000,0,0,0,0,0,land
+1058,audirs8,audirs8,SUVs,55000,0,0,0,0,0,land
+1059,zr3802,Future Shock ZR380,Sports,125000,0,0,0,0,0,land
+1060,paragon,Paragon R,Sports,125000,0,0,0,0,0,land
+1061,moss,9F,Super,350000,0,0,0,0,0,land
+1062,jugular,Jugular,Sports,125000,0,0,0,0,0,land
+1063,nm_ctsv,nm_ctsv,Emergency,0,0,0,0,0,0,land
+1065,boss429,boss429,Muscle,70000,0,0,0,0,0,land
+1066,rrocket,Rampant Rocket,Motorcycles,35000,0,0,0,0,0,land
+1067,peyote2,Peyote Gasser,Muscle,70000,0,0,0,0,0,land
+1068,s80,S80RR,Super,350000,0,0,0,0,0,land
+1069,brz13varis,brz13varis,Sports,125000,0,0,0,0,0,land
+1071,zorrusso,Zorrusso,Super,350000,0,0,0,0,0,land
+1072,glendale2,Glendale Custom,Sedans,35000,0,0,0,0,0,land
+1073,lowrider_st187,lowrider_st187,Muscle,70000,0,0,0,0,0,land
+1074,issi7,Issi Sport,Sports,125000,0,0,0,0,0,land
+1075,locust,Locust,Sports,125000,0,0,0,0,0,land
+1076,emerus,Emerus,Super,350000,0,0,0,0,0,land
+1077,gauntlet3,Gauntlet Classic,Muscle,70000,0,0,0,0,0,land
+1078,nebula,Nebula Turbo,Sports Classics,85000,0,0,0,0,0,land
+1079,m3s,m3s,Sedans,35000,0,0,0,0,0,land
+1080,zion3,Zion Classic,Sports Classics,85000,0,0,0,0,0,land
+1081,drafter,8F Drafter,Sports,125000,0,0,0,0,0,land
+1082,minitank,Invade and Persuade Tank,Military,0,0,0,0,0,0,land
+1083,yosemite2,Drift Yosemite,Muscle,70000,0,0,0,0,0,land
+1084,stryder,Stryder,Motorcycles,35000,0,0,0,0,0,land
+1085,driftyosemite,Drift Yosemite,Muscle,70000,0,0,0,0,0,land
+1086,jb7002,JB 700W,Sports Classics,85000,0,0,0,0,0,land
+1087,valor1rb,valor1rb,Emergency,0,0,0,0,0,0,land
+1088,mansurus,mansurus,Super,350000,0,0,0,0,0,land
+1089,manso488sp,manso488sp,Super,350000,0,0,0,0,0,land
+1090,project8,project8,Sports,125000,0,0,0,0,0,land
+1091,sultan2,Sultan Classic,Sports,125000,0,0,0,0,0,land
+1092,sugoi,Sugoi,Sports,125000,0,0,0,0,0,land
+1093,mans65,mans65,Sedans,35000,0,0,0,0,0,land
+1094,furia,Furia,Super,350000,0,0,0,0,0,land
+1095,gaford36r,gaford36r,Muscle,70000,0,0,0,0,0,land
+1097,2019chiron,2019chiron,Super,350000,0,0,0,0,0,land
+1098,gauntlet6,Hotring Hellfire,Sports,125000,0,0,0,0,0,land
+1099,kanjo,Blista Kanjo,Compacts,18000,0,0,0,0,0,land
+1100,imorgon,Imorgon,Sports,125000,0,0,0,0,0,land
+1101,coquette4,Coquette D10,Sports,125000,0,0,0,0,0,land
+1102,gta5rp_veh_gtr33,gta5rp_veh_gtr33,Sports,125000,0,0,0,0,0,land
+1103,rmodr8c,rmodr8c,Super,350000,0,0,0,0,0,land
+1104,landstalker2,Landstalker XL,SUVs,55000,0,0,0,0,0,land
+1105,mache,mache,Sports,125000,0,0,0,0,0,land
+1106,club,Club,Compacts,18000,0,0,0,0,0,land
+1107,dukes3,Beater Dukes,Muscle,70000,0,0,0,0,0,land
+1108,488nlargosp,488nlargosp,Super,350000,0,0,0,0,0,land
+1109,rmodfordgt,rmodfordgt,Sports,125000,0,0,0,0,0,land
+1110,chironsuper,chironsuper,Super,350000,0,0,0,0,0,land
+1111,peyote3,Peyote Custom,Sports Classics,85000,0,0,0,0,0,land
+1112,veto2,Veto Modern,Sports,125000,0,0,0,0,0,land
+1113,italirsx,Itali RSX,Sports,125000,0,0,0,0,0,land
+1114,hellstingerwbsc,hellstingerwbsc,Sports,125000,0,0,0,0,0,land
+1115,toreador,Toreador,Sports Classics,85000,0,0,0,0,0,land
+1116,slamtruck,Slamtruck,Utility,45000,0,0,0,0,0,land
+1117,weevil,Weevil,Compacts,18000,0,0,0,0,0,land
+1118,polimpaler6,Impaler LX Cruiser,Emergency,0,0,0,0,0,0,land
+1119,alkonost,RO-86 Alkonost,Planes,0,0,0,0,0,0,land
+1120,seasparrow2,Sparrow,Helicopters,0,0,0,0,0,0,land
+1121,amarok,amarok,Vans,50000,0,0,0,0,0,land
+1122,kosatka,Kosatka,Boats,0,0,0,0,0,0,land
+1123,freightcar2,Freight Train,Rail,0,0,0,0,0,0,land
+1125,contgt2011,contgt2011,Coupes,60000,0,0,0,0,0,land
+1126,dominator8,Dominator GTT,Muscle,70000,0,0,0,0,0,land
+1127,euros,Euros,Sports,125000,0,0,0,0,0,land
+1128,tailgater2,Tailgater S,Sedans,35000,0,0,0,0,0,land
+1129,growler,Growler,Sports,125000,0,0,0,0,0,land
+1130,ratel,Ratel,Off Road,65000,0,0,0,0,0,land
+1131,gaford34r,gaford34r,Muscle,70000,0,0,0,0,0,land
+1132,zr350,ZR350,Sports,125000,0,0,0,0,0,land
+1133,warrener2,Warrener HKR,Sedans,35000,0,0,0,0,0,land
+1134,vironmichalski,vironmichalski,Super,350000,0,0,0,0,0,land
+1135,reever,Reever,Motorcycles,35000,0,0,0,0,0,land
+1136,iwagen,I-Wagen,SUVs,55000,0,0,0,0,0,land
+1137,baller7,Baller ST,SUVs,55000,0,0,0,0,0,land
+1138,sentinel4,Sentinel Classic Widebody,Sports,125000,0,0,0,0,0,land
+1139,buffalo4,Buffalo STX,Muscle,70000,0,0,0,0,0,land
+1140,charger21,charger21,Sports,125000,0,0,0,0,0,land
+1141,ignus,Ignus,Super,350000,0,0,0,0,0,land
+1142,granger2,Granger 3600LX,SUVs,55000,0,0,0,0,0,land
+1143,ruiner4,Ruiner ZZ-8,Muscle,70000,0,0,0,0,0,land
+1144,g81hr,g81hr,Super,350000,0,0,0,0,0,land
+1145,g65,g65,SUVs,55000,0,0,0,0,0,land
+1146,brioso3,Brioso 300 Widebody,Compacts,18000,0,0,0,0,0,land
+1147,kanjosj,Kanjo SJ,Coupes,60000,0,0,0,0,0,land
+1148,postlude,Postlude,Coupes,60000,0,0,0,0,0,land
+1149,torero2,Torero XO,Super,350000,0,0,0,0,0,land
+1150,laferrariquadturbo,laferrariquadturbo,Super,350000,0,0,0,0,0,land
+1151,lm87,LM87,Super,350000,0,0,0,0,0,land
+1152,tenf,10F,Sports,125000,0,0,0,0,0,land
+1153,x6_midnight,x6_midnight,SUVs,55000,0,0,0,0,0,land
+1154,rhinehart,Rhinehart,Sedans,35000,0,0,0,0,0,land
+1155,greenwood,Greenwood,Muscle,70000,0,0,0,0,0,land
+1156,sm722,SM722,Sports,125000,0,0,0,0,0,land
+1157,umkbuffals2,Unmarked Cruiser,Emergency,0,0,0,0,0,0,land
+1158,tahoma,Tahoma Coupe,Muscle,70000,0,0,0,0,0,land
+1159,issi8,Issi Rally,SUVs,55000,0,0,0,0,0,land
+1160,virtue,Virtue,Super,350000,0,0,0,0,0,land
+1161,eudora,Eudora,Muscle,70000,0,0,0,0,0,land
+1162,powersurge,Powersurge,Motorcycles,35000,0,0,0,0,0,land
+1163,royaldodgeramems,royaldodgeramems,Emergency,0,0,0,0,0,0,land
+1164,journey2,Journey II,Vans,50000,0,0,0,0,0,land
+1165,manssupersnake,manssupersnake,Muscle,70000,0,0,0,0,0,land
+1166,manchez3,Manchez Scout C,Motorcycles,35000,0,0,0,0,0,land
+1167,surfer3,Surfer Custom,Vans,50000,0,0,0,0,0,land
+1168,cargoplane2,Cargo Plane,Planes,0,0,0,0,0,0,land
+1169,inductor2,Junk Energy Inductor,Bicycles,1500,0,0,0,0,0,land
+1170,kawagala,kawagala,Motorcycles,35000,0,0,0,0,0,land
+1171,inductor,Inductor,Bicycles,1500,0,0,0,0,0,land
+1172,rmode63s,rmode63s,Sports,125000,0,0,0,0,0,land
+1173,raiju,F-160 Raiju,Planes,0,0,0,0,0,0,land
+1174,stingertt,Itali GTO Stinger TT,Sports,125000,0,0,0,0,0,land
+1175,clique2,Clique Wagon,Muscle,70000,0,0,0,0,0,land
+1176,streamer216,Streamer216,Planes,0,0,0,0,0,0,land
+1177,avenger3,Avenger,Planes,0,0,0,0,0,0,land
+1178,avenger4,Avenger,Planes,0,0,0,0,0,0,land
+1179,speedo5,Speedo Custom,Vans,50000,0,0,0,0,0,land
+1180,conada2,Weaponized Conada,Helicopters,0,0,0,0,0,0,land
+1181,vivanite,Vivanite,SUVs,55000,0,0,0,0,0,land
+1182,impaler6,Impaler LX,Muscle,70000,0,0,0,0,0,land
+1183,rr21shelbystreet,rr21shelbystreet,Muscle,70000,0,0,0,0,0,land
+1184,dorado,Dorado,SUVs,55000,0,0,0,0,0,land
+1185,towtruck4,Tow Truck,Utility,45000,0,0,0,1,0,land
+1186,gauntlet2,Redwood Gauntlet,Muscle,70000,0,0,0,0,0,land
+1187,vigero3,Vigero ZX Convertible,Muscle,70000,0,0,0,0,0,land
+1188,cavalcade3,Cavalcade XL,SUVs,55000,0,0,0,0,0,land
+1189,driftfuto,Futo GTX,Sports,125000,0,0,0,0,0,land
+1190,envisage,Envisage,Sports,125000,0,0,0,0,0,land
+1191,drifteuros,Euros,Sports,125000,0,0,0,0,0,land
+1192,drifttampa,Drift Tampa,Sports,125000,0,0,0,0,0,land
+1193,impalag,impalag,Commercial,95000,0,0,0,0,0,land
+1194,gt17,gt17,Super,350000,0,0,0,0,0,land
+1195,driftzr350,ZR350,Sports,125000,0,0,0,0,0,land
+1196,type266,type266,Vans,50000,0,0,0,0,0,land
+1197,aleutian,Aleutian,SUVs,55000,0,0,0,0,0,land
+1198,dominator9,Dominator GT,Muscle,70000,0,0,0,0,0,land
+1199,polgauntlet,Gauntlet Interceptor,Emergency,0,0,0,0,0,0,land
+1200,boxville6,Boxville (LSDS),Vans,50000,0,0,0,0,0,land
+1201,fr36,FR36,Coupes,60000,0,0,0,0,0,land
+1202,sian,sian,Sedans,35000,0,0,0,0,0,land
+1203,trailers5,Trailer,Utility,45000,0,0,0,0,0,land
+1204,baller8,Baller ST-D,SUVs,55000,0,0,0,0,0,land
+1205,boattrailer2,Boat Trailer,Utility,45000,0,0,0,0,0,land
+1206,boattrailer3,Boat Trailer,Utility,45000,0,0,0,0,0,land
+1207,poldominator10,Dominator FX Interceptor,Emergency,0,0,0,0,0,0,land
+1208,vanzwb06,vanzwb06,Sedans,35000,0,0,0,0,0,land
+1209,yosemite1500,Yosemite 1500,Off Road,65000,0,0,0,0,0,land
+1210,poldorado,Dorado Cruiser,Emergency,0,0,0,0,0,0,land
+1211,paragon3,Paragon S,Sports,125000,0,0,0,0,0,land
+1212,eurosx32,Euros X32,Coupes,60000,0,0,0,0,0,land
+1213,castigator,Castigator,SUVs,55000,0,0,0,0,0,land
+1214,dominator10,Dominator FX,Muscle,70000,0,0,0,0,0,land
+1215,c63scpd,c63scpd,Coupes,60000,0,0,0,0,0,land
+1216,1016urus,1016urus,SUVs,55000,0,0,0,0,0,land
+1217,488sp2,488sp2,Super,350000,0,0,0,0,0,land
+1218,polimpaler5,Impaler SZ Cruiser,Emergency,0,0,0,0,0,0,land
+1219,driftnebula,Nebula Turbo,Sports Classics,85000,0,0,0,0,0,land
+1220,driftsentinel,Sentinel Classic Widebody,Sports,125000,0,0,0,0,0,land
+1221,vorschlaghammer,Vorschlaghammer,Sedans,35000,0,0,0,0,0,land
+1222,coquette5,Coquette D1,Sports Classics,85000,0,0,0,0,0,land
+1223,chargerf8,chargerf8,Muscle,70000,0,0,0,0,0,land
+1224,driftvorschlag,Vorschlaghammer,Sedans,35000,0,0,0,0,0,land
+1225,submersible2,Kraken,Boats,0,0,0,0,0,0,boat
+1226,dukes,Dukes,Muscle,70000,0,0,0,0,0,land
+1227,dominator2,Pisswasser Dominator,Muscle,70000,0,0,0,0,0,land
+1228,dodo,Dodo,Planes,0,0,0,0,0,0,land
+1229,marshall,Marshall,Off Road,65000,0,0,0,0,0,land
+1230,vantage23,vantage23,Sports,125000,0,0,0,0,0,land
+1231,m5prime,m5prime,Sports,125000,0,0,0,0,0,land
+1232,21rsq8,21rsq8,SUVs,55000,0,0,0,0,0,land
+1233,carsonspriorrs3,carsonspriorrs3,Sedans,35000,0,0,0,0,0,land
+1234,golf8gti,golf8gti,Compacts,18000,0,0,0,0,0,land
+1235,rtruck,rtruck,Super,350000,0,0,0,0,0,land
+1236,hycaders6,hycaders6,Sports,125000,0,0,0,0,0,land
+1237,aaq4,aaq4,Sports,125000,0,0,0,0,0,land
+1238,thewolftruck,thewolftruck,Compacts,18000,0,0,0,0,0,land
+1239,ocnetrongt,ocnetrongt,Sedans,35000,0,0,0,0,0,land
+1240,techart17,techart17,Sports,125000,0,0,0,0,0,land
+1241,q8hycade,q8hycade,Super,350000,0,0,0,0,0,land
+1242,q8prior,q8prior,SUVs,55000,0,0,0,0,0,land
+1243,r820,r820,Super,350000,0,0,0,0,0,land
+1244,ben17,ben17,Coupes,60000,0,0,0,0,0,land
+1245,rs6abt20,rs6abt20,Coupes,60000,0,0,0,0,0,land
+1246,rs721,rs721,Sedans,35000,0,0,0,0,0,land
+1247,gemera,gemera,Super,350000,0,0,0,0,0,land
+1248,van_yakuza,van_yakuza,Muscle,70000,0,0,0,0,0,land
+1249,lowrider_deparis,lowrider_deparis,Muscle,70000,0,0,0,0,0,land
+1250,rs7beast,rs7beast,Sedans,35000,0,0,0,0,0,land
+1251,rs7c8beast,rs7c8beast,Sports,125000,0,0,0,0,0,land
+1252,rs7wide,rs7wide,Sports,125000,0,0,0,0,0,land
+1253,godzdriftcat,godzdriftcat,Sedans,35000,0,0,0,0,0,land
+1254,17m760i,17m760i,Coupes,60000,0,0,0,0,0,land
+1255,2019m5,2019m5,Sports,125000,0,0,0,0,0,land
+1256,2ncsbmwm8,2ncsbmwm8,Super,350000,0,0,0,0,0,land
+1257,alpinab7blackedition,alpinab7blackedition,Sedans,35000,0,0,0,0,0,land
+1258,bmw8mm,bmw8mm,Sedans,35000,0,0,0,0,0,land
+1259,bmwe39,bmwe39,Sports,125000,0,0,0,0,0,land
+1260,ckbmwm4offwhite,ckbmwm4offwhite,Super,350000,0,0,0,0,0,land
+1261,e39touring,e39touring,Coupes,60000,0,0,0,0,0,land
+1262,e92bb,e92bb,Sports,125000,0,0,0,0,0,land
+1263,m135iwb,m135iwb,Sports,125000,0,0,0,0,0,land
+1264,m3e36,m3e36,Sports,125000,0,0,0,0,0,land
+1265,godzdemonute,godzdemonute,Sedans,35000,0,0,0,0,0,land
+1266,m3mafia,m3mafia,Sedans,35000,0,0,0,0,0,land
+1267,yzfr6,yzfr6,Motorcycles,35000,0,0,0,0,0,land
+1268,m4c,m4c,Coupes,60000,0,0,0,0,0,land
+1269,m4g82,m4g82,Sedans,35000,0,0,0,0,0,land
+1270,merse63,merse63,Sports,125000,0,0,0,0,0,land
+1271,m4hr,m4hr,Sports,125000,0,0,0,0,0,land
+1272,m4lb2,m4lb2,Sedans,35000,0,0,0,0,0,land
+1273,bati901,bati901,Motorcycles,35000,0,0,0,0,0,land
+1274,m5cs22,m5cs22,Sports,125000,0,0,0,0,0,land
+1275,mansgt,mansgt,Super,350000,0,0,0,0,0,land
+1276,amrevu23mg,amrevu23mg,Super,350000,0,0,0,0,0,land
+1277,m6e24,m6e24,Sedans,35000,0,0,0,0,0,land
+1278,m8benzo,m8benzo,Sedans,35000,0,0,0,0,0,land
+1279,mi8,mi8,Super,350000,0,0,0,0,0,land
+1280,rmodm3e36,rmodm3e36,Sports,125000,0,0,0,0,0,land
+1281,rmodm4gts,rmodm4gts,Super,350000,0,0,0,0,0,land
+1282,amggtrlight,amggtrlight,Sports,125000,0,0,0,0,0,land
+1283,x6wz,x6wz,SUVs,55000,0,0,0,0,0,land
+1284,bentaygam,bentaygam,SUVs,55000,0,0,0,0,0,land
+1285,godzbmws1000rr,godzbmws1000rr,Motorcycles,35000,0,0,0,0,0,land
+1286,godzninjah2,godzninjah2,Motorcycles,35000,0,0,0,0,0,land
+1287,van_medelin,van_medelin,Muscle,70000,0,0,0,0,0,land
+1288,royalcustomkawasakish2,royalcustomkawasakish2,Motorcycles,35000,0,0,0,0,0,land
+1289,brkout,brkout,Motorcycles,35000,0,0,0,0,0,land
+1290,ccb_1000cbr,ccb_1000cbr,Motorcycles,35000,0,0,0,0,0,land
+1291,espiritu,espiritu,Motorcycles,35000,0,0,0,0,0,land
+1292,lpchopper2,lpchopper2,Motorcycles,35000,0,0,0,0,0,land
+1293,mv2019,mv2019,Sports,125000,0,0,0,0,0,land
+1294,r6d,r6d,Motorcycles,35000,0,0,0,0,0,land
+1295,rr01,rr01,Motorcycles,35000,0,0,0,0,0,land
+1296,z8r,z8r,Motorcycles,35000,0,0,0,0,0,land
+1297,zx6r,zx6r,Motorcycles,35000,0,0,0,0,0,land
+1298,18velar,18velar,SUVs,55000,0,0,0,0,0,land
+1299,godzveyronsswb,godzveyronsswb,Super,350000,0,0,0,0,0,land
+1300,centuria,centuria,Super,350000,0,0,0,0,0,land
+1301,chironspeedhunter,chironspeedhunter,Super,350000,0,0,0,0,0,land
+1302,camaro68t,camaro68t,Muscle,70000,0,0,0,0,0,land
+1303,rmodzl1,rmodzl1,Sports,125000,0,0,0,0,0,land
+1304,rr21camarowide,rr21camarowide,Muscle,70000,0,0,0,0,0,land
+1305,c8widebodylc,c8widebodylc,Sports,125000,0,0,0,0,0,land
+1306,c8p1,c8p1,Sedans,35000,0,0,0,0,0,land
+1307,camarodragmachine,camarodragmachine,Muscle,70000,0,0,0,0,0,land
+1308,pjtrailer,pjtrailer,Utility,45000,0,0,0,0,0,land
+1309,hycadehellcatdurango,hycadehellcatdurango,Sports,125000,0,0,0,0,0,land
+1310,demon,demon,Super,350000,0,0,0,0,0,land
+1311,hellcatlb,hellcatlb,Muscle,70000,0,0,0,0,0,land
+1312,kgjoker,kgjoker,Sports,125000,0,0,0,0,0,land
+1313,valor15rb,valor15rb,Emergency,0,0,0,0,0,0,land
+1314,rmodcharger,rmodcharger,Muscle,70000,0,0,0,0,0,land
+1315,model3,model3,Sports,125000,0,0,0,0,0,land
+1316,488animated,488animated,Sports,125000,0,0,0,0,0,land
+1317,488mishasp,488mishasp,Super,350000,0,0,0,0,0,land
+1318,488lbspider,488lbspider,Super,350000,0,0,0,0,0,land
+1319,daytonasp3,daytonasp3,Sports,125000,0,0,0,0,0,land
+1320,f12rp,f12rp,Sports,125000,0,0,0,0,0,land
+1321,gta5rp_veh_ferrari19,gta5rp_veh_ferrari19,Super,350000,0,0,0,0,0,land
+1322,impronta4,impronta4,Super,350000,0,0,0,0,0,land
+1323,rmodbiposto,rmodbiposto,Sports,125000,0,0,0,0,0,land
+1324,rmodbiposto2,rmodbiposto2,Sports,125000,0,0,0,0,0,land
+1325,24mss,24mss,Muscle,70000,0,0,0,0,0,land
+1326,godz67elgt500,godz67elgt500,Super,350000,0,0,0,0,0,land
+1327,17mansorypnmr,17mansorypnmr,Sedans,35000,0,0,0,0,0,land
+1328,godzoof6x6,godzoof6x6,Vans,50000,0,0,0,0,0,land
+1329,shelbytacoma4x4,shelbytacoma4x4,Vans,50000,0,0,0,0,0,land
+1330,torartrshow,torartrshow,Sports,125000,0,0,0,0,0,land
+1331,mach1,mach1,Muscle,70000,0,0,0,0,0,land
+1332,mustang65,mustang65,Muscle,70000,0,0,0,0,0,land
+1333,rmodmustang,rmodmustang,Sports,125000,0,0,0,0,0,land
+1334,ugcprime350,ugcprime350,Muscle,70000,0,0,0,0,0,land
+1335,21sierra,21sierra,Vans,50000,0,0,0,0,0,land
+1336,gmcev,gmcev,SUVs,55000,0,0,0,0,0,land
+1337,priorgt63s,priorgt63s,Coupes,60000,0,0,0,0,0,land
+1338,royalcustome39m5_wb,royalcustome39m5_wb,Compacts,18000,0,0,0,0,0,land
+1339,fanpounder,fanpounder,Commercial,95000,0,0,0,0,0,land
+1340,hexerz2,hexerz2,Motorcycles,35000,0,0,0,0,0,land
+1341,lowrider_crips,lowrider_crips,Muscle,70000,0,0,0,0,0,land
+1342,lowrider_grove,lowrider_grove,Muscle,70000,0,0,0,0,0,land
+1343,lowrider_vagos,lowrider_vagos,Muscle,70000,0,0,0,0,0,land
+1344,gaimpala59c,gaimpala59c,Coupes,60000,0,0,0,0,0,land
+1345,f-one49sb,f-one49sb,Off Road,65000,0,0,0,0,0,land
+1346,lowrider_woo,lowrider_woo,Muscle,70000,0,0,0,0,0,land
+1347,ospreyhmx,ospreyhmx,Planes,0,0,0,0,0,0,land
+1348,rs6_cali,rs6_cali,Super,350000,0,0,0,0,0,land
+1349,rs6_gonzales,rs6_gonzales,Super,350000,0,0,0,0,0,land
+1350,rs6_lcn,rs6_lcn,Super,350000,0,0,0,0,0,land
+1351,rs6_santasofia,rs6_santasofia,Super,350000,0,0,0,0,0,land
+1352,dbb800,dbb800,Sports,125000,0,0,0,0,0,land
+1353,rs7bratwa,rs7bratwa,Sports,125000,0,0,0,0,0,land
+1354,g632019,g632019,SUVs,55000,0,0,0,0,0,land
+1355,specialtf,specialtf,Super,350000,0,0,0,0,0,land
+1356,gacord812,gacord812,Sedans,35000,0,0,0,0,0,land
+1357,van_gonzales,van_gonzales,Muscle,70000,0,0,0,0,0,land
+1358,sixtyone41,sixtyone41,Sedans,35000,0,0,0,0,0,land
+1359,fleetline48,fleetline48,Coupes,60000,0,0,0,0,0,land
+1360,fwoody48,fwoody48,Sedans,35000,0,0,0,0,0,land
+1361,gactud49,gactud49,Coupes,60000,0,0,0,0,0,land
+1362,dl_rs6,dl_rs6,Emergency,0,0,0,0,0,0,land
+1363,gacfor49,gacfor49,Sedans,35000,0,0,0,0,0,land
+1364,f-one49d,f-one49d,Utility,45000,0,0,0,0,0,land
+1365,f-one49db,f-one49db,Off Road,65000,0,0,0,0,0,land
+1366,f-one49s,f-one49s,Utility,45000,0,0,0,0,0,land
+1367,gaken49,gaken49,Commercial,95000,0,0,0,0,0,land
+1368,gaken49f,gaken49f,Commercial,95000,0,0,0,0,0,land
+1369,coe54t,coe54t,Commercial,95000,0,0,0,0,0,land
+1370,onefifty55,onefifty55,Coupes,60000,0,0,0,0,0,land
+1371,gabelair56,gabelair56,Coupes,60000,0,0,0,0,0,land
+1372,na6,na6,Sports,125000,0,0,0,0,0,land
+1373,ganomad56,ganomad56,Coupes,60000,0,0,0,0,0,land
+1374,citation58,citation58,Coupes,60000,0,0,0,0,0,land
+1375,gabmw507,gabmw507,Sports Classics,85000,0,0,0,0,0,land
+1376,metro59,metro59,Compacts,18000,0,0,0,0,0,land
+1377,tbird64,tbird64,Coupes,60000,0,0,0,0,0,land
+1378,eldorado68,eldorado68,Coupes,60000,0,0,0,0,0,land
+1379,camaro68,camaro68,Coupes,60000,0,0,0,0,0,land
+1380,camaro68b,camaro68b,Coupes,60000,0,0,0,0,0,land
+1381,camaro68c,camaro68c,Coupes,60000,0,0,0,0,0,land
+1382,van_bratwa,van_bratwa,Muscle,70000,0,0,0,0,0,land
+1383,fury69,fury69,Coupes,60000,0,0,0,0,0,land
+1384,impala72,impala72,Coupes,60000,0,0,0,0,0,land
+1385,beetle74,beetle74,Compacts,18000,0,0,0,0,0,land
+1386,bronco81,bronco81,Off Road,65000,0,0,0,0,0,land
+1387,bronco82,bronco82,Off Road,65000,0,0,0,0,0,land
+1388,f190e,f190e,Coupes,60000,0,0,0,0,0,land
+1389,granada81,granada81,Sedans,35000,0,0,0,0,0,land
+1390,gcmlamboultimae,gcmlamboultimae,Sedans,35000,0,0,0,0,0,land
+1391,e15082,e15082,Vans,50000,0,0,0,0,0,land
+1392,2019tundrac,2019tundrac,Sports,125000,0,0,0,0,0,land
+1393,silv86,silv86,Vans,50000,0,0,0,0,0,land
+1394,type262,type262,Vans,50000,0,0,0,0,0,land
+1395,van_bloods,van_bloods,Muscle,70000,0,0,0,0,0,land
+1396,van_brigada,van_brigada,Muscle,70000,0,0,0,0,0,land
+1397,van_camorra,van_camorra,Muscle,70000,0,0,0,0,0,land
+1398,van_club77,van_club77,Muscle,70000,0,0,0,0,0,land
+1399,van_criminals,van_criminals,Muscle,70000,0,0,0,0,0,land
+1400,2f2fgts,2f2fgts,Sports,125000,0,0,0,0,0,land
+1401,van_deparis,van_deparis,Muscle,70000,0,0,0,0,0,land
+1402,van_galaxy,van_galaxy,Muscle,70000,0,0,0,0,0,land
+1403,van_grove,van_grove,Muscle,70000,0,0,0,0,0,land
+1404,van_hoover,van_hoover,Muscle,70000,0,0,0,0,0,land
+1405,van_midnight,van_midnight,Muscle,70000,0,0,0,0,0,land
+1406,s63msc,s63msc,Sports,125000,0,0,0,0,0,land
+1407,senna,senna,Super,350000,0,0,0,0,0,land
+1408,van_orga,van_orga,Muscle,70000,0,0,0,0,0,land
+1409,van_redlight,van_redlight,Muscle,70000,0,0,0,0,0,land
+1410,van_santasofia,van_santasofia,Muscle,70000,0,0,0,0,0,land
+1411,van_tschetschenen,van_tschetschenen,Muscle,70000,0,0,0,0,0,land
+1412,van_woo,van_woo,Muscle,70000,0,0,0,0,0,land
+1413,volatus2,volatus2,Helicopters,0,0,0,0,0,0,land
+1414,x6_brigada,x6_brigada,SUVs,55000,0,0,0,0,0,land
+1415,duallybshack,duallybshack,Off Road,65000,0,0,0,0,0,land
+1416,x6_cali,x6_cali,SUVs,55000,0,0,0,0,0,land
+1417,x6_camorra,x6_camorra,SUVs,55000,0,0,0,0,0,land
+1418,yoti,yoti,Super,350000,0,0,0,0,0,land
+1419,x6_narcos,x6_narcos,SUVs,55000,0,0,0,0,0,land
+1420,x6_orga,x6_orga,SUVs,55000,0,0,0,0,0,land
+1421,x6_yakuza,x6_yakuza,SUVs,55000,0,0,0,0,0,land
+1422,xc90,xc90,SUVs,55000,0,0,0,0,0,land
+1423,waldw222,waldw222,Sedans,35000,0,0,0,0,0,land
+1424,ek9,ek9,Compacts,18000,0,0,0,0,0,land
+1425,animfk8hr,animfk8hr,Compacts,18000,0,0,0,0,0,land
+1426,kln,kln,Sedans,35000,0,0,0,0,0,land
+1427,civic2020,civic2020,Sports,125000,0,0,0,0,0,land
+1428,cu2,cu2,Coupes,60000,0,0,0,0,0,land
+1429,dc5,dc5,Compacts,18000,0,0,0,0,0,land
+1430,nsx17,nsx17,Sports,125000,0,0,0,0,0,land
+1431,ody18,ody18,Vans,50000,0,0,0,0,0,land
+1432,xkgt,xkgt,Sports,125000,0,0,0,0,0,land
+1433,killerhwak,killerhwak,SUVs,55000,0,0,0,0,0,land
+1434,abhawk,abhawk,SUVs,55000,0,0,0,0,0,land
+1435,demonhawkk,demonhawkk,SUVs,55000,0,0,0,0,0,land
+1436,hychawk,hychawk,SUVs,55000,0,0,0,0,0,land
+1437,rmodjeepg,rmodjeepg,Off Road,65000,0,0,0,0,0,land
+1438,agerars,agerars,Super,350000,0,0,0,0,0,land
+1439,jes21,jes21,Sedans,35000,0,0,0,0,0,land
+1440,1016rwdevo,1016rwdevo,Super,350000,0,0,0,0,0,land
+1441,18performante,18performante,Super,350000,0,0,0,0,0,land
+1442,gt2rs,gt2rs,Sports,125000,0,0,0,0,0,land
+1443,carbodrcustom,carbodrcustom,Super,350000,0,0,0,0,0,land
+1444,hycadeurus,hycadeurus,SUVs,55000,0,0,0,0,0,land
+1445,manscountach,manscountach,Super,350000,0,0,0,0,0,land
+1446,revueltobeast,revueltobeast,Super,350000,0,0,0,0,0,land
+1447,mkivsupra,mkivsupra,Super,350000,0,0,0,0,0,land
+1448,rmodsvj,rmodsvj,Super,350000,0,0,0,0,0,land
+1449,venuum911,venuum911,Sports,125000,0,0,0,0,0,land
+1450,terzo1,terzo1,Super,350000,0,0,0,0,0,land
+1451,vanztt,vanztt,Super,350000,0,0,0,0,0,land
+1452,vanzur,vanzur,SUVs,55000,0,0,0,0,0,land
+1453,nm_z71,nm_z71,Emergency,0,0,0,0,0,0,land
+1454,kart,kart,Sports,125000,0,0,0,0,0,land
+1455,venatus,venatus,SUVs,55000,0,0,0,0,0,land
+1456,zentenario,zentenario,Super,350000,0,0,0,0,0,land
+1457,lc500,lc500,Sedans,35000,0,0,0,0,0,land
+1458,ikx3mc2021,ikx3mc2021,Sports,125000,0,0,0,0,0,land
+1459,mlnovitec,mlnovitec,SUVs,55000,0,0,0,0,0,land
+1460,godzkrcrx7fd,godzkrcrx7fd,Sports,125000,0,0,0,0,0,land
+1461,cx30wz,cx30wz,SUVs,55000,0,0,0,0,0,land
+1462,rx7,rx7,Sports,125000,0,0,0,0,0,land
+1463,rx7veilside,rx7veilside,Sports,125000,0,0,0,0,0,land
+1464,ab300,ab300,Sports,125000,0,0,0,0,0,land
+1465,600ltwb,600ltwb,Super,350000,0,0,0,0,0,land
+1466,675lt,675lt,Sports,125000,0,0,0,0,0,land
+1467,720sdd,720sdd,Super,350000,0,0,0,0,0,land
+1468,tczjc,tczjc,Super,350000,0,0,0,0,0,land
+1469,765lt1016sc,765lt1016sc,Super,350000,0,0,0,0,0,land
+1470,neonp1,neonp1,Super,350000,0,0,0,0,0,land
+1471,p1lbwk,p1lbwk,Super,350000,0,0,0,0,0,land
+1472,ugc765lt,ugc765lt,Super,350000,0,0,0,0,0,land
+1473,f450c,f450c,Emergency,0,0,0,0,0,0,land
+1474,f550rbc,f550rbc,Emergency,0,0,0,0,0,0,land
+1475,fmagnum,fmagnum,Coupes,60000,0,0,0,0,0,land
+1477,royalyamahaems_white,royalyamahaems_white,Emergency,0,0,0,0,0,0,land
+1478,usmsrumpo,usmsrumpo,Emergency,0,0,0,0,0,0,land
+1480,unmarkedjl,unmarkedjl,Emergency,0,0,0,0,0,0,land
+1482,emsbmwm7,emsbmwm7,Emergency,0,0,0,0,0,0,land
+1483,2018s650p,2018s650p,Sedans,35000,0,0,0,0,0,land
+1484,2020cla45s,2020cla45s,Sports,125000,0,0,0,0,0,land
+1485,6x6,6x6,Off Road,65000,0,0,0,0,0,land
+1486,g63sam,g63sam,Off Road,65000,0,0,0,0,0,land
+1487,mayb900,mayb900,Sedans,35000,0,0,0,0,0,land
+1488,glk,glk,SUVs,55000,0,0,0,0,0,land
+1489,amggt16,amggt16,Sports,125000,0,0,0,0,0,land
+1490,benzc32,benzc32,Sedans,35000,0,0,0,0,0,land
+1491,benze55,benze55,Sports,125000,0,0,0,0,0,land
+1492,benzsl63,benzsl63,Super,350000,0,0,0,0,0,land
+1493,c63hr,c63hr,Coupes,60000,0,0,0,0,0,land
+1494,mlbrabus,mlbrabus,SUVs,55000,0,0,0,0,0,land
+1495,mayg600p,mayg600p,SUVs,55000,0,0,0,0,0,land
+1496,c63spd,c63spd,Coupes,60000,0,0,0,0,0,land
+1497,godzdukesgt2rsv2,godzdukesgt2rsv2,Sports,125000,0,0,0,0,0,land
+1498,cls19,cls19,Sedans,35000,0,0,0,0,0,land
+1499,dvc63darwin,dvc63darwin,Sedans,35000,0,0,0,0,0,land
+1500,e55,e55,Sports,125000,0,0,0,0,0,land
+1501,e63s,e63s,Sports,125000,0,0,0,0,0,land
+1502,w463as,w463as,SUVs,55000,0,0,0,0,0,land
+1503,g5502019,g5502019,SUVs,55000,0,0,0,0,0,land
+1504,g632019x,g632019x,SUVs,55000,0,0,0,0,0,land
+1505,g63amg6x6,g63amg6x6,Off Road,65000,0,0,0,0,0,land
+1506,polcoach,polcoach,Emergency,0,0,0,0,0,0,land
+1507,g63g800bo,g63g800bo,SUVs,55000,0,0,0,0,0,land
+1508,g700brabusretuned,g700brabusretuned,SUVs,55000,0,0,0,0,0,land
+1509,g900przemo6x6,g900przemo6x6,SUVs,55000,0,0,0,0,0,land
+1510,gt63mt,gt63mt,Sports,125000,0,0,0,0,0,land
+1511,mansoryg63,mansoryg63,SUVs,55000,0,0,0,0,0,land
+1512,maybach,maybach,Sports,125000,0,0,0,0,0,land
+1513,mayg600px,mayg600px,SUVs,55000,0,0,0,0,0,land
+1514,s500w222,s500w222,Sedans,35000,0,0,0,0,0,land
+1515,s550kev,s550kev,Sedans,35000,0,0,0,0,0,land
+1516,rrphantom,rrphantom,Sedans,35000,0,0,0,0,0,land
+1517,s63coupe,s63coupe,Coupes,60000,0,0,0,0,0,land
+1518,w222wald,w222wald,Sedans,35000,0,0,0,0,0,land
+1519,jcwc,jcwc,Compacts,18000,0,0,0,0,0,land
+1520,evo9,evo9,Sports,125000,0,0,0,0,0,land
+1521,evo9mr,evo9mr,Sports,125000,0,0,0,0,0,land
+1522,evoss,evoss,Sports,125000,0,0,0,0,0,land
+1523,350z,350z,Sports,125000,0,0,0,0,0,land
+1524,gtr50,gtr50,Sports,125000,0,0,0,0,0,land
+1525,gtz34be,gtz34be,Sports,125000,0,0,0,0,0,land
+1526,lbwk35,lbwk35,Sports,125000,0,0,0,0,0,land
+1527,subisti08,subisti08,Sports,125000,0,0,0,0,0,land
+1528,nismo20,nismo20,Super,350000,0,0,0,0,0,land
+1529,nissanr36,nissanr36,Sports,125000,0,0,0,0,0,land
+1530,r355,r355,Sports,125000,0,0,0,0,0,land
+1531,r35secret,r35secret,Sports,125000,0,0,0,0,0,land
+1532,rmod240sx,rmod240sx,Super,350000,0,0,0,0,0,land
+1533,rmodgtr,rmodgtr,Sports,125000,0,0,0,0,0,land
+1534,rmodskyline34,rmodskyline34,Sports,125000,0,0,0,0,0,land
+1535,carrera19,carrera19,Sports,125000,0,0,0,0,0,land
+1536,s15,s15,Sports,125000,0,0,0,0,0,land
+1537,silviagd,silviagd,Sports,125000,0,0,0,0,0,land
+1538,vanzkrc,vanzkrc,Sports,125000,0,0,0,0,0,land
+1539,godz61bus,godz61bus,SUVs,55000,0,0,0,0,0,land
+1540,godzksterzotacha,godzksterzotacha,Coupes,60000,0,0,0,0,0,land
+1541,godzrb26subi,godzrb26subi,Coupes,60000,0,0,0,0,0,land
+1542,mv7201,mv7201,Super,350000,0,0,0,0,0,land
+1543,shel,shel,Emergency,0,0,0,0,0,0,land
+1544,banana,banana,Off Road,65000,0,0,0,0,0,land
+1545,carsonswbc6,carsonswbc6,Sports,125000,0,0,0,0,0,land
+1546,fbv60pole,fbv60pole,Super,350000,0,0,0,0,0,land
+1547,fcxl,fcxl,Compacts,18000,0,0,0,0,0,land
+1548,vulcan,Turismo R,Super,350000,0,0,0,0,0,land
+1549,dbs,9F,Super,350000,0,0,0,0,0,land
+1550,firebirdwz,firebirdwz,Muscle,70000,0,0,0,0,0,land
+1551,fortwo17,fortwo17,Compacts,18000,0,0,0,0,0,land
+1552,gsthoonitruck1,gsthoonitruck1,Sports,125000,0,0,0,0,0,land
+1553,ikx3rebel22,ikx3rebel22,Sports,125000,0,0,0,0,0,land
+1554,rmodr50,rmodr50,SUVs,55000,0,0,0,0,0,land
+1555,rroctane,rroctane,Muscle,70000,0,0,0,0,0,land
+1556,scubieblob,scubieblob,Sports,125000,0,0,0,0,0,land
+1557,taycan,taycan,Sports,125000,0,0,0,0,0,land
+1558,tieens,tieens,Compacts,18000,0,0,0,0,0,land
+1559,pagani_zonda_cinque,pagani_zonda_cinque,Super,350000,0,0,0,0,0,land
+1560,f22a,f22a,Planes,0,0,0,0,0,0,land
+1561,polestar1,polestar1,Sports,125000,0,0,0,0,0,land
+1562,nm_hell,nm_hell,Emergency,0,0,0,0,0,0,land
+1563,22m5sal,22m5sal,Emergency,0,0,0,0,0,0,land
+1564,actrpavant,actrpavant,Emergency,0,0,0,0,0,0,land
+1565,actrpavantum,actrpavantum,Emergency,0,0,0,0,0,0,land
+1566,dl_a45,dl_a45,Emergency,0,0,0,0,0,0,land
+1567,74civrswb,74civrswb,Compacts,18000,0,0,0,0,0,land
+1568,polboat1,polboat1,Emergency,0,0,0,0,0,0,land
+1569,hillboaty,hillboaty,Emergency,0,0,0,0,0,0,land
+1570,largeboat,largeboat,Emergency,0,0,0,0,0,0,land
+1571,polboat2,polboat2,Emergency,0,0,0,0,0,0,land
+1572,polcharger18,polcharger18,Emergency,0,0,0,0,0,0,land
+1573,usmswashington,usmswashington,Emergency,0,0,0,0,0,0,land
+1574,polcross,polcross,Emergency,0,0,0,0,0,0,land
+1575,polmustang,polmustang,Emergency,0,0,0,0,0,0,land
+1577,rmodgt63police,rmodgt63police,Emergency,0,0,0,0,0,0,land
+1578,sw_subrb,sw_subrb,Emergency,0,0,0,0,0,0,land
+1579,polbuffals,Police Cruiser,Emergency,0,0,0,0,0,0,land
+1580,umkbuffals,Unmarked Cruiser,Emergency,0,0,0,0,0,0,land
+1581,umkbuffals3,Unmarked Cruiser,Emergency,0,0,0,0,0,0,land
+1582,trubuffals,Unmarked Cruiser,Emergency,0,0,0,0,0,0,land
+1583,trubuffals2,Unmarked Cruiser,Emergency,0,0,0,0,0,0,land
+1584,zm_rocket900,zm_rocket900,Emergency,0,0,0,0,0,0,land
+1585,911gtrs,911gtrs,Sports,125000,0,0,0,0,0,land
+1586,911turbos,911turbos,Sports,125000,0,0,0,0,0,land
+1587,mk4hycade,mk4hycade,Sports,125000,0,0,0,0,0,land
+1588,cayennemecqq,cayennemecqq,SUVs,55000,0,0,0,0,0,land
+1589,gt2rs2,gt2rs2,Sports,125000,0,0,0,0,0,land
+1590,gt3demon,gt3demon,Sports,125000,0,0,0,0,0,land
+1591,gt3hycade,gt3hycade,Sports,125000,0,0,0,0,0,land
+1592,gt4hycade,gt4hycade,Super,350000,0,0,0,0,0,land
+1593,ikx3gt3rs23,ikx3gt3rs23,Sports,125000,0,0,0,0,0,land
+1594,ikx3hn65,ikx3hn65,Sports,125000,0,0,0,0,0,land
+1595,manspana,manspana,Sedans,35000,0,0,0,0,0,land
+1596,panamturs21,panamturs21,Sedans,35000,0,0,0,0,0,land
+1597,taycanani,taycanani,Sports,125000,0,0,0,0,0,land
+1598,godzramtrx6x6,godzramtrx6x6,Vans,50000,0,0,0,0,0,land
+1599,gcram1500,gcram1500,Off Road,65000,0,0,0,0,0,land
+1600,ramtrx6x6,ramtrx6x6,Sports,125000,0,0,0,0,0,land
+1601,trx,trx,SUVs,55000,0,0,0,0,0,land
+1602,autobio,autobio,SUVs,55000,0,0,0,0,0,land
+1603,rolls6x6,rolls6x6,Off Road,65000,0,0,0,0,0,land
+1604,rculi,rculi,SUVs,55000,0,0,0,0,0,land
+1605,rrwraith,rrwraith,Sedans,35000,0,0,0,0,0,land
+1606,wraith,wraith,Coupes,60000,0,0,0,0,0,land
+1607,prisonvan2rb,prisonvan2rb,Emergency,0,0,0,0,0,0,land
+1608,gurkharb,gurkharb,Emergency,0,0,0,0,0,0,land
+1609,policeboat,policeboat,Boats,0,0,0,0,0,0,land
+1610,speeddemonrb,speeddemonrb,Emergency,0,0,0,0,0,0,land
+1611,valor10rb,valor10rb,Emergency,0,0,0,0,0,0,land
+1612,valor5rb,valor5rb,Emergency,0,0,0,0,0,0,land
+1613,valor6rb,valor6rb,Emergency,0,0,0,0,0,0,land
+1614,valor9rb,valor9rb,Emergency,0,0,0,0,0,0,land
+1615,hycadesti,hycadesti,Sports,125000,0,0,0,0,0,land
+1616,models,models,Compacts,18000,0,0,0,0,0,land
+1617,modelx,modelx,Compacts,18000,0,0,0,0,0,land
+1618,teslaroad,teslaroad,Sports,125000,0,0,0,0,0,land
+1619,godzhycademk4v2,godzhycademk4v2,Sports,125000,0,0,0,0,0,land
+1620,a80vygasaleem,a80vygasaleem,Sports,125000,0,0,0,0,0,land
+1621,a90sh,a90sh,Super,350000,0,0,0,0,0,land
+1622,crownbp,crownbp,Sports,125000,0,0,0,0,0,land
+1623,gt86trust,gt86trust,Sports,125000,0,0,0,0,0,land
+1624,suprapandem,suprapandem,Super,350000,0,0,0,0,0,land
+1625,golf1,golf1,Sports,125000,0,0,0,0,0,land
+1626,golf75r,golf75r,Super,350000,0,0,0,0,0,land
+1627,golf91wideprzemo,golf91wideprzemo,Super,350000,0,0,0,0,0,land
+1628,polo2018,polo2018,Sports,125000,0,0,0,0,0,land

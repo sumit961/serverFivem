@@ -15,6 +15,8 @@ function CMGangDbTrue(value)
 end
 
 local REQUIRED_TABLES = {
+    'cm_gang_progression',
+    'cm_gang_contribution_history',
     'cm_gangs',
     'cm_gang_ranks',
     'cm_gang_members',
@@ -41,6 +43,15 @@ local REQUIRED_TABLES = {
 }
 
 local REQUIRED_COLUMNS = {
+    cm_gang_progression = {
+        'gang_id', 'character_id', 'contribution_points', 'reputation_level',
+        'total_contribution_earned', 'last_contribution_at', 'audit_metadata',
+        'created_at', 'updated_at',
+    },
+    cm_gang_contribution_history = {
+        'gang_id', 'character_id', 'contribution_reference', 'points',
+        'source_resource', 'metadata', 'applied', 'claim_token', 'created_at', 'applied_at',
+    },
     cm_gangs = { 'gang_id','display_name','short_tag','color','leader_character_id','enabled' },
     cm_gang_ranks = { 'id','gang_id','tier','name','permissions','is_leader_rank' },
     cm_gang_members = { 'id','gang_id','character_id','rank_id','is_leader' },
@@ -67,6 +78,8 @@ local REQUIRED_COLUMNS = {
 }
 
 local REQUIRED_UNIQUE_INDEXES = {
+    cm_gang_progression = { 'uniq_cm_gang_progression_member' },
+    cm_gang_contribution_history = { 'uniq_cm_gang_contribution_reference' },
     cm_gang_ranks = { 'uniq_gang_rank_tier', 'uniq_gang_rank_name', 'uniq_gang_rank_identity', 'uniq_gang_leader_rank' },
     cm_gang_members = { 'uniq_gang_member_character', 'uniq_gang_leader_member' },
     cm_gang_invites = { 'uniq_gang_pending_target' },
@@ -341,7 +354,7 @@ local function validateSchema()
         end
     end
 
-    -- Legacy gang_1..gang_4 rows may coexist in this table after the
+    -- Legacy named rows may coexist in this table after the
     -- five-gang migration (kept for audit/manual recovery), so only the
     -- canonical rows are counted/ordered here. Legacy rows are never
     -- validated or repaired by this function.
@@ -380,8 +393,13 @@ local function validateSchema()
         if leaderTier ~= 100 or invalidTier100 ~= 0 then
             error(('gang %s leader rank must exclusively own tier 100; repair through cm-admin'):format(gangId))
         end
-        local facilities = tonumber(MySQL.scalar.await(
-            'SELECT COUNT(*) FROM cm_gang_facilities WHERE gang_id = ?', { gangId })) or 0
+        -- Older builds may have left a legacy profit row behind.  It is
+        -- preserved for compatibility, but it is not an active V1 facility.
+        local facilities = tonumber(MySQL.scalar.await([[SELECT COUNT(*)
+            FROM cm_gang_facilities
+            WHERE gang_id=?
+              AND facility_type IN ('headquarters','armory','stash','fleet')]],
+            { gangId })) or 0
         local expectedFacilities = 0
         for _ in pairs(Config.FacilityTypes or {}) do expectedFacilities = expectedFacilities + 1 end
         if facilities ~= expectedFacilities then

@@ -17,7 +17,10 @@ server_scripts {
     '@oxmysql/lib/MySQL.lua',
     'server/admin.lua',   -- admin/temporary vehicles: must precede main.lua,
                           -- which hooks into CMVehicles.Admin
+    'server/service_core.lua', -- service patch validation + trusted-caller policy (pure, unit-testable)
     'server/main.lua',
+    'server/legal_core.lua',   -- registration/insurance logic (pure, unit-testable)
+    'server/legal.lua',        -- FiveM wiring + exports for the legal core
     'server/location.lua',
     'server/operations.lua',
     'server/persistence.lua',

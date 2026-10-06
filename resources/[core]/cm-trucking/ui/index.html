@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CM Trucking Freight HUD</title>
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="trucking-hud" class="trucking-hud" style="display: none;">
+        <div class="hud-card">
+            <div class="hud-header">
+                <div class="brand-badge">
+                    <span class="pulse-dot"></span>
+                    <span class="brand-title">COMMERCIAL FREIGHT LOGISTICS</span>
+                </div>
+                <div class="cargo-class-tag" id="cargo-class-tag">GENERAL</div>
+            </div>
+
+            <div class="contract-title" id="contract-title">Commercial Freight Run</div>
+
+            <div class="cargo-details-section">
+                <div class="detail-row">
+                    <span class="detail-label">MANIFEST CARGO</span>
+                    <span class="detail-val" id="cargo-desc">General Cargo</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">DESTINATION</span>
+                    <span class="detail-val" id="destination-desc">Distribution Depot</span>
+                </div>
+                <div class="detail-metrics">
+                    <div class="metric-item">
+                        <span class="metric-label">DISTANCE</span>
+                        <span class="metric-val" id="distance-val">0.0 KM</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">EST. PAYOUT</span>
+                        <span class="metric-val highlight" id="payout-val">$0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="instruction-box" id="instruction-box">
+                <span class="instruction-tag">OBJECTIVE</span>
+                <span class="instruction-text" id="instruction-text">PROCEED TO CONTAINER LOADING DOCK</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+

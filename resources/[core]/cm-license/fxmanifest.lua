@@ -11,6 +11,7 @@ dependencies {
     'cm-playerdata',
     'cm-items',
     'cm-inventory',
+    'cm-vehicles',
     'cm-ui',
     'cm-admin',
     'oxmysql'
@@ -49,5 +50,7 @@ ui_page 'nui/index.html'
 files {
     'nui/index.html',
     'nui/style.css',
-    'nui/script.js'
+    'nui/script.js',
+    'nui/assets/*.svg',
+    'nui/assets/*.webp'
 }

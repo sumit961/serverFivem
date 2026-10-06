@@ -1,0 +1,168 @@
+/* CM Garbage Job HUD
+   Follows CM Design System (cm-ui).
+   Clean translucent solid styling. No blur or glass filters used.
+*/
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+body {
+    background: transparent;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.garbage-hud {
+    position: absolute;
+    bottom: 32px;
+    right: 32px;
+    pointer-events: none;
+    z-index: 999;
+}
+
+.hud-card {
+    width: 320px;
+    background: rgba(8, 14, 22, 0.94);
+    border: 1px solid rgba(0, 229, 255, 0.35);
+    border-left: 3px solid #00e5ff;
+    border-radius: 4px;
+    padding: 14px 16px;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.65), 0 0 10px rgba(0, 229, 255, 0.12);
+}
+
+.hud-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.brand-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pulse-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #00e5ff;
+    box-shadow: 0 0 6px #00e5ff;
+}
+
+.brand-title {
+    font-size: 10px;
+    letter-spacing: 1.2px;
+    font-weight: 700;
+    color: #00e5ff;
+    text-transform: uppercase;
+}
+
+.route-step {
+    font-size: 11px;
+    font-weight: 700;
+    color: #ffffff;
+    background: rgba(0, 229, 255, 0.15);
+    border: 1px solid rgba(0, 229, 255, 0.3);
+    border-radius: 2px;
+    padding: 2px 6px;
+    letter-spacing: 0.5px;
+}
+
+.stop-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #f0f4f8;
+    margin-bottom: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.capacity-section {
+    margin-bottom: 12px;
+}
+
+.capacity-labels {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.label-muted {
+    font-size: 10px;
+    font-weight: 600;
+    color: #8da4b8;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+}
+
+.capacity-text {
+    font-size: 11px;
+    font-weight: 700;
+    color: #00e5ff;
+    letter-spacing: 0.5px;
+}
+
+.progress-track {
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #00b4d8, #00e5ff);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+    box-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+}
+
+.progress-fill.full {
+    background: linear-gradient(90deg, #ff9e00, #ffb703);
+    box-shadow: 0 0 8px rgba(255, 183, 3, 0.5);
+}
+
+.instruction-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0, 229, 255, 0.06);
+    border: 1px solid rgba(0, 229, 255, 0.18);
+    border-radius: 3px;
+    padding: 6px 10px;
+}
+
+.instruction-tag {
+    font-size: 9px;
+    font-weight: 800;
+    color: #080e16;
+    background: #00e5ff;
+    padding: 1px 4px;
+    border-radius: 2px;
+    letter-spacing: 0.5px;
+}
+
+.instruction-text {
+    font-size: 11px;
+    font-weight: 600;
+    color: #d8e6f3;
+    letter-spacing: 0.4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+

@@ -139,6 +139,7 @@ Config.DefaultRanks = {
         'dev.weapons',
         'dev.climatime',
         'dev.hud',
+        'hotel.setup',
 
         -- CM House permissions
         'house.admin.open',

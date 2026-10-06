@@ -1,35 +1,33 @@
 Config = Config or {}
 
--- Immutable persistence allowlist. Display identity is database-owned after
--- sql/003_cm_gang_five_gangs.sql first seeds these five canonical rows.
-Config.GangIds = { 'marabunta', 'bloods', 'ballas', 'families', 'vagos' }
+-- Exactly five immutable persistence slots. The IDs are authoritative and map
+-- deterministically to the approved canonical gang identities below.
+Config.GangIds = { 'gang_1', 'gang_2', 'gang_3', 'gang_4', 'gang_5' }
 Config.GangIdSet = {}
 for _, gangId in ipairs(Config.GangIds) do
     Config.GangIdSet[gangId] = true
 end
 
--- Retired pre-migration slots. Never written to by boot repair, never
--- treated as a fixed gang id, kept only so cm-admin can offer a manual
--- migration of any legacy membership/configuration onto a canonical id.
-Config.LegacyGangIds = { 'gang_1', 'gang_2', 'gang_3', 'gang_4' }
+-- Rows from the superseded five-gang experiment are retained for explicit
+-- admin recovery only. Startup never migrates or deletes their membership.
+Config.LegacyGangIds = { 'marabunta', 'bloods', 'ballas', 'families', 'vagos' }
 Config.LegacyGangIdSet = {}
 for _, gangId in ipairs(Config.LegacyGangIds) do
     Config.LegacyGangIdSet[gangId] = true
 end
 
--- Canonical identity defaults, applied by the seed migration. Admins may
--- still adjust the exact shade afterwards; the underlying gang id/name
--- pairing itself is fixed.
+-- Canonical identity defaults. cm-admin may still manage enabled state and
+-- administrative metadata; it must not create additional gang IDs.
 Config.CanonicalIdentity = {
-    marabunta = { displayName = 'Marabunta', shortTag = 'MRB', color = '#2563eb' },
-    bloods    = { displayName = 'Bloods',    shortTag = 'BLD', color = '#ef4444' },
-    ballas    = { displayName = 'Ballas',    shortTag = 'BAL', color = '#a855f7' },
-    families  = { displayName = 'Families',  shortTag = 'FAM', color = '#22c55e' },
-    vagos     = { displayName = 'Vagos',     shortTag = 'VGS', color = '#eab308' },
+    gang_1 = { displayName = 'Marabunta', shortTag = 'MAR', color = '#2563EB', enabled = false },
+    gang_2 = { displayName = 'Bloods', shortTag = 'BLD', color = '#EF4444', enabled = false },
+    gang_3 = { displayName = 'Ballas', shortTag = 'BAL', color = '#A855F7', enabled = false },
+    gang_4 = { displayName = 'Families', shortTag = 'FAM', color = '#22C55E', enabled = false },
+    gang_5 = { displayName = 'Vagos', shortTag = 'VAG', color = '#EAB308', enabled = false },
 }
 
 -- Native GTA radar colour indexes used by sprite 543 (radar_jugg).
-Config.GangRadarColours = { marabunta = 3, bloods = 1, ballas = 7, families = 2, vagos = 5 }
+Config.GangRadarColours = { gang_1 = 3, gang_2 = 1, gang_3 = 7, gang_4 = 2, gang_5 = 5 }
 
 Config.Commands = {
     dashboard = 'gang',
@@ -39,6 +37,24 @@ Config.Commands = {
 
 Config.Keys = {
     dashboard = 'F8',
+}
+
+Config.Progression = {
+    trustedContributionResources = {},
+    maximumAwardPoints = 10000,
+    maximumTotalContribution = 2147483647,
+    referenceMaximumLength = 128,
+    metadataMaximumKeys = 8,
+    metadataKeyMaximumLength = 32,
+    metadataValueMaximumLength = 96,
+    metadataMaximumBytes = 1024,
+    levels = {
+        { level = 1, threshold = 0, label = 'Unproven' },
+        { level = 2, threshold = 100, label = 'Proven' },
+        { level = 3, threshold = 300, label = 'Trusted' },
+        { level = 4, threshold = 750, label = 'Respected' },
+        { level = 5, threshold = 1500, label = 'Elite' },
+    },
 }
 
 Config.Security = {
@@ -121,6 +137,25 @@ Config.ContactStreaming = {
     modelLoadTimeoutMs = 5000,
 }
 
+-- Physical headquarters presentation defaults. The authoritative location,
+-- heading, routing bucket, enabled state, NPC model, display name, and role
+-- label remain in cm_gang_facilities and are managed through cm-admin. These
+-- values deliberately contain no world coordinates, so an unconfigured HQ
+-- cannot accidentally create a permanent world location.
+Config.Headquarters = {
+    interactionDistance = 2.5,
+    markerDistance = 35.0,
+    marker = {
+        type = 1,
+        scale = { x = 0.72, y = 0.72, z = 0.22 },
+        colour = { r = 49, g = 230, b = 255, a = 125 },
+        bobUpAndDown = false,
+        faceCamera = false,
+        rotate = false,
+        direction = { x = 0.0, y = 0.0, z = 0.0 },
+    },
+}
+
 Config.ContactGreetings = {
     "What's up? What do you need?",
     'What can I do for you?',
@@ -152,30 +187,30 @@ Config.NpcModels = {
 -- Models and clothing remain allowlisted here; browser/client payloads can
 -- never choose an arbitrary ped or component set.
 Config.ContactNpcs = {
-    marabunta = {
-        names = { 'Mateo Cruz', 'Rafael Ortega', 'Diego Santos' }, nicknames = { 'Azul', 'Mako', 'Cruce' },
+    gang_1 = {
+        names = { 'Marabunta Contact' }, nicknames = { 'MAR' },
         models = { 'g_m_y_mexgoon_01' }, outfits = { { components = { [3]={0,0}, [4]={1,2}, [6]={1,0}, [8]={15,0}, [11]={0,2} } } },
-        refusals = { main='This is Marabunta business. If Azul did not send for you, keep moving.', vehicle='These keys only move for Marabunta. Find your own ride.', profit='You have no share in this money. Walk away before I count you as a problem.' },
+        refusals = { main='This gang service is for members only.', vehicle='These fleet keys are for members only.' },
     },
-    bloods = {
-        names = { 'Darius King', 'Malik Carter', 'Andre Brooks' }, nicknames = { 'Red', 'Kilo', 'Ace' },
+    gang_2 = {
+        names = { 'Bloods Contact' }, nicknames = { 'BLD' },
         models = { 'a_m_y_business_02' }, outfits = { { components = { [3]={0,0}, [4]={1,3}, [6]={1,0}, [8]={15,0}, [11]={0,3} } } },
-        refusals = { main='You are standing on Bloods ground without Bloods colors. State your business somewhere else.', vehicle='No Blood rides leave this yard for outsiders.', profit='This count belongs to the Bloods. Your name is not in my book.' },
+        refusals = { main='This gang service is for members only.', vehicle='These fleet keys are for members only.' },
     },
-    ballas = {
-        names = { 'Lamar Hayes', 'Terrence Cole', 'Jamal Price' }, nicknames = { 'Violet', 'Tone', 'Saint' },
+    gang_3 = {
+        names = { 'Ballas Contact' }, nicknames = { 'BAL' },
         models = { 'a_m_m_business_01' }, outfits = { { components = { [3]={0,0}, [4]={1,5}, [6]={1,0}, [8]={15,0}, [11]={0,5} } } },
-        refusals = { main='Ballas handle Ballas business. You are not on the list.', vehicle='Purple keys stay with the set. I cannot help you.', profit='This account is closed to outsiders. Do not ask twice.' },
+        refusals = { main='This gang service is for members only.', vehicle='These fleet keys are for members only.' },
     },
-    families = {
-        names = { 'Marcus Green', 'Calvin Reed', 'DeShawn Miles' }, nicknames = { 'Grove', 'Cee', 'Mills' },
+    gang_4 = {
+        names = { 'Families Contact' }, nicknames = { 'FAM' },
         models = { 'a_m_y_business_02' }, outfits = { { components = { [3]={0,0}, [4]={1,2}, [6]={1,0}, [8]={15,0}, [11]={0,2} } } },
-        refusals = { main='Families look after family. I do not know you, so there is nothing to discuss.', vehicle='These vehicles are for the family circle only.', profit='Family money stays in the family. Keep it moving.' },
+        refusals = { main='This gang service is for members only.', vehicle='These fleet keys are for members only.' },
     },
-    vagos = {
-        names = { 'Javier Flores', 'Luis Navarro', 'Emilio Vega' }, nicknames = { 'Oro', 'Lobo', 'Vega' },
-        models = { 'g_m_y_mexgoon_01' }, outfits = { { components = { [3]={0,0}, [4]={1,1}, [6]={1,0}, [8]={15,0}, [11]={0,1} } } },
-        refusals = { main='This is Vagos territory, amigo. Members talk business; visitors keep walking.', vehicle='No colors, no keys. The Vagos garage is closed to you.', profit='You did not earn a cut here. There is nothing for you to collect.' },
+    gang_5 = {
+        names = { 'Vagos Contact' }, nicknames = { 'VAG' },
+        models = { 'g_m_y_mexgoon_01' }, outfits = { { components = { [3]={0,0}, [4]={1,6}, [6]={1,0}, [8]={15,0}, [11]={0,6} } } },
+        refusals = { main='This gang service is for members only.', vehicle='These fleet keys are for members only.' },
     },
 }
 
@@ -184,7 +219,7 @@ Config.Chat = {
     cooldownSeconds = 2,
 }
 
--- 'headquarters' and 'profit' are physical, NPC-anchored facilities.
+-- Headquarters is the physical NPC-anchored facility in V1.
 -- 'armory'/'stash'/'fleet' remain location-only (accessed through the
 -- headquarters service NPC / dashboard).
 Config.FacilityTypes = {
@@ -192,12 +227,10 @@ Config.FacilityTypes = {
     armory = true,
     stash = true,
     fleet = true,
-    profit = true,
 }
 
 Config.NpcFacilityTypes = {
     headquarters = true,
-    profit = true,
 }
 
 Config.Meeting = {
@@ -238,12 +271,39 @@ Config.Graffiti = {
     wallOffset = 0.025,
     activeSessionTimeout = 20,
     designs = {
-        marabunta = { { id='default', texture='marabunta' } },
-        bloods = { { id='default', texture='bloods' } },
-        ballas = { { id='default', texture='ballas' } },
-        families = { { id='default', texture='families' } },
-        vagos = { { id='default', texture='vagos' } },
+        gang_1 = { { id='default', texture='gang_1' } },
+        gang_2 = { { id='default', texture='gang_2' } },
+        gang_3 = { { id='default', texture='gang_3' } },
+        gang_4 = { { id='default', texture='gang_4' } },
+        gang_5 = { { id='default', texture='gang_5' } },
     },
+}
+
+-- Canonical V1 rank seed. SQL migrations mirror this definition for database
+-- bootstrap; existing rank rows and member assignments are never rewritten.
+Config.RankDefinitions = {
+    { tier = 100, name = 'Leader', isLeaderRank = true, permissions = {
+        'gang.view_members', 'gang.manage_members', 'gang.manage_ranks',
+        'gang.manage_permissions', 'gang.chat', 'gang.vehicle',
+        'gang.manage_vehicles', 'gang.armory', 'gang.manage_armory',
+        'gang.stash', 'gang.manage_stash', 'gang.invite', 'gang.view_logs',
+    } },
+    { tier = 80, name = 'Underboss', isLeaderRank = false, permissions = {
+        'gang.view_members', 'gang.manage_members', 'gang.chat', 'gang.vehicle',
+        'gang.manage_vehicles', 'gang.armory', 'gang.manage_armory',
+        'gang.stash', 'gang.manage_stash', 'gang.invite', 'gang.view_logs',
+    } },
+    { tier = 60, name = 'Enforcer', isLeaderRank = false, permissions = {
+        'gang.view_members', 'gang.chat', 'gang.vehicle', 'gang.armory',
+        'gang.stash', 'gang.invite',
+    } },
+    { tier = 40, name = 'Member', isLeaderRank = false, permissions = {
+        'gang.view_members', 'gang.chat', 'gang.vehicle', 'gang.armory',
+        'gang.stash',
+    } },
+    { tier = 20, name = 'Recruit', isLeaderRank = false, permissions = {
+        'gang.view_members', 'gang.chat',
+    } },
 }
 
 Config.Permissions = {
@@ -258,20 +318,9 @@ Config.Permissions = {
     { key = 'gang.armory',             group = 'armory' },
     { key = 'gang.armory_deposit',     group = 'armory' },
     { key = 'gang.manage_armory',      group = 'armory' },
-    { key = 'gang.wardrobe',           group = 'armory' },
     { key = 'gang.stash',              group = 'stash' },
     { key = 'gang.manage_stash',       group = 'stash' },
     { key = 'gang.invite',             group = 'members' },
-    { key = 'gang.search',             group = 'robbery' },
-    { key = 'gang.rob_cash',           group = 'robbery' },
-    { key = 'gang.rob_items',          group = 'robbery' },
-    { key = 'gang.view_map',           group = 'coordination' },
-    { key = 'gang.set_meeting_point',  group = 'coordination' },
-    { key = 'gang.blacklist',          group = 'management' },
-    { key = 'gang.manage_blacklist',   group = 'management' },
-    { key = 'gang.collect_profit',     group = 'management' },
-    { key = 'gang.issue_bonus',        group = 'management' },
-    { key = 'gang.graffiti',           group = 'coordination' },
     { key = 'gang.view_logs',          group = 'management' },
 }
 

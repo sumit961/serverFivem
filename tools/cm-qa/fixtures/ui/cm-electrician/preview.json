@@ -1,0 +1,7 @@
+{
+  "resource": "cm-electrician",
+  "entry": "resources/[core]/cm-electrician/ui/index.html?preview=1",
+  "noScroll": true,
+  "resolutions": [[1280, 720], [1920, 1080], [2560, 1440]],
+  "assertions": ["viewport", "close", "escape", "callbacks", "console"]
+}

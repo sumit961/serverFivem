@@ -37,14 +37,12 @@ CMFarming.Config = {
     -- ==========================================================
     Crops = {
         wheat = {
-            -- growModel was 'prop_veg_crop_06' -- that's one of GTA's
-            -- wind-swayed procedural grass props, not a normal static prop,
-            -- and renders distorted/oversized when force-spawned standalone
-            -- via CreateObject instead of the game's own grass batch system.
-            -- prop_haybale_03 is a guaranteed-static prop and still reads as
-            -- "wheat, ready to harvest".
+            -- Was briefly swapped to prop_haybale_03 on a wrong diagnosis --
+            -- the "bent/broken" look was actually the client's ground-Z bug
+            -- (fixed in client/main.lua's getGroundZ) placing the prop in
+            -- the air, not a bad mesh. Back to real standing wheat.
             label = 'Wheat', seedItem = 'wheat_seed', seedLabel = 'Wheat Seeds', cropItem = 'wheat',
-            growModel = 'prop_haybale_03', growTimeSec = 240, harvestAmount = 3,
+            growModel = 'prop_veg_crop_06', growTimeSec = 240, harvestAmount = 3,
             seedPrice = 6, sellPrice = 14, xpReward = 8, requiredLevel = 0,
             description = 'A staple grain crop. Fast growing and always in demand.',
         },

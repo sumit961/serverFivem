@@ -16,6 +16,13 @@ Checkpoints.LegStartDistance = 0
 
 local ACK_RETRY_MS = 2000
 local ACK_MAX_ATTEMPTS = 5
+local lastCandidateTraceAt = 0
+
+local function debugLog(message)
+    if CMLicenseConfig.Debug then
+        print(('^3[CM-License Client]^7 %s'):format(tostring(message)))
+    end
+end
 
 function Checkpoints.Init()
     CMLog('Checkpoint system initialized')
@@ -81,6 +88,28 @@ local function isFinishIndex(index)
     return index >= #Checkpoints.Checkpoints
 end
 
+local function checkpointVisual(category, isFinish)
+    local visual = CMLicenseConfig.Checkpoint.Visual or {}
+    category = tostring(category or Constants.VEHICLE_CATEGORY.GROUND):lower()
+
+    local diameter = tonumber(visual.groundDiameter) or 7.0
+    local zOffset = tonumber(visual.groundZOffset) or 0.20
+    if category == Constants.VEHICLE_CATEGORY.BOAT then
+        diameter = tonumber(visual.boatDiameter) or 8.0
+        zOffset = tonumber(visual.boatZOffset) or 0.05
+    elseif category == Constants.VEHICLE_CATEGORY.AIR then
+        diameter = tonumber(visual.airDiameter) or 12.0
+        zOffset = tonumber(visual.airZOffset) or 0.05
+    end
+
+    return {
+        type = isFinish and 16 or 14,
+        diameter = diameter,
+        zOffset = zOffset,
+        cylinderHeight = tonumber(visual.cylinderHeight) or 3.0,
+    }
+end
+
 -- An unacknowledged checkpoint is re-sent rather than left to stall the exam.
 local function retryPendingAck()
     if not Checkpoints.AwaitingAck or not Checkpoints.AwaitingSince then return end
@@ -117,10 +146,33 @@ function Checkpoints.CheckProximity()
 
     local playerCoords = GetEntityCoords(ped)
     local cpCoords = vector3(cp.x, cp.y, cp.z)
-    local distance = Utils.Distance(playerCoords, cpCoords)
-    local radius = touchRadius()
+    local category = activeCategory()
+    local distance, vertical = Utils.CheckpointDistance(playerCoords, cp, category)
+    local radius = Utils.EffectiveTouchRadius(category, cp)
+    local within = Utils.IsWithinCheckpoint(playerCoords, cp, category, radius)
 
-    if distance > radius or Checkpoints.AwaitingAck then return end
+    local vehicle = GetVehiclePedIsIn(ped, false)
+    local driver = vehicle ~= 0 and GetPedInVehicleSeat(vehicle, -1) == ped
+    local exactVehicle = vehicle ~= 0 and vehicle == Test.TestVehicle
+    if distance <= radius and not Checkpoints.AwaitingAck and (GetGameTimer() - lastCandidateTraceAt) >= 1000 then
+        lastCandidateTraceAt = GetGameTimer()
+        debugLog(('checkpoint_candidate requested=%s current=%s distance=%.2f vertical=%.2f touchRadius=%.2f within=%s player=(%.2f,%.2f,%.2f) checkpoint=(%.2f,%.2f,%.2f) vehicleNetId=%s vehicle=%s exactTestVehicle=%s driver=%s')
+            :format(nextIndex, Checkpoints.CurrentCheckpoint, distance, vertical, radius, tostring(within),
+                playerCoords.x, playerCoords.y, playerCoords.z,
+                cp.x, cp.y, cp.z,
+                vehicle ~= 0 and tostring(NetworkGetNetworkIdFromEntity(vehicle)) or '0',
+                tostring(vehicle), tostring(exactVehicle), tostring(driver)))
+    end
+
+    if not within or Checkpoints.AwaitingAck then return end
+
+    if vehicle == 0 or vehicle ~= Test.TestVehicle or not driver then return end
+
+        debugLog(('checkpoint_send requested=%s current=%s awaitingAck=false distance=%.2f vertical=%.2f touchRadius=%.2f player=(%.2f,%.2f,%.2f) checkpoint=(%.2f,%.2f,%.2f) vehicleNetId=%s vehicle=%s exactTestVehicle=true driver=%s')
+        :format(nextIndex, Checkpoints.CurrentCheckpoint, distance, vertical, radius,
+            playerCoords.x, playerCoords.y, playerCoords.z,
+            cp.x, cp.y, cp.z,
+            tostring(NetworkGetNetworkIdFromEntity(vehicle)), tostring(vehicle), tostring(driver)))
 
     -- Air exams finish with a landing, not a fly-through.
     if isFinishIndex(nextIndex) and activeCategory() == Constants.VEHICLE_CATEGORY.AIR then
@@ -152,12 +204,18 @@ function Checkpoints.OnCheckpointRejected(data)
     data = type(data) == 'table' and data or {}
     Checkpoints.ClearAck()
 
+    if CMLicenseConfig.Debug then
+        debugLog(('checkpoint_ack_rejected reason=%s expected=%s'):format(
+            tostring(data.reason or 'unknown'), tostring(data.expected or 'unknown')))
+        Client.Alert(('~y~CHECKPOINT NOT ACCEPTED: %s~s~'):format(tostring(data.reason or 'unknown')), 2500)
+    end
+
     if tonumber(data.expected) then
         Checkpoints.CurrentCheckpoint = math.max(0, tonumber(data.expected) - 1)
         Checkpoints.UpdateRouteBlip()
     end
 
-    if data.message then
+    if data.message and not CMLicenseConfig.Debug then
         Client.Alert(('~y~%s~s~'):format(tostring(data.message)), 2500)
     end
 end
@@ -193,24 +251,19 @@ function Checkpoints.DrawMarkers()
     local activeType = activeCategory()
     local isFinish = tostring(nextCheckpoint.point_type) == 'finish' or isFinishIndex(activeIndex)
 
-    local markerZ = nextCheckpoint.z + 0.05
-    if activeType == Constants.VEHICLE_CATEGORY.GROUND then
-        local foundGround, groundZ = GetGroundZFor_3dCoord(nextCheckpoint.x + 0.0, nextCheckpoint.y + 0.0, nextCheckpoint.z + 50.0, false)
-        if foundGround then markerZ = groundZ + 0.05 end
-    end
+    local visual = checkpointVisual(activeType, isFinish)
+    local markerZ = nextCheckpoint.z + visual.zOffset
 
     if Checkpoints.ActiveIndex ~= activeIndex then
         if Checkpoints.ActiveHandle then DeleteCheckpoint(Checkpoints.ActiveHandle) end
 
         local following = Checkpoints.Checkpoints[activeIndex + 1] or nextCheckpoint
-        local diameter = activeType == Constants.VEHICLE_CATEGORY.AIR and 12.0
-            or activeType == Constants.VEHICLE_CATEGORY.BOAT and 8.0 or 5.0
-
-        Checkpoints.ActiveHandle = CreateCheckpoint(isFinish and 16 or 14,
+        Checkpoints.ActiveHandle = CreateCheckpoint(visual.type,
             nextCheckpoint.x + 0.0, nextCheckpoint.y + 0.0, markerZ,
             following.x + 0.0, following.y + 0.0, following.z + 0.0,
-            diameter, 0, 229, 255, 190, 0)
-        SetCheckpointCylinderHeight(Checkpoints.ActiveHandle, 3.0, 3.0, diameter * 0.5)
+            visual.diameter, 0, 229, 255, 190, 0)
+        SetCheckpointCylinderHeight(Checkpoints.ActiveHandle,
+            visual.cylinderHeight, visual.cylinderHeight, visual.diameter * 0.5)
         Checkpoints.ActiveIndex = activeIndex
 
         if isFinish and activeType == Constants.VEHICLE_CATEGORY.AIR then
@@ -219,11 +272,18 @@ function Checkpoints.DrawMarkers()
     end
 
     -- Before the exam starts, touching the first marker begins it.
-    if not Checkpoints.Monitoring and not Test.BeginRequested and distance <= Utils.TouchRadius(activeType) then
+    if not Checkpoints.Monitoring and not Test.BeginRequested
+        and Utils.IsWithinCheckpoint(playerCoords, nextCheckpoint, activeType,
+            Utils.EffectiveTouchRadius(activeType, nextCheckpoint))
+    then
         Test.BeginTest()
     end
 
-    if distance > 12.0 then
+    local ped = PlayerPedId()
+    local vehicle = GetVehiclePedIsIn(ped, false)
+    local drivingTestVehicle = vehicle ~= 0 and vehicle == Test.TestVehicle
+        and GetPedInVehicleSeat(vehicle, -1) == ped
+    if distance > 12.0 and drivingTestVehicle then
         DrawLine(playerCoords.x, playerCoords.y, playerCoords.z + 0.5,
             cpCoords.x, cpCoords.y, markerZ + 1.5, 0, 229, 255, 220)
     end

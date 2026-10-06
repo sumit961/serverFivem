@@ -6,8 +6,10 @@
     <title>CM Characters</title>
     <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css" />
     <link rel="stylesheet" href="nui://cm-ui/web/cm-components.css" />
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-aaa.css" />
     <link rel="stylesheet" href="style.css" />
     <link rel="stylesheet" href="appearance/style.css" />
+    <script src="nui://cm-ui/web/cm-branding.js"></script>
 </head>
 <body>
     <audio id="character-bgm" loop>
@@ -16,62 +18,47 @@
 
     <div id="app" class="hidden">
         <main id="slots-screen" class="selector-page">
-            <header class="top-ribbon">
-                <div class="ribbon-line"></div>
-                <div class="ribbon-meta">CM ROLEPLAY</div>
-                <div class="ribbon-logo">CM</div>
-                <div class="ribbon-meta">CHARACTER ACCESS</div>
-                <div class="ribbon-line"></div>
-            </header>
+            <div class="selector-fade" aria-hidden="true"></div>
+            <div class="cm-screen-bracket cm-screen-bracket--tl"></div>
+            <div class="cm-screen-bracket cm-screen-bracket--bl"></div>
 
-            <section class="selector-headline">
-                <div class="headline-ghost">CHARACTERS</div>
-                <p class="eyebrow">Choose your story</p>
-                <h1>Select Character</h1>
-                <p id="character-count" class="subtitle">Loading available characters...</p>
-            </section>
+            <aside class="selector-panel">
+                <div class="selector-content">
+                    <header class="selector-header">
+                        <p class="eyebrow">Choose your story</p>
+                        <h1>Select character</h1>
+                        <p id="character-count" class="subtitle">Loading available characters...</p>
+                    </header>
 
-            <section class="selector-layout">
-                <div class="character-list cm-scrollbar" id="character-list"></div>
+                    <div class="character-list cm-scrollbar" id="character-list"></div>
 
-                <div class="stage-window" id="stage-window" aria-hidden="true"></div>
+                    <div class="selected-info" id="selected-info">
+                        <div class="selected-name" id="details-name">Select a character</div>
+                        <div class="selected-meta" id="details-id">Pick one of your saved characters to preview.</div>
 
-                <aside class="details-panel cm-panel" id="details-panel">
-                    <p class="details-kicker">Character Details</p>
-                    <h2 id="details-name">Select a character</h2>
-                    <p id="details-id" class="details-id">Pick one of your saved characters to view stats.</p>
-
-                    <div class="stats-grid">
-                        <div class="stat-card cm-card">
-                            <span>Cash</span>
-                            <strong id="details-cash">$0</strong>
-                        </div>
-                        <div class="stat-card cm-card">
-                            <span>Bank</span>
-                            <strong id="details-bank">$0</strong>
-                        </div>
-                        <div class="stat-card cm-card">
-                            <span>Level</span>
-                            <strong id="details-level">1</strong>
-                        </div>
-                        <div class="stat-card cm-card">
-                            <span>Rank</span>
-                            <strong id="details-rank">Civilian</strong>
+                        <div class="selected-stats">
+                            <div class="selected-stat">
+                                <span>Cash</span>
+                                <strong id="details-cash">$0</strong>
+                            </div>
+                            <div class="selected-stat">
+                                <span>Bank</span>
+                                <strong id="details-bank">$0</strong>
+                            </div>
+                            <div class="selected-stat" id="details-rank-stat">
+                                <span>Rank</span>
+                                <strong id="details-rank">Civilian</strong>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="detail-lines">
-                        <div><span>Gender</span><strong id="details-gender">N/A</strong></div>
-                        <div><span>Playtime</span><strong id="details-playtime">0h</strong></div>
-                        <div><span>Created</span><strong id="details-created">N/A</strong></div>
-                    </div>
+                    <button class="cm-btn cm-action-skew cm-action-primary selector-cta" id="play-btn" disabled type="button">
+                        <span class="cm-action-skew-content"><span class="btn-label">Enter city</span><span class="btn-icon">&rarr;</span></span>
+                    </button>
+                </div>
+            </aside>
 
-                    <button class="primary-btn cm-btn" id="play-btn" disabled>Enter City</button>
-                    <p class="small-note">Selecting a card focuses the preview ped and shows these details.</p>
-                </aside>
-            </section>
-
-            <button class="music-toggle cm-btn cm-btn-secondary cm-btn-sm" id="music-toggle" type="button">Music: Off</button>
+            <button class="music-toggle cm-btn cm-btn-ghost cm-btn-sm" id="music-toggle" type="button" aria-pressed="true" aria-label="Unmute character music">&#9835;</button>
             <div id="error-msg" class="toast"></div>
         </main>
 
@@ -221,40 +208,65 @@
             </div>
         </section>
 
-        <section id="creator-screen" class="creator-modal hidden">
-            <div class="creator-card cm-panel">
-                <p class="eyebrow">New identity</p>
-                <h1>Create Character</h1>
-                <p class="subtitle">Create a basic identity first. You will customize body, hair, and starter clothes next.</p>
+        <section id="creator-screen" class="creator-screen hidden">
+            <div class="creator-fade" aria-hidden="true"></div>
+            <div class="cm-screen-bracket cm-screen-bracket--tl"></div>
+            <div class="cm-screen-bracket cm-screen-bracket--bl"></div>
 
-                <label>First name</label>
-                <input type="text" id="first-name" class="cm-input" placeholder="First Name" maxlength="20" />
+            <aside class="creator-panel">
+                <div class="creator-content">
+                    <header class="creator-header">
+                        <p class="eyebrow">Create your story</p>
+                        <h1>Create character</h1>
+                        <p class="subtitle">Create your identity before customizing your appearance.</p>
+                    </header>
 
-                <label>Last name</label>
-                <input type="text" id="last-name" class="cm-input" placeholder="Last Name" maxlength="20" />
+                    <form id="creator-form" class="creator-form" autocomplete="off">
+                        <label class="cm-label" for="first-name">First name</label>
+                        <div class="input-wrap cm-tech-edge">
+                            <input type="text" id="first-name" class="cm-input" placeholder="First name" maxlength="20" autocomplete="off" />
+                        </div>
 
-                <label>Date of birth</label>
-                <input type="date" id="dob" class="cm-input" />
+                        <label class="cm-label" for="last-name">Last name</label>
+                        <div class="input-wrap cm-tech-edge">
+                            <input type="text" id="last-name" class="cm-input" placeholder="Last name" maxlength="20" autocomplete="off" />
+                        </div>
 
-                <label>Gender</label>
-                <select id="gender" class="cm-select">
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
-                </select>
+                        <label class="cm-label" for="dob">Date of birth</label>
+                        <div class="input-wrap cm-tech-edge">
+                            <input type="date" id="dob" class="cm-input" />
+                        </div>
 
-                <button class="primary-btn cm-btn" onclick="createCharacter()">Create & Customize</button>
-                <button class="secondary-btn cm-btn cm-btn-secondary" onclick="showSlots()">Back</button>
-                <div id="creator-error" class="toast inline-toast"></div>
-            </div>
+                        <label class="cm-label" for="gender">Gender</label>
+                        <div class="input-wrap cm-tech-edge">
+                            <select id="gender" class="cm-select">
+                                <option value="male">Male</option>
+                                <option value="female">Female</option>
+                            </select>
+                        </div>
+
+                        <div class="btn-container">
+                            <button type="submit" class="cm-btn cm-action-skew cm-action-primary creator-cta" id="creator-continue-btn">
+                                <span class="cm-action-skew-content"><span class="btn-label">Continue</span><span class="btn-icon">&rarr;</span></span>
+                            </button>
+                            <button type="button" class="cm-btn cm-action-skew cm-action-secondary creator-cta" id="creator-back-btn">
+                                <span class="cm-action-skew-content"><span class="btn-label">Back</span><span class="btn-icon">&larr;</span></span>
+                            </button>
+                        </div>
+                    </form>
+
+                    <div id="creator-error" class="toast inline-toast"></div>
+                </div>
+            </aside>
         </section>
     </div>
 
     <div id="creation-loading" class="creation-loading hidden">
-        <div class="loading-brand">
-            <span>CM ROLEPLAY</span>
-            <strong>Loading Character</strong>
-        </div>
-        <div class="loading-bottom">
+        <div class="cm-screen-bracket cm-screen-bracket--tl"></div>
+        <div class="cm-screen-bracket cm-screen-bracket--br"></div>
+        <div class="loading-center">
+            <span class="loading-brand-mark" id="creation-loading-brand">CM ROLEPLAY</span>
+            <strong class="loading-headline">Preparing your character</strong>
             <div class="loading-copy">
                 <span id="creation-loading-text">Preparing character preview...</span>
                 <strong id="creation-loading-percent">0%</strong>
@@ -266,60 +278,37 @@
     </div>
 
     <div id="appearance-ui" style="display: none;">
-        <div class="background">
-            <div id="appearance-preview-stage" class="preview-stage"></div>
-            <div class="categories"></div>
-            <div class="header">
-                <p id="headerName">CREATE YOUR CHARACTER</p>
-                <p id="headerCategory">SELECT CATEGORY</p>
-                <p class="appearance-subtitle">Simple setup: body, face, hair, and starter clothes only.</p>
+        <div class="appearance-fade" aria-hidden="true"></div>
+        <div class="cm-screen-bracket cm-screen-bracket--tl"></div>
+        <div class="cm-screen-bracket cm-screen-bracket--bl"></div>
+
+        <div id="appearance-preview-stage" class="preview-stage"></div>
+
+        <nav class="categories appearance-categories"></nav>
+
+        <aside class="appearance-panel">
+            <header class="appearance-panel-header">
+                <p class="eyebrow" id="headerName">CREATE YOUR CHARACTER</p>
+                <p class="appearance-category-title" id="headerCategory">SELECT CATEGORY</p>
+            </header>
+            <div class="panel appearance-panel-body cm-scrollbar"></div>
+        </aside>
+
+        <div class="appearance-toolbar">
+            <div class="camera-hint-bar">
+                <span class="hint-icon">✥</span>
+                <span>DRAG TO ROTATE • SCROLL TO ZOOM</span>
             </div>
-            <div class="panel"></div>
-            <div class="settings">
-                <div class="height">
-                    <p class="height-title" id="height-text">CAMERA HEIGHT</p>
-                    <div class="camera-stepper-bar">
-                        <button type="button" class="cam-step-btn" onclick="stepHeight(-0.1)">◀</button>
-                        <span class="cam-step-val" id="height-val">0.0</span>
-                        <button type="button" class="cam-step-btn" onclick="stepHeight(0.1)">▶</button>
-                        <input type="hidden" value="0.0" id="height-input" />
-                    </div>
-                </div>
-                <div class="rotate">
-                    <p class="rotate-title" id="rotate-text">CAMERA ROTATE</p>
-                    <div class="camera-stepper-bar">
-                        <button type="button" class="cam-step-btn" onclick="stepRotate(-15)">◀</button>
-                        <span class="cam-step-val" id="rotate-val">0°</span>
-                        <button type="button" class="cam-step-btn" onclick="stepRotate(15)">▶</button>
-                        <input type="hidden" value="0" id="rotate-input" />
-                    </div>
-                </div>
-                <div class="distance">
-                    <p class="distance-title" id="distance-text">CAMERA DISTANCE</p>
-                    <div class="camera-stepper-bar">
-                        <button type="button" class="cam-step-btn" onclick="stepDistance(-5)">◀</button>
-                        <span class="cam-step-val" id="distance-val">30</span>
-                        <button type="button" class="cam-step-btn" onclick="stepDistance(5)">▶</button>
-                        <input type="hidden" value="30" id="distance-input" />
-                    </div>
-                </div>
-                <div class="camera-hint-bar">
-                    <span class="hint-icon">✥</span>
-                    <span>DRAG TO ROTATE • SCROLL TO ZOOM</span>
-                </div>
-                <div class="actions">
-                    <button type="button" class="cancel-skin" id="cancel-btn" style="display: none;" onclick="closeAppearance()">
-                        <span class="key-badge">ESC</span>
-                        <span id="cancel-text">LEAVE WITHOUT EDIT</span>
-                    </button>
-                    <button type="button" class="accept-skin" id="save-btn" onclick="saveAppearance()">
-                        <span class="accept-icon">✓</span>
-                        <span id="save">SAVE & SPAWN</span>
-                    </button>
-                    <button type="button" class="hands-up" onclick="handsUp()">
-                        <span>HANDS</span>
-                    </button>
-                </div>
+            <div class="actions">
+                <button type="button" class="cm-btn cm-action-skew cm-action-secondary appearance-secondary-btn" id="cancel-btn" style="display: none;">
+                    <span class="cm-action-skew-content"><span class="key-badge">ESC</span><span id="cancel-text">BACK</span></span>
+                </button>
+                <button type="button" class="cm-btn cm-action-skew cm-action-primary appearance-save-btn" id="save-btn">
+                    <span class="cm-action-skew-content"><span id="save">SAVE & CONTINUE</span><span class="btn-icon">✓</span></span>
+                </button>
+                <button type="button" class="hands-up" id="hands-up-btn">
+                    <span>HANDS</span>
+                </button>
             </div>
         </div>
     </div>
@@ -425,6 +414,9 @@
     </div>
 
     <script src="nui://cm-ui/web/cm-ui.js"></script>
+    <!-- cm-auth is a hard dependency of cm-characters (see fxmanifest.lua),
+         so its shared branding source is always available here. -->
+    <script src="nui://cm-auth/shared/branding.js"></script>
     <script src="app.js"></script>
     <script src="vendor/cm-miniquery.js"></script>
     <script src="appearance/translation.js"></script>

@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 514">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#123e52"/><stop offset="1" stop-color="#10222b"/></linearGradient></defs>
+  <rect width="1200" height="514" fill="url(#g)"/><path d="M160 285h880M600 90v330M300 180l600 210M900 180L300 390" stroke="#9ff6ff" stroke-opacity=".25" stroke-width="8"/><path d="M270 285h660l-130 35H400zM560 160h80v250h-80z" fill="#061b25" stroke="#00e5ff" stroke-opacity=".7" stroke-width="6"/><text x="600" y="70" fill="#00e5ff" font-family="Arial,sans-serif" font-size="34" font-weight="700" text-anchor="middle" letter-spacing="8">AIR LICENSE</text>
+</svg>

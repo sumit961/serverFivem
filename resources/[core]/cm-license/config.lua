@@ -22,6 +22,15 @@ CMLicenseConfig = {
         -- Seconds the player may stay outside the exam vehicle before failing.
         ReturnToVehicleSeconds = 60,
 
+        -- Server-authoritative separation checks. Standing beside the car
+        -- uses ReturnToVehicleSeconds; travelling farther uses this shorter
+        -- grace period.
+        MaxPlayerVehicleDistance = 50.0,
+        VehicleSeparationGraceSeconds = 5,
+
+        -- Active-session server watchdog cadence.
+        WatchdogIntervalMs = 1000,
+
         -- Grace after the vehicle spawns before seating is enforced.
         SeatingGraceSeconds = 8,
 
@@ -45,10 +54,26 @@ CMLicenseConfig = {
             air = 20.0,
         },
 
+        -- Shared GTA checkpoint visuals. Ground uses the saved route Z and a
+        -- small lift so the volume is not buried in the road mesh.
+        Visual = {
+            groundDiameter = 7.0,
+            boatDiameter = 8.0,
+            airDiameter = 12.0,
+            groundZOffset = 0.20,
+            boatZOffset = 0.05,
+            airZOffset = 0.05,
+            cylinderHeight = 3.0,
+        },
+
         -- Finish conditions for air tests: the helicopter must be within this
         -- vertical distance of the pad and below this speed.
         LandingVerticalTolerance = 3.0,
         LandingMaxSpeed = 2.5,
+
+        -- Ground checkpoints use horizontal distance plus this vertical
+        -- tolerance. Recorded vehicle coordinates can sit above the roadway.
+        GroundVerticalTolerance = 5.0,
     },
 
     -- Test vehicle configuration
@@ -56,8 +81,8 @@ CMLicenseConfig = {
         -- Mark test vehicles with state bags (prevents storage/sale).
         MarkTemporary = true,
 
-        -- Plate applied to the exam vehicle. Set server-side so temporary keys
-        -- match the plate the player actually sees.
+        -- Plate prefix applied to exam vehicles. The server adds a unique
+        -- suffix per active session so two students cannot share one vehicle.
         Plate = 'LICENSE',
 
         -- Lifetime of the temporary key granted for the exam vehicle (seconds).
@@ -71,11 +96,20 @@ CMLicenseConfig = {
     NPC = {
         -- Interaction distance (meters)
         InteractionDistance = 3.0,
+        InteractionHideDistance = 3.5,
         Model = 's_m_m_autoshop_01',
         Name = 'Alex Morgan',
         Role = 'CM License Instructor',
         Scenario = 'WORLD_HUMAN_CLIPBOARD',
         Coords = { x = -700.5005, y = -1401.3684, z = 5.4953, heading = 148.6945 },
+        Blip = {
+            enabled = true,
+            sprite = 498, -- radar_production_fake_id
+            color = 3,
+            scale = 0.85,
+            shortRange = true,
+            label = 'License Centre',
+        },
     },
 
     -- Fixed public choices. Administrators only record their routes.

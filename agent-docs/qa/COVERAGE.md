@@ -1,0 +1,66 @@
+# CM QA coverage registry
+
+This is an honest repository-wide inventory. `COVERED` means the layer has a
+real automated scenario; `PARTIAL` means only a preflight, fixture, or subset
+exists; `NOT_COVERED` means no automated scenario is registered yet.
+
+| Resource | STATIC | SERVER | CLIENT | UI | MULTIPLAYER | MANUAL/JUDGMENT |
+|---|---|---|---|---|---|---|
+| cm-admin | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-auth | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-bank | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | PARTIAL | PARTIAL |
+| cm-carplay | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-carwash | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-characters | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-chat | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-climatime | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-commercial-ownership | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-core | COVERED | PARTIAL | NOT_COVERED | NOT_APPLICABLE | NOT_APPLICABLE | PARTIAL |
+| cm-doctor | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-electrician | COVERED | PARTIAL | PARTIAL | PARTIAL | NOT_APPLICABLE | PARTIAL |
+| cm-ems | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | PARTIAL | PARTIAL |
+| cm-family | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | PARTIAL | PARTIAL |
+| cm-farming | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-farming-assets | COVERED | NOT_APPLICABLE | NOT_APPLICABLE | NOT_APPLICABLE | NOT_APPLICABLE | NOT_APPLICABLE |
+| cm-fishing | COVERED | PARTIAL | NOT_COVERED | COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-gang | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | PARTIAL | PARTIAL |
+| cm-gasstations | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-gunstore | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-hotel | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-house | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | PARTIAL | PARTIAL |
+| cm-hub | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-hud | COVERED | NOT_COVERED | NOT_COVERED | PARTIAL | NOT_APPLICABLE | PARTIAL |
+| cm-inventory | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | PARTIAL | PARTIAL |
+| cm-itemactions | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-items | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-law | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | PARTIAL | PARTIAL |
+| cm-license | COVERED | PARTIAL | PARTIAL | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-lift | COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | NOT_APPLICABLE | PARTIAL |
+| cm-parking-v2 | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-payday | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-playerdata | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | PARTIAL | PARTIAL |
+| cm-population | COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | NOT_APPLICABLE | PARTIAL |
+| cm-prison | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-spawn | COVERED | NOT_COVERED | NOT_COVERED | PARTIAL | NOT_APPLICABLE | PARTIAL |
+| cm-store | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-storebase | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-taxi | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-tuning | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-ui | COVERED | NOT_COVERED | NOT_COVERED | PARTIAL | NOT_APPLICABLE | PARTIAL |
+| cm-vehiclekeys | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-vehicles | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | PARTIAL | PARTIAL |
+| cm-weapons | COVERED | NOT_COVERED | NOT_COVERED | NOT_COVERED | NOT_APPLICABLE | PARTIAL |
+| cm-qa | COVERED | COVERED | PARTIAL | NOT_APPLICABLE | NOT_COVERED | PARTIAL |
+
+The registry intentionally does not claim 100% automation. New resources and
+new behavior must add or maintain scenarios with stable IDs.
+
+Client smoke coverage is real only when a local FiveM window is identified,
+the client was explicitly registered after QA enablement, and the physical
+driver records server assertions plus screenshots. Without that client the
+result is `FIVEM_CLIENT_QA_BLOCKED_NO_CLIENT`, not a global gameplay failure.
+
+Electrician owner-side physical pilot coverage now includes gated
+`QaSnapshot`/`QaControl` contracts and the panel completion, early-release, and
+forced-shock scenarios. A real connected client is still required for the
+client result; no pass is inferred from the server contract alone.

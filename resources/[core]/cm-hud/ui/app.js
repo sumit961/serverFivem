@@ -40,9 +40,10 @@ const HUD_MODULES = {
 // ========== STATE ==========
 let state = {
     hudVisible: false,
-    // Server / Identity
-    serverName: 'CM-RP',
-    serverId: '',
+    // Server / Identity. characterId is the persistent DB character id,
+    // never the FiveM server slot id (see AGENTS.md: never show that to players).
+    serverName: '',
+    characterId: '',
     characterName: 'Unknown',
     level: 1,
     onlinePlayers: 0,
@@ -469,13 +470,15 @@ function renderTopRight() {
     const el = document.getElementById(HUD_MODULES.topRight.id);
     if (!el) return;
 
-    // Grand RP style top right
+    // Compact top-right identity block. Character ID only -- never a FiveM
+    // server/source id (see AGENTS.md).
+    const brandName = (window.CMBranding && window.CMBranding.serverName) || state.serverName || 'CM ROLEPLAY';
     el.innerHTML = `
         <div class="server-header-container">
             <div class="server-info-col">
-                <div class="server-brand">${state.serverName}</div>
+                <div class="server-brand">${brandName}</div>
                 <div class="server-stats">
-                    <span class="stat-id">ID: ${state.serverId || '-'}</span>
+                    <span class="stat-id">ID: ${state.characterId || '-'}</span>
                     <span class="stat-players">👤 ${state.onlinePlayers}</span>
                 </div>
             </div>
@@ -597,7 +600,7 @@ function renderDeath() {
     el.innerHTML = `
         <div class="death-content">
             <div class="death-skull">💀</div>
-            <div class="death-title">YOU ARE UNCONSCIOUS</div>
+            <div class="death-title">YOU ARE DEAD</div>
             <div class="death-subtitle" id="death-timer-text">
                 ${state.deathTime > 0 ? `Respawn available in ${state.deathTime}s` : 'Press E to respawn'}
             </div>
@@ -1488,7 +1491,7 @@ window.addEventListener('message', function(event) {
             break;
 
         case 'updateCharacterHud':
-            if (data.id !== undefined && String(data.id) !== '') state.serverId = data.id;
+            if (data.id !== undefined && String(data.id) !== '') state.characterId = data.id;
             if (data.name !== undefined && String(data.name) !== '') state.characterName = data.name;
             state.cash = Number(data.cash ?? state.cash) || 0;
             state.bank = Number(data.bank ?? state.bank) || 0;
@@ -1518,7 +1521,7 @@ window.addEventListener('message', function(event) {
             break;
             
         case 'updateId':
-            if (data.id !== undefined && String(data.id) !== '') state.serverId = data.id;
+            if (data.id !== undefined && String(data.id) !== '') state.characterId = data.id;
             updateModule('topRight');
             break;
             
@@ -1904,8 +1907,8 @@ function setAllHudPreview(enabled) {
             hudVisible: true,
             externalHidden: false,
             previewMode: true,
-            serverName: 'CM ROLEPLAY',
-            serverId: '28',
+            serverName: (window.CMBranding && window.CMBranding.serverName) || 'CM ROLEPLAY',
+            characterId: '28',
             characterName: 'Jordan Reid',
             level: 12,
             onlinePlayers: 64,

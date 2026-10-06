@@ -374,6 +374,7 @@
                 <div class="prop-row"><span class="prop-num">4</span><span class="prop-name">BMX</span></div>
                 <div class="prop-row"><span class="prop-num">5</span><span class="prop-name">WHIPPET RACE BIKE</span></div>
               </div>
+              <button class="prop-registry-btn heading" id="btnOpenVehicleRegistry" type="button">OPEN REGISTRY</button>
             </div>
 
             <!-- Houses Section -->
@@ -396,6 +397,35 @@
 
         <button class="stats-close-btn heading" id="btnCloseStats">RETURN TO HUB</button>
       </div>
+    </div>
+
+    <!-- VEHICLE REGISTRY SERVICE -->
+    <div class="vehicle-registry-modal hidden" id="vehicleRegistryModal" aria-hidden="true">
+      <section class="vehicle-registry-card" role="dialog" aria-modal="true" aria-labelledby="vehicleRegistryTitle">
+        <div class="vehicle-registry-header">
+          <div>
+            <div class="vehicle-registry-kicker heading">CM VEHICLES / PLAYER SERVICE</div>
+            <h2 class="vehicle-registry-title heading" id="vehicleRegistryTitle">VEHICLE REGISTRY</h2>
+            <p class="vehicle-registry-subtitle">Registration and insurance for your eligible vehicles.</p>
+          </div>
+          <button class="vehicle-registry-close heading" id="btnCloseVehicleRegistry" type="button" aria-label="Close vehicle registry">ESC</button>
+        </div>
+        <div class="vehicle-registry-notice hidden" id="vehicleRegistryNotice" role="status" aria-live="polite"></div>
+        <div class="vehicle-registry-list" id="vehicleRegistryList" aria-live="polite">
+          <div class="vehicle-registry-loading">Loading vehicle records...</div>
+        </div>
+      </section>
+
+      <section class="cm-confirm-modal hidden" id="vehicleRegistryConfirm" role="dialog" aria-modal="true" aria-labelledby="vehicleRegistryConfirmTitle">
+        <div class="cm-confirm-modal__eyebrow heading">SERVER-VALIDATED SERVICE</div>
+        <h3 class="cm-confirm-modal__title heading" id="vehicleRegistryConfirmTitle">CONFIRM SERVICE</h3>
+        <p class="cm-confirm-modal__message" id="vehicleRegistryConfirmMessage"></p>
+        <p class="cm-confirm-modal__consequence" id="vehicleRegistryConfirmNote">The vehicle owner and current price will be revalidated before payment.</p>
+        <div class="cm-confirm-modal__actions">
+          <button class="cm-confirm-modal__confirm heading" id="btnConfirmVehicleService" type="button">CONFIRM</button>
+          <button class="cm-confirm-modal__cancel heading" id="btnCancelVehicleService" type="button">CANCEL</button>
+        </div>
+      </section>
     </div>
 
     <!-- SKILLS BREAKDOWN POPUP -->

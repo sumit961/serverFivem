@@ -1,0 +1,4 @@
+id,house_number,label,house_type,has_garden,has_pool,has_helipad,star_rating,garage_slots,price,gov_value,insurance,daily_cost,for_sale,status,owned
+13,1,House,villa,1,1,1,2,10,1230000,984000,36900,1230,0,published,1
+14,2,House,villa,1,1,0,2,10,830000,664000,24900,830,0,published,1
+15,3,House,mansion,0,0,0,3,24,2400000,1920000,72000,2400,0,published,1

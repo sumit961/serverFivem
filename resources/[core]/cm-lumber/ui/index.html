@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paleto Forest Sawmill Operations</title>
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="lumber-hud" class="lumber-hud" style="display: none;">
+        <div class="hud-card">
+            <div class="hud-header">
+                <div class="brand-badge">
+                    <span class="pulse-dot"></span>
+                    <span class="brand-title">PALETO FOREST FORESTRY</span>
+                </div>
+                <div class="mill-tag">TIMBER & SAWMILL</div>
+            </div>
+
+            <div class="shift-title">Paleto Sawmill Shift</div>
+
+            <div class="manifest-section">
+                <div class="manifest-row">
+                    <span class="manifest-label">RAW LOGS IN HAUL</span>
+                    <span class="manifest-val" id="haul-logs">0 / 20</span>
+                </div>
+                <div class="manifest-row">
+                    <span class="manifest-label">SAWMILL STATUS</span>
+                    <span class="manifest-val highlight" id="sawmill-status">CONVERSION HELD</span>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-label">TOTAL FELLED</span>
+                        <span class="stat-val" id="total-felled">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">HAUL CAPACITY</span>
+                        <span class="stat-val">20 LOGS</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="objective-box">
+                <span class="objective-tag">OBJECTIVE</span>
+                <span class="objective-text" id="objective-text">FELL MARKED TIMBER STANDS IN PALETO FOREST</span>
+            </div>
+
+            <div class="custody-notice">
+                <span class="notice-icon">&#9432;</span>
+                <span class="notice-text">Material custody and payroll remain securely held in the sawmill ledger pending downstream sink activation.</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Shift Conclusion Summary Modal -->
+    <div id="shift-summary-modal" class="summary-modal" style="display: none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="brand-badge">
+                    <span class="pulse-dot"></span>
+                    <span class="brand-title">PALETO SAWMILL SHIFT RECORD</span>
+                </div>
+                <div class="status-badge held">HELD IN LEDGER</div>
+            </div>
+
+            <h2 class="modal-title">Forestry Shift Manifest</h2>
+            <div class="manifest-id" id="summary-manifest-id">MANIFEST #0000</div>
+
+            <div class="summary-grid">
+                <div class="summary-card">
+                    <span class="summary-card-label">RAW LOGS HARVESTED</span>
+                    <span class="summary-card-val" id="summary-logs">0</span>
+                    <span class="summary-card-sub">Physical Haul Quantity</span>
+                </div>
+                <div class="summary-card">
+                    <span class="summary-card-label">SAWMILL CONVERSION</span>
+                    <span class="summary-card-val highlight" id="summary-sawing-status">HELD</span>
+                    <span class="summary-card-sub">cm-crafting auth pending</span>
+                </div>
+            </div>
+
+            <div class="summary-row">
+                <span class="summary-row-label">Shift Duration:</span>
+                <span class="summary-row-val highlight" id="summary-duration">0 min</span>
+            </div>
+
+            <div class="summary-alert">
+                <div class="alert-title">FAIL-CLOSED CUSTODY & SINK ENFORCEMENT</div>
+                <div class="alert-desc">
+                    Harvested logs have been registered to your character's work ledger. Loose inventory grants and cash payroll are held fail-closed until cm-construction downstream sinks and idempotent wage settlements are activated.
+                </div>
+            </div>
+
+            <button type="button" class="btn-confirm" id="btn-close-summary">CONFIRM & CLOSE</button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+

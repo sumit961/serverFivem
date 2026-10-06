@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0b3545"/><stop offset="1" stop-color="#10222b"/></linearGradient></defs>
+  <rect width="1200" height="360" fill="url(#g)"/><rect x="345" y="82" width="510" height="198" rx="18" fill="#061b25" stroke="#00e5ff" stroke-opacity=".65" stroke-width="6"/><circle cx="430" cy="150" r="28" fill="#00e5ff" fill-opacity=".28"/><path d="M500 140h260M500 185h180M500 225h220" stroke="#9ff6ff" stroke-opacity=".5" stroke-width="12" stroke-linecap="round"/><text x="600" y="52" fill="#00e5ff" font-family="Arial,sans-serif" font-size="30" font-weight="700" text-anchor="middle" letter-spacing="7">MY LICENSES</text>
+</svg>

@@ -346,9 +346,9 @@ Command fallbacks:
 
 Returns temporary/lent keys for the active character.
 
-### `ServiceVehicle(source, vehicleIdOrPlate, patch, reason)`
+### `ServiceVehicle(plate, patch, targetSrc?)` / `ServiceVehicleById(vehicleId, patch, targetSrc?)`
 
-Trusted server service operation for mechanic/admin/inventory integrations.
+Trusted server service operation (allowlisted resources only, per-caller field allowlist, absolute patches). The earlier `(source, vehicleIdOrPlate, patch, reason)` signature was never implemented. Authoritative reference: [API_SERVICE.md](API_SERVICE.md).
 
 ### `SaveVehicleModsAuthorized(source, vehicleIdOrPlate, mods, reason)`
 

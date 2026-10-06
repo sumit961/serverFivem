@@ -14,6 +14,7 @@ Test.LastReturnWarningSecond = nil
 Test.LastBodyHealth = nil
 Test.LastMistakeAt = 0
 Test.StrayingSince = nil
+Test.FailureReportAt = 0
 
 function Test.Init()
     CMLog('Test system initialized')
@@ -32,6 +33,14 @@ end
 function Test.CheckStartPoint()
     local active = session()
     if not active or Checkpoints.Monitoring or Test.BeginRequested then return end
+    Test.BeginTest()
+end
+
+-- Request the exam start. HUD and checkpoint monitoring begin only after the
+-- server confirms the authoritative session transition.
+function Test.BeginTest()
+    local active = session()
+    if not active or Test.BeginRequested then return end
 
     local ped = PlayerPedId()
     local vehicle = GetVehiclePedIsIn(ped, false)
@@ -39,33 +48,36 @@ function Test.CheckStartPoint()
         Client.Notify('You must be in the test vehicle.', 'error')
         return
     end
+    if GetPedInVehicleSeat(vehicle, -1) ~= ped then
+        Client.Notify('You must be driving the test vehicle.', 'error')
+        return
+    end
 
     local startPoint = Checkpoints.Checkpoints[1]
     if not startPoint then return end
 
-    local distance = Utils.Distance(GetEntityCoords(ped), vector3(startPoint.x, startPoint.y, startPoint.z))
-    if distance > Utils.TouchRadius(category()) then
+    local within = Utils.IsWithinCheckpoint(GetEntityCoords(ped), startPoint, category(),
+        Utils.EffectiveTouchRadius(category(), startPoint))
+    if not within then
         Client.Notify('Drive to the cyan start marker first.', 'inform')
         return
     end
 
-    Test.BeginTest()
-end
-
--- Begin the exam (start the clock and checkpoint monitoring)
-function Test.BeginTest()
-    local active = session()
-    if not active or Test.BeginRequested then return end
     Test.BeginRequested = true
 
     CMLog('Test beginning...')
 
     TriggerServerEvent(Constants.EVENTS.SERVER.START_TEST, active.testId, NetworkGetNetworkIdFromEntity(Test.TestVehicle))
+end
 
-    HUD.StartTest(active)
-    Checkpoints.StartMonitoring()
-
-    Test.LastBodyHealth = GetVehicleBodyHealth(Test.TestVehicle)
+function Test.ResumeAfterRejectedBegin(data)
+    Test.BeginRequested = false
+    Test.CompletionPending = false
+    Test.CompletionSentAt = nil
+    Checkpoints.Monitoring = false
+    Checkpoints.ClearAck()
+    HUD.StopTest()
+    Client.Notify((data and data.message) or 'Drive to the start marker before beginning the test.', 'inform')
 end
 
 function Test.ReportCheckpoint(checkpointNumber)
@@ -85,8 +97,19 @@ end
 -- that confirmation arrives, so a dropped packet cannot desync the two sides.
 function Test.ReportFailure(reason)
     local active = session()
-    if not active or active.failureReported then return end
+    if not active then return end
+    local now = GetGameTimer()
+    if active.failureReported then
+        -- Vehicle abandonment is timed authoritatively on the server. Retry
+        -- the hint until the server confirms the due state.
+        if reason ~= Constants.FAIL_REASON.ABANDONED_VEHICLE
+            or (now - (Test.FailureReportAt or 0)) < 2000
+        then
+            return
+        end
+    end
     active.failureReported = true
+    Test.FailureReportAt = now
 
     CMLog('Reporting test failure: ' .. tostring(reason))
     TriggerServerEvent(Constants.EVENTS.SERVER.TEST_FAILED, reason)
@@ -130,6 +153,7 @@ function Test.Cleanup()
     Test.LastReturnWarningSecond = nil
     Test.LastBodyHealth = nil
     Test.StrayingSince = nil
+    Test.FailureReportAt = 0
 
     HUD.StopTest()
     Checkpoints.StopMonitoring()
@@ -209,6 +233,11 @@ function Test.UpdateTestState()
     local ped = PlayerPedId()
     local vehicle = GetVehiclePedIsIn(ped, false)
 
+    if IsPedDeadOrDying(ped, true) then
+        Test.ReportFailure(Constants.FAIL_REASON.PLAYER_DIED)
+        return
+    end
+
     if vehicle ~= Test.TestVehicle then
         handleOutOfVehicle(active)
         return
@@ -222,13 +251,10 @@ function Test.UpdateTestState()
         return
     end
 
-    if IsPedDeadOrDying(ped, true) then
-        Test.ReportFailure(Constants.FAIL_REASON.PLAYER_DIED)
-        return
-    end
-
     checkDrivingMistakes(vehicle)
-    checkRouteAbandonment(GetEntityCoords(ped))
+    if GetPedInVehicleSeat(vehicle, -1) == ped then
+        checkRouteAbandonment(GetEntityCoords(vehicle))
+    end
 end
 
 return Test

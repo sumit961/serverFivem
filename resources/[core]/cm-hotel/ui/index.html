@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CM Hotel Setup</title>
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css" />
+  <link rel="stylesheet" href="nui://cm-ui/web/cm-components.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main id="app" class="hidden">
+    <header class="panel-header">
+      <div>
+        <span class="eyebrow">CM ROLEPLAY / ADMIN TOOL</span>
+        <h1>HOTEL SETUP</h1>
+        <p id="focusHint">Walk mode: press F7 to return to the editor.</p>
+      </div>
+      <div class="header-actions">
+        <button id="walkBtn" class="button button-secondary">WALK MODE</button>
+        <button id="closeBtn" class="button button-danger">CLOSE</button>
+      </div>
+    </header>
+
+    <section class="status-strip">
+      <span>SETUP STATUS</span>
+      <div id="statusSummary"></div>
+    </section>
+
+    <section id="content" class="content"></section>
+
+    <footer class="footer-actions">
+      <button id="resetBtn" class="button button-danger">RESET HOTEL SETUP</button>
+      <span id="toast" class="toast" aria-live="polite"></span>
+    </footer>
+  </main>
+
+  <div id="confirm" class="cm-confirm-modal hidden">
+    <div class="cm-confirm-modal__card">
+      <span class="eyebrow">DESTRUCTIVE ACTION</span>
+      <h2 class="cm-confirm-modal__title">RESET HOTEL SETUP?</h2>
+      <p class="cm-confirm-modal__message">This clears all saved Hotel positions and returns every point to its Config fallback.</p>
+      <p class="cm-confirm-modal__consequence">NPCs, lifts, spawn, help markers, and the blip will immediately reload from fallback values.</p>
+      <div class="cm-confirm-modal__actions">
+        <button id="resetCancel" class="button button-secondary">CANCEL</button>
+        <button id="resetConfirm" class="button button-danger">CONFIRM RESET</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

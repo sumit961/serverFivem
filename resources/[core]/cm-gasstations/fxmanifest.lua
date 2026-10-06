@@ -11,6 +11,7 @@ shared_script 'shared/config.lua'
 server_script '@oxmysql/lib/MySQL.lua'
 
 client_script 'client/main.lua'
+server_script 'server/settlement.lua'
 server_script 'server/main.lua'
 
 ui_page 'ui/index.html'

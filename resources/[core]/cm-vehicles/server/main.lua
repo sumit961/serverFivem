@@ -95,6 +95,29 @@ function CMVehicles.Server.EnsureTables()
     -- internal identity/lookup key every other resource already relies on.
     ensureColumn('cm_owned_vehicles', 'license_number', 'VARCHAR(20) NULL')
     pcall(function() MySQL.query.await('ALTER TABLE cm_owned_vehicles ADD UNIQUE KEY idx_cm_owned_vehicles_license_number (license_number)') end)
+    -- Vehicle legal state V1 (additive, nullable; see server/legal_core.lua).
+    -- Epoch seconds. NULL expiry on a numbered registration = legacy permanent.
+    ensureColumn('cm_owned_vehicles', 'registration_expires_at', 'BIGINT NULL')
+    ensureColumn('cm_owned_vehicles', 'registration_revoked_at', 'BIGINT NULL')
+    ensureColumn('cm_owned_vehicles', 'insurance_expires_at', 'BIGINT NULL')
+    -- Owner the policy was bought for; a different current owner = no cover.
+    ensureColumn('cm_owned_vehicles', 'insurance_owner_id', 'VARCHAR(100) NULL')
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS cm_vehicle_legal_events (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            vehicle_id BIGINT NOT NULL,
+            event VARCHAR(48) NOT NULL,
+            actor_character_id VARCHAR(100) NULL,
+            source VARCHAR(32) NULL,
+            registration VARCHAR(20) NULL,
+            amount INT NOT NULL DEFAULT 0,
+            details LONGTEXT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_legal_vehicle (vehicle_id),
+            INDEX idx_legal_event (event),
+            INDEX idx_legal_actor (actor_character_id)
+        )
+    ]])
 
     -- v1.3.2.6 one-time, idempotent cleanup. The old window snapshot queried
     -- unsupported eWindowId indexes and could permanently store every pane as
@@ -503,6 +526,12 @@ end
 -- throwing -- race-safe the same way cm-police's own firearms-license
 -- number generator is.
 function CMVehicles.Server.IssueVehicleLicense(plate)
+    -- Delegates to the legal core (server/legal.lua) when loaded: same unique
+    -- retry-loop semantics plus expiry, locking and a legal-event record. The
+    -- legacy body below is only the fallback if that module failed to load.
+    if CMVehicles.Legal and CMVehicles.Legal.IssueByPlate then
+        return CMVehicles.Legal.IssueByPlate(plate, GetInvokingResource())
+    end
     plate = U.NormalizePlate(plate)
     if plate == '' then return false, 'Invalid plate.' end
     local row = MySQL.single.await('SELECT license_number FROM cm_owned_vehicles WHERE plate = ? LIMIT 1', { plate })
@@ -1057,6 +1086,9 @@ function CMVehicles.Server.EnsureOrganizationOwnership(vehicleId, organization)
     local changed = MySQL.update.await([[UPDATE cm_owned_vehicles
         SET owner_character_id = ?, owner_type = 'organization', owner_id = ?, owner_name = ?, plate = ?
         WHERE id = ?]], { ('organization:%s'):format(organization), organization, ownerName, plate, vehicleId })
+    if tonumber(changed) and tonumber(changed) > 0 and CMVehicles.Legal and CMVehicles.Legal.OnOwnershipChanged then
+        pcall(CMVehicles.Legal.OnOwnershipChanged, vehicleId, 'organization_assignment', 'cm-vehicles')
+    end
     return tonumber(changed) and tonumber(changed) > 0, plate
 end
 
@@ -1379,6 +1411,10 @@ RegisterNetEvent('cm-vehicles:server:sellToState', function(plate, netId)
     local houseIds = {}
     for _, h in ipairs(affectedHouses) do houseIds[#houseIds + 1] = tonumber(h.house_id) end
     if #houseIds > 0 then TriggerEvent('cm-house:server:vehicleDeleted', vehicleId, houseIds) end
+    -- Registration/insurance lived on the deleted row; record the removal.
+    if CMVehicles.Legal and CMVehicles.Legal.OnVehicleRemoved then
+        pcall(CMVehicles.Legal.OnVehicleRemoved, row, 'state_sale', charId)
+    end
 
     if GetResourceState('cm-family') == 'started' then
         local familyOk, familyResult = pcall(function()
@@ -1813,31 +1849,35 @@ exports('GetLentKeys', CMVehicles.Server.GetLentKeys)
 
 -- Server-side service exports so other resources (mechanic script, pump prop
 -- placed server-side, admin commands) can act without touching a client.
-CMVehicles.Server.ServiceVehicle = function(plate, patch, targetSrc)
-    plate = U.NormalizePlate(plate)
-    patch = type(patch) == 'table' and patch or {}
-    local row = CMVehicles.Server.GetVehicleByPlate(plate)
-    if not row then return false end
-    local sets, params = {}, {}
-    local map = { fuel = 'fuel', engineHealth = 'engine_health', bodyHealth = 'body_health', tankHealth = 'tank_health', dirtLevel = 'dirt_level' }
-    for key, col in pairs(map) do
-        if patch[key] ~= nil then
-            sets[#sets+1] = col .. ' = ?'
-            if key == 'fuel' then params[#params+1] = math.floor(math.max(0, math.min(100, tonumber(patch[key]) or 0)))
-            elseif key == 'dirtLevel' then params[#params+1] = math.max(0, math.min(15, tonumber(patch[key]) or 0))
-            else params[#params+1] = U.NormalizeHealth(patch[key], 1000.0) end
-        end
+-- ── Trusted vehicle service mutation ─────────────────────────────────────────
+-- The ONLY server path that raises a persistent vehicle's fuel/health/dirt/condition.
+--   ServiceVehicle(plate, patch, targetSrc)         legacy plate-keyed export
+--   ServiceVehicleById(vehicleId, patch, targetSrc) preferred, keyed by persistent vehicle_id
+-- Both return `true, { vehicleId, plate, applied = { field, ... } }` or `false, reason`, reason being one of:
+--   forbidden_caller | field_not_permitted | unsupported_field | invalid_patch | invalid_vehicle
+--   vehicle_unavailable | persistence_failed
+-- Authorization = GetInvokingResource() against Config.Service.TrustedCallers (resource -> permitted patch fields).
+-- `targetSrc` only picks which client re-applies the condition; it never authorizes anything.
+-- Patches are ABSOLUTE target values, so a retried call cannot repair/refuel twice.
+local SERVICE_COLUMNS = { fuel = 'fuel', engineHealth = 'engine_health', bodyHealth = 'body_health',
+    tankHealth = 'tank_health', dirtLevel = 'dirt_level' }
+
+local function applyServicePatch(row, clean, targetSrc)
+    local plate = U.NormalizePlate(row.plate)
+    if skipSave(plate) then return false, 'vehicle_unavailable' end
+    local sets, params, applied = {}, {}, {}
+    for key, col in pairs(SERVICE_COLUMNS) do
+        if clean[key] ~= nil then sets[#sets+1] = col .. ' = ?'; params[#params+1] = clean[key]; applied[#applied+1] = key end
     end
-    if patch.clearVisualDamage == true and patch.conditionState == nil then patch.conditionState = {} end
-    if type(patch.conditionState) == 'table' then
-        patch.conditionState = U.SanitizeConditionState(patch.conditionState)
-        sets[#sets+1] = 'condition_state = ?'
-        params[#params+1] = U.Encode(patch.conditionState)
+    if clean.conditionState ~= nil then
+        sets[#sets+1] = 'condition_state = ?'; params[#params+1] = U.Encode(clean.conditionState); applied[#applied+1] = 'conditionState'
     end
-    if #sets == 0 then return false end
-    params[#params+1] = plate
-    if skipSave(plate) then return end
-    MySQL.update.await(('UPDATE cm_owned_vehicles SET %s WHERE plate = ?'):format(table.concat(sets, ', ')), params)
+    table.sort(applied)
+    params[#params+1] = tonumber(row.id)
+    local okDb, changed = pcall(function()
+        return MySQL.update.await(('UPDATE cm_owned_vehicles SET %s WHERE id = ?'):format(table.concat(sets, ', ')), params)
+    end)
+    if not okDb or changed == nil then return false, 'persistence_failed' end
     local active = CMVehicles.Server.SpawnedById and CMVehicles.Server.SpawnedById[tonumber(row.id)] or CMVehicles.Server.Spawned[plate]
     if active then
         local entity = tonumber(active.entity) or 0
@@ -1846,18 +1886,15 @@ CMVehicles.Server.ServiceVehicle = function(plate, patch, targetSrc)
         end
         if entity and entity ~= 0 and DoesEntityExist(entity) then
             local state = Entity(entity).state
-            if patch.fuel ~= nil then state:set('cmFuel', tonumber(patch.fuel) or 100.0, true) end
-            if patch.engineHealth ~= nil then
-                local repairedEngine = U.NormalizeHealth(patch.engineHealth, 1000.0)
-                state:set('cmEngineHealth', repairedEngine, true)
-                state:set('cmEngineDestroyed', repairedEngine <= (tonumber(Config.Damage and Config.Damage.destroyedEngineHealth) or 150.0), true)
+            if clean.fuel ~= nil then state:set('cmFuel', clean.fuel, true) end
+            if clean.engineHealth ~= nil then
+                state:set('cmEngineHealth', clean.engineHealth, true)
+                state:set('cmEngineDestroyed', clean.engineHealth <= (tonumber(Config.Damage and Config.Damage.destroyedEngineHealth) or 150.0), true)
             end
-            if patch.bodyHealth ~= nil then state:set('cmBodyHealth', U.NormalizeHealth(patch.bodyHealth, 1000.0), true) end
-            if patch.tankHealth ~= nil then state:set('cmTankHealth', U.NormalizeHealth(patch.tankHealth, 1000.0), true) end
-            if patch.dirtLevel ~= nil then state:set('cmDirtLevel', tonumber(patch.dirtLevel) or 0.0, true) end
-            if type(patch.conditionState) == 'table' then
-                state:set('cmConditionState', patch.conditionState, true)
-            end
+            if clean.bodyHealth ~= nil then state:set('cmBodyHealth', clean.bodyHealth, true) end
+            if clean.tankHealth ~= nil then state:set('cmTankHealth', clean.tankHealth, true) end
+            if clean.dirtLevel ~= nil then state:set('cmDirtLevel', clean.dirtLevel, true) end
+            if clean.conditionState ~= nil then state:set('cmConditionState', clean.conditionState, true) end
             -- A trusted service is not complete until a controlling client has
             -- physically applied and verified the requested condition.
             state:set('cmConditionReady', false, true)
@@ -1866,15 +1903,56 @@ CMVehicles.Server.ServiceVehicle = function(plate, patch, targetSrc)
             -- patch replicated so the pooled vehicle scan on whichever client
             -- eventually streams it in can retry the trusted apply instead of
             -- leaving the vehicle permanently damaged/undriveable.
-            state:set('cmPendingServicePatch', patch, true)
+            state:set('cmPendingServicePatch', clean, true)
             targetSrc = tonumber(targetSrc)
             if not targetSrc or targetSrc <= 0 or not GetPlayerName(targetSrc) then targetSrc = -1 end
-            TriggerClientEvent('cm-vehicles:client:applyTrustedCondition', targetSrc, tonumber(active.netId) or 0, patch)
+            TriggerClientEvent('cm-vehicles:client:applyTrustedCondition', targetSrc, tonumber(active.netId) or 0, clean)
         end
     end
-    return true
+    return true, { vehicleId = tonumber(row.id), plate = plate, applied = applied }
 end
-exports('ServiceVehicle', CMVehicles.Server.ServiceVehicle)
+
+-- allowed == nil => internal cm-vehicles call (every serviceable field allowed, still validated).
+local function serviceRow(row, patch, targetSrc, allowed)
+    if not row then return false, 'invalid_vehicle' end
+    local clean, reason = CMVehicles.ServiceCore.Sanitize(U, patch, allowed)
+    if not clean then return false, reason end
+    return applyServicePatch(row, clean, targetSrc)
+end
+
+local function resolveServiceCaller()
+    return CMVehicles.ServiceCore.ResolveCaller(GetInvokingResource(), GetCurrentResourceName(),
+        Config.Service and Config.Service.TrustedCallers)
+end
+
+-- Internal (same-resource) entry points. NOT exported.
+CMVehicles.Server.ServiceVehicle = function(plate, patch, targetSrc)
+    return serviceRow(CMVehicles.Server.GetVehicleByPlate(U.NormalizePlate(plate)), patch, targetSrc, nil)
+end
+CMVehicles.Server.ServiceVehicleById = function(vehicleId, patch, targetSrc)
+    vehicleId = tonumber(vehicleId)
+    if not vehicleId or vehicleId <= 0 then return false, 'invalid_vehicle' end
+    return serviceRow(CMVehicles.Server.GetVehicleById(vehicleId), patch, targetSrc, nil)
+end
+
+exports('ServiceVehicle', function(plate, patch, targetSrc)
+    local ok, allowed = resolveServiceCaller()
+    if not ok then
+        CMVehicles.Server.Audit(nil, plate, 'service_denied', { caller = tostring(allowed) })
+        return false, 'forbidden_caller'
+    end
+    return serviceRow(CMVehicles.Server.GetVehicleByPlate(U.NormalizePlate(plate)), patch, targetSrc, allowed)
+end)
+exports('ServiceVehicleById', function(vehicleId, patch, targetSrc)
+    local ok, allowed = resolveServiceCaller()
+    if not ok then
+        CMVehicles.Server.Audit(nil, '', 'service_denied', { caller = tostring(allowed), vehicleId = tonumber(vehicleId) })
+        return false, 'forbidden_caller'
+    end
+    vehicleId = tonumber(vehicleId)
+    if not vehicleId or vehicleId <= 0 then return false, 'invalid_vehicle' end
+    return serviceRow(CMVehicles.Server.GetVehicleById(vehicleId), patch, targetSrc, allowed)
+end)
 
 RegisterNetEvent('cm-vehicles:server:pingTracker', function(plate)
     local src = source

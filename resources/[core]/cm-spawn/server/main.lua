@@ -7,6 +7,16 @@ local PendingSpawns = {}
 local SelectRate = {}
 local RESOURCE = 'CM-SPAWN'
 
+-- PHASE 5: single authoritative record of an accepted-but-not-yet-public spawn
+-- transition per player. Nothing about the destination or bucket state is
+-- trusted from the client beyond "I am ready" / "I am done" signals gated by
+-- this record's generation number, so a stale or forged client message from a
+-- superseded/never-accepted transition can never move a player into bucket 0
+-- or mark them fully spawned.
+local PendingAcceptedSpawn = {}
+local SpawnGeneration = {}
+local hotelWarningShown = false
+
 local function cfg(key, fallback)
     if Config and Config[key] ~= nil then return Config[key] end
     return fallback
@@ -78,7 +88,7 @@ local function decodeCoords(value)
         if not ok then return nil end
         value = decoded
     end
-    if type(value) ~= 'table' then return nil end
+    if type(value) ~= 'table' and type(value) ~= 'vector3' and type(value) ~= 'vector4' then return nil end
 
     local x = tonumber(value.x or value[1])
     local y = tonumber(value.y or value[2])
@@ -86,6 +96,56 @@ local function decodeCoords(value)
     local h = tonumber(value.h or value.heading or value.w or value[4]) or 0.0
     if not x or not y or not z then return nil end
     return vector4(x, y, z, h)
+end
+
+local function resolveHotelSpawn()
+    if GetResourceState('cm-hotel') ~= 'started' then
+        if not hotelWarningShown then
+            hotelWarningShown = true
+            warn('cm-hotel is unavailable; Hotel first spawn will use the safe fallback.')
+        end
+        return nil
+    end
+
+    local ok, result = pcall(function()
+        return exports['cm-hotel']:GetFirstSpawn()
+    end)
+    if not ok or type(result) ~= 'table' then
+        if not hotelWarningShown then
+            hotelWarningShown = true
+            warn('cm-hotel returned no valid first spawn; Hotel first spawn will use the safe fallback.')
+        end
+        return nil
+    end
+
+    local coords = decodeCoords(result.coords)
+    if not coords then
+        if not hotelWarningShown then
+            hotelWarningShown = true
+            warn('cm-hotel first spawn coordinates are invalid; using the safe fallback.')
+        end
+        return nil
+    end
+
+    return {
+        coords = coords,
+        label = tostring(result.label or 'HOTEL')
+    }
+end
+
+local function safeFallbackSpawn()
+    local coords = decodeCoords(Config and Config.SafeFallbackSpawn)
+    if not coords then return nil end
+    return {
+        key = 'safe_fallback',
+        label = 'SAFE FALLBACK',
+        description = 'Temporary recovery spawn while Hotel configuration is unavailable.',
+        icon = 'fa-location-dot',
+        color = 'orange',
+        coords = coords,
+        locked = false,
+        dynamic = 'fallback'
+    }
 end
 
 local function defaultDeadFallbackCoords()
@@ -246,6 +306,27 @@ local function setSpawnSelectorState(src, open)
         ply.state:set('spawnSelectorOpen', open == true, true)
         ply.state:set('cmSpawnOpen', open == true, true)
         ply.state:set('cmSpawnActive', open == true, true)
+        ply.state:set('characterFullySpawned', false, true)
+        ply.state:set('cmSpawned', false, true)
+        ply.state:set('isSpawned', false, true)
+        ply.state:set('skipPositionSave', true, true)
+    end
+end
+
+-- PHASE 5: state for "an accepted destination is being prepared, hidden,
+-- still in the private bucket". Distinct from setSpawnSelectorState(false)
+-- only in that cmSpawnActive stays true (a transition IS active, the
+-- selector UI is just gone) -- kept as its own function for clarity at each
+-- call site rather than overloading the selector-state setter's meaning.
+local function setSpawnPreparingState(src)
+    src = tonumber(src)
+    if not src or src <= 0 then return end
+    local ply = Player(src)
+    if ply and ply.state then
+        ply.state:set('isInSpawnSelector', false, true)
+        ply.state:set('spawnSelectorOpen', false, true)
+        ply.state:set('cmSpawnOpen', false, true)
+        ply.state:set('cmSpawnActive', true, true)
         ply.state:set('characterFullySpawned', false, true)
         ply.state:set('cmSpawned', false, true)
         ply.state:set('isSpawned', false, true)
@@ -430,6 +511,20 @@ local function resolveSpawnForKey(src, charId, spawnKey, lastPosition, hasSpawne
     local spawn = clonePublicSpawn(base)
     spawn.coords = base.coords
 
+    if spawnKey == 'hotel' then
+        local hotel = resolveHotelSpawn()
+        if hotel then
+            spawn.coords = hotel.coords
+            spawn.label = hotel.label
+            spawn.locked = false
+            spawn.lockedReason = nil
+        else
+            spawn.locked = true
+            spawn.lockedReason = 'Hotel spawn is temporarily unavailable.'
+        end
+        return spawn
+    end
+
     if spawnKey == 'last' then
         if not isHasSpawned(hasSpawned) then
             spawn.locked = true
@@ -470,16 +565,64 @@ local function getAppearance(charId)
     return row and decodeAppearance(row.appearance_json) or nil
 end
 
+-- PHASE 5: single entry point for accepting a validated spawn destination,
+-- used by BOTH the automatic first-time hotel spawn and a manually selected
+-- spawn card. This is the ONE place a transition is created; from here the
+-- player stays in their existing private bucket (untouched) while the client
+-- hides/teleports/loads collision/applies appearance, then reports back via
+-- cm-spawn:server:readyForPublicWorld (checked against this record's
+-- generation) before the bucket is ever touched.
+local function beginSpawnTransition(src, charId, spawnKey, isFirstTime, coords, appearance)
+    src = tonumber(src)
+    if not src or src <= 0 then return end
+
+    local generation = (SpawnGeneration[src] or 0) + 1
+    SpawnGeneration[src] = generation
+
+    PendingAcceptedSpawn[src] = {
+        charId = charId,
+        key = spawnKey,
+        isFirstTime = isFirstTime == true,
+        generation = generation,
+        stage = 'preparing',
+        acceptedAt = GetGameTimer()
+    }
+
+    setSpawnPreparingState(src)
+    TriggerClientEvent('cm-spawn:client:beginSpawn', src, spawnKey, isFirstTime == true, coords, appearance, generation)
+
+    SetTimeout(25000, function()
+        local pending = PendingAcceptedSpawn[src]
+        if pending and pending.generation == generation and pending.stage ~= 'complete' then
+            warn(('spawn transition timed out (stage=%s) for src=%s'):format(tostring(pending.stage), tostring(src)))
+            PendingAcceptedSpawn[src] = nil
+        end
+    end)
+end
+
+-- BLACK SCREEN FIX: PendingSpawns[src] used to be cleared before any of this
+-- validated, so an error/early-return anywhere below it left the client with
+-- no event at all -- permanently black, nothing to retry, no diagnostic.
+-- Now it's only cleared once we've actually committed to a client-visible
+-- outcome (openSelector sent or a first-time spawn transition started), and
+-- every other path explicitly reports failure so the client can recover
+-- instead of silently hanging.
+local function failSpawnPreparation(src, reason)
+    PendingSpawns[src] = nil
+    err('DoSpawn failed for src=' .. tostring(src) .. ': ' .. tostring(reason))
+    TriggerClientEvent('cm-spawn:client:spawnPreparationFailed', src, reason)
+end
+
 function DoSpawn(src, charId)
     if not PendingSpawns[src] then return end
-    PendingSpawns[src] = nil
 
     src = tonumber(src)
     charId = tonumber(charId) or getCharacterId(src)
     if not src or not charId then
-        err('DoSpawn missing source or character ID')
+        failSpawnPreparation(src or 0, 'missing_source_or_character')
         return
     end
+    dprint(('[CM-SPAWN] DoSpawn begin src=%s char=%s'):format(tostring(src), tostring(charId)))
 
     local char = exports['cm-core']:Single(
         'SELECT first_name, last_name, cash, bank, is_dead, death_location, last_position, appearance_json, tutorial_completed, tutorial_step, has_spawned FROM characters WHERE id = ? LIMIT 1',
@@ -487,9 +630,10 @@ function DoSpawn(src, charId)
     )
 
     if not char then
-        err('Character not found: ' .. tostring(charId))
+        failSpawnPreparation(src, 'character_not_found')
         return
     end
+    dprint(('[CM-SPAWN] DB character row loaded src=%s char=%s'):format(tostring(src), tostring(charId)))
 
     local appearance = decodeAppearance(char.appearance_json)
 
@@ -511,6 +655,8 @@ function DoSpawn(src, charId)
     -- the RP body location correct after reconnect and lets cm-playerdata show
     -- the deathscreen only after the spawn page closes.
     if deadOverride and deadOverride.coords then
+        dprint(('[CM-SPAWN] opening selector (dead override) src=%s char=%s'):format(tostring(src), tostring(charId)))
+        PendingSpawns[src] = nil
         setSpawnSelectorState(src, true)
         TriggerClientEvent('cm-spawn:client:openSelector', src, spawns, appearance, {
             name = ((char.first_name or '') .. ' ' .. (char.last_name or '')):gsub('^%s+', ''):gsub('%s+$', ''),
@@ -526,16 +672,22 @@ function DoSpawn(src, charId)
         local defaultKey = cfg('DefaultFirstSpawn', 'hotel')
         local default = resolveSpawnForKey(src, charId, defaultKey, char.last_position, char.has_spawned)
         if not default or default.locked or not default.coords then
-            default = resolveSpawnForKey(src, charId, 'hotel', char.last_position, char.has_spawned)
+            default = safeFallbackSpawn()
+            if default then
+                warn(('Using safe fallback first spawn for char=%s because Hotel spawn is unavailable.'):format(tostring(charId)))
+            end
         end
         if not default or not default.coords then
-            err('No valid first spawn found')
+            failSpawnPreparation(src, 'no_valid_first_spawn')
             return
         end
-        resetPlayerWorldState(src, false)
-        TriggerClientEvent('cm-spawn:client:spawn', src, default.key or 'hotel', true, default.coords, appearance)
+        dprint(('[CM-SPAWN] first-time direct spawn src=%s char=%s key=%s'):format(tostring(src), tostring(charId), tostring(default.key)))
+        PendingSpawns[src] = nil
+        beginSpawnTransition(src, charId, default.key or 'hotel', true, default.coords, appearance)
     else
         local orgSpawn = normalizeOrganizationSpawn(src, charId)
+        dprint(('[CM-SPAWN] opening selector src=%s char=%s'):format(tostring(src), tostring(charId)))
+        PendingSpawns[src] = nil
         setSpawnSelectorState(src, true)
         TriggerClientEvent('cm-spawn:client:openSelector', src, spawns, appearance, {
             name = ((char.first_name or '') .. ' ' .. (char.last_name or '')):gsub('^%s+', ''):gsub('%s+$', ''),
@@ -553,7 +705,9 @@ end
 AddEventHandler('cm-core:characterLoaded', function(src, charId)
     src = tonumber(src)
     if not src then return end
+    dprint(('[CM-SPAWN] characterLoaded src=%s char=%s'):format(tostring(src), tostring(charId)))
     PendingSpawns[src] = { charId = charId, ready = false, createdAt = os.time() }
+    dprint('[CM-SPAWN] pending spawn created')
 
     CreateThread(function()
         local attempts = 0
@@ -562,6 +716,7 @@ AddEventHandler('cm-core:characterLoaded', function(src, charId)
             attempts = attempts + 1
             if isCharacterLoaded(src) then
                 if PendingSpawns[src] and not PendingSpawns[src].ready then
+                    dprint('[CM-SPAWN] playerdata ready (polled)')
                     PendingSpawns[src].ready = true
                     DoSpawn(src, charId)
                 end
@@ -581,6 +736,7 @@ AddEventHandler('cm-playerdata:server:readyForSpawn', function(src, data)
     src = tonumber(src)
     if not src then return end
     if PendingSpawns[src] and not PendingSpawns[src].ready then
+        dprint('[CM-SPAWN] playerdata ready (event)')
         PendingSpawns[src].ready = true
         DoSpawn(src, (data and (data.charId or data.id)) or PendingSpawns[src].charId)
     end
@@ -589,6 +745,8 @@ end)
 AddEventHandler('playerDropped', function()
     PendingSpawns[source] = nil
     SelectRate[source] = nil
+    PendingAcceptedSpawn[source] = nil
+    SpawnGeneration[source] = nil
 end)
 
 local function isSelectRateLimited(src)
@@ -599,24 +757,45 @@ local function isSelectRateLimited(src)
     return false
 end
 
+local function rejectSpawn(src, reason)
+    TriggerClientEvent('cm-spawn:client:spawnRejected', src, reason)
+    notify(src, reason, 'error')
+end
+
 RegisterNetEvent('cm-spawn:server:selectSpawn', function(spawnKey)
     local src = source
-    if isSelectRateLimited(src) then return end
+    if isSelectRateLimited(src) then
+        rejectSpawn(src, 'Please wait a moment before trying again.')
+        return
+    end
+
+    -- CRITICAL BUG FIX (Phase 5): a spawn card click must never itself move the
+    -- player toward the public bucket. This handler only ever stores a pending
+    -- accepted transition (beginSpawnTransition); the bucket is released later,
+    -- solely by cm-spawn:server:readyForPublicWorld, once the destination has
+    -- actually been prepared.
+    if PendingAcceptedSpawn[src] then
+        rejectSpawn(src, 'A spawn is already in progress.')
+        return
+    end
 
     if type(spawnKey) ~= 'string' or #spawnKey > 40 then
         warn('Invalid spawn key payload from src=' .. tostring(src))
+        rejectSpawn(src, 'Invalid spawn selection.')
         return
     end
 
     local charId = getCharacterId(src)
     if not charId then
         err('No charId for player ' .. tostring(src))
+        rejectSpawn(src, 'Character not ready. Please try again.')
         return
     end
 
     local row = exports['cm-core']:Single('SELECT is_dead, death_location, last_position, has_spawned, appearance_json FROM characters WHERE id = ? LIMIT 1', { charId })
     if not row then
         err('No character row for spawn select: ' .. tostring(charId))
+        rejectSpawn(src, 'Character not found.')
         return
     end
 
@@ -631,50 +810,98 @@ RegisterNetEvent('cm-spawn:server:selectSpawn', function(spawnKey)
         } or nil)
 
     if deadOverride and deadOverride.coords then
-        resetPlayerWorldState(src, false)
-        TriggerClientEvent('cm-spawn:client:spawn', src, 'dead_location', false, deadOverride.coords, decodeAppearance(row.appearance_json))
+        beginSpawnTransition(src, charId, 'dead_location', false, deadOverride.coords, decodeAppearance(row.appearance_json))
         return
     end
 
     local spawnData = resolveSpawnForKey(src, charId, spawnKey, row.last_position, row.has_spawned)
     if not spawnData then
         warn('Invalid spawn key from src=' .. tostring(src) .. ' spawn=' .. tostring(spawnKey))
-        notify(src, 'Invalid spawn location.', 'error')
+        rejectSpawn(src, 'Invalid spawn location.')
         return
     end
 
     if spawnData.locked then
         warn('Blocked locked spawn src=' .. tostring(src) .. ' spawn=' .. tostring(spawnKey))
-        notify(src, spawnData.lockedReason or 'This spawn is locked.', 'error')
+        rejectSpawn(src, spawnData.lockedReason or 'This spawn is locked.')
         return
     end
 
     local coords = spawnData.coords
     if not coords then
-        local fallback = resolveSpawnForKey(src, charId, 'hotel', row.last_position, row.has_spawned)
-        coords = fallback and fallback.coords or vector4(324.0, -212.0, 54.0, 0.0)
-        spawnKey = 'hotel'
+        local fallback = safeFallbackSpawn()
+        coords = fallback and fallback.coords or nil
+        spawnKey = fallback and fallback.key or spawnKey
+    end
+    if not coords then
+        rejectSpawn(src, 'No valid spawn location is available.')
+        return
     end
 
+    beginSpawnTransition(src, charId, spawnKey, false, coords, decodeAppearance(row.appearance_json))
+end)
+
+-- PHASE 5: read-only camera preview resolve. Never creates or touches a
+-- pending spawn transition, never moves the player, never releases the
+-- bucket -- it only tells the client where to point a hidden preview camera.
+-- Selecting a card afterwards re-validates everything again from scratch in
+-- selectSpawn above; a preview response never authorizes a spawn.
+-- PHASE 5: client reports it has hidden/teleported/loaded collision/applied
+-- appearance for the accepted destination and is ready to enter the public
+-- bucket. Only accepted when it matches the exact pending transition this
+-- server created -- a stale generation (superseded by a newer transition) or
+-- a call with no pending transition at all is silently ignored.
+RegisterNetEvent('cm-spawn:server:readyForPublicWorld', function(generation)
+    local src = source
+    local pending = PendingAcceptedSpawn[src]
+    if not pending or pending.stage ~= 'preparing' or tonumber(generation) ~= pending.generation then
+        warn('Rejected readyForPublicWorld (no matching pending transition) src=' .. tostring(src))
+        return
+    end
+
+    pending.stage = 'public'
     resetPlayerWorldState(src, false)
-    TriggerClientEvent('cm-spawn:client:spawn', src, spawnKey, false, coords, decodeAppearance(row.appearance_json))
+    TriggerClientEvent('cm-spawn:client:revealAfterPublicWorld', src, pending.generation)
 end)
 
 RegisterNetEvent('cm-spawn:server:resetWorldState', function(complete)
     resetPlayerWorldState(source, complete == true)
 end)
 
-RegisterNetEvent('cm-spawn:server:spawnComplete', function()
+-- PHASE 5: hardened. A malicious/arbitrary call to this event from a random
+-- gameplay state (no pending transition, or one that never reached the
+-- public-bucket stage) is rejected -- it can no longer force
+-- has_spawned/characterFullySpawned or a bucket change by itself.
+RegisterNetEvent('cm-spawn:server:spawnComplete', function(generation)
     local src = source
+    local pending = PendingAcceptedSpawn[src]
+    if not pending or pending.stage ~= 'public' or (generation ~= nil and tonumber(generation) ~= pending.generation) then
+        warn('Rejected spawnComplete (no matching pending transition) src=' .. tostring(src))
+        return
+    end
+    local wasFirstTime = pending.isFirstTime == true
+    PendingAcceptedSpawn[src] = nil
+
     resetPlayerWorldState(src, true)
 
-    local charId = getCharacterId(src)
+    local charId = pending.charId or getCharacterId(src)
     if not charId then return end
     markSpawned(charId)
 
     -- Net-safe client confirmation. cm-playerdata waits for this before
     -- showing a restored deathscreen, so it never appears over the spawn UI.
     TriggerClientEvent('cm-spawn:client:spawnComplete', src, charId)
+
+    -- PHASE 5: start the tutorial only for a genuine first-time spawn that
+    -- has not already completed it (e.g. a reconnect after finishing it once
+    -- must never restart it). This fires only after the real spawn is fully
+    -- confirmed, never before.
+    if wasFirstTime then
+        local row = exports['cm-core']:Single('SELECT tutorial_completed FROM characters WHERE id = ? LIMIT 1', { charId })
+        if row and (tonumber(row.tutorial_completed) or 0) == 0 then
+            TriggerClientEvent('cm-spawn:client:startTutorial', src)
+        end
+    end
 
     TriggerEvent('cm-spawn:server:spawned', src, charId)
     if GetResourceState('cm-playerdata') == 'started' then
@@ -684,8 +911,30 @@ RegisterNetEvent('cm-spawn:server:spawnComplete', function()
     end
 end)
 
+-- PHASE 5: dedicated, narrow tutorial-skip path. Only writes tutorial state
+-- when the player has an actual charId AND no spawn transition is currently
+-- pending (i.e. a real spawn has already completed) -- it can never be used
+-- to mark a pre-spawn player as spawned the way the old closeSpawn bypass
+-- could.
+RegisterNetEvent('cm-spawn:server:tutorialSkip', function()
+    local src = source
+    if PendingAcceptedSpawn[src] then return end
+
+    local charId = getCharacterId(src)
+    if not charId then return end
+
+    exports['cm-core']:Update('UPDATE characters SET tutorial_completed = 1, tutorial_step = 999 WHERE id = ?', { charId })
+    dprint('Tutorial skipped char=' .. tostring(charId))
+end)
+
 RegisterNetEvent('cm-spawn:server:tutorialComplete', function()
     local src = source
+    -- PHASE 5: only accept this from a player with no pending spawn
+    -- transition (i.e. an actual completed spawn), consistent with
+    -- tutorialSkip above -- a modified client cannot use this to write
+    -- tutorial state before ever really spawning.
+    if PendingAcceptedSpawn[src] then return end
+
     local charId = getCharacterId(src)
     if not charId then return end
     exports['cm-core']:Update('UPDATE characters SET tutorial_completed = 1, tutorial_step = 999 WHERE id = ?', { charId })
@@ -721,6 +970,7 @@ if cfg('EnableDevCommands', false) then
             return
         end
 
+        PendingAcceptedSpawn[target] = nil
         resetPlayerWorldState(target, true)
         sendCommandLine(src, ('[fixbucket] Player %s moved to bucket 0 and spawn state reset'):format(target))
     end, false)

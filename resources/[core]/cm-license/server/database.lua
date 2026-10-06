@@ -346,6 +346,17 @@ function Database.GetLastAttempt(characterId, licenseTypeId)
         ORDER BY id DESC LIMIT 1]], { characterId, licenseTypeId })
 end
 
+-- A database-backed guard complements the in-memory character lock. This keeps
+-- one character from opening a second attempt during a reconnect or while a
+-- previous request is still being committed.
+function Database.GetActiveTest(characterId)
+    return MySQL.single.await([[SELECT id, character_id, license_type_id, route_id,
+            status, vehicle_netid, current_checkpoint, total_checkpoints
+        FROM cm_license_active_tests
+        WHERE character_id = ? AND status IN ('waiting_start', 'in_progress', 'completing')
+        ORDER BY id DESC LIMIT 1]], { characterId })
+end
+
 -- Create test session
 function Database.CreateTestSession(characterId, licenseTypeId, routeId, totalCheckpoints, maxMistakes)
     return MySQL.insert.await([[INSERT INTO cm_license_active_tests

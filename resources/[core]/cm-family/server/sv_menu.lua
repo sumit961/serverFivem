@@ -702,8 +702,10 @@ lib.callback.register('cm-family:server:action', function(src, action, payload)
         return true
     elseif action == 'setRankBankLimit' then
         return SetRankBankLimit(cid, payload.rankId, payload.limit)
+    elseif action == 'registerFamilyVehicle' then
+        return RegisterFamilyVehicle(cid, payload.vehicleId, payload.level)
     elseif action == 'setVehicleShared' then
-        return SetVehicleSharedAndLevel(cid, payload.vehicleId, payload.shared == true, payload.level)
+        return false, 'legacy_family_vehicle_action_disabled'
     elseif action == 'trackVehicle' then
         return CMFamilyRequestVehicleTrack(cid, payload.vehicleId)
     elseif action == 'setMeetingPoint' then

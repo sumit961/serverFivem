@@ -1,7 +1,14 @@
 /* ══════════════════════════════════════════════════════════════════════
-   CM Appearance & Barber Studio — Dynamic AAA Gaming HUD
-   Design Directive: Deep Slate-Cyan / Translucent Teal, Neon Cyan glows,
-   Vibrant Yellow badges, Bright Green CTA, Tactile Steppers, Micro-UI
+   CM Appearance Studio — AAA Gaming HUD
+   Same design family as Login / Selector / Basic Identity: live 3D
+   character as the main visual, translucent side panels, cyan active-edge
+   language, yellow primary CTA. Deep Slate-Cyan / Translucent Teal.
+
+   AUTHORITATIVE SECTION — this is the ONLY place selectors for
+   .appearance-categories / .categoryBtn / .appearance-panel / .panel /
+   .appearance-toolbar / .item-block / .accept-skin-equivalent are defined.
+   Do not add a second competing rule for these elsewhere in this file.
+   Barber/Admin have their own CSS in ui/style.css — not touched here.
    ══════════════════════════════════════════════════════════════════════ */
 
 :root {
@@ -61,46 +68,9 @@
     user-select: none;
 }
 
-/* Micro-UI System Info (Hidden per server standard) */
-.hud-system-info {
-    display: none !important;
-}
-
-.hud-status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--hud-cyan);
-    box-shadow: 0 0 8px var(--hud-cyan);
-    animation: hudPulse 2s infinite ease-in-out;
-}
-
-@keyframes hudPulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.4; transform: scale(0.85); }
-}
-
-.hud-stat strong {
-    color: var(--hud-text-white);
-    font-weight: 800;
-}
-
-.hud-divider {
-    color: rgba(0, 229, 255, 0.25);
-    font-weight: 300;
-}
-
-.accent-net {
-    color: var(--hud-cyan);
-    font-weight: 800;
-}
-
-/* Music Toggle Button (Hidden per server standard) */
-.appearance-music-toggle {
-    display: none !important;
-}
-
-/* Preview Stage for Mouse Drag Orbit & Scroll Zoom */
+/* Preview Stage for Mouse Drag Orbit & Scroll Zoom — full-bleed, sits behind
+   every panel below. The live GTA ped/room IS the background; nothing here
+   paints over it. */
 .preview-stage {
     position: absolute;
     inset: 0;
@@ -115,101 +85,104 @@
     cursor: grabbing;
 }
 
-/* Background Fading Gradient — a single left-side fade box behind the header
-   text only, so the rest of the screen (character, room, panels) stays clear
-   instead of being washed in cyan/teal. */
-.background {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, rgba(8, 16, 22, 0.78) 0%, rgba(8, 16, 22, 0.4) 20%, transparent 38%);
-}
-
 body.is-dragging,
 body.is-dragging * {
     cursor: grabbing !important;
     user-select: none !important;
 }
 
-.background::before {
-    content: "STYLING";
+/* Subtle top/bottom vignette only — the 12%-88% vertical band where the
+   character and side panels live stays fully clear. Never a directional
+   full-screen wash; never covers the ped. */
+.appearance-fade {
     position: absolute;
-    top: 10vh;
-    left: 3vw;
-    font-family: var(--cm-font);
-    font-size: clamp(72px, 11vw, 170px);
-    font-weight: 900;
-    line-height: 0.9;
-    color: rgba(0, 229, 255, 0.025);
-    letter-spacing: -0.04em;
+    inset: 0;
+    z-index: 0;
     pointer-events: none;
+    background: linear-gradient(180deg, rgba(5, 10, 14, 0.5) 0%, transparent 14%, transparent 86%, rgba(5, 10, 14, 0.55) 100%);
 }
 
-/* Categories Bar (Left Top) */
-.categories {
+/* ── LEFT: category navigation ───────────────────────────────────────── */
+.appearance-categories {
     position: absolute;
-    left: 3vw;
-    top: 6vh;
-    display: flex;
-    gap: 10px;
+    top: 50%;
+    left: clamp(28px, 3.5vw, 80px);
+    transform: translateY(-50%);
+    width: clamp(210px, 16vw, 330px);
     z-index: 3;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }
 
 .categoryBtn {
-    width: 62px;
-    height: 60px;
-    border-radius: 4px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--hud-text-muted);
-    background: var(--hud-panel);
+    position: relative;
+    padding: clamp(14px, 1.4vh, 20px) clamp(16px, 1.4vw, 24px);
+    border-radius: 3px;
+    background: rgba(10, 22, 29, 0.62);
     border: 1px solid var(--hud-cyan-dim);
-    transition: all 0.16s ease;
+    border-left: 3px solid transparent;
+    color: var(--hud-text-muted);
     font-weight: 800;
-    font-size: 12px;
-    letter-spacing: 0.06em;
+    font-size: clamp(13px, 0.9vw, 16px);
+    letter-spacing: 0.1em;
     text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
 }
 
 .categoryBtn:hover {
+    background: rgba(16, 34, 43, 0.85);
     color: var(--hud-text-white);
-    border-color: var(--hud-cyan);
-    background: linear-gradient(90deg, rgba(0, 229, 255, 0.15) 0%, transparent 100%);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 14px rgba(0, 229, 255, 0.2);
+    transform: translateX(2px);
 }
 
 .categoryBtn.active {
-    color: #0c1e28;
-    background: linear-gradient(135deg, var(--hud-cyan), #0099cc);
-    border-color: var(--hud-cyan);
-    box-shadow: 0 0 20px rgba(0, 229, 255, 0.5);
-    transform: translateY(-2px);
-    font-weight: 900;
+    background: linear-gradient(90deg, rgba(0, 229, 255, 0.18) 0%, rgba(0, 229, 255, 0.06) 55%, transparent 100%);
+    border-left: 4px solid var(--hud-cyan);
+    border-color: rgba(0, 229, 255, 0.3);
+    color: var(--hud-text-white);
+    box-shadow: 0 4px 20px rgba(0, 229, 255, 0.12);
 }
 
-/* Header */
-.header {
+/* ── RIGHT: control panel ────────────────────────────────────────────── */
+.appearance-panel {
     position: absolute;
-    top: 15vh;
-    left: 3vw;
+    top: 50%;
+    right: clamp(30px, 4vw, 90px);
+    transform: translateY(-50%);
+    width: clamp(320px, 23vw, 520px);
+    max-height: 76vh;
     z-index: 2;
-    max-width: 440px;
+    display: flex;
+    flex-direction: column;
+    /* CHARACTER CREATION REPAIR PASS: backdrop-filter is no longer allowed
+       project-wide (see /AGENTS.md, /ui/AGENTS.md). Compensate for the lost
+       blur with a denser, near-opaque solid panel instead. */
+    background: linear-gradient(135deg, rgba(10, 24, 31, 0.94), rgba(8, 18, 24, 0.90));
+    border: 1px solid var(--hud-cyan-dim);
+    border-left: 3px solid var(--hud-cyan);
+    border-radius: 4px;
+    box-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.75);
+    overflow: hidden;
+}
+
+.appearance-panel-header {
+    flex-shrink: 0;
+    padding: clamp(16px, 2vh, 24px) clamp(18px, 1.6vw, 26px) 14px;
+    border-bottom: 1px solid rgba(0, 229, 255, 0.12);
 }
 
 #headerName {
     text-transform: uppercase;
     letter-spacing: 2px;
-    font-size: 11px;
+    font-size: clamp(10px, 0.6vw, 12px);
     font-weight: 800;
     color: var(--hud-cyan);
-    margin: 0;
     display: flex;
     align-items: center;
     gap: 8px;
+    text-shadow: 0 0 12px rgba(0, 229, 255, 0.3);
 }
 
 #headerName::before {
@@ -221,83 +194,64 @@ body.is-dragging * {
     box-shadow: 0 0 6px var(--hud-cyan);
 }
 
-#headerCategory {
-    margin: 8px 0 0;
+.appearance-category-title {
+    margin-top: 6px;
     font-family: var(--cm-font);
-    font-size: clamp(32px, 3.4vw, 50px);
+    font-size: clamp(20px, 1.7vw, 30px);
     font-weight: 900;
-    line-height: 0.95;
-    letter-spacing: -0.02em;
+    line-height: 1;
+    letter-spacing: -0.01em;
     text-transform: uppercase;
     color: var(--hud-text-white);
-    text-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
 }
 
-.appearance-subtitle {
-    margin-top: 8px;
-    font-size: 12px;
-    color: var(--hud-text-muted);
-    font-weight: 500;
-    line-height: 1.4;
-}
-
-/* Right Panel / Options Cards */
-.panel {
-    position: absolute;
-    right: 2.5vw;
-    top: 5vh;
-    bottom: 5vh;
-    width: min(480px, 34vw);
+.appearance-panel-body {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 6px 12px 24px 0;
-    z-index: 2;
+    padding: 16px clamp(18px, 1.6vw, 26px) 22px;
 }
 
+/* ── Control rows: LABEL / value / slider-arrows-swatches ────────────── */
 .item-block {
     position: relative;
     margin-bottom: 14px;
-    padding: 20px;
+    padding: clamp(14px, 1.4vh, 20px);
     border-radius: 4px;
     background: var(--hud-panel);
     border: 1px solid var(--hud-cyan-dim);
     border-left: 3px solid var(--hud-cyan);
-    box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.8);
+    box-shadow: 0 16px 40px -14px rgba(0, 0, 0, 0.75);
     transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
 .item-block:hover {
     border-color: rgba(0, 229, 255, 0.35);
-    box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.9), 0 0 16px rgba(0, 229, 255, 0.12);
+    box-shadow: 0 16px 40px -14px rgba(0, 0, 0, 0.85), 0 0 16px rgba(0, 229, 255, 0.10);
 }
 
-/* Glowing tech corner brackets, top-right and bottom-right */
-.item-block::before,
-.item-block::after {
-    content: "";
-    position: absolute;
-    right: -1px;
-    width: 14px;
-    height: 14px;
-    border-right: 2px solid var(--hud-cyan);
-    box-shadow: 0 0 8px rgba(0, 229, 255, 0.45);
-    pointer-events: none;
+.item-block.item-block--section {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0 0 4px;
+    margin-bottom: 8px;
 }
 
-.item-block::before {
-    top: -1px;
-    border-top: 2px solid var(--hud-cyan);
-}
-
-.item-block::after {
-    bottom: -1px;
-    border-bottom: 2px solid var(--hud-cyan);
+.item-section-title {
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--hud-cyan);
+    margin-bottom: 2px;
 }
 
 .item-title {
     margin: 0 0 14px;
     font-family: var(--cm-font);
-    font-size: 15px;
+    font-size: clamp(12px, 0.85vw, 14px);
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -307,22 +261,10 @@ body.is-dragging * {
     gap: 10px;
 }
 
-.item-title::before {
-    content: "";
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border: 1.5px solid var(--hud-cyan);
-    border-radius: 2px;
-    background: rgba(0, 229, 255, 0.12);
-    box-shadow: 0 0 6px rgba(0, 229, 255, 0.45);
-    flex-shrink: 0;
-}
-
 .second-item-bar {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
+    gap: 10px;
     margin-bottom: 8px;
 }
 
@@ -337,28 +279,27 @@ body.is-dragging * {
     margin-bottom: 6px;
 }
 
-/* Section titles: 11px bold #829DAE with 2px letter-spacing */
 .item-subname {
     text-transform: uppercase;
-    letter-spacing: 2px;
-    font-size: 11px;
+    letter-spacing: 0.12em;
+    font-size: 10px;
     font-weight: 800;
     color: var(--hud-text-muted);
 }
 
-/* The stepper bar below already shows the value ("15 / 41"); this duplicate
-   number stays in the DOM (stepItem() writes to it) but is not displayed. */
+/* The stepper bar already shows the value ("15 / 41"); this duplicate
+   number stays in the DOM (JS writes to it) but is not displayed. */
 .item-value {
     display: none;
 }
 
-/* Stepper Controls (Tactile Button Steppers ◀ [Value / Max] ▶) */
+/* Stepper controls: ◀ [ value / max ] ▶ */
 .item-suboptions.stepper-controls {
     display: flex;
     align-items: center;
     justify-content: space-between;
     width: 100%;
-    min-height: 44px;
+    min-height: 42px;
     padding: 4px;
     border-radius: 4px;
     background: var(--hud-control);
@@ -372,8 +313,8 @@ body.is-dragging * {
 }
 
 .stepper-btn {
-    width: 36px;
-    height: 36px;
+    width: 34px;
+    height: 34px;
     border-radius: 4px;
     border: 1px solid rgba(0, 229, 255, 0.25);
     background: rgba(0, 229, 255, 0.08);
@@ -413,7 +354,7 @@ body.is-dragging * {
     color: var(--hud-text-muted);
 }
 
-/* Color Swatches Grid */
+/* Color swatch grid */
 .color-selector-bar {
     display: grid;
     grid-template-columns: repeat(6, 1fr);
@@ -440,7 +381,6 @@ body.is-dragging * {
     box-shadow: 0 0 14px var(--hud-cyan);
 }
 
-/* Selected swatch: yellow ring + center dot (Vibrant Yellow accent) */
 .item-sub-color-selector.selected {
     border: 2px solid var(--hud-yellow);
     box-shadow: 0 0 12px rgba(255, 199, 0, 0.55);
@@ -456,38 +396,28 @@ body.is-dragging * {
     box-shadow: 0 0 6px rgba(255, 199, 0, 0.8), 0 0 0 2px rgba(6, 19, 26, 0.65);
 }
 
-/* Left Bottom Camera Controls Panel */
-.settings {
+/* ── BOTTOM: camera hint + Back / Save & Continue / Hands ────────────── */
+.appearance-toolbar {
     position: absolute;
-    left: 3vw;
-    bottom: 4vh;
+    left: clamp(28px, 3.5vw, 80px);
+    right: clamp(30px, 4vw, 90px);
+    bottom: clamp(28px, 4vh, 56px);
     z-index: 4;
-    width: min(380px, 30vw);
-    padding: 14px 16px;
-    border-radius: 4px;
-    background: var(--hud-panel);
-    border: 1px solid var(--hud-cyan-dim);
-    border-left: 3px solid var(--hud-cyan);
-    box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.85);
-}
-
-.settings .height,
-.settings .rotate,
-.settings .distance {
-    display: none !important;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
 }
 
 .camera-hint-bar {
     display: flex;
     align-items: center;
-    justify-content: center;
     gap: 8px;
-    padding: 7px 12px;
-    margin-bottom: 12px;
-    background: var(--hud-control);
+    padding: 8px 14px;
+    background: rgba(8, 18, 24, 0.55);
     border: 1px solid var(--hud-cyan-dim);
     border-radius: 4px;
-    font-size: 9.5px;
+    font-size: 10px;
     font-family: var(--cm-font-mono);
     color: var(--hud-cyan);
     letter-spacing: 0.1em;
@@ -496,130 +426,34 @@ body.is-dragging * {
 }
 
 .hint-icon {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--hud-yellow);
 }
 
-.camera-stepper-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 4px;
-    border-radius: 4px;
-    background: var(--hud-control);
-    border: 1px solid var(--hud-cyan-dim);
-    transition: border-color 0.16s ease;
-}
-
-.camera-stepper-bar:hover {
-    border-color: rgba(0, 229, 255, 0.4);
-}
-
-.cam-step-btn {
-    width: 36px;
-    height: 32px;
-    border-radius: 4px;
-    border: 1px solid rgba(0, 229, 255, 0.22);
-    background: rgba(0, 229, 255, 0.08);
-    color: var(--hud-cyan);
-    font-size: 11px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.14s ease;
-}
-
-.cam-step-btn:hover {
-    background: rgba(0, 229, 255, 0.22);
-    border-color: var(--hud-cyan);
-    color: var(--hud-text-white);
-    box-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
-}
-
-.cam-step-btn:active {
-    transform: scale(0.92);
-}
-
-.cam-step-val {
-    flex: 1;
-    text-align: center;
-    font-family: var(--cm-font-mono);
-    font-size: 12px;
-    font-weight: 800;
-    color: var(--hud-text-white);
-}
-
-/* Actions: Save CTA (#save), Cancel/Leave (#cancel-btn), Hands (#hands) */
 .actions {
     display: flex;
-    gap: 10px;
-    margin-top: 0;
-    padding-top: 0;
-    border-top: none;
+    align-items: stretch;
+    gap: 12px;
 }
 
-.accept-skin, .cancel-skin, .hands-up {
-    min-height: 48px;
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    cursor: pointer;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-weight: 800;
-    font-size: 12px;
-    font-family: var(--cm-font);
-    transition: all 0.16s ease;
-    border: none;
-}
-
-/* Primary Action CTA (#save): Bright Green (#2ECC71) */
-.accept-skin {
-    flex: 1;
-    color: #FFFFFF;
-    background: linear-gradient(135deg, #2ecc71, #27ae60);
-    border: 1px solid rgba(46, 204, 113, 0.5);
-    box-shadow: 0 0 20px var(--hud-green-glow);
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-}
-
-.accept-skin:hover {
-    background: linear-gradient(135deg, #34d679, #2ecc71);
-    box-shadow: 0 0 32px rgba(46, 204, 113, 0.65);
-    transform: translateY(-1px);
-}
-
-.accept-skin:active {
-    transform: translateY(0);
-}
-
-.accept-icon {
-    font-size: 14px;
+/* Save & Continue / Back reuse the shared cm-ui skewed-CTA system (see
+   ui/AGENTS.md and cm-aaa.css) — same yellow primary / cyan secondary
+   language as Login, Selector and Basic Identity. Only sizing lives here. */
+.appearance-save-btn,
+.appearance-secondary-btn {
+    height: clamp(50px, 5.6vh, 64px);
+    padding: 0 clamp(20px, 1.8vw, 30px);
+    font-size: clamp(12px, 0.8vw, 14px);
     font-weight: 900;
+    letter-spacing: 1px;
 }
 
-/* Cancel / Leave Button (#cancel-btn) with [ESC] Key Badge in Vibrant Yellow */
-.cancel-skin {
-    min-width: 140px;
-    padding: 0 14px;
-    color: #ff7675;
-    background: rgba(231, 76, 60, 0.12);
-    border: 1px solid rgba(231, 76, 60, 0.35);
+.appearance-save-btn {
+    min-width: 220px;
 }
 
-.cancel-skin:hover {
-    background: rgba(231, 76, 60, 0.25);
-    color: var(--hud-text-white);
-    border-color: rgba(231, 76, 60, 0.6);
-    box-shadow: 0 0 16px rgba(231, 76, 60, 0.35);
-    transform: translateY(-1px);
-}
-
-.cancel-skin:active {
-    transform: translateY(0);
+.appearance-secondary-btn {
+    min-width: 150px;
 }
 
 .key-badge {
@@ -637,11 +471,22 @@ body.is-dragging * {
 }
 
 .hands-up {
-    min-width: 75px;
-    padding: 0 12px;
+    min-width: 72px;
+    height: clamp(50px, 5.6vh, 64px);
+    padding: 0 14px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     color: var(--hud-text-muted);
     background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.16s ease;
 }
 
 .hands-up:hover {
@@ -651,10 +496,10 @@ body.is-dragging * {
 }
 
 @media (max-width: 1080px) {
-    .panel {
+    .appearance-panel {
         width: min(420px, 42vw);
     }
-    .settings {
-        width: min(380px, 40vw);
+    .appearance-categories {
+        width: min(240px, 34vw);
     }
 }

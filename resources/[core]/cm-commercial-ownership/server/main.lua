@@ -161,6 +161,7 @@ local function register(key, opts)
                     ):format(opts.table), { defaultStock, row.shop_id, row.owner_character_id })
 
                     print(('[cm-commercial-ownership] %s "%s" ownership removed from character %s due to unpaid property tax.'):format(key, tostring(row.shop_id), tostring(row.owner_character_id)))
+                    if CMB and CMB.NotifyOwnerChange then CMB.NotifyOwnerChange(key, row.shop_id) end
 
                     for _, player in ipairs(GetPlayers()) do
                         local pSrc = tonumber(player)
@@ -272,6 +273,7 @@ local function buy(key, shopId, src)
         return false
     end
 
+    if CMB and CMB.NotifyOwnerChange then CMB.NotifyOwnerChange(key, shopId) end
     notify(opts, src, ('Congratulations! You are now the owner of %s. Property tax is due in 7 days.'):format(shopId), 'success')
     if opts.onPurchased then opts.onPurchased(src, shopId) end
     return true
@@ -312,13 +314,22 @@ local function manage(key, data, src)
             notify(opts, src, ('You need $%s in your bank account to order %s.'):format(cost, opts.stockOrderLabel or 'stock'), 'error')
             return false
         end
-        stock = math.min(maxStock, stock + batch)
+        -- Relative delta evaluated inside one UPDATE: a customer reservation/release that landed after the row was read above
+        -- composes with the restock instead of being overwritten by a stale absolute total.
+        local added = MySQL.update.await((
+            'UPDATE %s SET stock = LEAST(?, stock + ?) WHERE shop_id = ? AND owner_character_id = ?'
+        ):format(opts.table), { maxStock, batch, shopId, charId })
+        if (tonumber(added) or 0) < 1 then
+            addBank(src, cost, (opts.reasonPrefix or key) .. '-restock-refund')
+            notify(opts, src, 'The stock order could not be applied. You were refunded.', 'error')
+            return false
+        end
         notify(opts, src, ('Ordered +%d %s units for $%s.'):format(batch, opts.stockUnitLabel or 'stock', cost), 'success')
     end
 
     MySQL.update.await((
-        'UPDATE %s SET price_tier = ?, stock = ? WHERE shop_id = ? AND owner_character_id = ?'
-    ):format(opts.table), { tier, stock, shopId, charId })
+        'UPDATE %s SET price_tier = ? WHERE shop_id = ? AND owner_character_id = ?'
+    ):format(opts.table), { tier, shopId, charId })
 
     notify(opts, src, ('%s settings saved.'):format(titleCase(thing)), 'success')
     if opts.onUpdated then opts.onUpdated(src, shopId) end

@@ -83,7 +83,37 @@ local function publicFacilities(gangId)
     return result
 end
 
+local function canonicalGangDirectory()
+    local result = {}
+    for _, gangId in ipairs(Config.GangIds or {}) do
+        local fallback = Config.CanonicalIdentity[gangId] or {}
+        local gang = exports[RESOURCE]:GetGang(gangId)
+        if type(gang) == 'table' then
+            result[#result + 1] = {
+                id = gangId,
+                displayName = cleanText(gang.displayName or fallback.displayName or gangId, 64),
+                shortTag = cleanText(gang.shortTag or fallback.shortTag or gangId, 12),
+                color = tostring(gang.color or fallback.color or '#67e8f9'),
+                enabled = gang.enabled == true or CMGangDbTrue(gang.enabled),
+            }
+        else
+            result[#result + 1] = {
+                id = gangId,
+                displayName = cleanText(fallback.displayName or gangId, 64),
+                shortTag = cleanText(fallback.shortTag or gangId, 12),
+                color = tostring(fallback.color or '#67e8f9'),
+                enabled = fallback.enabled == true,
+            }
+        end
+    end
+    return result
+end
+
 local function dashboardPayload(src)
+    local progressionResult = type(CMGangGetOwnProgression) == 'function' and CMGangGetOwnProgression(src) or nil
+    local progression = progressionResult and progressionResult.ok and progressionResult.progression or nil
+
+    local dashboardProgression = progression
     local membership, reason, characterId = getMembership(src)
     if not membership then return nil, reason end
     local gang = exports[RESOURCE]:GetGang(membership.gangId)
@@ -165,23 +195,24 @@ local function dashboardPayload(src)
         { membership.gangId, membership.tier })) or 0
     local onlineMembers = 0
     for _, member in ipairs(members) do if member.online then onlineMembers = onlineMembers + 1 end end
-    local armoryStock = tonumber(MySQL.scalar.await(
-        'SELECT COALESCE(SUM(stock_quantity),0) FROM cm_gang_armory_config WHERE gang_id=? AND enabled=1',
-        { membership.gangId })) or 0
     local profit = MySQL.single.await(
         'SELECT activity_score,pending_amount,last_tick_at,last_collected_at FROM cm_gang_profit WHERE gang_id=?',
         { membership.gangId }) or {}
     return {
+        progression = dashboardProgression,
         gang = {
             id = gang.id, displayName = gang.displayName, shortTag = gang.shortTag, color = gang.color,
             logoAsset = safeAsset(gang.logoAsset, Config.AssetKeys.logos),
             artAsset = safeAsset(gang.artAsset, Config.AssetKeys.artwork),
         },
+        gangDirectory = canonicalGangDirectory(),
         member = { characterId = characterId, rankName = membership.rankName, tier = membership.tier, isLeader = membership.isLeader },
         leaderName = cleanText(leaderName or 'Unassigned', 96), memberCount = memberCount,
         onlineMembers = onlineMembers, offlineMembers = math.max(0, memberCount - onlineMembers),
         availableVehicles = availableVehicles, permissions = permissions, permissionCatalog = Config.Permissions,
-        armoryStock = armoryStock,
+        armoryStock = 0,
+        armoryAvailable = false,
+        armoryUnavailableReason = 'weapon_owner_faction_api_missing',
         profit = { activityScore=tonumber(profit.activity_score) or 0, pendingAmount=tonumber(profit.pending_amount) or 0,
             lastTickAt=profit.last_tick_at and tostring(profit.last_tick_at) or nil,
             lastCollectedAt=profit.last_collected_at and tostring(profit.last_collected_at) or nil },
@@ -206,10 +237,11 @@ lib.callback.register('cm-gang:server:getHeadquarters', function(source)
     for _, gangId in ipairs(Config.GangIds) do
         local gang = exports[RESOURCE]:GetGang(gangId)
         local facilities = publicFacilities(gangId)
+        -- The physical V1 HQ exposes only the dashboard contact. Fleet access
+        -- remains an owner-controlled integration and is not added to this
+        -- menu while cm-vehicles lacks the canonical gang_5 contract.
         for _, definition in ipairs({
             { kind='main', facility='headquarters', role='Gang Contact' },
-            { kind='vehicle', facility='fleet', role='Vehicle Coordinator' },
-            { kind='profit', facility='profit', role='Profit Manager' },
         }) do
             local facility=facilities[definition.facility]
             if facility and facility.enabled and facility.x and facility.y and facility.z
@@ -239,8 +271,9 @@ lib.callback.register('cm-gang:server:getHeadquarters', function(source)
 end)
 
 lib.callback.register('cm-gang:server:validateContactService',function(source,service)
-    local permissionByService={vehicles='gang.vehicle',weapons='gang.armory',storage='gang.stash',profit='gang.collect_profit',turf='gang.collect_profit',deposit='gang.stash'}
-    local kindByService={vehicles='fleet',weapons='headquarters',storage='headquarters',profit='profit',turf='profit',deposit='headquarters'}
+    if tostring(service or '') == 'weapons' then return {ok=false,reason='weapon_owner_faction_api_missing'} end
+    local permissionByService={vehicles='gang.vehicle',storage='gang.stash'}
+    local kindByService={vehicles='fleet',storage='headquarters'}
     local permission=permissionByService[tostring(service or '')]
     if not permission then return {ok=false,reason='invalid_service'} end
     local membership,reason,characterId=getMembership(source)
@@ -259,12 +292,7 @@ lib.callback.register('cm-gang:server:validateContactService',function(source,se
 end)
 
 lib.callback.register('cm-gang:server:getProfitFacility', function(source)
-    local membership = getMembership(source)
-    if not membership then return nil end
-    local facility = publicFacilities(membership.gangId).profit
-    if not facility or not facility.enabled or not facility.npcModel or not facility.x or not facility.y or not facility.z then return nil end
-    if GetPlayerRoutingBucket(tonumber(source)) ~= facility.routingBucket then return nil end
-    return { gangId=membership.gangId, gangName=membership.displayName, color=membership.color, facility=facility }
+    return nil, 'feature_deferred'
 end)
 
 lib.callback.register('cm-gang:server:dashboardMemberAction', function(source, request)

@@ -82,7 +82,9 @@ Agents must verify these ownership assumptions against actual exports, events an
 - Use cm-ui for shared UI components and design tokens where integration exists.
 - Maintain the CM cyan/ice-blue visual identity.
 - Do not use purple as the main accent.
-- Do not use CSS `backdrop-filter`.
+- `backdrop-filter`/`-webkit-backdrop-filter` are NOT allowed anywhere in CM
+  UI (as of 2026-09-27; see `ui/AGENTS.md`). Use translucent solid
+  backgrounds, gradients, borders, and shadows instead.
 - Prioritise readable typography, clean spacing and production-quality responsive layouts.
 - Avoid full-screen UI unless the feature genuinely requires it.
 - Every E interaction prompt and NPC dialogue must use the shared cm-ui components; keep prompts simple, centred or appropriately positioned, readable and cyan.
@@ -126,7 +128,11 @@ For non-trivial changes:
 5. Implement the smallest coherent change.
 6. Run proportionate validation.
 7. Review security and backward compatibility.
-8. Report changed files, checks performed, remaining risks and manual gameplay tests.
+8. Run `tools/cm-qa/run.ps1` for every affected resource/layer that the QA
+   report says is available. Do not stop at a manual-test statement until
+   cm-qa has attempted the available automated layers.
+9. Report changed files, checks performed, remaining risks and the manual
+   remainder reported by cm-qa.
 
 For a diagnosis-only request, do not implement unless asked.
 For a review request, report findings before changing code.
@@ -276,6 +282,36 @@ Where applicable, verify:
 - Relevant regression paths.
 
 State clearly when a behaviour requires manual FiveM gameplay testing. Never claim a runtime fix is fully verified using syntax checks alone.
+
+## Repository-wide QA workflow
+
+After static validation and the affected-resource runtime restart, use the
+development-only QA harness when the change is relevant:
+
+```text
+INSPECT -> EDIT -> STATIC -> RESTART -> NEW CONSOLE -> CM-QA RELEVANT TESTS
+-> UI QA IF UI CHANGED -> CLIENT QA IF A CLIENT IS AVAILABLE -> AUTO-REPAIR
+-> RERUN FAILED QA -> REPORT
+```
+
+Run `tools/cm-qa/run.ps1 -Resource <resource>` or
+`tools/cm-qa/run.ps1 -Changed`. UI edits also require
+`tools/cm-qa/run.ps1 -Resource <resource> -Layer UI` when a fixture exists.
+Read `cm-agent-out/qa/latest.json`; use these exact states:
+`STATIC_PASS`, `SERVER_RUNTIME_PASS`, `SERVER_INTEGRATION_PASS`,
+`UI_AUTOMATION_PASS`, `FIVEM_CLIENT_QA_PASS`, `MULTIPLAYER_QA_PASS`,
+`MANUAL_JUDGMENT_REQUIRED`, and `BLOCKED`. Do not claim client or
+multiplayer coverage without the corresponding connected clients. A
+server-only task is not blocked by an absent unrelated client.
+
+cm-qa is development-only and fail-closed. It must verify the local runtime
+has `developmentOnly=true`; the FiveM resource additionally requires
+`cm_environment=development` and `cm_qa_enabled=1`. It is not ensured by
+`server.cfg`. Do not add production gameplay mutation events, unrestricted
+exports, arbitrary entity spawning, money/item/character/admin cheats, or
+secret-bearing report evidence. QA hooks must validate
+`GetInvokingResource() == 'cm-qa'`, remain disabled when QA mode is off, and
+operate only on documented local fixtures.
 
 ## Response expectations
 

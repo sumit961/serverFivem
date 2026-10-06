@@ -7,14 +7,8 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="interaction" class="interaction hidden" aria-hidden="true">
-    <div class="interaction-key" id="interactionKey">E</div>
-    <div class="interaction-copy">
-      <span class="interaction-title" id="interactionTitle">ELECTRICIAN</span>
-      <strong id="interactionLabel">Get employed</strong>
-      <small id="interactionHint">Electrician switchboard</small>
-    </div>
-  </div>
+  <!-- World "[E] ..." prompts (panel/plate/outage/NPC) are rendered by
+       cm-ui's shared interact component, not this resource's own NUI. -->
 
   <div id="hold-root" class="hold-root hidden" aria-hidden="true">
     <div class="hold-track"><i id="holdFill"></i></div>
@@ -57,72 +51,85 @@
       </header>
 
       <section class="status-card">
-        <div class="status-row">
+        <div class="level-badge">
+          <span>LEVEL</span>
+          <strong id="levelValue">1</strong>
+        </div>
+        <div class="status-copy">
           <span class="section-label">EMPLOYMENT STATUS</span>
-          <span class="status-badge" id="statusBadge"><i></i> OFF DUTY</span>
+          <h2 id="levelTitle">Switchboard Technician</h2>
+          <p id="levelSubtitle">Repair panels at the power plant to advance.</p>
         </div>
-        <div class="level-row">
-          <div class="level-badge">
-            <span>LEVEL</span>
-            <strong id="levelValue">1</strong>
-          </div>
-          <div class="level-copy">
-            <h2 id="levelTitle">Switchboard Technician</h2>
-            <p id="levelSubtitle">Repair panels at the power plant to advance.</p>
-          </div>
-        </div>
+        <span class="status-badge" id="statusBadge"><i></i> OFF DUTY</span>
       </section>
 
-      <section class="progress-section">
-        <div class="progress-item">
-          <div class="progress-heading">
-            <span>Panel repairs</span>
-            <b><span id="panelsValue">0</span> / <span id="panelGoalValue">50</span></b>
-          </div>
-          <div class="progress-track"><i id="panelsFill"></i></div>
-        </div>
-        <div class="progress-item" id="platesProgress">
-          <div class="progress-heading">
-            <span>Deposit plate repairs</span>
-            <b><span id="platesValue">0</span> / <span id="plateGoalValue">500</span></b>
-          </div>
-          <div class="progress-track"><i id="platesFill"></i></div>
-        </div>
-      </section>
+      <div class="content-grid">
+        <div class="content-col">
+          <section class="progress-section">
+            <span class="section-label">PROGRESSION</span>
+            <div class="progress-item">
+              <div class="progress-heading">
+                <span>Panel repairs</span>
+                <span class="progress-value">
+                  <b><span id="panelsValue">0</span> / <span id="panelGoalValue">50</span></b>
+                  <em id="panelsCompleteTag" class="complete-tag hidden">COMPLETE</em>
+                </span>
+              </div>
+              <div class="progress-track"><i id="panelsFill"></i></div>
+            </div>
+            <div class="progress-item" id="platesProgress">
+              <div class="progress-heading">
+                <span>Deposit plate repairs</span>
+                <span class="progress-value">
+                  <b><span id="platesValue">0</span> / <span id="plateGoalValue">500</span></b>
+                  <em id="platesCompleteTag" class="complete-tag hidden">COMPLETE</em>
+                </span>
+              </div>
+              <div class="progress-track"><i id="platesFill"></i></div>
+            </div>
+          </section>
 
-      <section class="earnings-section">
-        <span class="section-label">PAY RATES</span>
-        <div class="earnings-grid">
-          <div class="earnings-card">
-            <span>Panel</span>
-            <strong>$<span id="perPanelValue">30</span></strong>
-          </div>
-          <div class="earnings-card" id="perPlateCard">
-            <span>Deposit plate</span>
-            <strong>$<span id="perPlateValue">300</span></strong>
-          </div>
-          <div class="earnings-card" id="perOutageCard">
-            <span>Outage response</span>
-            <strong>$<span id="perOutageValue">1000</span></strong>
-          </div>
+          <section class="requirements-section">
+            <span class="section-label">REQUIREMENTS</span>
+            <ul id="requirementsList" class="requirements-list"></ul>
+          </section>
         </div>
-      </section>
 
-      <section class="requirements-section">
-        <span class="section-label">REQUIREMENTS</span>
-        <ul id="requirementsList" class="requirements-list"></ul>
-      </section>
+        <div class="content-col">
+          <section class="earnings-section">
+            <span class="section-label">PAY RATES</span>
+            <div class="earnings-grid">
+              <div class="earnings-card">
+                <span>Panel</span>
+                <strong>$<span id="perPanelValue">30</span></strong>
+              </div>
+              <div class="earnings-card" id="perPlateCard">
+                <span>Deposit plate</span>
+                <strong>$<span id="perPlateValue">300</span></strong>
+                <em class="lock-tag">LVL 2</em>
+              </div>
+              <div class="earnings-card" id="perOutageCard">
+                <span>Outage</span>
+                <strong>$<span id="perOutageValue">1000</span></strong>
+                <em class="lock-tag">LVL 3</em>
+              </div>
+            </div>
+          </section>
 
-      <p class="description" id="jobDescription"></p>
+          <section class="briefing-section">
+            <span class="section-label">FIELD BRIEFING</span>
+            <p class="description" id="jobDescription"></p>
+          </section>
+        </div>
+      </div>
 
       <footer class="checkout">
         <button id="btnToggle" class="primary-button" type="button">
           <span id="toggleButtonText">Get employed</span>
           <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>
         </button>
+        <div class="key-hint"><kbd>ESC</kbd><span>Close menu</span></div>
       </footer>
-
-      <div class="key-hint"><kbd>ESC</kbd><span>Close menu</span></div>
     </main>
   </div>
 

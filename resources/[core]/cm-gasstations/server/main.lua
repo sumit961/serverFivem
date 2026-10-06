@@ -70,6 +70,7 @@ CreateThread(function()
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )]])
+    MySQL.query.await(CMGas.Settlement.DDL)
     MySQL.query.await('ALTER TABLE cm_gas_stations ADD COLUMN IF NOT EXISTS daily_income BIGINT NOT NULL DEFAULT 0')
     MySQL.query.await('ALTER TABLE cm_gas_stations ADD COLUMN IF NOT EXISTS weekly_income BIGINT NOT NULL DEFAULT 0')
     for index = 1, #(Config.Stations or {}) do
@@ -222,29 +223,58 @@ local function getCash(src)
     return nil
 end
 
-local function removeCash(src, amount, reason)
-    local api = playerData()
-    if not api then return false end
-    local ok, result = pcall(function() return api:RemoveCash(src, math.floor(amount), reason) end)
-    return ok and result == true
+-- Single authority for station stock mutation. Every write is a relative delta evaluated inside one
+-- UPDATE so concurrent customers/owners compose (initial + restock - purchase) instead of overwriting.
+-- Deliberately distinct verbs; there is no unrestricted signed adjust.
+local StationStock = {}
+
+local function stationMaxStock()
+    return math.max(1, math.floor(tonumber((Config.Ownership or {}).maxStock) or 25000))
 end
 
-local function addCash(src, amount, reason)
-    local api = playerData()
-    if not api then return false end
-    local ok, result = pcall(function() return api:AddCash(src, math.floor(amount), reason) end)
-    return ok and result == true
+-- Customer reservation and release are NOT here: they run inside the purchase journal (server/settlement.lua) so stock can only
+-- leave or return to a station together with a journal row that records how much.
+-- Owner restock (exact): adds all of `units` or none; capacity is checked in the same statement.
+function StationStock.restock(stationId, ownerCharacterId, units)
+    units = math.floor(tonumber(units) or 0)
+    local maxStock = stationMaxStock()
+    if units <= 0 or units > maxStock then return false end
+    local n = MySQL.update.await('UPDATE cm_gas_stations SET stock = stock + ? WHERE station_id = ? AND owner_character_id = ? AND stock + ? <= ?', { units, stationId, ownerCharacterId, units, maxStock })
+    return (tonumber(n) or 0) >= 1
 end
 
-local function charge(src, amount, reason)
-    amount = math.max(0, math.floor(tonumber(amount) or 0))
-    if amount == 0 then return true end
-    local balance = getCash(src)
-    if balance == nil then return false, 'Payment system unavailable.' end
-    if balance < amount then return false, ('Not enough cash. You need $%d.'):format(amount) end
-    if not removeCash(src, amount, reason) then return false, 'Payment could not be completed.' end
-    return true
+local settlementEngine
+local function getSettlement()
+    if settlementEngine then return settlementEngine end
+    if not MySQL then return nil end
+    local owners = CMGas.Settlement.ownerDeps(exports, GetResourceState)
+    settlementEngine = CMGas.Settlement.new({
+        db = CMGas.Settlement.mysqlDb(MySQL, stationMaxStock),
+        money = owners.money, items = owners.items, fuel = owners.fuel,
+        log = function(...)
+            local parts = {}
+            for i = 1, select('#', ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+            print('[CM-GAS] settlement: ' .. table.concat(parts, ' '))
+        end,
+    })
+    return settlementEngine
 end
+
+-- Restart/periodic recovery: any order that was charged but not finished (crash, restart, owner resource down) converges to exactly one
+-- result without the player being online.
+CreateThread(function()
+    Wait(20000)
+    while true do
+        local engine = getSettlement()
+        if engine then
+            local ok, report = pcall(engine.recover, 60)
+            if ok and report.examined > 0 then
+                print(('[CM-GAS] purchase recovery: examined=%d completed=%d compensated=%d pending=%d'):format(report.examined, report.completed, report.compensated, report.pending))
+            end
+        end
+        Wait(60000)
+    end
+end)
 
 local function stationContext(src, index)
     local row = stationRow(index)
@@ -278,17 +308,28 @@ RegisterNetEvent('cm-gas:server:manageStation', function(data)
     if not row or not owned then return notify(src, 'You do not own this station.', 'error') end
     local tier = tostring(data.priceTier or 'normal'):lower()
     if not (Config.Ownership.priceTiers or {})[tier] then return notify(src, 'Invalid price tier.', 'error') end
-    local maxStock = tonumber(Config.Ownership.maxStock) or 25000
-    local stock = math.floor(tonumber(row.stock) or 0)
+    local ownerId = characterId(src)
+    -- Price tier never touches stock. Stock is only ever changed through StationStock (no client-supplied absolute stock).
+    MySQL.update.await('UPDATE cm_gas_stations SET price_tier = ? WHERE station_id = ? AND owner_character_id = ?', { tier, index, ownerId })
     if data.restock == true then
-        local batch = tonumber(Config.Ownership.restockBatch) or 1000
+        local batch = math.floor(tonumber(Config.Ownership.restockBatch) or 1000)
         local cost = math.floor(batch * (tonumber(Config.Ownership.restockUnitPrice) or 0))
+        local fresh = stationRow(index)
+        if not fresh or tonumber(fresh.owner_character_id) ~= ownerId then return notify(src, 'You do not own this station.', 'error') end
+        if (tonumber(fresh.stock) or 0) + batch > stationMaxStock() then
+            return notify(src, 'The station cannot hold that much additional stock.', 'error')
+        end
         if not removeBank(src, cost, 'gas-station-restock') then return notify(src, ('You need $%d in the bank to order stock.'):format(cost), 'error') end
-        stock = math.min(maxStock, stock + batch)
+        if not StationStock.restock(index, ownerId, batch) then
+            -- Capacity changed (or ownership lost) between check and write: nothing was added, so give the money back.
+            if cost > 0 and not addBank(src, cost, 'gas-station-restock-refund') then
+                print(('[CM-GAS] CRITICAL: restock refund of $%d failed for source %d'):format(cost, src))
+            end
+            return notify(src, 'The station cannot hold that much additional stock. You were not charged.', 'error')
+        end
+        local after = stationRow(index)
+        return notify(src, ('Ordered %d fuel units. Station stock: %d.'):format(batch, math.floor(tonumber(after and after.stock) or 0)), 'success')
     end
-    if data.stock ~= nil then stock = math.floor(tonumber(data.stock) or stock) end
-    if stock < 0 or stock > maxStock then return notify(src, 'Stock is outside the allowed range.', 'error') end
-    MySQL.update.await('UPDATE cm_gas_stations SET price_tier = ?, stock = ? WHERE station_id = ? AND owner_character_id = ?', { tier, stock, index, characterId(src) })
     notify(src, 'Station settings saved.', 'success')
 end)
 
@@ -321,24 +362,6 @@ local function canCarry(src, itemName, count)
         return exports['cm-inventory']:CanCarryItem(src, itemName, count)
     end)
     if ok and type(result) == 'boolean' then return result end
-    return false
-end
-
-local function giveItem(src, itemName, count)
-    if GetResourceState('cm-inventory') == 'started' then
-        local ok, result = pcall(function()
-            return exports['cm-inventory']:AddItem(src, itemName, count)
-        end)
-        if ok and result ~= false and result ~= nil then return true end
-    end
-
-    local catalog = getCatalogResource()
-    if catalog then
-        local ok, result = pcall(function()
-            return exports[catalog]:GiveCatalogItem(src, itemName, count)
-        end)
-        if ok and result ~= false and result ~= nil then return true end
-    end
     return false
 end
 
@@ -821,71 +844,87 @@ RegisterNetEvent('cm-gas:server:placeOrder', function(data)
         local washCost = washes * math.max(0, math.floor(tonumber(pricing.washKitPrice) or 0))
         local total = fuelCost + kitCost + canCost + washCost
 
-        local paid, paymentError = charge(src, total, 'gas-station-order')
-        if not paid then
-            fail(paymentError or 'Payment failed.', false)
+        local cid = characterId(src)
+        if not cid then
+            fail('Your character could not be identified.', false)
+            return
+        end
+        if total > 0 and (getCash(src) or 0) < total then
+            fail(('Not enough cash. You need $%d.'):format(total), false)
             return
         end
 
-        local refund = 0
-        local deliveredKits, deliveredCans, deliveredWashes = kits, cans, washes
-        local deliveredFuel = 0
+        local lines = {}
+        if kits > 0 then lines[#lines + 1] = { item = Config.Items.repairKit, amount = kits } end
+        if cans > 0 then lines[#lines + 1] = { item = Config.Items.fuelCan, amount = cans } end
+        if washes > 0 then lines[#lines + 1] = { item = Config.Items.washKit, amount = washes } end
 
-        if kits > 0 and not giveItem(src, Config.Items.repairKit, kits) then
-            refund = refund + kitCost
-            deliveredKits = 0
-        end
-        if cans > 0 and not giveItem(src, Config.Items.fuelCan, cans) then
-            refund = refund + canCost
-            deliveredCans = 0
-        end
-        if washes > 0 and not giveItem(src, Config.Items.washKit, washes) then
-            refund = refund + washCost
-            deliveredWashes = 0
+        local engine = getSettlement()
+        if not engine then
+            fail('The order could not be completed.', false)
+            return
         end
 
-        if fuelUnits > 0 then
-            if vehicleInfo and serviceVehicle(vehicleInfo.plate, { fuel = targetFuel }) then
-                deliveredFuel = fuelUnits
-            else
-                refund = refund + fuelCost
-                targetFuel = currentFuel
-            end
+        -- From here on the order is a durable, character-addressed settlement (server/settlement.lua): payment, delivery, refund and
+        -- stock are decided by one journal row and survive exceptions, lost responses, disconnects and resource restarts.
+        local result = engine.run({
+            reference = ('GAS-PUR-%d-%d-%06x'):format(cid, os.time(), (GetGameTimer() + math.random(0, 0xffff)) % 0xffffff),
+            character_id = cid,
+            station_id = session.pumpIndex,
+            reserve_units = (fuelUnits > 0 and station and station.owner_character_id) and fuelUnits or 0,
+            fuel_units = fuelUnits,
+            fuel_cost = fuelCost,
+            items_cost = kitCost + canCost + washCost,
+            items = lines,
+            plate = vehicleInfo and vehicleInfo.plate or nil,
+            -- the persisted column settlement recovery compares against (live fuel can differ from it)
+            fuel_before = vehicleInfo and vehicleInfo.row and tonumber(vehicleInfo.row.fuel) and math.floor(tonumber(vehicleInfo.row.fuel) + 0.5) or currentFuel,
+            fuel_target = targetFuel,
+            owner_pct = (station and station.owner_character_id) and (tonumber(Config.Ownership.ownerRevenuePercent) or 80) or 0,
+        })
+
+        if result.code == 'no_stock' then
+            fail('This station is out of fuel. The owner needs to restock it.', false)
+            return
+        elseif result.code == 'payment_failed' then
+            fail(result.reason == 'insufficient_funds' and ('Not enough cash. You need $%d.'):format(total) or 'Payment could not be completed.', false)
+            return
+        elseif result.code == 'pending' then
+            -- Outcome not yet knowable (an owner resource did not answer). The journal settles it automatically; do not retry.
+            fail('Your order is still being processed. It will be settled automatically.', true)
+            return
+        elseif result.code == 'compensated' then
+            fail(result.refunded and 'Nothing could be delivered. Your payment was refunded.' or 'The order could not be completed.', false)
+            return
+        elseif result.code ~= 'completed' then
+            fail('The order could not be completed.', false)
+            return
         end
 
-        if refund > 0 and not addCash(src, refund, 'gas-station-refund') then
-            print(('[CM-GAS] CRITICAL: refund of $%d failed for source %d'):format(refund, src))
-        end
-
+        local deliveredFuel = result.fuelDelivered and fuelUnits or 0
         local parts = {}
         if deliveredFuel > 0 then parts[#parts + 1] = ('%d%% fuel'):format(deliveredFuel) end
-        if deliveredKits > 0 then parts[#parts + 1] = ('%dx repair kit'):format(deliveredKits) end
-        if deliveredCans > 0 then parts[#parts + 1] = ('%dx jerry can'):format(deliveredCans) end
-        if deliveredWashes > 0 then parts[#parts + 1] = ('%dx wash kit'):format(deliveredWashes) end
-
-        local paidTotal = total - refund
-        if #parts == 0 then
-            fail('Nothing could be delivered. Your payment was refunded.', false)
-            return
+        if result.itemsDelivered then
+            if kits > 0 then parts[#parts + 1] = ('%dx repair kit'):format(kits) end
+            if cans > 0 then parts[#parts + 1] = ('%dx jerry can'):format(cans) end
+            if washes > 0 then parts[#parts + 1] = ('%dx wash kit'):format(washes) end
         end
 
         openSessions[src] = nil
-        if station and station.owner_character_id and paidTotal > 0 then
-            local ownerShare = math.floor(paidTotal * ((tonumber(Config.Ownership.ownerRevenuePercent) or 80) / 100))
-            MySQL.update.await('UPDATE cm_gas_stations SET business_balance = business_balance + ?, daily_income = daily_income + ?, weekly_income = weekly_income + ?, stock = GREATEST(stock - ?, 0) WHERE station_id = ? AND owner_character_id IS NOT NULL', { ownerShare, ownerShare, ownerShare, deliveredFuel, session.pumpIndex })
-        end
         handled = true
-        local message = ('Order complete: %s — $%d.'):format(table.concat(parts, ', '), paidTotal)
+        local message = ('Order complete: %s — $%d.'):format(table.concat(parts, ', '), result.paid)
         sendOrderResult(src, true, message, {
             netId = vehicleInfo and vehicleInfo.netId or 0,
             fuel = deliveredFuel > 0 and targetFuel or nil,
-            paid = paidTotal,
+            paid = result.paid,
         })
         notify(src, message, 'success')
     end, debug.traceback)
 
     orderLocks[src] = nil
     if not ok then
+        -- Anything that threw before settlement started has reserved/charged nothing; once settlement started it never throws
+        -- (settlement.run resolves its own journal row), so there is nothing to undo here.
         print(('[CM-GAS] Order error for source %d:\n%s'):format(src, traceback))
         if not handled then sendOrderResult(src, false, 'The order could not be completed.') end
     end

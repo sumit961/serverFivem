@@ -36,20 +36,31 @@ local currentCamCategory = 'hairs'
 local currentCharData = nil
 local isInAppearance = false
 local appearanceSavePending = false
+
+-- PHASE 4C: identity-screen gender preview state. While the player is on the
+-- Basic Identity screen, the real ped is already parked in the creator room
+-- wearing the currently-selected gender's freemode model + a clean base
+-- appearance. openAppearance() below reuses this instead of redoing the
+-- whole teleport/model-load/fade sequence, so there is no second visible
+-- flash on the Identity -> Appearance handoff.
+local identityPreviewActive = false
+local identityPreviewGender = nil
+local identityPreviewToken = 0
 local appearanceServiceMode = nil
 
 -- Config (from vms_charcreator adapted for cm)
+-- creatingCoords/afterSpawnCoords now come from config.lua (Config.CharacterCreatorRoom/
+-- Config.CharacterFirstSpawnCoords) so client/creator.lua's gender-preview code
+-- can share the exact same creator-room location — see config.lua for why.
 local AppearanceConfig = {
-    creatingCoords = vector4(916.7, 46.18, 110.66, 57.78),
-    afterSpawnCoords = vector4(-255.93, -983.88, 30.22, 250.85),
+    creatingCoords = Config.CharacterCreatorRoom,
+    afterSpawnCoords = Config.CharacterFirstSpawnCoords,
     defaultCamDistance = 0.95,
     cameraHeight = {
         ['parents'] = {z = 0.65, fov = 30.0},
         ['face'] = {z = 0.65, fov = 30.0},
         ['hairs'] = {z = 0.65, fov = 30.0},
         ['clothes'] = {z = -0.1, fov = 100.0},
-        ['clothesets'] = {z = -0.1, fov = 100.0},
-        ['makeup'] = {z = 0.65, fov = 30.0}, -- disabled in CM simplified creator
     },
     animDict = "anim@heists@heist_corona@team_idles@male_a",
     animName = "idle",
@@ -59,14 +70,14 @@ local AppearanceConfig = {
     blur = true
 }
 
--- Categories enabled
+-- Categories enabled. clothesets (outfit packs) and makeup were removed
+-- entirely (dead code — never enabled in any flow; see the appearance-system
+-- audit) rather than kept as permanently-false flags.
 local EnabledCategories = {
     ['parents'] = true,
     ['face'] = true,
     ['hairs'] = true,
     ['clothes'] = true, -- first creation only: choose starter shirt/pants/shoes
-    ['clothesets'] = false, -- no outfit packs
-    ['makeup'] = false, -- disabled: no makeup category in character creation
 }
 
 -- Available items per category
@@ -79,7 +90,6 @@ local AvailableItems = {
     },
     ['clothes'] = {torso = true, pants = true, shoes = true},
     ['hairs'] = {hair = true, beard = true, eyebrow = true, chesthair = false},
-    ['makeup'] = {makeup = false, lipstick = false, blush = false}
 }
 
 -- Default no-clothes/underwear base for first creation.
@@ -249,6 +259,13 @@ local function GetMaxVals()
 end
 
 -- Apply skin to ped
+-- Each logical group below runs in its OWN pcall on purpose (see Phase 3's
+-- fix in client/main.lua applySkinToPed, and the same fix in client/apply.lua
+-- applyAppearance, for the exact failure mode this prevents). This function
+-- is called from openAppearance/openAppearanceService/appearanceClose with
+-- NO surrounding pcall at all in most call sites, so previously a single bad
+-- native anywhere here (e.g. an out-of-range head-blend id) would raise an
+-- uncaught Lua error and abort every group after it with no recovery.
 local function ApplySkin(skin)
     local ped = PlayerPedId()
     if not ped or ped == 0 or not DoesEntityExist(ped) then return end
@@ -259,118 +276,147 @@ local function ApplySkin(skin)
         return tonumber(val) or tonumber(fallback) or 0
     end
 
-    -- Head blend
-    local face_weight = n('face_md_weight', 50) / 100.0
-    local skin_weight = n('skin_md_weight', 50) / 100.0
-    SetPedHeadBlendData(ped, n('mom', 21), n('dad', 0), 0, n('mom', 21), n('dad', 0), 0, face_weight, skin_weight, 0.0, false)
-
-    -- Face features
-    SetPedFaceFeature(ped, 0, (n('nose_1', 0) / 10.0))
-    SetPedFaceFeature(ped, 1, (n('nose_2', 0) / 10.0))
-    SetPedFaceFeature(ped, 2, (n('nose_3', 0) / 10.0))
-    SetPedFaceFeature(ped, 3, (n('nose_4', 0) / 10.0))
-    SetPedFaceFeature(ped, 4, (n('nose_5', 0) / 10.0))
-    SetPedFaceFeature(ped, 5, (n('nose_6', 0) / 10.0))
-    SetPedFaceFeature(ped, 8, (n('cheeks_1', 0) / 10.0))
-    SetPedFaceFeature(ped, 9, (n('cheeks_2', 0) / 10.0))
-    SetPedFaceFeature(ped, 10, (n('cheeks_3', 0) / 10.0))
-    SetPedFaceFeature(ped, 12, (n('lip_thickness', 0) / 10.0))
-    SetPedFaceFeature(ped, 13, (n('jaw_1', 0) / 10.0))
-    SetPedFaceFeature(ped, 14, (n('jaw_2', 0) / 10.0))
-    SetPedFaceFeature(ped, 15, (n('chin_1', 0) / 10.0))
-    SetPedFaceFeature(ped, 16, (n('chin_2', 0) / 10.0))
-    SetPedFaceFeature(ped, 17, (n('chin_3', 0) / 10.0))
-    SetPedFaceFeature(ped, 18, (n('chin_4', 0) / 10.0))
-    SetPedFaceFeature(ped, 19, (n('neck_thickness', 0) / 10.0))
-
-    -- Overlays
-    SetPedHeadOverlay(ped, 3, n('age_1', 0), (n('age_2', 0) / 10.0))
-    SetPedHeadOverlay(ped, 0, n('blemishes_1', 0), (n('blemishes_2', 0) / 10.0))
-    SetPedEyeColor(ped, n('eye_color', 0))
-
-    -- Eyebrows
-    local eb1 = n('eyebrows_1', 0)
-    local eb2 = n('eyebrows_2', 10) / 10.0
-    if eb1 >= 0 and eb1 ~= 255 and eb2 <= 0.0 then eb2 = 1.0 end
-    local eb3 = n('eyebrows_3', n('hair_color_1', 0))
-    local eb4 = n('eyebrows_4', eb3)
-    SetPedHeadOverlay(ped, 2, eb1, eb2)
-    SetPedHeadOverlayColor(ped, 2, 1, eb3, eb4)
-    SetPedFaceFeature(ped, 6, (n('eyebrows_5', 0) / 10.0))
-    SetPedFaceFeature(ped, 7, (n('eyebrows_6', 0) / 10.0))
-
-    SetPedHeadOverlay(ped, 4, n('makeup_1', 0), (n('makeup_2', 0) / 10.0))
-    SetPedHeadOverlayColor(ped, 4, 2, n('makeup_3', 0), n('makeup_4', 0))
-    SetPedHeadOverlay(ped, 8, n('lipstick_1', 0), (n('lipstick_2', 0) / 10.0))
-    SetPedHeadOverlayColor(ped, 8, 1, n('lipstick_3', 0), n('lipstick_4', 0))
-
-    -- Hair
-    local h1 = n('hair_1', 0)
-    local h2 = n('hair_2', 0)
     local hc1 = n('hair_color_1', 0)
-    local hc2 = n('hair_color_2', hc1)
-    SetPedComponentVariation(ped, 2, h1, h2, 2)
-    SetPedHairColor(ped, hc1, hc2)
-
-    -- Beard & Chest Hair: STRICT GENDER CHECK
     local isFemale = (GetEntityModel(ped) == GetHashKey('mp_f_freemode_01')) or (skin['sex'] == 1 or skin['sex'] == '1' or skin['sex'] == 'female')
-    if isFemale then
-        SetPedHeadOverlay(ped, 1, 255, 0.0)
-        SetPedHeadOverlay(ped, 10, 255, 0.0)
-    else
-        local b1 = n('beard_1', 0)
-        local b2 = n('beard_2', 0) / 10.0
-        if b1 <= 0 or b1 == 255 or b2 <= 0.0 then
-            SetPedHeadOverlay(ped, 1, 255, 0.0)
-        else
-            local b3 = n('beard_3', hc1)
-            local b4 = n('beard_4', b3)
-            SetPedHeadOverlay(ped, 1, b1, b2)
-            SetPedHeadOverlayColor(ped, 1, 1, b3, b4)
-        end
 
-        local ch1 = n('chest_1', 0)
-        local ch2 = n('chest_2', 0) / 10.0
-        if ch1 <= 0 or ch1 == 255 or ch2 <= 0.0 then
-            SetPedHeadOverlay(ped, 10, 255, 0.0)
-        else
-            local ch3 = n('chest_3', 0)
-            SetPedHeadOverlay(ped, 10, ch1, ch2)
-            SetPedHeadOverlayColor(ped, 10, 1, ch3, ch3)
-        end
+    local headOk, headErr = pcall(function()
+        -- Head blend
+        local face_weight = n('face_md_weight', 50) / 100.0
+        local skin_weight = n('skin_md_weight', 50) / 100.0
+        SetPedHeadBlendData(ped, n('mom', 21), n('dad', 0), 0, n('mom', 21), n('dad', 0), 0, face_weight, skin_weight, 0.0, false)
+
+        -- Face features
+        SetPedFaceFeature(ped, 0, (n('nose_1', 0) / 10.0))
+        SetPedFaceFeature(ped, 1, (n('nose_2', 0) / 10.0))
+        SetPedFaceFeature(ped, 2, (n('nose_3', 0) / 10.0))
+        SetPedFaceFeature(ped, 3, (n('nose_4', 0) / 10.0))
+        SetPedFaceFeature(ped, 4, (n('nose_5', 0) / 10.0))
+        SetPedFaceFeature(ped, 5, (n('nose_6', 0) / 10.0))
+        SetPedFaceFeature(ped, 8, (n('cheeks_1', 0) / 10.0))
+        SetPedFaceFeature(ped, 9, (n('cheeks_2', 0) / 10.0))
+        SetPedFaceFeature(ped, 10, (n('cheeks_3', 0) / 10.0))
+        SetPedFaceFeature(ped, 12, (n('lip_thickness', 0) / 10.0))
+        SetPedFaceFeature(ped, 13, (n('jaw_1', 0) / 10.0))
+        SetPedFaceFeature(ped, 14, (n('jaw_2', 0) / 10.0))
+        SetPedFaceFeature(ped, 15, (n('chin_1', 0) / 10.0))
+        SetPedFaceFeature(ped, 16, (n('chin_2', 0) / 10.0))
+        SetPedFaceFeature(ped, 17, (n('chin_3', 0) / 10.0))
+        SetPedFaceFeature(ped, 18, (n('chin_4', 0) / 10.0))
+        SetPedFaceFeature(ped, 19, (n('neck_thickness', 0) / 10.0))
+    end)
+    if not headOk then
+        print('[CM-CHARACTERS] WARNING ApplySkin head-blend/face-feature group failed: ' .. tostring(headErr))
     end
 
-    SetPedHeadOverlay(ped, 5, n('blush_1', 0), (n('blush_2', 0) / 10.0))
-    SetPedHeadOverlayColor(ped, 5, 2, n('blush_3', 0), n('blush_3', 0))
-    SetPedHeadOverlay(ped, 6, n('complexion_1', 0), (n('complexion_2', 0) / 10.0))
-    SetPedHeadOverlay(ped, 7, n('sun_1', 0), (n('sun_2', 0) / 10.0))
-    SetPedHeadOverlay(ped, 9, n('moles_1', 0), (n('moles_2', 0) / 10.0))
+    local overlayOk, overlayErr = pcall(function()
+        SetPedHeadOverlay(ped, 3, n('age_1', 0), (n('age_2', 0) / 10.0))
+        SetPedHeadOverlay(ped, 0, n('blemishes_1', 0), (n('blemishes_2', 0) / 10.0))
+        SetPedEyeColor(ped, n('eye_color', 0))
+
+        -- Eyebrows
+        local eb1 = n('eyebrows_1', 0)
+        local eb2 = n('eyebrows_2', 10) / 10.0
+        if eb1 >= 0 and eb1 ~= 255 and eb2 <= 0.0 then eb2 = 1.0 end
+        local eb3 = n('eyebrows_3', hc1)
+        local eb4 = n('eyebrows_4', eb3)
+        SetPedHeadOverlay(ped, 2, eb1, eb2)
+        SetPedHeadOverlayColor(ped, 2, 1, eb3, eb4)
+        SetPedFaceFeature(ped, 6, (n('eyebrows_5', 0) / 10.0))
+        SetPedFaceFeature(ped, 7, (n('eyebrows_6', 0) / 10.0))
+
+        SetPedHeadOverlay(ped, 4, n('makeup_1', 0), (n('makeup_2', 0) / 10.0))
+        SetPedHeadOverlayColor(ped, 4, 2, n('makeup_3', 0), n('makeup_4', 0))
+        SetPedHeadOverlay(ped, 8, n('lipstick_1', 0), (n('lipstick_2', 0) / 10.0))
+        SetPedHeadOverlayColor(ped, 8, 1, n('lipstick_3', 0), n('lipstick_4', 0))
+
+        SetPedHeadOverlay(ped, 5, n('blush_1', 0), (n('blush_2', 0) / 10.0))
+        SetPedHeadOverlayColor(ped, 5, 2, n('blush_3', 0), n('blush_3', 0))
+        SetPedHeadOverlay(ped, 6, n('complexion_1', 0), (n('complexion_2', 0) / 10.0))
+        SetPedHeadOverlay(ped, 7, n('sun_1', 0), (n('sun_2', 0) / 10.0))
+        SetPedHeadOverlay(ped, 9, n('moles_1', 0), (n('moles_2', 0) / 10.0))
+    end)
+    if not overlayOk then
+        print('[CM-CHARACTERS] WARNING ApplySkin overlay group failed: ' .. tostring(overlayErr))
+    end
+
+    local hairOk, hairErr = pcall(function()
+        local h1 = n('hair_1', 0)
+        local h2 = n('hair_2', 0)
+        local hc2 = n('hair_color_2', hc1)
+        SetPedComponentVariation(ped, 2, h1, h2, 2)
+        SetPedHairColor(ped, hc1, hc2)
+    end)
+    if not hairOk then
+        print('[CM-CHARACTERS] WARNING ApplySkin hair group failed: ' .. tostring(hairErr))
+    end
+
+    local beardChestOk, beardChestErr = pcall(function()
+        -- Beard & Chest Hair: STRICT GENDER CHECK
+        if isFemale then
+            SetPedHeadOverlay(ped, 1, 255, 0.0)
+            SetPedHeadOverlay(ped, 10, 255, 0.0)
+        else
+            local b1 = n('beard_1', 0)
+            local b2 = n('beard_2', 0) / 10.0
+            if b1 <= 0 or b1 == 255 or b2 <= 0.0 then
+                SetPedHeadOverlay(ped, 1, 255, 0.0)
+            else
+                local b3 = n('beard_3', hc1)
+                local b4 = n('beard_4', b3)
+                SetPedHeadOverlay(ped, 1, b1, b2)
+                SetPedHeadOverlayColor(ped, 1, 1, b3, b4)
+            end
+
+            local ch1 = n('chest_1', 0)
+            local ch2 = n('chest_2', 0) / 10.0
+            if ch1 <= 0 or ch1 == 255 or ch2 <= 0.0 then
+                SetPedHeadOverlay(ped, 10, 255, 0.0)
+            else
+                local ch3 = n('chest_3', 0)
+                SetPedHeadOverlay(ped, 10, ch1, ch2)
+                SetPedHeadOverlayColor(ped, 10, 1, ch3, ch3)
+            end
+        end
+    end)
+    if not beardChestOk then
+        print('[CM-CHARACTERS] WARNING ApplySkin beard/chest group failed: ' .. tostring(beardChestErr))
+    end
 
     if appearanceServiceMode ~= 'barber' then
-        -- Props (nil-safe)
-        local _ears      = tonumber(skin['ears_1'])
-        local _helmet    = tonumber(skin['helmet_1'])
-        local _glasses   = tonumber(skin['glasses_1'])
-        local _watches   = tonumber(skin['watches_1'])
-        local _bracelets = tonumber(skin['bracelets_1'])
+        local propsOk, propsErr = pcall(function()
+            -- Props (nil-safe)
+            local _ears      = tonumber(skin['ears_1'])
+            local _helmet    = tonumber(skin['helmet_1'])
+            local _glasses   = tonumber(skin['glasses_1'])
+            local _watches   = tonumber(skin['watches_1'])
+            local _bracelets = tonumber(skin['bracelets_1'])
 
-        if _ears      == nil or _ears      < 0 then ClearPedProp(ped, 2) else SetPedPropIndex(ped, 2, _ears,      n('ears_2', 0), true) end
-        if _helmet    == nil or _helmet    < 0 then ClearPedProp(ped, 0) else SetPedPropIndex(ped, 0, _helmet,    n('helmet_2', 0), true) end
-        if _glasses   == nil or _glasses   < 0 then ClearPedProp(ped, 1) else SetPedPropIndex(ped, 1, _glasses,   n('glasses_2', 0), true) end
-        if _watches   == nil or _watches   < 0 then ClearPedProp(ped, 6) else SetPedPropIndex(ped, 6, _watches,   n('watches_2', 0), true) end
-        if _bracelets == nil or _bracelets < 0 then ClearPedProp(ped, 7) else SetPedPropIndex(ped, 7, _bracelets, n('bracelets_2', 0), true) end
+            if _ears      == nil or _ears      < 0 then ClearPedProp(ped, 2) else SetPedPropIndex(ped, 2, _ears,      n('ears_2', 0), true) end
+            if _helmet    == nil or _helmet    < 0 then ClearPedProp(ped, 0) else SetPedPropIndex(ped, 0, _helmet,    n('helmet_2', 0), true) end
+            if _glasses   == nil or _glasses   < 0 then ClearPedProp(ped, 1) else SetPedPropIndex(ped, 1, _glasses,   n('glasses_2', 0), true) end
+            if _watches   == nil or _watches   < 0 then ClearPedProp(ped, 6) else SetPedPropIndex(ped, 6, _watches,   n('watches_2', 0), true) end
+            if _bracelets == nil or _bracelets < 0 then ClearPedProp(ped, 7) else SetPedPropIndex(ped, 7, _bracelets, n('bracelets_2', 0), true) end
+        end)
+        if not propsOk then
+            print('[CM-CHARACTERS] WARNING ApplySkin props group failed: ' .. tostring(propsErr))
+        end
 
-        -- Components
-        SetPedComponentVariation(ped, 8,  n('tshirt_1', 15), n('tshirt_2', 0), 2)
-        SetPedComponentVariation(ped, 11, n('torso_1', 15),  n('torso_2', 0), 2)
-        SetPedComponentVariation(ped, 3,  n('arms', 15),     n('arms_2', 0), 2)
-        SetPedComponentVariation(ped, 10, n('decals_1', 0),  n('decals_2', 0), 2)
-        SetPedComponentVariation(ped, 4,  n('pants_1', 14),  n('pants_2', 0), 2)
-        SetPedComponentVariation(ped, 6,  n('shoes_1', 34),  n('shoes_2', 0), 2)
-        SetPedComponentVariation(ped, 1,  n('mask_1', 0),    n('mask_2', 0), 2)
-        SetPedComponentVariation(ped, 9,  n('bproof_1', 0),  n('bproof_2', 0), 2)
-        SetPedComponentVariation(ped, 7,  n('chain_1', 0),   n('chain_2', 0), 2)
-        SetPedComponentVariation(ped, 5,  n('bags_1', 0),    n('bags_2', 0), 2)
+        local componentsOk, componentsErr = pcall(function()
+            -- Components
+            SetPedComponentVariation(ped, 8,  n('tshirt_1', 15), n('tshirt_2', 0), 2)
+            SetPedComponentVariation(ped, 11, n('torso_1', 15),  n('torso_2', 0), 2)
+            SetPedComponentVariation(ped, 3,  n('arms', 15),     n('arms_2', 0), 2)
+            SetPedComponentVariation(ped, 10, n('decals_1', 0),  n('decals_2', 0), 2)
+            SetPedComponentVariation(ped, 4,  n('pants_1', 14),  n('pants_2', 0), 2)
+            SetPedComponentVariation(ped, 6,  n('shoes_1', 34),  n('shoes_2', 0), 2)
+            SetPedComponentVariation(ped, 1,  n('mask_1', 0),    n('mask_2', 0), 2)
+            SetPedComponentVariation(ped, 9,  n('bproof_1', 0),  n('bproof_2', 0), 2)
+            SetPedComponentVariation(ped, 7,  n('chain_1', 0),   n('chain_2', 0), 2)
+            SetPedComponentVariation(ped, 5,  n('bags_1', 0),    n('bags_2', 0), 2)
+        end)
+        if not componentsOk then
+            print('[CM-CHARACTERS] WARNING ApplySkin components group failed: ' .. tostring(componentsErr))
+        end
     end
 end
 
@@ -494,48 +540,176 @@ local function GetComponentData()
     return data
 end
 
+-- CHARACTER CREATION REPAIR PASS: one authoritative camera preset table,
+-- decoupled from whatever string names a category happens to use. Root
+-- cause of the HAIR (and EYES) body-camera bug: this function used to
+-- compare the incoming category directly against the OLD internal Lua data
+-- names ('hairs', 'face', 'parents') to decide head-vs-body framing. Phase 4C's
+-- UI (ui/appearance/app.js CATEGORY_DEFS) sends its OWN display-category keys
+-- straight through unchanged -- 'face' happened to still match, but 'hair'
+-- (new, singular) never matched 'hairs' (old, plural), and 'eyes' has no old
+-- equivalent at all -- both silently fell through to the BODY branch.
+--
+-- CameraCategoryToPreset maps every category string this function has ever
+-- been called with (new UI keys AND old/internal Lua item-group names, since
+-- barber/surgery/gender service modes still pass the old names) to one of
+-- four semantic presets. Anything NOT in this table defaults to HEAD, never
+-- BODY -- only an explicit clothing category may ever request the full-body
+-- preset.
+local CameraCategoryToPreset = {
+    -- current UI display categories (ui/appearance/app.js)
+    face = 'HEAD',
+    hair = 'HAIR',
+    eyes = 'EYES',
+    clothing = 'BODY',
+    -- old/internal Lua items-group names (barber/surgery/gender service modes)
+    parents = 'HEAD',
+    hairs = 'HAIR',
+    clothes = 'BODY',
+}
+
+-- fov: camera field of view. dist: distance back from the target along the
+-- ped's forward vector. zOffset: added to the head-bone Z (ignored for BODY,
+-- which frames off the ped's root coords instead of the head bone).
+local CameraPresets = {
+    HEAD = { fov = 32.0, dist = 0.90, zOffset = 0.04 },
+    -- Slightly wider FOV and a touch higher than HEAD so the full hairstyle
+    -- (including volume above the scalp) stays in frame.
+    HAIR = { fov = 36.0, dist = 1.05, zOffset = 0.14 },
+    -- Slightly closer than HEAD for a tight eye-level shot.
+    EYES = { fov = 24.0, dist = 0.62, zOffset = 0.00 },
+    BODY = { fov = 48.0, dist = 2.40, zOffset = 0.10 },
+}
+
+local function resolveCameraPreset(category)
+    -- Barber/hair service always frames HAIR regardless of which specific
+    -- field is being edited -- defense in depth on top of the category
+    -- mapping above (barber only ever populates the 'hairs' items group, so
+    -- 'hairs'/'hair' would already resolve to HAIR on their own).
+    if appearanceServiceMode == 'barber' then return 'HAIR' end
+    return CameraCategoryToPreset[category] or 'HEAD'
+end
+
+-- Token-guarded short interpolation so a rapid run of category switches can
+-- never leave two competing transitions fighting over the same camera, and a
+-- stale one from a superseded switch aborts instead of continuing to write
+-- frames after a newer switch has already taken over.
+local cameraTransitionToken = 0
+
+local function animateAppearanceCam(fromCoord, fromTarget, fromFov, toCoord, toTarget, toFov, durationMs)
+    cameraTransitionToken = cameraTransitionToken + 1
+    local myToken = cameraTransitionToken
+    local startedAt = GetGameTimer()
+
+    CreateThread(function()
+        while true do
+            if myToken ~= cameraTransitionToken then return end
+            if not DoesCamExist(appearanceCam) then return end
+
+            local t = math.min(1.0, (GetGameTimer() - startedAt) / durationMs)
+            local cx = fromCoord.x + (toCoord.x - fromCoord.x) * t
+            local cy = fromCoord.y + (toCoord.y - fromCoord.y) * t
+            local cz = fromCoord.z + (toCoord.z - fromCoord.z) * t
+            local tx = fromTarget.x + (toTarget.x - fromTarget.x) * t
+            local ty = fromTarget.y + (toTarget.y - fromTarget.y) * t
+            local tz = fromTarget.z + (toTarget.z - fromTarget.z) * t
+            local fv = fromFov + (toFov - fromFov) * t
+
+            SetCamCoord(appearanceCam, cx, cy, cz)
+            PointCamAtCoord(appearanceCam, tx, ty, tz)
+            SetCamFov(appearanceCam, fv)
+
+            if t >= 1.0 then return end
+            Wait(0)
+        end
+    end)
+end
+
 local function UpdateCameraPosition(category)
     if not DoesCamExist(appearanceCam) then return end
     local ped = PlayerPedId()
     if not ped or ped == 0 then return end
-    category = category or currentCamCategory or (appearanceServiceMode == 'barber' and 'hairs' or 'hairs')
+
+    local previousCategory = currentCamCategory
+    category = category or currentCamCategory or 'hair'
     currentCamCategory = category
+
+    -- A category switch always re-establishes the preset's base framing.
+    -- Any manual drag-height nudge from a previous category must never bleed
+    -- into the new one (this was silently retained before -- a body-view
+    -- height nudge, on the same scale as a 2.4-unit shot, looked wildly
+    -- exaggerated once carried over onto a ~0.9-unit head shot).
+    local hadHeightOffset = camHeightOffset ~= 0.0
+    camHeightOffset = 0.0
+
+    local preset = resolveCameraPreset(category)
+    local presetCfg = CameraPresets[preset]
 
     local coords = GetEntityCoords(ped)
     local forward = GetEntityForwardVector(ped)
-    local isHeadPreset = (category == 'hairs' or category == 'face' or category == 'parents' or appearanceServiceMode == 'barber')
-
-    local headBone = GetPedBoneIndex(ped, 31086)
-    local headPos
-    if headBone ~= -1 then
-        headPos = GetWorldPositionOfEntityBone(ped, headBone)
-    end
-    if not headPos or #(headPos - coords) > 2.5 then
-        headPos = vector3(coords.x, coords.y, coords.z + 0.72)
-    end
 
     local targetZ, dist, fov
-    if isHeadPreset then
-        targetZ = headPos.z + 0.04
-        dist = 0.90
-        fov = 32.0
+    local newTargetPos, newBaseCoord
+
+    if preset == 'BODY' then
+        dist = presetCfg.dist
+        fov = presetCfg.fov
+        targetZ = coords.z + presetCfg.zOffset
+
+        newTargetPos = vector3(coords.x, coords.y, targetZ)
+        newBaseCoord = vector3(
+            coords.x + forward.x * dist,
+            coords.y + forward.y * dist,
+            targetZ + 0.04
+        )
     else
-        targetZ = coords.z + 0.10
-        dist = 2.40
-        fov = 48.0
+        -- Prefer a stable, ped-relative head-bone position (works across
+        -- male/female models, animations, and model swaps) with a sanity
+        -- fallback if the bone lookup is ever unreasonable.
+        local headBone = GetPedBoneIndex(ped, 31086)
+        local headPos
+        if headBone ~= -1 then
+            headPos = GetWorldPositionOfEntityBone(ped, headBone)
+        end
+        if not headPos or #(headPos - coords) > 2.5 then
+            headPos = vector3(coords.x, coords.y, coords.z + 0.72)
+        end
+
+        dist = presetCfg.dist
+        fov = presetCfg.fov
+        targetZ = headPos.z + presetCfg.zOffset
+
+        newTargetPos = vector3(headPos.x, headPos.y, targetZ)
+        newBaseCoord = vector3(
+            headPos.x + forward.x * dist,
+            headPos.y + forward.y * dist,
+            targetZ + 0.04
+        )
     end
 
-    camTargetPos = vector3(headPos.x, headPos.y, targetZ)
-    camBaseCoord = vector3(
-        headPos.x + forward.x * dist,
-        headPos.y + forward.y * dist,
-        targetZ + 0.04
-    )
+    local presetChanged = previousCategory ~= category
+    local canInterpolate = presetChanged and not hadHeightOffset and camBaseCoord and camTargetPos
+    -- Capture the OLD camera state before overwriting the module-level
+    -- values below -- animateAppearanceCam needs distinct from/to endpoints.
+    local oldBaseCoord, oldTargetPos, oldFov = camBaseCoord, camTargetPos, camCurrentFov
+
+    camTargetPos = newTargetPos
+    camBaseCoord = newBaseCoord
     camCurrentFov = fov
 
-    SetCamCoord(appearanceCam, camBaseCoord.x, camBaseCoord.y, camBaseCoord.z + camHeightOffset)
-    PointCamAtCoord(appearanceCam, camTargetPos.x, camTargetPos.y, camTargetPos.z + (camHeightOffset * 0.5))
-    SetCamFov(appearanceCam, camCurrentFov)
+    if canInterpolate then
+        -- Short, tasteful transition (~220ms) between two established
+        -- framings. No transition on first activation/reset (no previous
+        -- coords to blend from) and no transition if a drag-height nudge was
+        -- active (snap cleanly to the new base instead of easing from an
+        -- offset position).
+        animateAppearanceCam(oldBaseCoord, oldTargetPos, oldFov, newBaseCoord, newTargetPos, fov, 220)
+    else
+        cameraTransitionToken = cameraTransitionToken + 1 -- cancel any in-flight transition
+        SetCamCoord(appearanceCam, camBaseCoord.x, camBaseCoord.y, camBaseCoord.z)
+        PointCamAtCoord(appearanceCam, camTargetPos.x, camTargetPos.y, camTargetPos.z)
+        SetCamFov(appearanceCam, camCurrentFov)
+    end
 end
 
 -- Create camera with head-level framing and crisp clear rendering
@@ -642,6 +816,126 @@ local function loadCreatorCollision(coords)
     NewLoadSceneStop()
 end
 
+-- Safe model/base-appearance choreography shared by the Basic Identity
+-- gender dropdown and the initial Appearance setup (see openAppearance
+-- below). Token-guarded: if a newer call starts while an older one is still
+-- waiting on model load, the older one notices it is stale after every yield
+-- and abandons without touching the ped — rapid Male/Female/Male/Female
+-- switching can never leave two half-applied models or a stray duplicate,
+-- and a slow/late model load can never "win" over a newer selection.
+local function PrepareCreatorPreview(genderInput, opts)
+    opts = type(opts) == 'table' and opts or {}
+    local sex = (genderInput == 'female' or genderInput == 1 or genderInput == '1') and 1 or 0
+    local gender = sex == 1 and 'female' or 'male'
+
+    identityPreviewToken = identityPreviewToken + 1
+    local myToken = identityPreviewToken
+
+    local firstSetup = opts.firstSetup == true or not identityPreviewActive
+
+    if firstSetup then
+        sendCreationLoading(true, 'Preparing character creator...')
+        DoScreenFadeOut(250)
+        Wait(250)
+        if myToken ~= identityPreviewToken then return end
+
+        local ped = PlayerPedId()
+        lastCoords = {
+            x = GetEntityCoords(ped).x,
+            y = GetEntityCoords(ped).y,
+            z = GetEntityCoords(ped).z,
+            w = GetEntityHeading(ped)
+        }
+
+        loadCreatorCollision(AppearanceConfig.creatingCoords)
+        if myToken ~= identityPreviewToken then return end
+
+        SetEntityCoordsNoOffset(ped, AppearanceConfig.creatingCoords.x, AppearanceConfig.creatingCoords.y, AppearanceConfig.creatingCoords.z, false, false, false)
+        SetEntityHeading(ped, AppearanceConfig.creatingCoords.w)
+        FreezeEntityPosition(ped, true)
+    else
+        -- Already parked in the creator room, just switching gender: hide,
+        -- swap model, reveal — no re-fade, no re-teleport of the world.
+        SetEntityVisible(PlayerPedId(), false, false)
+    end
+
+    local model = sex == 0 and GetHashKey('mp_m_freemode_01') or GetHashKey('mp_f_freemode_01')
+    RequestModel(model)
+    local timeout = GetGameTimer() + 10000
+    while not HasModelLoaded(model) and GetGameTimer() < timeout do
+        RequestModel(model)
+        Wait(0)
+        if myToken ~= identityPreviewToken then
+            SetModelAsNoLongerNeeded(model)
+            return
+        end
+    end
+    if myToken ~= identityPreviewToken then
+        SetModelAsNoLongerNeeded(model)
+        return
+    end
+    if not HasModelLoaded(model) then
+        print('[CM-CHARACTERS] WARNING: PrepareCreatorPreview model load timed out for ' .. tostring(gender) .. ', continuing anyway')
+    end
+
+    SetPlayerModel(PlayerId(), model)
+    SetModelAsNoLongerNeeded(model)
+    local ped = PlayerPedId()
+    SetEntityCoordsNoOffset(ped, AppearanceConfig.creatingCoords.x, AppearanceConfig.creatingCoords.y, AppearanceConfig.creatingCoords.z, false, false, false)
+    SetEntityHeading(ped, AppearanceConfig.creatingCoords.w)
+    FreezeEntityPosition(ped, true)
+    SetEntityVisible(ped, false, false)
+    SetPedComponentVariation(ped, 0, 0, 0, 2)
+
+    if firstSetup then
+        InitSkinData()
+    end
+    tempSkinTable['sex'] = sex
+    local mySex = sex == 0 and 'm' or 'f'
+    for k, v in pairs(FirstCreationClothes[mySex]) do
+        tempSkinTable[k] = v
+    end
+    ApplySkin(tempSkinTable)
+
+    if myToken ~= identityPreviewToken then return end
+
+    SetEntityVisible(PlayerPedId(), true, false)
+    identityPreviewActive = true
+    identityPreviewGender = gender
+
+    if firstSetup then
+        DoScreenFadeIn(350)
+        CreateAppearanceCam()
+        sendCreationLoading(false)
+    elseif DoesCamExist(appearanceCam) then
+        UpdateCameraPosition(currentCamCategory)
+    end
+end
+
+RegisterNetEvent('cm-characters:client:prepareIdentityPreview', function(gender, firstSetup)
+    PrepareCreatorPreview(gender, { firstSetup = firstSetup == true })
+end)
+
+RegisterNUICallback('creatorGenderChanged', function(data, cb)
+    PrepareCreatorPreview(data and data.gender or 'male', {})
+    cb('ok')
+end)
+
+-- Cleanup when the player leaves Basic Identity back to the Selector without
+-- ever reaching Appearance (see client/creator.lua's closeCreator). The
+-- selector's own re-entry (spawnPreviewPeds/hideRealPlayerForSelector) takes
+-- over hiding/repositioning the real player from here.
+RegisterNetEvent('cm-characters:client:cleanupIdentityPreview', function()
+    if identityPreviewActive and DoesCamExist(appearanceCam) then
+        SetCamActive(appearanceCam, false)
+        RenderScriptCams(false, true, 300, true, true)
+    end
+    appearanceCam = nil
+    FreezeEntityPosition(PlayerPedId(), false)
+    identityPreviewActive = false
+    identityPreviewGender = nil
+end)
+
 -- Open appearance editor
 AddEventHandler('cm-characters:client:openAppearance', function(charData)
     appearanceServiceMode = nil
@@ -650,61 +944,72 @@ AddEventHandler('cm-characters:client:openAppearance', function(charData)
     TriggerEvent('cm-characters:client:setWorldLock', 'creator', true)
     setCreationState(true)
     setCreationHudVisible(false)
-    sendCreationLoading(true, 'Preparing character creator...')
 
-    -- Fade out and prepare the creator scene behind a small loading overlay.
-    DoScreenFadeOut(250)
-    Wait(250)
+    local wantedGender = (charData.gender == 'female') and 'female' or 'male'
 
-    local ped = PlayerPedId()
-    lastCoords = {
-        x = GetEntityCoords(ped).x,
-        y = GetEntityCoords(ped).y,
-        z = GetEntityCoords(ped).z,
-        w = GetEntityHeading(ped)
-    }
+    if identityPreviewActive and identityPreviewGender == wantedGender then
+        -- PHASE 4C: Basic Identity already parked the correct freemode model
+        -- + base appearance in the creator room. Reuse it — do NOT
+        -- teleport/reload the model/fade a second time, that second flash is
+        -- exactly what this feature's handoff requirement forbids.
+        if not DoesCamExist(appearanceCam) then
+            CreateAppearanceCam()
+        end
+    else
+        -- Fallback: full original setup. Covers Appearance being entered
+        -- from anywhere that did NOT go through Basic Identity (or a
+        -- mismatched-gender edge case) — this path stays fully self-sufficient.
+        sendCreationLoading(true, 'Preparing character creator...')
+        DoScreenFadeOut(250)
+        Wait(250)
 
-    loadCreatorCollision(AppearanceConfig.creatingCoords)
-    SetEntityCoordsNoOffset(ped, AppearanceConfig.creatingCoords.x, AppearanceConfig.creatingCoords.y, AppearanceConfig.creatingCoords.z, false, false, false)
-    SetEntityHeading(ped, AppearanceConfig.creatingCoords.w)
-    FreezeEntityPosition(ped, true)
+        local ped = PlayerPedId()
+        lastCoords = {
+            x = GetEntityCoords(ped).x,
+            y = GetEntityCoords(ped).y,
+            z = GetEntityCoords(ped).z,
+            w = GetEntityHeading(ped)
+        }
 
-    -- Set default model based on gender
-    local sex = 0
-    if charData.gender == 'female' then sex = 1 end
+        loadCreatorCollision(AppearanceConfig.creatingCoords)
+        SetEntityCoordsNoOffset(ped, AppearanceConfig.creatingCoords.x, AppearanceConfig.creatingCoords.y, AppearanceConfig.creatingCoords.z, false, false, false)
+        SetEntityHeading(ped, AppearanceConfig.creatingCoords.w)
+        FreezeEntityPosition(ped, true)
 
-    local model = sex == 0 and GetHashKey('mp_m_freemode_01') or GetHashKey('mp_f_freemode_01')
-    local modelLoaded = requestModelBlocking(model, 'Loading freemode character...')
-    if not modelLoaded then
-        print('[CM-CHARACTERS] WARNING: freemode model load timed out, continuing anyway')
+        local sex = wantedGender == 'female' and 1 or 0
+        local model = sex == 0 and GetHashKey('mp_m_freemode_01') or GetHashKey('mp_f_freemode_01')
+        local modelLoaded = requestModelBlocking(model, 'Loading freemode character...')
+        if not modelLoaded then
+            print('[CM-CHARACTERS] WARNING: freemode model load timed out, continuing anyway')
+        end
+        SetPlayerModel(PlayerId(), model)
+        ped = PlayerPedId()
+        SetEntityCoordsNoOffset(ped, AppearanceConfig.creatingCoords.x, AppearanceConfig.creatingCoords.y, AppearanceConfig.creatingCoords.z, false, false, false)
+        SetEntityHeading(ped, AppearanceConfig.creatingCoords.w)
+        FreezeEntityPosition(ped, true)
+        SetEntityVisible(ped, false, false)
+        SetPedComponentVariation(ped, 0, 0, 0, 2)
+
+        InitSkinData()
+        tempSkinTable['sex'] = sex
+        local mySex = sex == 0 and 'm' or 'f'
+        for k, v in pairs(FirstCreationClothes[mySex]) do
+            tempSkinTable[k] = v
+        end
+        ApplySkin(tempSkinTable)
+        SetEntityVisible(PlayerPedId(), true, false)
+
+        DoScreenFadeIn(350)
+        CreateAppearanceCam()
+        sendCreationLoading(false)
+
+        identityPreviewActive = true
+        identityPreviewGender = wantedGender
     end
-    SetPlayerModel(PlayerId(), model)
-    ped = PlayerPedId()
-    SetEntityCoordsNoOffset(ped, AppearanceConfig.creatingCoords.x, AppearanceConfig.creatingCoords.y, AppearanceConfig.creatingCoords.z, false, false, false)
-    SetEntityHeading(ped, AppearanceConfig.creatingCoords.w)
-    FreezeEntityPosition(ped, true)
-    SetEntityVisible(ped, false, false)
-    SetPedComponentVariation(ped, 0, 0, 0, 2)
-
-    -- Init skin data
-    InitSkinData()
-    tempSkinTable['sex'] = sex
-
-    -- Apply default underwear clothes
-    local mySex = sex == 0 and 'm' or 'f'
-    for k, v in pairs(FirstCreationClothes[mySex]) do
-        tempSkinTable[k] = v
-    end
-    ApplySkin(tempSkinTable)
-    SetEntityVisible(PlayerPedId(), true, false)
-
-    DoScreenFadeIn(350)
-
-    -- Create camera
-    CreateAppearanceCam()
 
     -- Build UI data
     local uiData = GetComponentData()
+    local ped = PlayerPedId()
 
     -- Send to UI
     SendNUIMessage({
@@ -717,7 +1022,7 @@ AddEventHandler('cm-characters:client:openAppearance', function(charData)
         clotheSets = ClotheSets,
         handsUpKey = AppearanceConfig.handsUpKey,
         enableHandsUpButton = true,
-        enableCancelButtonUI = false, -- No cancel for new chars
+        enableCancelButtonUI = true, -- PHASE 4C: Back to Identity is now supported for new chars
         playerHasAlreadySkin = false,
         charId = charData.charId
     })
@@ -911,95 +1216,91 @@ RegisterNUICallback('appearanceChange', function(data, cb)
     local ok, err = pcall(function()
         if not data or not data.type then return end
 
-        if data.type == 'clotheset' then
-            -- Outfit packs disabled. Clothing is selected individually below.
-        else
-            if data.type == 'sex' then
-                local sex = tonumber(data.new)
-                local model = sex == 0 and GetHashKey('mp_m_freemode_01') or GetHashKey('mp_f_freemode_01')
-                if not appearanceServiceMode then
-                    sendCreationLoading(true, 'Changing character model...')
-                end
+        if data.type == 'sex' then
+            local sex = tonumber(data.new)
+            local model = sex == 0 and GetHashKey('mp_m_freemode_01') or GetHashKey('mp_f_freemode_01')
+            if not appearanceServiceMode then
+                sendCreationLoading(true, 'Changing character model...')
+            end
+            RequestModel(model)
+            while not HasModelLoaded(model) do
                 RequestModel(model)
-                while not HasModelLoaded(model) do
-                    RequestModel(model)
-                    Wait(0)
+                Wait(0)
+            end
+            SetPlayerModel(PlayerId(), model)
+            SetPedComponentVariation(PlayerPedId(), 0, 0, 0, 2)
+            if appearanceServiceMode and lastCoords then
+                SetEntityCoordsNoOffset(PlayerPedId(), lastCoords.x, lastCoords.y, lastCoords.z, false, false, false)
+                SetEntityHeading(PlayerPedId(), lastCoords.w)
+                FreezeEntityPosition(PlayerPedId(), true)
+            end
+            if not appearanceServiceMode then
+                sendCreationLoading(false)
+            end
+            tempSkinTable['sex'] = sex
+            -- Reapply default clothes for new gender
+            local mySex = sex == 0 and 'm' or 'f'
+            for k, v in pairs(FirstCreationClothes[mySex]) do
+                tempSkinTable[k] = v
+            end
+        elseif data.type == 'torso_1' or data.type == 'pants_1' or data.type == 'shoes_1' then
+            local mySex = IsPedModel(PlayerPedId(), GetHashKey('mp_m_freemode_01')) and 'm' or 'f'
+            local category = data.type == 'torso_1' and 'torso' or (data.type == 'pants_1' and 'pants' or 'shoes')
+            local choice = tonumber(data.new) or 0
+            local selected = StarterClothingChoices[mySex] and StarterClothingChoices[mySex][category] and StarterClothingChoices[mySex][category][choice]
+            if selected then
+                for k, v in pairs(selected) do tempSkinTable[k] = v end
+            end
+        elseif data.type == 'torso_2' or data.type == 'pants_2' or data.type == 'shoes_2' or data.type == 'tshirt_1' or data.type == 'tshirt_2' then
+            -- Starter clothing textures are locked to 0 and tshirt is controlled by shirt choice.
+            tempSkinTable[data.type] = 0
+        else
+            tempSkinTable[data.type] = tonumber(data.new)
+            if data.type == 'eyebrows_1' then
+                if (tonumber(tempSkinTable['eyebrows_2']) or 0) <= 0 then
+                    tempSkinTable['eyebrows_2'] = 10
+                    SendNUIMessage({ action = 'setValue', item = 'eyebrows_2', value = 10 })
                 end
-                SetPlayerModel(PlayerId(), model)
-                SetPedComponentVariation(PlayerPedId(), 0, 0, 0, 2)
-                if appearanceServiceMode and lastCoords then
-                    SetEntityCoordsNoOffset(PlayerPedId(), lastCoords.x, lastCoords.y, lastCoords.z, false, false, false)
-                    SetEntityHeading(PlayerPedId(), lastCoords.w)
-                    FreezeEntityPosition(PlayerPedId(), true)
+            elseif data.type == 'eyebrows_3' then
+                tempSkinTable['eyebrows_4'] = tonumber(data.new)
+            elseif data.type == 'hair_color_1' then
+                if not tempSkinTable['hair_color_2'] or tempSkinTable['hair_color_2'] == 0 then
+                    tempSkinTable['hair_color_2'] = tonumber(data.new)
                 end
-                if not appearanceServiceMode then
-                    sendCreationLoading(false)
+            elseif data.type == 'beard_1' then
+                if (tonumber(tempSkinTable['beard_2']) or 0) <= 0 then
+                    tempSkinTable['beard_2'] = 10
+                    SendNUIMessage({ action = 'setValue', item = 'beard_2', value = 10 })
                 end
-                tempSkinTable['sex'] = sex
-                -- Reapply default clothes for new gender
-                local mySex = sex == 0 and 'm' or 'f'
-                for k, v in pairs(FirstCreationClothes[mySex]) do
-                    tempSkinTable[k] = v
-                end
-            elseif data.type == 'torso_1' or data.type == 'pants_1' or data.type == 'shoes_1' then
-                local mySex = IsPedModel(PlayerPedId(), GetHashKey('mp_m_freemode_01')) and 'm' or 'f'
-                local category = data.type == 'torso_1' and 'torso' or (data.type == 'pants_1' and 'pants' or 'shoes')
-                local choice = tonumber(data.new) or 0
-                local selected = StarterClothingChoices[mySex] and StarterClothingChoices[mySex][category] and StarterClothingChoices[mySex][category][choice]
-                if selected then
-                    for k, v in pairs(selected) do tempSkinTable[k] = v end
-                end
-            elseif data.type == 'torso_2' or data.type == 'pants_2' or data.type == 'shoes_2' or data.type == 'tshirt_1' or data.type == 'tshirt_2' then
-                -- Starter clothing textures are locked to 0 and tshirt is controlled by shirt choice.
-                tempSkinTable[data.type] = 0
-            else
-                tempSkinTable[data.type] = tonumber(data.new)
-                if data.type == 'eyebrows_1' then
-                    if (tonumber(tempSkinTable['eyebrows_2']) or 0) <= 0 then
-                        tempSkinTable['eyebrows_2'] = 10
-                        SendNUIMessage({ action = 'setValue', item = 'eyebrows_2', value = 10 })
-                    end
-                elseif data.type == 'eyebrows_3' then
-                    tempSkinTable['eyebrows_4'] = tonumber(data.new)
-                elseif data.type == 'hair_color_1' then
-                    if not tempSkinTable['hair_color_2'] or tempSkinTable['hair_color_2'] == 0 then
-                        tempSkinTable['hair_color_2'] = tonumber(data.new)
-                    end
-                elseif data.type == 'beard_1' then
-                    if (tonumber(tempSkinTable['beard_2']) or 0) <= 0 then
-                        tempSkinTable['beard_2'] = 10
-                        SendNUIMessage({ action = 'setValue', item = 'beard_2', value = 10 })
-                    end
-                elseif data.type == 'beard_3' then
-                    tempSkinTable['beard_4'] = tonumber(data.new)
-                elseif data.type == 'chest_1' then
-                    if (tonumber(tempSkinTable['chest_2']) or 0) <= 0 then
-                        tempSkinTable['chest_2'] = 10
-                        SendNUIMessage({ action = 'setValue', item = 'chest_2', value = 10 })
-                    end
+            elseif data.type == 'beard_3' then
+                tempSkinTable['beard_4'] = tonumber(data.new)
+            elseif data.type == 'chest_1' then
+                if (tonumber(tempSkinTable['chest_2']) or 0) <= 0 then
+                    tempSkinTable['chest_2'] = 10
+                    SendNUIMessage({ action = 'setValue', item = 'chest_2', value = 10 })
                 end
             end
-            UpdateValue(tempSkinTable)
+        end
+        UpdateValue(tempSkinTable)
 
-            -- Update secondary value (texture) if needed
-            local secondItems = {
-                ['tshirt_1'] = 'tshirt_2', ['torso_1'] = 'torso_2', ['helmet_1'] = 'helmet_2',
-                ['pants_1'] = 'pants_2', ['shoes_1'] = 'shoes_2', ['mask_1'] = 'mask_2',
-                ['decals_1'] = 'decals_2', ['chain_1'] = 'chain_2', ['glasses_1'] = 'glasses_2',
-                ['watches_1'] = 'watches_2', ['bracelets_1'] = 'bracelets_2',
-                ['bags_1'] = 'bags_2', ['ears_1'] = 'ears_2', ['bproof_1'] = 'bproof_2',
-                ['hair_1'] = 'hair_2'
-            }
-            if secondItems[data.type] then
-                local maxVals = GetMaxVals()
-                SendNUIMessage({
-                    action = 'updateSecondValue',
-                    secondItem = secondItems[data.type],
-                    secondValue = maxVals[secondItems[data.type]] or 0
-                })
-                tempSkinTable[secondItems[data.type]] = 0
-                UpdateValue(tempSkinTable)
-            end
+        -- Update secondary value (texture) if needed
+        local secondItems = {
+            ['tshirt_1'] = 'tshirt_2', ['torso_1'] = 'torso_2', ['helmet_1'] = 'helmet_2',
+            ['pants_1'] = 'pants_2', ['shoes_1'] = 'shoes_2', ['mask_1'] = 'mask_2',
+            ['decals_1'] = 'decals_2', ['chain_1'] = 'chain_2', ['glasses_1'] = 'glasses_2',
+            ['watches_1'] = 'watches_2', ['bracelets_1'] = 'bracelets_2',
+            ['bags_1'] = 'bags_2', ['ears_1'] = 'ears_2', ['bproof_1'] = 'bproof_2',
+            ['hair_1'] = 'hair_2'
+        }
+        if secondItems[data.type] then
+            local maxVals = GetMaxVals()
+            SendNUIMessage({
+                action = 'updateSecondValue',
+                secondItem = secondItems[data.type],
+                secondValue = maxVals[secondItems[data.type]] or 0
+            })
+            tempSkinTable[secondItems[data.type]] = 0
+            UpdateValue(tempSkinTable)
         end
 
         if AppearanceConfig.sounds then
@@ -1015,10 +1316,6 @@ end)
 RegisterNUICallback('appearanceCamera', function(data, cb)
     if appearanceCam and data.type then
         UpdateCameraPosition(data.type)
-        SendNUIMessage({
-            action = 'updateInputs',
-            fov = math.floor(camCurrentFov)
-        })
     end
     cb('ok')
 end)
@@ -1064,34 +1361,6 @@ end)
 RegisterNUICallback('appearanceResetCam', function(data, cb)
     camHeightOffset = 0.0
     UpdateCameraPosition(currentCamCategory)
-    cb('ok')
-end)
-
-RegisterNUICallback('appearanceHeight', function(data, cb)
-    if appearanceCam and data.height then
-        camHeightOffset = math.max(-0.25, math.min(0.35, tonumber(data.height) or 0.0))
-        if camBaseCoord and camTargetPos then
-            SetCamCoord(appearanceCam, camBaseCoord.x, camBaseCoord.y, camBaseCoord.z + camHeightOffset)
-            PointCamAtCoord(appearanceCam, camTargetPos.x, camTargetPos.y, camTargetPos.z + (camHeightOffset * 0.5))
-        end
-    end
-    cb('ok')
-end)
-
-RegisterNUICallback('appearanceDistance', function(data, cb)
-    if appearanceCam and data.distance then
-        camCurrentFov = math.max(18.0, math.min(55.0, tonumber(data.distance) + 0.0))
-        SetCamFov(appearanceCam, camCurrentFov)
-    end
-    cb('ok')
-end)
-
-RegisterNUICallback('appearanceRotate', function(data, cb)
-    if data.rotate then
-        local ped = PlayerPedId()
-        local newHeading = tonumber(math.floor(data.rotate) + 0.0)
-        SetEntityHeading(ped, newHeading)
-    end
     cb('ok')
 end)
 
@@ -1147,7 +1416,11 @@ RegisterNUICallback('appearanceSave', function(data, cb)
         if appearanceSavePending and currentCharData and tostring(currentCharData.charId) == tostring(savedCharId) then
             appearanceSavePending = false
             isInAppearance = false
-            SendNUIMessage({ action = 'hideAll' })
+            -- spawning=true: this emergency fallback (server never acked the
+            -- save) ends in a direct local recovery reveal, not back at the
+            -- Selector, so the UI's cached slot-list state is no longer
+            -- relevant -- see ui/app.js's hideAll handler.
+            SendNUIMessage({ action = 'hideAll', spawning = true })
             DeleteAppearanceCam()
             if appearanceServiceMode then
                 appearanceServiceMode = nil
@@ -1160,6 +1433,17 @@ RegisterNUICallback('appearanceSave', function(data, cb)
             else
                 setCreationState(false)
                 setCreationHudVisible(false)
+                -- PHASE 5: the server never acknowledged the save, so we cannot
+                -- trust cm-core:characterLoaded to have fired and driven
+                -- cm-spawn's normal pipeline. This is the one remaining caller
+                -- of the legacy full-recovery characterReady handler: move the
+                -- player off the appearance-room coordinate to the configured
+                -- safe fallback position before restoring visibility/bucket,
+                -- so a genuine server failure never reveals/leaves them at a
+                -- creation-room coordinate in the public bucket.
+                local ped = PlayerPedId()
+                SetEntityCoords(ped, AppearanceConfig.afterSpawnCoords.x, AppearanceConfig.afterSpawnCoords.y, AppearanceConfig.afterSpawnCoords.z)
+                SetEntityHeading(ped, AppearanceConfig.afterSpawnCoords.w)
                 TriggerEvent('cm-characters:client:characterReady', savedCharId)
             end
             if IsScreenFadedOut() or IsScreenFadingOut() then DoScreenFadeIn(350) end
@@ -1265,30 +1549,63 @@ RegisterNetEvent('cm-characters:client:appearanceSaved', function(ok, payload)
     end
 
     isInAppearance = false
-    SendNUIMessage({ action = 'hideAll' })
+    -- spawning=true: this is the real hand-off to cm-spawn (see the PHASE 5
+    -- comment below) -- the only hideAll call in this file that actually
+    -- means "gameplay is starting, the character-selection UI's cached state
+    -- is now irrelevant". See ui/app.js's hideAll handler.
+    SendNUIMessage({ action = 'hideAll', spawning = true })
     DeleteAppearanceCam()
+    -- Defensive reset: a later, unrelated character creation in the same
+    -- session must never reuse this completed session's prepared ped/gender.
+    -- openCreator always passes firstSetup=true anyway, so this isn't load-
+    -- bearing for the normal flow, but keeps identityPreviewGender from ever
+    -- being stale if openAppearance is somehow reached another way.
+    identityPreviewActive = false
+    identityPreviewGender = nil
 
+    -- PHASE 5: cm-spawn is now the SOLE spawn authority for both new and
+    -- existing characters. The old code teleported straight to
+    -- AppearanceConfig.afterSpawnCoords and fired characterReady here, which
+    -- raced against cm-core:characterLoaded (fired server-side by
+    -- server/appearance.lua right before this event) driving cm-spawn's own
+    -- DoSpawn -> first-time-hotel pipeline. Both were placing/revealing the
+    -- player independently, which could interleave into a double-teleport/
+    -- double-reveal. Now this handler only keeps the player hidden, frozen,
+    -- private and skipPositionSave=true, and does NOT touch position, bucket,
+    -- or completion state. cm-spawn's beginSpawn -> reveal -> spawnComplete
+    -- handshake (see cm-spawn/server+client/main.lua) does the real teleport
+    -- and reveal, then cm-characters' existing 'cm-spawn:client:spawned'
+    -- handler (client/main.lua) closes out the creation UI/audio/world-lock
+    -- exactly like it already does for an existing character's spawn.
     local ped = PlayerPedId()
-    SetEntityCoords(ped, AppearanceConfig.afterSpawnCoords.x, AppearanceConfig.afterSpawnCoords.y, AppearanceConfig.afterSpawnCoords.z)
-    SetEntityHeading(ped, AppearanceConfig.afterSpawnCoords.w)
+    FreezeEntityPosition(ped, true)
+    SetEntityVisible(ped, false, false)
+    SetEntityCollision(ped, false, false)
+    SetPlayerControl(PlayerId(), false, 0)
 
     setCreationState(false)
     setCreationHudVisible(false)
 
-    -- Prepare live cm-climatime while still faded out, before characterReady
-    -- restores the real view. New characters then spawn directly into the right
-    -- time/weather instead of seeing it change afterwards.
-    prepareClimatimeBeforeFirstSpawn()
-    TriggerEvent('cm-characters:client:characterReady', payload.charId or (currentCharData and currentCharData.charId))
+    if not IsScreenFadedOut() and not IsScreenFadingOut() then
+        DoScreenFadeOut(200)
+        Wait(220)
+    end
 
-    SetTimeout(250, function()
-        if IsScreenFadedOut() or IsScreenFadingOut() then DoScreenFadeIn(350) end
-    end)
+    -- Prepare live cm-climatime while still faded out, before cm-spawn
+    -- reveals the real view. New characters then spawn directly into the
+    -- right time/weather instead of seeing it change afterwards.
+    prepareClimatimeBeforeFirstSpawn()
 end)
 
 -- Close appearance (shouldn't happen for new chars, but handle it)
 RegisterNUICallback('appearanceClose', function(data, cb)
     local wasService = appearanceServiceMode ~= nil
+    -- PHASE 4C: for a brand-new character (not a service edit), Close/Back
+    -- now means "return to Basic Identity", not "abandon and restore to
+    -- spawned world" — that old fallback only made sense back when Cancel
+    -- was never actually shown to new characters.
+    local isFirstCreationBack = (not wasService) and currentCharData and currentCharData.isNew == true
+
     if appearanceServiceMode then
         appearanceServiceMode = nil
         if lastSkin then
@@ -1303,14 +1620,34 @@ RegisterNUICallback('appearanceClose', function(data, cb)
         FreezeEntityPosition(PlayerPedId(), false)
         TriggerEvent('cm-ems:client:appearanceServiceClosed')
     end
+
     isInAppearance = false
-    SetNuiFocus(false, false)
+    -- No spawning flag: this either goes back to Identity (isFirstCreationBack
+    -- below) or is a service-mode close on an already-spawned character.
+    -- Neither is gameplay starting, so the Selector's cached slot-list state
+    -- must survive (see ui/app.js's hideAll handler) and creationLoading must
+    -- remain usable for a later real transition.
     SendNUIMessage({ action = 'hideAll' })
+
+    if isFirstCreationBack then
+        -- Keep the private bucket, creator world lock, skipPositionSave, and
+        -- the already-prepared preview ped exactly as they are — only the
+        -- NUI panel changes. The character-flow session (server/main.lua's
+        -- bucket lifecycle) is not over until a real spawn happens.
+        SetNuiFocus(true, true)
+        TriggerEvent('cm-characters:client:showCreatorAgain')
+        cb('ok')
+        return
+    end
+
+    SetNuiFocus(false, false)
     if not wasService then
         sendCreationLoading(false)
         TriggerEvent('cm-characters:client:setWorldLock', 'creator', false)
         setCreationState(false)
         setCreationHudVisible(true)
+        identityPreviewActive = false
+        identityPreviewGender = nil
     end
     DeleteAppearanceCam()
     cb('ok')

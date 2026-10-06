@@ -878,7 +878,7 @@ local AllPermissions = {
     'logs.view', 'logs.all', 'logs.admin', 'logs.players', 'logs.economy', 'logs.inventory', 'logs.vehicles', 'logs.dev', 'logs.system',
     'map.view', 'map.vehicles', 'map.admins', 'map.teleport', 'map.calibrate', 'gps.teleport',
     'noclip', 'teleport', 'tools.heal',
-    'dev.view', 'dev.tools', 'dev.clothing', 'dev.vehicles', 'dev.weapons', 'dev.climatime', 'dev.hud',
+    'dev.view', 'dev.tools', 'dev.clothing', 'dev.vehicles', 'dev.weapons', 'dev.climatime', 'dev.hud', 'hotel.setup',
     'house.admin.open', 'house.create', 'house.admin.properties', 'house.admin.interiors',
     'house.admin.garages', 'house.admin.pricing', 'house.admin.photos', 'house.admin.recovery'
     ,'gang.admin.view', 'gang.admin.manage'

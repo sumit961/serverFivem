@@ -72,6 +72,7 @@ function validOrgId(value)
     local raw = tostring(value or '')
     local normalized = normalizeLegalOrgId(raw)
     if Config.Organizations[normalized] then return normalized end
+    if normalized == 'police' then return nil end
     if raw ~= '' and not invalidOrgIdLogs[raw .. '\0' .. normalized] then
         invalidOrgIdLogs[raw .. '\0' .. normalized] = true
         print(('[cm-law] invalid central-admin organization id: raw="%s" normalized="%s"'):format(raw, normalized))
@@ -923,6 +924,35 @@ exports('IsOnDuty', function(characterId, orgId)
     return member and member.onDuty == true or false
 end)
 
+-- Authoritative on-duty COUNT (read-only, server-only, no client event). `GetOnDutyCount(orgId)` -> number | false, reason
+-- (`forbidden` | `invalid_organization` | `unavailable`). 0 = healthy and nobody on duty; `false, reason` = law cannot answer. Counts only members of the requested
+-- organization who are on duty, ranked, not suspended and currently LOADED on a connected player (stale rows from a crash are ignored).
+-- Works for every Config.Organizations entry and for the embedded legacy `police`. Definition + callers: docs/ON_DUTY_COUNT.md.
+local dutyCounter = LawDutyCount.New({
+    callers = Config.OnDutyCountCallers,
+    isCentralOrg = function(id) return Config.Organizations[id] ~= nil end,
+    lawReady = function() return LawIsReady() == true end,
+    legacyReady = function() return type(PoliceDatabaseReady) == 'function' and PoliceDatabaseReady() == true end,
+    queryCentral = function(orgId)
+        return MySQL.query.await([[SELECT DISTINCT m.character_id FROM cm_legal_members m
+            JOIN cm_legal_ranks r ON r.id = m.rank_id AND r.organization_id = m.organization_id
+            WHERE m.organization_id = ? AND m.on_duty = 1 AND m.suspended_until IS NULL]], { orgId })
+    end,
+    queryLegacy = function()
+        return MySQL.query.await([[SELECT m.character_id FROM cm_police_members m JOIN cm_police_ranks r ON r.id = m.rank_id
+            WHERE m.on_duty = 1 AND (m.suspended_until IS NULL OR m.suspended_until <= NOW())]])
+    end,
+    isLoaded = function(characterId)
+        local src = sourceFor(characterId)
+        return src ~= nil and GetPlayerName(src) ~= nil
+    end,
+})
+exports('GetOnDutyCount', function(orgId)
+    local n, reason = dutyCounter.count(orgId, GetInvokingResource() or RESOURCE)
+    if n == nil then return false, reason end   -- a leading nil does not survive the export boundary (the reason would be lost); failures are `false, reason`
+    return n
+end)
+
 -- Stable source/character APIs for law extensions. These return fresh,
 -- server-built values so callers cannot mutate the authority's internal state.
 exports('GetLawMember', function(src)
@@ -1030,6 +1060,54 @@ lib.callback.register('cm-law:server:setDuty', function(src, requested)
     return { ok = true, message = onDuty and 'You are now on duty in plain clothes.'
         or 'You are now off duty. Your personal clothes have been restored.' }
 end)
+
+RegisterCommand('duty', function(src)
+    src = tonumber(src)
+    if not src or src <= 0 then return end
+    local characterId = characterIdFor(src)
+    if not characterId then return end
+    local function notify(msg, kind)
+        TriggerClientEvent('cm-playerdata:client:interactionNotify', src, tostring(msg), kind or 'inform')
+    end
+
+    if type(PoliceLegacyMemberFor) == 'function' then
+        local policeMember = PoliceLegacyMemberFor(characterId)
+        if policeMember then
+            local ok, msg = exports[RESOURCE]:PoliceToggleDutyDirect(src)
+            notify(msg, ok and 'success' or 'error')
+            return
+        end
+    end
+
+    local member = activeMemberForSource(src)
+    if member then
+        local targetDuty = not member.onDuty
+        if member.suspended then return notify('Your membership is suspended.', 'error') end
+        local org = Config.Organizations[member.organizationId]
+        local plainclothesAllowed = org and tonumber(org.plainclothesMinTier) ~= nil
+            and member.tier >= tonumber(org.plainclothesMinTier)
+        if targetDuty and not plainclothesAllowed then
+            return notify('Wear an approved uniform at your organization wardrobe to start duty.', 'error')
+        end
+        if not targetDuty then
+            if not endLawDuty(src, characterId, member.organizationId, 'manual') then
+                return notify('Duty status did not save. Please try again.', 'error')
+            end
+            TriggerClientEvent('cm-law:client:restorePersonalOutfit', src)
+            return notify('You are now off duty. Your personal clothes and equipment have been restored.', 'success')
+        end
+        local statements = {
+            { query = 'UPDATE cm_legal_members SET on_duty = 1 WHERE organization_id = ? AND character_id = ?', values = { member.organizationId, characterId } },
+            { query = 'DELETE FROM cm_legal_active_outfits WHERE organization_id = ? AND character_id = ?', values = { member.organizationId, characterId } },
+        }
+        if MySQL.transaction.await(statements) ~= true then return notify('Duty status did not save. Please try again.', 'error') end
+        logActivity(member.organizationId, characterId, 'duty_started', {})
+        syncCharacter(characterId)
+        return notify('You are now on duty in plain clothes.', 'success')
+    end
+
+    notify('You are not a member of any law enforcement organization.', 'error')
+end, false)
 
 -- Self-capture only (screenshot-basic captures the requesting client's own
 -- screen, see server/photos.lua) -- an officer sets their own duty photo,
@@ -1473,6 +1551,9 @@ local function setFacility(src, orgId, facilityType, reset)
 end
 
 exports('AdminSetFacility', function(src, orgId, facilityType, reset)
+    if normalizeLegalOrgId(orgId) == 'police' then
+        return exports[RESOURCE]:PoliceLegacyAdminSetFacility(tonumber(src), 'police', facilityType, reset == true)
+    end
     if facilityType == 'jail_spawn' or facilityType == 'jail_release' or facilityType == 'jail_spawns' or facilityType == 'jail_intake' or facilityType == 'intake' then
         if type(LawAdminSetSharedJail) ~= 'function' then return false, 'Shared jail configuration is still loading.' end
         return LawAdminSetSharedJail(tonumber(src), facilityType, reset == true)
@@ -1528,12 +1609,18 @@ local function adminNpcRows(orgId)
 end
 
 exports('AdminGetNpcs', function(src, orgId)
+    if normalizeLegalOrgId(orgId) == 'police' then
+        return exports[RESOURCE]:PoliceLegacyAdminGetNpcs(tonumber(src))
+    end
     src, orgId = tonumber(src), validOrgId(orgId)
     if not adminAllowed(src) or not orgId then return { ok=false, error='Permission denied.' } end
     return { ok=true, organizationId=orgId, items=adminNpcRows(orgId) }
 end)
 
 exports('AdminConfigureNpc', function(src, orgId, data)
+    if normalizeLegalOrgId(orgId) == 'police' then
+        return exports[RESOURCE]:PoliceLegacyAdminConfigureNpc(tonumber(src), 'police', data)
+    end
     src, orgId, data = tonumber(src), validOrgId(orgId), type(data)=='table' and data or {}
     if not adminAllowed(src) or not orgId then return false, 'Permission denied.' end
     local facilityType, operation = validFacilityType(data.npcId), tostring(data.operation or 'save')
@@ -1561,6 +1648,9 @@ exports('AdminConfigureNpc', function(src, orgId, data)
 end)
 
 exports('AdminGetCapabilities', function(src, orgId)
+    if normalizeLegalOrgId(orgId) == 'police' then
+        return exports[RESOURCE]:PoliceLegacyAdminGetCapabilities(tonumber(src))
+    end
     src, orgId = tonumber(src), validOrgId(orgId)
     if not adminAllowed(src) then return { ok = false, error = 'Permission denied.' } end
     if not orgId then return { ok = false, error = 'Unknown organization.' } end
@@ -1572,6 +1662,9 @@ exports('AdminGetCapabilities', function(src, orgId)
 end)
 
 exports('AdminConfigureCapability', function(src, orgId, capability, enabled)
+    if normalizeLegalOrgId(orgId) == 'police' then
+        return exports[RESOURCE]:PoliceLegacyAdminConfigureCapability(tonumber(src), 'police', capability, enabled == true)
+    end
     src, orgId, capability = tonumber(src), validOrgId(orgId), tostring(capability or '')
     if not adminAllowed(src) then return false, 'Permission denied.' end
     local known = false

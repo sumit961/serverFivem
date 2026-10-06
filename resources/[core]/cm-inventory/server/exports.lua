@@ -18,6 +18,33 @@ exports('AddItem', function(...)
     return ok, placedSlotOrReason
 end)
 
+-- Character-targeted add for trusted server resources (restores/refunds that
+-- must land on a specific character regardless of who holds their source now).
+-- Same rules as AddItem (definition, singleton, capacity, stacking, audit) but
+-- addressed by character id; the character must exist. Returns ok, slot|reason.
+exports('AddItemToCharacter', function(characterId, itemName, amount, metadata, reason)
+    if type(characterId) == 'table' then
+        -- colon-style call passes a hidden self as arg #1
+        return false, 'invalid_character'
+    end
+    characterId = tostring(characterId or '')
+    if characterId == '' then return false, 'invalid_character' end
+
+    local exists = MySQL.scalar.await('SELECT id FROM characters WHERE id = ? LIMIT 1', { characterId })
+    if not exists then return false, 'character_not_found' end
+
+    local ok, placedSlotOrReason = AddItemInternal({ characterId = characterId }, itemName, amount, metadata, reason)
+
+    -- If that character happens to be online right now, refresh their UI.
+    if ok and GetResourceState('cm-playerdata') == 'started' then
+        pcall(function()
+            local onlineSrc = exports['cm-playerdata']:GetSourceByCharId(tonumber(characterId) or characterId)
+            if onlineSrc then sendInventorySmart(tonumber(onlineSrc)) end
+        end)
+    end
+    return ok, placedSlotOrReason
+end)
+
 exports('RemoveItem', function(...)
     local src, itemName, amount, metadata, reason = normalizeExportArgs(...)
     return RemoveItemInternal(src, itemName, amount, metadata, reason)

@@ -171,7 +171,7 @@ function SetVehicleLevel(familyId, vehicleId, level, actorCid)
     level = validFamilyVehicleLevel(familyId, level)
     if not level then return false, 'invalid_family_rank' end
     if not isSharedFamilyVehicle(familyId, vehicleId) then
-        return false, 'vehicle_is_not_shared_with_this_family'
+        return false, 'vehicle_is_not_registered_with_this_family'
     end
 
     MySQL.query.await([[
@@ -284,7 +284,7 @@ local function familyVehicleDecision(characterId, vehicleId, action)
     local fam = GetFamilyById(membership.family_id)
     if not fam then return false, 'family_not_loaded' end
     if not isSharedFamilyVehicle(fam.id, vehicleId) then
-        return false, 'vehicle_not_shared_with_family'
+        return false, 'vehicle_not_registered_with_family'
     end
 
     local rank = (CMFamilyResolveMembershipRank and CMFamilyResolveMembershipRank(fam, membership))
@@ -406,11 +406,12 @@ function GetFamilyVehiclesWithLevels(familyId, viewerCid)
 
     local viewerRank, viewerFamily = viewerCid and GetRankForCid(viewerCid) or nil, nil
     if viewerCid then viewerRank, viewerFamily = GetRankForCid(viewerCid) end
+    local rankContext = viewerCid and familyGarageRankContext(viewerCid, familyId) or nil
     local canTrackRank = viewerRank and RankHasPermission(viewerRank,
         tostring(Config.Tracking and Config.Tracking.vehicles and Config.Tracking.vehicles.permission or 'vehicle.track')) or false
 
-    local vehicles = B.GetFamilyVehicleManagementList(familyId, viewerCid)
-    if #vehicles == 0 then vehicles = B.GetFamilyVehicles(familyId) end
+    local vehicles = B.GetFamilyVehicleManagementList(familyId, viewerCid,
+        rankContext and rankContext.canManage == true)
 
     local out = {}
     for _, v in ipairs(vehicles) do
@@ -427,7 +428,7 @@ function GetFamilyVehiclesWithLevels(familyId, viewerCid)
                 house_label = v.house_label,
                 slot_index = tonumber(v.slot_index) or v.slot_index,
                 level = GetVehicleLevel(familyId, vehicleId),
-                shared = v.shared == true or tonumber(v.shared) == 1 or tostring(v.owner_class) == 'family',
+                familyRegistered = v.shared == true or tonumber(v.shared) == 1 or tostring(v.owner_class) == 'family',
                 owner_character_id = tostring(v.owner_character_id or ''),
                 isOwner = viewerCid ~= nil and tostring(v.owner_character_id or '') == tostring(viewerCid),
                 eligible = v.family_house_eligible == true or tonumber(v.family_house_eligible) == 1,
@@ -438,47 +439,50 @@ function GetFamilyVehiclesWithLevels(familyId, viewerCid)
     end
 
     table.sort(out, function(a, b)
-        if a.shared ~= b.shared then return a.shared == true end
+        if a.familyRegistered ~= b.familyRegistered then return a.familyRegistered == true end
         return tostring(a.plate or a.id) < tostring(b.plate or b.id)
     end)
     return out
 end
 
-function SetVehicleSharedAndLevel(actorCid, vehicleId, shared, level)
+function RegisterFamilyVehicle(actorCid, vehicleId, level)
     local rank, fam = GetRankForCid(actorCid)
     if not rank or not fam then return false, 'not_in_family' end
     if not RankHasPermission(rank, 'family.manage_vehicles') then return false, 'no_permission' end
     vehicleId = tonumber(vehicleId)
     if not vehicleId then return false, 'invalid_vehicle_id' end
 
-    local sharedOk, sharedErr = B.SetVehicleFamilyShared(vehicleId, shared == true, actorCid)
-    if not sharedOk then return false, sharedErr or 'vehicle_share_failed' end
+    local registered, registerWhy = B.RegisterFamilyVehicle(vehicleId, fam.id, actorCid)
+    if not registered then return false, registerWhy or 'family_vehicle_registration_failed' end
 
-    if shared == true then
-        local ok, why = SetVehicleLevel(fam.id, vehicleId, level or highestFamilyVehicleLevel(fam.id), actorCid)
-        if not ok then
-            B.SetVehicleFamilyShared(vehicleId, false, actorCid)
-            return false, why
-        end
-    else
+    local ok, why = SetVehicleLevel(fam.id, vehicleId, level or highestFamilyVehicleLevel(fam.id), actorCid)
+    if not ok then
         MySQL.update.await(
             'DELETE FROM cm_family_vehicle_access WHERE family_id = ? AND vehicle_id = ?',
             { fam.id, vehicleId })
         ensureFamilyLoaded(fam.id)
         levelCache[fam.id][vehicleId] = nil
-        revokeVehicleKeys(vehicleId, fam.id, 'family-vehicle-unshared')
+        B.UnregisterFamilyVehicle(vehicleId, fam.id, actorCid)
+        return false, why
     end
 
-    LogFamily(fam.id, actorCid, shared and 'vehicle_shared' or 'vehicle_unshared',
-        { vehicleId = vehicleId, level = tonumber(level) })
+    LogFamily(fam.id, actorCid, 'vehicle_registered',
+        { vehicleId = vehicleId, level = tonumber(level) or highestFamilyVehicleLevel(fam.id) })
     return true
 end
-exports('SetFamilyVehicleShared', function(actorCid, vehicleId, shared, level)
+
+exports('RegisterFamilyVehicle', function(actorCid, vehicleId, level)
     local invoking = GetInvokingResource()
     if invoking and invoking ~= Config.HouseResource and invoking ~= 'cm-admin' and invoking ~= 'cm-family' then
         return false, 'resource_not_authorized'
     end
-    return SetVehicleSharedAndLevel(actorCid, vehicleId, shared, level)
+    return RegisterFamilyVehicle(actorCid, vehicleId, level)
+end)
+
+-- Compatibility export retained only to fail closed for older clients. It no
+-- longer changes family access or converts a personal vehicle.
+exports('SetFamilyVehicleShared', function()
+    return false, 'legacy_family_vehicle_action_disabled'
 end)
 
 function InvalidateVehicleCache(familyId)

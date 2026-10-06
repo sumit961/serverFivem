@@ -226,9 +226,9 @@ function openSlotMenu(slot)
     local current = slot.vehicle and safeVehicle(slot.vehicle) or nil
     local list = {}
 
-    -- Fetch the authorized family fleet for both empty and occupied slots. On
-    -- an occupied slot the matching record enriches the current vehicle with
-    -- its minimum-rank selector without rendering the full list behind it.
+    -- Fetch the authorized family fleet for both empty and occupied slots. The
+    -- UI may inspect every authorized vehicle, but the existing server-side
+    -- action gates remain authoritative for every assignment/recall action.
     local vehicles, why = lib.callback.await('cm-house:server:parkable', false, G.houseId)
     if not vehicles then
         closeSlotMenu()
@@ -239,16 +239,27 @@ function openSlotMenu(slot)
         local safe = safeVehicle(vehicle)
         if current and tonumber(current.id) == tonumber(safe.id) then
             for key, value in pairs(safe) do current[key] = value end
-        elseif not current then
-            list[#list + 1] = safe
         end
+        list[#list + 1] = safe
     end
+    if current then
+        local found = false
+        for _, vehicle in ipairs(list) do
+            if tonumber(vehicle.id) == tonumber(current.id) then found = true break end
+        end
+        if not found then list[#list + 1] = current end
+    end
+    local occupiedCount = tonumber(G.used) or 0
+    local capacity = tonumber(G.capacity) or 0
     local payload = {
         requestId = garageMenuToken,
         slotIndex = tonumber(slot.index) or 0,
         occupied = current ~= nil,
         current = current,
         vehicles = list,
+        capacity = capacity,
+        occupiedCount = occupiedCount,
+        garageLabel = G.familyName and tostring(G.familyName) or 'GARAGE',
         canShare = false,
         isFamilyGarage = G.isFamilyGarage == true,
         familyName = G.familyName and tostring(G.familyName) or nil,
@@ -395,9 +406,6 @@ RegisterNUICallback('garageSlot:action', function(data, cb)
             return
         end
         ok, msg = lib.callback.await('cm-house:server:removeVehicleFromSlot', false, houseId, slotIndex)
-    elseif action == 'share' and selectedSlot.vehicle then
-        ok, msg = lib.callback.await('cm-house:server:shareVehicle', false,
-            houseId, selectedSlot.vehicle.id, data.share == true)
     else
         cb({ ok = false })
         return

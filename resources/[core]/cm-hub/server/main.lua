@@ -73,13 +73,19 @@ lib.callback.register('cm-hub:server:getPlayerData', function(source)
     local phone = 'Not Available'
     local createdAt = nil
     pcall(function()
-        local rows = MySQL.query.await('SELECT gender, phone_number, created_at FROM characters WHERE id = ? LIMIT 1', { charId })
+        local rows = MySQL.query.await('SELECT gender, created_at FROM characters WHERE id = ? LIMIT 1', { charId })
         if rows and rows[1] then
             if rows[1].gender then gender = tostring(rows[1].gender):lower() end
-            if rows[1].phone_number and rows[1].phone_number ~= '' then phone = tostring(rows[1].phone_number) end
             createdAt = rows[1].created_at
         end
     end)
+    -- Phone identity is owned by cm-phone (characters has no phone_number column).
+    if GetResourceState('cm-phone') == 'started' then
+        pcall(function()
+            local number = exports['cm-phone']:GetPhoneNumber(charId)
+            if number and number ~= '' then phone = tostring(number) end
+        end)
+    end
 
     -- Fines sum from police / legal citations
     local fines = 0

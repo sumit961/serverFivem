@@ -94,6 +94,29 @@ RegisterNUICallback('notify', function(data, cb)
     cb({ ok = true })
 end)
 
+RegisterNUICallback('get_vehicle_registry', function(_, cb)
+    local ok, result = pcall(function()
+        return lib.callback.await('cm-hub:server:getVehicleRegistry', false)
+    end)
+    cb(ok and type(result) == 'table' and result or {
+        ok = false,
+        error = 'vehicle_services_unavailable',
+        message = 'Vehicle registration services are unavailable right now.',
+    })
+end)
+
+RegisterNUICallback('purchase_vehicle_service', function(data, cb)
+    data = type(data) == 'table' and data or {}
+    local ok, result = pcall(function()
+        return lib.callback.await('cm-hub:server:purchaseVehicleService', false, data)
+    end)
+    cb(ok and type(result) == 'table' and result or {
+        ok = false,
+        error = 'vehicle_services_unavailable',
+        message = 'Vehicle registration services are unavailable right now.',
+    })
+end)
+
 RegisterNUICallback('get_employed', function(data, cb)
     data = type(data) == 'table' and data or {}
     local jobId = tostring(data.jobId or '')

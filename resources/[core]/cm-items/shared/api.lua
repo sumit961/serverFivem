@@ -42,6 +42,8 @@ local function applyDefaults(name, item, virtual)
     output.virtual = virtual == true or output.virtual == true
     output.inventory = output.virtual and false or output.inventory ~= false
     output.robberyProtected = output.robberyProtected == true
+    -- Player-to-player trade policy: FAIL CLOSED. Only an explicit `tradeable = true` in the definition can ever allow it (see CMItems.CanTradeItem).
+    output.tradeable = output.tradeable == true
 
     if output.unique then
         output.stack = false
@@ -53,6 +55,41 @@ end
 function CMItems.IsRobberyProtected(name)
     local item = CMItems.GetPhysicalItem(name)
     return item ~= nil and item.robberyProtected == true
+end
+
+-- ===========================================================================
+-- Trade eligibility (authoritative). Used by cm-inventory's atomic exchange (server) and cm-trade's offer filter.
+-- An item may be traded only when ALL hold: it is a known physical item, its definition says `tradeable = true`, it is not in a hard-blocked class,
+-- and the instance metadata is not marked bound/non-transferable. Defaults are closed: category alone never makes an item tradeable.
+-- Hard-blocked regardless of the flag: weapons, ammunition, vehicle keys, identity/licence/government documents, singleton/unique-document items,
+-- robbery-protected items, admin/dev/test items.
+-- ===========================================================================
+local TRADE_BLOCK_PATTERNS = { '^weapon_', '^ammo', '^vehicle_?key', '^key_', '_key$', '^id_card', '^license', '_license$', '^admin_', '^dev_', '^test_', '^debug_' }
+local TRADE_BLOCK_CATEGORIES = { weapon = true, ammo = true, document = true, key = true, admin = true, dev = true, test = true, quest = true }
+
+function CMItems.CanTradeItem(name, metadata)
+    local normalized = normalizeName(name)
+    if not normalized then return false, 'unknown_item' end
+    local item = CMItems.GetPhysicalItem(normalized)
+    if not item then return false, 'unknown_item' end
+    for _, pattern in ipairs(TRADE_BLOCK_PATTERNS) do
+        if normalized:find(pattern) then return false, 'blocked_item' end
+    end
+    local category = tostring(item.category or ''):lower()
+    if TRADE_BLOCK_CATEGORIES[category] or item.weapon == true or item.singleton == true or item.robberyProtected == true then return false, 'blocked_item' end
+    if type(item.metadataRequired) == 'table' then
+        for _, field in ipairs(item.metadataRequired) do
+            if field == 'characterId' or field == 'serial' then return false, 'blocked_item' end
+        end
+    end
+    if item.tradeable ~= true then return false, 'not_tradeable' end
+    if metadata ~= nil then
+        if type(metadata) ~= 'table' then return false, 'invalid_metadata' end
+        if metadata.bound == true or metadata.soulbound == true or metadata.nonTransferable == true or metadata.tradeable == false or metadata.characterId ~= nil then return false, 'bound_item' end
+        local ok, encoded = pcall(json.encode, metadata)
+        if not ok or #encoded > 4000 then return false, 'invalid_metadata' end
+    end
+    return true
 end
 
 function CMItems.NormalizeName(name)

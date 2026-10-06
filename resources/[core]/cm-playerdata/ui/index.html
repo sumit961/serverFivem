@@ -33,11 +33,42 @@
         </div>
     </div>
 
+    <!-- Vehicle-style extension menu (used by organization/law interactions). -->
+    <section id="vehicleStyleMenu" class="vehicle-style-menu hidden" aria-label="Interaction menu">
+        <div class="vehicle-style-shade"></div>
+        <div class="vehicle-style-center">
+            <header class="vehicle-style-header">
+                <div class="vehicle-style-header-left">
+                    <div class="vehicle-style-icon" id="vehicleStyleIcon"></div>
+                    <div class="vehicle-style-copy">
+                        <div class="vehicle-style-title" id="vehicleStyleTitle">ORGANIZATION</div>
+                        <div class="vehicle-style-subtitle" id="vehicleStyleSubtitle"></div>
+                        <div class="vehicle-style-status" id="vehicleStyleStatus">• AVAILABLE</div>
+                    </div>
+                </div>
+                <div class="vehicle-style-meta">
+                    <span class="vehicle-style-kicker">INTERACTION MENU</span>
+                    <strong id="vehicleStyleCount">0 ACTIONS</strong>
+                </div>
+            </header>
+            <div id="vehicleStyleNotice" class="vehicle-style-notice hidden"></div>
+            <div id="vehicleStyleActions" class="vehicle-style-actions"></div>
+            <div class="vehicle-style-hint-bar">
+                <div class="vehicle-style-hint-item"><span class="vehicle-style-hint-badge yellow">CLICK / 1-9</span><span>SELECT ACTION</span></div>
+                <span class="vehicle-style-hint-dot">•</span>
+                <div class="vehicle-style-hint-item"><span class="vehicle-style-hint-badge dark">RMB</span><span>BACK</span></div>
+                <span class="vehicle-style-hint-dot">•</span>
+                <div class="vehicle-style-hint-item"><span class="vehicle-style-hint-badge red">ESC</span><span>CLOSE HUD</span></div>
+            </div>
+        </div>
+        <button id="vehicleStyleClose" class="vehicle-style-close" type="button" aria-label="Close menu">×</button>
+    </section>
+
     <!-- Death screen: bleed-out timer, killed-by, [1] ambulance / [2] give up -->
     <div id="deathscreen" class="hidden">
         <div class="ds-vignette"></div>
         <div class="ds-content">
-            <div class="ds-title">YOU ARE UNCONSCIOUS</div>
+            <div class="ds-title">YOU ARE DEAD</div>
             <div class="ds-killedby hidden" id="ds-killedby"></div>
             <div class="ds-timer" id="ds-timer">02:00</div>
             <div class="ds-options" id="ds-options">

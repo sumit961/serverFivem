@@ -17,7 +17,8 @@ client_scripts {
 
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
-    'server/main.lua'
+    'server/main.lua',
+    'server/vehicle_registry.lua'
 }
 
 ui_page 'web/index.html'

@@ -88,10 +88,6 @@ function P2.ClearVehicleAssignment(vehicleId, reason, actorCid)
     if not assignment then return true, 'no_assignment' end
     local tx = {
         {
-            query = 'DELETE FROM cm_house_shared_vehicles WHERE vehicle_id = ?',
-            values = { vehicleId },
-        },
-        {
             query = [[
                 UPDATE cm_house_vehicle_slots
                 SET vehicle_id = NULL, owner_class = 'personal', assigned_by = NULL, assigned_at = NULL
@@ -117,6 +113,131 @@ function P2.ClearVehicleAssignment(vehicleId, reason, actorCid)
     return true, { houseId = assignment.house_id, slotIndex = assignment.slot_index }
 end
 
+-- Explicit family-garage registration. The registration is deliberately
+-- separate from physical location: adding a car here does not move it, change
+-- its legal owner, or make it available through a personal garage.
+function P2.RegisterFamilyVehicle(vehicleId, familyId, actorCid)
+    if not integrationAllowed('family') then return false, 'resource_not_authorized' end
+    vehicleId, familyId = tonumber(vehicleId), tonumber(familyId)
+    actorCid = actorCid ~= nil and tostring(actorCid) or nil
+    if not vehicleId or not familyId or not actorCid or actorCid == '' then
+        return false, 'invalid_arguments'
+    end
+
+    if not invokingHasScope('admin') then
+        local actorMember = MySQL.scalar.await(
+            'SELECT 1 FROM cm_family_members WHERE family_id = ? AND character_id = ? LIMIT 1',
+            { familyId, actorCid })
+        if not actorMember then return false, 'actor_not_in_family' end
+    end
+
+    local house = MySQL.single.await(
+        'SELECT id, label FROM cm_houses WHERE family_id = ? ORDER BY id LIMIT 1',
+        { familyId })
+    if not house then return false, 'family_house_not_found' end
+
+    local vehicle = MySQL.single.await([[
+        SELECT id, plate, label, model, owner_character_id
+        FROM cm_owned_vehicles
+        WHERE id = ? LIMIT 1
+    ]], { vehicleId })
+    if not vehicle then return false, 'vehicle_not_found' end
+
+    local ownerMember = MySQL.scalar.await(
+        'SELECT 1 FROM cm_family_members WHERE family_id = ? AND character_id = ? LIMIT 1',
+        { familyId, tostring(vehicle.owner_character_id or '') })
+    if not ownerMember then return false, 'vehicle_owner_not_in_family' end
+
+    local assignment = MySQL.single.await([[
+        SELECT s.house_id, h.family_id, s.owner_class
+        FROM cm_house_vehicle_slots s
+        INNER JOIN cm_houses h ON h.id = s.house_id
+        WHERE s.vehicle_id = ? LIMIT 1
+    ]], { vehicleId })
+    if assignment and tonumber(assignment.family_id) ~= familyId then
+        return false, 'vehicle_assigned_to_another_house'
+    end
+
+    local existingRegistration = MySQL.single.await([[
+        SELECT h.family_id
+        FROM cm_house_shared_vehicles sh
+        INNER JOIN cm_houses h ON h.id = sh.house_id
+        WHERE sh.vehicle_id = ? AND h.family_id IS NOT NULL
+        LIMIT 1
+    ]], { vehicleId })
+    if existingRegistration and tonumber(existingRegistration.family_id) ~= familyId then
+        return false, 'vehicle_registered_to_another_family'
+    end
+
+    local limit
+    local familyResource = tostring(Config.Family and Config.Family.resource or 'cm-family')
+    if GetResourceState(familyResource) == 'started' then
+        pcall(function()
+            limit = exports[familyResource]:GetFamilySharedVehicleLimit(familyId)
+        end)
+    end
+    if limit then
+        local existing = tonumber(MySQL.scalar.await([[
+            SELECT COUNT(*)
+            FROM cm_house_shared_vehicles sh
+            INNER JOIN cm_houses h ON h.id = sh.house_id
+            WHERE h.family_id = ? AND sh.vehicle_id <> ?
+        ]], { familyId, vehicleId })) or 0
+        if existing >= tonumber(limit) then
+            return false, ('The family garage has reached its vehicle limit (%d/%d).'):format(existing, tonumber(limit))
+        end
+    end
+
+    local tx = {
+        {
+            query = [[
+                INSERT INTO cm_house_shared_vehicles (house_id, vehicle_id, shared_by)
+                VALUES (?, ?, ?)
+                ON DUPLICATE KEY UPDATE house_id = VALUES(house_id), shared_by = VALUES(shared_by)
+            ]],
+            values = { tonumber(house.id), vehicleId, tonumber(actorCid) or 0 },
+        },
+    }
+    if assignment then
+        tx[#tx + 1] = {
+            query = "UPDATE cm_house_vehicle_slots SET owner_class = 'family' WHERE vehicle_id = ?",
+            values = { vehicleId },
+        }
+    end
+    local ok, committed = pcall(function() return MySQL.transaction.await(tx) end)
+    if not ok or committed ~= true then return false, 'family_vehicle_registration_failed' end
+
+    LogHouse(tonumber(house.id), familyId, actorCid, 'family_vehicle_registered', {
+        vehicleId = vehicleId, plate = vehicle.plate,
+    })
+    if BroadcastGarage then BroadcastGarage(tonumber(house.id)) end
+    return true
+end
+
+-- Used only to roll back a registration when the rank row cannot be written.
+function P2.UnregisterFamilyVehicle(vehicleId, familyId, actorCid)
+    if not integrationAllowed('family') then return false, 'resource_not_authorized' end
+    vehicleId, familyId = tonumber(vehicleId), tonumber(familyId)
+    if not vehicleId or not familyId then return false, 'invalid_arguments' end
+    local house = MySQL.single.await('SELECT id FROM cm_houses WHERE family_id = ? ORDER BY id LIMIT 1', { familyId })
+    if not house then return false, 'family_house_not_found' end
+    local ok, committed = pcall(function()
+        return MySQL.transaction.await({
+            {
+                query = 'DELETE FROM cm_house_shared_vehicles WHERE house_id = ? AND vehicle_id = ?',
+                values = { tonumber(house.id), vehicleId },
+            },
+            {
+                query = "UPDATE cm_house_vehicle_slots SET owner_class = 'personal' WHERE vehicle_id = ? AND house_id = ?",
+                values = { vehicleId, tonumber(house.id) },
+            },
+        })
+    end)
+    if not ok or committed ~= true then return false, 'family_vehicle_unregistration_failed' end
+    LogHouse(tonumber(house.id), familyId, actorCid, 'family_vehicle_unregistered', { vehicleId = vehicleId })
+    return true
+end
+
 function P2.MoveVehicleAssignment(vehicleId, houseId, slotIndex, actorCid, ownerClass)
     if not integrationAllowed('garage') then return false, 'resource_not_authorized' end
     vehicleId, houseId, slotIndex = tonumber(vehicleId), tonumber(houseId), tonumber(slotIndex)
@@ -128,6 +249,22 @@ function P2.MoveVehicleAssignment(vehicleId, houseId, slotIndex, actorCid, owner
         { houseId, slotIndex })
     if not target then return false, 'slot_not_found' end
     if target.vehicle_id and tonumber(target.vehicle_id) ~= vehicleId then return false, 'slot_occupied' end
+
+    local targetHouse = MySQL.single.await('SELECT family_id FROM cm_houses WHERE id = ? LIMIT 1', { houseId })
+    if ownerClass == 'family' and targetHouse and targetHouse.family_id then
+        local registered = MySQL.scalar.await([[
+            SELECT 1 FROM cm_house_shared_vehicles sh
+            INNER JOIN cm_houses h ON h.id = sh.house_id
+            WHERE sh.vehicle_id = ? AND h.family_id = ?
+            UNION ALL
+            SELECT 1 FROM cm_family_vehicle_access
+            WHERE vehicle_id = ? AND family_id = ?
+            LIMIT 1
+        ]], { vehicleId, tonumber(targetHouse.family_id), vehicleId, tonumber(targetHouse.family_id) })
+        if not registered then return false, 'vehicle_not_registered_with_family' end
+    elseif ownerClass == 'family' then
+        return false, 'family_vehicle_requires_family_house'
+    end
 
     local previous = P2.GetVehicleAssignment(vehicleId)
     local tx = {
@@ -418,7 +555,8 @@ function P2.GetFamilyImportContract()
         houseExports = {
             'CanFamilyAccessProperty', 'GetFamilyPermissionForAction',
             'SetFamilyHouseLink', 'GetFamilyHouses', 'GetFamilyDisplay',
-            'GetFamilyForCharacter', 'GetFamilyVehicles', 'SetVehicleFamilyShared',
+            'GetFamilyForCharacter', 'GetFamilyVehicles', 'RegisterFamilyVehicle',
+            'UnregisterFamilyVehicle', 'SetVehicleFamilyShared',
             'RefreshFamilyAccess', 'RefreshFamilyMembers',
             'GetFamilyHouseContract', 'GetFamilyImportContract',
             'GetHouseWeaponStorageContract', 'CanUseHouseWeaponStorage',
@@ -661,6 +799,7 @@ function P2.GetIntegrationContract()
             family = {
                 'GetFamily', 'GetFamilyOfCid', 'IsFamilyHouse', 'SetFamilyHouseLink',
                 'CanFamilyAccessProperty', 'GetFamilyHouses', 'GetFamilyVehicles',
+                'RegisterFamilyVehicle', 'UnregisterFamilyVehicle',
                 'SetVehicleFamilyShared', 'RefreshFamilyAccess', 'RefreshFamilyMembers',
                 'GetFamilyHouseContract', 'GetFamilyImportContract',
                 'GetHouseWeaponStorageContract', 'CanUseHouseWeaponStorage',
@@ -725,78 +864,50 @@ exports('GetHouseAccessList', function(houseId)
     return MySQL.query.await('SELECT * FROM cm_house_access WHERE house_id = ? ORDER BY id', { tonumber(houseId) }) or {}
 end)
 
-function P2.SetVehicleFamilyShared(vehicleId, shared, actorCid)
-    if not integrationAllowed('family') then return false, 'resource_not_authorized' end
-    vehicleId = tonumber(vehicleId)
-    if not vehicleId then return false, 'invalid_vehicle_id' end
-    local assignment = P2.GetVehicleAssignment(vehicleId)
-    if not assignment then return false, 'vehicle_has_no_house_assignment' end
-    if not assignment.family_id then return false, 'property_is_not_a_family_house' end
-
-    actorCid = tonumber(actorCid)
-    if not invokingHasScope('admin') then
-        if not actorCid or tonumber(assignment.owner_character_id) ~= actorCid then
-            return false, 'only_vehicle_owner_can_change_family_sharing'
-        end
-        local allowed = CanAccessProperty(actorCid, assignment.house_id, ACTIONS.GARAGE_MANAGE_SLOTS, false)
-        if not allowed then return false, 'family_permission_denied' end
-    end
-
-    local tx = {}
-    if shared == true then
-        tx[#tx + 1] = {
-            query = [[
-                INSERT INTO cm_house_shared_vehicles (house_id, vehicle_id, shared_by)
-                VALUES (?, ?, ?)
-                ON DUPLICATE KEY UPDATE house_id = VALUES(house_id), shared_by = VALUES(shared_by)
-            ]],
-            values = { assignment.house_id, vehicleId, tonumber(actorCid) or 0 },
-        }
-        tx[#tx + 1] = {
-            query = "UPDATE cm_house_vehicle_slots SET owner_class = 'family' WHERE vehicle_id = ?",
-            values = { vehicleId },
-        }
-    else
-        tx[#tx + 1] = {
-            query = 'DELETE FROM cm_house_shared_vehicles WHERE vehicle_id = ?',
-            values = { vehicleId },
-        }
-        tx[#tx + 1] = {
-            query = "UPDATE cm_house_vehicle_slots SET owner_class = 'personal' WHERE vehicle_id = ?",
-            values = { vehicleId },
-        }
-    end
-    local ok, committed = pcall(function() return MySQL.transaction.await(tx) end)
-    if not ok or committed ~= true then return false, 'family_share_transaction_failed' end
-    LogHouse(assignment.house_id, assignment.family_id, actorCid,
-        shared and 'garage_share' or 'garage_unshare', { vehicleId = vehicleId })
-    if BroadcastGarage then BroadcastGarage(assignment.house_id) end
-    return true
+-- Legacy owner-driven sharing is intentionally retained as a fail-closed
+-- compatibility export. Existing registration rows remain usable, but new
+-- changes must go through cm-family's authorized registration action.
+function P2.SetVehicleFamilyShared()
+    return false, 'legacy_family_vehicle_action_disabled'
 end
 
 
-function P2.GetFamilyVehicleManagementList(familyId, ownerCid)
+function P2.GetFamilyVehicleManagementList(familyId, ownerCid, includeCandidates)
     if not integrationAllowed('family') then return {} end
     familyId = tonumber(familyId)
     ownerCid = ownerCid ~= nil and tostring(ownerCid) or nil
+    includeCandidates = includeCandidates == true
     if not familyId then return {} end
 
-    -- Only explicitly shared vehicles or personal vehicles of the requesting owner
-    -- are returned. Member personal vehicles are strictly private unless shared.
+    -- Ordinary members receive explicit family registrations only. Authorized
+    -- managers may additionally receive member-owned personal vehicles as
+    -- candidates for the explicit registration action.
     return MySQL.query.await([[
         SELECT v.*, catalog.image AS catalog_image, s.house_id, s.slot_index, s.owner_class, h.label AS house_label,
-               CASE WHEN (h.family_id = ? AND s.owner_class = 'family') OR fva.vehicle_id IS NOT NULL THEN 1 ELSE 0 END AS shared,
+               CASE WHEN (h.family_id = ? AND s.owner_class = 'family')
+                          OR fva.vehicle_id IS NOT NULL
+                          OR (shared_house.family_id = ?) THEN 1 ELSE 0 END AS shared,
                CASE WHEN h.family_id = ? THEN 1 ELSE 0 END AS family_house_eligible
         FROM cm_owned_vehicles v
         LEFT JOIN cm_house_vehicle_slots s ON s.vehicle_id = v.id
         LEFT JOIN cm_houses h ON h.id = s.house_id
         LEFT JOIN cm_family_vehicle_access fva ON fva.vehicle_id = v.id AND fva.family_id = ?
+        LEFT JOIN cm_house_shared_vehicles sh ON sh.vehicle_id = v.id
+        LEFT JOIN cm_houses shared_house ON shared_house.id = sh.house_id AND shared_house.family_id = ?
         LEFT JOIN cm_vehicle_catalog catalog ON LOWER(catalog.model) = LOWER(v.model)
-        WHERE (CAST(v.owner_character_id AS CHAR) = ? AND ? <> '')
-           OR (h.family_id = ? AND s.owner_class = 'family')
+        WHERE (h.family_id = ? AND s.owner_class = 'family')
            OR fva.vehicle_id IS NOT NULL
+           OR shared_house.family_id = ?
+           OR (? = 1 AND EXISTS (
+                SELECT 1 FROM cm_family_members member
+                WHERE member.family_id = ?
+                  AND CAST(member.character_id AS CHAR) = CAST(v.owner_character_id AS CHAR)
+           ))
         ORDER BY shared DESC, family_house_eligible DESC, v.plate
-    ]], { familyId, familyId, familyId, ownerCid or '', ownerCid or '', familyId }) or {}
+    ]], {
+        familyId, familyId, familyId, familyId, familyId,
+        familyId, familyId, includeCandidates and 1 or 0, familyId,
+    }) or {}
 end
 
 function P2.GetFamilyVehicles(familyId)
@@ -807,7 +918,7 @@ function P2.GetFamilyVehicles(familyId)
         FROM cm_house_vehicle_slots s
         INNER JOIN cm_houses h ON h.id = s.house_id
         INNER JOIN cm_owned_vehicles v ON v.id = s.vehicle_id
-        WHERE h.family_id = ?
+        WHERE h.family_id = ? AND s.owner_class = 'family'
         ORDER BY s.house_id, s.slot_index
     ]], { familyId }) or {}
 end
@@ -830,6 +941,8 @@ function P2.GetHousesForCharacter(cid)
 end
 
 exports('SetVehicleFamilyShared', P2.SetVehicleFamilyShared)
+exports('RegisterFamilyVehicle', P2.RegisterFamilyVehicle)
+exports('UnregisterFamilyVehicle', P2.UnregisterFamilyVehicle)
 exports('GetFamilyVehicles', P2.GetFamilyVehicles)
 exports('GetFamilyVehicleManagementList', P2.GetFamilyVehicleManagementList)
 exports('GetHousesForCharacter', P2.GetHousesForCharacter)

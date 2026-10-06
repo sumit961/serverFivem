@@ -2,8 +2,6 @@ local PLAYERDATA = 'cm-playerdata'
 local PAGE = 'gang'
 local targetGeneration = 0
 local pendingGangInvite
-local gangSearchOpen = false
-local GANG_SEARCH_UI_REASON = 'cm-gang-search'
 
 local function playerDataStarted()
     return GetResourceState(PLAYERDATA) == 'started'
@@ -42,32 +40,6 @@ local function addInviteOption()
     end)
 end
 
-local function addRobCashOption()
-    if not playerDataStarted() then return end
-    pcall(function()
-        exports[PLAYERDATA]:RegisterInteractionOption(PAGE, {
-            id = 'gang_rob_cash', action = 'gang_rob_cash', label = 'Steal Cash (10%)', icon = 'cash',
-            type = 'extension', order = 30, close = true, allowDeadTarget = true,
-        })
-    end)
-end
-
-local function addRobberyOption(id, action, label, icon, order)
-    if not playerDataStarted() then return end
-    pcall(function() exports[PLAYERDATA]:RegisterInteractionOption(PAGE, {
-        id = id, action = action, label = label, icon = icon, type = 'extension', order = order,
-        close = true, allowDeadTarget = true,
-    }) end)
-end
-
-local function addStatusOption(label)
-    if not playerDataStarted() then return end
-    pcall(function() exports[PLAYERDATA]:RegisterInteractionOption(PAGE, {
-        id = 'gang_action_status', action = 'gang_action_status', label = label, icon = 'circle-info',
-        type = 'noop', order = 800, close = false,
-    }) end)
-end
-
 local function rebuild(targetServerId)
     targetGeneration = targetGeneration + 1
     local generation = targetGeneration
@@ -78,46 +50,9 @@ local function rebuild(targetServerId)
         local options = lib.callback.await('cm-gang:server:getTargetActions', false, targetServerId)
         if generation ~= targetGeneration or type(options) ~= 'table' then return end
         if options.invite == true then addInviteOption() end
-        if options.search == true then addRobberyOption('gang_search', 'gang_search', 'Search Player', 'magnifying-glass', 20) end
-        if options.robCash == true then addRobCashOption() end
-        if options.robItems == true then addRobberyOption('gang_rob_items', 'gang_rob_items', 'Steal Item (Lottery)', 'hand', 40) end
-        if options.gangMember == true and options.invite ~= true and options.search ~= true and options.robCash ~= true and options.robItems ~= true then
-            addStatusOption('Your gang rank has no player robbery permissions')
-        end
         TriggerEvent('cm-playerdata:client:refreshInteractionMenu')
     end)
 end
-
-RegisterNetEvent('cm-gang:client:requestRobCash', function(targetServerId)
-    TriggerServerEvent('cm-gang:server:robCash', { target = targetServerId })
-end)
-
-RegisterNetEvent('cm-gang:client:requestRandomItemRobbery', function(targetServerId)
-    TriggerServerEvent('cm-gang:server:robRandomItem', { target = targetServerId })
-end)
-
-RegisterNetEvent('cm-gang:client:requestRobberyInventory', function(targetServerId, mode)
-    CreateThread(function()
-        local response = lib.callback.await('cm-gang:server:getRobberyInventory', false, tonumber(targetServerId), 'search')
-        if type(response) ~= 'table' or response.ok ~= true then
-            return lib.notify({ description = 'The inventory could not be searched.', type = 'error' })
-        end
-        gangSearchOpen = true
-        SetNuiFocus(true, true)
-        TriggerEvent('cm-hud:client:hideForUi', GANG_SEARCH_UI_REASON)
-        TriggerEvent('cm-chat:client:hideForUi', GANG_SEARCH_UI_REASON)
-        SendNUIMessage({ action = 'gangSearchOpen', items = response.items or {} })
-    end)
-end)
-
-RegisterNUICallback('closeGangSearch', function(_, cb)
-    gangSearchOpen = false
-    SetNuiFocus(false, false)
-    SendNUIMessage({ action = 'gangSearchClose' })
-    TriggerEvent('cm-hud:client:showAfterUi', GANG_SEARCH_UI_REASON)
-    TriggerEvent('cm-chat:client:showAfterUi', GANG_SEARCH_UI_REASON)
-    cb({ ok = true })
-end)
 
 RegisterNetEvent('cm-gang:client:notify', function(message, kind)
     if type(lib) == 'table' and type(lib.notify) == 'function' then
@@ -173,10 +108,5 @@ AddEventHandler('onClientResourceStop', function(resourceName)
     if resourceName ~= GetCurrentResourceName() then return end
     pendingGangInvite = nil
     targetGeneration = targetGeneration + 1
-    if gangSearchOpen then
-        gangSearchOpen = false
-        TriggerEvent('cm-hud:client:showAfterUi', GANG_SEARCH_UI_REASON)
-        TriggerEvent('cm-chat:client:showAfterUi', GANG_SEARCH_UI_REASON)
-    end
     clearOptions()
 end)

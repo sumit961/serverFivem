@@ -152,6 +152,21 @@ local CREATE_CHILD_TABLES = {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ]],
     [[
+        CREATE TABLE IF NOT EXISTS `cm_family_treasury_operations` (
+          `id`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          `reference`   VARCHAR(128) NOT NULL,
+          `family_id`   BIGINT UNSIGNED NOT NULL,
+          `direction`   ENUM('credit','debit') NOT NULL,
+          `amount`      BIGINT UNSIGNED NOT NULL,
+          `fingerprint` VARCHAR(96) NOT NULL,
+          `status`      ENUM('committed') NOT NULL DEFAULT 'committed',
+          `created_at`  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (`id`),
+          UNIQUE KEY `uq_treasury_op_reference` (`reference`),
+          KEY `idx_treasury_op_family` (`family_id`, `created_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ]],
+    [[
         CREATE TABLE IF NOT EXISTS `cm_family_log` (
           `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
           `family_id`    BIGINT UNSIGNED NOT NULL,

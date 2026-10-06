@@ -131,12 +131,12 @@ Config.Channels = {
 
     club = {
         id = 'club', label = 'CLUB', type = 'group', group = 'club',
-        color = '#b889ff', format = 'group'
+        color = '#ffe35b', format = 'group'
     },
 
     admin = {
         id = 'admin', label = 'Admin', type = 'staff', staff = true,
-        color = '#ff5cf7', format = 'admin'
+        color = '#ff5b5b', format = 'admin'
     },
 
     me = {

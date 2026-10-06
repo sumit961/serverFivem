@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CM Phone</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="root" class="hidden" aria-live="polite">
+  <div class="phone" id="phone">
+    <div class="status-bar">
+      <span id="clock" class="status-clock">--:--</span>
+      <span class="status-number" id="myNumber"></span>
+      <span class="status-signal" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+    </div>
+    <div class="screen" id="screen"></div>
+    <div id="toasts" class="toasts"></div>
+    <div id="modal" class="modal-layer hidden"></div>
+    <button class="home-bar" id="homeBtn" aria-label="Home"><span></span></button>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

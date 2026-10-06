@@ -94,35 +94,6 @@ local function addBank(src, amount, reason)
     return ok and result == true
 end
 
-local function chargePlayer(src, method, amount, reason)
-    amount = math.max(0, math.floor(tonumber(amount) or 0))
-    if amount == 0 then return true end
-    method = tostring(method or 'bank'):lower()
-
-    if method == 'cash' then
-        local current = getCash(src)
-        if current < amount then return false, ('Not enough cash. You need $%d.'):format(amount) end
-        if not removeCash(src, amount, reason) then return false, 'Cash payment failed.' end
-        return true
-    else
-        local current = getBank(src)
-        if current < amount then return false, ('Not enough bank funds. You need $%d.'):format(amount) end
-        if not removeBank(src, amount, reason) then return false, 'Bank payment failed.' end
-        return true
-    end
-end
-
-local function refundPlayer(src, method, amount, reason)
-    amount = math.max(0, math.floor(tonumber(amount) or 0))
-    if amount <= 0 then return true end
-    method = tostring(method or 'bank'):lower()
-    if method == 'cash' then
-        return addCash(src, amount, reason)
-    else
-        return addBank(src, amount, reason)
-    end
-end
-
 -- ============================================================
 -- Inventory Delivery & Check Helpers
 -- ============================================================
@@ -135,27 +106,44 @@ local function canCarry(src, itemName, count)
     return true
 end
 
-local function giveItem(src, itemName, count)
-    local invRes = Config.Inventory or 'cm-inventory'
-    if GetResourceState(invRes) == 'started' then
-        local ok, result = pcall(function()
-            return exports[invRes]:AddItem(src, itemName, count, {}, nil, 'cm_store_purchase')
-        end)
-        if ok and (result == true or (type(result) == 'number' and result > 0) or (type(result) == 'table' and (result.success or result.ok or result[1]))) then
-            return true
-        end
-    end
-
-    local itmRes = itemsResource()
-    if GetResourceState(itmRes) == 'started' then
-        local ok, result = pcall(function()
-            return exports[itmRes]:GiveCatalogItem(src, itemName, count)
-        end)
-        if ok and result == true then return true end
-    end
-
-    return false
+-- ============================================================
+-- Purchase settlement engine (journal table cm_store_purchases; see cm-core/shared/item_purchase.lua)
+-- ============================================================
+local PurchaseCfg = {
+    journal = 'cm_store_purchases', stockTable = 'cm_stores', stockKey = 'store_id', ownerColumn = 'owner_character_id',
+    ownedOnly = false, -- store stock is finite whether or not the store is owned
+    capacity = function() return math.floor(tonumber((Config.Ownership or {}).overstockLimit) or 8000) end,
+}
+local purchaseEngine
+local function getPurchaseEngine()
+    if purchaseEngine then return purchaseEngine end
+    if not MySQL then return nil end
+    local owners = CMItemPurchase.ownerDeps(exports, GetResourceState)
+    purchaseEngine = CMItemPurchase.new({
+        db = CMItemPurchase.mysqlDb(MySQL, PurchaseCfg), money = owners.money, items = owners.items,
+        log = function(...)
+            local parts = {}
+            for i = 1, select('#', ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+            print(('[%s] settlement: %s'):format(RESOURCE, table.concat(parts, ' ')))
+        end,
+    })
+    return purchaseEngine
 end
+
+-- Restart/periodic recovery of charged-but-unfinished orders (no player needed).
+CreateThread(function()
+    Wait(20000)
+    while true do
+        local engine = getPurchaseEngine()
+        if engine then
+            local ok, report = pcall(engine.recover, 60)
+            if ok and report.examined > 0 then
+                print(('[%s] purchase recovery: examined=%d completed=%d compensated=%d pending=%d'):format(RESOURCE, report.examined, report.completed, report.compensated, report.pending))
+            end
+        end
+        Wait(60000)
+    end
+end)
 
 -- ============================================================
 -- Database & Store Row Management
@@ -216,6 +204,8 @@ CreateThread(function()
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )]])
+
+    MySQL.query.await(CMItemPurchase.sqlFor(PurchaseCfg).ddl)
 
     for _, shop in ipairs(Config.Shops or {}) do
         local sid = tonumber(shop.id) or 1
@@ -543,7 +533,12 @@ RegisterNetEvent('cm-store:server:manageStore', function(data)
         if not removeBank(src, cost, 'store-restock-' .. storeId) then
             return notify(src, ('You need $%d in the bank to order stock.'):format(cost), 'error')
         end
-        currentStock = math.min(maxStock, currentStock + batch)
+        -- relative delta (never an absolute total from a stale read): composes with concurrent customer reservations
+        local added = MySQL.update.await('UPDATE cm_stores SET stock = LEAST(?, stock + ?) WHERE store_id = ? AND owner_character_id = ?', { maxStock, batch, storeId, charId })
+        if (tonumber(added) or 0) < 1 then
+            addBank(src, cost, 'store-restock-refund')
+            return notify(src, 'The stock order could not be applied. You were refunded.', 'error')
+        end
         notify(src, ('Ordered %d stock units for $%d.'):format(batch, cost), 'success')
     end
 
@@ -556,12 +551,16 @@ RegisterNetEvent('cm-store:server:manageStore', function(data)
         if not removeBank(src, cost, 'store-overstock-' .. storeId) then
             return notify(src, ('You need $%d in the bank for an overstock shipment.'):format(cost), 'error')
         end
-        currentStock = math.min(overstockLimit, currentStock + batch)
-        notify(src, ('Overstock shipment delivered! +%d units added (Total: %d).'):format(batch, currentStock), 'success')
+        local added = MySQL.update.await('UPDATE cm_stores SET stock = LEAST(?, stock + ?) WHERE store_id = ? AND owner_character_id = ?', { overstockLimit, batch, storeId, charId })
+        if (tonumber(added) or 0) < 1 then
+            addBank(src, cost, 'store-overstock-refund')
+            return notify(src, 'The stock order could not be applied. You were refunded.', 'error')
+        end
+        notify(src, ('Overstock shipment delivered! +%d units added.'):format(batch), 'success')
     end
 
-    MySQL.update.await('UPDATE cm_stores SET price_tier = ?, stock = ? WHERE store_id = ? AND owner_character_id = ?',
-        { tier, currentStock, storeId, charId })
+    MySQL.update.await('UPDATE cm_stores SET price_tier = ? WHERE store_id = ? AND owner_character_id = ?',
+        { tier, storeId, charId })
 
     local updatedCtx = buildStoreContext(src, storeId)
     updatedCtx.initialView = 'owner'
@@ -680,51 +679,61 @@ local function processCheckout(src, data)
         return false, ('This store is out of stock (%d units remaining). The owner needs to restock.'):format(availableStock)
     end
 
-    -- Payment deduction
-    local paid, payErr = chargePlayer(src, method, orderTotal, 'cm-store-order-' .. storeId)
-    if not paid then
-        return false, tostring(payErr or 'Payment failed.')
+    -- Shape limits of the inventory grant, checked BEFORE any money moves so they can never fail after payment.
+    if #verifiedItems > 24 then return false, 'Your basket has too many different items.' end
+    for _, item in ipairs(verifiedItems) do
+        if item.count > 10000 then return false, 'That quantity is too large.' end
     end
 
-    -- Deliver items
-    local refund = 0
-    local deliveredNames = {}
-    local deliveredUnits = 0
-
-    for _, item in ipairs(verifiedItems) do
-        if giveItem(src, item.name, item.count) then
-            deliveredUnits = deliveredUnits + item.count
-            deliveredNames[#deliveredNames + 1] = ('%dx %s'):format(item.count, item.label)
-        else
-            refund = refund + item.cost
+    local cid = characterId(src)
+    if not cid then return false, 'Your character could not be identified.' end
+    local account = method == 'cash' and 'cash' or 'bank'
+    if orderTotal > 0 then
+        -- friendly pre-check only; the money owner stays authoritative
+        local current = account == 'cash' and getCash(src) or getBank(src)
+        if current < orderTotal then
+            return false, account == 'cash' and ('Not enough cash. You need $%d.'):format(orderTotal) or ('Not enough bank funds. You need $%d.'):format(orderTotal)
         end
     end
 
-    if refund > 0 then
-        refundPlayer(src, method, refund, 'cm-store-refund-' .. storeId)
-        notify(src, ('Some items could not be delivered. $%d was refunded.'):format(refund), 'warning')
+    local engine = getPurchaseEngine()
+    if not engine then return false, 'The order could not be completed.' end
+
+    local lines = {}
+    for _, item in ipairs(verifiedItems) do lines[#lines + 1] = { item = item.name, amount = item.count } end
+
+    -- Durable, character-addressed settlement (cm-core/shared/item_purchase.lua): reserve all cart lines in one statement, journaled
+    -- debit, ONE all-or-nothing item grant for the whole cart, journaled refund, one terminal transition. Survives exceptions, lost
+    -- responses, disconnects and resource restarts; there is no partial delivery.
+    local result = engine.run({
+        reference = ('STORE-PUR-%d-%d-%06x'):format(cid, os.time(), (GetGameTimer() + math.random(0, 0xffff)) % 0xffffff),
+        character_id = cid,
+        scope_id = storeId,
+        account = account,
+        total = orderTotal,
+        units = totalUnits,
+        owner_pct = row.owner_character_id and ((Config.Ownership or {}).ownerRevenuePercent or 80) or 0,
+        items = lines,
+    })
+
+    if result.code == 'no_stock' then
+        return false, 'This store is out of stock. The owner needs to restock.'
+    elseif result.code == 'payment_failed' then
+        if result.reason == 'insufficient_funds' then
+            return false, account == 'cash' and ('Not enough cash. You need $%d.'):format(orderTotal) or ('Not enough bank funds. You need $%d.'):format(orderTotal)
+        end
+        return false, account == 'cash' and 'Cash payment failed.' or 'Bank payment failed.'
+    elseif result.code == 'pending' then
+        return false, 'Your order is still being processed. It will be settled automatically.'
+    elseif result.code == 'compensated' then
+        return false, result.refunded and 'Could not deliver items to your inventory. Full payment was refunded.' or 'The order could not be completed.'
+    elseif result.code ~= 'completed' then
+        return false, 'The order could not be completed.'
     end
 
-    local actualPaid = orderTotal - refund
-    if deliveredUnits == 0 then
-        return false, 'Could not deliver items to your inventory. Full payment was refunded.'
-    end
-
-    -- Deduct stock and route owner revenue
-    if actualPaid > 0 then
-        local ownerSharePercent = (Config.Ownership or {}).ownerRevenuePercent or 80
-        local ownerShare = math.floor(actualPaid * (ownerSharePercent / 100))
-        MySQL.update.await([[UPDATE cm_stores
-            SET stock = GREATEST(0, stock - ?),
-                business_balance = business_balance + IF(owner_character_id IS NOT NULL, ?, 0),
-                daily_income = daily_income + IF(owner_character_id IS NOT NULL, ?, 0),
-                weekly_income = weekly_income + IF(owner_character_id IS NOT NULL, ?, 0)
-            WHERE store_id = ?]],
-            { deliveredUnits, ownerShare, ownerShare, ownerShare, storeId })
-    end
-
-    local receipt = ('Purchased %s for $%d.'):format(table.concat(deliveredNames, ', '), actualPaid)
-    return true, receipt, actualPaid
+    local deliveredNames = {}
+    for _, item in ipairs(verifiedItems) do deliveredNames[#deliveredNames + 1] = ('%dx %s'):format(item.count, item.label) end
+    return true, ('Purchased %s for $%d.'):format(table.concat(deliveredNames, ', '), result.paid), result.paid
 end
 
 RegisterNetEvent('cm-store:server:checkoutOrder', function(data)
@@ -741,6 +750,8 @@ RegisterNetEvent('cm-store:server:checkoutOrder', function(data)
     OrderLocks[src] = nil
 
     if not ok then
+        -- Once settlement.run starts it never throws and resolves its own journal row, so an error here happened before anything was
+        -- reserved or charged (or inside the already-journaled settlement, which recovery completes). Nothing to undo.
         print(('[%s] Checkout error: %s'):format(RESOURCE, tostring(success)))
         TriggerClientEvent('cm-store:client:orderResult', src, { ok = false, message = 'Server error during checkout.' })
         return
@@ -759,4 +770,16 @@ AddEventHandler('playerDropped', function()
     local src = source
     OrderLocks[src] = nil
     RequestCooldowns[src] = nil
+end)
+
+-- Read-only authoritative catalog for the shared supply platform (cm-commercial-ownership derives
+-- wholesale cost from these base prices). Returns copies; callers cannot mutate the catalog.
+exports('GetCatalog', function()
+    local out = {}
+    for _, entry in ipairs(Catalog) do
+        if entry.enabled ~= false and (tonumber(entry.price) or 0) > 0 then
+            out[#out + 1] = { name = entry.name, label = entry.label, category = entry.category, price = entry.price }
+        end
+    end
+    return out
 end)

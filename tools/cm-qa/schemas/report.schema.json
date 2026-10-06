@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["runId", "startedAt", "result", "resources", "layers", "tests", "failures"],
+  "properties": {
+    "runId": {"type": "string"},
+    "startedAt": {"type": "string"},
+    "result": {"enum": ["PASS", "FAIL", "BLOCKED"]},
+    "resources": {"type": "array", "items": {"type": "string"}},
+    "client": {"type": "object"},
+    "layers": {"type": "object"},
+    "tests": {"type": "array"},
+    "failures": {"type": "array"}
+  }
+}

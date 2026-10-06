@@ -5,7 +5,8 @@ const App = {
     editingId: null,
     routeContext: null,
     loadingTimer: null,
-    resultTimer: null
+    resultTimer: null,
+    starting: false
 };
 
 const post = (name, body = {}) => fetch(`https://cm-license/${name}`, {
@@ -33,6 +34,52 @@ function artKind(...candidates) {
 }
 
 const KIND_LABEL = { ground: 'Ground Vehicle', boat: 'Watercraft', air: 'Aircraft' };
+
+// Replace these local files without changing the rendering logic. The SVG
+// companions are shipped as clean fallbacks until the matching WebP is added.
+const LICENSE_ART = {
+    driver: 'assets/driver.webp',
+    boat: 'assets/boat.webp',
+    air: 'assets/air.webp',
+    myLicenses: 'assets/my-licenses.webp',
+    passed: 'assets/test-passed.webp',
+    failed: 'assets/test-failed.webp'
+};
+
+const LICENSE_ART_FALLBACK = {
+    driver: 'assets/driver-placeholder.svg',
+    boat: 'assets/boat-placeholder.svg',
+    air: 'assets/air-placeholder.svg',
+    myLicenses: 'assets/my-licenses-placeholder.svg',
+    passed: 'assets/test-passed-placeholder.svg',
+    failed: 'assets/test-failed-placeholder.svg'
+};
+
+function paintArt(slotId, artKey, label) {
+    const slot = el(slotId);
+    if (!slot) return;
+
+    const image = document.createElement('img');
+    image.alt = '';
+    image.loading = 'eager';
+    image.src = LICENSE_ART[artKey] || '';
+
+    const fallback = document.createElement('span');
+    fallback.className = 'hero-art__fallback';
+    fallback.textContent = label || 'License Artwork';
+    slot.replaceChildren(image, fallback);
+    slot.classList.remove('is-fallback');
+
+    image.addEventListener('error', () => {
+        const fallbackPath = LICENSE_ART_FALLBACK[artKey];
+        if (fallbackPath && image.src.indexOf(fallbackPath) === -1) {
+            image.src = fallbackPath;
+            return;
+        }
+        image.hidden = true;
+        slot.classList.add('is-fallback');
+    });
+}
 
 /* ============================================================ hero artwork
  * Placeholder scenes drawn as SVG so the resource ships with no image assets.
@@ -166,8 +213,11 @@ function kindIcon(kind) {
     return `<svg viewBox="0 0 24 24" style="color: var(--accent)">${paths[kind]}</svg>`;
 }
 
-function paintHero(sceneId, kind) {
+function paintHero(sceneId, kind, artKey) {
     el(sceneId).innerHTML = heroScene(kind, sceneId);
+    const artSlot = sceneId === 'testHeroScene' ? 'testHeroArt' : 'resultHeroArt';
+    const label = artKey === 'passed' ? 'Test Passed' : artKey === 'failed' ? 'Test Failed' : KIND_LABEL[kind];
+    paintArt(artSlot, artKey, label);
 }
 
 /* ============================================================ dialog shell */
@@ -184,6 +234,7 @@ window.addEventListener('message', ({ data }) => {
         case 'adminSaved': return closeDialog('licenseEditor');
         case 'routeSaved': return closeDialog('adminMenu');
         case 'hideLoading': return hideLoadingScreen();
+        case 'forceClose': return forceClose();
         case 'builderHint': {
             const hint = el('builderHint');
             hint.textContent = data.message || '';
@@ -222,13 +273,19 @@ function closeMenu() {
     post('closeMenu');
 }
 
+function forceClose() {
+    App.starting = false;
+    if (App.currentDialog) closeDialog(App.currentDialog);
+}
+
 /* ============================================================ player UI */
 
 function showTestConfirmation(data) {
+    App.starting = false;
     const kind = artKind(data.category, data.license_type || data.licenseType);
     App.selectedLicense = data.license_type || data.licenseType;
 
-    paintHero('testHeroScene', kind);
+    paintHero('testHeroScene', kind, kind === 'ground' ? 'driver' : kind);
     el('testEyebrow').textContent = `Department of Transport · ${KIND_LABEL[kind]}`;
     el('testTitle').textContent = `${data.label || App.selectedLicense} Test`;
 
@@ -249,11 +306,15 @@ function showTestConfirmation(data) {
             <span class="spec-value${spec.plain ? ' plain' : ''}">${escapeHtml(spec.value)}</span>
         </div>`).join('');
 
+    el('startTestBtn').disabled = false;
     el('startTestBtn').onclick = () => startTest(App.selectedLicense);
     show('testConfirmation');
 }
 
 function startTest(licenseType) {
+    if (App.starting || !licenseType) return;
+    App.starting = true;
+    el('startTestBtn').disabled = true;
     showLoadingScreen();
     post('startTest', { licenseType });
 }
@@ -263,6 +324,7 @@ function cancelTest() {
 }
 
 function showMyLicenses(data) {
+    paintArt('licensesArt', 'myLicenses', 'My Licenses');
     const list = el('licensesList');
     list.innerHTML = '';
 
@@ -297,7 +359,7 @@ function showTestResult(data) {
     const kind = artKind(data.category, data.licenseType);
     const passed = Boolean(data.passed);
 
-    paintHero('resultHeroScene', kind);
+    paintHero('resultHeroScene', kind, passed ? 'passed' : 'failed');
     el('resultEyebrow').textContent = `Examination Result · ${KIND_LABEL[kind]}`;
     el('resultVerdict').textContent = passed ? 'Test Passed' : 'Test Failed';
 

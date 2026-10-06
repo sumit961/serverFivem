@@ -21,6 +21,7 @@ ui_page 'web/index.html'
 files {
     'web/index.html',
     'web/app.js',
+    'web/cm-branding.js',
     'web/cm-theme.css',
     'web/cm-dashboard.css',
     'web/cm-organization.css',
@@ -28,6 +29,7 @@ files {
     'web/cm-organization-icons.css',
     'web/cm-organization.js',
     'web/cm-components.css',
+    'web/cm-aaa.css',
     'web/cm-layout.css',
     'web/cm-armory.css',
     'web/cm-interact.css',

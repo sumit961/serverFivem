@@ -9,10 +9,55 @@ Config.MaxCharacterAge = Config.MaxCharacterAge or 100
 Config.SelectorInitialLoadingMs = Config.SelectorInitialLoadingMs or 1800
 Config.SpawnTransitionLoadingMs = Config.SpawnTransitionLoadingMs or 2500
 
+-- ============================================================
+-- CANONICAL CHARACTER FLOW STAGE
+-- ============================================================
+-- One physical room for Character Selector + Identity/Name creator preview +
+-- Appearance creator. Do not hardcode this coordinate separately anywhere
+-- else — Selector (client/main.lua's FixedGroundPreview/CreationPreviewScene
+-- and data/selector_scene.json, loaded server-side by server/main.lua's
+-- defaultSelectorScene), Identity (Config.CharacterCreatorRoom below, used by
+-- client/creator.lua's gender preview) and Appearance (client/appearance.lua's
+-- AppearanceConfig.creatingCoords) all derive from this one table so the
+-- player is never visibly teleported between rooms across the character flow.
+--
+-- anchor is the raw doorway/reference coordinate the location was supplied
+-- as. standing is the resolved point actually used to place the ped: nudged
+-- 0.7m in from the doorway along the anchor's own heading so the ped stands
+-- clearly inside the room rather than centered on the door threshold.
+-- camera is a first-pass position/rotation computed by transferring the
+-- previous stage's hand-tuned camera-to-ped offset (direction, distance,
+-- height) onto this anchor's heading -- it has NOT been visually confirmed
+-- against this room's real geometry. MANUAL FIVEM TEST REQUIRED: walk in and
+-- confirm the ped is not inside a wall/door and the camera has a clear line
+-- of sight; use this resource's own live Scene Editor
+-- (Config.EnableSelectorSceneEditor, already built in) to nudge standing/
+-- camera in place and save back to data/selector_scene.json if needed.
+Config.CharacterStage = Config.CharacterStage or {
+    anchor = vector4(-715.4086, -2304.8276, 39.3306, 228.1953),
+    standing = vector4(-714.8868, -2305.2942, 39.3306, 228.1953),
+    camera = vector4(-711.3567, -2308.0086, 40.3200, 228.1953),
+    camrotation = vector3(-3.8893, 0.0, 47.6624),
+    fov = 50.0
+}
+
+-- Single canonical creator-room location, shared by client/creator.lua (Basic
+-- Identity gender preview) and client/appearance.lua (Appearance editing).
+-- PHASE 4C: previously this vector4 only existed as a private local inside
+-- appearance.lua (AppearanceConfig.creatingCoords) — Identity now needs the
+-- exact same coordinate so the preview ped it prepares can be reused by
+-- Appearance without a second teleport/model flash on handoff.
+-- CHARACTER STAGE RELOCATION: now derives from Config.CharacterStage.standing
+-- instead of its own separate hardcoded vector4, so Identity/Appearance use
+-- the exact same physical room as the Selector above.
+Config.CharacterCreatorRoom = Config.CharacterCreatorRoom or Config.CharacterStage.standing
+-- Where a brand-new character is actually placed after Save & Continue completes.
+Config.CharacterFirstSpawnCoords = Config.CharacterFirstSpawnCoords or vector4(-255.93, -983.88, 30.22, 250.85)
+
 -- Admin/production safety. Commands below still require ACE/cm-auth permissions.
 Config.EnableDevCommands = Config.EnableDevCommands or false
 -- Production logging: keep false on live server. Set true only when debugging character selector issues.
-Config.Debug = Config.Debug == true
+Config.Debug = true -- TEMP: black-screen spawn-flow diagnosis, revert after
 Config.VerboseLogs = Config.VerboseLogs == true
 Config.AdminPermission = Config.AdminPermission or 'characters.admin'
 Config.EditorPermission = Config.EditorPermission or 'characters.selector.edit'

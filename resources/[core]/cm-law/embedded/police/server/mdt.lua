@@ -655,6 +655,8 @@ lib.callback.register('cm-police:server:mdtVehicleSearch', function(src, plate)
         FROM cm_police_impound_evidence WHERE vehicle_id = ? ORDER BY id DESC LIMIT 1]], { row.id })
     local registration = LawNormalizePlate(row.license_number)
     local bolos = registration and LawGetActiveBoloMatches(registration) or {}
+    local legal = {}
+    pcall(function() legal = exports[PoliceConfig.VehiclesResource]:GetVehicleLegalStatus(tonumber(row.id)) or {} end)
     return {
         plate = row.plate,
         model = tostring(row.model or ''),
@@ -667,6 +669,8 @@ lib.callback.register('cm-police:server:mdtVehicleSearch', function(src, plate)
         -- location leak.
         licenseNumber = registration,
         registrationNumber = registration,
+        registrationStatus = legal.registrationStatus, registrationExpiresAt = legal.registrationExpiresAt,
+        insuranceStatus = legal.insuranceStatus, insuranceExpiresAt = legal.insuranceExpiresAt,
         bolo = bolos[1],
         bolos = bolos,
         impound = impound and { fee = tonumber(impound.fee), organizationId = tostring(impound.organization_id or 'police'),

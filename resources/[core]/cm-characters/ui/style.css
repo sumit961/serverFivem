@@ -19,7 +19,7 @@ html, body {
 }
 
 /* ── Transparency: the live GTA camera is the background ── */
-html, body, #app, #slots-screen, .selector-page, .selector-layout, .stage-window {
+html, body, #app, #slots-screen, .selector-page {
     background: transparent !important;
     background-color: transparent !important;
     background-image: none !important;
@@ -43,70 +43,33 @@ body::before, body::after,
 #app::before, #app::after,
 #slots-screen::before, #slots-screen::after,
 .selector-page::before, .selector-page::after,
-.selector-layout::before, .selector-layout::after,
-.stage-window::before, .stage-window::after,
-.scene-bg, .scene-shade, .page-noise,
-.headline-ghost, .stage-frame {
+.scene-bg, .scene-shade, .page-noise {
     display: none !important;
     content: none !important;
     opacity: 0 !important;
     background: none !important;
 }
 
-/* ── Layout ── */
+/* ── Layout: left panel over the live world, no enclosing dashboard card ── */
 .selector-page {
     position: relative;
     z-index: 2;
     width: 100vw;
     height: 100vh;
     margin: 0;
-    padding: 24px 48px 28px;
+    padding: 0;
     background: transparent !important;
-}
-
-.top-ribbon {
-    display: grid;
-    grid-template-columns: 1fr auto auto auto 1fr;
-    align-items: center;
-    gap: 18px;
-}
-
-.ribbon-line {
-    height: 1px;
-    border-radius: 999px;
-    background: linear-gradient(90deg, rgba(255,255,255,0.18), rgba(255,255,255,0.04));
-}
-
-.ribbon-meta,
-.ribbon-logo {
-    text-transform: uppercase;
-    font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 0.18em;
-    color: rgba(255,255,255,0.72);
-}
-
-.ribbon-logo {
-    color: var(--cm-primary);
-    font-family: var(--cm-font);
-    font-size: 18px;
-}
-
-.selector-headline {
-    text-align: center;
-    position: relative;
-    margin-top: 18px;
-    pointer-events: none !important;
 }
 
 .eyebrow {
     position: relative;
     z-index: 1;
     text-transform: uppercase;
-    font-size: 12px;
-    letter-spacing: 0.22em;
-    font-weight: 900;
-    color: rgba(255,255,255,0.62);
+    font-size: 11px;
+    letter-spacing: 2.5px;
+    font-weight: 800;
+    color: var(--cm-cyan, #00E5FF);
+    text-shadow: var(--cm-glow, 0 0 16px rgba(0,229,255,0.3));
 }
 
 h1, h2, h3 {
@@ -114,265 +77,258 @@ h1, h2, h3 {
     text-transform: uppercase;
 }
 
-.selector-headline h1 {
-    position: relative;
-    z-index: 1;
-    margin-top: 10px;
-    font-size: clamp(36px, 5vw, 70px);
-    letter-spacing: -0.03em;
-    line-height: 0.95;
-}
-
 .subtitle {
     position: relative;
     z-index: 1;
-    margin-top: 14px;
-    color: rgba(255,255,255,0.68);
-    font-size: 15px;
+    margin-top: 10px;
+    color: rgba(255,255,255,0.62);
+    font-size: 13px;
 }
 
-.selector-layout {
-    width: 100%;
-    height: calc(100vh - 210px);
-    margin-top: 28px;
-    display: grid;
-    grid-template-columns: 340px 1fr 390px;
-    gap: 34px;
-    align-items: center;
-    background: transparent !important;
+/* =============================================================
+   CHARACTER SELECTOR — AUTHORITATIVE LAYOUT
+   Single source of truth for the visible selector geometry. Every rule
+   the selector needs (fade, panel, header, list, cards, details, CTA)
+   lives HERE and only here — do not add a second/competing rule for
+   .selector-panel / .character-list / .character-card / .selected-info /
+   .selector-cta anywhere else in this file. All sizing is viewport-relative
+   (vw/vh via clamp()) with sensible floors/ceilings only — there is no
+   ~450-520px cap on the panel or its content on large/ultrawide displays.
+   Calibrated at 1366x768, 1920x1080, 2560x1440, 3440x1440.
+   ============================================================= */
+
+/* World-integration fade behind the left panel. This is a resource-local
+   gradient (not the shared .cm-hero-fade/.cm-fade-panel primitives) because
+   the exact stops/width here are a deliberate, explicit design decision for
+   this screen; it stays scoped to this file, not duplicated elsewhere. */
+.selector-fade {
+    position: absolute;
+    inset: 0;
+    width: 48vw;
+    height: 100vh;
+    pointer-events: none;
+    background: linear-gradient(
+        90deg,
+        rgba(7, 19, 25, 0.97) 0%,
+        rgba(10, 28, 36, 0.92) 38%,
+        rgba(10, 28, 36, 0.72) 62%,
+        rgba(10, 28, 36, 0.20) 84%,
+        transparent 100%
+    );
+}
+
+/* Outer panel footprint. 42vw with NO low max-width cap — this is what was
+   wrong before (a clamp(360px, 27vw, 520px) cap made the panel tiny on
+   1440p/ultrawide). Comes after .selector-fade in DOM order so it always
+   renders above it. */
+.selector-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 42vw;
+    height: 100vh;
+    padding: clamp(58px, 7vh, 110px) 0 clamp(58px, 7vh, 110px) clamp(48px, 5vw, 110px);
+    display: flex;
+    flex-direction: column;
+}
+
+/* Actual readable content column. 30vw, no cap — intentionally narrower
+   than the 42vw fade/panel footprint so there is breathing room before the
+   fade dissolves into the live GTA world on the right. */
+.selector-content {
+    width: 30vw;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.selector-header .eyebrow {
+    font-size: clamp(12px, 0.65vw, 17px);
+    letter-spacing: 3px;
+}
+
+.selector-header h1 {
+    margin-top: 10px;
+    font-family: var(--cm-font-display, var(--cm-font));
+    font-size: clamp(42px, 3.1vw, 78px);
+    line-height: 0.95;
+    font-weight: 900;
+    letter-spacing: -0.01em;
+    text-shadow: 0 4px 18px rgba(0,0,0,0.5);
+}
+
+.selector-header .subtitle {
+    font-size: clamp(13px, 0.8vw, 18px);
+    margin-bottom: clamp(20px, 2.4vh, 32px);
 }
 
 .character-list {
-    width: 340px;
     display: grid;
     grid-template-columns: 1fr;
-    gap: 14px;
-    align-self: center;
-    justify-self: start;
+    gap: clamp(10px, 1vh, 16px);
+    max-height: 40vh;
+    overflow-y: auto;
+    padding-right: 4px;
 }
 
 /* ── Character Cards ── */
-.character-card,
-.details-panel,
-.creator-card {
-    background: var(--cm-panel-soft) !important;
-    border: 1px solid var(--cm-border-soft) !important;
-    box-shadow: 0 18px 60px rgba(0,0,0,0.22) !important;
-}
-
 .character-card {
     position: relative;
-    min-height: 190px;
-    padding: 22px;
-    border-radius: 28px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    height: clamp(76px, 7vh, 112px);
+    padding: clamp(18px, 1.3vw, 30px);
+    border-radius: 3px;
+    background: rgba(10, 22, 29, 0.58);
+    border: 1px solid var(--cm-border-soft, rgba(143,190,220,0.14));
+    border-left: 4px solid transparent;
     color: var(--cm-text-strong);
     text-align: left;
     cursor: pointer;
-    overflow: hidden;
-    transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+    transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
 }
 
-.character-card::after {
-    content: "";
-    position: absolute;
-    inset: auto -40px -70px auto;
-    width: 180px;
-    height: 180px;
-    border-radius: 999px;
-    background: rgba(var(--cm-primary-rgb), 0.12);
-    opacity: 0.9;
-}
-
-.character-card:hover,
-.character-card.active {
-    transform: translateY(-4px);
-    border-color: rgba(var(--cm-primary-rgb), 0.72) !important;
-    background: var(--cm-panel-hover) !important;
+.character-card:hover {
+    background: rgba(16, 34, 43, 0.82);
+    transform: translateY(-1px);
 }
 
 .character-card.active {
-    box-shadow: 0 24px 90px rgba(var(--cm-primary-rgb), 0.18) !important;
+    background: linear-gradient(
+        90deg,
+        rgba(0, 229, 255, 0.18) 0%,
+        rgba(0, 229, 255, 0.08) 48%,
+        rgba(0, 229, 255, 0.01) 80%,
+        transparent 100%
+    );
+    border-left: 4px solid #00E5FF;
+    border-color: rgba(0, 229, 255, 0.22);
+    box-shadow: 0 4px 22px rgba(0, 229, 255, 0.12);
+}
+
+.character-card.active:hover {
+    transform: none;
 }
 
 .card-topline {
-    position: relative;
-    z-index: 1;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 11px;
+    font-size: clamp(10px, 0.6vw, 14px);
     text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: rgba(255,255,255,0.62);
+    letter-spacing: 0.12em;
+    color: rgba(255,255,255,0.56);
     font-weight: 900;
 }
 
-.card-topline strong { color: var(--cm-primary); }
-
-.avatar-badge,
-.create-plus {
-    position: relative;
-    z-index: 1;
-    margin-top: 18px;
-    width: 58px;
-    height: 58px;
-    border-radius: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 900;
-    font-size: 28px;
-    background: linear-gradient(135deg, rgba(0,140,255,0.9), rgba(0,229,255,0.72));
-    box-shadow: 0 12px 30px rgba(0,140,255,0.25);
-}
-
-.avatar-badge.female {
-    background: linear-gradient(135deg, rgba(196,111,255,0.92), rgba(0,229,255,0.72));
-}
-
-.create-plus {
-    font-size: 42px;
-    background: rgba(var(--cm-primary-rgb), 0.08);
-    border: 1px solid var(--cm-border-soft);
-    box-shadow: none;
+.card-topline strong {
+    color: var(--cm-cyan, #00E5FF);
+    text-shadow: 0 0 10px rgba(0, 229, 255, 0.35);
 }
 
 .character-card h3 {
-    position: relative;
-    z-index: 1;
-    margin-top: 18px;
-    font-size: 27px;
-    line-height: 0.95;
-    letter-spacing: -0.02em;
+    margin-top: 6px;
+    font-size: clamp(18px, 1.15vw, 27px);
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -0.01em;
 }
 
 .character-card p {
-    position: relative;
-    z-index: 1;
-    margin-top: 10px;
-    color: rgba(255,255,255,0.66);
-    font-size: 13px;
-}
-
-.mini-stats {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-top: 20px;
-}
-
-.mini-stats span {
-    padding: 8px 10px;
-    border-radius: 999px;
-    background: rgba(var(--cm-primary-rgb), 0.08);
-    color: rgba(255,255,255,0.82);
-    font-size: 12px;
-    font-weight: 800;
+    margin-top: 4px;
+    color: rgba(255,255,255,0.6);
+    font-size: clamp(11px, 0.65vw, 15px);
 }
 
 .create-card {
-    border-style: dashed !important;
-    opacity: 0.92;
+    border-style: dashed;
+    background: rgba(16, 34, 43, 0.3);
 }
 
-/* ── Stage window (GTA ped shows here — keep fully transparent) ── */
-.stage-window {
-    display: block !important;
-    visibility: hidden !important;
-    opacity: 0 !important;
-    min-height: 100% !important;
-    border: 0 !important;
-    outline: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    pointer-events: none !important;
+/* ── Selected character info (compact — not a dashboard, not a card wall) ── */
+.selected-info {
+    position: relative;
+    margin-top: clamp(20px, 2.6vh, 32px);
+    padding-top: clamp(16px, 2vh, 24px);
 }
 
-.stage-window, .stage-window * { pointer-events: none !important; }
-
-/* ── Details Panel ── */
-.details-panel {
-    width: 390px;
-    align-self: center;
-    justify-self: end;
-    border-radius: 30px;
-    padding: 30px;
+.selected-info::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(0, 229, 255, 0.35), rgba(0, 229, 255, 0.05) 60%, transparent);
 }
 
-.details-kicker {
+.selected-name {
+    font-size: clamp(24px, 1.6vw, 36px);
+    font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 0.18em;
-    font-size: 11px;
-    font-weight: 900;
-    color: rgba(255,255,255,0.56);
+    letter-spacing: -0.01em;
 }
 
-.details-panel h2 {
-    margin-top: 12px;
-    font-size: 42px;
-    line-height: 0.98;
-    letter-spacing: -0.03em;
+.selected-meta {
+    margin-top: 4px;
+    color: rgba(255,255,255,0.6);
+    font-size: clamp(11px, 0.7vw, 15px);
 }
 
-.details-id {
-    margin-top: 12px;
-    color: rgba(255,255,255,0.64);
-    font-size: 13px;
+.selected-stats {
+    margin-top: clamp(14px, 2vh, 22px);
+    display: flex;
+    gap: clamp(20px, 2.6vw, 40px);
 }
 
-.stats-grid {
-    margin-top: 26px;
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-}
-
-.stat-card {
-    padding: 16px;
-    border-radius: 18px;
-    background: rgba(var(--cm-primary-rgb), 0.06);
-    border: 1px solid var(--cm-border-soft);
-}
-
-.stat-card span,
-.detail-lines span {
+.selected-stat span {
     display: block;
     text-transform: uppercase;
-    letter-spacing: 0.13em;
-    font-size: 10px;
+    letter-spacing: 0.12em;
+    font-size: clamp(10px, 0.6vw, 13px);
     font-weight: 900;
-    color: rgba(255,255,255,0.52);
+    color: var(--cm-text-muted, #829DAE);
 }
 
-.stat-card strong {
+.selected-stat strong {
     display: block;
-    margin-top: 8px;
-    font-size: 20px;
+    margin-top: 6px;
+    font-size: clamp(18px, 1.2vw, 28px);
+    font-weight: 800;
     color: var(--cm-text-strong);
 }
 
-.detail-lines {
-    margin-top: 22px;
-    display: grid;
-    gap: 11px;
+#details-cash,
+#details-bank {
+    color: var(--cm-green, #2ECC71);
+    text-shadow: 0 0 10px rgba(46, 204, 113, 0.25);
 }
 
-.detail-lines div {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding-bottom: 11px;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
+/* ── Enter City CTA ── */
+.selector-cta {
+    margin-top: clamp(28px, 4vh, 54px);
+    width: 100%;
+    height: clamp(64px, 6.4vh, 92px);
+    padding: 0 clamp(24px, 2vw, 36px);
+    font-size: clamp(14px, 0.9vw, 20px);
+    font-weight: 900;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    box-shadow: 0 10px 30px rgba(255, 199, 0, 0.22);
 }
 
-.detail-lines strong {
-    font-size: 13px;
-    color: rgba(255,255,255,0.88);
+.selector-cta:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
-/* ── Buttons ── */
+.btn-icon {
+    font-size: 18px;
+    line-height: 1;
+}
+/* ============================================================= */
+
 .primary-btn,
 .secondary-btn {
     width: 100%;
@@ -411,13 +367,11 @@ h1, h2, h3 {
 }
 
 /* ── Allow pointer events on interactive elements only ── */
-.top-ribbon,
-.selector-headline,
+.selector-panel,
 .character-list,
 .character-card,
-.details-panel,
-.creator-modal,
-.creator-card,
+.selected-info,
+.creator-panel,
 .music-toggle,
 .toast,
 button,
@@ -429,71 +383,156 @@ select {
 /* ── Music toggle ── */
 .music-toggle {
     position: absolute;
-    right: 48px;
+    right: 32px;
     bottom: 28px;
     z-index: 5;
-    min-width: 128px;
-    min-height: 42px;
-    border: 1px solid var(--cm-border-soft);
-    border-radius: 999px;
-    background: var(--cm-panel-soft);
-    color: rgba(255,255,255,0.82);
-    font-weight: 900;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    cursor: pointer;
+    width: 36px;
+    height: 36px;
+    min-height: 0;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    line-height: 1;
+    border-radius: 50%;
+    color: var(--cm-cyan, #00E5FF);
 }
 
-/* ── Creator Modal ── */
-.creator-modal {
+.music-toggle[aria-pressed="true"] {
+    color: rgba(255,255,255,0.4);
+}
+
+/* =============================================================
+   CHARACTER CREATOR — IDENTITY — AUTHORITATIVE LAYOUT
+   Same composition family as the selector: a fade panel on the left over
+   the live GTA world/preview, no centered website modal. Single source of
+   truth for this screen's geometry — do not add a second competing rule
+   for .creator-panel/.creator-form/.creator-cta elsewhere in this file.
+   ============================================================= */
+.creator-screen {
     position: relative;
-    z-index: 6;
-    width: 100%;
-    height: 100%;
+    width: 100vw;
+    height: 100vh;
+    background: transparent !important;
+}
+
+.creator-fade {
+    position: absolute;
+    inset: 0;
+    width: 48vw;
+    height: 100vh;
+    pointer-events: none;
+    background: linear-gradient(
+        90deg,
+        rgba(7, 19, 25, 0.97) 0%,
+        rgba(10, 28, 36, 0.92) 38%,
+        rgba(10, 28, 36, 0.72) 62%,
+        rgba(10, 28, 36, 0.20) 84%,
+        transparent 100%
+    );
+}
+
+.creator-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 42vw;
+    height: 100vh;
+    padding: clamp(58px, 7vh, 110px) 0 clamp(58px, 7vh, 110px) clamp(48px, 5vw, 110px);
     display: flex;
-    align-items: center;
+    flex-direction: column;
     justify-content: center;
 }
 
-.creator-card {
-    width: min(440px, 92vw);
-    border-radius: 30px;
-    padding: 34px;
+.creator-content {
+    width: 30vw;
+    display: flex;
+    flex-direction: column;
 }
 
-.creator-card h1 {
+.creator-header .eyebrow {
+    font-size: clamp(12px, 0.65vw, 17px);
+    letter-spacing: 3px;
+}
+
+.creator-header h1 {
     margin-top: 10px;
-    font-size: 46px;
-    line-height: 0.95;
+    font-family: var(--cm-font-display, var(--cm-font));
+    font-size: clamp(38px, 2.8vw, 64px);
+    line-height: 0.98;
+    font-weight: 900;
+    letter-spacing: -0.01em;
+    text-shadow: 0 4px 18px rgba(0,0,0,0.5);
 }
 
-.creator-card label {
-    display: block;
-    margin: 16px 0 8px;
-    color: rgba(255,255,255,0.76);
-    font-size: 12px;
-    font-weight: 800;
+.creator-header .subtitle {
+    font-size: clamp(13px, 0.8vw, 18px);
+    margin-bottom: clamp(24px, 3vh, 40px);
 }
 
-.creator-card input,
-.creator-card select {
+.creator-form .cm-label:not(:first-child) {
+    margin-top: 16px;
+}
+
+.creator-form .input-wrap {
+    min-height: 54px;
+    display: flex;
+    align-items: center;
+    padding-left: 16px;
+    border-radius: 2px;
+    border: 1px solid rgba(0, 229, 255, 0.22);
+    background: rgba(16, 34, 43, 0.75);
+    transition: border-color var(--cm-fast, 120ms ease), box-shadow var(--cm-fast, 120ms ease), background var(--cm-fast, 120ms ease);
+}
+
+.creator-form .input-wrap:focus-within {
+    border-color: var(--cm-cyan, #00e5ff);
+    box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.10);
+    background: rgba(16, 34, 43, 0.92);
+}
+
+.creator-form .input-wrap .cm-input,
+.creator-form .input-wrap .cm-select {
+    min-height: 52px;
     width: 100%;
-    height: 50px;
-    border: 1px solid var(--cm-border-soft);
-    border-radius: 14px;
-    padding: 0 14px;
-    background: rgba(var(--cm-primary-rgb), 0.08);
-    color: var(--cm-text-strong);
+    border: 0;
+    box-shadow: none;
+    padding: 0 16px 0 0;
+    background: transparent;
+    color: var(--cm-text, #fff);
     font-size: 14px;
+    border-radius: 0;
 }
 
-.creator-card input:focus,
-.creator-card select:focus {
-    border-color: rgba(0,229,255,0.9);
-    box-shadow: 0 0 0 4px rgba(0,229,255,0.15);
+.creator-form .input-wrap .cm-input:focus,
+.creator-form .input-wrap .cm-select:focus {
+    border: 0;
+    box-shadow: none;
+    background: transparent;
 }
 
-.creator-card option { color: #111; }
+.creator-form .input-wrap .cm-select option {
+    color: #111;
+}
+
+.creator-form .btn-container {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: clamp(24px, 3vh, 36px);
+}
+
+.creator-cta {
+    width: 100%;
+    height: clamp(58px, 6vh, 76px);
+    padding: 0 clamp(24px, 2vw, 32px);
+    font-size: clamp(13px, 0.85vw, 16px);
+    font-weight: 900;
+    letter-spacing: 1.1px;
+    text-transform: uppercase;
+}
 
 /* ── Toast notifications ── */
 .toast {
@@ -684,14 +723,20 @@ select {
 
 .editor-card.is-hidden-for-preview { opacity: 0; pointer-events: none; }
 
-/* ── Full-screen loading overlay ── */
+/* ── Full-screen loading overlay — AUTHORITATIVE, single centered
+   composition (not a corner-anchored split layout). Same family as
+   Login/Selector/Identity/Appearance: deep navy, cyan glow, no purple, no
+   build/version/telemetry text — only the shared branding string + real
+   staged-progress text/percent from app.js's setCreationLoading(). ── */
 .creation-loading {
     position: fixed !important;
     inset: 0 !important;
     z-index: 2147483000 !important;
-    display: block !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
     background:
-        radial-gradient(circle at 50% 28%, rgba(0,229,255,0.20), transparent 30%),
+        radial-gradient(circle at 50% 42%, rgba(0,229,255,0.16), transparent 42%),
         linear-gradient(135deg, rgba(5,6,10,0.99), rgba(12,13,21,0.98)) !important;
     color: var(--cm-text-strong);
 }
@@ -699,34 +744,36 @@ select {
 .creation-loading.hidden { display: none !important; }
 .creation-loading-card, .creation-spinner { display: none !important; }
 
-.loading-brand {
-    position: absolute;
-    left: 54px;
-    top: 46px;
-    display: grid;
-    gap: 8px;
-    text-transform: uppercase;
+.loading-center {
+    position: relative;
+    z-index: 1;
+    width: min(560px, 86vw);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
 }
 
-.loading-brand span {
-    font-size: 12px;
+.loading-brand-mark {
+    font-size: 11px;
     font-weight: 900;
-    letter-spacing: 0.24em;
-    color: rgba(255,255,255,0.55);
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    color: var(--cm-cyan, #00E5FF);
+    text-shadow: 0 0 16px rgba(0, 229, 255, 0.4);
+    margin-bottom: 14px;
 }
 
-.loading-brand strong {
-    font-family: var(--cm-font);
-    font-size: clamp(34px, 5vw, 72px);
-    line-height: 0.92;
-    letter-spacing: -0.04em;
-}
-
-.loading-bottom {
-    position: absolute;
-    left: 54px;
-    right: 54px;
-    bottom: 44px;
+.loading-headline {
+    display: block;
+    font-family: var(--cm-font-display, var(--cm-font));
+    font-size: clamp(28px, 3.2vw, 46px);
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+    text-shadow: 0 4px 18px rgba(0,0,0,0.5);
+    margin-bottom: clamp(28px, 4vh, 44px);
 }
 
 .loading-copy {
@@ -734,19 +781,20 @@ select {
     justify-content: space-between;
     align-items: flex-end;
     gap: 18px;
-    margin-bottom: 12px;
+    width: 100%;
+    margin-bottom: 10px;
     text-transform: uppercase;
-    font-weight: 900;
-    letter-spacing: 0.12em;
+    font-weight: 800;
+    letter-spacing: 0.1em;
 }
 
-.loading-copy span { color: rgba(255,255,255,0.72); font-size: 12px; }
+.loading-copy span { color: rgba(255,255,255,0.6); font-size: 11px; }
 
 .loading-copy strong {
     font-family: var(--cm-font);
-    font-size: 34px;
-    letter-spacing: -0.02em;
-    color: var(--cm-primary);
+    font-size: 20px;
+    letter-spacing: -0.01em;
+    color: var(--cm-cyan, #00E5FF);
 }
 
 .loading-track {
@@ -762,24 +810,16 @@ select {
     width: 0%;
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, var(--cm-blue), var(--cm-primary));
+    background: linear-gradient(90deg, var(--cm-cyan, #00E5FF), var(--cm-yellow, #FFC700));
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
     transition: width 0.18s ease;
 }
 
-/* ── Responsive ── */
-@media (max-width: 1200px) {
-    .selector-page { padding-left: 28px !important; padding-right: 28px !important; }
-    .selector-layout { grid-template-columns: 300px 1fr 340px !important; gap: 22px !important; }
-    .character-list { width: 300px !important; }
-    .details-panel { width: 340px !important; }
-}
+/* ── Responsive: same left-panel-over-world composition at every desktop
+   resolution — the panel width is already clamp()-bound above, so this only
+   trims padding/height on short windows instead of re-flowing the layout. ── */
 
 @media (max-width: 980px) {
-    .top-ribbon { grid-template-columns: 1fr; justify-items: center; }
-    .ribbon-line { width: 100%; }
-    .selector-layout { grid-template-columns: 1fr !important; margin-top: 32px !important; }
-    .character-list { width: 100% !important; grid-template-columns: 1fr; }
-    .stage-window { min-height: 360px; }
     .music-toggle { right: 20px !important; }
     .editor-card { left: 14px; width: 360px; max-height: calc(100vh - 86px); }
 }
@@ -1022,8 +1062,9 @@ input[type="range"].cm-range {
     max-width: 980px;
     max-height: 90vh;
     overflow-y: auto;
+    /* backdrop-filter removed (project rule — see /AGENTS.md); background is
+       already near-opaque so no visual compensation is needed. */
     background: var(--hud-panel, rgba(16, 34, 43, 0.95));
-    backdrop-filter: blur(8px);
     border: 1px solid rgba(0, 229, 255, 0.15);
     border-left: 3px solid var(--hud-cyan, #00E5FF);
     border-radius: 4px;
@@ -1384,8 +1425,9 @@ input[type="range"].cm-range {
     position: relative;
     width: 100%;
     max-width: 460px;
+    /* backdrop-filter removed (project rule — see /AGENTS.md); background is
+       already near-opaque so no visual compensation is needed. */
     background: var(--hud-panel, rgba(16, 34, 43, 0.95));
-    backdrop-filter: blur(8px);
     border: 1px solid rgba(0, 229, 255, 0.15);
     border-left: 3px solid var(--hud-cyan, #00E5FF);
     border-radius: 4px;

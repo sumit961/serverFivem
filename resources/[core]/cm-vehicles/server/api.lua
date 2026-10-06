@@ -330,6 +330,11 @@ function A.GetIntegrationContract()
                 'ServiceVehicle', 'GetLentKeys', 'HasRacingHarness',
                 'InstallRacingHarness', 'SaveVehicleModsAuthorized', 'SaveOrganizationFleetMods',
             },
+            legal = {
+                'GetVehicleLegalStatus', 'GetVehicleLegalStatusByRegistration', 'IssueVehicleLicense',
+                'RevokeVehicleRegistration', 'ReinstateVehicleRegistration', 'OnVehicleOwnershipChanged',
+                'QuoteVehicleLegalServices', 'GetPlayerVehicleLegalOverview', 'PurchaseVehicleLegalService',
+            },
             adminVehicles = {
                 'SpawnAdminVehicle', 'DeleteAdminVehicle', 'DeleteAllAdminVehicles',
                 'IsAdminVehicle', 'SetAdminVehicleAccess', 'ListAdminVehicles',

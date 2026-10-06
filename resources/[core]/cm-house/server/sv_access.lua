@@ -257,8 +257,9 @@ exports('CanFamilyAccessProperty', CanFamilyAccessProperty)
 --- @param houseId integer
 --- @param action  string   one of ACTIONS
 --- @param auditOverride boolean|nil  false for read-only menu capability checks
+--- @param requireExplicit boolean|nil true to exclude unlocked-public entry
 --- @return boolean allowed, string|nil reason
-function CanAccessProperty(cid, houseId, action, auditOverride)
+function CanAccessProperty(cid, houseId, action, auditOverride, requireExplicit)
     cid = tonumber(cid) or cid
     houseId = tonumber(houseId)
     action = tostring(action or '')
@@ -283,7 +284,8 @@ function CanAccessProperty(cid, houseId, action, auditOverride)
     if isOwner then return true end
 
     -- Unlocked house entry: when an owned property is unlocked, any player can enter the home.
-    if action == ACTIONS.HOUSE_ENTER and house.owner_cid ~= nil and not house.locked then
+    if action == ACTIONS.HOUSE_ENTER and house.owner_cid ~= nil and not house.locked
+        and requireExplicit ~= true then
         return true
     end
 

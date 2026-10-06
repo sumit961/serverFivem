@@ -1,0 +1,163 @@
+/*
+    CM AAA Gaming HUD primitives (additive layer)
+
+    Load order: cm-theme.css -> cm-components.css -> cm-aaa.css -> resource style.css
+    These classes are purely additive. They do not redefine any existing
+    .cm-btn / .cm-card / .cm-panel rule from cm-components.css — they only add
+    new classes, or new modifiers meant to be combined with existing ones
+    (e.g. class="cm-btn cm-btn-yellow cm-action-skew cm-action-primary").
+    Do not add resource-specific styling to this file; only genuinely shared
+    primitives belong here.
+*/
+
+/* ── Action shape (angled/skewed CTAs) ──────────────────────
+   The whole element is skewed; a required inner .cm-action-skew-content
+   wrapper is counter-skewed so its text/icons stay upright:
+     <button class="cm-btn cm-action-skew cm-action-primary">
+       <span class="cm-action-skew-content"><span>Login</span><span>-></span></span>
+     </button>
+   Fill/border/box-shadow are set on the outer (skewed) element itself, so
+   they correctly follow the angled shape. */
+.cm-action-skew {
+    border: none;
+    transform: skewX(-15deg);
+    transition: transform var(--cm-fast, 120ms ease), background var(--cm-fast, 120ms ease), border-color var(--cm-fast, 120ms ease), box-shadow var(--cm-fast, 120ms ease), color var(--cm-fast, 120ms ease);
+}
+
+.cm-action-skew-content {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--cm-space-2, 0.5rem);
+    transform: skewX(15deg);
+}
+
+/* Fill modifiers — pair with .cm-action-skew */
+.cm-action-primary {
+    background: var(--cm-yellow, #FFC700);
+    color: #000000;
+    box-shadow: 0 5px 20px rgba(255, 199, 0, 0.15);
+}
+.cm-action-primary:hover {
+    background: #FFD233;
+    transform: skewX(-15deg) scale(1.02);
+    box-shadow: 0 5px 25px rgba(255, 199, 0, 0.3);
+}
+
+.cm-action-secondary {
+    background: transparent;
+    color: var(--cm-cyan, #00E5FF);
+    border: 1px solid rgba(0, 229, 255, 0.2);
+}
+.cm-action-secondary:hover {
+    background: linear-gradient(90deg, rgba(0, 229, 255, 0.1) 0%, transparent 100%);
+    border-color: var(--cm-cyan, #00E5FF);
+    color: #ffffff;
+    text-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
+}
+
+/* Success fill — saved/economy/confirmed state (e.g. a "SAVED ACCOUNT" badge) */
+.cm-action-success {
+    background: var(--cm-green, #2ECC71);
+    color: #000000;
+    box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+/* Non-skewed cyan outline variant for contexts that want the same color
+   language without the angled shape. */
+.cm-btn-cyan-outline {
+    background: transparent;
+    color: var(--cm-cyan, #00E5FF);
+    border: 1px solid var(--cm-cyan, #00E5FF);
+    font-weight: 800;
+}
+.cm-btn-cyan-outline:hover {
+    background: rgba(0, 229, 255, 0.08);
+    border-color: #33EBFF;
+}
+
+/* ── Tech edge (active/focus accent bar) ─────────────────────
+   Apply to a positioned wrapper (position: relative). Lights up on
+   :focus-within or with the .cm-active modifier. */
+.cm-tech-edge {
+    position: relative;
+}
+.cm-tech-edge::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 3px;
+    border-radius: 2px;
+    background: transparent;
+    transition: background var(--cm-fast, 120ms ease), box-shadow var(--cm-fast, 120ms ease);
+}
+.cm-tech-edge:focus-within::before,
+.cm-tech-edge.cm-active::before {
+    background: var(--cm-cyan, #00E5FF);
+    box-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
+}
+
+/* ── Fade panel (readable surface over artwork) ─────────────
+   Directional gradient + contained blur. Never apply to a full-screen
+   element or the page root — see ui/AGENTS.md AAA direction note. */
+.cm-fade-panel {
+    background: linear-gradient(90deg, rgba(16, 34, 43, 0.95) 0%, rgba(16, 34, 43, 0.82) 55%, rgba(16, 34, 43, 0.35) 100%);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+.cm-fade-panel--right {
+    background: linear-gradient(270deg, rgba(16, 34, 43, 0.95) 0%, rgba(16, 34, 43, 0.82) 55%, rgba(16, 34, 43, 0.35) 100%);
+}
+
+/* ── Tech panel (bordered card with a cyan top accent) ──────── */
+.cm-tech-panel {
+    position: relative;
+    background: var(--cm-panel, rgba(18, 36, 47, 0.94));
+    border: 1px solid var(--cm-border, #213B4A);
+    border-top: 2px solid var(--cm-cyan, #00E5FF);
+}
+
+/* ── Status dot ──────────────────────────────────────────── */
+.cm-status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--cm-text-muted, #829DAE);
+}
+.cm-status-dot--cyan { background: var(--cm-cyan, #00E5FF); box-shadow: 0 0 8px rgba(0, 229, 255, 0.55); }
+.cm-status-dot--green { background: var(--cm-green, #2ECC71); box-shadow: 0 0 8px rgba(46, 204, 113, 0.55); }
+.cm-status-dot--yellow { background: var(--cm-yellow, #FFC700); box-shadow: 0 0 8px rgba(255, 199, 0, 0.55); }
+.cm-status-dot--danger { background: var(--cm-red, #E74C3C); box-shadow: 0 0 8px rgba(231, 76, 60, 0.55); }
+
+/* ── Hero fade (full-bleed art -> readable UI side) ─────────
+   Absolutely positioned overlay, inset:0, sits above a background image and
+   below the UI content. Default fades dark-on-left -> clear-on-right. */
+.cm-hero-fade {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(90deg, rgba(11, 23, 30, 1) 0%, rgba(11, 23, 30, 0.8) 20%, transparent 60%);
+}
+.cm-hero-fade--right {
+    background: linear-gradient(270deg, rgba(11, 23, 30, 1) 0%, rgba(11, 23, 30, 0.8) 20%, transparent 60%);
+}
+
+/* ── Screen bracket (subtle corner HUD decoration) ──────────
+   Use sparingly — one or two corners per screen, not a full frame. */
+.cm-screen-bracket {
+    position: absolute;
+    width: 30px;
+    height: 30px;
+    pointer-events: none;
+    border-style: solid;
+    border-color: rgba(0, 229, 255, 0.3);
+}
+.cm-screen-bracket--tl { top: 40px; left: 40px; border-width: 2px 0 0 2px; }
+.cm-screen-bracket--tr { top: 40px; right: 40px; border-width: 2px 2px 0 0; }
+.cm-screen-bracket--bl { bottom: 40px; left: 40px; border-width: 0 0 2px 2px; }
+.cm-screen-bracket--br { bottom: 40px; right: 40px; border-width: 0 2px 2px 0; }

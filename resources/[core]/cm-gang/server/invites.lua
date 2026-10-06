@@ -179,16 +179,12 @@ end)
 lib.callback.register('cm-gang:server:getTargetActions', function(src, targetSrc)
     local actorCharacterId = characterIdForSource(src)
     local actorMembership = actorCharacterId and exports[RESOURCE]:GetGangForCharacter(actorCharacterId) or nil
-    local result = { gangMember = actorMembership ~= nil and actorMembership.enabled == true, invite = false, search = false, robCash = false, robItems = false }
+    local result = { gangMember = actorMembership ~= nil and actorMembership.enabled == true, invite = false }
     local actor = actorDecision(src)
     if actor and validatePhysical(src, targetSrc) == true then
         local targetId = characterIdForSource(targetSrc)
         result.invite = targetId ~= nil and targetId ~= actor.characterId
     end
-    local robbery = exports[RESOURCE]:ValidateRobberyTarget(src, targetSrc, 'gang.rob_cash')
-    result.robCash = robbery ~= nil
-    result.search = exports[RESOURCE]:ValidateRobberyTarget(src, targetSrc, 'gang.search') ~= nil
-    result.robItems = exports[RESOURCE]:ValidateRobberyTarget(src, targetSrc, 'gang.rob_items') ~= nil
     return result
 end)
 
@@ -203,36 +199,9 @@ local function registerAction()
         resource = RESOURCE,
         allowDeadTarget = false,
     })
-    TriggerEvent('cm-playerdata:server:registerInteractionAction', {
-        id = 'gang_rob_cash',
-        event = 'cm-gang:server:gMenuAction',
-        resource = RESOURCE,
-        allowDeadTarget = true,
-    })
-    TriggerEvent('cm-playerdata:server:registerInteractionAction', {
-        id = 'gang_search', event = 'cm-gang:server:gMenuAction', resource = RESOURCE, allowDeadTarget = true,
-    })
-    TriggerEvent('cm-playerdata:server:registerInteractionAction', {
-        id = 'gang_rob_player', event = 'cm-gang:server:gMenuAction', resource = RESOURCE, allowDeadTarget = true,
-    })
-    TriggerEvent('cm-playerdata:server:registerInteractionAction', {
-        id = 'gang_rob_items', event = 'cm-gang:server:gMenuAction', resource = RESOURCE, allowDeadTarget = true,
-    })
 end
 
 AddEventHandler('cm-gang:server:gMenuAction', function(src, targetSrc, actionId)
-    if actionId == 'gang_rob_cash' then
-        TriggerClientEvent('cm-gang:client:requestRobCash', tonumber(src), tonumber(targetSrc))
-        return
-    end
-    if actionId == 'gang_rob_items' or actionId == 'gang_rob_player' then
-        TriggerClientEvent('cm-gang:client:requestRandomItemRobbery', tonumber(src), tonumber(targetSrc))
-        return
-    end
-    if actionId == 'gang_search' then
-        TriggerClientEvent('cm-gang:client:requestRobberyInventory', tonumber(src), tonumber(targetSrc), actionId ~= 'gang_search' and 'take' or 'search')
-        return
-    end
     if actionId ~= ACTION then return end
     local ok, reason = createInvite(tonumber(src), tonumber(targetSrc))
     notify(src, ok and 'Gang invitation sent.' or (friendly[reason] or 'Gang invitation failed.'), ok and 'success' or 'error')

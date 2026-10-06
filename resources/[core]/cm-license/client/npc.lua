@@ -16,22 +16,119 @@ NPC.Name = 'Alex Morgan'
 NPC.Role = 'CM License Instructor'
 NPC.PromptVisible = false
 NPC.PendingLicenses = {}
+NPC.PublicWorld = false
+NPC.DialoguePending = false
+NPC.LicenseNuiBlockingInteraction = false
+NPC.LicenseBlip = nil
+local LICENSE_INTERACT_OWNER = 'cm-license:npc'
+local LICENSE_UI_SUPPRESSION_OWNER = 'cm-license:nui'
+
+local function setPromptSuppressed(suppressed)
+    pcall(function() exports['cm-ui']:SetInteractSuppressed(LICENSE_UI_SUPPRESSION_OWNER, suppressed) end)
+end
+
+local function dialogueOpen()
+    local ok, open = pcall(function() return exports['cm-ui']:IsNpcDialogueOpen() end)
+    return ok and open == true
+end
+
+local function hidePrompt()
+    if NPC.PromptVisible then
+        pcall(function() exports['cm-ui']:HideInteract(LICENSE_INTERACT_OWNER) end)
+        NPC.PromptVisible = false
+    end
+end
+
+local function setPromptVisible(visible, definition)
+    if visible and not NPC.PromptVisible then
+        exports['cm-ui']:ShowInteract({
+            owner = LICENSE_INTERACT_OWNER,
+            priority = 10,
+            key = 'E', label = 'LICENCE CENTRE',
+            name = definition.name or NPC.Name,
+            role = definition.role or NPC.Role,
+        })
+        NPC.PromptVisible = true
+    elseif not visible then
+        hidePrompt()
+    end
+end
+
+local function removeBlip()
+    if NPC.LicenseBlip and DoesBlipExist(NPC.LicenseBlip) then RemoveBlip(NPC.LicenseBlip) end
+    NPC.LicenseBlip = nil
+end
+
+local function createBlip(definitions)
+    removeBlip()
+    local config = CMLicenseConfig.NPC.Blip or {}
+    local definition = definitions and definitions[1]
+    local coords = definition and definition.coords
+    if config.enabled == false or not coords then return end
+
+    NPC.LicenseBlip = AddBlipForCoord(coords.x + 0.0, coords.y + 0.0, coords.z + 0.0)
+    SetBlipSprite(NPC.LicenseBlip, tonumber(config.sprite) or 61)
+    SetBlipColour(NPC.LicenseBlip, tonumber(config.color) or 3)
+    SetBlipScale(NPC.LicenseBlip, tonumber(config.scale) or 0.85)
+    SetBlipAsShortRange(NPC.LicenseBlip, config.shortRange ~= false)
+    BeginTextCommandSetBlipName('STRING')
+    AddTextComponentString(tostring(config.label or 'License Centre'))
+    EndTextCommandSetBlipName(NPC.LicenseBlip)
+end
+
+function NPC.SetPublicWorld(isPublic, requestDefinitions)
+    isPublic = isPublic == true
+    if NPC.PublicWorld == isPublic then
+        if isPublic and requestDefinitions ~= false and #NPC.Peds == 0 then
+            TriggerServerEvent('cm-license:server:requestNPCDefinitions')
+        end
+        return
+    end
+
+    NPC.PublicWorld = isPublic
+    NPC.DialoguePending = false
+    hidePrompt()
+
+    if not isPublic then
+        NPC.LicenseNuiBlockingInteraction = false
+        setPromptSuppressed(false)
+        if dialogueOpen() then pcall(function() exports['cm-ui']:CancelNpcDialogue() end) end
+        SendNuiMessage(json.encode({ type = 'forceClose' }))
+        SetNuiFocus(false, false)
+        SetNuiFocusKeepInput(false)
+        NPC.DespawnAll()
+        removeBlip()
+        return
+    end
+
+    if requestDefinitions ~= false then
+        TriggerServerEvent('cm-license:server:requestNPCDefinitions')
+    end
+end
 
 function NPC.Init()
+    NPC.PublicWorld = false
     TriggerServerEvent('cm-license:server:requestNPCDefinitions')
     CMLog('NPC system initialized')
 end
 
+RegisterNetEvent(Constants.EVENTS.CLIENT.PUBLIC_WORLD_CHANGED, function(isPublic, requestDefinitions)
+    NPC.SetPublicWorld(isPublic == true, requestDefinitions)
+end)
+
 function NPC.DespawnAll()
+    hidePrompt()
     for _, ped in ipairs(NPC.Peds) do
         if DoesEntityExist(ped) then DeleteEntity(ped) end
     end
     NPC.Peds = {}
     NPC.Definitions = {}
     NPC.NearbyPed = nil
+    removeBlip()
 end
 
 RegisterNetEvent('cm-license:client:setNPCDefinitions', function(definitions)
+    if not NPC.PublicWorld then return end
     NPC.DespawnAll()
     for _, definition in ipairs(definitions or {}) do
         local coords = definition.coords
@@ -41,6 +138,7 @@ RegisterNetEvent('cm-license:client:setNPCDefinitions', function(definitions)
             NPC.Definitions[ped] = definition
         end
     end
+    createBlip(definitions)
 end)
 
 -- Load NPC model
@@ -92,9 +190,12 @@ end
 
 -- Check if player is near NPC and show interaction prompt
 function NPC.CheckNPCInteraction()
-    if not NPC.NearbyPed then return end
-    if NPC.PromptVisible then exports['cm-ui']:HideInteract(); NPC.PromptVisible = false end
+    if not NPC.PublicWorld or not NPC.NearbyPed or dialogueOpen() or NPC.DialoguePending then return end
+    NPC.DialoguePending = true
     TriggerServerEvent('cm-license:server:getNPCLocations')
+    SetTimeout(2500, function()
+        if NPC.DialoguePending then NPC.DialoguePending = false end
+    end)
 end
 
 -- Cinematic license-selection screen (cm-ui's shared dialogue component).
@@ -102,7 +203,11 @@ end
 -- license closes this screen and shows the test-confirmation popup.
 function NPC.ShowLicenseMenu(licenses)
     local ped = NPC.NearbyPed
-    if not ped or not DoesEntityExist(ped) then return end
+    if not NPC.PublicWorld or not ped or not DoesEntityExist(ped) then
+        NPC.DialoguePending = false
+        return
+    end
+    NPC.DialoguePending = false
     NPC.PendingLicenses = licenses or {}
 
     local definition = NPC.Definitions[ped] or {}
@@ -111,7 +216,7 @@ function NPC.ShowLicenseMenu(licenses)
         choices[#choices + 1] = {
             id = license.license_type,
             label = license.label,
-            description = ('$%s'):format(tostring(license.price)),
+            description = license.menuDescription or ('$%s'):format(tostring(license.price)),
             icon = license.vehicle_category,
             event = 'cm-license:client:dialogueChoice',
             payload = { licenseType = license.license_type },
@@ -124,13 +229,13 @@ function NPC.ShowLicenseMenu(licenses)
         event = 'cm-license:client:dialogueMyLicenses',
     }
 
-    TriggerEvent('cm-hud:client:hideForUi', 'cm-license:npc-dialogue')
     exports['cm-ui']:OpenNpcDialogue(ped, {
         name = definition.name or NPC.Name,
         role = definition.role or NPC.Role,
         quote = 'Good afternoon. Which license would you like to apply for today?',
         choices = choices,
         closeEvent = 'cm-license:client:dialogueDismissed',
+        choiceColumns = 2,
     })
 end
 
@@ -153,17 +258,24 @@ end)
 
 -- Show my licenses dialog via NUI
 function NPC.ShowMyLicenses(licenses)
-    SetNuiFocus(true, true)
+    NPC.DialoguePending = false
+    NPC.LicenseNuiBlockingInteraction = true
+    setPromptSuppressed(true)
     SendNuiMessage(json.encode({
         type = 'showMyLicenses',
         licenses = licenses
     }))
+    SetTimeout(0, function()
+        if NPC.LicenseNuiBlockingInteraction then SetNuiFocus(true, true) end
+    end)
 end
 
 -- Show test confirmation dialog. Duration comes from the same config value the
 -- server enforces, so the number on screen is the number that applies.
 function NPC.ShowTestConfirmation(license)
-    SetNuiFocus(true, true)
+    NPC.DialoguePending = false
+    NPC.LicenseNuiBlockingInteraction = true
+    setPromptSuppressed(true)
     SendNuiMessage(json.encode({
         type = 'showTestConfirmation',
         license_type = license.license_type,
@@ -176,13 +288,19 @@ function NPC.ShowTestConfirmation(license)
         maxMistakes = license.vehicle_category == Constants.VEHICLE_CATEGORY.GROUND
             and (tonumber(CMLicenseConfig.TestSession.MaxMistakes) or 0) or 0
     }))
+    SetTimeout(0, function()
+        if NPC.LicenseNuiBlockingInteraction then SetNuiFocus(true, true) end
+    end)
 end
 
 -- Close menu
 function NPC.CloseMenu()
+    NPC.DialoguePending = false
+    NPC.LicenseNuiBlockingInteraction = false
+    setPromptSuppressed(false)
     SetNuiFocus(false, false)
+    SetNuiFocusKeepInput(false)
     exports['cm-ui']:CancelNpcDialogue()
-    FreezeEntityPosition(PlayerPedId(), false)
     TriggerEvent('cm-hud:client:showAfterUi', 'cm-license:npc-dialogue')
 end
 
@@ -190,12 +308,23 @@ end
 CreateThread(function()
     while true do
         local wait, playerCoords = 750, GetEntityCoords(PlayerPedId())
-        local range = tonumber(CMLicenseConfig.NPC.InteractionDistance) or 3.0
-        NPC.NearbyPed = nil
+        local showRange = tonumber(CMLicenseConfig.NPC.InteractionDistance) or 3.0
+        local hideRange = tonumber(CMLicenseConfig.NPC.InteractionHideDistance) or (showRange + 0.5)
+        local previousPed = NPC.NearbyPed
+        local nextPed
         for _, ped in ipairs(NPC.Peds) do
-            if DoesEntityExist(ped) and #(playerCoords-GetEntityCoords(ped))<=range then NPC.NearbyPed=ped; break end
+            if DoesEntityExist(ped) then
+                local range = ped == previousPed and hideRange or showRange
+                if #(playerCoords-GetEntityCoords(ped)) <= range then
+                    nextPed = ped
+                    break
+                end
+            end
         end
-        if NPC.NearbyPed and not Client.IsInTest() then
+        NPC.NearbyPed = nextPed
+        local canInteract = NPC.PublicWorld and NPC.NearbyPed and not Client.IsInTest()
+            and not NPC.DialoguePending and not NPC.LicenseNuiBlockingInteraction and not dialogueOpen()
+        if canInteract then
             wait=0
             local definition=NPC.Definitions[NPC.NearbyPed] or {}
             local pedCoords=GetEntityCoords(NPC.NearbyPed)
@@ -203,11 +332,10 @@ CreateThread(function()
             SetTextFont(4); SetTextScale(0.0,0.31); SetTextCentre(true); SetTextOutline(); SetTextColour(255,255,255,245)
             BeginTextCommandDisplayText('STRING'); AddTextComponentSubstringPlayerName(definition.name or NPC.Name)
             EndTextCommandDisplayText(0.0,0.0); ClearDrawOrigin()
-            if not NPC.PromptVisible then
-                exports['cm-ui']:ShowInteract({ key = 'E', label = 'INTERACTION', name = definition.name or NPC.Name, role = definition.role or NPC.Role })
-                NPC.PromptVisible=true
-            end
-        elseif NPC.PromptVisible then exports['cm-ui']:HideInteract(); NPC.PromptVisible=false end
+            setPromptVisible(true, definition)
+        else
+            setPromptVisible(false)
+        end
         Wait(wait)
     end
 end)

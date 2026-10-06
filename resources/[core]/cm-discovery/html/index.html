@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" data-cm-ui="closed">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>City Discovery</title>
+    <style>
+        :root { color-scheme: normal !important; }
+        html, body { background: transparent !important; background-color: transparent !important; }
+        html:not([data-cm-ui="open"]) { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
+        html[data-cm-ui="open"] { display: block !important; }
+    </style>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body data-cm-ui="closed">
+    <main id="app" class="shell" aria-hidden="true">
+        <section class="panel" role="dialog" aria-modal="true" aria-labelledby="title">
+            <header class="topbar">
+                <div>
+                    <p class="eyebrow">CITY EXPLORATION</p>
+                    <h1 id="title">Discovery Log</h1>
+                </div>
+                <button id="close" class="close" type="button" aria-label="Close">×</button>
+            </header>
+            <div class="progress-row">
+                <div>
+                    <span class="muted">CITY PROGRESS</span>
+                    <strong id="progress-label">0 / 0</strong>
+                </div>
+                <strong id="progress-percent">0%</strong>
+            </div>
+            <div class="progress-track"><span id="progress-bar"></span></div>
+            <div class="filters">
+                <label for="category">CATEGORY</label>
+                <select id="category"><option value="all">All landmarks</option></select>
+            </div>
+            <div id="list" class="list" aria-live="polite"></div>
+            <footer><span>/discoveries</span><span>ESC to close</span></footer>
+        </section>
+    </main>
+    <script src="app.js"></script>
+</body>
+</html>

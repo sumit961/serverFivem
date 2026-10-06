@@ -60,7 +60,7 @@ AddEventHandler('cm-core:characterLoaded', function(src, charId)
     pcall(function()
         Player(src).state:set('charId', charId, true)
         Player(src).state:set('isLoggedIn', true, true)
-        Player(src).state:set('isDead', false, true)
+        -- isDead is NOT set here: cm-playerdata is the authoritative owner
     end)
 end)
 

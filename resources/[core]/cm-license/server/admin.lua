@@ -80,6 +80,9 @@ local function normalizeTypeData(data)
         enabled = data.enabled ~= false,
     }
 
+    local supported = Constants.LICENSE_TYPES
+    if not supported[normalized.license_type] then return nil, 'unsupported_license_type' end
+
     if not normalized.license_type or not normalized.label or not normalized.item_name or not normalized.vehicle_model
         or normalized.price < 0 or normalized.price > 10000000 or normalized.valid_days < 1 or normalized.valid_days > 3650 then
         return nil, 'invalid_test_details'
@@ -199,6 +202,12 @@ function Admin.SaveFullRoute(licenseTypeId, vehicleSpawn, checkpoints, label, re
     local statements = {}
     local routeId = tonumber(replaceRouteId)
 
+    -- Validate every checkpoint before creating or replacing the route row. A
+    -- malformed admin payload must never leave an empty route behind.
+    for _, cp in ipairs(checkpoints) do
+        if not Utils.IsValidCoords(cp) then return false, 'invalid_checkpoint' end
+    end
+
     if routeId then
         local existing = Database.GetRouteById(routeId)
         if not existing or tonumber(existing.license_type_id) ~= licenseTypeId then return false, 'route_not_found' end
@@ -212,7 +221,6 @@ function Admin.SaveFullRoute(licenseTypeId, vehicleSpawn, checkpoints, label, re
     end
 
     for sequence, cp in ipairs(checkpoints) do
-        if not Utils.IsValidCoords(cp) then return false, 'invalid_checkpoint' end
         local pointType = sequence == 1 and 'start' or sequence == #checkpoints and 'finish' or 'checkpoint'
         local radius = math.max(bounds.MinRadius, math.min(tonumber(cp.radius) or bounds.DefaultRadius, bounds.MaxRadius))
         statements[#statements+1] = { query=[[INSERT INTO cm_license_checkpoints
@@ -222,7 +230,13 @@ function Admin.SaveFullRoute(licenseTypeId, vehicleSpawn, checkpoints, label, re
     end
 
     local ok = MySQL.transaction.await(statements)
-    if ok == true then Cache.Invalidate() end
+    if ok == true then
+        Cache.Invalidate()
+    elseif not replaceRouteId and routeId then
+        -- The route row was created before its checkpoint transaction. Remove
+        -- it when that transaction fails so an empty route cannot rotate later.
+        Database.DeleteRoute(routeId)
+    end
     return ok == true, ok == true and routeId or 'route_save_failed'
 end
 

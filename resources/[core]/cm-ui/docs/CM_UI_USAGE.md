@@ -83,13 +83,22 @@ label):
 
 ```lua
 exports['cm-ui']:ShowInteract({
+    owner = 'cm-police:npc', -- optional owner for safe shared-prompt cleanup
+    priority = 10,                         -- stable arbitration priority
     key = 'E',
     label = 'INTERACTION',
     name = 'Officer Reyes',   -- optional
     role = 'CM POLICE',       -- optional
 })
 
+exports['cm-ui']:HideInteract('cm-police:npc')
+
+-- Legacy HideInteract() remains supported. Use ForceHideInteract() only for
+-- the invoking resource's own claims. It is not a global hide.
 exports['cm-ui']:HideInteract()
+
+-- Use ForceHideInteract() only for cm-ui shutdown or an explicit hard UI reset.
+exports['cm-ui']:ForceHideInteract()
 ```
 
 Passive — draws no NUI focus, safe to call every frame from a proximity loop.
@@ -108,6 +117,7 @@ exports['cm-ui']:OpenNpcDialogue(ped, {
     continueLabel = 'See services',
     deferChoices = true,                       -- show Continue first, reveal choices after
     serviceLabel = 'Please choose the service you need.',
+    choiceColumns = 2,                          -- optional compact service grid
     choices = {
         {
             id = 'report', label = 'File a report', description = 'Start an incident report',

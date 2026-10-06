@@ -20,7 +20,7 @@ For non-interactive shells, `-PlanOnly -Goal "..."` runs the planning cycle and 
 2. A planning-only Codex cycle audits the repository and writes a plan with `status = pending_approval`.
 3. Approve, cancel, or revise the goal/plan. Approval is requested once.
 4. The runner invokes `codex exec` repeatedly. Each prompt contains repository rules, master/phase prompts, all persistent state, current Git status, and the previous result.
-5. After static validation, execution uses `tools/cm-runtime/runtime-controller.ps1` to start or reuse the local txAdmin server, review only the current console window, restart the smallest changed resource, and feed code-level failures into the next repair cycle (up to `maxRepairAttempts`).
+5. After static validation, execution uses `tools/cm-runtime/runtime-controller.ps1` to start or reuse the local txAdmin server, review only the current console window, restart the smallest changed resource once, and feed code-level failures into the next repair cycle (up to `maxRepairAttempts`). CM-QA scenario runs then preserve the healthy cm-qa runtime and registered client; use `-RestartAffected` or `-RuntimeValidation` only for the explicit restart phase.
 6. A final review either reopens execution, blocks for required evidence, or completes the goal and writes next ideas without implementing them.
 
 `maxCycles: 0` means unlimited cycles until complete or blocked. `autoPush` is safety-enforced as `false`. Checkpoint commits are disabled by default and still require the agent to meet the master prompt's isolation and validation rules.

@@ -50,8 +50,11 @@ end
 
 local function saveProgression(src)
     local data = cache[src]
-    if not data then return end
-    MySQL.update.await('UPDATE cm_taxi_drivers SET xp = ?, level = ? WHERE charid = ?', { data.xp, data.level, data.charId })
+    if not data then return false end
+    local ok, affected = pcall(function()
+        return MySQL.update.await('UPDATE cm_taxi_drivers SET xp = ?, level = ? WHERE charid = ?', { data.xp, data.level, data.charId })
+    end)
+    return ok and affected ~= nil
 end
 
 local function clearProgression(src)
@@ -79,9 +82,10 @@ end
 -- the updated {xp, level} table.
 local function addXp(src, amount)
     local data = cache[src]
-    if not data then return nil end
+    if not data then return nil, 'progression_unavailable' end
 
     amount = math.max(0, tonumber(amount) or 0)
+    local previousXp, previousLevel = data.xp, data.level
     data.xp = data.xp + amount
 
     local leveledUp = false
@@ -91,7 +95,10 @@ local function addXp(src, amount)
         leveledUp = true
     end
 
-    saveProgression(src)
+    if not saveProgression(src) then
+        data.xp, data.level = previousXp, previousLevel
+        return nil, 'progression_persist_failed'
+    end
 
     TriggerClientEvent('cm-taxi:client:progression', src, data)
 
@@ -141,8 +148,10 @@ end
 local function addXpStandalone(src, amount)
     local hadCache = cache[src] ~= nil
     if not hadCache then loadProgression(src) end
-    addXp(src, amount)
+    local updated, reason = addXp(src, amount)
     if not hadCache then cache[src] = nil end
+    if not updated then return false, reason end
+    return true, updated
 end
 
 CMTaxi.Server.Progression = {

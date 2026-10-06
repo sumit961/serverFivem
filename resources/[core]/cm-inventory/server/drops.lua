@@ -494,6 +494,50 @@ createWorldDrop = function(src, row, amount)
     return id
 end
 
+local PickupLocks = {}
+
+local function metadataMatchesAddedItem(row, itemName, metadata)
+    if not row or tostring(row.item_name or ''):lower() ~= tostring(itemName or ''):lower() then
+        return false
+    end
+
+    local definition = getItemDef(itemName)
+    if definition and (definition.stack == false or definition.unique == true) then
+        -- Unique items such as licence cards must match the authoritative
+        -- metadata exactly. AddItemInternal decorates the same table before
+        -- writing it, so this also preserves generated fields such as
+        -- createdAt.
+        return stableEncode(decode(row.metadata)) == stableEncode(metadata)
+    end
+
+    return rowCanStackWithMetadata(row, itemName, metadata)
+end
+
+local function rollbackAddedPickup(src, itemName, amount, metadata, slot)
+    local ownerType, ownerId = getOwner(src)
+    if not ownerId or not slot then return false, 'missing_owner_or_slot' end
+
+    local row = getItemAt(ownerType, ownerId, slot)
+    local quantity = row and tonumber(row.quantity) or 0
+    if not row or quantity < amount or not metadataMatchesAddedItem(row, itemName, metadata) then
+        return false, 'added_item_not_found'
+    end
+
+    local affected
+    if quantity == amount then
+        affected = MySQL.update.await('DELETE FROM inventory_items WHERE id = ? AND quantity = ?', { row.id, quantity })
+    else
+        affected = MySQL.update.await(
+            'UPDATE inventory_items SET quantity = quantity - ? WHERE id = ? AND quantity = ?',
+            { amount, row.id, quantity }
+        )
+    end
+
+    if tonumber(affected or 0) ~= 1 then return false, 'rollback_row_changed' end
+    audit(ownerId, 'pickup_rollback', itemName, amount, slot, nil, 'pickup_delete_conflict', metadata)
+    return true
+end
+
 local function PickupDropInternal(src, dropId)
     if isPlayerDeadState(src) or isPlayerInVehicleState(src) then
         return false, nil, true
@@ -502,27 +546,94 @@ local function PickupDropInternal(src, dropId)
     dropId = tonumber(dropId)
     if not dropId then return false, 'Invalid drop.' end
 
-    cleanupDrops()
-    local row = MySQL.single.await('SELECT * FROM inventory_drops WHERE id = ? AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1', { dropId })
-    if not row then return false, 'Drop no longer exists.' end
+    if PickupLocks[dropId] then
+        return false, 'Someone is already picking up this item.'
+    end
+    PickupLocks[dropId] = true
+
+    local function finish(ok, reason, silent)
+        PickupLocks[dropId] = nil
+        return ok, reason, silent
+    end
+
+    local cleanupOk, cleanupError = pcall(cleanupDrops)
+    if not cleanupOk then
+        print(('^1[CM-INVENTORY]^7 ERROR drop cleanup failed during pickup drop=%s error=%s'):format(dropId, tostring(cleanupError)))
+        return finish(false, 'Could not pick up drop.')
+    end
+
+    local rowCallOk, row = pcall(function()
+        return MySQL.single.await(
+            'SELECT * FROM inventory_drops WHERE id = ? AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1',
+            { dropId }
+        )
+    end)
+    if not rowCallOk then
+        print(('^1[CM-INVENTORY]^7 ERROR drop lookup failed drop=%s error=%s'):format(dropId, tostring(row)))
+        return finish(false, 'Could not pick up drop.')
+    end
+    if not row then return finish(false, 'Drop no longer exists.') end
 
     local ped = GetPlayerPed(src)
     local coords = GetEntityCoords(ped)
     local dx, dy, dz = coords.x - tonumber(row.x), coords.y - tonumber(row.y), coords.z - tonumber(row.z)
     local dist = math.sqrt(dx * dx + dy * dy + dz * dz)
     if dist > (tonumber(Config.Drops.pickupDistance) or 2.0) + 1.0 then
-        return false, 'You are too far from the drop.'
+        return finish(false, 'You are too far from the drop.')
     end
 
     local metadata = decode(row.metadata)
-    local ok, reason = AddItemInternal(src, row.item_name, tonumber(row.quantity) or 1, metadata, 'pickup_drop')
-    if not ok then return false, reason end
+    local addMetadata = decode(row.metadata)
+    local amount = tonumber(row.quantity) or 1
+    local addCallOk, ok, addedSlotOrReason = pcall(function()
+        return AddItemInternal(src, row.item_name, amount, addMetadata, 'pickup_drop')
+    end)
+    if not addCallOk then
+        print(('^1[CM-INVENTORY]^7 ERROR pickup add failed drop=%s error=%s'):format(dropId, tostring(ok)))
+        return finish(false, 'Could not pick up drop.')
+    end
+    if not ok then return finish(false, addedSlotOrReason) end
 
-    MySQL.update.await('DELETE FROM inventory_drops WHERE id = ?', { dropId })
+    local deleteCallOk, affected = pcall(function()
+        return MySQL.update.await('DELETE FROM inventory_drops WHERE id = ?', { dropId })
+    end)
+    if not deleteCallOk or tonumber(affected or 0) ~= 1 then
+        local rollbackCallOk, rolledBack, rollbackReason = pcall(function()
+            return rollbackAddedPickup(src, row.item_name, amount, addMetadata, addedSlotOrReason)
+        end)
+        if not rollbackCallOk or not rolledBack then
+            print(('^1[CM-INVENTORY]^7 ERROR pickup rollback failed drop=%s reason=%s'):format(
+                dropId, tostring(rollbackCallOk and rollbackReason or rolledBack)
+            ))
+        end
+        return finish(false, 'Drop was already claimed.')
+    end
+
     local _, ownerId = getOwner(src)
-    audit(ownerId, 'pickup_drop', row.item_name, tonumber(row.quantity) or 1, nil, nil, 'pickup_drop', metadata)
-    sendDrops(-1)
-    return true
+    local auditOk, auditError = pcall(function()
+        audit(ownerId, 'pickup_drop', row.item_name, amount, nil, nil, 'pickup_drop', metadata)
+    end)
+    if not auditOk then
+        print(('^1[CM-INVENTORY]^7 ERROR pickup audit failed drop=%s error=%s'):format(dropId, tostring(auditError)))
+    end
+    local eventOk, eventError = pcall(function()
+        TriggerEvent('cm-inventory:server:itemPickedUp', src, tostring(ownerId), row.item_name, amount, metadata, dropId)
+    end)
+    if not eventOk then
+        print(('^1[CM-INVENTORY]^7 ERROR itemPickedUp listener failed drop=%s error=%s'):format(
+            dropId, tostring(eventError)
+        ))
+    end
+    if Config.Debug then
+        print(('[CM-INVENTORY] pickup drop=%s char=%s item=%s qty=%s'):format(
+            dropId, tostring(ownerId), tostring(row.item_name), amount
+        ))
+    end
+    local syncOk, syncError = pcall(function() sendDrops(-1) end)
+    if not syncOk then
+        print(('^1[CM-INVENTORY]^7 ERROR drop sync failed after pickup drop=%s error=%s'):format(dropId, tostring(syncError)))
+    end
+    return finish(true)
 end
 
 notify = function(src, message, typeName)
@@ -634,8 +745,14 @@ RegisterNetEvent('cm-inventory:server:armorChanged', function(armorValue)
     end
 end)
 
+-- Debug item minting / debug toggling is staff-only: a client event must never create items for a normal player.
+local function isDebugStaff(src)
+    return src and src > 0 and GetConvar('cm_environment', '') == 'development' and IsPlayerAceAllowed(src, 'command')
+end
+
 RegisterNetEvent('cm-inventory:server:debugGiveItem', function(itemName, amount)
     local src = source
+    if not isDebugStaff(src) then return end
     amount = tonumber(amount) or 1
     itemName = tostring(itemName or 'water'):lower()
     dprint(('debugGiveItem called by player %s: %sx %s'):format(src, amount, itemName))
@@ -652,6 +769,7 @@ end)
 
 
 RegisterNetEvent('cm-inventory:server:setDebug', function(enabled)
+    if not isDebugStaff(source) then return end
     Config.Debug = enabled == true or enabled == 1 or enabled == '1' or tostring(enabled):lower() == 'true'
     print(('[CM-INVENTORY] Debug toggled by player %s: %s'):format(tostring(source), Config.Debug and 'ON' or 'OFF'))
 end)

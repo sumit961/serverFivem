@@ -17,6 +17,6 @@ CREATE TABLE IF NOT EXISTS `cm_gang_profit` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT IGNORE INTO `cm_gang_profit` (`gang_id`)
-SELECT gang_id FROM `cm_gangs` WHERE gang_id IN ('marabunta','bloods','ballas','families','vagos');
+SELECT gang_id FROM `cm_gangs` WHERE gang_id IN ('gang_1','gang_2','gang_3','gang_4');
 
 INSERT IGNORE INTO `cm_gang_migrations` (`migration_id`) VALUES ('008_cm_gang_profit');

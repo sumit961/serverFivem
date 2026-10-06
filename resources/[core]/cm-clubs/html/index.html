@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en" data-cm-ui="closed">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Social Clubs</title>
+  <style>
+    :root{color-scheme:normal!important}
+    html,body{background:transparent!important;background-color:transparent!important}
+    html:not([data-cm-ui="open"]){display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important}
+    html[data-cm-ui="open"]{display:block!important}
+    #app.hidden,#app[hidden]{display:none!important}
+  </style>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-cm-ui="closed">
+  <main id="app" class="hidden" aria-live="polite">
+    <section class="panel">
+      <header class="topbar"><div><span class="eyebrow">CM SOCIAL CLUBS</span><h1 id="clubName">Club</h1><p id="clubMeta"></p></div><button id="close" class="iconButton" aria-label="Close">×</button></header>
+      <div class="accent" id="accent"></div>
+      <p id="description" class="description"></p>
+      <div class="grid">
+        <section class="card"><span class="eyebrow">YOUR MEMBERSHIP</span><strong id="rank">—</strong><span id="identity" class="muted"></span><div class="actions"><button id="leave" class="danger">Leave club</button></div></section>
+        <section class="card"><span class="eyebrow">PERMISSIONS</span><div id="permissions" class="chips"></div></section>
+      </div>
+      <section class="card roster"><div class="sectionTitle"><div><span class="eyebrow">ROSTER</span><h2>Members</h2></div><button id="refresh" class="ghost">Refresh</button></div><div id="members"></div></section>
+      <section class="card"><span class="eyebrow">RECENT ACTIVITY</span><div id="activity" class="activity"></div></section>
+      <p id="status" class="status" role="status"></p>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

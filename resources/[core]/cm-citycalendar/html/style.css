@@ -1,0 +1,54 @@
+:root {
+    color-scheme: normal;
+    --bg: rgba(7, 16, 24, .97);
+    --panel-soft: #102431;
+    --line: rgba(137, 204, 226, .18);
+    --text: #eafaff;
+    --muted: #86a5b4;
+    --cyan: #00e5ff;
+    --amber: #d3a65b;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent !important; font-family: Arial, sans-serif; }
+body { display: none; color: var(--text); }
+html[data-cm-ui="closed"], html[data-cm-ui="closed"] body { visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
+html[data-cm-ui="closed"] body { display: none !important; }
+html[data-cm-ui="open"], html[data-cm-ui="open"] body { visibility: visible !important; opacity: 1 !important; pointer-events: auto !important; }
+html[data-cm-ui="open"] body { display: block !important; }
+button, select { font: inherit; }
+#app.shell,
+#app.shell[hidden],
+.shell:not(.open) { display: none !important; visibility: hidden; pointer-events: none; }
+#app.shell.open { display: flex !important; visibility: visible; pointer-events: auto; width: 100%; height: 100%; align-items: center; justify-content: center; padding: 28px; }
+.panel { width: min(790px, 94vw); max-height: min(780px, 88vh); overflow: hidden; background: var(--bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 22px 70px rgba(0,0,0,.55); }
+.topbar { display: flex; align-items: flex-start; justify-content: space-between; padding: 24px 26px 18px; border-bottom: 1px solid var(--line); }
+.eyebrow, .filters label, footer { color: var(--muted); font-size: 10px; letter-spacing: .16em; }
+.eyebrow { margin: 0 0 8px; color: var(--cyan); }
+h1 { margin: 0; font-size: 26px; letter-spacing: -.02em; }
+.close { border: 0; background: transparent; color: var(--muted); font-size: 30px; line-height: 20px; cursor: pointer; }
+.close:hover { color: var(--text); }
+.tabs { display: flex; gap: 4px; padding: 14px 26px 0; overflow-x: auto; }
+.tab { border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); padding: 8px 10px; font-size: 10px; letter-spacing: .12em; cursor: pointer; }
+.tab.active { color: var(--cyan); border-color: var(--cyan); }
+.filters { display: flex; align-items: center; gap: 14px; padding: 16px 26px 14px; }
+select { min-width: 170px; padding: 9px 12px; color: var(--text); background: var(--panel-soft); border: 1px solid var(--line); border-radius: 7px; outline: none; }
+.list { max-height: 510px; overflow-y: auto; padding: 0 14px 8px; }
+.event { margin: 0 12px; padding: 17px 0; border-top: 1px solid var(--line); }
+.event-head, .event-foot, .details { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.meta { display: flex; gap: 8px; color: var(--cyan); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+.status { color: var(--muted); }
+.event.cancelled .status { color: var(--amber); }
+h2 { margin: 6px 0 4px; font-size: 17px; }
+.date { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.event p { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.details { justify-content: flex-start; flex-wrap: wrap; color: #a9c5d1; font-size: 11px; }
+.details span::before { content: '•'; color: var(--cyan); margin-right: 6px; }
+.cancel-note { margin-top: 12px; padding: 9px 10px; color: var(--amber); background: rgba(211,166,91,.08); border-left: 2px solid var(--amber); font-size: 11px; }
+.event-foot { align-items: center; margin-top: 14px; min-height: 28px; color: var(--cyan); font-size: 11px; }
+.action { padding: 8px 13px; color: #031118; background: var(--cyan); border: 1px solid var(--cyan); border-radius: 6px; font-size: 10px; font-weight: 700; letter-spacing: .08em; cursor: pointer; }
+.action.secondary { color: var(--cyan); background: transparent; }
+.full { color: var(--amber); font-size: 10px; letter-spacing: .1em; }
+.empty { padding: 48px 14px; color: var(--muted); text-align: center; font-size: 13px; }
+footer { display: flex; justify-content: space-between; padding: 14px 26px 18px; border-top: 1px solid var(--line); }
+@media (max-width: 600px) { .shell { padding: 12px; } .panel { width: 100%; } .event-head { display: block; } .date { display: block; margin-top: 8px; } }

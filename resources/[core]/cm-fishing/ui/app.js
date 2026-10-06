@@ -14,12 +14,6 @@
     // -----------------------------------------------------------------
     // Elements
     // -----------------------------------------------------------------
-    const interactionEl = document.getElementById('interaction');
-    const interactionKeyEl = document.getElementById('interaction-key');
-    const interactionTitleEl = document.getElementById('interaction-title');
-    const interactionLabelEl = document.getElementById('interaction-label');
-    const interactionHintEl = document.getElementById('interaction-hint');
-
     const minigameEl = document.getElementById('minigame');
     const minigameEyebrowEl = document.getElementById('minigame-eyebrow');
     const minigameTitleEl = document.getElementById('minigame-title');
@@ -56,19 +50,6 @@
     };
 
     // -----------------------------------------------------------------
-    // Interaction prompt
-    // -----------------------------------------------------------------
-    function setInteraction(visible, title, label, hint, key) {
-        interactionEl.classList.toggle('hidden', !visible);
-        if (!visible) return;
-        interactionKeyEl.textContent = key || 'E';
-        interactionTitleEl.textContent = title || '';
-        interactionLabelEl.textContent = label || '';
-        interactionHintEl.textContent = hint || '';
-        interactionHintEl.classList.toggle('hidden', !hint);
-    }
-
-    // -----------------------------------------------------------------
     // Rarity helpers
     // -----------------------------------------------------------------
     function rarityClass(rarity) {
@@ -86,6 +67,7 @@
     // -----------------------------------------------------------------
     const keys = { left: false, right: false };
     let minigame = null;
+    let minigameToken = null;
 
     window.addEventListener('keydown', (e) => {
         if (!minigame) return;
@@ -97,8 +79,9 @@
         if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') keys.right = false;
     });
 
-    function startMinigame(difficulty, settings, heavy) {
+    function startMinigame(token, difficulty, settings, heavy) {
         settings = settings || {};
+        minigameToken = token || null;
 
         if (heavy) {
             minigameEyebrowEl.textContent = 'HEAVY CATCH';
@@ -136,8 +119,9 @@
         minigameEl.classList.add('hidden');
         keys.left = false;
         keys.right = false;
-        post('minigameResult', { success: !!success });
+        post('minigameResult', { token: minigameToken, success: !!success });
         minigame = null;
+        minigameToken = null;
     }
 
     function minigameTick(now) {
@@ -171,6 +155,18 @@
         requestAnimationFrame(minigameTick);
     }
 
+    // Server/local abort (death, cancel, timeout, resource stop): drop the
+    // minigame and any catch modal WITHOUT reporting a result.
+    function abortMinigame() {
+        keys.left = false;
+        keys.right = false;
+        if (minigame) minigame.done = true;
+        minigame = null;
+        minigameToken = null;
+        minigameEl.classList.add('hidden');
+        catchModalEl.classList.add('hidden');
+    }
+
     // -----------------------------------------------------------------
     // Catch result modal
     // -----------------------------------------------------------------
@@ -188,7 +184,7 @@
             catchHeavyEl.classList.toggle('hidden', !data.heavy);
             catchHeavyEl.textContent = data.rodBroke ? '⚠ Heavy Catch -- Rod Snapped!' : '⚠ Heavy Catch -- Bigger Than Your Level!';
             catchTitleEl.textContent = `You caught a ${data.label}!`;
-            catchSubEl.textContent = `+${data.xp} XP`;
+            catchSubEl.textContent = data.xpText || 'XP could not be recorded';
             catchSubEl.className = 'text-sm font-semibold text-[#10B981] mb-5';
             catchCloseEl.textContent = 'NICE';
         } else {
@@ -614,14 +610,14 @@
             card.className = 'item-card' + (disabled ? ' locked' : '');
             card.innerHTML = `
                 <div class="item-card-image">
-                    <img src="${item.image}" alt="${item.label}" onerror="this.style.display='none';" />
+                    ${item.image ? `<img src="images/${item.image}" alt="${item.label}" onerror="this.style.display='none';" />` : ''}
                 </div>
                 <div class="p-5 space-y-3 flex-1 flex flex-col justify-between">
                     <div>
                         <h3 class="text-base font-black ${disabled ? 'text-white/70' : 'text-white'} uppercase tracking-wide">${item.label}</h3>
                         <div class="flex flex-wrap gap-1.5 mt-3">
                             <span class="perk-pill">WATER VEHICLE</span>
-                            <span class="perk-pill">OWNED WHILE RENTED</span>
+                            <span class="perk-pill">TEMPORARY RENTAL</span>
                         </div>
                     </div>
                     <div class="pt-3 border-t border-[#122333] flex items-center justify-between">
@@ -674,7 +670,9 @@
 
     window.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
-        if (!catchModalEl.classList.contains('hidden')) {
+        if (minigame) {
+            finishMinigame(false);
+        } else if (!catchModalEl.classList.contains('hidden')) {
             closeCatchModal();
         } else if (!storeEl.classList.contains('hidden')) {
             storeEl.classList.add('hidden');
@@ -689,16 +687,16 @@
         const data = event.data || {};
 
         switch (data.action) {
-            case 'interaction':
-                setInteraction(data.visible, data.title, data.label, data.hint, data.key);
-                break;
-
             case 'startMinigame':
-                startMinigame(data.difficulty, data.settings, data.heavy);
+                startMinigame(data.token, data.difficulty, data.settings, data.heavy);
                 break;
 
             case 'catchResult':
                 showCatchResult(data);
+                break;
+
+            case 'abortMinigame':
+                abortMinigame();
                 break;
 
             case 'openStore':

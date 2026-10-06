@@ -134,6 +134,11 @@ exports('ValidateMetadata', exportSafe(function(name, metadata)
     return CMItems.ValidateMetadata(name, metadata)
 end))
 
+-- Authoritative trade policy (true | false, reason). Fail closed: only definitions with `tradeable = true` outside the hard-blocked classes pass.
+exports('CanTradeItem', exportSafe(function(name, metadata)
+    return CMItems.CanTradeItem(name, metadata)
+end))
+
 exports('ValidateDefinitions', exportSafe(function()
     return CMItems.ValidateDefinitions()
 end))

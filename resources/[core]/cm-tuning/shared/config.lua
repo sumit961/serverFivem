@@ -110,8 +110,23 @@ CMTuning.Config = {
         price = 18000,
     },
 
+    -- Mechanic-mediated tuning (server/service.lua). cm-mechanic is the ONLY trusted caller; it owns the work order, the customer's approval
+    -- and the cm-billing invoice. cm-tuning prices the job and applies it exactly once after cm-billing reports the invoice paid.
+    -- Self-service tuning above is unaffected (still direct cash charge). See docs/SERVICE_INTEGRATION.md.
+    Service = {
+        Enabled = true,
+        Trusted = { ['cm-mechanic'] = true },
+        authorizationSeconds = 900,     -- unpaid authorization lifetime (mechanic session + selection)
+        quoteSeconds = 420,             -- must exceed cm-mechanic Quote.validSeconds; an unpaid quote lapses, a PAID one never does
+        sessionTimeoutMs = 300000,      -- mechanic's tuning UI session
+        maxMechanicDistance = 10.0,
+        maxAmount = 50000,              -- default invoice ceiling (cm-billing 'cm-mechanic' provider cap); the caller passes its own
+    },
+
+    -- DISABLED: engine rebuild is a repair (owned/priced by cm-mechanic). The server handler is closed
+    -- regardless of this flag; the flag only hides the legacy UI row. Do not re-enable.
     EngineRepair = {
-        enabled = true,
+        enabled = false,
         basePrice = 800,
         pricePerHealthPoint = 4,
         maxPrice = 25000,

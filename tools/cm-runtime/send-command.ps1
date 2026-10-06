@@ -8,9 +8,15 @@ if ($config.developmentOnly -ne $true) { throw 'Safety stop: developmentOnly mus
 if ([string]$config.host -notin @('127.0.0.1', 'localhost', '::1')) { throw 'Safety stop: automatic RCon is loopback-only.' }
 $arsenalCommandAllowed = $Command -match '^cm_arsenal_(?:start|cancel|status)$' -or
     $Command -match '^cm_arsenal_check(?:\s+[A-Za-z0-9:_.-]{1,80})?$'
+$qaCommandAllowed = $Command -match '^cm_qa_(?:enable|disable|status|list|run_changed|cancel|report|clients)$' -or
+    $Command -match '^cm_qa_run\s+[A-Za-z0-9_.-]{1,100}$' -or
+    $Command -match '^cm_qa_run_resource\s+cm-[a-z0-9_-]+$' -or
+    $Command -match '^cm_qa_register\s+[0-9]{1,6}$' -or
+    $Command -match '^cm_qa_pair_character\s+[0-9]{1,10}$'
+$devSelfTestAllowed = $Command -match '^cm_(?:phone|billing|business|trade|contracts)_selftest$'
 if ($Command -notmatch '^(status|refresh)$' -and
     $Command -notmatch '^(ensure|restart|start|stop)\s+(cm-[a-z0-9_-]+|rn-vehicleshop|nv_cloth|grand_garage)$' -and
-    -not $arsenalCommandAllowed) { throw 'COMMAND_NOT_ALLOWLISTED' }
+    -not $arsenalCommandAllowed -and -not $qaCommandAllowed -and -not $devSelfTestAllowed) { throw 'COMMAND_NOT_ALLOWLISTED' }
 
 $secretName = [string]$config.rconPasswordEnvironmentVariable
 $password = [Environment]::GetEnvironmentVariable($secretName)
@@ -63,6 +69,7 @@ try {
             $datagram = $client.Receive([ref]$remote)
         } catch [Net.Sockets.SocketException] {
             if ($_.Exception.SocketErrorCode -eq [Net.Sockets.SocketError]::TimedOut) { break }
+            if ($_.Exception.SocketErrorCode -eq [Net.Sockets.SocketError]::ConnectionReset) { Write-Output 'RCON_TRANSPORT_RESET'; return }
             throw
         }
         if (-not $datagram -or $datagram.Length -lt 1) { continue }

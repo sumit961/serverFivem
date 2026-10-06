@@ -1,6 +1,0 @@
-# CM-HUD v2.2
-
-Chat has been moved out of cm-hud into the new cm-chat resource.
-
-Use cm-hud for visual HUD, money, character ID, location, speedometer, notifications, and hide/show exports.
-Use cm-chat for RP/NON-RP chat, slash commands, proximity chat, channels, and logs.

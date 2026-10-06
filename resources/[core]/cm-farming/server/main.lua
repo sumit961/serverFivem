@@ -143,7 +143,9 @@ end
 
 local function awardXp(src, amount)
     local level = getLevel(src)
+    local previousLevel = level
     local xp = getXp(src) + math.max(0, math.floor(tonumber(amount) or 0))
+    local previousXp = getXp(src)
     local leveledUp = false
 
     while true do
@@ -157,8 +159,14 @@ local function awardXp(src, amount)
         end
     end
 
-    setMeta(src, 'cmFarmingXp', xp)
-    if leveledUp then setMeta(src, 'cmFarmingLevel', level) end
+    if leveledUp and not setMeta(src, 'cmFarmingLevel', level) then
+        return nil, false, 'level_persist_failed'
+    end
+    if not setMeta(src, 'cmFarmingXp', xp) then
+        if leveledUp then setMeta(src, 'cmFarmingLevel', previousLevel) end
+        setMeta(src, 'cmFarmingXp', previousXp)
+        return nil, false, 'xp_persist_failed'
+    end
 
     local status = getStatus(src)
     TriggerClientEvent('cm-farming:client:status', src, status)
@@ -169,11 +177,12 @@ end
 -- payday -- a level-up notification still lands even though the harvest
 -- itself only banked the xp rather than applying it instantly.
 exports('AddXp', function(src, amount)
-    local status, leveledUp = awardXp(src, amount)
+    local status, leveledUp, reason = awardXp(src, amount)
+    if not status then return false, reason end
     if leveledUp then
         notify(src, ('Farming level up! You are now level %d.'):format(status.level), 'success')
     end
-    return status, leveledUp
+    return true, status, leveledUp
 end)
 
 -- Cash from selling crops banks into cm-payday's hourly payout when it's

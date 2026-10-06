@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>City Bulletin</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <main id="app" class="bulletin" hidden>
+        <header class="bulletin__header">
+            <div>
+                <p class="eyebrow">CITY SERVICES / PUBLIC INFORMATION</p>
+                <h1>City Bulletin</h1>
+                <p class="subtitle">Current notices and public updates from city administration.</p>
+            </div>
+            <button id="closeButton" class="icon-button" type="button" aria-label="Close">×</button>
+        </header>
+
+        <section class="toolbar" aria-label="Bulletin filters">
+            <div class="tabs" role="tablist">
+                <button class="tab is-active" type="button" data-view="current">Current <span id="currentCount">0</span></button>
+                <button class="tab" type="button" data-view="archived">Archive <span id="archiveCount">0</span></button>
+            </div>
+            <label class="select-wrap">Category
+                <select id="categoryFilter"><option value="all">All categories</option></select>
+            </label>
+            <label class="select-wrap">Read state
+                <select id="readFilter">
+                    <option value="all">All notices</option>
+                    <option value="unread">Unread</option>
+                    <option value="read">Read</option>
+                </select>
+            </label>
+            <button id="refreshButton" class="button button--quiet" type="button">Refresh</button>
+        </section>
+
+        <section id="status" class="status" role="status" aria-live="polite"></section>
+        <section id="noticeList" class="notice-list" aria-live="polite"></section>
+    </main>
+    <script src="app.js"></script>
+</body>
+</html>

@@ -20,6 +20,31 @@ unrelated neon accents. Use dark teal panels rather than plain black slabs;
 avoid excessive borders, gradients, animation, empty space, and card walls.
 Use approximately 8px corner radii for panels and cards.
 
+### AAA gaming HUD direction
+
+As of 2026-09-26 the project's UI direction is a "dynamic AAA gaming HUD" look
+(full-bleed cinematic art, dark fade overlays, angled/skewed action buttons,
+tech corner brackets).
+
+**`backdrop-filter` project rule (updated 2026-09-27 — CHARACTER CREATION
+REPAIR PASS): the 2026-09-26 exception below allowing contained blur is
+CANCELLED.** `backdrop-filter` and `-webkit-backdrop-filter` are **not
+allowed anywhere in CM UI**, contained or otherwise — no blur-behind panels
+of any kind. Use translucent solid backgrounds, gradients, normal opacity,
+borders, and shadows instead (see `rgba(10, 24, 31, 0.90)`-style dark
+translucent panels used elsewhere in the codebase as a reference). This
+applies to every resource, not only the one being actively worked on.
+
+<details>
+<summary>Historical note (2026-09-26 through 2026-09-27, superseded)</summary>
+
+For that one-day window, `backdrop-filter: blur(...)` was allowed on
+contained HUD/panel elements (never a full-screen overlay or the page root).
+That exception no longer applies — treat any remaining contained-blur CSS
+found in the codebase from this window as legacy to be cleaned up when that
+resource is next touched, not as a currently-sanctioned pattern.
+</details>
+
 ## Required colour tokens
 
 These exact values are the UI palette. Do not substitute approximations:
@@ -166,8 +191,10 @@ applicable. Never trust a client confirmation value as authorization.
   and cursor state and restore any camera, HUD, control, or freeze state that
   this interface changed. Do not reset unrelated state owned by another
   system.
-- Do not use CSS `backdrop-filter` or blur effects. Use solid or
-  semi-transparent panels instead.
+- `backdrop-filter`/`-webkit-backdrop-filter` are NOT allowed anywhere in CM
+  UI (see the "AAA gaming HUD direction" note near the top of this document —
+  the earlier contained-panel exception is cancelled as of 2026-09-27). Use
+  solid or semi-transparent panels, gradients, borders, and shadows instead.
 - Keep motion restrained and avoid noisy debug notifications for normal
   players. Put diagnostic detail in controlled logs or development/admin
   views.
@@ -179,3 +206,11 @@ check for shared `cm-ui` components or established local patterns. Preserve
 unrelated working-tree changes. Keep UI-only changes scoped to presentation
 and input handling; follow the root `AGENTS.md` for cross-resource contracts,
 server authority, validation, runtime restarts, and required reporting.
+
+For every UI edit, run the UI layer through
+`tools/cm-qa/run.ps1 -Resource <resource> -Layer UI` when a fixture exists.
+The runner records browser-console health, viewport/no-scroll assertions,
+prohibited `backdrop-filter` checks, screenshots, ESC/close behaviour, and
+expected NUI callback endpoints. `UI_AUTOMATION_PASS` does not replace human
+visual judgment for major visual changes; record `VISUAL_REVIEW_NOT_RUN` or
+the review evidence explicitly.

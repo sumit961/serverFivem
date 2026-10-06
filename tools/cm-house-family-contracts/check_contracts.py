@@ -372,6 +372,44 @@ def check_garage_family_vehicle_scope(house_server: Path, errors: list[str]) -> 
         )
 
 
+def check_explicit_family_vehicle_registration(root: Path, errors: list[str]) -> None:
+    house_garage = (root / "resources" / "[core]" / "cm-house" / "server" / "sv_garage.lua").read_text(
+        encoding="utf-8-sig", errors="replace"
+    )
+    phase2 = (root / "resources" / "[core]" / "cm-house" / "server" / "sv_phase2.lua").read_text(
+        encoding="utf-8-sig", errors="replace"
+    )
+    family_ui = (root / "resources" / "[core]" / "cm-family" / "html" / "js" / "family-v100.js").read_text(
+        encoding="utf-8-sig", errors="replace"
+    )
+
+    family_sql = re.search(
+        r"if\s+isFamilyHouse\s+then\s+rows\s*=.*?(?=\n\s*else\s+rows\s*=)",
+        house_garage,
+        re.S,
+    )
+    if not family_sql:
+        errors.append("sv_garage.lua: could not isolate the family parkable query for explicit-registration checks")
+    elif re.search(r"WHERE\s+v\.owner_character_id\s*=", family_sql.group(0), re.I):
+        errors.append("sv_garage.lua: family parkable query still includes personal vehicles by owner_character_id")
+
+    for callback in ("callVehicleById", "assignVehicleToSlot", "storeVehicle"):
+        block = LuaFile(root / "resources" / "[core]" / "cm-house" / "server" / "sv_garage.lua").find_block(
+            rf"lib\.callback\.register\('cm-house:server:{callback}',\s*function"
+        )
+        if block:
+            text = house_garage[block[0]:block[1]]
+            if "isFamilyVehicleRegistered" not in text:
+                errors.append(f"sv_garage.lua: {callback} no longer requires explicit family vehicle registration")
+
+    if "function P2.RegisterFamilyVehicle" not in phase2:
+        errors.append("sv_phase2.lua: explicit RegisterFamilyVehicle integration export is missing")
+    if "function P2.SetVehicleFamilyShared()" not in phase2 or "legacy_family_vehicle_action_disabled" not in phase2:
+        errors.append("sv_phase2.lua: legacy family sharing export is not fail-closed")
+    if "data-share" in family_ui or "setVehicleShared" in family_ui:
+        errors.append("family-v100.js: player-facing shared/unshared vehicle controls remain")
+
+
 def check_garage_catalog_image_contract(house_server: Path, errors: list[str]) -> None:
     lf = LuaFile(house_server / "sv_garage.lua")
     state_block = lf.find_block(r"function GarageState\(houseId\)")
@@ -449,6 +487,7 @@ def main() -> int:
     check_garage_vehicle_type_gate(house_root / "server", errors)
     check_garage_public_parking_gate(house_root / "server", errors)
     check_garage_family_vehicle_scope(house_root / "server", errors)
+    check_explicit_family_vehicle_registration(root, errors)
     check_garage_catalog_image_contract(house_root / "server", errors)
     check_garage_operation_lock_and_persistent_identity(house_root / "server", errors)
     check_cm_house_never_deletes_family_tables(house_root, errors)

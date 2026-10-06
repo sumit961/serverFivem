@@ -1,7 +1,7 @@
 CMPlayerData = CMPlayerData or {}
 
 CMPlayerData.Config = {
-    Debug = false,
+    Debug = true, -- TEMP: black-screen spawn-flow diagnosis, revert after
 
     Save = {
         FullSaveInterval = 3 * 60 * 1000,
@@ -68,10 +68,11 @@ CMPlayerData.Config = {
         DamageThreshold = 101,
         MaxHealth = 200,
         MaxArmor = 100,
-        -- While unconscious the body carries this % of max health as a "finishing"
-        -- buffer above the downed floor. If someone depletes it (kills again), the
-        -- player is finished and goes straight to hospital respawn.
-        UnconsciousHealthPercent = 10,
+        -- Deprecated: GTA native death is authoritative. Custom downed health buffer is removed.
+        DownedUsableHealth = 0,
+        DownedHealthPercent = 0,
+        UnconsciousHealthPercent = 0, -- backward-compatible fallback
+        DownedDamageGraceMs = 0,      -- deprecated
         InjuredHealth = 140, -- kept for compatibility only; no walkstyle/effect is applied
         MaxPassiveHealDelta = 0
     },
@@ -82,6 +83,7 @@ CMPlayerData.Config = {
         health = 200,
         armor = 0,
         is_dead = 0,
+        life_state = 'alive',
         death_count = 0
     },
 
@@ -96,8 +98,7 @@ CMPlayerData.Config = {
     Metadata = {
         MaxDepth = 8,
         MaxStringLength = 4096,
-        MaxSerializedBytes = 65536,
-        MaxNodes = 2048
+        MaxSerializedBytes = 65536
     },
 
     Gameplay = {

@@ -134,11 +134,17 @@ lib.callback.register('cm-law:server:mdtVehicleSearch', function(src, plate)
         WHERE i.vehicle_id=? AND i.released_at IS NULL ORDER BY i.id DESC, e.id DESC LIMIT 1]], { row.id })[1]
     local registration = LawNormalizePlate(row.license_number)
     local bolos = registration and LawGetActiveBoloMatches(registration) or {}
+    -- cm-vehicles is the authority for registration/insurance state; law only
+    -- reads it (nothing is copied into law tables).
+    local legal = {}
+    pcall(function() legal = exports['cm-vehicles']:GetVehicleLegalStatus(tonumber(row.id)) or {} end)
     return { ok = true, vehicle = { vehicleId = tonumber(row.id), plate = tostring(row.plate or plate),
         model = tostring(row.model or ''), label = tostring(row.label or row.model or ''),
         ownerCid = ownerCid, ownerName = ownerCid and nameFor(ownerCid) or 'Unknown',
         licenseNumber = registration,
         registrationNumber = registration,
+        registrationStatus = legal.registrationStatus, registrationExpiresAt = legal.registrationExpiresAt,
+        insuranceStatus = legal.insuranceStatus, insuranceExpiresAt = legal.insuranceExpiresAt,
         impound = impound and { fee = tonumber(impound.fee) or 0, reason = tostring(impound.reason or ''),
             organizationId = tostring(impound.organization_id or ''),
             organization = (Config.Organizations[tostring(impound.organization_id or '')] or {}).label or tostring(impound.organization_id or 'Law'),

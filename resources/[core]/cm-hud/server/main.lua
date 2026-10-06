@@ -212,7 +212,12 @@ local bucketHudWasEnabled = false
 
 CreateThread(function()
     while true do
-        local enabled = GetConvarInt('cm_hud_show_bucket', 1) == 1
+        -- PHASE 6 SECURITY/POLISH FIX: this must never be visible to normal
+        -- players by default. It was defaulting to enabled (1) with nothing in
+        -- server.cfg setting it, so every player's own routing bucket was
+        -- shown on their HUD out of the box. Debug-only now: an operator must
+        -- explicitly `set cm_hud_show_bucket 1` to turn it on.
+        local enabled = GetConvarInt('cm_hud_show_bucket', 0) == 1
 
         if enabled then
             bucketHudWasEnabled = true

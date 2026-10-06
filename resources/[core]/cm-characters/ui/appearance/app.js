@@ -1,7 +1,16 @@
 // cm-characters appearance UI controller
 // Adapted from vms_charcreator
+//
+// PHASE 4C: player-facing categories are FACE / HAIR / EYES / CLOTHING —
+// a fixed UI taxonomy layered on top of the UNCHANGED Lua data shape
+// (items.parents / items.face / items.hairs / items.clothes). Native calls,
+// field names and the appearanceChange contract are untouched; only how
+// controls are grouped and labeled for the player changed. Rendering
+// (DOM/markup) is kept separate from the NUI-post helpers (postChange/
+// changeCamera) — every renderer below calls into those same two helpers,
+// never duplicating fetch() calls.
 
-let currentValue = { clotheset: { min: 0, value: -1, max: 0 } };
+let currentValue = {};
 let items = {};
 let clotheSets = {};
 let disabledValues = {};
@@ -9,27 +18,71 @@ let handsUpKey = null;
 let direction = "";
 let charId = null;
 let canCancel = false;
+let currentServiceMode = null;
+
+// ── Category taxonomy ───────────────────────────────────────────────────
+// Each UI category maps to one or more Lua "items" groups. enabled() decides
+// whether the nav button appears at all (mirrors the old per-Lua-category
+// visibility, just regrouped) — service modes (gender/surgery/barber) only
+// ever populate a subset of these, so most categories naturally disappear.
+const CATEGORY_DEFS = [
+    {
+        key: 'face',
+        label: 'FACE',
+        enabled: () => {
+            const p = items['parents'] || {};
+            const f = items['face'] || {};
+            const hasParents = !!(p.sex || p.parents || p.face_md_weight || p.skin_md_weight);
+            const hasFace = Object.keys(f).some((k) => k !== 'eye_color' && f[k]);
+            return hasParents || hasFace;
+        },
+        render: renderFacePanelImpl
+    },
+    {
+        key: 'hair',
+        label: 'HAIR',
+        enabled: () => Object.values(items['hairs'] || {}).some(Boolean),
+        render: renderHairPanelImpl
+    },
+    {
+        key: 'eyes',
+        label: 'EYES',
+        enabled: () => !!(items['face'] && items['face'].eye_color),
+        render: renderEyesPanelImpl
+    },
+    {
+        key: 'clothing',
+        label: 'CLOTHING',
+        enabled: () => Object.values(items['clothes'] || {}).some(Boolean),
+        render: renderClothingPanelImpl
+    }
+];
+
+function renderCategories() {
+    $('.categories').empty();
+    CATEGORY_DEFS.forEach((def) => {
+        if (def.enabled()) {
+            $('.categories').append(`<div class="categoryBtn" data-type="${def.key}">${def.label}</div>`);
+        }
+    });
+
+    if (currentServiceMode === 'barber' || $('.categories .categoryBtn').length <= 1) {
+        $('.categories').hide();
+    } else {
+        $('.categories').show();
+    }
+}
 
 // Listen for NUI messages
 window.addEventListener('message', function(event) {
     const item = event.data;
 
     if (item.action === "openAppearance") {
-        // FIX: Show appearance container, hide slots
         document.getElementById('appearance-ui').style.display = 'block';
         document.getElementById('app').classList.add('hidden');
-        
-        $('.categories').empty();
-        $('.panel').empty();
 
-        const initRotate = item.currentRotate || 0;
-        const initDistance = item.currentDistance || 30;
-        document.getElementById("rotate-input").value = initRotate.toString();
-        document.getElementById("distance-input").value = initDistance.toString();
-        document.getElementById("height-input").value = "0.0";
-        if (document.getElementById("rotate-val")) document.getElementById("rotate-val").textContent = initRotate + "°";
-        if (document.getElementById("distance-val")) document.getElementById("distance-val").textContent = initDistance.toString();
-        if (document.getElementById("height-val")) document.getElementById("height-val").textContent = "0.0";
+        $('.panel').empty();
+        currentServiceMode = item.serviceMode || null;
 
         if (item.serviceMode === 'barber') {
             $('#headerName').text('BARBER STUDIO');
@@ -39,13 +92,11 @@ window.addEventListener('message', function(event) {
             if ($('#cancel-text').length) $('#cancel-text').text('LEAVE WITHOUT EDIT');
             $('#cancel-btn').show();
             canCancel = true;
-            $('.categories').hide();
         } else {
-            $('.categories').show();
             $('#headerName').text(translate.create_character || 'CREATE CHARACTER');
             $('#headerCategory').text(translate.select_category);
-            $('#save').text(translate.save || 'SAVE & SPAWN');
-            if ($('#cancel-text').length) $('#cancel-text').text(translate.cancel || 'CANCEL');
+            $('#save').text(translate.save || 'SAVE & CONTINUE');
+            if ($('#cancel-text').length) $('#cancel-text').text(translate.cancel || 'BACK');
             if (item.enableCancelButtonUI) {
                 $('#cancel-btn').show();
                 canCancel = true;
@@ -54,10 +105,6 @@ window.addEventListener('message', function(event) {
                 canCancel = false;
             }
         }
-
-        $('#height-text').text(translate.height);
-        $('#rotate-text').text(translate.rotate);
-        $('#distance-text').text(translate.distance);
 
         if (item.clotheSets) clotheSets = item.clotheSets;
         if (item.items) items = item.items;
@@ -71,41 +118,9 @@ window.addEventListener('message', function(event) {
             $('.hands-up').hide();
         }
 
-        if (item.categories) {
-            if (item.categories['parents']) {
-                $('.categories').append(`<div class="parents categoryBtn" data-type="parents">DNA</div>`);
-            }
-            if (item.categories['face']) {
-                $('.categories').append(`<div class="face categoryBtn" data-type="face">FACE</div>`);
-            }
-            if (item.categories['clothes']) {
-                $('.categories').append(`<div class="clothes categoryBtn" data-type="clothes">FIT</div>`);
-            }
-            if (item.categories['clothesets']) {
-                $('.categories').append(`<div class="clothesets categoryBtn" data-type="clothesets">SET</div>`);
-            }
-            if (item.categories['hairs']) {
-                $('.categories').append(`<div class="hairs categoryBtn" data-type="hairs">HAIR</div>`);
-            }
-            if (item.categories['makeup']) {
-                $('.categories').append(`<div class="makeup categoryBtn" data-type="makeup">MAKE</div>`);
-            }
-        }
-
-        if (item.serviceMode === 'barber' || $('.categories .categoryBtn').length <= 1) {
-            $('.categories').hide();
-        } else {
-            $('.categories').show();
-        }
-
-        setTimeout(() => {
-            const firstCategory = document.querySelector('.categoryBtn');
-            if (firstCategory) firstCategory.click();
-        }, 80);
-
         for (const [key, value] of Object.entries(item.data || {})) {
-            // ClockMate starter clothing limit:
-            // hard-limit T-Shirt, Torso, Pants and Shoes sliders to max 2.
+            // Starter clothing limit: hard-limit T-Shirt/Torso/Pants/Shoes
+            // sliders to the curated 2-choice presets, never the full range.
             let hardMax = value.max;
             if (['tshirt_1', 'torso_1', 'pants_1', 'shoes_1'].includes(key)) {
                 hardMax = 2;
@@ -126,6 +141,13 @@ window.addEventListener('message', function(event) {
                 }
             }
         }
+
+        renderCategories();
+
+        setTimeout(() => {
+            const firstCategory = document.querySelector('.categoryBtn');
+            if (firstCategory) firstCategory.click();
+        }, 80);
     }
 
     if (item.action === 'updateSecondValue') {
@@ -146,14 +168,6 @@ window.addEventListener('message', function(event) {
         if (stepEl) stepEl.innerHTML = `0 <span class="stepper-max">/ ${item.secondValue}</span>`;
     }
 
-    if (item.action === 'updateInputs') {
-        const dist = Math.floor(item.fov || 30);
-        const distInput = document.getElementById("distance-input");
-        if (distInput) distInput.value = dist.toString();
-        const distVal = document.getElementById("distance-val");
-        if (distVal) distVal.textContent = dist.toString();
-    }
-
     if (item.action === 'setValue') {
         if (currentValue[item.item]) {
             currentValue[item.item].value = item.value;
@@ -167,8 +181,9 @@ window.addEventListener('message', function(event) {
     }
 });
 
-// Category click handler
-$(document).on('click', '.categoryBtn', function(e) {
+// Category click handler (event delegation — categoryBtn elements are
+// generated dynamically by renderCategories() above)
+$(document).on('click', '.categoryBtn', function() {
     $('.categoryBtn').removeClass('active');
     $(this).addClass('active');
     $('.panel').empty();
@@ -176,30 +191,8 @@ $(document).on('click', '.categoryBtn', function(e) {
     $('#headerCategory').html(translate.category[type] || type.toUpperCase());
     changeCamera(type);
 
-    let values = '';
-
-    switch(type) {
-        case "parents":
-            values = buildParentsPanel();
-            break;
-        case "face":
-            values = buildFacePanel();
-            break;
-        case "clothes":
-            values = buildClothesPanel();
-            break;
-        case "clothesets":
-            values = buildClotheSetsPanel();
-            break;
-        case "hairs":
-            values = buildHairPanel();
-            break;
-        case "makeup":
-            values = buildMakeupPanel();
-            break;
-    }
-
-    $('.panel').html(values);
+    const def = CATEGORY_DEFS.find((d) => d.key === type);
+    $('.panel').html(def ? def.render() : '');
     refreshSelectedSwatches();
 });
 
@@ -214,223 +207,172 @@ function refreshSelectedSwatches() {
     });
 }
 
-// Build Parents Panel
-function buildParentsPanel() {
-    let values = '';
+function sectionHeader(label) {
+    return `<p class="item-section-title">${label}</p>`;
+}
 
-    if (items['parents'] && items['parents'].sex) {
+// FACE — combines the old "parents" (heritage/skin) and "face" (minus eye
+// color, which now lives under its own EYES tab) categories into one tab
+// with HERITAGE / SKIN / FACIAL FEATURES sections. Reads the exact same
+// items.parents/items.face flags Lua already sends — no data model change.
+function renderFacePanelImpl() {
+    let values = '';
+    const p = items['parents'] || {};
+    const f = items['face'] || {};
+
+    // Gender-service mode only: change an EXISTING character's sex. First-time
+    // creation already picked gender on Basic Identity — showing it again
+    // here would be a second, inconsistent gender-switch path.
+    if (p.sex && currentServiceMode === 'gender') {
+        values += sectionHeader('GENDER');
         values += createRangeBlock(translate.title_sex, translate.sub_sex, 'sex');
     }
-    if (items['parents'] && items['parents'].parents) {
+
+    if (p.parents) {
+        values += sectionHeader('HERITAGE');
         values += `
             <div class="item-block">
-                <p class="item-title">${translate.title_parents}</p>
                 <div class="item-bar">
                     <div class="second-item-bar">
                         <div class="item-option">
-                            <div class="parent-photo" id="mom-photo" style="background: linear-gradient(135deg, #ff6b6b, #ee5a24);"></div>
                             <p class="item-subname">${translate.sub_mom}</p>
                             <div class="item-suboptions">
-                                <div class="item-suboptions-values left-arrow" onclick="previous('mom')">‹</div>
+                                <div class="item-suboptions-values parent-nav-btn" data-item="mom" data-dir="-1">‹</div>
                                 <div class="item-suboptions-values"><p class="item-label" id="mom-label">${translate.parentsNames.mom[currentValue['mom'].value] || 'Unknown'}</p></div>
-                                <div class="item-suboptions-values right-arrow" onclick="next('mom')">›</div>
+                                <div class="item-suboptions-values parent-nav-btn" data-item="mom" data-dir="1">›</div>
                             </div>
                         </div>
                         <div class="item-option">
-                            <div class="parent-photo" id="dad-photo" style="background: linear-gradient(135deg, #4834d4, #686de0);"></div>
                             <p class="item-subname">${translate.sub_dad}</p>
                             <div class="item-suboptions">
-                                <div class="item-suboptions-values left-arrow" onclick="previous('dad')">‹</div>
+                                <div class="item-suboptions-values parent-nav-btn" data-item="dad" data-dir="-1">‹</div>
                                 <div class="item-suboptions-values"><p class="item-label" id="dad-label">${translate.parentsNames.dad[currentValue['dad'].value] || 'Unknown'}</p></div>
-                                <div class="item-suboptions-values right-arrow" onclick="next('dad')">›</div>
+                                <div class="item-suboptions-values parent-nav-btn" data-item="dad" data-dir="1">›</div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>`;
     }
-    if (items['parents'] && items['parents'].face_md_weight) {
-        values += createRangeBlock(translate.title_resemblance, translate.sub_face_md_weight, 'face_md_weight');
-    }
-    if (items['parents'] && items['parents'].skin_md_weight) {
-        values += createRangeBlock(translate.title_skin_md_weight, translate.sub_skin_md_weight, 'skin_md_weight');
+
+    if (p.face_md_weight || p.skin_md_weight) {
+        values += sectionHeader('SKIN');
+        if (p.face_md_weight) values += createRangeBlock(translate.title_resemblance, translate.sub_face_md_weight, 'face_md_weight');
+        if (p.skin_md_weight) values += createRangeBlock(translate.title_skin_md_weight, translate.sub_skin_md_weight, 'skin_md_weight');
     }
 
-    return values;
-}
+    const hasFeatures = f.neck_thickness || f.age || f.eyebrows || f.nose || f.cheeks || f.lip_thickness || f.jaw || f.chin || f.blemishes || f.complexion || f.sun || f.moles;
+    if (hasFeatures) {
+        values += sectionHeader('FACIAL FEATURES');
 
-// Build Face Panel
-function buildFacePanel() {
-    let values = '';
-
-    if (items['face'] && items['face'].neck_thickness) {
-        values += createRangeBlock(translate.title_neck_thickness, translate.sub_neck_thickness, 'neck_thickness');
-    }
-    if (items['face'] && items['face'].age) {
-        values += createDoubleRangeBlock(translate.title_ageing, translate.sub_age_1, 'age_1', translate.sub_age_2, 'age_2');
-    }
-    if (items['face'] && items['face'].eyebrows) {
-        values += createDoubleRangeBlock(translate.title_eyebrow, translate.sub_eyebrows_5, 'eyebrows_5', translate.sub_eyebrows_6, 'eyebrows_6');
-    }
-    if (items['face'] && items['face'].nose) {
-        values += `
-            <div class="item-block">
-                <p class="item-title">${translate.title_nose}</p>
-                <div class="item-bar">
-                    <div class="second-item-bar">
-                        ${createRangeInput(translate.sub_nose_1, 'nose_1')}
-                        ${createRangeInput(translate.sub_nose_2, 'nose_2')}
-                    </div>
-                    <div class="second-item-bar">
-                        ${createRangeInput(translate.sub_nose_3, 'nose_3')}
-                        ${createRangeInput(translate.sub_nose_4, 'nose_4')}
-                    </div>
-                    <div class="second-item-bar">
-                        ${createRangeInput(translate.sub_nose_5, 'nose_5')}
-                        ${createRangeInput(translate.sub_nose_6, 'nose_6')}
-                    </div>
-                </div>
-            </div>`;
-    }
-    if (items['face'] && items['face'].cheeks) {
-        values += `
-            <div class="item-block">
-                <p class="item-title">${translate.title_cheekbones}</p>
-                <div class="item-bar">
-                    <div class="second-item-bar">
-                        ${createRangeInput(translate.sub_cheeks_1, 'cheeks_1')}
-                        ${createRangeInput(translate.sub_cheeks_2, 'cheeks_2')}
-                    </div>
-                    <div class="second-item-bar">
-                        ${createRangeInput(translate.sub_cheeks_3, 'cheeks_3')}
-                    </div>
-                </div>
-            </div>`;
-    }
-    if (items['face'] && items['face'].lip_thickness) {
-        values += createRangeBlock(translate.title_lips, translate.sub_lip_thickness, 'lip_thickness');
-    }
-    if (items['face'] && items['face'].jaw) {
-        values += createDoubleRangeBlock(translate.title_jaw, translate.sub_jaw_1, 'jaw_1', translate.sub_jaw_2, 'jaw_2');
-    }
-    if (items['face'] && items['face'].chin) {
-        values += `
-            <div class="item-block">
-                <p class="item-title">${translate.title_chin}</p>
-                <div class="item-bar">
-                    <div class="second-item-bar">
-                        ${createRangeInput(translate.sub_chin_1, 'chin_1')}
-                        ${createRangeInput(translate.sub_chin_2, 'chin_2')}
-                    </div>
-                    <div class="second-item-bar">
-                        ${createRangeInput(translate.sub_chin_3, 'chin_3')}
-                        ${createRangeInput(translate.sub_chin_4, 'chin_4')}
-                    </div>
-                </div>
-            </div>`;
-    }
-    if (items['face'] && items['face'].eye_color) {
-        values += `
-            <div class="item-block">
-                <p class="item-title">${translate.title_eye_color}</p>
-                <div class="item-bar">
-                    <p class="item-subname">${translate.sub_eye_color}</p>
-                    <div class="color-selector-bar">
-                        ${buildEyeColors()}
-                    </div>
-                </div>
-            </div>`;
-    }
-    if (items['face'] && items['face'].blemishes) {
-        values += createDoubleRangeBlock(translate.title_blemishes, translate.sub_blemishes_1, 'blemishes_1', translate.sub_blemishes_2, 'blemishes_2');
-    }
-    if (items['face'] && items['face'].complexion) {
-        values += createDoubleRangeBlock(translate.title_complexion, translate.sub_complexion_1, 'complexion_1', translate.sub_complexion_2, 'complexion_2');
-    }
-    if (items['face'] && items['face'].sun) {
-        values += createDoubleRangeBlock(translate.title_sun, translate.sub_sun_1, 'sun_1', translate.sub_sun_2, 'sun_2');
-    }
-    if (items['face'] && items['face'].moles) {
-        values += createDoubleRangeBlock(translate.title_moles, translate.sub_moles_1, 'moles_1', translate.sub_moles_2, 'moles_2');
-    }
-
-    return values;
-}
-
-// Build Clothes Panel
-function buildClothesPanel() {
-    let values = '';
-    const clothItems = ['tshirt', 'torso', 'arms', 'pants', 'shoes', 'decals', 'mask', 'bproof', 'chain', 'helmet', 'glasses', 'watches', 'bracelets', 'bags', 'ears'];
-
-    const titles = {
-        tshirt: translate.title_tshirt, torso: translate.title_torso, arms: translate.title_arms,
-        pants: translate.title_pants, shoes: translate.title_shoes, decals: translate.title_decals,
-        mask: translate.title_mask, bproof: translate.title_bproof, chain: translate.title_chain,
-        helmet: translate.title_helmet, glasses: translate.title_glasses, watches: translate.title_watches,
-        bracelets: translate.title_bracelets, bags: translate.title_bags, ears: translate.title_ears
-    };
-
-    const subs1 = {
-        tshirt: translate.sub_tshirt_1, torso: translate.sub_torso_1, arms: translate.sub_arms,
-        pants: translate.sub_pants_1, shoes: translate.sub_shoes_1, decals: translate.sub_decals_1,
-        mask: translate.sub_mask_1, bproof: translate.sub_bproof_1, chain: translate.sub_chain_1,
-        helmet: translate.sub_helmet_1, glasses: translate.sub_glasses_1, watches: translate.sub_watches_1,
-        bracelets: translate.sub_bracelets_1, bags: translate.sub_bags_1, ears: translate.sub_ears_1
-    };
-
-    const subs2 = {
-        tshirt: translate.sub_tshirt_2, torso: translate.sub_torso_2, arms: translate.sub_arms_2,
-        pants: translate.sub_pants_2, shoes: translate.sub_shoes_2, decals: translate.sub_decals_2,
-        mask: translate.sub_mask_2, bproof: translate.sub_bproof_2, chain: translate.sub_chain_2,
-        helmet: translate.sub_helmet_2, glasses: translate.sub_glasses_2, watches: translate.sub_watches_2,
-        bracelets: translate.sub_bracelets_2, bags: translate.sub_bags_2, ears: translate.sub_ears_2
-    };
-
-    for (const item of clothItems) {
-        if (items['clothes'] && items['clothes'][item]) {
-            const key1 = item + '_1';
-            const key2 = item + '_2';
+        if (f.nose) {
             values += `
                 <div class="item-block">
-                    <p class="item-title">${titles[item]}</p>
+                    <p class="item-title">${translate.title_nose}</p>
                     <div class="item-bar">
                         <div class="second-item-bar">
-                            ${createRangeInput(subs1[item], key1)}
-                            ${createRangeInput(subs2[item], key2)}
+                            ${createRangeInput(translate.sub_nose_1, 'nose_1')}
+                            ${createRangeInput(translate.sub_nose_2, 'nose_2')}
+                        </div>
+                        <div class="second-item-bar">
+                            ${createRangeInput(translate.sub_nose_3, 'nose_3')}
+                            ${createRangeInput(translate.sub_nose_4, 'nose_4')}
+                        </div>
+                        <div class="second-item-bar">
+                            ${createRangeInput(translate.sub_nose_5, 'nose_5')}
+                            ${createRangeInput(translate.sub_nose_6, 'nose_6')}
                         </div>
                     </div>
                 </div>`;
+        }
+        if (f.eyebrows) {
+            values += createDoubleRangeBlock(translate.title_eyebrow, translate.sub_eyebrows_5, 'eyebrows_5', translate.sub_eyebrows_6, 'eyebrows_6');
+        }
+        if (f.cheeks) {
+            values += `
+                <div class="item-block">
+                    <p class="item-title">${translate.title_cheekbones}</p>
+                    <div class="item-bar">
+                        <div class="second-item-bar">
+                            ${createRangeInput(translate.sub_cheeks_1, 'cheeks_1')}
+                            ${createRangeInput(translate.sub_cheeks_2, 'cheeks_2')}
+                        </div>
+                        <div class="second-item-bar">
+                            ${createRangeInput(translate.sub_cheeks_3, 'cheeks_3')}
+                        </div>
+                    </div>
+                </div>`;
+        }
+        if (f.lip_thickness) {
+            values += createRangeBlock(translate.title_lips, translate.sub_lip_thickness, 'lip_thickness');
+        }
+        if (f.jaw) {
+            values += createDoubleRangeBlock(translate.title_jaw, translate.sub_jaw_1, 'jaw_1', translate.sub_jaw_2, 'jaw_2');
+        }
+        if (f.chin) {
+            values += `
+                <div class="item-block">
+                    <p class="item-title">${translate.title_chin}</p>
+                    <div class="item-bar">
+                        <div class="second-item-bar">
+                            ${createRangeInput(translate.sub_chin_1, 'chin_1')}
+                            ${createRangeInput(translate.sub_chin_2, 'chin_2')}
+                        </div>
+                        <div class="second-item-bar">
+                            ${createRangeInput(translate.sub_chin_3, 'chin_3')}
+                            ${createRangeInput(translate.sub_chin_4, 'chin_4')}
+                        </div>
+                    </div>
+                </div>`;
+        }
+        if (f.neck_thickness) {
+            values += createRangeBlock(translate.title_neck_thickness, translate.sub_neck_thickness, 'neck_thickness');
+        }
+        if (f.age) {
+            values += createDoubleRangeBlock(translate.title_ageing, translate.sub_age_1, 'age_1', translate.sub_age_2, 'age_2');
+        }
+        if (f.blemishes) {
+            values += createDoubleRangeBlock(translate.title_blemishes, translate.sub_blemishes_1, 'blemishes_1', translate.sub_blemishes_2, 'blemishes_2');
+        }
+        if (f.complexion) {
+            values += createDoubleRangeBlock(translate.title_complexion, translate.sub_complexion_1, 'complexion_1', translate.sub_complexion_2, 'complexion_2');
+        }
+        if (f.sun) {
+            values += createDoubleRangeBlock(translate.title_sun, translate.sub_sun_1, 'sun_1', translate.sub_sun_2, 'sun_2');
+        }
+        if (f.moles) {
+            values += createDoubleRangeBlock(translate.title_moles, translate.sub_moles_1, 'moles_1', translate.sub_moles_2, 'moles_2');
         }
     }
 
     return values;
 }
 
-// Build ClotheSets Panel
-function buildClotheSetsPanel() {
+// EYES — just eye color, pulled out of the old face panel into its own tab.
+function renderEyesPanelImpl() {
+    const f = items['face'] || {};
+    if (!f.eye_color) return '';
     return `
         <div class="item-block">
-            <p class="item-title">${translate.title_clothesets}</p>
+            <p class="item-title">${translate.title_eye_color}</p>
             <div class="item-bar">
-                <div class="second-item-bar">
-                    <div class="item-option">
-                        <p class="item-subname">${translate.sub_clotheset}</p>
-                        <div class="item-suboptions">
-                            <div class="item-suboptions-values left-arrow" onclick="previousClotheSets()">‹</div>
-                            <div class="item-suboptions-values"><p class="item-label" id="clotheset-label">${(currentValue['clotheset'] && clotheSets[currentValue['clotheset'].value]) ? clotheSets[currentValue['clotheset'].value].name : 'NONE'}</p></div>
-                            <div class="item-suboptions-values right-arrow" onclick="nextClotheSets()">›</div>
-                        </div>
-                    </div>
+                <p class="item-subname">${translate.sub_eye_color}</p>
+                <div class="color-selector-bar">
+                    ${buildEyeColors()}
                 </div>
             </div>
         </div>`;
 }
 
-// Build Hair Panel
-function buildHairPanel() {
+// HAIR — hairstyle, primary/highlight color, beard/chest-hair where present
+// (server already omits beard/chesthair items entirely for female peds —
+// see AvailableItems in client/appearance.lua — so there is nothing to hide
+// here, it simply never renders).
+function renderHairPanelImpl() {
     let values = '';
+    const h = items['hairs'] || {};
 
-    if (items['hairs'] && items['hairs'].hair) {
+    if (h.hair) {
         values += `
             <div class="item-block">
                 <p class="item-title">${translate.title_hair}</p>
@@ -449,7 +391,7 @@ function buildHairPanel() {
                 </div>
             </div>`;
     }
-    if (items['hairs'] && items['hairs'].beard) {
+    if (h.beard) {
         values += `
             <div class="item-block">
                 <p class="item-title">${translate.title_beard}</p>
@@ -465,7 +407,7 @@ function buildHairPanel() {
                 </div>
             </div>`;
     }
-    if (items['hairs'] && items['hairs'].eyebrow) {
+    if (h.eyebrow) {
         values += `
             <div class="item-block">
                 <p class="item-title">${translate.title_eyebrow}</p>
@@ -481,7 +423,7 @@ function buildHairPanel() {
                 </div>
             </div>`;
     }
-    if (items['hairs'] && items['hairs'].chesthair) {
+    if (h.chesthair) {
         values += `
             <div class="item-block">
                 <p class="item-title">${translate.title_chesthair}</p>
@@ -501,63 +443,38 @@ function buildHairPanel() {
     return values;
 }
 
-// Build Makeup Panel
-function buildMakeupPanel() {
+// CLOTHING — curated starter presets only (torso/pants/shoes; texture/tshirt
+// fields are locked to 0 server-side and skipped here — see
+// client/appearance.lua's appearanceChange 'torso_2'/'pants_2'/etc branch).
+// This never becomes the full clothing store: items['clothes'] only ever
+// contains torso/pants/shoes from Lua.
+function renderClothingPanelImpl() {
     let values = '';
+    const c = items['clothes'] || {};
+    const slots = [
+        { key: 'torso', title: translate.title_torso, sub: translate.sub_torso_1 },
+        { key: 'pants', title: translate.title_pants, sub: translate.sub_pants_1 },
+        { key: 'shoes', title: translate.title_shoes, sub: translate.sub_shoes_1 }
+    ];
 
-    if (items['makeup'] && items['makeup'].makeup) {
-        values += `
-            <div class="item-block">
-                <p class="item-title">${translate.title_makeup}</p>
-                <div class="item-bar">
-                    <div class="second-item-bar">
-                        ${createRangeInput(translate.sub_makeup_1, 'makeup_1')}
-                        ${createRangeInput(translate.sub_makeup_2, 'makeup_2')}
+    for (const slot of slots) {
+        if (c[slot.key]) {
+            values += `
+                <div class="item-block">
+                    <p class="item-title">${slot.title}</p>
+                    <div class="item-bar">
+                        <div class="second-item-bar">
+                            ${createRangeInput(slot.sub, slot.key + '_1')}
+                        </div>
                     </div>
-                    <p class="item-subname">${translate.sub_makeup_3}</p>
-                    <div class="color-selector-bar">
-                        ${buildMakeupColors('makeup_3')}
-                    </div>
-                </div>
-            </div>`;
-    }
-    if (items['makeup'] && items['makeup'].blush) {
-        values += `
-            <div class="item-block">
-                <p class="item-title">${translate.title_blush}</p>
-                <div class="item-bar">
-                    <div class="second-item-bar">
-                        ${createRangeInput(translate.sub_blush_1, 'blush_1')}
-                        ${createRangeInput(translate.sub_blush_2, 'blush_2')}
-                    </div>
-                    <p class="item-subname">${translate.sub_blush_3}</p>
-                    <div class="color-selector-bar">
-                        ${buildBlushColors('blush_3')}
-                    </div>
-                </div>
-            </div>`;
-    }
-    if (items['makeup'] && items['makeup'].lipstick) {
-        values += `
-            <div class="item-block">
-                <p class="item-title">${translate.title_lipstick}</p>
-                <div class="item-bar">
-                    <div class="second-item-bar">
-                        ${createRangeInput(translate.sub_lipstick_1, 'lipstick_1')}
-                        ${createRangeInput(translate.sub_lipstick_2, 'lipstick_2')}
-                    </div>
-                    <p class="item-subname">${translate.sub_lipstick_3}</p>
-                    <div class="color-selector-bar">
-                        ${buildLipstickColors('lipstick_3')}
-                    </div>
-                </div>
-            </div>`;
+                </div>`;
+        }
     }
 
     return values;
 }
 
-// Helper: Create button stepper input HTML (replaces range sliders)
+// Helper: Create button stepper input HTML
 function createRangeInput(subname, item) {
     const cv = currentValue[item];
     if (!cv) return '';
@@ -568,9 +485,9 @@ function createRangeInput(subname, item) {
                 <p class="item-value" id="${item}-value">${cv.value}</p>
             </div>
             <div class="item-suboptions stepper-controls">
-                <button type="button" class="stepper-btn" onclick="stepItem('${item}', -1)">◀</button>
+                <button type="button" class="stepper-btn" data-action="step" data-item="${item}" data-dir="-1">◀</button>
                 <span class="stepper-label" id="${item}-stepper-label">${cv.value} <span class="stepper-max">/ ${cv.max}</span></span>
-                <button type="button" class="stepper-btn" onclick="stepItem('${item}', 1)">▶</button>
+                <button type="button" class="stepper-btn" data-action="step" data-item="${item}" data-dir="1">▶</button>
                 <input type="hidden" id="${item}-range" value="${cv.value}">
             </div>
         </div>`;
@@ -623,15 +540,20 @@ function createDoubleRangeBlock(title, sub1, item1, sub2, item2) {
 }
 
 // Helper: render a swatch grid. Each swatch carries data-field/data-color-id
-// so refreshSelectedSwatches() can mark whichever one matches currentValue.
+// so refreshSelectedSwatches() can mark whichever one matches currentValue,
+// and so the delegated click handler below knows what to change.
 function buildColorSwatches(item, colors) {
-    return colors.map(c => `<div class="item-sub-color-selector" data-field="${item}" data-color-id="${c[0]}" style="background: ${c[1]};" onclick="changeColor('${item}', ${c[0]})"></div>`).join('');
+    return colors.map(c => `<div class="item-sub-color-selector" data-field="${item}" data-color-id="${c[0]}" style="background: ${c[1]};"></div>`).join('');
 }
 
 // Helper: Build eye colors
+// Valid native range for SetPedEyeColor is 0-31 (see GetMaxVals().eye_color
+// == 31 in client/appearance.lua). id 45 used to be listed here -- clicking
+// it silently did nothing since it's outside the native's valid range and
+// the game clamps/ignores it. Removed rather than guessed-replaced.
 function buildEyeColors() {
     const colors = [
-        [0, '#d2d6d3'], [45, '#5c6e36'], [2, '#1f400f'], [3, '#8fcbeb'], [4, '#2e6b94'], [6, '#27c07d'],
+        [0, '#d2d6d3'], [1, '#5c6e36'], [2, '#1f400f'], [3, '#8fcbeb'], [4, '#2e6b94'], [6, '#27c07d'],
         [31, '#947647'], [30, '#593b0a'], [24, '#2e2316'], [9, '#9b9b9b'], [10, '#5f5f5f'], [12, '#0e0e0e']
     ];
     return buildColorSwatches('eye_color', colors);
@@ -647,32 +569,7 @@ function buildHairColors(item) {
     return buildColorSwatches(item, colors);
 }
 
-// Helper: Build makeup colors
-function buildMakeupColors(item) {
-    const colors = [
-        [17, '#e775a4'], [18, '#de3e81'], [24, '#cf0813'], [0, '#992532'], [20, '#712739'], [56, '#180e0e'],
-        [45, '#ffdd26'], [47, '#f78a27'], [37, '#25c2d2'], [34, '#1d4ea7'], [40, '#1b9c32'], [32, '#6d1a9d']
-    ];
-    return buildColorSwatches(item, colors);
-}
-
-// Helper: Build blush colors
-function buildBlushColors(item) {
-    const colors = [
-        [18, '#de3e81'], [20, '#712739'], [21, '#4f1f2a'], [7, '#a4645d'], [13, '#a84c33'], [24, '#cf0813']
-    ];
-    return buildColorSwatches(item, colors);
-}
-
-// Helper: Build lipstick colors
-function buildLipstickColors(item) {
-    const colors = [
-        [54, '#880302'], [53, '#ff0505'], [51, '#d1593c'], [34, '#eb4b93'], [38, '#023974'], [39, '#3fa16a']
-    ];
-    return buildColorSwatches(item, colors);
-}
-
-// Navigation functions
+// Navigation functions (heritage mom/dad steppers)
 function previous(item) {
     if (currentValue[item].value > currentValue[item].min) {
         if (item === 'mom') {
@@ -709,56 +606,28 @@ function next(item) {
     postChange(item, currentValue[item].value);
 }
 
-function previousClotheSets() {
-    if (clotheSets[currentValue['clotheset'].value - 1]) {
-        currentValue['clotheset'].value -= 1;
-        $('#clotheset-label').html(clotheSets[currentValue['clotheset'].value].name);
-    }
-    postChange('clotheset', currentValue['clotheset'].value);
-}
-
-function nextClotheSets() {
-    if (clotheSets[currentValue['clotheset'].value + 1]) {
-        currentValue['clotheset'].value += 1;
-        $('#clotheset-label').html(clotheSets[currentValue['clotheset'].value].name);
-    }
-    postChange('clotheset', currentValue['clotheset'].value);
-}
-
 function changeColor(item, dataId) {
     postChange(item, dataId);
     currentValue[item].value = dataId;
     refreshSelectedSwatches();
 }
 
-function changeRange(item) {
-    let inputValue = parseInt($(`#${item}-range`).val());
-    let result = inputValue;
-    const excluded = $(`#${item}-range`).data('excluded');
+// Delegated handlers for dynamically-generated controls — no onclick=
+// strings anywhere in the templates above (see createRangeInput,
+// buildColorSwatches, and the heritage mom/dad arrows in renderFacePanelImpl).
+$(document).on('click', '.stepper-btn[data-action="step"]', function() {
+    stepItem($(this).data('item'), Number($(this).data('dir')));
+});
 
-    if (excluded) {
-        const excludedValues = excluded.split(',').map(Number).filter(n => !isNaN(n));
-        if (excludedValues.includes(inputValue)) {
-            result = findClosestValue(inputValue, excludedValues);
-            $(`#${item}-range`).val(result);
-        }
-    }
+$(document).on('click', '.item-sub-color-selector[data-field]', function() {
+    changeColor($(this).data('field'), $(this).data('color-id'));
+});
 
-    if (result !== currentValue[item].value) {
-        currentValue[item].value = result;
-        postChange(item, Number(result));
-        $(`#${item}-value`).html(currentValue[item].value);
-    }
-}
-
-function findClosestValue(value, excludedValues) {
-    let closestValue = value;
-    while (excludedValues.includes(closestValue)) {
-        if (direction === "left") closestValue--;
-        else closestValue++;
-    }
-    return closestValue;
-}
+$(document).on('click', '.parent-nav-btn', function() {
+    const item = $(this).data('item');
+    const dir = Number($(this).data('dir'));
+    if (dir < 0) previous(item); else next(item);
+});
 
 function postChange(type, newValue) {
     fetch(`https://${GetParentResourceName()}/appearanceChange`, {
@@ -773,63 +642,6 @@ function changeCamera(type) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type })
-    }).catch(() => {});
-}
-
-function stepHeight(step) {
-    let el = document.getElementById('height-input');
-    let val = parseFloat(el.value || 0) + step;
-    val = Math.max(-1.0, Math.min(1.0, Math.round(val * 10) / 10));
-    el.value = val.toFixed(1);
-    const disp = document.getElementById('height-val');
-    if (disp) disp.textContent = val.toFixed(1);
-    changeHeight();
-}
-
-function stepRotate(step) {
-    let el = document.getElementById('rotate-input');
-    let val = (parseInt(el.value || 0, 10) + step) % 360;
-    if (val < 0) val += 360;
-    el.value = val;
-    const disp = document.getElementById('rotate-val');
-    if (disp) disp.textContent = val + '°';
-    changeRotate();
-}
-
-function stepDistance(step) {
-    let el = document.getElementById('distance-input');
-    let val = parseInt(el.value || 30, 10) + step;
-    val = Math.max(30, Math.min(100, val));
-    el.value = val;
-    const disp = document.getElementById('distance-val');
-    if (disp) disp.textContent = val;
-    changeDistance();
-}
-
-function changeHeight() {
-    const height = document.getElementById('height-input').value;
-    fetch(`https://${GetParentResourceName()}/appearanceHeight`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ height })
-    }).catch(() => {});
-}
-
-function changeRotate() {
-    const rotate = document.getElementById('rotate-input').value;
-    fetch(`https://${GetParentResourceName()}/appearanceRotate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rotate })
-    }).catch(() => {});
-}
-
-function changeDistance() {
-    const distance = document.getElementById('distance-input').value;
-    fetch(`https://${GetParentResourceName()}/appearanceDistance`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ distance })
     }).catch(() => {});
 }
 
@@ -858,6 +670,28 @@ function closeAppearance() {
     }).catch(() => {});
     document.getElementById('appearance-ui').style.display = 'none';
 }
+
+const handsUpBtn = document.getElementById('hands-up-btn');
+const saveBtn = document.getElementById('save-btn');
+const cancelBtn = document.getElementById('cancel-btn');
+if (handsUpBtn) handsUpBtn.addEventListener('click', handsUp);
+if (saveBtn) {
+    saveBtn.addEventListener('click', () => {
+        // Disable instantly on submit — block spam, matches server's own
+        // saveAppearance rate limit / appearanceSavePending guard.
+        saveBtn.disabled = true;
+        saveAppearance();
+    });
+}
+if (cancelBtn) cancelBtn.addEventListener('click', closeAppearance);
+
+// Re-enable Save if the server rejects the save (see the 'error' handling in
+// ui/app.js's shared message listener, which re-opens this screen on failure).
+window.addEventListener('message', function(event) {
+    if (event.data && event.data.action === 'openAppearance' && saveBtn) {
+        saveBtn.disabled = false;
+    }
+});
 
 // Keyboard handling - ESC to leave without edit when cancel is available
 $(document).on("keydown", function(event) {
@@ -904,7 +738,7 @@ function flushDragUpdates() {
 
 function isInteractiveUiElement(target) {
     if (!target || !target.closest) return false;
-    return target.closest('.panel, .actions, .settings, .categories, .categoryBtn, button, input, select, textarea, .item-block, .color-circle, .item-sub-color-selector') !== null;
+    return target.closest('.appearance-panel, .appearance-toolbar, .appearance-categories, .categoryBtn, button, input, select, textarea, .item-block, .item-sub-color-selector') !== null;
 }
 
 document.addEventListener('mousedown', function(e) {
@@ -943,7 +777,7 @@ window.addEventListener('mouseup', function() {
 });
 
 document.addEventListener('wheel', function(e) {
-    if (e.target && e.target.closest && e.target.closest('.panel')) return;
+    if (e.target && e.target.closest && e.target.closest('.appearance-panel')) return;
     const delta = (e.deltaY > 0) ? 1.5 : -1.5;
     fetch(`https://${GetParentResourceName()}/appearanceZoom`, {
         method: 'POST',

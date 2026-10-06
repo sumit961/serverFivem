@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CM Racing</title>
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css">
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-components.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- In-Race Live HUD -->
+    <div id="race-hud" class="hidden">
+        <div class="hud-container">
+            <div class="hud-top">
+                <span id="hud-route-name" class="hud-badge">SANCTIONED TIME TRIAL</span>
+                <span id="hud-speed" class="hud-speed">0 <small>KM/H</small></span>
+            </div>
+            <div class="hud-main">
+                <div class="hud-stat-box">
+                    <span class="hud-label">CHECKPOINT</span>
+                    <span id="hud-checkpoints" class="hud-value">0 / 0</span>
+                </div>
+                <div class="hud-stat-box">
+                    <span class="hud-label">LAP TIME</span>
+                    <span id="hud-timer" class="hud-value timer-glow">00:00.00</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Countdown Display -->
+    <div id="countdown-modal" class="hidden">
+        <div id="countdown-text" class="countdown-number">3</div>
+    </div>
+
+    <!-- Finish / Results Modal -->
+    <div id="results-modal" class="hidden">
+        <div class="results-card">
+            <div class="results-header">
+                <div class="results-title">RACE FINISHED</div>
+                <div id="results-route" class="results-subtitle">Vinewood Racetrack Sprint</div>
+            </div>
+            <div class="results-body">
+                <div id="results-pb-badge" class="pb-badge hidden">★ NEW PERSONAL BEST ★</div>
+                <div class="results-time-box">
+                    <span class="results-time-label">OFFICIAL TIME</span>
+                    <span id="results-time" class="results-time-value">01:15.42</span>
+                </div>
+                <div class="results-grid">
+                    <div class="result-item">
+                        <span class="result-label">REWARD</span>
+                        <span id="results-reward" class="result-val cyan-text">$4,500 HELD</span>
+                        <span id="results-reward-sub" class="result-sub">Stored in Racing Records</span>
+                    </div>
+                    <div class="result-item">
+                        <span class="result-label">PROGRESSION</span>
+                        <span id="results-xp" class="result-val cyan-text">+50 XP</span>
+                        <span id="results-level" class="result-sub">Level 1 Driver</span>
+                    </div>
+                </div>
+            </div>
+            <div class="results-footer">
+                <button id="btn-close-results" class="cm-btn cm-btn-primary">CONTINUE</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Registration Tablet / Paddock Menu -->
+    <div id="race-tablet" class="hidden">
+        <div class="tablet-window">
+            <!-- Header -->
+            <div class="tablet-header">
+                <div class="header-left">
+                    <div class="header-title">SANCTIONED RACING COMMISSION</div>
+                    <div class="header-subtitle">San Andreas Motorsport Federation & Circuit Logistics</div>
+                </div>
+                <button id="btn-close-tablet" class="cm-btn cm-btn-secondary close-btn">✕</button>
+            </div>
+
+            <!-- Navigation Tabs -->
+            <div class="tablet-nav">
+                <button class="nav-tab active" data-tab="tab-tracks">CIRCUITS & EVENTS</button>
+                <button class="nav-tab" data-tab="tab-vehicle">VEHICLE INSPECTION</button>
+                <button class="nav-tab" data-tab="tab-profile">DRIVER DOSSIER</button>
+            </div>
+
+            <!-- Content Area -->
+            <div class="tablet-content">
+                <!-- Tab: Circuits -->
+                <div id="tab-tracks" class="tab-panel active">
+                    <div class="tracks-list" id="tracks-container">
+                        <!-- Dynamically populated -->
+                    </div>
+                </div>
+
+                <!-- Tab: Vehicle Inspection -->
+                <div id="tab-vehicle" class="tab-panel">
+                    <div class="vehicle-card">
+                        <div class="vehicle-header">
+                            <span class="card-title">TECHNICAL SCRUTINEERING</span>
+                            <span id="veh-status-badge" class="badge badge-unverified">NOT INSPECTED</span>
+                        </div>
+                        <div class="vehicle-details-grid">
+                            <div class="detail-item">
+                                <span class="d-label">SEATED ROLE</span>
+                                <span id="veh-role" class="d-val">No Driver</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="d-label">LICENSE PLATE</span>
+                                <span id="veh-plate" class="d-val">UNKNOWN</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="d-label">VEHICLE CLASS</span>
+                                <span id="veh-class" class="d-val">N/A</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="d-label">REGISTRATION</span>
+                                <span id="veh-registration" class="d-val">Unverified</span>
+                            </div>
+                        </div>
+                        <div class="inspection-notes" id="veh-notes">
+                            Ensure you are seated behind the wheel of an authorized, road-registered vehicle to stage for a sanctioned time trial.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab: Driver Profile -->
+                <div id="tab-profile" class="tab-panel">
+                    <div class="profile-card">
+                        <div class="profile-header">
+                            <div>
+                                <div id="prof-level-title" class="prof-rank">Amateur Street License</div>
+                                <div class="prof-sub">Official Federation Standing</div>
+                            </div>
+                            <div class="prof-level-badge">
+                                <span class="lvl-label">TIER</span>
+                                <span id="prof-level-num" class="lvl-val">1</span>
+                            </div>
+                        </div>
+
+                        <div class="xp-section">
+                            <div class="xp-labels">
+                                <span>EXPERIENCE POINTS</span>
+                                <span id="prof-xp-text">0 / 500 XP</span>
+                            </div>
+                            <div class="xp-bar-bg">
+                                <div id="prof-xp-bar" class="xp-bar-fill" style="width: 0%;"></div>
+                            </div>
+                        </div>
+
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <span class="stat-lbl">TOTAL RACES COMPLETED</span>
+                                <span id="prof-races-count" class="stat-num">0</span>
+                            </div>
+                            <div class="stat-card">
+                                <span class="stat-lbl">HELD IN RACING RECORDS (SETTLEMENT PENDING)</span>
+                                <span id="prof-retained-wages" class="stat-num cyan-text">$0</span>
+                            </div>
+                        </div>
+
+                        <div class="records-section">
+                            <div class="sec-title">PERSONAL BEST LAP TIMES</div>
+                            <div id="records-list" class="records-table">
+                                <!-- Records populated dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="tablet-footer">
+                <span class="footer-note">All times and checkpoint splits are monitored under strict Federation telemetry rules.</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="nui://cm-ui/web/cm-ui.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

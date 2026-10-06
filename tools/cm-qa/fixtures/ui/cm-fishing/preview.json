@@ -1,0 +1,7 @@
+{
+  "resource": "cm-fishing",
+  "entry": "resources/[core]/cm-fishing/ui/index.html?preview=1",
+  "noScroll": true,
+  "resolutions": [[1280, 720], [1920, 1080], [2560, 1440]],
+  "assertions": ["viewport", "store-tabs", "callbacks", "minigame", "catch-result", "assets", "console"]
+}

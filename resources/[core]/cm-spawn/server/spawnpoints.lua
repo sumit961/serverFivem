@@ -16,12 +16,13 @@ SpawnPoints = {
     {
         key = 'hotel',
         label = 'HOTEL',
-        coords = vector4(324.0, -212.0, 54.0, 0.0),
+        coords = nil,
         description = 'Start safely from the city hotel.',
         alwaysUnlocked = true,
         icon = 'fa-hotel',
         color = 'green',
-        image = 'assets/hotel.svg'
+        image = 'assets/hotel.svg',
+        dynamic = 'cm-hotel'
     },
     {
         key = 'family',

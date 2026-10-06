@@ -5,6 +5,14 @@ const labelsRoot = document.getElementById('labels');
 const gPrompt = document.getElementById('gprompt');
 const hexMenu = document.getElementById('hexmenu');
 const hexGrid = document.getElementById('hex-grid');
+const vehicleStyleMenu = document.getElementById('vehicleStyleMenu');
+const vehicleStyleIcon = document.getElementById('vehicleStyleIcon');
+const vehicleStyleTitle = document.getElementById('vehicleStyleTitle');
+const vehicleStyleSubtitle = document.getElementById('vehicleStyleSubtitle');
+const vehicleStyleStatus = document.getElementById('vehicleStyleStatus');
+const vehicleStyleCount = document.getElementById('vehicleStyleCount');
+const vehicleStyleActions = document.getElementById('vehicleStyleActions');
+const vehicleStyleClose = document.getElementById('vehicleStyleClose');
 const menuCategories = document.getElementById('menu-categories');
 const branchTitle = document.getElementById('branch-title');
 const hintText = document.getElementById('hint-text');
@@ -134,6 +142,68 @@ function renderGPrompt(g) {
 // -------------------------------------------------------------------------
 // Interaction menu
 // -------------------------------------------------------------------------
+function buildVehicleStyleMenu(data) {
+    const options = Array.isArray(data.options) ? data.options : [];
+    const pageTitle = data.pageLabel || 'Organization';
+    const targetTitle = data.title || '';
+    const targetSubtitle = data.subtitle || '';
+
+    vehicleStyleTitle.textContent = pageTitle;
+    vehicleStyleSubtitle.textContent = [targetTitle, targetSubtitle].filter(Boolean).join(' • ');
+    vehicleStyleStatus.textContent = '• AVAILABLE';
+    vehicleStyleCount.textContent = `${options.length} ACTION${options.length === 1 ? '' : 'S'}`;
+    vehicleStyleIcon.innerHTML = ICONS.shield || ICONS.dot;
+    vehicleStyleActions.innerHTML = '';
+
+    const columns = document.createElement('div');
+    columns.className = 'vehicle-style-action-columns';
+    const split = Math.ceil(options.length / 2);
+    const groups = [options.slice(0, split), options.slice(split)].filter((group) => group.length);
+
+    groups.forEach((group, groupIndex) => {
+        const column = document.createElement('section');
+        column.className = `vehicle-style-action-col${groupIndex ? ' orange' : ''}`;
+        const heading = document.createElement('div');
+        heading.className = 'vehicle-style-action-col-header';
+        heading.innerHTML = '<span class="vehicle-style-action-col-title"></span><span class="vehicle-style-action-col-count"></span>';
+        heading.querySelector('.vehicle-style-action-col-title').textContent = groupIndex ? 'FIELD OPTIONS' : 'ORGANIZATION OPTIONS';
+        heading.querySelector('.vehicle-style-action-col-count').textContent = `${group.length} ACTION${group.length === 1 ? '' : 'S'}`;
+        column.appendChild(heading);
+
+        const list = document.createElement('div');
+        list.className = 'vehicle-style-action-list';
+        group.forEach((option) => {
+            const index = options.indexOf(option);
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `vehicle-style-action${groupIndex ? ' orange' : ''}${option.type === 'back' ? ' vehicle-style-action-back' : ''}`;
+            const displayNumber = index === 9 ? '0' : String(index + 1);
+            button.innerHTML = '<span class="vehicle-style-action-number"></span><span class="vehicle-style-action-label"></span>' +
+                (option.description ? '<span class="vehicle-style-action-description"></span>' : '');
+            button.querySelector('.vehicle-style-action-number').textContent = displayNumber;
+            button.querySelector('.vehicle-style-action-label').textContent = option.label || '';
+            if (option.description) button.querySelector('.vehicle-style-action-description').textContent = option.description;
+            button.addEventListener('click', () => post('selectOption', { index: index + 1 }));
+            list.appendChild(button);
+        });
+        column.appendChild(list);
+        columns.appendChild(column);
+    });
+
+    if (!options.length) {
+        const empty = document.createElement('div');
+        empty.className = 'vehicle-style-empty';
+        empty.textContent = 'No actions available';
+        vehicleStyleActions.appendChild(empty);
+    } else {
+        vehicleStyleActions.appendChild(columns);
+    }
+
+    menuVisible = true;
+    hexMenu.classList.add('hidden');
+    vehicleStyleMenu.classList.remove('hidden');
+}
+
 function buildHexMenu(data) {
     titleName.textContent = data.title || 'Stranger';
     titleId.textContent = data.subtitle || '';
@@ -186,6 +256,7 @@ function buildHexMenu(data) {
     }
 
     menuVisible = true;
+    vehicleStyleMenu.classList.add('hidden');
     hexMenu.classList.remove('hidden');
 }
 
@@ -193,6 +264,8 @@ function closeHexMenu() {
     menuVisible = false;
     hexMenu.classList.add('hidden');
     hexGrid.innerHTML = '';
+    vehicleStyleMenu.classList.add('hidden');
+    vehicleStyleActions.innerHTML = '';
 }
 
 let menuVisible = false;
@@ -206,6 +279,8 @@ function post(name, payload) {
         body: JSON.stringify(payload || {})
     }).catch(() => {});
 }
+
+vehicleStyleClose?.addEventListener('click', () => post('closeMenu'));
 
 // Keyboard: 1-9 select, ESC close.
 window.addEventListener('keydown', (e) => {
@@ -223,9 +298,10 @@ window.addEventListener('keydown', (e) => {
     }
 
     const num = parseInt(e.key, 10);
-    if (num >= 1 && num <= 9) {
+    const vehicleTen = e.key === '0' && !vehicleStyleMenu.classList.contains('hidden');
+    if ((num >= 1 && num <= 9) || vehicleTen) {
         e.preventDefault();
-        post('selectOption', { index: num });
+        post('selectOption', { index: vehicleTen ? 10 : num });
     }
 });
 
@@ -263,7 +339,8 @@ window.addEventListener('message', (event) => {
             renderGPrompt(msg.g);
             break;
         case 'openRadial':
-            buildHexMenu(msg);
+            if (msg.layout === 'vehicle') buildVehicleStyleMenu(msg);
+            else buildHexMenu(msg);
             break;
         case 'closeRadial':
             closeHexMenu();
@@ -398,6 +475,20 @@ window.addEventListener('message', (event) => {
     const msg = event.data || {};
     switch (msg.action) {
         case 'openDeathScreen': openDeathScreen(msg); break;
+        case 'updateDeathTimer': {
+            if (msg.remainingMs !== undefined) {
+                deathDeadline = Date.now() + (msg.remainingMs || 120000);
+                deathExpiredPosted = false;
+                if (!deathTick) deathTick = setInterval(tickDeath, 250);
+                tickDeath();
+            }
+            if (msg.killedBy && msg.killedBy.charId) {
+                dsKilledBy.innerHTML = 'KILLED BY ' + escapeHtml(String(msg.killedBy.label || 'Stranger').toUpperCase()) +
+                    ' <span class="ds-kb-id">&bull; ID: ' + escapeHtml(String(msg.killedBy.charId)) + '</span>';
+                dsKilledBy.classList.remove('hidden');
+            }
+            break;
+        }
         case 'ambulanceMode': ambulanceMode(msg); break;
         case 'emsProtection': emsProtection(msg); break;
         case 'deathChoice': deathChoice(msg); break;

@@ -26,6 +26,21 @@ local function requireExteriorDoor(src, house)
     return true
 end
 
+-- Door navigation must use the live property/session state rather than a
+-- client-supplied house id. This is intentionally separate from leaving:
+-- access can be revoked while a visitor remains inside, but the exit must
+-- still remain available to them.
+lib.callback.register('cm-house:server:canUseInteriorDoor', function(src)
+    local houseId, kind = WhereIs(src)
+    if not houseId or kind ~= 'house' then return false end
+
+    local cid = GetCid(src)
+    -- Exclude the unlocked-public-entry exception here. It allows a visitor
+    -- to get inside, but does not make that visitor a house member who should
+    -- receive the owner/member interior-door menu.
+    return CanAccessProperty(cid, houseId, ACTIONS.HOUSE_ENTER, false, true) == true
+end)
+
 lib.callback.register('cm-house:server:enterHome', function(src, houseId)
     houseId = tonumber(houseId)
     local cid = GetCid(src)
@@ -194,14 +209,17 @@ lib.callback.register('cm-house:server:houseToGarage', function(src, houseId)
     }
 end)
 
-lib.callback.register('cm-house:server:garageToHouse', function(src, houseId)
-    houseId = tonumber(houseId)
+lib.callback.register('cm-house:server:garageToHouse', function(src)
+    -- The client may still call this established callback with its local
+    -- house id, but the server deliberately ignores it. The active interior
+    -- session is the only source of property identity for this transition.
     local insideHouse, insideKind = WhereIs(src)
-    if tonumber(insideHouse) ~= houseId or insideKind ~= 'garage' then
+    local houseId = tonumber(insideHouse)
+    if not houseId or insideKind ~= 'garage' then
         return false, 'You must be inside this garage.'
     end
     local cid = GetCid(src)
-    local ok, why = CanAccessProperty(cid, houseId, ACTIONS.HOUSE_ENTER)
+    local ok, why = CanAccessProperty(cid, houseId, ACTIONS.HOUSE_ENTER, false, true)
     if not ok then return false, why end
 
     local house = Houses[houseId]

@@ -143,7 +143,10 @@ html, body {
     inset: 0;
     pointer-events: none;
     z-index: 19;
-    background: linear-gradient(90deg, rgba(4, 9, 13, 0.94) 0, rgba(4, 9, 13, 0.76) 43%, transparent 72%);
+    /* The G-menu is intentionally floating over the world. Keep the NUI
+       canvas transparent so cm-law organization actions use the same clean
+       playerdata presentation without a full-screen backdrop. */
+    background: transparent;
 }
 
 #hexmenu button {
@@ -320,6 +323,56 @@ html, body {
 @media (max-width: 850px), (max-height: 600px) {
     #menu-anchor { left: 34px; transform: translateY(-50%) scale(0.84); transform-origin: left center; }
 }
+
+/* ------------------------------------------------------------------ */
+/* Vehicle-style extension G menu                                      */
+/* ------------------------------------------------------------------ */
+.vehicle-style-menu { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; pointer-events: auto; color: #fff; font-family: 'Segoe UI', system-ui, sans-serif; }
+.vehicle-style-shade { position: absolute; inset: 0; pointer-events: none; background: transparent; }
+.vehicle-style-center { position: relative; z-index: 2; width: min(920px, 94vw); display: flex; flex-direction: column; gap: 16px; pointer-events: auto; }
+.vehicle-style-header { display: flex; align-items: center; justify-content: space-between; min-height: 88px; padding: 16px 20px; background: rgba(18, 36, 47, 0.94); border: 1px solid rgba(0, 229, 255, 0.25); border-bottom: 3px solid #00e5ff; border-radius: 8px; box-shadow: 0 16px 36px rgba(0,0,0,.55), 0 0 24px rgba(0,229,255,.08); }
+.vehicle-style-header-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.vehicle-style-icon { width: 44px; height: 44px; flex: 0 0 44px; display: grid; place-items: center; border-radius: 8px; color: #071720; background: #00e5ff; box-shadow: 0 0 14px rgba(0,229,255,.45); }
+.vehicle-style-icon svg { width: 25px; height: 25px; stroke: currentColor; fill: none; stroke-width: 1.8; }
+.vehicle-style-copy { min-width: 0; }
+.vehicle-style-title { overflow: hidden; color: #fff; font-size: clamp(20px, 2.1vw, 27px); font-weight: 900; letter-spacing: .04em; line-height: 1; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.vehicle-style-subtitle { margin-top: 5px; overflow: hidden; color: #c2d2dc; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.vehicle-style-status { margin-top: 5px; color: #2ecc71; font-size: 10px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.vehicle-style-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: 0 0 auto; margin-left: 18px; }
+.vehicle-style-kicker { color: #829dae; font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.vehicle-style-meta strong { color: #00e5ff; font-size: 15px; font-weight: 900; letter-spacing: .05em; text-transform: uppercase; }
+.vehicle-style-notice { width: 100%; padding: 11px 15px; border: 1px solid rgba(255,199,0,.52); border-left: 4px solid #ffc700; border-radius: 6px; background: rgba(20,24,20,.94); color: #ffe8a3; font-size: 12px; font-weight: 800; line-height: 1.4; }
+.vehicle-style-actions { width: 100%; }
+.vehicle-style-action-columns { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; width: 100%; }
+.vehicle-style-action-col { display: flex; flex-direction: column; min-width: 0; padding: 18px 20px 20px; background: rgba(18,36,47,.94); border: 1px solid rgba(33,59,74,.85); border-bottom: 3px solid #00e5ff; border-radius: 8px; box-shadow: 0 16px 40px rgba(0,0,0,.55); }
+.vehicle-style-action-col.orange { border-bottom-color: #ff8c00; }
+.vehicle-style-action-col-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.vehicle-style-action-col-title { display: flex; align-items: center; gap: 8px; color: #00e5ff; font-size: 13px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; text-shadow: 0 0 10px rgba(0,229,255,.45); }
+.vehicle-style-action-col.orange .vehicle-style-action-col-title { color: #ff8c00; text-shadow: 0 0 10px rgba(255,140,0,.4); }
+.vehicle-style-action-col-title::before { width: 8px; height: 8px; content: ''; display: inline-block; flex: 0 0 8px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+.vehicle-style-action-col-count { color: #829dae; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.vehicle-style-action-list { display: flex; flex-direction: column; gap: 8px; }
+.vehicle-style-action { position: relative; display: flex; align-items: center; gap: 14px; width: 100%; min-height: 48px; padding: 0 14px; overflow: hidden; border: 1px solid rgba(33,59,74,.85); border-radius: 6px; background: rgba(13,27,36,.88); color: #fff; cursor: pointer; text-align: left; transition: all .12s ease; }
+.vehicle-style-action:hover { transform: translateX(2px); border-color: #00e5ff; background: rgba(18,42,56,.95); box-shadow: 0 0 14px rgba(0,229,255,.22); }
+.vehicle-style-action.orange:hover { border-color: #ff8c00; background: rgba(36,32,24,.95); box-shadow: 0 0 14px rgba(255,140,0,.22); }
+.vehicle-style-action-number { width: 26px; height: 26px; display: grid; place-items: center; flex: 0 0 26px; border-radius: 4px; background: #00e5ff; color: #071720; font-size: 13.5px; font-weight: 900; box-shadow: 0 0 8px rgba(0,229,255,.35); }
+.vehicle-style-action.orange .vehicle-style-action-number { background: #ff8c00; box-shadow: 0 0 8px rgba(255,140,0,.35); }
+.vehicle-style-action-label { min-width: 0; flex: 1; overflow: hidden; color: #fff; font-size: 13.5px; font-weight: 800; letter-spacing: .04em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.vehicle-style-action-description { max-width: 42%; overflow: hidden; color: #829dae; font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.vehicle-style-action-back { color: #c2d2dc; }
+.vehicle-style-action-back .vehicle-style-action-number { background: #10222b; color: #c2d2dc; box-shadow: none; }
+.vehicle-style-empty { padding: 26px 10px; color: #829dae; text-align: center; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.vehicle-style-hint-bar { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 6px; color: #829dae; font-size: 11px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+.vehicle-style-hint-item { display: flex; align-items: center; gap: 8px; }
+.vehicle-style-hint-badge { padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 900; letter-spacing: .04em; }
+.vehicle-style-hint-badge.yellow { background: #ffc700; color: #000; box-shadow: 0 0 8px rgba(255,199,0,.3); }
+.vehicle-style-hint-badge.dark { background: #10222b; color: #c2d2dc; border: 1px solid rgba(33,59,74,.85); }
+.vehicle-style-hint-badge.red { background: #e74c3c; color: #fff; box-shadow: 0 0 8px rgba(231,76,60,.25); }
+.vehicle-style-hint-dot { color: #536d79; }
+.vehicle-style-close { position: absolute; top: 32px; right: 36px; z-index: 3; width: 38px; height: 38px; border: 1px solid rgba(33,59,74,.85); border-radius: 50%; background: rgba(18,36,47,.94); color: #829dae; font-size: 22px; line-height: 1; cursor: pointer; }
+.vehicle-style-close:hover { border-color: #00e5ff; color: #00e5ff; }
+@media (max-width: 960px) { .vehicle-style-center { width: 94vw; } .vehicle-style-action-columns { grid-template-columns: 1fr; } }
+@media (max-width: 680px) { .vehicle-style-header { padding: 14px; } .vehicle-style-meta { display: none; } .vehicle-style-title { font-size: 20px; } .vehicle-style-close { top: 16px; right: 16px; } .vehicle-style-action-col { padding: 14px; } .vehicle-style-action-description { display: none; } .vehicle-style-hint-bar { flex-direction: column; gap: 8px; } .vehicle-style-hint-dot { display: none; } }
 
 /* ------------------------------------------------------------------ */
 /* Death screen                                                        */

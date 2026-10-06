@@ -1530,13 +1530,13 @@ body.hud-hidden #hud-death {
 }
 
 /* ===================================================================== */
-/* V1.4 — Nekst fonts, plain Grand-RP top-right, per-type speedometers   */
+/* V1.4 — Nekst fonts, plain minimal top-right, per-type speedometers    */
 /* ===================================================================== */
 @font-face { font-family: 'Nekst'; src: url('fonts/Nekst-Regular.otf'); font-weight: 400; }
 @font-face { font-family: 'Nekst'; src: url('fonts/Nekst-SemiBold.otf'); font-weight: 600; }
 @font-face { font-family: 'Nekst'; src: url('fonts/Nekst-Bold.otf'); font-weight: 700 1000; }
 
-/* ---------- Top-right: NO boxes, plain text like Grand RP ---------- */
+/* ---------- Top-right: NO boxes, plain floating instrumentation ---------- */
 .server-header-container, .money-block-new {
     background: none !important;
     border: none !important;
@@ -1587,7 +1587,7 @@ body.hud-hidden #hud-death {
     border: 1px solid rgba(49, 230, 255, 0.5);
 }
 
-/* ---------- Location: right of the native minimap, Grand RP layout --- */
+/* ---------- Location: right of the native minimap ---------- */
 #hud-bottom-left {
     left: var(--cm-loc-left, 19vw);
     bottom: var(--cm-loc-bottom, 2.6vh);

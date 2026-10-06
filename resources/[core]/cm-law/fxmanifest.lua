@@ -64,6 +64,7 @@ client_scripts {
 
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
+    'server/duty_count.lua',   -- pure factory for GetOnDutyCount (no dependencies; must load before main.lua)
     'server/main.lua',   -- first: defines validOrgId/characterIdFor/memberFor/canManage/nearFacility/logActivity/adminAllowed/rateLimit/LawIsReady, shared with vehicles.lua/cuffs.lua/booking.lua/dispatch.lua
     'server/comms.lua',
     'server/armory.lua',

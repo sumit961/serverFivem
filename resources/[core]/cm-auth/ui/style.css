@@ -1,25 +1,39 @@
-/* cm-auth layout skin. Shared theme/components come from cm-ui. FiveM-safe transparent rendering. */
+/* cm-auth AAA login screen skin — geometry tuned against the target
+   screenshot (large hero-scale title/buttons/account panel, no 450px cap).
+   Shared theme/colors/skew mechanics come from cm-ui; every size value below
+   is local to this screen on purpose (see the per-property notes). */
+
+* {
+    box-sizing: border-box;
+}
 
 html,
 body {
     width: 100%;
     height: 100%;
+    min-width: 100%;
+    min-height: 100%;
     background: transparent;
     overflow: hidden;
+    user-select: none;
+}
+
+.cm-input,
+input,
+textarea {
+    user-select: text;
 }
 
 body {
-    color: var(--cm-text, #eaf7ff);
+    font-family: var(--cm-font, 'DM Sans', Arial, sans-serif);
+    color: var(--cm-text, #FFFFFF);
 }
 
 .cm-auth-app {
     position: fixed;
     inset: 0;
     pointer-events: auto;
-    background:
-        radial-gradient(circle at 18% 18%, rgba(var(--cm-primary-rgb, 0, 229, 255), 0.16), transparent 32%),
-        radial-gradient(circle at 82% 72%, rgba(37, 99, 235, 0.14), transparent 30%),
-        linear-gradient(180deg, rgba(3, 8, 18, 0.90), rgba(7, 17, 31, 0.94));
+    background-color: #03090d;
 }
 
 #app.hidden,
@@ -27,195 +41,165 @@ body {
     display: none !important;
 }
 
-.page-noise {
+/* ── Character backdrop — large, right-weighted, overlapping toward center.
+   68vw wide anchored to the right edge; the mask below (not this box)
+   controls how far left the art actually reads as visible. ── */
+.character-backdrop {
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: 68vw;
+    height: 100vh;
+    overflow: hidden;
+    pointer-events: none;
+    background: linear-gradient(160deg, #0a1418 0%, #03090d 100%);
+}
+
+.character-img {
     position: absolute;
     inset: 0;
-    opacity: 0.10;
-    pointer-events: none;
-    background-image:
-        linear-gradient(0deg, rgba(255,255,255,0.04) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
-    background-size: 3px 3px, 5px 5px;
-    mix-blend-mode: overlay;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 65% center;
+    opacity: 0.95;
 }
 
-.auth-page {
-    width: min(1320px, 96vw);
-    position: relative;
+.character-mask {
+    position: absolute;
+    inset: 0;
     z-index: 2;
-}
-
-.top-ribbon {
-    display: grid;
-    grid-template-columns: 1fr auto auto auto 1fr;
-    align-items: center;
-    gap: 18px;
-}
-
-.ribbon-line {
-    height: 1px;
-    border-radius: 999px;
-    background: linear-gradient(90deg, rgba(var(--cm-primary-rgb, 0, 229, 255), 0.36), rgba(255,255,255,0.05));
-}
-
-.ribbon-meta,
-.ribbon-logo {
-    text-transform: uppercase;
-    font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 0.18em;
-    color: rgba(234, 247, 255, 0.76);
-}
-
-.ribbon-logo {
-    color: var(--cm-primary, #00e5ff);
-    font-size: 19px;
-    text-shadow: var(--cm-glow, 0 0 22px rgba(0,229,255,0.22));
-}
-
-.headline-wrap {
-    text-align: center;
-    margin-top: 34px;
-    position: relative;
-}
-
-.headline-ghost {
-    position: absolute;
-    inset: 4px 0 auto 0;
-    font-size: clamp(86px, 12vw, 170px);
-    line-height: 0.9;
-    text-transform: uppercase;
-    color: rgba(var(--cm-primary-rgb, 0, 229, 255), 0.055);
-    letter-spacing: -0.04em;
     pointer-events: none;
-    font-weight: 900;
+    background: linear-gradient(
+        90deg,
+        #050b10 0%,
+        rgba(5, 11, 16, 0.98) 22%,
+        rgba(5, 11, 16, 0.72) 38%,
+        rgba(5, 11, 16, 0.18) 58%,
+        transparent 72%
+    );
 }
 
-h1,
-h2,
-h3 {
-    margin: 0;
-    text-transform: uppercase;
-    letter-spacing: -0.03em;
-    color: var(--cm-text-strong, #fff);
-}
-
-h1 {
-    position: relative;
-    z-index: 1;
-    font-size: clamp(32px, 4vw, 58px);
-    line-height: 1.05;
-}
-
-.showcase-shell {
-    margin-top: 54px;
-    position: relative;
-}
-
-.showcase-tabs {
+.hud-layer {
     position: absolute;
-    inset: -18px 0 auto 0;
-    z-index: 3;
+    inset: 0;
+    z-index: 5;
+    pointer-events: none;
+}
+
+/* ── Left UI panel. width/padding-left stay the reference's raw 45vw/10vw —
+   the previous pass already fixed this half; today's fix is everything
+   INSIDE it (see .login-content below), not this box. ── */
+.ui-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 45vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding-left: 10vw;
+    z-index: 10;
+}
+
+.pre-title {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 0 140px;
-}
-
-.showcase-tabs .cm-chip {
-    min-width: 128px;
-    justify-content: center;
-    padding: 10px 16px;
-    border-radius: var(--cm-radius-md, 14px);
-    font-size: 12px;
-}
-
-.showcase-card {
-    width: 100%;
-    max-height: none;
-    min-height: 650px;
-    position: relative;
-    overflow: hidden;
-    border-radius: var(--cm-radius-xl, 30px);
-}
-
-.scene-bg,
-.scene-overlay {
-    position: absolute;
-    inset: 0;
-}
-
-.scene-bg {
-    background-image: url('assets/auth-bg.svg');
-    background-size: cover;
-    background-position: center;
-    filter: grayscale(1) saturate(1.15);
-    opacity: 0.90;
-}
-
-.scene-overlay {
-    background:
-        linear-gradient(90deg, rgba(3, 8, 18, 0.84) 0%, rgba(7, 17, 31, 0.60) 32%, rgba(7, 17, 31, 0.18) 66%, rgba(3, 8, 18, 0.55) 100%),
-        radial-gradient(circle at 24% 34%, rgba(var(--cm-primary-rgb, 0, 229, 255), 0.12), transparent 42%),
-        linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0.25));
-}
-
-.scene-mark {
-    position: absolute;
-    top: 38px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 2;
-    color: rgba(255,255,255,0.88);
-    font-size: 34px;
-    font-weight: 900;
-    letter-spacing: 0.05em;
-    text-shadow: var(--cm-glow, 0 0 22px rgba(0,229,255,0.22));
-}
-
-.left-auth-panel,
-.hero-art {
-    position: relative;
-    z-index: 2;
-}
-
-.left-auth-panel {
-    position: absolute;
-    top: 72px;
-    left: 58px;
-    width: 350px;
-    padding: 28px 22px 22px;
-    border-color: var(--cm-border-soft, rgba(143,190,220,0.14));
-    background: var(--cm-panel, rgba(8,18,34,0.96));
-}
-
-.mini-label {
-    margin: 0;
+    gap: 8px;
+    color: var(--cm-text-muted, #829DAE);
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 3px;
     text-transform: uppercase;
-    letter-spacing: 0.18em;
+    margin-bottom: 20px;
+}
+
+/* Google Fonts is disallowed for NUI, so cm-ui's locally-hosted Poppins
+   (--cm-font-display) stands in for the reference's Montserrat — every size/
+   weight/spacing value is otherwise the tuned target, not the font. */
+.main-title {
+    font-family: var(--cm-font-display, var(--cm-font, Arial, sans-serif));
+    font-size: 72px;
+    line-height: 0.95;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 0;
+    text-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+}
+
+.subtitle {
+    color: var(--cm-text-muted, #829DAE);
+    font-size: 16px;
+    line-height: 1.5;
+    font-weight: 400;
+    margin-top: 12px;
+    margin-bottom: 48px;
+}
+
+/* Shared content width for the account panel and the login/register/reset
+   forms, so no state (saved-account or plain login) ends up narrower than
+   the other. No max-width cap — this IS the width. */
+.account-section,
+#forms-wrap {
+    width: 27vw;
+}
+
+/* ── Saved-account block ─────────────────────────────────── */
+.account-section {
+    position: relative;
+}
+
+.badge-saved {
+    display: inline-block;
+    background-color: var(--cm-green, #2ECC71);
+    color: #000000;
     font-size: 11px;
     font-weight: 900;
-    color: var(--cm-primary, #00e5ff);
+    letter-spacing: 1px;
+    padding: 7px 16px;
+    text-transform: uppercase;
+    transform: skewX(-15deg);
+    margin-left: 15px;
+    margin-bottom: -10px;
+    position: relative;
+    z-index: 2;
+    box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.3);
 }
 
-h2 {
-    margin-top: 8px;
-    font-size: 42px;
-    line-height: 0.95;
+.badge-saved span {
+    display: inline-block;
+    transform: skewX(15deg);
 }
 
-.panel-copy {
-    margin: 8px 0 0;
+.account-box {
+    width: 100%;
+    min-height: 110px;
+    background: linear-gradient(90deg, rgba(16, 34, 43, 0.85) 0%, rgba(16, 34, 43, 0.4) 100%);
+    border: 1px solid rgba(0, 229, 255, 0.15);
+    border-left: 4px solid var(--cm-cyan, #00E5FF);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    padding: 30px 38px;
+    margin-bottom: 42px;
+    position: relative;
+    z-index: 1;
+}
+
+.account-name {
+    font-size: 24px;
+    font-weight: 800;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+}
+
+.account-sub {
     font-size: 13px;
-    line-height: 1.55;
-    color: var(--cm-muted, #8aa4b8);
+    color: var(--cm-text-muted, #829DAE);
+    letter-spacing: 1px;
 }
 
-#forms-wrap,
-.trusted-panel {
-    margin-top: 18px;
-}
-
+/* ── Forms ───────────────────────────────────────────────── */
 .form {
     display: none;
 }
@@ -224,39 +208,47 @@ h2 {
     display: block;
 }
 
+.cm-label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--cm-text-muted, #829DAE);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.form > .cm-label:not(:first-child) {
+    margin-top: 16px;
+}
+
 .input-wrap {
-    min-height: 50px;
+    min-height: 60px;
     display: flex;
     align-items: center;
-    border-radius: var(--cm-radius-md, 14px);
-    border: 1px solid var(--cm-border-soft, rgba(143,190,220,0.14));
-    background: rgba(3, 8, 18, 0.56);
+    padding-left: 16px;
+    border-radius: 2px;
+    border: 1px solid rgba(0, 229, 255, 0.22);
+    background: rgba(16, 34, 43, 0.75);
     transition: border-color var(--cm-fast, 120ms ease), box-shadow var(--cm-fast, 120ms ease), background var(--cm-fast, 120ms ease);
 }
 
 .input-wrap:focus-within {
-    border-color: var(--cm-primary, #00e5ff);
-    box-shadow: 0 0 0 3px rgba(var(--cm-primary-rgb, 0, 229, 255), 0.10), var(--cm-glow, 0 0 22px rgba(0,229,255,0.22));
-    background: rgba(3, 8, 18, 0.72);
-}
-
-.input-icon {
-    width: 42px;
-    flex: 0 0 42px;
-    text-align: center;
-    color: var(--cm-muted, #8aa4b8);
-    font-weight: 900;
+    border-color: var(--cm-cyan, #00e5ff);
+    box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.10);
+    background: rgba(16, 34, 43, 0.92);
 }
 
 .input-wrap .cm-input {
-    min-height: 48px;
+    min-height: 58px;
     width: 100%;
     border: 0;
     box-shadow: none;
-    padding: 0 14px 0 0;
+    padding: 0 16px 0 0;
     background: transparent;
-    color: var(--cm-text-strong, #fff);
-    font-size: 14px;
+    color: var(--cm-text, #fff);
+    font-size: 16px;
+    border-radius: 0;
 }
 
 .input-wrap .cm-input:focus {
@@ -266,16 +258,16 @@ h2 {
 }
 
 .input-wrap .cm-input::placeholder {
-    color: rgba(138, 164, 184, 0.70);
+    color: rgba(130, 157, 174, 0.7);
 }
 
 .eye-btn {
-    min-width: 58px;
-    height: 40px;
-    margin-right: 5px;
-    padding: 0 10px;
-    border-radius: var(--cm-radius-sm, 9px);
-    font-size: 11px;
+    min-width: 64px;
+    height: 42px;
+    margin-right: 6px;
+    padding: 0 12px;
+    border-radius: 2px;
+    font-size: 12px;
     font-weight: 900;
     letter-spacing: 0.08em;
 }
@@ -284,118 +276,74 @@ h2 {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin: 16px 0 8px;
-    color: var(--cm-muted, #8aa4b8);
+    margin: 16px 0 28px;
+    color: var(--cm-text-muted, #829DAE);
     cursor: pointer;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
 }
 
 .remember-row input {
-    width: 16px;
-    height: 16px;
-    accent-color: var(--cm-primary, #00e5ff);
+    width: 18px;
+    height: 18px;
+    accent-color: var(--cm-cyan, #00e5ff);
 }
 
-.cm-auth-btn {
+/* ── Buttons — target scale: primary 72px tall, secondary 62px, both full
+   width of the 27vw content column. ── */
+.btn-container {
     width: 100%;
-    min-height: 52px;
-    margin-top: 14px;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.auth-cta {
+    width: 100%;
+    padding: 0 34px;
+    font-size: 16px;
     font-weight: 900;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.auth-cta.cm-action-primary {
+    height: 72px;
+}
+
+.auth-cta.cm-action-secondary {
+    height: 62px;
+}
+
+.auth-cta:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.btn-icon {
+    font-size: 22px;
+    line-height: 1;
 }
 
 .switch-text {
     margin: 16px 0 0;
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.5;
-    color: var(--cm-muted, #8aa4b8);
+    color: var(--cm-text-muted, #829DAE);
 }
 
 .auth-link {
     border: 0;
     background: transparent;
-    color: var(--cm-primary, #00e5ff);
+    color: var(--cm-cyan, #00e5ff);
     cursor: pointer;
-    font-weight: 900;
+    font-weight: 800;
     padding: 0;
+    font-size: inherit;
 }
 
 .auth-link:hover {
     text-decoration: underline;
-}
-
-.trusted-panel {
-    padding: 14px;
-}
-
-.trusted-label {
-    width: fit-content;
-    margin: 0;
-}
-
-h3 {
-    margin-top: 12px;
-    font-size: 28px;
-    line-height: 1;
-}
-
-.trusted-email {
-    margin: 10px 0 0;
-    color: var(--cm-muted, #8aa4b8);
-    font-size: 13px;
-    word-break: break-word;
-}
-
-.hero-art {
-    position: absolute;
-    right: 64px;
-    bottom: 0;
-    width: min(410px, 32vw);
-}
-
-.hero-art img {
-    display: block;
-    width: 100%;
-    height: auto;
-    filter: drop-shadow(0 22px 30px rgba(0,0,0,0.35));
-}
-
-.page-footer {
-    margin-top: 38px;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
-}
-
-.footer-block {
-    font-size: 12px;
-    color: var(--cm-muted, #8aa4b8);
-}
-
-.footer-block span {
-    display: block;
-    text-transform: uppercase;
-    letter-spacing: 0.18em;
-    font-weight: 900;
-    color: rgba(var(--cm-primary-rgb, 0, 229, 255), 0.76);
-}
-
-.footer-block strong {
-    display: block;
-    margin-top: 8px;
-    color: var(--cm-text, #eaf7ff);
-    font-size: 13px;
-    font-weight: 700;
-}
-
-.footer-block.center {
-    text-align: center;
-}
-
-.footer-block.right {
-    text-align: right;
 }
 
 .toast {
@@ -406,11 +354,11 @@ h3 {
     min-width: 340px;
     max-width: min(520px, 90vw);
     padding: 16px 18px;
-    border-radius: var(--cm-radius-md, 14px);
-    border: 1px solid var(--cm-border-soft, rgba(143,190,220,0.14));
-    background: var(--cm-panel, rgba(8,18,34,0.96));
-    color: var(--cm-text-strong, #fff);
-    box-shadow: var(--cm-shadow-soft, 0 10px 35px rgba(0,0,0,0.28));
+    border-radius: 4px;
+    border: 1px solid var(--cm-border-soft, rgba(143, 190, 220, 0.14));
+    background: var(--cm-panel, rgba(8, 18, 34, 0.96));
+    color: var(--cm-text, #fff);
+    box-shadow: var(--cm-shadow-soft, 0 10px 35px rgba(0, 0, 0, 0.28));
     opacity: 0;
     pointer-events: none;
     transition: 0.22s ease;
@@ -428,76 +376,4 @@ h3 {
 
 .toast.error {
     border-color: rgba(239, 68, 68, 0.42);
-}
-
-@media (max-width: 1120px) {
-    .showcase-tabs {
-        padding: 0 70px;
-    }
-
-    .left-auth-panel {
-        left: 34px;
-    }
-
-    .hero-art {
-        right: 24px;
-        width: min(360px, 34vw);
-    }
-}
-
-@media (max-width: 900px) {
-    .cm-auth-app {
-        align-items: flex-start;
-        overflow: auto;
-        padding: 18px 0;
-    }
-
-    .top-ribbon {
-        grid-template-columns: 1fr;
-        justify-items: center;
-    }
-
-    .ribbon-line {
-        width: 100%;
-    }
-
-    .headline-wrap {
-        margin-top: 22px;
-    }
-
-    .showcase-tabs {
-        position: static;
-        padding: 0;
-        margin-bottom: 12px;
-    }
-
-    .showcase-card {
-        min-height: auto;
-        padding: 22px;
-    }
-
-    .left-auth-panel {
-        position: relative;
-        top: auto;
-        left: auto;
-        width: 100%;
-    }
-
-    .hero-art {
-        position: relative;
-        right: auto;
-        bottom: auto;
-        width: min(320px, 74vw);
-        margin: 24px auto 0;
-    }
-
-    .page-footer {
-        grid-template-columns: 1fr;
-    }
-
-    .footer-block,
-    .footer-block.center,
-    .footer-block.right {
-        text-align: center;
-    }
 }

@@ -1,21 +1,42 @@
-/* cm-spawn UI - resource layout only. Theme/components come from cm-ui. */
-
-:root {
-    --spawn-overlay: linear-gradient(135deg, rgba(3, 8, 18, 0.98), rgba(7, 17, 31, 0.95));
-    --spawn-card-min: 400px;
-}
+/* cm-spawn UI - resource layout only. Theme/components/AAA primitives come
+   from cm-ui. SPAWN SELECTOR VISUAL REDESIGN: card-based full-screen layout
+   replacing the previous live-camera + list + detail-panel presentation. The
+   real GTA world is no longer the background for this screen -- the page is
+   fully opaque and the cards are local artwork/gradients only (see
+   ui/app.js's SPAWN_VISUALS map). NEVER use backdrop-filter anywhere in this
+   file (project-wide rule, see /AGENTS.md, /ui/AGENTS.md) -- translucent
+   solid backgrounds/gradients/borders/shadows only. */
 
 * {
     margin: 0;
     padding: 0;
+    box-sizing: border-box;
 }
 
+/* CSS ISOLATION: html/body must NEVER paint a background or capture input.
+   This resource's ui_page stays loaded for the player's entire session (not
+   just while the selector is open), so any color painted here would cover
+   the whole screen permanently, and any lost pointer-events would eat clicks
+   meant for the game or another NUI. All visuals/interaction live under
+   #spawn-selector only, which is the thing that actually toggles. */
+html,
 body {
-    background: transparent;
+    width: 100%;
+    height: 100%;
+    background: transparent !important;
     overflow: hidden;
     user-select: none;
+    pointer-events: none;
 }
 
+/* #spawn-selector carries class="cm-app" (cm-ui/web/cm-components.css),
+   whose base rule is `pointer-events: none` by design -- cm-ui's convention
+   expects an inner .cm-window/.cm-panel to opt back into `auto`. This screen
+   has no such wrapper, so BUG 1 (nothing clickable) was this rule alone:
+   nothing here ever re-enabled pointer-events. The single .is-open class
+   below is now the ONE authoritative state -- it toggles display AND
+   pointer-events together so a hidden/closing selector can never intercept
+   a click, and an open one is never inert. */
 #spawn-selector {
     position: fixed;
     inset: 0;
@@ -23,123 +44,135 @@ body {
     height: 100vh;
     display: none;
     flex-direction: column;
-    align-items: stretch;
-    justify-content: flex-start;
     color: var(--cm-text);
-    background:
-        radial-gradient(circle at 18% 12%, rgba(var(--cm-primary-rgb), 0.16), transparent 28%),
-        radial-gradient(circle at 80% 36%, rgba(37, 99, 235, 0.17), transparent 32%),
-        var(--spawn-overlay);
     opacity: 0;
-    transform: scale(1.012);
-    transition: opacity 180ms ease, transform 180ms ease;
+    pointer-events: none;
+    transition: opacity 220ms ease;
+    background:
+        radial-gradient(circle at 50% 0%, #0a1823 0%, #03080c 62%),
+        linear-gradient(180deg, #03080c 0%, #050b10 100%);
+}
+
+#spawn-selector.is-open {
+    display: flex;
+}
+
+/* Pointer-events flips to auto the moment the fade-in starts, and back to
+   none the moment the fade-out starts (see ui/app.js) -- never only
+   opacity-gated, so a fading-out selector can't still eat clicks. */
+#spawn-selector.is-open.visible {
+    opacity: 1;
     pointer-events: auto;
 }
 
-#spawn-selector.visible {
-    opacity: 1;
-    transform: scale(1);
-}
-
+/* Very subtle static grid texture -- intentionally not animated (see brief:
+   "prefer static grid if moving grid is distracting"). Decorative only. */
 #spawn-selector::before {
     content: '';
     position: absolute;
     inset: 0;
     background-image:
-        linear-gradient(rgba(var(--cm-primary-rgb), 0.032) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(var(--cm-primary-rgb), 0.032) 1px, transparent 1px);
-    background-size: 42px 42px;
-    -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.82), transparent 88%);
-    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.82), transparent 88%);
+        linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+    background-size: 56px 56px;
     pointer-events: none;
+    z-index: 0;
 }
 
+/* ── HEADER ─────────────────────────────────────────────────────────── */
 .spawn-header {
     position: relative;
-    z-index: 10;
+    z-index: 2;
     display: flex;
+    align-items: flex-start;
     justify-content: space-between;
-    align-items: center;
-    gap: 20px;
-    padding: 34px 46px 22px;
-    pointer-events: none;
+    padding: clamp(28px, 4vh, 52px) clamp(32px, 3.5vw, 64px) 0;
 }
 
-.eyebrow {
-    color: var(--cm-primary);
-    font-size: 12px;
+.spawn-heading h1 {
+    font-family: var(--cm-font-display);
+    font-size: clamp(30px, 2.4vw, 46px);
+    font-weight: 900;
     text-transform: uppercase;
-    letter-spacing: 4px;
-    font-weight: 950;
-    margin-bottom: 10px;
-}
-
-.spawn-title h1 {
-    font-size: clamp(30px, 3.6vw, 62px);
-    font-weight: 950;
-    letter-spacing: 5px;
-    line-height: 0.92;
+    letter-spacing: 1px;
+    line-height: 1;
     color: var(--cm-text-strong);
-    text-shadow: 0 0 28px rgba(var(--cm-primary-rgb), 0.20);
+    text-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
 }
 
-.spawn-title p {
-    margin-top: 12px;
-    color: var(--cm-muted);
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 2.5px;
+.spawn-subtitle {
+    margin-top: 8px;
+    font-size: clamp(12px, 0.85vw, 16px);
+    font-weight: 500;
+    color: var(--cm-text-muted);
+    letter-spacing: 0.3px;
 }
 
-.player-info {
+.player-summary {
     display: flex;
     align-items: center;
     gap: 14px;
-    background: var(--cm-panel-soft);
-    border: 1px solid var(--cm-border-soft);
-    padding: 12px 14px 12px 18px;
-    border-radius: var(--cm-radius-lg);
-    box-shadow: var(--cm-shadow-soft);
+    flex-shrink: 0;
 }
 
-.player-details {
-    text-align: right;
+.player-summary-text {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
 }
 
-.player-name {
-    font-size: 13px;
-    font-weight: 950;
+.player-summary-name {
+    font-size: 14px;
+    font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 1px;
     color: var(--cm-text-strong);
 }
 
-.player-org {
-    color: var(--cm-primary);
-    font-size: 10px;
-    font-weight: 900;
-    margin-top: 4px;
-    letter-spacing: 1.5px;
-    text-transform: uppercase;
-}
-
-.player-cash {
-    color: var(--cm-success);
+.player-summary-cash {
     font-size: 13px;
-    font-weight: 950;
-    margin-top: 4px;
+    font-weight: 900;
+    letter-spacing: 0.4px;
+    color: var(--cm-green, #2ECC71);
 }
 
-.player-avatar {
+/* No fake avatar photo -- local initials block only (see brief: no random
+   external human photo, use initials/silhouette). */
+.player-summary-avatar {
     width: 42px;
     height: 42px;
-    border-radius: 14px;
+    border-radius: 4px;
     display: grid;
     place-items: center;
-    color: var(--cm-primary);
-    background: linear-gradient(135deg, rgba(var(--cm-primary-rgb), 0.20), rgba(37, 99, 235, 0.10));
-    border: 1px solid var(--cm-border);
-    box-shadow: inset 0 0 22px rgba(var(--cm-primary-rgb), 0.10);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--cm-border-soft);
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    color: var(--cm-text-strong);
+    flex-shrink: 0;
+}
+
+.dead-spawn-notice {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 18px auto 0;
+    padding: 12px 20px;
+    width: fit-content;
+    border-radius: var(--cm-radius-lg);
+    border: 1px solid var(--cm-border-danger);
+    background: linear-gradient(135deg, var(--cm-danger-soft), rgba(7, 24, 42, 0.92));
+    color: #ffe8e8;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    box-shadow: var(--cm-shadow-soft);
+    max-width: min(560px, 70vw);
 }
 
 .cm-spawn-symbol {
@@ -147,234 +180,271 @@ body {
     align-items: center;
     justify-content: center;
     line-height: 1;
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 950;
     color: currentColor;
+    flex-shrink: 0;
 }
 
 .cm-spawn-symbol-danger {
     color: var(--cm-danger);
 }
 
-.dead-spawn-notice {
+/* ── CARD GRID ──────────────────────────────────────────────────────── */
+.spawn-main {
     position: relative;
-    z-index: 4;
-    margin: 0 46px 18px;
-    align-items: center;
-    gap: 12px;
-    padding: 14px 18px;
-    border-radius: var(--cm-radius-lg);
-    border: 1px solid var(--cm-border-danger);
-    background: linear-gradient(135deg, var(--cm-danger-soft), rgba(7, 24, 42, 0.72));
-    color: #ffe8e8;
-    font-size: 12px;
-    font-weight: 900;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    box-shadow: var(--cm-shadow-soft);
-}
-
-.spawn-grid {
-    position: relative;
-    z-index: 2;
+    z-index: 1;
     flex: 1;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 18px;
-    padding: 0 46px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     min-height: 0;
-    overflow: hidden;
+    padding: 24px clamp(24px, 3vw, 64px) clamp(28px, 4vh, 48px);
 }
 
-.empty-state {
-    grid-column: 1 / -1;
-    display: grid;
-    place-items: center;
-    min-height: 300px;
-    color: var(--cm-muted);
+.spawn-cards {
+    display: flex;
+    align-items: stretch;
+    gap: clamp(12px, 1.2vw, 24px);
+    width: calc(100vw - 80px);
+    max-width: 1800px;
+    height: clamp(470px, 70vh, 760px);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    pointer-events: auto;
+}
+
+.spawn-empty-state {
+    margin: auto;
+    padding: 20px 28px;
     border: 1px dashed var(--cm-border);
-    border-radius: var(--cm-radius-xl);
-    background: rgba(8, 19, 34, 0.55);
+    border-radius: var(--cm-radius-lg);
+    background: rgba(8, 19, 34, 0.6);
+    color: var(--cm-muted);
     text-transform: uppercase;
     letter-spacing: 1px;
     font-weight: 850;
+    font-size: 13px;
+    text-align: center;
+}
+
+/* Group hover focus: non-hovered, non-selected cards dim/shrink slightly. */
+.spawn-cards:hover .spawn-card:not(:hover):not(.selected) {
+    opacity: 0.48;
+    transform: scale(0.96);
+    filter: brightness(0.6) saturate(0.82);
+}
+
+/* A selected card must stay identifiable even while a sibling is hovered. */
+.spawn-cards:hover .spawn-card.selected:not(:hover) {
+    opacity: 0.82;
+    transform: scale(1.015);
+    filter: brightness(0.88);
 }
 
 .spawn-card {
+    --card-accent: var(--cm-primary, #00E5FF);
+    flex: 1 1 0;
+    min-width: 230px;
+    height: 100%;
     position: relative;
+    border-radius: 6px;
     overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 28px;
+    cursor: pointer;
+    background-color: #0d151b;
     background-size: cover;
     background-position: center;
-    min-height: var(--spawn-card-min);
-    color: #fff;
-    text-align: left;
-    cursor: pointer;
-    transform: translateY(16px);
-    opacity: 0;
-    animation: cardIn 320ms ease forwards;
-    animation-delay: var(--delay);
-    transition: transform 160ms ease, border-color 160ms ease, filter 160ms ease, box-shadow 160ms ease;
-    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.34);
-}
-
-@keyframes cardIn {
-    to {
-        transform: translateY(0);
-        opacity: 1;
-    }
-}
-
-.spawn-card:hover {
-    transform: translateY(-6px);
-    border-color: var(--cm-border);
-    box-shadow: 0 24px 68px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(var(--cm-primary-rgb), 0.12);
+    background-repeat: no-repeat;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    pointer-events: auto;
+    transition:
+        transform 0.4s cubic-bezier(0.25, 1, 0.3, 1),
+        opacity 0.35s ease,
+        filter 0.35s ease,
+        border-color 0.35s ease,
+        box-shadow 0.35s ease;
 }
 
 .spawn-card:focus-visible {
-    outline: 2px solid var(--cm-primary);
-    outline-offset: 3px;
+    outline: 2px solid var(--card-accent);
+    outline-offset: 2px;
 }
 
-.spawn-card.locked,
-.spawn-card:disabled {
-    cursor: not-allowed;
-    filter: grayscale(0.38);
-}
-
-.spawn-card-overlay,
-.spawn-card::before,
+/* Bottom glow accent line. Decorative only -- must never intercept clicks. */
 .spawn-card::after {
     content: '';
     position: absolute;
-    inset: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 4px;
+    background: var(--card-accent);
+    box-shadow: 0 0 14px var(--card-accent), 0 0 28px var(--card-accent);
+    transform: scaleX(0);
+    transform-origin: center;
+    transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+    pointer-events: none;
+    z-index: 6;
 }
 
-.spawn-card-overlay {
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.82));
+.spawn-card:hover::after,
+.spawn-card.selected::after {
+    transform: scaleX(1);
+}
+
+/* Decorative tint only -- must never intercept clicks meant for the card. */
+.card-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, var(--card-accent-soft, rgba(0, 229, 255, 0.55)) 0%, rgba(0, 0, 0, 0.95) 100%);
+    box-shadow: inset 0 -90px 70px -20px rgba(0, 0, 0, 0.9);
+    opacity: 0.92;
+    transition: opacity 0.4s ease;
+    pointer-events: none;
     z-index: 1;
 }
 
-.spawn-card::before {
-    z-index: 2;
-    opacity: 0.52;
-    transition: opacity 160ms ease;
+.spawn-card:hover .card-overlay,
+.spawn-card.selected .card-overlay {
+    opacity: 0.72;
 }
 
-.spawn-card:hover::before {
-    opacity: 0.70;
-}
-
-.spawn-card.orange::before { background: linear-gradient(160deg, rgba(245, 158, 11, 0.74), rgba(7, 16, 29, 0.25)); }
-.spawn-card.green::before { background: linear-gradient(160deg, rgba(34, 197, 94, 0.76), rgba(7, 16, 29, 0.25)); }
-.spawn-card.blue::before { background: linear-gradient(160deg, rgba(37, 99, 235, 0.82), rgba(7, 16, 29, 0.25)); }
-.spawn-card.purple::before { background: linear-gradient(160deg, rgba(147, 51, 234, 0.70), rgba(7, 16, 29, 0.25)); }
-.spawn-card.cyan::before { background: linear-gradient(160deg, rgba(var(--cm-primary-rgb), 0.70), rgba(37, 99, 235, 0.28)); }
-
-.spawn-card.locked::after,
-.spawn-card:disabled::after {
-    z-index: 3;
-    background: rgba(0, 0, 0, 0.38);
-}
-
-.spawn-content {
+.card-content {
     position: relative;
-    z-index: 4;
-    height: 100%;
-    min-height: var(--spawn-card-min);
+    z-index: 5;
     display: flex;
     flex-direction: column;
-    justify-content: flex-end;
-    padding: 28px;
+    align-items: center;
+    text-align: center;
+    height: 100%;
+    width: 100%;
+    padding: clamp(36px, 6vh, 60px) 20px 28px;
 }
 
-.spawn-topline {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    margin-bottom: auto;
-    gap: 12px;
-}
-
-.spawn-icon {
-    width: 52px;
-    height: 52px;
-    display: grid;
-    place-items: center;
-    border-radius: 18px;
-    background: rgba(255, 255, 255, 0.14);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    color: #fff;
-}
-
-.spawn-tag {
-    max-width: 190px;
-}
-
-.spawn-label-row {
-    margin-top: 28px;
-}
-
-.spawn-number {
-    display: block;
-    font-size: 11px;
-    font-weight: 950;
-    color: rgba(255, 255, 255, 0.58);
-    letter-spacing: 3px;
-    margin-bottom: 10px;
-}
-
-.spawn-card h2 {
-    font-size: clamp(24px, 2.6vw, 44px);
-    font-weight: 950;
-    letter-spacing: 2px;
+.card-title {
+    font-family: var(--cm-font-display);
+    font-size: clamp(16px, 1.25vw, 24px);
+    font-weight: 900;
     text-transform: uppercase;
-    line-height: 0.95;
-    color: #fff;
-    text-shadow: 0 4px 20px rgba(0, 0, 0, 0.55);
+    letter-spacing: 1px;
+    color: var(--cm-text-strong);
+    text-shadow: 0 2px 14px rgba(0, 0, 0, 0.8);
+    margin-bottom: 16px;
 }
 
-.spawn-card p {
-    margin-top: 16px;
-    max-width: 330px;
-    color: rgba(255, 255, 255, 0.76);
-    line-height: 1.65;
-    font-size: 13px;
+.card-desc {
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.55;
+    color: rgba(255, 255, 255, 0.88);
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+    max-width: 92%;
 }
 
-.spawn-button,
-.locked-badge {
-    margin-top: 24px;
-    width: fit-content;
-    letter-spacing: 1.4px;
-    text-transform: uppercase;
-}
-
-.locked-badge {
-    gap: 9px;
-}
-
-.spawn-footer {
-    position: relative;
-    z-index: 3;
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 0 46px 28px;
-    color: var(--cm-muted);
+.card-locked-reason {
+    margin-top: 10px;
     font-size: 11px;
     font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 1.1px;
+    letter-spacing: 0.4px;
+    color: #ffb4a8;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+    max-width: 92%;
 }
 
-.spawn-footer span {
-    display: inline-flex;
+.card-lock-icon {
+    margin-top: auto;
+    width: 40px;
+    height: 40px;
+    fill: rgba(255, 255, 255, 0.06);
+    stroke: rgba(255, 255, 255, 0.7);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.18));
+    flex-shrink: 0;
+}
+
+.spawn-card:hover,
+.spawn-card.selected {
+    border-color: var(--card-accent);
+    box-shadow: 0 16px 42px rgba(0, 0, 0, 0.65), 0 0 22px var(--card-accent-soft, rgba(0, 229, 255, 0.45));
+    z-index: 4;
+}
+
+.spawn-card:hover {
+    transform: scale(1.045);
+    z-index: 5;
+}
+
+.spawn-card.selected {
+    transform: scale(1.02);
+}
+
+/* Locked cards: visible, dimmer, no hover enlarge/glow, no pointer affordance. */
+.spawn-card.locked {
+    cursor: not-allowed;
+    filter: brightness(0.72);
+}
+
+.spawn-card.locked .card-overlay {
+    opacity: 0.95;
+}
+
+.spawn-card.locked:hover {
+    transform: none;
+    z-index: auto;
+    border-color: rgba(255, 255, 255, 0.10);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.spawn-card.locked:hover .card-overlay {
+    opacity: 0.95;
+}
+
+.spawn-card.locked:hover::after {
+    transform: scaleX(0);
+}
+
+/* ── FOOTER / CTA ───────────────────────────────────────────────────── */
+.spawn-footer {
+    position: relative;
+    z-index: 2;
+    display: flex;
     align-items: center;
-    gap: 8px;
+    justify-content: flex-end;
+    gap: 18px;
+    padding: 0 clamp(32px, 3.5vw, 64px) clamp(24px, 4vh, 44px);
+    pointer-events: auto;
 }
 
+.spawn-footer-status {
+    margin-right: auto;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    color: var(--cm-danger);
+    text-transform: uppercase;
+    min-height: 16px;
+}
+
+.spawn-cta {
+    min-width: 220px;
+    justify-content: center;
+}
+
+.spawn-cta[disabled] {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.btn-icon {
+    margin-left: 8px;
+}
+
+/* ── Tutorial: unchanged presentation, blur removed (project rule) ──── */
 #tutorial {
     position: absolute;
     inset: 0;
@@ -387,37 +457,40 @@ body {
 }
 
 .tutorial-overlay {
-    width: min(620px, calc(100vw - 48px));
+    position: relative;
+    width: min(560px, calc(100vw - 48px));
 }
 
 .tutorial-box {
     pointer-events: auto;
-    background: var(--cm-panel);
+    /* backdrop-filter removed (project rule -- see /AGENTS.md); background is
+       already near-opaque so no visual compensation is needed. */
+    background: rgba(7, 14, 22, 0.94);
     border: 1px solid var(--cm-border);
     border-radius: var(--cm-radius-lg);
-    padding: 30px;
+    padding: 26px 30px;
     text-align: center;
-    box-shadow: var(--cm-shadow), var(--cm-glow);
+    box-shadow: var(--cm-shadow-soft);
 }
 
 .tutorial-step {
     color: var(--cm-primary);
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 900;
-    margin-bottom: 15px;
+    margin-bottom: 12px;
     text-transform: uppercase;
     letter-spacing: 2px;
 }
 
 .tutorial-box h2 {
     color: var(--cm-text-strong);
-    font-size: 28px;
-    margin-bottom: 12px;
+    font-size: 24px;
+    margin-bottom: 10px;
 }
 
 .tutorial-box p {
     color: var(--cm-muted);
-    font-size: 16px;
+    font-size: 14px;
     line-height: 1.6;
 }
 
@@ -426,22 +499,22 @@ body {
     height: 4px;
     background: rgba(255, 255, 255, 0.10);
     border-radius: 2px;
-    margin-top: 20px;
+    margin-top: 18px;
     overflow: hidden;
 }
 
 .progress-bar {
     height: 100%;
-    background: linear-gradient(90deg, var(--cm-primary), var(--cm-blue));
+    background: linear-gradient(90deg, var(--cm-primary), var(--cm-yellow, #ffc700));
     border-radius: 2px;
     transition: width 180ms ease;
     width: 25%;
 }
 
 .tutorial-skip {
-    margin-top: 15px;
-    color: rgba(255, 255, 255, 0.46);
-    font-size: 12px;
+    margin-top: 14px;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 11px;
 }
 
 .tutorial-skip kbd {
@@ -452,49 +525,7 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
-@media (max-width: 1100px) {
-    :root { --spawn-card-min: 340px; }
-}
-
 @media (max-width: 900px) {
-    :root { --spawn-card-min: 260px; }
-
-    .spawn-header {
-        padding: 26px 24px 18px;
-        align-items: flex-start;
-        gap: 18px;
-    }
-
-    .dead-spawn-notice {
-        margin: 0 24px 14px;
-    }
-
-    .spawn-grid {
-        padding: 0 24px 16px;
-        grid-template-columns: 1fr;
-        overflow-y: auto;
-    }
-
-    .spawn-footer {
-        display: none;
-    }
-
-    .player-info {
-        padding: 10px 12px;
-    }
-}
-
-@media (max-width: 620px) {
-    .spawn-header {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .player-info {
-        justify-content: space-between;
-    }
-
-    .player-details {
-        text-align: left;
-    }
+    .spawn-header { flex-direction: column; align-items: flex-start; gap: 14px; }
+    .player-summary { align-self: flex-start; }
 }

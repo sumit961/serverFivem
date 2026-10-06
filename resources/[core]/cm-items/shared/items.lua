@@ -5,6 +5,7 @@ CMItems = CMItems or {}
 CMItems.Items = {
     -- Food / drink examples. Remove if you do not want food systems yet.
     water = {
+        tradeable = true,   -- explicitly approved for player trade (cm-items CanTradeItem policy)
         label = 'Water Bottle',
         image = 'water.png',
         weight = 500,
@@ -18,6 +19,7 @@ CMItems.Items = {
     },
 
     sandwich = {
+        tradeable = true,   -- explicitly approved for player trade (cm-items CanTradeItem policy)
         label = 'Sandwich',
         image = 'sandwich.png',
         weight = 350,
@@ -32,6 +34,7 @@ CMItems.Items = {
 
     -- Medical
     bandage = {
+        tradeable = true,   -- explicitly approved for player trade (cm-items CanTradeItem policy)
         label = 'Bandage',
         image = 'nui://cm-items/ui/images/medical_bandage.svg',
         weight = 100,
@@ -45,6 +48,7 @@ CMItems.Items = {
     },
 
     medkit = {
+        tradeable = true,   -- explicitly approved for player trade (cm-items CanTradeItem policy)
         label = 'Medical Kit',
         image = 'nui://cm-items/ui/images/medical_kit.svg',
         weight = 1200,
@@ -86,6 +90,7 @@ CMItems.Items = {
     -- Doctor NPC catalog (cm-doctor). Effects registered by cm-doctor at
     -- startup via exports['cm-itemactions']:RegisterItem.
     painkillers = {
+        tradeable = true,   -- explicitly approved for player trade (cm-items CanTradeItem policy)
         label = 'Painkillers',
         image = 'nui://cm-items/ui/images/medical_painkillers.svg',
         weight = 50,
@@ -126,6 +131,7 @@ CMItems.Items = {
 
     -- Tools
     repairkit = {
+        tradeable = true,   -- explicitly approved for player trade (cm-items CanTradeItem policy)
         label = 'Repair Kit',
         image = 'repairkit.png',
         weight = 1800,
@@ -279,6 +285,68 @@ CMItems.Items = {
         category = 'material',
         worldModel = 'prop_boxpile_04a',
         description = 'Scrap metal used in crafting.'
+    },
+
+
+    -- Production materials (catalog + economy: cm-materials, agent-docs/CM_MATERIAL_ECONOMY.md). Commodities: no metadata, no serials.
+    iron_ore = {
+        label = 'Iron Ore',
+        image = 'placeholder.png',
+        weight = 300,
+        stack = true,
+        unique = false,
+        usable = false,
+        category = 'material',
+        worldModel = 'prop_boxpile_04a',
+        description = 'Raw iron ore. Smelt it at a furnace.'
+    },
+
+    iron_ingot = {
+        label = 'Iron Ingot',
+        image = 'placeholder.png',
+        weight = 500,
+        stack = true,
+        unique = false,
+        usable = false,
+        category = 'material',
+        worldModel = 'prop_boxpile_04a',
+        description = 'Smelted iron for construction and fabrication.'
+    },
+
+    log = {
+        label = 'Log',
+        image = 'placeholder.png',
+        weight = 800,
+        stack = true,
+        unique = false,
+        usable = false,
+        category = 'material',
+        worldModel = 'prop_boxpile_04a',
+        description = 'A raw log. Cut it into timber at a sawmill.'
+    },
+
+    timber = {
+        label = 'Timber',
+        image = 'placeholder.png',
+        weight = 600,
+        stack = true,
+        unique = false,
+        usable = false,
+        category = 'material',
+        worldModel = 'prop_boxpile_04a',
+        description = 'Sawn timber for construction.'
+    },
+
+    reclaimed_metal = {
+        label = 'Reclaimed Metal',
+        image = 'placeholder.png',
+        weight = 300,
+        stack = true,
+        unique = false,
+        usable = false,
+        category = 'material',
+        worldModel = 'prop_boxpile_04a',
+        description = 'Sorted and refined recycled metal.'
     },
 
     -- Weapons as inventory items. Actual weapon equip should be validated server-side later.

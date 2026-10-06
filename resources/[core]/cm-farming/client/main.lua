@@ -114,8 +114,14 @@ for _, field in ipairs(Config.Fields) do
     pointEntities[field.key] = {}
 end
 
+-- Searches down from a fixed altitude well above any GTA V terrain (map max
+-- is under ~900m at Chiliad), NOT from the field's own center.z + a small
+-- margin -- fields can be 70+m radius on real hilly ground, so a plot far
+-- from center can sit at a very different elevation than the center point,
+-- and a search window anchored to the center was missing the actual ground
+-- entirely and falling back to a wrong height (props floating in the sky).
 local function getGroundZ(x, y, fallbackZ)
-    local found, groundZ = GetGroundZFor_3dCoord(x + 0.0, y + 0.0, (fallbackZ or 0.0) + 15.0, false)
+    local found, groundZ = GetGroundZFor_3dCoord(x + 0.0, y + 0.0, 1000.0, false)
     if found then return groundZ end
     return fallbackZ or 0.0
 end
@@ -167,10 +173,17 @@ local function refreshPointEntity(fieldKey, index)
     local hash = ensureModel(wantedModel)
     if not HasModelLoaded(hash) then return end
 
+    -- No PlaceObjectOnGroundProperly here -- it snaps using the ENTITY's
+    -- own collision bounds, and the custom streamed crop models (rose,
+    -- green, daisy, poppy, melon) are plain .ydr drawables with no
+    -- collision at all, so the native was shoving them to an arbitrary
+    -- height instead of leaving them at the already-correct ground Z
+    -- getPointZ just resolved. Vanilla wheat/pumpkin have real collision
+    -- so it happened to work for those, which is what made this
+    -- inconsistent between crops.
     local z = getPointZ(fieldKey, point)
     local entity = CreateObject(hash, point.x, point.y, z, false, false, false)
     if not DoesEntityExist(entity) then return end
-    PlaceObjectOnGroundProperly(entity)
     FreezeEntityPosition(entity, true)
     SetEntityCollision(entity, false, false)
     pointEntities[fieldKey][index] = entity

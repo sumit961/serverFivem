@@ -274,23 +274,31 @@
         return !!(el && !el.hidden);
     }
 
+    let currentInteractOwner = null;
+
     CMUI.showInteract = function (options) {
         if (isDialogueOpen()) return;
         options = options || {};
         const el = ensureInteract();
+        currentInteractOwner = options.owner ? String(options.owner) : null;
         el.querySelector('.cm-interact__key').textContent = options.key || 'E';
         el.querySelector('.cm-interact__label').textContent = options.label || 'INTERACTION';
         el.querySelector('.cm-interact__identity').textContent = [options.name, options.role].filter(Boolean).join(' · ');
         el.hidden = false;
     };
 
-    CMUI.hideInteract = function () {
+    CMUI.hideInteract = function (owner, force) {
+        if (!force && !owner) return false;
+        if (!force && owner && currentInteractOwner && String(owner) !== currentInteractOwner) return false;
+        if (!force && owner && !currentInteractOwner) return false;
         const el = document.querySelector('.cm-interact');
         if (el) el.hidden = true;
+        currentInteractOwner = null;
+        return true;
     };
 
     /* ── cm-dialogue: cinematic NPC dialogue ─────────────── */
-    let dialogueState = { choices: [], deferChoices: false, serviceLabel: '' };
+    let dialogueState = { choices: [], deferChoices: false, serviceLabel: '', choiceColumns: 1 };
 
     function ensureDialogue() {
         let el = document.querySelector('.cm-dialogue');
@@ -350,10 +358,12 @@
         dialogueState = {
             choices: choices,
             deferChoices: options.deferChoices === true,
-            serviceLabel: options.serviceLabel || 'Please choose an option.'
+            serviceLabel: options.serviceLabel || 'Please choose an option.',
+            choiceColumns: Math.min(4, Math.max(1, Number(options.choiceColumns) || 1))
         };
 
         const optionsBox = el.querySelector('.cm-dialogue__service-options');
+        optionsBox.dataset.choiceColumns = String(dialogueState.choiceColumns);
         if (choices.length > 0) {
             optionsBox.innerHTML = choices.map(function (choice) {
                 return '<button type="button" class="cm-dialogue__option" data-cm-dialogue-choice="' + CMUI.safeText(choice.id) + '">' +

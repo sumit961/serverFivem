@@ -14,6 +14,8 @@ local function IsLoadedAndAlive()
     if not LocalPlayer or not LocalPlayer.state then return false end
     if LocalPlayer.state.playerDataLoaded ~= true then return false end
     if LocalPlayer.state.isInCharacterSelector == true then return false end
+    if LocalPlayer.state.isDead == true then return false end
+    if LocalPlayer.state.lifeState and LocalPlayer.state.lifeState ~= 'alive' then return false end
     return true
 end
 

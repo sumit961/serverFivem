@@ -190,6 +190,26 @@ RegisterNUICallback('interiorDoor:select', function(data, cb)
     end
 end)
 
+local function handleHouseDoor()
+    if not In or In.kind ~= 'house' then return end
+
+    busy = true
+
+    -- The server derives the current house from the authoritative interior
+    -- session. A callback failure deliberately takes the escape path: a
+    -- player already inside must never be stranded behind a revoked grant.
+    local callbackOk, authorized = pcall(lib.callback.await,
+        'cm-house:server:canUseInteriorDoor', false)
+    if callbackOk and authorized == true then
+        openDoorChoice('house')
+        busy = false
+        return
+    end
+
+    closeDoorChoice()
+    TriggerEvent('cm-house:client:leave')
+end
+
 -- ------------------------------------------------------------
 --  One prompt loop, alive only while actually inside.
 -- ------------------------------------------------------------
@@ -212,9 +232,7 @@ CreateThread(function()
                 if In.exitPoint and nearTo(pc, In.exitPoint) then
                     prompt(In.exitPoint, In.hasGarage and 'Door' or 'Leave')
                     if pressed then
-                        busy = true
-                        openDoorChoice('house')
-                        busy = false              -- a menu, not an await
+                        handleHouseDoor()
                     end
                 end
 
@@ -269,8 +287,8 @@ CreateThread(function()
                     prompt(In.entry, 'Door')
                     if pressed then
                         busy = true
-                        openDoorChoice('garage')
-                        busy = false          -- a menu, not an await
+                        closeDoorChoice()
+                        TriggerEvent('cm-house:client:toHouse')
                     end
                 end
 

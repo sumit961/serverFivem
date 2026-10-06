@@ -211,7 +211,7 @@
             <h3>Garage Operations</h3>
           </div>
           <div class="hub-group__actions">
-            ${tile('Manage family transport', 'Shared vehicles and minimum rank tiers.', 'vehicles', can('garage.access') || can('family.manage_vehicles'))}
+            ${tile('Manage family transport', 'Family vehicles and minimum rank tiers.', 'vehicles', can('garage.access') || can('family.manage_vehicles'))}
             ${tile('Recall family transport', 'Return available vehicles to their assigned garage slots.', 'recall', can('family.manage_vehicles'))}
           </div>
         </section>
@@ -629,7 +629,7 @@
         <div class="hq-spec-card">
           <span class="spec-title">GARAGE &amp; FLEET</span>
           <span class="spec-status">${garageUsed} / ${garageCapacity}</span>
-          <span class="spec-detail">Shared family vehicle slots managed by cm-house.</span>
+          <span class="spec-detail">Family vehicle slots managed by cm-house.</span>
         </div>
         <div class="hq-spec-card">
           <span class="spec-title">ARMORY / WEAPON STASH</span>
@@ -970,10 +970,11 @@
   function renderVehicles() {
     const canManageLevels = can('family.manage_vehicles');
     const rows = state.vehicles.map(v => {
-      const shareControl = v.isOwner && v.eligible
-        ? `<label class="inline" style="font-size:12px"><input type="checkbox" data-share="${v.id}" ${v.shared ? 'checked' : ''}> Shared</label>`
-        : `<span class="badge">${v.shared ? 'Family' : 'Private'}</span>`;
-      const levelDisabled = (!canManageLevels && !v.isOwner) ? 'disabled' : '';
+      const registered = v.familyRegistered === true;
+      const registrationControl = !registered && canManageLevels
+        ? `<button class="btn sm" data-register="${v.id}">Add to family garage</button>`
+        : `<span class="badge">${registered ? 'Family vehicle' : 'Personal vehicle'}</span>`;
+      const levelDisabled = !canManageLevels ? 'disabled' : '';
       const image = v.image
         ? `<img class="vehicle-thumb" src="${esc(v.image)}" alt="${esc(v.label || v.model || 'Vehicle')}">`
         : `<div class="vehicle-thumb vehicle-thumb--empty">NO IMAGE</div>`;
@@ -981,28 +982,29 @@
         ${image}
         <div class="row__main">
           <div class="row__title">${esc(v.label || v.model || v.plate || 'Vehicle')} ${v.isOwner ? '<span class="badge founder">Your car</span>' : ''}</div>
-          <div class="row__sub">${esc(v.plate || '')} · ${v.eligible ? esc(v.house_label || 'family house') + ' · slot ' + v.slot_index : 'Park in the family garage before sharing'}</div>
+          <div class="row__sub">${esc(v.plate || '')} · ${registered ? (v.eligible ? esc(v.house_label || 'family house') + ' · slot ' + v.slot_index : 'Registered for the family garage') : 'Personal vehicle - available to authorized family managers for registration'}</div>
         </div>
         <div class="row__actions">
-          ${shareControl}
-          <div class="level-ctl">
+          ${registrationControl}
+          ${registered ? `<div class="level-ctl">
             <label style="font-size:12px;color:var(--text-dim)">Minimum rank tier</label>
             <input class="input" type="number" min="1" max="${state.maxRanks}" value="${v.level}" ${levelDisabled} data-veh="${v.id}">
-          </div>
-          ${v.shared && v.canTrack ? `<button class="btn ghost sm" data-track="${v.id}" ${Number(v.trackCooldownSeconds) > 0 ? 'disabled' : ''}>${Number(v.trackCooldownSeconds) > 0 ? 'Track in ' + Math.ceil(Number(v.trackCooldownSeconds) / 60) + 'm' : 'Track car'}</button>` : ''}
+          </div>` : ''}
+          ${registered && v.canTrack ? `<button class="btn ghost sm" data-track="${v.id}" ${Number(v.trackCooldownSeconds) > 0 ? 'disabled' : ''}>${Number(v.trackCooldownSeconds) > 0 ? 'Track in ' + Math.ceil(Number(v.trackCooldownSeconds) / 60) + 'm' : 'Track car'}</button>` : ''}
         </div>
       </div>`;
     }).join('');
 
     content.innerHTML = `
-      <div class="section-title">Family vehicle access</div>
-      <div class="row__sub" style="margin-bottom:14px">Your cars parked at the family house appear here. Only the owner can share or unshare a car. Authorized ranks can set the minimum tier for shared cars.</div>
+      <div class="section-title">Family garage vehicles</div>
+      <div class="row__sub" style="margin-bottom:14px">Only vehicles explicitly registered to this family appear as family vehicles. Authorized family managers can add a member's personal vehicle and set its minimum rank.</div>
       ${state.vehicles.length ? `<div class="list">${rows}</div>` :
-        '<div class="empty"><h2>No vehicles at the family house</h2><div>Park an owned car in the family garage first.</div></div>'}`;
+        '<div class="empty"><h2>No family garage vehicles</h2><div>Authorized family managers can register an eligible member vehicle here.</div></div>'}`;
 
-    content.querySelectorAll('[data-share]').forEach(box => box.onchange = () => {
-      const levelInput = content.querySelector(`[data-veh="${box.dataset.share}"]`);
-      act('setVehicleShared', { vehicleId: Number(box.dataset.share), shared: box.checked, level: Number(levelInput && levelInput.value) || 1 });
+    content.querySelectorAll('[data-register]').forEach(button => button.onclick = () => {
+      button.disabled = true;
+      button.textContent = 'Adding…';
+      act('registerFamilyVehicle', { vehicleId: Number(button.dataset.register) }, true);
     });
     content.querySelectorAll('[data-track]').forEach(btn => btn.onclick = () => {
       btn.disabled = true;
@@ -1015,11 +1017,7 @@
       const id = Number(inp.dataset.veh);
       const vehicle = state.vehicles.find(v => Number(v.id) === id);
       const level = Number(inp.value) || 1;
-      // Setting a rank on your own private car is the explicit share action the
-      // owner expects. Non-owners can edit levels only after a car is shared.
-      if (vehicle && vehicle.isOwner) {
-        act('setVehicleShared', { vehicleId: id, shared: true, level }, true);
-      } else {
+      if (vehicle && vehicle.familyRegistered === true) {
         act('setVehicleLevel', { vehicleId: id, level }, true);
       }
     });

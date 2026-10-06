@@ -63,20 +63,7 @@ exports('AdminGetGangManagement', function(src)
     local counts = MySQL.query.await('SELECT gang_id,COUNT(*) member_count FROM cm_gang_members GROUP BY gang_id') or {}
     local activity = MySQL.query.await([[SELECT gang_id,action,actor_character_id,target_character_id,vehicle_id,created_at
         FROM cm_gang_activity ORDER BY id DESC LIMIT 100]]) or {}
-    -- Armory now lives in cm-law's shared cm_legal_armory_stock table
-    -- (server/storage.lua migrated onto it), namespaced per gang as
-    -- 'gang:<gangId>'. The old cm_gang_armory_config table is left in place
-    -- unused rather than dropped, but is no longer read here.
-    local armoryRows = MySQL.query.await([[SELECT organization_id,item_name AS item_id,enabled,
-        min_tier AS minimum_tier,issue_amount AS issue_quantity,stock AS stock_quantity
-        FROM cm_legal_armory_stock WHERE organization_id LIKE 'gang:%' ORDER BY organization_id,item_name]]) or {}
     local armory = {}
-    for _, row in ipairs(armoryRows) do
-        row.gang_id = tostring(row.organization_id):match('^gang:(.+)$')
-        row.organization_id = nil
-        row.issue_limit = 0
-        if row.gang_id then armory[#armory + 1] = row end
-    end
     local fleet = MySQL.query.await([[SELECT gang_id,catalog_id,vehicle_id,enabled,minimum_tier,trunk_minimum_tier,x,y,z
         FROM cm_gang_fleet_vehicles ORDER BY gang_id,catalog_id]]) or {}
     local profits=MySQL.query.await('SELECT gang_id,activity_score,pending_amount,last_tick_at,last_collected_at FROM cm_gang_profit') or {}
@@ -108,7 +95,8 @@ exports('AdminGetGangManagement', function(src)
     end
     local out={}; for _, id in ipairs(Config.GangIds) do if byId[id] then out[#out+1]=byId[id] end end
     return { ok=#out==#Config.GangIds, gangs=out, graffiti=type(CMGangGraffitiAdminList)=='function' and CMGangGraffitiAdminList() or {}, permissions=Config.Permissions, npcModels=Config.NpcModels, assetKeys=Config.AssetKeys,
-        legacyGangIds=Config.LegacyGangIds,weaponCatalog=weaponCatalog }
+        legacyGangIds=Config.LegacyGangIds,weaponCatalog=weaponCatalog,armoryAvailable=false,
+        armoryUnavailableReason='weapon_owner_faction_api_missing' }
 end)
 
 exports('AdminUpdateIdentity', function(src, gangId, data)
@@ -139,6 +127,7 @@ exports('AdminSetFacility', function(src, gangId, data)
             local pool=Config.ContactNpcs[id] and Config.ContactNpcs[id].models or {}
             model=tostring(pool[1] or '')
         end
+        if kind=='headquarters' and model=='' then return false,'invalid_npc_model' end
         if (kind=='headquarters' or kind=='fleet' or kind=='profit') and model~='' and Config.NpcModels[model]~=true then return false,'invalid_npc_model' end
         local display=text(data.displayName,64,false); local role=text(data.roleLabel,64,false)
         if display==nil or role==nil then return false,'invalid_labels' end

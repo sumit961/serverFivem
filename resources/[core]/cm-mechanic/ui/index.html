@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CM Mechanic</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="root" class="hidden">
+  <div class="panel" role="dialog" aria-label="Mechanic work">
+    <header class="top">
+      <div class="title"><span class="accent">CM</span> MECHANIC<small id="subtitle">Service work orders</small></div>
+      <button class="close" id="closeBtn" aria-label="Close">&times;</button>
+    </header>
+    <main class="body" id="body"></main>
+    <div id="toasts" class="toasts"></div>
+    <div id="modal" class="modal-layer hidden"></div>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

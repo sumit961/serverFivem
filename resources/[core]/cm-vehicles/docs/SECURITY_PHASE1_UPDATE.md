@@ -46,7 +46,7 @@ exports['cm-vehicles']:ServiceVehicle(plate, {
 })
 ```
 
-Only include fields that the service is authorised to change.
+Only include fields that the service is authorised to change. The calling resource must be listed in `Config.Service.TrustedCallers` with that field; see [API_SERVICE.md](API_SERVICE.md).
 
 ## Secure tuning integration
 

@@ -1,4 +1,11 @@
 ---
+
+## QA completion rule
+
+After runtime validation, run the relevant `tools/cm-qa/run.ps1` layers and
+read `cm-agent-out/qa/latest.json`. Repair failed QA evidence before reporting
+completion; report only the explicit manual remainder for blocked or
+human-judgment layers.
 name: CM FiveM Developer
 description: Primary implementation agent for this custom FiveM server, including resource changes, integrations, persistence, NUI, validation, and runtime checks.
 tools: ['search', 'read', 'edit', 'runCommands']

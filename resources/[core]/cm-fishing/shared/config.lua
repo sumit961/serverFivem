@@ -3,6 +3,17 @@ CMFishing = CMFishing or {}
 CMFishing.Config = {
     Debug = false,
 
+    -- Only honoured while Debug = true. Set from the SERVER CONSOLE with
+    -- `cmfishing_force heavy|shark|off` -- never from a client.
+    DebugForce = { heavy = false, shark = false },
+
+    -- Only honoured while Debug = true (server console `cmfishing_hook`):
+    -- simulate the source switching to ANOTHER character at the exact moment
+    -- inside a sale (`sale`, right after the fish are removed) or a boat rental
+    -- (`rent`, right after the boat spawned), to prove the original character
+    -- is made whole and the new one is untouched.
+    DebugHooks = { sale = false, rent = false },
+
     interactKey = 38, -- E
     interactKeyLabel = 'E',
     interactDistance = 2.2,
@@ -223,9 +234,11 @@ CMFishing.Config = {
             vector4(-1789.5032, -1230.3000, 0.1764, 164.8888),
         },
         list = {
-            { name = 'seashark', label = 'Sea Shark', price = 500, image = 'https://docs.fivem.net/vehicles/seashark.webp' },
-            { name = 'dinghy', label = 'Dinghy', price = 1000, image = 'https://docs.fivem.net/vehicles/dinghy.webp' },
-            { name = 'suntrap', label = 'Suntrap', price = 1500, image = 'https://docs.fivem.net/vehicles/suntrap.webp' },
+            -- No external image URLs: the store UI hides the picture until
+            -- the Fishing UI pass adds local artwork (`image` = file in ui/images).
+            { name = 'seashark', label = 'Sea Shark', price = 500 },
+            { name = 'dinghy', label = 'Dinghy', price = 1000 },
+            { name = 'suntrap', label = 'Suntrap', price = 1500 },
         },
     },
 
@@ -238,8 +251,35 @@ CMFishing.Config = {
         [5] = 900, -- max level
     },
 
+    -- Minigame numbers the server needs to derive a plausible-time lower bound
+    -- (must match ui/app.js startMinigame: progress starts at 30, wins at 100).
+    Minigame = { startProgress = 30, winProgress = 100 },
+
     Security = {
         castCooldownMs = 1200,
         actionRangeSlack = 3.0,
+
+        -- Max distance the player may drift from the cast origin (on foot)
+        -- while waiting/fighting. On a boat the check is against that same
+        -- boat instead, so normal wave drift never cancels a cast.
+        maxCastMovement = 8.0,
+        maxBoatDistance = 10.0,
+
+        -- Extra time on top of a minigame's timeLimitMs before a result is
+        -- rejected as expired (network latency + NUI frame slack).
+        resultGraceMs = 3000,
+        -- A success can never arrive faster than (winProgress - startProgress)
+        -- / gainRate seconds even with perfect overlap; this fraction of that
+        -- physical minimum is the conservative floor the server enforces.
+        minResultFactor = 0.85,
+        -- Server sweep for dead/moved/bucket-changed/timed-out casts.
+        monitorIntervalMs = 1500,
+
+        -- Per-source minimum gap between calls of each network event.
+        rateMs = {
+            checkRod = 1500, requestStatus = 1000, requestStore = 800,
+            cast = 600, catchResult = 300, cancelCast = 300,
+            buyItem = 400, buyCart = 600, sellFish = 400, requestBoat = 1000,
+        },
     },
 }

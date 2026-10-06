@@ -11,6 +11,18 @@ local loadingShutdown = false
 local characterSelectorOpened = false
 local pendingAccountId = nil
 
+-- Loading-continue gate: auth must not display until the player confirms at
+-- 100% on the loading screen. loadingGateActive only becomes true if the
+-- loadscreen NUI actually mounts and says so (loadingMounted) — on a plain
+-- cm-auth restart while already connected past the loadscreen, that never
+-- fires, so the gate correctly stays inert instead of blocking forever.
+local loadingGateActive = false
+local loadingConfirmed = false
+
+local function authGateBlocking()
+    return loadingGateActive and not loadingConfirmed
+end
+
 local AUTH_TOKEN_KVP = (Config and Config.Kvp and Config.Kvp.token) or 'cm_auth_token'
 local AUTH_EMAIL_KVP = (Config and Config.Kvp and Config.Kvp.email) or 'cm_auth_email'
 
@@ -69,6 +81,11 @@ local function openLogin(mode, profile)
         return
     end
 
+    if authGateBlocking() then
+        pendingOpen = { mode = mode or 'login', profile = profile }
+        return
+    end
+
     if not uiReady then
         pendingOpen = { mode = mode or 'login', profile = profile }
         return
@@ -104,6 +121,7 @@ end)
 
 local function startAuthFlow(force)
     if isLoggedIn() then return end
+    if authGateBlocking() then return end
     if initialAuthStarted and not force then return end
     if not uiReady then return end
 
@@ -205,20 +223,41 @@ RegisterNUICallback('uiReady', function(data, cb)
     end
 end)
 
-RegisterNUICallback('loadingSkip', function(data, cb)
+-- The loading page reports itself mounted on its own DOMContentLoaded. Only
+-- then does the gate above actually block anything.
+RegisterNUICallback('loadingMounted', function(data, cb)
+    loadingGateActive = true
+    cb('ok')
+end)
+
+-- Fired once, only after the player presses Enter/Space on the loading
+-- screen's post-100% "ready" state. The loading page debounces on its own
+-- side too, but treat this NUI request as untrusted/repeatable so the gate
+-- can only ever release once per session.
+RegisterNUICallback('loadingContinue', function(data, cb)
     cb('ok')
 
-    if isLoggedIn() then
-        shutdownLoading()
+    if loadingConfirmed then
+        if isLoggedIn() then shutdownLoading() end
         return
     end
+    loadingConfirmed = true
 
-    if pendingOpen == nil then
-        pendingOpen = { mode = 'login', profile = {} }
-    end
-
+    -- 1) gate released (loadingConfirmed above) 2) shut down the loading NUI
+    -- 3) shut down the loading screen (both covered by shutdownLoading,
+    -- idempotent) 4) process whatever queued while gated 5) show login/
+    -- saved-account (inside openLogin/startAuthFlow below).
     shutdownLoading()
-    startAuthFlow(true)
+
+    if isLoggedIn() then return end
+
+    if pendingOpen then
+        local queued = pendingOpen
+        pendingOpen = nil
+        openLogin(queued.mode, queued.profile)
+    else
+        startAuthFlow(true)
+    end
 end)
 
 RegisterNUICallback('login', function(data, cb)

@@ -54,6 +54,46 @@ CreateThread(function()
     CMCharacters.EnsureSchema()
 end)
 
+-- Routing buckets and state bags are native server state, not tied to this
+-- resource's Lua VM — they survive a cm-characters restart even though this
+-- resource's own local variables (selectorOpen, etc.) reset. Without this, a
+-- player who was mid-selector when cm-characters restarts stays stuck in
+-- their private bucket (invisible to everyone) forever, since nothing else
+-- ever calls SetPlayerRoutingBucket(src, 0) for them again.
+CreateThread(function()
+    Wait(1000)
+    for _, playerStr in ipairs(GetPlayers()) do
+        local pSrc = tonumber(playerStr)
+        if pSrc and pSrc > 0 then
+            local st = Player(pSrc).state
+            local staleBucket = (tonumber(st.selectorBucket) or 0) > 0
+            local staleFlags = st.isInCharacterSelector == true or st.isInCharacterCreation == true
+            if staleBucket or staleFlags then
+                pcall(function() SetPlayerRoutingBucket(pSrc, 0) end)
+                st:set('selectorBucket', 0, true)
+                st:set('isInCharacterSelector', false, true)
+                st:set('isInCharacterCreation', false, true)
+
+                -- PHASE 4B: skipPositionSave is deliberately left alone here in the
+                -- normal case — a player recovered from a genuinely-incomplete
+                -- selector/creator session has no legitimate "current" position to
+                -- protect yet, so staying blocked until they redo the flow is the
+                -- safe default (do not re-enable autosave prematurely). The one
+                -- exception: if characterFullySpawned is already true, they had
+                -- already completed a real spawn before these flags went stale
+                -- (e.g. a second/earlier restart left them stuck), so their
+                -- current position IS legitimate gameplay data and must not be
+                -- permanently excluded from autosave.
+                if st.characterFullySpawned == true and st.skipPositionSave == true then
+                    st:set('skipPositionSave', false, true)
+                end
+
+                print(('[CM-CHARACTERS] Recovered stale selector bucket/state for src=%s after resource restart'):format(pSrc))
+            end
+        end
+    end
+end)
+
 exports('GetCurrentCharacterId', function(src)
     return getStateCharId(src)
 end)
@@ -130,14 +170,23 @@ end)
 local SELECTOR_SCENE_FILE = 'data/selector_scene.json'
 
 local function defaultSelectorScene()
+    -- CHARACTER STAGE RELOCATION: derives from the one canonical
+    -- Config.CharacterStage (see config.lua) instead of its own separate
+    -- hardcoded coordinates -- config.lua is a shared_script and loads
+    -- before this server_script, so Config is already populated here.
+    local stage = Config.CharacterStage
+    local standing = stage.standing
+    local camera = stage.camera
+    local camrotation = stage.camrotation
+
     return {
         sceneId = 'fixed-night-preview',
-        stream = { x = 927.4528, y = 11.8477, z = 113.5550, w = 296.7522 },
-        walkStart = { x = 927.4528, y = 11.8477, z = 113.5550, w = 296.7522 },
-        walkFinish = { x = 927.4528, y = 11.8477, z = 113.5550, w = 296.7522 },
-        camera = { x = 931.2687, y = 14.1728, z = 114.5444, w = 296.7522 },
-        camrotation = { x = -3.8893, y = 0.0000, z = 116.2193 },
-        fov = 50.0,
+        stream = { x = standing.x, y = standing.y, z = standing.z, w = standing.w },
+        walkStart = { x = standing.x, y = standing.y, z = standing.z, w = standing.w },
+        walkFinish = { x = standing.x, y = standing.y, z = standing.z, w = standing.w },
+        camera = { x = camera.x, y = camera.y, z = camera.z, w = camera.w },
+        camrotation = { x = camrotation.x, y = camrotation.y, z = camrotation.z },
+        fov = stage.fov,
         weather = 'CLEAR',
         time = { hours = 23, minutes = 0, seconds = 0 },
         idleDict = 'anim@heists@heist_corona@team_idles@male_a',

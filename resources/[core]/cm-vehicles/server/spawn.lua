@@ -1682,6 +1682,11 @@ function CMVehicles.Spawn.SpawnFromParking(src, vehicleId, lotId, spawn, options
     local targetCondition = repair and {} or previous.conditionState
 
     local insuranceFee = repair and math.max(0, math.floor(tonumber(Config.Rules.ParkingInsuranceFee) or 0)) or 0
+    -- An active, owner-bound policy discounts (never waives) the recovery fee.
+    -- Damage handling is unchanged: the repair rule above is untouched.
+    if insuranceFee > 0 and CMVehicles.Legal and CMVehicles.Legal.RecoveryFee then
+        insuranceFee = CMVehicles.Legal.RecoveryFee(row, insuranceFee)
+    end
     local insuranceAccount = tostring(Config.Rules.ParkingInsuranceAccount or 'cash')
     local insuranceCharged = false
 

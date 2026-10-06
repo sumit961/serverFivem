@@ -11,6 +11,36 @@ local ActiveSaves = {}
 local CharacterSwitchLocks = {}
 local SavePlayerData -- pre-declared for forward references
 local WarmIdentityCache, PushIdentityUpdate -- pre-declared for forward references
+local ClearIdentityCache -- pre-declared for forward references
+local TransitionLifeState, EnterDownedState, EnterDeadState, BeginRespawnState, CompleteRespawnState, ReviveDownedPlayer, BuildLifecycleSnapshot -- pre-declared
+
+local LIFE_STATE = {
+    ALIVE = 'alive',
+    DOWNED = 'downed',
+    DEAD = 'dead',
+    RESPAWNING = 'respawning'
+}
+
+local LIFECYCLE_STATE = {
+    UNLOADED = 'unloaded',
+    LOADING = 'loading',
+    READY = 'ready',
+    SWITCHING = 'switching',
+    UNLOADING = 'unloading'
+}
+
+local function GetDownedHealthServer()
+    local threshold = Config.Vitals.DamageThreshold or 101
+    local maxHp = Config.Vitals.MaxHealth or 200
+    local pct = tonumber(Config.Vitals.DownedHealthPercent or Config.Vitals.UnconsciousHealthPercent) or 20
+    if pct < 0 then pct = 0 end
+    if pct > 100 then pct = 100 end
+    local usable = math.max(0, maxHp - threshold)
+    local hp = threshold + math.max(15, math.floor(usable * (pct / 100)))
+    if hp > maxHp then hp = maxHp end
+    if hp < threshold then hp = threshold end
+    return hp
+end
 local KnownIdentityCache = {} -- [ownerCharId] = { [knownCharId] = true }
 local PendingHandshakes = {} -- [targetSrc] = { from = src, expires = ms }
 local PendingTreatments = {} -- [treaterSrc] = { target = src, startedAt = ms, duration = ms }
@@ -816,6 +846,78 @@ local Migrations = {
 
             return true
         end
+    },
+    {
+        version = 8,
+        name = '008_player_life_state',
+        run = function()
+            local okCol, colErr = pcall(function()
+                local cols = MySQL.query.await([[
+                    SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'characters' AND COLUMN_NAME = 'life_state'
+                ]])
+                if not cols or #cols == 0 then
+                    MySQL.query.await([[
+                        ALTER TABLE characters
+                        ADD COLUMN life_state VARCHAR(16) NOT NULL DEFAULT 'alive'
+                    ]])
+                end
+            end)
+            if not okCol then
+                Log('error', 'Migration 008 failed to ensure life_state column', { error = tostring(colErr) })
+                return false
+            end
+
+            local okBackfill, backfillErr = pcall(function()
+                MySQL.query.await([[
+                    UPDATE characters
+                    SET life_state = 'downed'
+                    WHERE is_dead = 1 AND (life_state IS NULL OR life_state = '' OR life_state = 'alive')
+                ]])
+                MySQL.query.await([[
+                    UPDATE characters
+                    SET life_state = 'alive'
+                    WHERE is_dead = 0 AND (life_state IS NULL OR life_state = '')
+                ]])
+            end)
+            if not okBackfill then
+                Log('error', 'Migration 008 failed to backfill life_state', { error = tostring(backfillErr) })
+                return false
+            end
+
+            return true
+        end
+    },
+    {
+        -- Owner-local exact-once money operation journal (cm-billing refunds). Additive; UNIQUE reference is the idempotency authority.
+        version = 9,
+        name = '009_character_money_operations',
+        run = function()
+            local ok, err = pcall(function()
+                MySQL.query.await([[
+                    CREATE TABLE IF NOT EXISTS cm_character_money_operations (
+                        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                        reference VARCHAR(100) NOT NULL,
+                        character_id VARCHAR(50) NOT NULL,
+                        account VARCHAR(8) NOT NULL,
+                        direction ENUM('credit','debit') NOT NULL,
+                        amount BIGINT UNSIGNED NOT NULL,
+                        fingerprint VARCHAR(120) NOT NULL,
+                        resource_name VARCHAR(64) NOT NULL DEFAULT '',
+                        status ENUM('committed') NOT NULL DEFAULT 'committed',
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (id),
+                        UNIQUE KEY uq_money_op_reference (reference),
+                        KEY idx_money_op_character (character_id, created_at)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                ]])
+            end)
+            if not ok then
+                Log('error', 'Migration 009 failed to create cm_character_money_operations', { error = tostring(err) })
+                return false
+            end
+            return true
+        end
     }
 }
 
@@ -1014,6 +1116,11 @@ local function ClonePlayerData(data)
         health = data.health,
         armor = data.armor,
         isDead = data.isDead,
+        lifeState = data.lifeState or (data.isDead and LIFE_STATE.DOWNED or LIFE_STATE.ALIVE),
+        lifecycleState = data.lifecycleState or (data.loaded and LIFECYCLE_STATE.READY or LIFECYCLE_STATE.UNLOADED),
+        isDowned = (data.lifeState == LIFE_STATE.DOWNED),
+        isFullyDead = (data.lifeState == LIFE_STATE.DEAD),
+        isRespawning = (data.lifeState == LIFE_STATE.RESPAWNING),
         deathCount = data.deathCount,
         deathRemainingMs = data.deathDeadline and math.max(0, data.deathDeadline - GetGameTimer()) or nil,
         deathDeadlineAt = data.deathDeadlineAt,
@@ -1046,7 +1153,16 @@ local function ApplyState(src)
     SetState(src, 'bank', data.bank)
     SetState(src, 'health', data.health)
     SetState(src, 'armor', data.armor)
+
+    local currentLife = data.lifeState or (data.isDead and LIFE_STATE.DOWNED or LIFE_STATE.ALIVE)
+    local currentLifecycle = data.lifecycleState or (data.loaded and LIFECYCLE_STATE.READY or LIFECYCLE_STATE.UNLOADED)
     SetState(src, 'isDead', data.isDead)
+    SetState(src, 'lifeState', currentLife)
+    SetState(src, 'lifecycleState', currentLifecycle)
+    SetState(src, 'isDowned', (currentLife == LIFE_STATE.DOWNED))
+    SetState(src, 'isFullyDead', (currentLife == LIFE_STATE.DEAD))
+    SetState(src, 'isRespawning', (currentLife == LIFE_STATE.RESPAWNING))
+
     SetState(src, 'deathRemainingMs', data.deathDeadline and math.max(0, data.deathDeadline - GetGameTimer()) or nil)
     SetState(src, 'emsProtected', data.emsProtection ~= nil)
     SetState(src, 'deathLocation', data.isDead and NormalizeCoords(data.deathLocation) or nil)
@@ -1161,13 +1277,15 @@ SavePlayerData = function(src, reason)
     end
 
     local savedRevision = tonumber(data.revision) or 1
+    local currentLifeState = data.lifeState or (data.isDead and LIFE_STATE.DOWNED or LIFE_STATE.ALIVE)
     local snapshot = {
         charId = charId,
         cash = tonumber(data.cash) or 0,
         bank = tonumber(data.bank) or 0,
         health = tonumber(data.health) or Config.Vitals.MaxHealth,
         armor = tonumber(data.armor) or 0,
-        isDead = data.isDead == true,
+        isDead = (currentLifeState ~= LIFE_STATE.ALIVE),
+        lifeState = currentLifeState,
         deathCount = tonumber(data.deathCount) or 0,
         deathDeadlineAt = data.deathDeadlineAt,
         deathLocation = data.deathLocation,
@@ -1194,6 +1312,7 @@ SavePlayerData = function(src, reason)
                     health = ?,
                     armor = ?,
                     is_dead = ?,
+                    life_state = ?,
                     death_count = ?,
                     death_deadline_at = ?,
                     death_location = ?,
@@ -1206,6 +1325,7 @@ SavePlayerData = function(src, reason)
                 snapshot.health,
                 snapshot.armor,
                 snapshot.isDead and 1 or 0,
+                snapshot.lifeState or 'alive',
                 snapshot.deathCount,
                 snapshot.deathDeadlineAt,
                 snapshot.deathLocationJson,
@@ -1225,6 +1345,7 @@ SavePlayerData = function(src, reason)
                     health = ?,
                     armor = ?,
                     is_dead = ?,
+                    life_state = ?,
                     death_count = ?,
                     death_deadline_at = ?,
                     death_location = ?,
@@ -1239,6 +1360,7 @@ SavePlayerData = function(src, reason)
                 snapshot.health,
                 snapshot.armor,
                 snapshot.isDead and 1 or 0,
+                snapshot.lifeState or 'alive',
                 snapshot.deathCount,
                 snapshot.deathDeadlineAt,
                 snapshot.deathLocationJson,
@@ -1436,6 +1558,11 @@ local function ClearPlayerData(src)
         state:set('health', nil, true)
         state:set('armor', nil, true)
         state:set('isDead', nil, true)
+        state:set('lifeState', nil, true)
+        state:set('lifecycleState', nil, true)
+        state:set('isDowned', nil, true)
+        state:set('isFullyDead', nil, true)
+        state:set('isRespawning', nil, true)
         state:set('deathRemainingMs', nil, true)
         state:set('playerDataLoaded', nil, true)
         state:set('identityReady', nil, true)
@@ -1532,7 +1659,7 @@ local function LoadPlayerData(src, explicitCharId)
     end
 
     local row = MySQL.single.await([[
-        SELECT first_name, last_name, cash, bank, health, armor, is_dead, death_count, death_deadline_at, death_location, ambulance_called, death_reason, last_position, metadata
+        SELECT first_name, last_name, cash, bank, health, armor, is_dead, life_state, death_count, death_deadline_at, death_location, ambulance_called, death_reason, last_position, metadata
         FROM characters
         WHERE id = ?
         LIMIT 1
@@ -1567,7 +1694,15 @@ local function LoadPlayerData(src, explicitCharId)
         dirtyAfterLoad = true
     end
 
-    local isDead = (tonumber(row.is_dead) or 0) == 1
+    local loadedLifeState = row.life_state
+    if not loadedLifeState or loadedLifeState == '' then
+        loadedLifeState = ((tonumber(row.is_dead) or 0) == 1) and LIFE_STATE.DOWNED or LIFE_STATE.ALIVE
+    end
+    if loadedLifeState ~= LIFE_STATE.ALIVE and loadedLifeState ~= LIFE_STATE.DOWNED and loadedLifeState ~= LIFE_STATE.DEAD and loadedLifeState ~= LIFE_STATE.RESPAWNING then
+        loadedLifeState = LIFE_STATE.ALIVE
+    end
+
+    local isDead = (loadedLifeState ~= LIFE_STATE.ALIVE)
     local deathDeadlineAt = tonumber(row.death_deadline_at)
     local deathDeadline = nil
 
@@ -1607,10 +1742,12 @@ local function LoadPlayerData(src, explicitCharId)
         cash = tonumber(row.cash) or defaults.cash,
         bank = tonumber(row.bank) or defaults.bank,
 
-        health = isDead and (Config.Vitals.DamageThreshold or 101) or Clamp(row.health or defaults.health, 0, Config.Vitals.MaxHealth),
+        health = isDead and GetDownedHealthServer() or Clamp(row.health or defaults.health, 0, Config.Vitals.MaxHealth),
         armor = Clamp(row.armor or defaults.armor, 0, Config.Vitals.MaxArmor),
 
         isDead = isDead,
+        lifeState = loadedLifeState,
+        lifecycleState = LIFECYCLE_STATE.READY,
         deathCount = tonumber(row.death_count) or defaults.death_count,
         deathDeadline = deathDeadline,
         deathDeadlineAt = deathDeadlineAt,
@@ -2121,50 +2258,212 @@ local function SyncInventoryDeathState(src, dead)
     end
 end
 
-local function SetDead(src, isDead, reason)
-    local data = PlayerData[src]
-    if not CanMutate(data) then return false end
+BuildLifecycleSnapshot = function(src)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    if not data then
+        return {
+            loaded = false,
+            ready = false,
+            switching = false,
+            lifecycleState = LIFECYCLE_STATE.UNLOADED,
+            lifeState = LIFE_STATE.ALIVE,
+            isAlive = false,
+            isDowned = false,
+            isDead = false,
+            isRespawning = false,
+            legacyIsDead = false,
+            characterId = nil,
+            downedRemainingMs = 0
+        }
+    end
 
-    local wasDead = data.isDead == true
-    data.isDead = isDead == true
-    if data.isDead and not wasDead and GetResourceState('cm-gang')=='started' then
-        local participantOk,participant=pcall(function()return exports['cm-gang']:IsSupplyWarParticipant(src)end)
-        if participantOk and participant==true then
-            CaptureSupplyWarDeathContext(src,nil)
+    local currentLifeState = data.lifeState or (data.isDead and LIFE_STATE.DOWNED or LIFE_STATE.ALIVE)
+    local currentLifecycle = data.lifecycleState or (data.loaded and LIFECYCLE_STATE.READY or LIFECYCLE_STATE.UNLOADED)
+    local remainingMs = 0
+    if data.deathDeadline then
+        remainingMs = math.max(0, data.deathDeadline - GetGameTimer())
+    end
+
+    return {
+        loaded = data.loaded == true,
+        ready = (currentLifecycle == LIFECYCLE_STATE.READY and data.loaded == true),
+        switching = (currentLifecycle == LIFECYCLE_STATE.SWITCHING or data.switching == true),
+        lifecycleState = currentLifecycle,
+        lifeState = currentLifeState,
+        isAlive = (currentLifeState == LIFE_STATE.ALIVE),
+        isDowned = (currentLifeState == LIFE_STATE.DOWNED),
+        isDead = (currentLifeState == LIFE_STATE.DEAD),
+        isRespawning = (currentLifeState == LIFE_STATE.RESPAWNING),
+        legacyIsDead = (currentLifeState ~= LIFE_STATE.ALIVE),
+        characterId = tonumber(data.charId),
+        downedRemainingMs = remainingMs
+    }
+end
+
+EnterDownedState = function(src, reason, context)
+    context = context or {}
+    local data = PlayerData[src]
+    if not data then return end
+
+    data.downedAt = GetGameTimer()
+
+    if GetResourceState('cm-gang') == 'started' then
+        local participantOk, participant = pcall(function() return exports['cm-gang']:IsSupplyWarParticipant(src) end)
+        if participantOk and participant == true then
+            CaptureSupplyWarDeathContext(src, nil)
         end
     end
-    if data.isDead then
-        data.health = Config.Vitals.DamageThreshold or 101
-        data.armor = 0
-        data.deathCount = (data.deathCount or 0) + 1
-        data.deathReason = reason or 'death'
-        -- Save the real death/body location immediately. If the player reconnects
-        -- while dead, cm-spawn must return them here no matter which spawn card
-        -- they click, then cm-playerdata shows the death screen after spawn.
-        local deathCoords = GetPedCoordsTable(src) or NormalizeCoords(data.deathLocation) or NormalizeCoords(data.lastPosition)
-        data.deathLocation = deathCoords
-        data.lastPosition = deathCoords
-    else
-        data.deathLocation = nil
-        data.deathDeadline = nil
-        data.deathDeadlineAt = nil
-        data.ambulanceCalled = false
-        data.emsProtection = nil
-        data.dieChosen = false
-        data.deathReason = nil
-    end
+
+    local downedHp = GetDownedHealthServer()
+    data.health = downedHp
+    data.armor = 0
+    data.deathCount = (data.deathCount or 0) + 1
+    data.deathReason = reason or 'death'
+
+    local deathCoords = GetPedCoordsTable(src) or NormalizeCoords(data.deathLocation) or NormalizeCoords(data.lastPosition)
+    data.deathLocation = deathCoords
+    data.lastPosition = deathCoords
+
+    local bleedMs = (Config.Respawn and Config.Respawn.BleedOutTime) or 120000
+    data.deathDeadline = GetGameTimer() + bleedMs
+    data.deathDeadlineAt = NowMs() + bleedMs
+    data.ambulanceCalled = false
+    data.emsProtection = nil
+    data.dieChosen = false
+
+    SetState(src, 'health', data.health)
+    SetState(src, 'armor', 0)
+    SetState(src, 'deathRemainingMs', bleedMs)
+    SetState(src, 'deathLocation', deathCoords)
+
+    ScheduleBleedOut(src)
+    SyncInventoryDeathState(src, true)
+    Audit(src, 'player_downed', { reason = reason, killer = context.killerRecord, weapon = context.weaponName })
     MarkDirty(data)
+    SavePlayerData(src, 'player_downed')
+
+    TriggerClientEvent('cm-playerdata:client:playerDowned', src, context.killerSource, context.weaponHash, context.killerInfo, bleedMs)
+    TriggerClientEvent('cm-playerdata:client:playerDied', src, context.killerSource, context.weaponHash, context.killerInfo, bleedMs)
+end
+
+EnterDeadState = function(src, reason, context)
+    local data = PlayerData[src]
+    if not data then return end
+
+    data.deathDeadline = nil
+    data.deathDeadlineAt = nil
+    Audit(src, 'player_dead', { reason = reason })
+    MarkDirty(data)
+    SavePlayerData(src, 'player_dead')
+
+    -- Transition directly to hospital respawn pipeline
+    exports['cm-playerdata']:Respawn(src)
+end
+
+BeginRespawnState = function(src, reason, context)
+    -- State setup handled in exports['cm-playerdata']:Respawn
+end
+
+CompleteRespawnState = function(src)
+    local data = PlayerData[src]
+    if not data then return end
+
+    data.lifeState = LIFE_STATE.ALIVE
+    data.isDead = false
+    data.deathDeadline = nil
+    data.deathDeadlineAt = nil
+    data.ambulanceCalled = false
+    data.dieChosen = false
+    data.deathReason = nil
+    data.deathLocation = nil
+    GuardVitalsAfterRevive(data)
 
     ApplyState(src)
-    SyncInventoryDeathState(src, data.isDead)
-    Audit(src, data.isDead and 'death' or 'revive', { reason = reason })
-    SavePlayerData(src, reason or (data.isDead and 'death' or 'revive'))
-    if data.isDead and not wasDead then
-        -- Local-only authoritative lifecycle signal. Consumers must not expose
-        -- a network event that lets clients spoof this state transition.
-        TriggerEvent('cm-playerdata:server:deathStateChanged', src, true, reason or 'death')
+    SyncInventoryDeathState(src, false)
+    MarkDirty(data)
+    SavePlayerData(src, 'respawn_complete')
+
+    TriggerClientEvent('cm-playerdata:client:lifeStateChanged', src, LIFE_STATE.ALIVE, 'respawn_complete')
+    TriggerEvent('cm-playerdata:server:deathStateChanged', src, false, 'respawn_complete')
+end
+
+ReviveDownedPlayer = function(src, reason, context)
+    context = context or {}
+    local data = PlayerData[src]
+    if not data then return end
+
+    ResolveAmbulanceRequest(src, data, reason or 'revived')
+    data.lifeState = LIFE_STATE.ALIVE
+    data.isDead = false
+    data.health = context.health or Config.Vitals.MaxHealth
+    data.armor = 0
+    data.deathDeadline = nil
+    data.deathDeadlineAt = nil
+    data.ambulanceCalled = false
+    data.dieChosen = false
+    data.deathReason = nil
+    data.deathLocation = nil
+    GuardVitalsAfterRevive(data)
+
+    ApplyState(src)
+    SyncInventoryDeathState(src, false)
+    MarkDirty(data)
+    SavePlayerData(src, reason or 'revive')
+    if data.health >= (Config.Vitals.MaxHealth or 200) then
+        TriggerClientEvent('cm-playerdata:client:revive', src)
+    else
+        TriggerClientEvent('cm-playerdata:client:revivePartial', src, data.health)
     end
+end
+
+TransitionLifeState = function(src, newLifeState, reason, context)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    if not CanMutate(data) then return false, 'cannot_mutate' end
+
+    context = context or {}
+    local oldLifeState = data.lifeState or (data.isDead and LIFE_STATE.DOWNED or LIFE_STATE.ALIVE)
+    if oldLifeState == newLifeState then return true end
+
+    if Config.Debug then
+        Debug(('LIFE_TRANSITION src=%s char=%s %s -> %s reason=%s'):format(
+            src, tostring(data.charId), oldLifeState, newLifeState, tostring(reason or 'unspecified')
+        ))
+    end
+
+    data.lifeState = newLifeState
+    data.isDead = (newLifeState ~= LIFE_STATE.ALIVE)
+
+    SetState(src, 'lifeState', newLifeState)
+    SetState(src, 'isDead', data.isDead)
+    SetState(src, 'isDowned', (newLifeState == LIFE_STATE.DOWNED))
+    SetState(src, 'isFullyDead', (newLifeState == LIFE_STATE.DEAD))
+    SetState(src, 'isRespawning', (newLifeState == LIFE_STATE.RESPAWNING))
+
+    TriggerClientEvent('cm-playerdata:client:lifeStateChanged', src, newLifeState, reason)
+    TriggerEvent('cm-playerdata:server:lifeStateChanged', src, newLifeState, reason, context)
+    TriggerEvent('cm-playerdata:server:deathStateChanged', src, data.isDead, reason)
+
+    if newLifeState == LIFE_STATE.DOWNED then
+        EnterDownedState(src, reason, context)
+    elseif newLifeState == LIFE_STATE.DEAD then
+        EnterDeadState(src, reason, context)
+    elseif newLifeState == LIFE_STATE.RESPAWNING then
+        BeginRespawnState(src, reason, context)
+    elseif newLifeState == LIFE_STATE.ALIVE then
+        ReviveDownedPlayer(src, reason, context)
+    end
+
     return true
+end
+
+local function SetDead(src, isDead, reason)
+    if isDead then
+        return TransitionLifeState(src, LIFE_STATE.DOWNED, reason)
+    else
+        return TransitionLifeState(src, LIFE_STATE.ALIVE, reason)
+    end
 end
 
 -- ============================================================
@@ -2575,7 +2874,17 @@ RegisterNetEvent('cm-playerdata:server:playerDied', function(killerSrc, weaponHa
         }
     end
 
-    SetDead(src, true, 'death')
+    local killedBy = GetKilledByInfo(src, killerSrc)
+    local weaponName = ResolveWeaponName(weaponHash)
+
+    local context = {
+        killerSource = killerRecord and killerSrc or nil,
+        killerRecord = killerRecord,
+        killerInfo = killedBy,
+        weaponHash = tonumber(weaponHash),
+        weaponName = weaponName,
+        killerType = tostring(killerType or 'unknown')
+    }
 
     -- Local-only authoritative integration seam. Consumers must still enforce
     -- their own instance/participant rules; no client can trigger this event.
@@ -2584,47 +2893,29 @@ RegisterNetEvent('cm-playerdata:server:playerDied', function(killerSrc, weaponHa
         killerSource = killerRecord and killerSrc or nil,
         killerCharacterId = killerRecord and killerRecord.character_id or nil,
         killerPlausible = killerRecord and killerRecord.plausible == true or false,
-        weapon = ResolveWeaponName(weaponHash),
+        weapon = weaponName,
         weaponHash = tonumber(weaponHash),
         killerType = tostring(killerType or 'unknown'),
     })
-
-    -- Bleed-out clock: base window, extendable once by calling an ambulance.
-    local bleedMs = (Config.Respawn and Config.Respawn.BleedOutTime) or 120000
-    data.deathDeadline = GetGameTimer() + bleedMs
-    data.deathDeadlineAt = NowMs() + bleedMs
-    data.ambulanceCalled = false
-    data.emsProtection = nil
-    data.dieChosen = false
-    ScheduleBleedOut(src)
-    SavePlayerData(src, 'death_deadline')
-
-    local killedBy = GetKilledByInfo(src, killerSrc)
 
     if (Config.Logging and Config.Logging.LogDeaths) ~= false then
         local pos = data.lastPosition or {}
         Audit(src, 'death_detail', {
             killer = killerRecord,
             killer_type = tostring(killerType or 'unknown'),
-            weapon = ResolveWeaponName(weaponHash),
+            weapon = weaponName,
             coords = { x = pos.x, y = pos.y, z = pos.z },
-            death_count = data.deathCount
+            death_count = (data.deathCount or 0) + 1
         })
         if killerRecord and killerRecord.character_id then
             Audit(killerSrc, 'kill_detail', {
                 victim_character_id = GetCharId(src),
-                weapon = ResolveWeaponName(weaponHash),
+                weapon = weaponName,
                 distance = killerRecord.distance
             })
         end
     end
 
-    -- GTA5-style wanted stars: gained here, deliberately OUTSIDE the
-    -- Config.Logging.LogDeaths gate above -- disabling death audit logging
-    -- shouldn't silently disable the wanted system too. killerRecord is
-    -- only ever populated for a real, currently-connected killing player
-    -- (see validation above), so this can never fire for an NPC/suicide/
-    -- environmental death.
     if killerRecord and killerRecord.character_id and PlayerData[killerSrc] then
         if Player(killerSrc).state.cm_masked ~= true then
             SetWantedStars(killerSrc, (PlayerData[killerSrc].wantedStars or 0) + 1)
@@ -2635,7 +2926,7 @@ RegisterNetEvent('cm-playerdata:server:playerDied', function(killerSrc, weaponHa
         SetWantedStars(src, 0)
     end
 
-    TriggerClientEvent('cm-playerdata:client:playerDied', src, killerSrc, weaponHash, killedBy, bleedMs)
+    TransitionLifeState(src, LIFE_STATE.DOWNED, 'death', context)
 end)
 
 local function RequestAmbulance(src, reason, metadata)
@@ -2791,7 +3082,91 @@ RegisterNetEvent('cm-playerdata:server:finishedOff', function()
     data.deathDeadline = nil
     data.deathDeadlineAt = nil
     Audit(src, 'finished_off', {})
-    exports['cm-playerdata']:Respawn(src)
+    TransitionLifeState(src, LIFE_STATE.DEAD, 'finished_off')
+end)
+
+RegisterNetEvent('cm-playerdata:server:syncDownedHealth', function(clientHealth)
+    local src = source
+    local data = PlayerData[src]
+    if not CanMutate(data) then return end
+
+    local currentLife = data.lifeState or (data.isDead and LIFE_STATE.DOWNED or LIFE_STATE.ALIVE)
+    if currentLife ~= LIFE_STATE.DOWNED then return end
+
+    clientHealth = tonumber(clientHealth)
+    if not clientHealth then return end
+
+    local currentStored = tonumber(data.health) or GetDownedHealthServer()
+    -- Server authority: only accept decreases (damage) while downed
+    if clientHealth < currentStored then
+        data.health = math.max(0, math.floor(clientHealth))
+        SetState(src, 'health', data.health)
+        TriggerClientEvent('cm-playerdata:client:setHealth', src, data.health)
+
+        if Config.Debug then
+            Debug(('DOWNED_HEALTH_SYNC src=%s hp=%s'):format(src, data.health))
+        end
+
+        local threshold = Config.Vitals.DamageThreshold or 101
+        if data.health <= threshold then
+            TransitionLifeState(src, LIFE_STATE.DEAD, 'finished_off_damage')
+        end
+    end
+end)
+
+RegisterNetEvent('cm-playerdata:server:respawnComplete', function(token)
+    local src = source
+    local data = PlayerData[src]
+    if not CanMutate(data) then return end
+    if data.pendingRespawnToken and tostring(token) ~= tostring(data.pendingRespawnToken) then
+        Log('warn', 'Invalid respawn token', { src = src })
+        return
+    end
+    data.pendingRespawnToken = nil
+    CompleteRespawnState(src)
+end)
+
+-- Background authoritative watchdog for downed player timers and health
+CreateThread(function()
+    while true do
+        Wait(400)
+        local nowGame = GetGameTimer()
+        for src, data in pairs(PlayerData) do
+            if data.loaded and CanMutate(data) then
+                local currentLife = data.lifeState or (data.isDead and LIFE_STATE.DOWNED or LIFE_STATE.ALIVE)
+                if currentLife == LIFE_STATE.DOWNED then
+                    if data.deathDeadline and nowGame >= data.deathDeadline then
+                        if Config.Debug then
+                            Debug(('DOWNED_TIMER_EXPIRED src=%s charId=%s'):format(src, tostring(data.charId)))
+                        end
+                        TransitionLifeState(src, LIFE_STATE.DEAD, 'bleedout_expired')
+                    else
+                        local ped = GetPlayerPed(src)
+                        if ped and ped ~= 0 then
+                            local sHp = GetEntityHealth(ped)
+                            local threshold = Config.Vitals.DamageThreshold or 101
+                            local graceMs = tonumber(Config.Vitals.DownedDamageGraceMs) or 750
+                            local downedAt = data.downedAt or 0
+                            local elapsed = nowGame - downedAt
+
+                            if sHp > 0 and sHp < (data.health or 200) then
+                                data.health = sHp
+                                SetState(src, 'health', sHp)
+                                TriggerClientEvent('cm-playerdata:client:setHealth', src, sHp)
+                            end
+
+                            if elapsed >= graceMs and (sHp <= threshold or sHp == 0) then
+                                if Config.Debug then
+                                    Debug(('DOWNED_HEALTH_DEPLETED src=%s hp=%s threshold=%s'):format(src, sHp, threshold))
+                                end
+                                TransitionLifeState(src, LIFE_STATE.DEAD, 'damage_depleted')
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
 end)
 
 
@@ -2941,7 +3316,7 @@ WarmIdentityCache = function(charId)
     return true, nil
 end
 
-local function ClearIdentityCache(charId)
+function ClearIdentityCache(charId)
     charId = tonumber(charId)
     if charId then
         KnownIdentityCache[charId] = nil
@@ -3891,6 +4266,208 @@ exports('TransferMoneyBetweenDetailed', function(fromSrc, toSrc, account, amount
     return TransferMoneyBetweenPlayersAuthoritative(fromSrc, toSrc, account, amount, reason, metadata)
 end)
 
+-- Character-targeted money credit for trusted server resources: refunds that
+-- must reach a specific character even if their source now belongs to another
+-- character. Online -> normal AddMoney on their current source; offline -> one
+-- transaction on the characters row + economy_transactions. Never touches any
+-- other character. Returns true/false.
+exports('AddMoneyToCharacter', function(characterId, account, amount, reason, metadata)
+    if type(characterId) == 'table' then return false end
+    characterId = tonumber(characterId)
+    account = NormalizeAccount(account)
+    amount = NormalizeAmount(amount)
+    if not characterId or not account or not amount then return false end
+
+    for src, data in pairs(PlayerData) do
+        if data and tonumber(data.charId) == characterId then
+            return AddMoney(src, account, amount, reason or 'add_money_to_character', metadata) == true
+        end
+    end
+
+    local row = MySQL.single.await('SELECT ' .. account .. ' AS balance FROM characters WHERE id = ?', { characterId })
+    if not row then return false end
+    local before = tonumber(row.balance) or 0
+    local after = before + amount
+    local queries = {
+        { query = 'UPDATE characters SET ' .. account .. ' = ' .. account .. ' + ? WHERE id = ?', values = { amount, characterId } },
+    }
+    if (Config.Money and Config.Money.TransactionLog) ~= false then
+        queries[#queries + 1] = {
+            query = [[INSERT INTO economy_transactions
+                (character_id, account_type, amount, action, reason, resource_name, balance_before, balance_after, metadata)
+                VALUES (?, ?, ?, 'add', ?, ?, ?, ?, ?)]],
+            values = { characterId, account, amount, tostring(reason or 'add_money_to_character'):sub(1, 100),
+                GetInvokingResource() or GetCurrentResourceName(), before, after, EncodeJson(metadata or {}) },
+        }
+    end
+    local ok, res = pcall(function() return MySQL.transaction.await(queries) end)
+    if not ok or res ~= true then
+        Log('error', 'AddMoneyToCharacter persistence failed', { charId = characterId, error = tostring(res) })
+        return false
+    end
+    return true
+end)
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- Exact-once character money operations for cm-billing refunds (owner-local journal: cm_character_money_operations).
+-- The journal row's UNIQUE reference is the only authority: the balance change and the journal row commit in ONE SQL transaction, and a
+-- duplicate reference aborts that transaction (rolling the balance change back). Correctness does NOT depend on a process-local lock or on
+-- Config.Money.TransactionLog (economy_transactions stays an optional audit trail written in the same transaction).
+--   same reference + same payload  -> true, 'replayed' (nothing applied again)
+--   same reference + other payload -> false, 'idempotency_conflict'
+--   debit short of funds           -> false, 'insufficient_funds' (nothing journaled: the same reference stays retryable)
+-- Callers: cm-billing (any reference/account) and the purchase owners cm-gasstations / cm-store / nv_cloth (own reference prefix + listed accounts only; see MONEY_OP_CALLERS). Anyone else is refused.
+-- Online characters are mutated through the in-memory state (same events as AddMoney/RemoveMoney)
+-- with the journal in the same immediate-save transaction; offline characters through the characters row.
+-- ---------------------------------------------------------------------------------------------------------------------
+local MONEY_OP_SQL = {
+    read = 'SELECT reference, character_id, account, direction, amount, fingerprint FROM cm_character_money_operations WHERE reference = ? LIMIT 1',
+    journal = [[INSERT INTO cm_character_money_operations (reference, character_id, account, direction, amount, fingerprint, resource_name)
+        SELECT ?, ?, ?, ?, ?, ?, ? FROM DUAL WHERE ROW_COUNT() = 1]],
+    log = [[INSERT INTO economy_transactions (character_id, account_type, amount, action, reason, resource_name, balance_before, balance_after, metadata)
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? FROM DUAL WHERE ROW_COUNT() = 1]],
+}
+
+local function MoneyOpFingerprint(direction, characterId, account, amount)
+    return ('%s|%d|%s|%d'):format(direction, characterId, account, amount)
+end
+
+local function ReadMoneyOp(reference)
+    local ok, row = pcall(function() return MySQL.single.await(MONEY_OP_SQL.read, { reference }) end)
+    if not ok then return nil, 'unavailable' end
+    return row or false
+end
+
+-- direction: 'debit' | 'credit'. Returns true, 'applied'|'replayed' | false, reason.
+local function ApplyJournaledMoney(characterId, direction, account, amount, reference, metadata)
+    local fingerprint = MoneyOpFingerprint(direction, characterId, account, amount)
+    local function judge(row)
+        if row.fingerprint == fingerprint then return true, 'replayed' end
+        return false, 'idempotency_conflict'
+    end
+    local existing, why = ReadMoneyOp(reference)
+    if existing == nil then return false, why end
+    if existing then return judge(existing) end
+
+    local resource = GetInvokingResource() or GetCurrentResourceName()
+    local logEnabled = (Config.Money and Config.Money.TransactionLog) ~= false
+    local queries, onlineSrc, data, before, after
+    for src, d in pairs(PlayerData) do
+        if d and tonumber(d.charId) == characterId then onlineSrc, data = src, d break end
+    end
+
+    local sign = direction == 'debit' and -1 or 1
+    if data then
+        if not CanMutate(data) or MoneyMutationLocks[onlineSrc] then return false, 'busy' end
+        before = tonumber(data[account]) or 0
+        if direction == 'debit' and before < amount then return false, 'insufficient_funds' end
+        after = before + sign * amount
+        -- Absolute in-memory value, written immediately regardless of ImmediateSave so the journal and the balance commit together.
+        queries = { { query = 'UPDATE characters SET ' .. account .. ' = ? WHERE id = ?' .. (direction == 'debit' and (' AND ' .. account .. ' >= ?') or ''),
+            values = direction == 'debit' and { after, characterId, amount } or { after, characterId } } }
+        MoneyMutationLocks[onlineSrc] = true
+    else
+        local row = MySQL.single.await('SELECT ' .. account .. ' AS balance FROM characters WHERE id = ?', { characterId })
+        if not row then return false, 'not_found' end
+        before = tonumber(row.balance) or 0
+        if direction == 'debit' and before < amount then return false, 'insufficient_funds' end
+        after = before + sign * amount
+        queries = { { query = 'UPDATE characters SET ' .. account .. ' = ' .. account .. (direction == 'debit' and ' - ?' or ' + ?') .. ' WHERE id = ?'
+            .. (direction == 'debit' and (' AND ' .. account .. ' >= ?') or ''),
+            values = direction == 'debit' and { amount, characterId, amount } or { amount, characterId } } }
+    end
+    queries[#queries + 1] = { query = MONEY_OP_SQL.journal, values = { reference, tostring(characterId), account, direction, amount, fingerprint, resource } }
+    if logEnabled then
+        queries[#queries + 1] = { query = MONEY_OP_SQL.log, values = { characterId, account, sign * amount, direction == 'debit' and 'remove' or 'add',
+            reference:sub(1, 100), resource, before, after, EncodeJson(metadata or {}) } }
+    end
+
+    local okCall, res = pcall(function() return MySQL.transaction.await(queries) end)
+    local committed = okCall and res == true   -- the transaction result, not just 'did not throw'
+    if onlineSrc then MoneyMutationLocks[onlineSrc] = nil end
+    local row = ReadMoneyOp(reference)
+    if row == nil then return false, 'unavailable' end
+    if not row then
+        -- Nothing committed: report the definitive reason (no journal row => the reference stays retryable).
+        if not committed then Log('error', 'journaled money operation failed', { charId = characterId, error = tostring(res) }) end
+        if direction == 'debit' then
+            local cur = MySQL.single.await('SELECT ' .. account .. ' AS balance FROM characters WHERE id = ?', { characterId })
+            if cur and (tonumber(cur.balance) or 0) < amount then return false, 'insufficient_funds' end
+        end
+        return false, 'persistence_failed'
+    end
+    if row.fingerprint ~= fingerprint then return false, 'idempotency_conflict' end
+    if not committed then return true, 'replayed' end -- a concurrent identical request won the unique key; our transaction rolled back
+
+    if data then
+        data[account] = after
+        data.revision = (data.revision or 1) + 1
+        SetState(onlineSrc, account, after)
+        PushUpdate(onlineSrc, account, after)
+        local why2 = reference
+        TriggerEvent('cm-playerdata:server:moneyChanged', onlineSrc, account, before, after, why2)
+        TriggerClientEvent('cm-playerdata:client:moneyChanged', onlineSrc, account, before, after, why2)
+        Audit(onlineSrc, direction == 'debit' and 'money_remove' or 'money_add', { account = account, amount = amount, before = before, after = after, reason = reference })
+    end
+    return true, 'applied'
+end
+
+-- Callers allowed to use the journaled money operations. cm-billing: any reference/account. Others are confined to one
+-- reference namespace and account so a purchase flow can never touch another resource's journal rows or another account.
+local MONEY_OP_CALLERS = {
+    ['cm-billing'] = true,
+    ['cm-gasstations'] = { prefix = 'GAS-PUR-', accounts = { cash = true } },
+    ['cm-store'] = { prefix = 'STORE-PUR-', accounts = { cash = true, bank = true } },
+    ['nv_cloth'] = { prefix = 'CLOTH-PUR-', accounts = { cash = true, bank = true } },
+}
+
+local function MoneyOpCallerAllowed(invoker, reference, account)
+    local rule = invoker and MONEY_OP_CALLERS[invoker]
+    if rule == true then return true end
+    if type(rule) ~= 'table' then return false end
+    if type(reference) ~= 'string' or reference:sub(1, #rule.prefix) ~= rule.prefix then return false end
+    if account == nil then return true end
+    local normalized = NormalizeAccount(account)
+    return normalized ~= nil and rule.accounts[normalized] == true
+end
+
+local function ValidMoneyOpArgs(characterId, account, amount, reference)
+    if type(characterId) == 'table' then return nil, 'invalid_character' end
+    characterId = tonumber(characterId)
+    account = NormalizeAccount(account)
+    amount = NormalizeAmount(amount)
+    if not characterId or characterId ~= math.floor(characterId) or not account or not amount then return nil, 'invalid_request' end
+    if type(reference) ~= 'string' or reference == '' or #reference > 100 or not reference:match('^[%w_:%.%-]+$') then return nil, 'invalid_reason' end
+    return characterId, account, amount
+end
+
+-- Debit (refund destination). Signature kept: the 4th argument is the operation reference (billing passes its journal-derived key).
+exports('RemoveMoneyFromCharacter', function(characterId, account, amount, reference, metadata)
+    if not MoneyOpCallerAllowed(GetInvokingResource(), reference, account) then return false, 'forbidden' end
+    local cid, acc, amt = ValidMoneyOpArgs(characterId, account, amount, reference)
+    if not cid then return false, acc end
+    return ApplyJournaledMoney(cid, 'debit', acc, amt, reference, metadata)
+end)
+
+-- Credit (refund payer). Exactly once per reference, same contract as RemoveMoneyFromCharacter.
+exports('AddMoneyToCharacterOnce', function(characterId, account, amount, reference, metadata)
+    if not MoneyOpCallerAllowed(GetInvokingResource(), reference, account) then return false, 'forbidden' end
+    local cid, acc, amt = ValidMoneyOpArgs(characterId, account, amount, reference)
+    if not cid then return false, acc end
+    return ApplyJournaledMoney(cid, 'credit', acc, amt, reference, metadata)
+end)
+
+-- Authoritative owner status for crash recovery: { status = 'committed', direction, characterId, account, amount } | false (never applied) |
+-- nil, 'unavailable' (owner database cannot answer: the caller must NOT assume "not applied").
+exports('GetCharacterMoneyOperation', function(reference)
+    if not MoneyOpCallerAllowed(GetInvokingResource(), reference, nil) then return nil, 'forbidden' end
+    if type(reference) ~= 'string' or reference == '' or #reference > 100 then return nil, 'invalid_reason' end
+    local row, why = ReadMoneyOp(reference)
+    if row == nil then return nil, why end
+    if not row then return false end
+    return { status = 'committed', direction = row.direction, characterId = tostring(row.character_id), account = row.account, amount = tonumber(row.amount) }
+end)
+
 exports('AddCash', function(src, amount, reason)
     return AddMoney(src, 'cash', amount, reason or 'add_cash')
 end)
@@ -3945,7 +4522,11 @@ exports('GetMetadata', function(src, key)
 end)
 
 exports('IsDead', function(src)
-    return PlayerData[src] and PlayerData[src].isDead or false
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    if not data then return false end
+    local life = data.lifeState or (data.isDead and LIFE_STATE.DOWNED or LIFE_STATE.ALIVE)
+    return life ~= LIFE_STATE.ALIVE
 end)
 
 exports('GetDeathCount', function(src)
@@ -4087,47 +4668,50 @@ exports('RevivePartial', function(src, percent, reason)
     if not CanMutate(data) then return false end
 
     local health = GetHealthFromPercent(percent or (Config.Medical and Config.Medical.StreetPatchHealthPercent) or 30)
-    ResolveAmbulanceRequest(src, data, reason or 'revived_partial')
-    data.isDead = false
-    data.health = health
-    data.armor = 0
-    data.deathDeadline = nil
-    data.deathDeadlineAt = nil
-    data.ambulanceCalled = false
-    data.dieChosen = false
-    data.deathReason = nil
-    MarkDirty(data)
-    GuardVitalsAfterRevive(data)
-
-    ApplyState(src)
-    SyncInventoryDeathState(src, false)
-    SavePlayerData(src, reason or 'revive_partial')
-    TriggerClientEvent('cm-playerdata:client:revivePartial', src, health)
-    Audit(src, 'revive_partial', { health = health, reason = reason })
-    return true
+    return TransitionLifeState(src, LIFE_STATE.ALIVE, reason or 'revived_partial', { health = health })
 end)
 
-exports('Revive', function(src)
-    local data = PlayerData[src]
+exports('Revive', function(src, reason)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
     if not CanMutate(data) then return false end
 
-    ResolveAmbulanceRequest(src, data, 'revived')
-    data.isDead = false
-    data.health = Config.Vitals.MaxHealth
-    data.armor = 0
-    data.deathDeadline = nil
-    data.deathDeadlineAt = nil
-    data.ambulanceCalled = false
-    data.dieChosen = false
-    data.deathReason = nil
-    MarkDirty(data)
-    GuardVitalsAfterRevive(data)
+    return TransitionLifeState(src, LIFE_STATE.ALIVE, reason or 'revived', { health = Config.Vitals.MaxHealth })
+end)
 
-    ApplyState(src)
-    SyncInventoryDeathState(src, false)
-    SavePlayerData(src, 'revive')
-    TriggerClientEvent('cm-playerdata:client:revive', src)
-    return true
+exports('RevivePlayer', function(src, reason)
+    return exports['cm-playerdata']:Revive(src, reason or 'revived_player')
+end)
+
+exports('ReviveDownedPlayer', function(src, reason)
+    return exports['cm-playerdata']:Revive(src, reason or 'revived_downed')
+end)
+
+exports('GetLifeState', function(src)
+    src = tonumber(src)
+    local data = src and PlayerData[src] or nil
+    if not data then return LIFE_STATE.ALIVE end
+    return data.lifeState or (data.isDead and LIFE_STATE.DOWNED or LIFE_STATE.ALIVE)
+end)
+
+exports('IsAlive', function(src)
+    return exports['cm-playerdata']:GetLifeState(src) == LIFE_STATE.ALIVE
+end)
+
+exports('IsDowned', function(src)
+    return exports['cm-playerdata']:GetLifeState(src) == LIFE_STATE.DOWNED
+end)
+
+exports('IsFullyDead', function(src)
+    return exports['cm-playerdata']:GetLifeState(src) == LIFE_STATE.DEAD
+end)
+
+exports('IsRespawning', function(src)
+    return exports['cm-playerdata']:GetLifeState(src) == LIFE_STATE.RESPAWNING
+end)
+
+exports('GetLifecycleSnapshot', function(src)
+    return BuildLifecycleSnapshot(src)
 end)
 
 exports('Respawn', function(src, spawnCoords, cost)
@@ -4179,7 +4763,8 @@ exports('Respawn', function(src, spawnCoords, cost)
 
     local supplyWarDeathContext=SupplyWarDeathContexts[tostring(data.charId)]
     ResolveAmbulanceRequest(src, data, 'hospital_respawn')
-    data.isDead = false
+    data.lifeState = LIFE_STATE.RESPAWNING
+    data.isDead = true
     data.health = GetRespawnHealth()
     data.armor = 0
     data.deathDeadline = nil
@@ -4198,7 +4783,18 @@ exports('Respawn', function(src, spawnCoords, cost)
         hospital = hospitalReservation and hospitalReservation.hospitalId or 'fallback',
         bed = hospitalReservation and hospitalReservation.bedId or nil,
     })
-    TriggerClientEvent('cm-playerdata:client:respawn', src, spawnCoords, data.health)
+
+    local token = tostring(math.random(100000, 999999)) .. '_' .. tostring(GetGameTimer())
+    data.pendingRespawnToken = token
+    TriggerClientEvent('cm-playerdata:client:respawn', src, spawnCoords, data.health, token)
+
+    SetTimeout(5000, function()
+        if PlayerData[src] == data and data.lifeState == LIFE_STATE.RESPAWNING and data.pendingRespawnToken == token then
+            data.pendingRespawnToken = nil
+            CompleteRespawnState(src)
+        end
+    end)
+
     if supplyWarDeathContext and supplyWarDeathContext.source==tonumber(src)and supplyWarDeathContext.expiresAt>os.time()then SetTimeout(2200,function()if GetPlayerName(src)and GetResourceState('cm-inventory')=='started'then local ok,resynced=pcall(function()return exports['cm-inventory']:ResyncAuthoritativeEquipment(src)end);if not ok or resynced~=true then Log('warn','Supply War loadout re-sync failed',{src=src,characterId=data.charId})elseif Config.Debug then Debug(('LOADOUT_RESYNC character=%s weapon=%s ammo=%s'):format(tostring(data.charId),tostring(supplyWarDeathContext.equippedWeapon),tostring(supplyWarDeathContext.equippedAmmoQuantity)))end end end)end
     return true
 end)

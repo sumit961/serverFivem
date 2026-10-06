@@ -1,0 +1,5 @@
+{
+  "id": "qa.ui.transparent-idle",
+  "resource": "cm-qa",
+  "description": "Idle cm-qa NUI must be fully transparent and hidden at common desktop resolutions."
+}

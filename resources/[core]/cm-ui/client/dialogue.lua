@@ -14,6 +14,7 @@
 --     quote = 'How can I help you today?',
 --     continueLabel = 'See services', deferChoices = true,
 --     serviceLabel = 'Please choose the service you need.',
+--     choiceColumns = 2,                         -- optional service grid
 --     choices = {
 --         { id = 'report', label = 'File a report', description = '...',
 --           event = 'my-resource:client:dialogueChoice', payload = { kind = 'report' } },
@@ -83,6 +84,7 @@ end
 local function closeDialogue(runContinue)
     if not dialogueOpen then return end
     dialogueOpen = false
+    pcall(function() exports['cm-ui']:SetInteractSuppressed('cm-ui:dialogue', false) end)
 
     if dialogueCamera and DoesCamExist(dialogueCamera) then
         RenderScriptCams(false, true, 350, true, true)
@@ -116,6 +118,7 @@ function OpenNpcDialogue(ped, options)
     if dialogueOpen or not ped or not DoesEntityExist(ped) then return false end
     options = type(options) == 'table' and options or {}
     dialogueOpen, dialoguePed, dialogueOptions = true, ped, options
+    pcall(function() exports['cm-ui']:SetInteractSuppressed('cm-ui:dialogue', true) end)
 
     -- Never move the player's position (no teleport) -- only turn them to
     -- face the ped, from wherever they were already standing when they
@@ -145,6 +148,7 @@ function OpenNpcDialogue(ped, options)
         quote = options.quote or 'How can I help you?',
         continueLabel = options.continueLabel or 'Continue',
         serviceLabel = options.serviceLabel,
+        choiceColumns = math.min(4, math.max(1, math.floor(tonumber(options.choiceColumns) or 1))),
         choices = type(options.choices) == 'table' and options.choices or nil,
         deferChoices = options.deferChoices == true,
     })

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Trade</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="root" class="hidden">
+  <section class="panel" role="dialog" aria-label="Trade">
+    <header class="head">
+      <div>
+        <div class="eyebrow">PLAYER TRADE</div>
+        <h1 id="title">Trade</h1>
+      </div>
+      <div class="state" id="stateChip">EDITING</div>
+    </header>
+    <div class="status" id="status" role="status"></div>
+    <main class="cols">
+      <section class="col" id="colYou"></section>
+      <section class="col" id="colOther"></section>
+    </main>
+    <footer class="foot">
+      <div class="hint" id="hint"></div>
+      <div class="actions">
+        <button class="btn secondary" id="cancelBtn" type="button">CANCEL TRADE <kbd>ESC</kbd></button>
+        <button class="btn" id="confirmBtn" type="button">CONFIRM</button>
+      </div>
+    </footer>
+    <div class="overlay hidden" id="overlay"><div class="overlay-card" id="overlayText"></div></div>
+  </section>
+
+  <div class="cm-confirm-modal hidden" id="confirm" role="alertdialog" aria-modal="true">
+    <div class="cm-confirm-modal__box">
+      <div class="cm-confirm-modal__title">CONFIRM TRADE</div>
+      <div class="cm-confirm-modal__message" id="confirmMessage"></div>
+      <div class="cm-confirm-modal__consequence" id="confirmConsequence"></div>
+      <div class="cm-confirm-modal__actions">
+        <button class="btn secondary cm-confirm-modal__cancel" id="confirmCancel" type="button">CANCEL</button>
+        <button class="btn cm-confirm-modal__confirm" id="confirmOk" type="button">CONFIRM</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="drawer hidden" id="drawer" role="dialog" aria-modal="true"></div>
+</div>
+
+<div id="invite" class="invite hidden" role="alertdialog" aria-modal="true">
+  <div class="invite-card">
+    <div class="eyebrow">TRADE REQUEST</div>
+    <h2 id="inviteTitle">Trade request</h2>
+    <p>Accepting opens a private trade window. Nothing is exchanged until both of you confirm.</p>
+    <div class="timer" id="inviteTimer"></div>
+    <div class="actions">
+      <button class="btn secondary" id="inviteDecline" type="button">DECLINE</button>
+      <button class="btn" id="inviteAccept" type="button">ACCEPT</button>
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "knownIssues": [
+    {
+      "id": "validator.missing-bags",
+      "tool": "cm-validate",
+      "fingerprint": "cm-validate|server.cfg|107|ensured resource not found: [bags]",
+      "scope": "repository",
+      "files": ["server.cfg"],
+      "reason": "pre-existing",
+      "introducedBefore": "2026-10-01"
+    },
+    {
+      "id": "git-diff-check.cm-vehicles-agents-eof-whitespace",
+      "tool": "git-diff-check",
+      "fingerprint": "git-diff-check|resources/[core]/cm-vehicles/AGENTS.md|63|new blank line at EOF",
+      "scope": "repository",
+      "files": ["resources/[core]/cm-vehicles/AGENTS.md"],
+      "classification": "UNRELATED_DIRTY_WORKTREE_FAILURE",
+      "reason": "pre-existing",
+      "introducedBefore": "2026-10-01"
+    }
+  ]
+}

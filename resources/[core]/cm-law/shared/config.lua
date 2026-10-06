@@ -73,6 +73,9 @@ local commandPermissions = {
 -- LSPD remains owned by cm-police while its mature gameplay modules are
 -- migrated. These organizations are owned here from the beginning and use
 -- stable IDs everywhere; display names can change without breaking records.
+-- Server resources that may read the authoritative on-duty count (`GetOnDutyCount`). Read-only; it returns a number only (no officer identity).
+Config.OnDutyCountCallers = { ['cm-crime'] = true, ['cm-admin'] = true, [GetCurrentResourceName()] = true }
+
 Config.Organizations = {
     sahp = {
         label = 'San Andreas Highway Patrol',

@@ -3,156 +3,136 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CM Auth</title>
+    <title>CM Roleplay &mdash; Login</title>
     <link rel="stylesheet" href="nui://cm-ui/web/cm-theme.css" />
     <link rel="stylesheet" href="nui://cm-ui/web/cm-components.css" />
+    <link rel="stylesheet" href="nui://cm-ui/web/cm-aaa.css" />
     <link rel="stylesheet" href="style.css" />
 </head>
 <body>
     <div id="app" class="hidden cm-app cm-auth-app">
-        <div class="page-noise"></div>
-        <main class="auth-page">
-            <header class="top-ribbon" aria-label="CM auth header">
-                <div class="ribbon-line"></div>
-                <div class="ribbon-meta">MTA:SA, GTA V, RAGEMP</div>
-                <div class="ribbon-logo">CM</div>
-                <div class="ribbon-meta">UI/UX, DEVELOPMENT</div>
-                <div class="ribbon-line"></div>
-            </header>
+        <div class="character-backdrop">
+            <img class="character-img" src="assets/login-hero.png" alt="" onerror="this.style.display='none'" />
+        </div>
+        <div class="character-mask"></div>
 
-            <section class="headline-wrap">
-                <div class="headline-ghost">LOGIN</div>
-                <h1>LOGIN SYSTEM</h1>
-            </section>
+        <div class="hud-layer">
+            <div class="cm-screen-bracket cm-screen-bracket--tl"></div>
+            <div class="cm-screen-bracket cm-screen-bracket--bl"></div>
+        </div>
 
-            <section class="showcase-shell">
-                <div class="showcase-tabs cm-chip-list" aria-hidden="true">
-                    <span class="cm-chip cm-badge-primary">Full overview</span>
-                    <span class="cm-chip cm-badge-primary">Secure auth</span>
+        <main class="ui-panel">
+            <p class="pre-title" id="form-eyebrow">Enter the city</p>
+            <h1 class="main-title" id="form-title">Welcome back</h1>
+            <p class="subtitle" id="form-subtext">Sign in to continue into CM Roleplay. Saved login is supported.</p>
+
+            <section id="trusted-panel" class="account-section hidden">
+                <span class="badge-saved" id="trusted-badge"><span>Saved account</span></span>
+                <div class="account-box">
+                    <div class="account-name" id="trusted-name">Welcome back</div>
+                    <div class="account-sub" id="trusted-email"></div>
                 </div>
-
-                <div class="showcase-card cm-window">
-                    <div class="scene-mark">CM</div>
-                    <div class="scene-bg"></div>
-                    <div class="scene-overlay"></div>
-
-                    <div class="left-auth-panel cm-panel">
-                        <p class="mini-label" id="form-eyebrow">Authorization</p>
-                        <h2 id="form-title">Login</h2>
-                        <p class="panel-copy">Sign in to continue into the server. Saved login is supported.</p>
-
-                        <section id="trusted-panel" class="trusted-panel cm-card hidden">
-                            <p class="trusted-label cm-badge cm-badge-primary">Saved login found</p>
-                            <h3 id="trusted-name">Login as Player</h3>
-                            <p id="trusted-email" class="trusted-email"></p>
-                            <button type="button" class="cm-btn cm-auth-btn" id="trusted-login-btn">Login as this account</button>
-                            <button type="button" class="cm-btn cm-btn-secondary cm-auth-btn" id="switch-account-btn">Use another account</button>
-                        </section>
-
-                        <div id="forms-wrap">
-                            <form id="login-form" class="form active" autocomplete="on">
-                                <label class="cm-label" for="login-email">Email address</label>
-                                <div class="input-wrap">
-                                    <span class="input-icon" aria-hidden="true">@</span>
-                                    <input class="cm-input" type="email" id="login-email" placeholder="name@example.com" autocomplete="email" />
-                                </div>
-
-                                <label class="cm-label" for="login-pass">Password</label>
-                                <div class="input-wrap password-wrap">
-                                    <span class="input-icon" aria-hidden="true">*</span>
-                                    <input class="cm-input" type="password" id="login-pass" placeholder="Enter password" autocomplete="current-password" />
-                                    <button type="button" class="cm-btn cm-btn-ghost cm-btn-sm eye-btn" data-toggle="login-pass">SHOW</button>
-                                </div>
-
-                                <label class="remember-row">
-                                    <input type="checkbox" id="remember-email" />
-                                    <span>Remember my email on this device</span>
-                                </label>
-
-                                <button type="submit" class="cm-btn cm-auth-btn" id="login-btn">Enter</button>
-                                <p class="switch-text">No account yet? <button type="button" class="auth-link" onclick="showRegister()">Register now</button></p>
-                                <p class="switch-text"><button type="button" class="auth-link" onclick="showReset()">Forgot password?</button></p>
-                            </form>
-
-                            <form id="register-form" class="form" autocomplete="on">
-                                <label class="cm-label" for="reg-email">Email address</label>
-                                <div class="input-wrap">
-                                    <span class="input-icon" aria-hidden="true">@</span>
-                                    <input class="cm-input" type="email" id="reg-email" placeholder="name@example.com" autocomplete="email" />
-                                </div>
-
-                                <label class="cm-label" for="reg-pass">Password</label>
-                                <div class="input-wrap password-wrap">
-                                    <span class="input-icon" aria-hidden="true">*</span>
-                                    <input class="cm-input" type="password" id="reg-pass" placeholder="Minimum 6 characters" autocomplete="new-password" />
-                                    <button type="button" class="cm-btn cm-btn-ghost cm-btn-sm eye-btn" data-toggle="reg-pass">SHOW</button>
-                                </div>
-
-                                <label class="cm-label" for="reg-pass2">Retype password</label>
-                                <div class="input-wrap password-wrap">
-                                    <span class="input-icon" aria-hidden="true">*</span>
-                                    <input class="cm-input" type="password" id="reg-pass2" placeholder="Confirm password" autocomplete="new-password" />
-                                    <button type="button" class="cm-btn cm-btn-ghost cm-btn-sm eye-btn" data-toggle="reg-pass2">SHOW</button>
-                                </div>
-
-                                <button type="submit" class="cm-btn cm-auth-btn" id="register-btn">Create account</button>
-                                <p class="switch-text">Already registered? <button type="button" class="auth-link" onclick="showLogin()">Back to login</button></p>
-                            </form>
-
-                            <form id="reset-form" class="form" autocomplete="on">
-                                <p class="panel-copy">Resetting works only from the Rockstar account that owns this profile. Enter your email and a new password.</p>
-
-                                <label class="cm-label" for="reset-email">Email address</label>
-                                <div class="input-wrap">
-                                    <span class="input-icon" aria-hidden="true">@</span>
-                                    <input class="cm-input" type="email" id="reset-email" placeholder="name@example.com" autocomplete="email" />
-                                </div>
-
-                                <label class="cm-label" for="reset-pass">New password</label>
-                                <div class="input-wrap password-wrap">
-                                    <span class="input-icon" aria-hidden="true">*</span>
-                                    <input class="cm-input" type="password" id="reset-pass" placeholder="Minimum 6 characters" autocomplete="new-password" />
-                                    <button type="button" class="cm-btn cm-btn-ghost cm-btn-sm eye-btn" data-toggle="reset-pass">SHOW</button>
-                                </div>
-
-                                <label class="cm-label" for="reset-pass2">Retype new password</label>
-                                <div class="input-wrap password-wrap">
-                                    <span class="input-icon" aria-hidden="true">*</span>
-                                    <input class="cm-input" type="password" id="reset-pass2" placeholder="Confirm new password" autocomplete="new-password" />
-                                    <button type="button" class="cm-btn cm-btn-ghost cm-btn-sm eye-btn" data-toggle="reset-pass2">SHOW</button>
-                                </div>
-
-                                <button type="submit" class="cm-btn cm-auth-btn" id="reset-btn">Reset password</button>
-                                <p class="switch-text">Remembered it? <button type="button" class="auth-link" onclick="showLogin()">Back to login</button></p>
-                            </form>
-                        </div>
-                    </div>
-
-                    <div class="hero-art">
-                        <img src="assets/hero-female.svg" alt="Hero artwork" />
-                    </div>
+                <div class="btn-container">
+                    <button type="button" class="cm-btn cm-action-skew cm-action-primary auth-cta" id="trusted-login-btn">
+                        <span class="cm-action-skew-content"><span class="btn-label">Login</span><span class="btn-icon">&rarr;</span></span>
+                    </button>
+                    <button type="button" class="cm-btn cm-action-skew cm-action-secondary auth-cta" id="switch-account-btn">
+                        <span class="cm-action-skew-content"><span class="btn-label">Use another account</span><span class="btn-icon">&#8635;</span></span>
+                    </button>
                 </div>
             </section>
 
-            <footer class="page-footer">
-                <div class="footer-block">
-                    <span>AUTH</span>
-                    <strong>Trusted device login</strong>
-                </div>
-                <div class="footer-block center">
-                    <span>AUTH</span>
-                    <strong>Clean login and character handoff</strong>
-                </div>
-                <div class="footer-block right">
-                    <span>SECURITY</span>
-                    <strong>Token, lockout, and identifier reset support</strong>
-                </div>
-            </footer>
+            <div id="forms-wrap">
+                <form id="login-form" class="form active" autocomplete="on">
+                    <label class="cm-label" for="login-email">Email address</label>
+                    <div class="input-wrap cm-tech-edge">
+                        <input class="cm-input" type="email" id="login-email" placeholder="name@example.com" autocomplete="email" />
+                    </div>
+
+                    <label class="cm-label" for="login-pass">Password</label>
+                    <div class="input-wrap password-wrap cm-tech-edge">
+                        <input class="cm-input" type="password" id="login-pass" placeholder="Enter password" autocomplete="current-password" />
+                        <button type="button" class="cm-btn cm-btn-ghost cm-btn-sm eye-btn" data-toggle="login-pass" aria-label="Show password">SHOW</button>
+                    </div>
+
+                    <label class="remember-row">
+                        <input type="checkbox" id="remember-email" />
+                        <span>Remember my email on this device</span>
+                    </label>
+
+                    <div class="btn-container">
+                        <button type="submit" class="cm-btn cm-action-skew cm-action-primary auth-cta" id="login-btn">
+                            <span class="cm-action-skew-content"><span class="btn-label">Login</span><span class="btn-icon">&rarr;</span></span>
+                        </button>
+                        <button type="button" class="cm-btn cm-action-skew cm-action-secondary auth-cta" data-nav="register" id="register-nav-btn">
+                            <span class="cm-action-skew-content"><span class="btn-label">Create account</span><span class="btn-icon">&rarr;</span></span>
+                        </button>
+                    </div>
+                    <p class="switch-text"><button type="button" class="auth-link" data-nav="reset">Forgot password?</button></p>
+                </form>
+
+                <form id="register-form" class="form" autocomplete="on">
+                    <label class="cm-label" for="reg-email">Email address</label>
+                    <div class="input-wrap cm-tech-edge">
+                        <input class="cm-input" type="email" id="reg-email" placeholder="name@example.com" autocomplete="email" />
+                    </div>
+
+                    <label class="cm-label" for="reg-pass">Password</label>
+                    <div class="input-wrap password-wrap cm-tech-edge">
+                        <input class="cm-input" type="password" id="reg-pass" placeholder="Minimum 6 characters" autocomplete="new-password" />
+                        <button type="button" class="cm-btn cm-btn-ghost cm-btn-sm eye-btn" data-toggle="reg-pass" aria-label="Show password">SHOW</button>
+                    </div>
+
+                    <label class="cm-label" for="reg-pass2">Retype password</label>
+                    <div class="input-wrap password-wrap cm-tech-edge">
+                        <input class="cm-input" type="password" id="reg-pass2" placeholder="Confirm password" autocomplete="new-password" />
+                        <button type="button" class="cm-btn cm-btn-ghost cm-btn-sm eye-btn" data-toggle="reg-pass2" aria-label="Show password">SHOW</button>
+                    </div>
+
+                    <div class="btn-container">
+                        <button type="submit" class="cm-btn cm-action-skew cm-action-primary auth-cta" id="register-btn">
+                            <span class="cm-action-skew-content"><span class="btn-label">Create account</span><span class="btn-icon">&rarr;</span></span>
+                        </button>
+                        <button type="button" class="cm-btn cm-action-skew cm-action-secondary auth-cta" data-nav="login" id="login-nav-from-register-btn">
+                            <span class="cm-action-skew-content"><span class="btn-label">Back to login</span><span class="btn-icon">&larr;</span></span>
+                        </button>
+                    </div>
+                </form>
+
+                <form id="reset-form" class="form" autocomplete="on">
+                    <label class="cm-label" for="reset-email">Email address</label>
+                    <div class="input-wrap cm-tech-edge">
+                        <input class="cm-input" type="email" id="reset-email" placeholder="name@example.com" autocomplete="email" />
+                    </div>
+
+                    <label class="cm-label" for="reset-pass">New password</label>
+                    <div class="input-wrap password-wrap cm-tech-edge">
+                        <input class="cm-input" type="password" id="reset-pass" placeholder="Minimum 6 characters" autocomplete="new-password" />
+                        <button type="button" class="cm-btn cm-btn-ghost cm-btn-sm eye-btn" data-toggle="reset-pass" aria-label="Show password">SHOW</button>
+                    </div>
+
+                    <label class="cm-label" for="reset-pass2">Retype new password</label>
+                    <div class="input-wrap password-wrap cm-tech-edge">
+                        <input class="cm-input" type="password" id="reset-pass2" placeholder="Confirm new password" autocomplete="new-password" />
+                        <button type="button" class="cm-btn cm-btn-ghost cm-btn-sm eye-btn" data-toggle="reset-pass2" aria-label="Show password">SHOW</button>
+                    </div>
+
+                    <div class="btn-container">
+                        <button type="submit" class="cm-btn cm-action-skew cm-action-primary auth-cta" id="reset-btn">
+                            <span class="cm-action-skew-content"><span class="btn-label">Reset password</span><span class="btn-icon">&rarr;</span></span>
+                        </button>
+                        <button type="button" class="cm-btn cm-action-skew cm-action-secondary auth-cta" data-nav="login" id="login-nav-from-reset-btn">
+                            <span class="cm-action-skew-content"><span class="btn-label">Back to login</span><span class="btn-icon">&larr;</span></span>
+                        </button>
+                    </div>
+                </form>
+            </div>
         </main>
 
         <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </div>
     <script src="nui://cm-ui/web/cm-ui.js"></script>
+    <script src="nui://cm-ui/web/cm-branding.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

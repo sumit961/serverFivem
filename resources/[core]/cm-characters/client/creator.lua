@@ -88,6 +88,13 @@ AddEventHandler('cm-characters:client:openCreator', function(slot, accountId)
         action = 'showCreator',
         slot = slot
     })
+
+    -- PHASE 4C: live gender preview. 'male' matches the identity form's
+    -- default <select> value; the NUI posts creatorGenderChanged whenever
+    -- the player actually changes it (see client/appearance.lua, which owns
+    -- all ped/model/skin logic — this file only ever asks for a preview).
+    TriggerEvent('cm-characters:client:prepareIdentityPreview', 'male', true)
+
     print('[CM-CHARACTERS] Creator opened for slot ' .. tostring(slot))
 end)
 
@@ -142,6 +149,24 @@ RegisterNUICallback('closeCreator', function(data, cb)
     -- Returning from creator goes back to selector, so keep NUI focus.
     SetNuiFocus(true, true)
     SendNUIMessage({ action = 'showApp' })
+    -- Tear down the identity gender-preview ped/camera — the selector's own
+    -- re-entry (spawnPreviewPeds/hideRealPlayerForSelector, triggered by the
+    -- showSlots response below) takes over hiding/repositioning the real
+    -- player from here.
+    TriggerEvent('cm-characters:client:cleanupIdentityPreview')
     TriggerServerEvent('cm-characters:server:getSlots')
     cb('ok')
+end)
+
+-- PHASE 4C: fired when the player clicks Back on Appearance for a brand-new
+-- character (see client/appearance.lua's appearanceClose). Unlike openCreator,
+-- this must NOT reset world-lock/bucket/skipPositionSave/HUD state — all of
+-- that stays exactly as Appearance left it, only the visible NUI panel changes.
+RegisterNetEvent('cm-characters:client:showCreatorAgain', function()
+    display = true
+    SendNUIMessage({
+        action = 'showCreatorAgain',
+        slot = currentSlot
+    })
+    print('[CM-CHARACTERS] Returned to Creator identity screen from Appearance')
 end)

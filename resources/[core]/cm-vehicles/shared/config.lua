@@ -46,6 +46,45 @@ CMVehicles.Config = {
         ParkingRepairOnRetrieve = true
     },
 
+    -- Vehicle legal state (registration + insurance). Server-authoritative; the
+    -- client never supplies prices, values or ownership. Economy anchors:
+    -- agent-docs/CM_ECONOMY_STANDARD.md (active-work hour ~= 87.5k).
+    Legal = {
+        Enabled = true,
+        Account = 'cash',
+        -- Floor on the vehicle value used for pricing: a zero/low catalog row
+        -- can never produce a $0 registration or policy.
+        MinimumValuation = 150000,
+        -- Only personal vehicles pay. Organization fleets (police, EMS, gangs,
+        -- business) are exempt and keep their own ownership workflows.
+        EligibleOwnerTypes = { character = true },
+        Registration = {
+            numberPrefix = 'REG-',
+            baseFee = 20000,        -- fee = base + valueRate * value, capped at maxFee
+            valueRate = 0.005,
+            maxFee = 150000,
+            durationDays = 21,
+            renewWindowDays = 7,    -- renewable once <= 7 days remain (or expired)
+            claimAttempts = 8,
+        },
+        Insurance = {
+            rate = 0.012,           -- premium = clamp(value * rate, minimum, maximum)
+            minimum = 6000,
+            maximum = 200000,
+            durationDays = 14,
+            renewWindowDays = 3,
+            -- Active policy reduces the destroyed-vehicle recovery fee. It never
+            -- repairs for free and never restores damage by itself.
+            recoveryDiscount = 0.5,
+        },
+        -- Resources allowed to change legal state through exports.
+        TrustedLawResources = { ['cm-law'] = true, ['cm-police'] = true },
+        TrustedOwnershipResources = { ['cm-admin'] = true, ['cm-law'] = true, ['cm-police'] = true, ['rn-vehicleshop'] = true },
+        TrustedOwnerLookupResources = { ['cm-law'] = true, ['cm-police'] = true, ['cm-admin'] = true },
+        -- Resources allowed to drive the player self-service flow on a player's behalf.
+        TrustedServiceResources = { ['cm-hub'] = true, ['cm-ui'] = true },
+    },
+
     Persistence = {
         -- Dirty-state client checks are lightweight; SQL writes happen only when
         -- values moved beyond these thresholds or an immediate lifecycle flush occurs.
@@ -105,6 +144,7 @@ CMVehicles.Config = {
             ['cm-electrician'] = true,
             ['cm-fishing'] = true,
             ['cm-taxi'] = true,
+            ['cm-hotel'] = true,
         }
     },
 
@@ -222,6 +262,20 @@ CMVehicles.Config = {
         mechanicFullRepair = true,       -- a mechanic repair sets everything to 1000
         -- Wash
         washResetsDirtTo = 0.0,
+
+        -- Server resources allowed to call exports ServiceVehicle / ServiceVehicleById, mapped to the
+        -- ONLY patch fields each may write. Anything else is denied (`forbidden_caller` /
+        -- `field_not_permitted`). cm-tuning is deliberately absent: tuning must not repair (see
+        -- cm-vehicles/docs/API_SERVICE.md). Add a resource only with a source-proven need.
+        TrustedCallers = {
+            ['cm-mechanic'] = { engineHealth = true, bodyHealth = true, tankHealth = true, conditionState = true, clearVisualDamage = true },
+            ['cm-carwash'] = { dirtLevel = true },
+            ['cm-gasstations'] = { fuel = true, bodyHealth = true, dirtLevel = true },
+            -- Organization fleet recall baseline (persistent fleet vehicle restored before recreation).
+            ['cm-law'] = { fuel = true, engineHealth = true, bodyHealth = true, tankHealth = true, dirtLevel = true, conditionState = true, clearVisualDamage = true },
+            ['cm-ems'] = { fuel = true, engineHealth = true, bodyHealth = true, tankHealth = true, dirtLevel = true, conditionState = true, clearVisualDamage = true },
+            ['cm-gang'] = { fuel = true, engineHealth = true, bodyHealth = true, tankHealth = true, conditionState = true, clearVisualDamage = true },
+        },
 
         -- Inventory items the G-menu Refuel / Repair / Wash options consume.
         -- These MUST match the item names in cm-gasstations (Config.Items).

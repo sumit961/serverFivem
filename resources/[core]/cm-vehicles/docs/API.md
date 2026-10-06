@@ -117,8 +117,8 @@ the caller must abort or roll back its database transition.
 ### `SaveVehicleModsAuthorized(src, plate, mods) → boolean`
 Persist cosmetics and tuning. Authorised: only the owner may call it.
 
-### `ServiceVehicle(src, plate, kind) → boolean`
-`kind` is `'refuel'`, `'repair'` or `'wash'`.
+### `ServiceVehicle(plate, patch, targetSrc?) → ok, result|reason`
+Server export, trusted callers only. The old `(src, plate, kind)` form never existed in code. See [API_SERVICE.md](API_SERVICE.md); prefer `ServiceVehicleById(vehicleId, patch, targetSrc?)`.
 
 ### `HasRacingHarness(plate) → boolean`
 
